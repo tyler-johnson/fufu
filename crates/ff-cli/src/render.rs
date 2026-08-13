@@ -1,7 +1,7 @@
 //! Human-readable rendering: plain rows, no TUI, no color yet.
 
 use ff_core::{
-    ChangeKind, HeadState, LogEntry, Operation, ReconcileReport, Status, StatusEntry, TimelineRow,
+    ChangeKind, HeadState, LogEntry, Operation, ReconcileReport, SnapEntry, Status, StatusEntry,
     Upstream,
 };
 
@@ -135,31 +135,20 @@ fn kind_letter(kind: ChangeKind) -> char {
     }
 }
 
-/// One timeline row. Snapshot: `<snap7>  <base7|blank>  <age>  <subject>`;
-/// base (HEAD move or anchor): `● <sha7>  <subject> — <age>`. Shared by bare
-/// `ff` and `ff log` so the two never diverge.
-pub fn timeline_row(row: &TimelineRow, now: i64) -> String {
-    match row {
-        TimelineRow::Snapshot(snap) => {
-            let base = snap.base.as_deref().map(short7).unwrap_or_default();
-            format!(
-                "{:<9} {:<8} {:>8}  {}",
-                snap.short_id,
-                base,
-                relative_age(now, snap.time),
-                snap.subject
-            )
-        }
-        TimelineRow::Base(entry) => format!(
-            "● {:<7} {} — {}",
-            entry.short_id,
-            entry.subject,
-            relative_age(now, entry.time)
-        ),
-    }
+/// One snapshot row: `<snap7>  <base7|blank>  <age>  <subject>`. Shared by
+/// bare `ff` and `ff log` so the two never diverge.
+pub fn timeline_row(snap: &SnapEntry, now: i64) -> String {
+    let base = snap.base.as_deref().map(short7).unwrap_or_default();
+    format!(
+        "{:<9} {:<8} {:>8}  {}",
+        snap.short_id,
+        base,
+        relative_age(now, snap.time),
+        snap.subject
+    )
 }
 
-pub fn timeline_human(rows: &[TimelineRow], now: i64) -> String {
+pub fn timeline_human(rows: &[SnapEntry], now: i64) -> String {
     let mut out = String::new();
     for row in rows {
         out.push_str(&timeline_row(row, now));

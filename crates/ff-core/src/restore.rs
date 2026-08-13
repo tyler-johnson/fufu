@@ -234,7 +234,7 @@ fn resolve(
 ) -> Result<gix::ObjectId> {
     let snap_ref = format!("{}{chain_name}", chain::SNAP_PREFIX);
     let id = match target {
-        RestoreTarget::Newest => chain_tip(repo, &snap_ref)?.ok_or_else(|| {
+        RestoreTarget::Newest => chain::tip(repo, &snap_ref)?.ok_or_else(|| {
             Error::msg(format!(
                 "no snapshots on {chain_name} yet — nothing to restore"
             ))
@@ -242,7 +242,7 @@ fn resolve(
         RestoreTarget::Id(prefix) => {
             let mut candidates = Vec::new();
             for r in [snap_ref.clone(), chain::trash_ref(chain_name)] {
-                if let Some(tip) = chain_tip(repo, &r)? {
+                if let Some(tip) = chain::tip(repo, &r)? {
                     collect_prefix_matches(repo, tip, prefix, &mut candidates)?;
                 }
             }
@@ -291,13 +291,6 @@ fn resolve(
         )));
     }
     Ok(id)
-}
-
-fn chain_tip(repo: &gix::Repository, ref_name: &str) -> Result<Option<gix::ObjectId>> {
-    Ok(repo
-        .try_find_reference(ref_name)
-        .map_err(Error::repo)?
-        .and_then(|r| r.target().try_id().map(|id| id.to_owned())))
 }
 
 /// First-parent walk collecting snapshot ids that match a hex prefix.

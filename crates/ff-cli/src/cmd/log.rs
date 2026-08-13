@@ -1,4 +1,4 @@
-use ff_core::{Error, LogOptions, Result, TimelineOptions, TimelineRow};
+use ff_core::{Error, EvologOptions, LogOptions, Result};
 
 pub fn run(json: bool, count: usize, commits: bool, ops: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
@@ -38,25 +38,23 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
     Ok(())
 }
 
-/// Default view: the interleaved timeline when the branch has snapshots,
-/// otherwise the plain commits view (a fresh clone looks unchanged).
+/// Default view: the snapshot chain when the branch has snapshots, otherwise
+/// the plain commits view (a fresh clone looks unchanged). Interim shape —
+/// the change-centric spine lands with the presentation phases.
 /// `--commits` forces the commits view and keeps Phase 0's exact JSON shape.
 pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     let mut repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
 
     if !commits_only {
-        let rows = ff_core::timeline(
+        let rows = ff_core::evolog(
             &repo,
-            &TimelineOptions {
+            &EvologOptions {
                 limit,
                 ..Default::default()
             },
         )?;
-        if rows
-            .iter()
-            .any(|row| matches!(row, TimelineRow::Snapshot(_)))
-        {
+        if !rows.is_empty() {
             if json {
                 let commits: Vec<_> =
                     ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;

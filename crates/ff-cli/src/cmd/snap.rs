@@ -1,6 +1,6 @@
 //! Bare `ff` — the snapshot verb. `ff [-m <msg>]` takes a manual snapshot.
 
-use ff_core::{Error, Provenance, Result, SnapOutcome, TimelineOptions};
+use ff_core::{Error, EvologOptions, Provenance, Result, SnapOutcome};
 
 fn branch_of(r#ref: &str) -> &str {
     r#ref.strip_prefix("refs/fufu/snap/").unwrap_or(r#ref)
@@ -29,9 +29,9 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
             } else {
                 println!("snapshot {short_id} on {branch}");
                 println!();
-                let rows = ff_core::timeline(
+                let rows = ff_core::evolog(
                     &repo,
-                    &TimelineOptions {
+                    &EvologOptions {
                         limit: Some(3),
                         ..Default::default()
                     },

@@ -49,6 +49,14 @@ pub fn base_commit(head: &HeadState) -> Result<Option<gix::ObjectId>> {
     })
 }
 
+/// The current tip of a chain ref, `None` when the ref does not exist.
+pub fn tip(repo: &gix::Repository, ref_name: &str) -> Result<Option<gix::ObjectId>> {
+    Ok(repo
+        .try_find_reference(ref_name)
+        .map_err(Error::repo)?
+        .and_then(|r| r.target().try_id().map(|id| id.to_owned())))
+}
+
 /// Whether a commit bears the fufu snapshot identity — author AND committer.
 pub fn is_snapshot_commit(commit: &gix::objs::CommitRef<'_>) -> bool {
     commit.author.name == FUFU_NAME

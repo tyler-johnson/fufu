@@ -275,26 +275,20 @@ fn log_timeline_interleaves_and_json_envelopes() {
     fx.write("a.txt", "three\n");
     assert!(ff(&fx, &[]).status.success());
 
-    // Human timeline: snapshot rows plus base rows (● prefix).
+    // Human view: snapshot rows (interim shape — the change-centric spine
+    // replaces this in the presentation phases).
     let out = ff(&fx, &["log"]);
     let text = stdout(&out);
     assert!(text.contains("manual"), "snapshot rows present: {text:?}");
-    assert!(text.contains("● "), "base rows present: {text:?}");
 
-    // Timeline JSON envelope carries both keys.
+    // JSON envelope carries both keys.
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert!(v["commits"].is_array());
     let timeline = v["timeline"].as_array().unwrap();
     assert!(
-        timeline
-            .iter()
-            .any(|row| row["kind"] == "snapshot" && !row["id"].is_null()),
+        timeline.iter().all(|row| !row["id"].is_null()),
         "snapshot rows serialize the core model: {timeline:?}"
-    );
-    assert!(
-        timeline.iter().any(|row| row["kind"] == "base"),
-        "base rows present: {timeline:?}"
     );
 
     // --commits --json keeps the exact Phase 0 envelope.

@@ -147,14 +147,22 @@ pub struct SnapEntry {
     pub prev: Option<String>,
 }
 
-/// One row of the interleaved timeline, newest first.
+/// The open change: the working tree summarized as one row (jj's `@`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TimelineRow {
-    Snapshot(SnapEntry),
-    /// A base-edge change (HEAD moved between snapshots), or the final anchor
-    /// commit the chain grew from.
-    Base(LogEntry),
+pub struct OpenChange {
+    /// Chain/branch name, or `@detached`.
+    pub branch: String,
+    /// Chain tip snapshot id (hex), when the chain exists.
+    pub id: Option<String>,
+    /// The HEAD commit (hex); `None` when unborn.
+    pub base: Option<String>,
+    pub base_short: Option<String>,
+    /// The pending description, when one is set.
+    pub subject: Option<String>,
+    /// Chain tip committer time, seconds since the unix epoch.
+    pub time: Option<i64>,
+    /// The tip tree equals the HEAD tree (or no chain exists yet).
+    pub clean: bool,
 }
 
 /// The result of a worktree restore.

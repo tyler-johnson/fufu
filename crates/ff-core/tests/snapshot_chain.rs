@@ -317,7 +317,7 @@ fn concurrent_takes_never_error() {
 }
 
 #[test]
-fn timeline_interleaves_base_moves_and_anchor() {
+fn evolog_orders_snapshots_with_edges() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     let base1 = fx.commit("init");
@@ -331,51 +331,106 @@ fn timeline_interleaves_base_moves_and_anchor() {
     let snap3 = take_created(&fx);
 
     let repo = fx.repo();
-    let rows = ff_core::timeline(&repo, &ff_core::TimelineOptions::default()).expect("timeline");
-    use ff_core::TimelineRow as R;
-    let shape: Vec<String> = rows
-        .iter()
-        .map(|row| match row {
-            R::Snapshot(s) => format!("snap {}", s.id),
-            R::Base(b) => format!("base {}", b.id),
-        })
-        .collect();
-    assert_eq!(
-        shape,
-        vec![
-            format!("snap {snap3}"),
-            format!("base {base2}"), // HEAD moved between snap2 and snap3
-            format!("snap {snap2}"),
-            format!("snap {snap1}"),
-            format!("base {base1}"), // the anchor
-        ]
-    );
+    let rows = ff_core::evolog(&repo, &ff_core::EvologOptions::default()).expect("evolog");
+    let ids: Vec<&str> = rows.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, vec![&snap3, &snap2, &snap1]);
 
-    // Snapshot rows carry their edges.
-    let R::Snapshot(s) = &rows[0] else { panic!() };
-    assert_eq!(s.base.as_deref(), Some(base2.as_str()));
-    assert_eq!(s.prev.as_deref(), Some(snap2.as_str()));
-    let R::Snapshot(first) = &rows[3] else {
-        panic!()
-    };
-    assert_eq!(first.prev, None, "oldest snapshot has no prev");
-    assert_eq!(first.base.as_deref(), Some(base1.as_str()));
+    // Rows carry their edges: base (the HEAD the snapshot sat on) and prev.
+    assert_eq!(rows[0].base.as_deref(), Some(base2.as_str()));
+    assert_eq!(rows[0].prev.as_deref(), Some(snap2.as_str()));
+    assert_eq!(rows[2].prev, None, "oldest snapshot has no prev");
+    assert_eq!(rows[2].base.as_deref(), Some(base1.as_str()));
 
-    // The limit counts snapshot rows; a cut chain gets no anchor.
-    let rows = ff_core::timeline(
+    // The limit caps snapshot rows.
+    let rows = ff_core::evolog(
         &repo,
-        &ff_core::TimelineOptions {
+        &ff_core::EvologOptions {
             limit: Some(2),
             ..Default::default()
         },
     )
-    .expect("timeline");
-    let snaps = rows.iter().filter(|r| matches!(r, R::Snapshot(_))).count();
-    assert_eq!(snaps, 2);
-    assert!(
-        !matches!(rows.last(), Some(R::Base(b)) if b.id == base1),
-        "limited walk must not reach the anchor"
-    );
+    .expect("evolog");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].id, snap3);
+    assert_eq!(rows[1].id, snap2);
+}
+
+#[test]
+fn open_change_reports_pending_description_and_tip() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let base = fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let snap = take_created(&fx);
+
+    let repo = fx.repo();
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: Some("fix the frobnicator".into()),
+            forked_from: None,
+        },
+    )
+    .expect("write meta");
+
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(open.branch, "main");
+    assert_eq!(open.id.as_deref(), Some(snap.as_str()));
+    assert_eq!(open.base.as_deref(), Some(base.as_str()));
+    assert!(open.base_short.is_some());
+    assert_eq!(open.subject.as_deref(), Some("fix the frobnicator"));
+    assert!(open.time.is_some());
+    assert!(!open.clean, "tip tree differs from HEAD tree");
+}
+
+#[test]
+fn open_change_clean_flips_with_the_tree() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // No chain yet: clean by definition.
+    let repo = fx.repo();
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert!(open.clean);
+    assert_eq!(open.id, None);
+
+    // Dirty + captured: tip tree diverges from HEAD.
+    fx.write("a.txt", "dirty\n");
+    take_created(&fx);
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert!(!open.clean);
+
+    // Landing the captured state: HEAD tree catches up to the tip.
+    fx.commit("landed");
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert!(open.clean);
+}
+
+#[test]
+fn open_change_unborn_and_detached() {
+    let fx = Fixture::new();
+    let repo = fx.repo();
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(open.branch, "main");
+    assert_eq!(open.base, None, "unborn has no base");
+    assert!(open.clean, "no chain yet");
+
+    // A snapshot on the unborn branch: tip exists, still no base.
+    fx.write("a.txt", "a\n");
+    take_created(&fx);
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(open.base, None);
+    assert!(open.id.is_some());
+    assert!(!open.clean, "tip tree is not the empty tree");
+
+    // Detached HEAD gets the @detached chain.
+    let base = fx.commit("init");
+    fx.git(&["checkout", "-q", &base]);
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(open.branch, "@detached");
+    assert_eq!(open.base.as_deref(), Some(base.as_str()));
 }
 
 #[test]
