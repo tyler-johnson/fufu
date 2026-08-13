@@ -54,6 +54,10 @@ fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr]) -> Result<
     let Some(hook) = find_hook(repo, name)? else {
         return Ok(false);
     };
+    // The hook path is spliced into an `sh -c` command line, where
+    // backslashes are escapes: hand sh POSIX separators, as git does.
+    #[cfg(windows)]
+    let hook = std::path::PathBuf::from(hook.to_string_lossy().replace('\\', "/"));
     let workdir = repo
         .workdir()
         .ok_or_else(|| Error::msg("bare repository: no worktree for hooks"))?;

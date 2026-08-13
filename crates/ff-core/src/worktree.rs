@@ -5,7 +5,9 @@
 //! but never touched.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use crate::error::{Error, Result};
 
@@ -69,14 +71,22 @@ pub(crate) fn apply_tree_transition(
                     EntryKind::Tree => {}
                     EntryKind::Link => {
                         let blob = repo.find_object(oid).map_err(Error::repo)?.detach();
-                        let target: PathBuf =
-                            gix::path::from_bstr(gix::bstr::BStr::new(&blob.data)).into_owned();
                         let abs = workdir.join(&change.path);
                         if let Some(parent) = abs.parent() {
                             std::fs::create_dir_all(parent).map_err(Error::repo)?;
                         }
                         let _ = std::fs::remove_file(&abs);
-                        std::os::unix::fs::symlink(&target, &abs).map_err(Error::repo)?;
+                        #[cfg(unix)]
+                        {
+                            let target: PathBuf =
+                                gix::path::from_bstr(gix::bstr::BStr::new(&blob.data)).into_owned();
+                            std::os::unix::fs::symlink(&target, &abs).map_err(Error::repo)?;
+                        }
+                        // Windows: mirror git's core.symlinks=false default —
+                        // a link entry materializes as a plain file holding
+                        // the target path.
+                        #[cfg(not(unix))]
+                        std::fs::write(&abs, &blob.data).map_err(Error::repo)?;
                         out.written.push(change.path);
                     }
                     EntryKind::Blob | EntryKind::BlobExecutable => {

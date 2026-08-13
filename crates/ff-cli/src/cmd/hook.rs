@@ -150,10 +150,15 @@ fn runtime_claude() -> Result<()> {
                 std::fs::create_dir_all(parent).map_err(Error::repo)?;
             }
             let tmp = marker.with_extension("tmp");
-            std::fs::write(&tmp, &payload.session_id).map_err(Error::repo)?;
-            let file = std::fs::File::open(&tmp).map_err(Error::repo)?;
-            file.sync_all().map_err(Error::repo)?;
-            drop(file);
+            {
+                use std::io::Write;
+                // Sync through the write handle: Windows refuses to flush a
+                // handle opened read-only.
+                let mut file = std::fs::File::create(&tmp).map_err(Error::repo)?;
+                file.write_all(payload.session_id.as_bytes())
+                    .map_err(Error::repo)?;
+                file.sync_all().map_err(Error::repo)?;
+            }
             std::fs::rename(&tmp, &marker).map_err(Error::repo)?;
             println!(
                 "fufu is snapshotting this repository: the working tree is captured \
@@ -204,6 +209,11 @@ fn rela_path(repo: &ff_core::gix::Repository, path: &str) -> String {
     {
         let s = rel.to_string_lossy();
         if !s.is_empty() {
+            // Provenance lands in commit subjects: use git's path notation
+            // (forward slashes) regardless of the host separator.
+            if cfg!(windows) {
+                return s.replace('\\', "/");
+            }
             return s.into_owned();
         }
     }
@@ -215,6 +225,8 @@ fn rela_path(repo: &ff_core::gix::Repository, path: &str) -> String {
 fn settings_path() -> Result<std::path::PathBuf> {
     let home = std::env::var_os("HOME")
         .filter(|v| !v.is_empty())
+        // Windows has USERPROFILE where unix has HOME.
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()))
         .ok_or_else(|| Error::msg("HOME is not set"))?;
     Ok(std::path::PathBuf::from(home).join(".claude/settings.json"))
 }

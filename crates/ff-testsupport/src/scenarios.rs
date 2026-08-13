@@ -107,6 +107,9 @@ pub fn scenarios() -> Vec<Scenario> {
             fx.write("later.txt", "content\n");
             fx.git(&["add", "-N", "later.txt"]);
         }),
+        // unix-only: creating symlinks on Windows needs Developer Mode or
+        // admin privilege, so the typechange shapes can't be built there.
+        #[cfg(unix)]
         ("typechange_unstaged", |fx| {
             fx.write("target.txt", "target\n");
             fx.write("link.txt", "was a file\n");
@@ -114,6 +117,7 @@ pub fn scenarios() -> Vec<Scenario> {
             fx.remove("link.txt");
             std::os::unix::fs::symlink("target.txt", fx.path().join("link.txt")).unwrap();
         }),
+        #[cfg(unix)]
         ("typechange_staged", |fx| {
             fx.write("target.txt", "target\n");
             fx.write("link.txt", "was a file\n");
@@ -122,6 +126,10 @@ pub fn scenarios() -> Vec<Scenario> {
             std::os::unix::fs::symlink("target.txt", fx.path().join("link.txt")).unwrap();
             fx.git(&["add", "-A"]);
         }),
+        // unix-only: a staged exec bit is unix semantics, and under Windows'
+        // core.filemode=false the throwaway-index reference recipe cannot
+        // preserve staged modes, so the differential comparison is ill-posed.
+        #[cfg(unix)]
         ("exec_bit_is_modified_not_typechange", |fx| {
             fx.write("script.sh", "#!/bin/sh\n");
             fx.commit("init");

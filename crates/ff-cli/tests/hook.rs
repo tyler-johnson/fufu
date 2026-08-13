@@ -27,10 +27,16 @@ fn ff_hook(cwd: &Path, payload: &str) -> Output {
     child.wait_with_output().expect("wait ff hook")
 }
 
+/// JSON-encode a path for splicing into a payload — Windows backslashes must
+/// arrive escaped, exactly as Claude Code sends them.
+fn json_path(path: &Path) -> String {
+    serde_json::to_string(&path.display().to_string()).unwrap()
+}
+
 fn payload(event: &str, session: &str, cwd: &Path, extra: &str) -> String {
     format!(
-        r#"{{"hook_event_name":"{event}","session_id":"{session}","cwd":"{}"{}{extra}}}"#,
-        cwd.display(),
+        r#"{{"hook_event_name":"{event}","session_id":"{session}","cwd":{}{}{extra}}}"#,
+        json_path(cwd),
         if extra.is_empty() { "" } else { "," }
     )
 }
@@ -79,8 +85,8 @@ fn edit_provenance_uses_relative_path() {
         "sess",
         &fx.path(),
         &format!(
-            r#""tool_name":"Edit","tool_input":{{"file_path":"{}"}}"#,
-            abs.display()
+            r#""tool_name":"Edit","tool_input":{{"file_path":{}}}"#,
+            json_path(&abs)
         ),
     );
     let out = ff_hook(&fx.path(), &body);
@@ -170,8 +176,8 @@ fn malformed_and_hostile_payloads_exit_zero_silently() {
             r#""tool_name":"Bash","tool_input":{}"#,
         ), // outside a repo
         format!(
-            r#"{{"hook_event_name":"PreToolUse","cwd":"{}","padding":"{}"}}"#,
-            fx.path().display(),
+            r#"{{"hook_event_name":"PreToolUse","cwd":{},"padding":"{}"}}"#,
+            json_path(&fx.path()),
             "x".repeat(9 * 1024 * 1024)
         ), // oversized
     ];
