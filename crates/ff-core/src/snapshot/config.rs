@@ -53,23 +53,59 @@ pub fn parse_keep(raw: &str) -> Option<i64> {
 const GC_SUBSECTION: &str = "refs/fufu/*";
 const GC_KEYS: [&str; 2] = ["reflogExpire", "reflogExpireUnreachable"];
 
+/// Read a git config file losslessly (comments and formatting preserved);
+/// an absent file yields an empty File carrying the given source metadata.
+pub fn load_config_file(
+    path: &std::path::Path,
+    source: gix::config::Source,
+) -> Result<gix::config::File<'static>> {
+    let metadata = gix::config::file::Metadata::from(source);
+    match std::fs::read(path) {
+        Ok(mut bytes) => {
+            gix::config::File::from_bytes_owned(&mut bytes, metadata, Default::default())
+                .map_err(Error::repo)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Ok(gix::config::File::new(metadata))
+        }
+        Err(err) => Err(Error::repo(err)),
+    }
+}
+
+/// Serialize and write via `<path>.lock` (git's own lock convention: create-new
+/// fails if a concurrent git holds it) + atomic rename; the lock file is
+/// removed on failure.
+pub fn write_config_file(path: &std::path::Path, file: &gix::config::File<'_>) -> Result<()> {
+    let mut bytes = Vec::new();
+    file.write_to(&mut bytes).map_err(Error::repo)?;
+
+    let lock = path.with_extension("lock");
+    let mut lock_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock)
+        .map_err(|err| Error::msg(format!("config is locked: {err}")))?;
+    let write = lock_file
+        .write_all(&bytes)
+        .and_then(|()| lock_file.sync_all())
+        .and_then(|()| {
+            drop(lock_file);
+            std::fs::rename(&lock, &path)
+        });
+    if let Err(err) = write {
+        let _ = std::fs::remove_file(&lock);
+        return Err(Error::repo(err));
+    }
+    Ok(())
+}
+
 /// Write the gc guard into the repository's config, once: without it,
 /// `git gc` would expire reflogs on the custom namespace (custom namespaces
 /// get git's default expiry) and then collect the chains. Existing user
-/// values are never rewritten; only missing keys are appended. The write goes
-/// through `config.lock` + atomic rename so a concurrent git sees either the
-/// old or the new file, never a torn one.
+/// values are never rewritten; only missing keys are appended.
 pub fn ensure_gc_config(repo: &gix::Repository) -> Result<()> {
     let path = repo.common_dir().join("config");
-    let metadata = gix::config::file::Metadata::from(gix::config::Source::Local);
-    let mut file = match std::fs::read(&path) {
-        Ok(mut bytes) => {
-            gix::config::File::from_bytes_owned(&mut bytes, metadata, Default::default())
-                .map_err(Error::repo)?
-        }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => gix::config::File::new(metadata),
-        Err(err) => return Err(Error::repo(err)),
-    };
+    let mut file = load_config_file(&path, gix::config::Source::Local)?;
 
     let existing: Vec<&str> = GC_KEYS
         .iter()
@@ -92,29 +128,7 @@ pub fn ensure_gc_config(repo: &gix::Repository) -> Result<()> {
         }
     }
 
-    let mut bytes = Vec::new();
-    file.write_to(&mut bytes).map_err(Error::repo)?;
-
-    // config.lock is git's own lock convention: create-new fails if a
-    // concurrent git holds it, in which case we simply report and move on.
-    let lock = path.with_extension("lock");
-    let mut lock_file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&lock)
-        .map_err(|err| Error::msg(format!("config is locked: {err}")))?;
-    let write = lock_file
-        .write_all(&bytes)
-        .and_then(|()| lock_file.sync_all())
-        .and_then(|()| {
-            drop(lock_file);
-            std::fs::rename(&lock, &path)
-        });
-    if let Err(err) = write {
-        let _ = std::fs::remove_file(&lock);
-        return Err(Error::repo(err));
-    }
-    Ok(())
+    write_config_file(&path, &file)
 }
 
 #[cfg(test)]
