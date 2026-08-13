@@ -5,7 +5,7 @@
 pub mod chain;
 pub mod config;
 pub mod message;
-mod tree;
+pub(crate) mod tree;
 
 use gix::prelude::ObjectIdExt;
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
@@ -76,20 +76,7 @@ pub fn take_with(
     let base = chain::base_commit(&head)?;
 
     // Previous tip — the exact value CAS must later see again.
-    let prev: Option<gix::ObjectId> = match repo
-        .try_find_reference(chain_ref_name.as_str())
-        .map_err(Error::repo)?
-    {
-        Some(r) => match r.target().try_id() {
-            Some(id) => Some(id.to_owned()),
-            None => {
-                return Err(Error::msg(format!(
-                    "{chain_ref_name} is symbolic; fufu writes only direct refs"
-                )));
-            }
-        },
-        None => None,
-    };
+    let prev: Option<gix::ObjectId> = crate::refs::ref_target(repo, chain_ref_name.as_str())?;
     let prev_tree: Option<gix::ObjectId> = prev
         .map(|id| {
             repo.find_commit(id)
@@ -201,7 +188,7 @@ pub fn take_with(
     };
     match repo.edit_references_as(Some(edit), Some(committer)) {
         Ok(_) => {}
-        Err(err) if is_contended(&err) => {
+        Err(err) if crate::refs::is_contended(&err) => {
             return Ok(SnapOutcome::Contended {
                 r#ref: chain_ref_name,
             });
@@ -232,23 +219,8 @@ pub fn take_with(
     })
 }
 
-/// Contention is a skip, not an error: a held lock or a lost CAS race.
-fn is_contended(err: &gix::reference::edit::Error) -> bool {
-    use gix::refs::file::transaction::prepare::Error as Prepare;
-    match err {
-        gix::reference::edit::Error::FileTransactionPrepare(err) => matches!(
-            err,
-            Prepare::LockAcquire { .. }
-                | Prepare::MustNotExist { .. }
-                | Prepare::MustExist { .. }
-                | Prepare::ReferenceOutOfDate { .. }
-        ),
-        _ => false,
-    }
-}
-
 /// Count file-level changes between two trees (subtree rows excluded).
-fn count_file_changes(
+pub(crate) fn count_file_changes(
     repo: &gix::Repository,
     lhs: gix::ObjectId,
     rhs: gix::ObjectId,

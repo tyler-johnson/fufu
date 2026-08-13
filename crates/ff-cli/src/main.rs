@@ -21,7 +21,8 @@ fn main() {
             json,
             count,
             commits,
-        }) => cmd::log::run(json, count, commits),
+            ops,
+        }) => cmd::log::run(json, count, commits, ops),
         Some(cli::Command::Git { args }) => cmd::git::run(args),
         Some(cli::Command::Restore {
             at,
@@ -34,6 +35,26 @@ fn main() {
             gone,
             json,
         }) => cmd::trim::run(dry_run, gone, json),
+        Some(cli::Command::Commit {
+            message,
+            no_verify,
+            branch,
+            json,
+        }) => cmd::commit::run(message, no_verify, branch, json),
+        Some(cli::Command::Switch { target, json }) => cmd::switch::run(target, json),
+        Some(cli::Command::Undo { op, force, json }) => cmd::undo::run(op, force, json),
+        Some(cli::Command::Branch { name, delete, json }) => cmd::branch::run(name, delete, json),
+        Some(cli::Command::New {
+            target,
+            message,
+            branch,
+            json,
+        }) => cmd::new::run(target, message, branch, json),
+        Some(cli::Command::Describe {
+            message,
+            branch,
+            json,
+        }) => cmd::describe::run(message, branch, json),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(kind),
     };
     if let Err(err) = result {

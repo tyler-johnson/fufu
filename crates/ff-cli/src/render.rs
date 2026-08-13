@@ -1,8 +1,40 @@
 //! Human-readable rendering: plain rows, no TUI, no color yet.
 
 use ff_core::{
-    ChangeKind, HeadState, LogEntry, Operation, Status, StatusEntry, TimelineRow, Upstream,
+    ChangeKind, HeadState, LogEntry, Operation, ReconcileReport, Status, StatusEntry, TimelineRow,
+    Upstream,
 };
+
+/// Render a reconcile pass to stderr, loudly, before any verb output —
+/// silent when there is nothing to say. Foreign motion is a fact the user
+/// deserves to see exactly once per absorption (and pinned in `ff status`
+/// until the next fufu op).
+pub fn reconcile_notice(report: &ReconcileReport) {
+    if report.is_quiet() {
+        return;
+    }
+    for warning in &report.warnings {
+        eprintln!("ff: {warning}");
+    }
+    if report.bootstrapped && !report.reinitialized {
+        eprintln!("ff: journal initialized; operations from here on are undoable");
+    }
+    if !report.foreign.is_empty() {
+        eprintln!("ff: absorbed changes made outside fufu:");
+        for change in &report.foreign {
+            let what = match (&change.old, &change.new) {
+                (Some(_), Some(new)) => format!("moved to {}", &new[..new.len().min(8)]),
+                (None, Some(new)) => format!("created at {}", &new[..new.len().min(8)]),
+                (Some(_), None) => "deleted".to_string(),
+                (None, None) => "changed".to_string(),
+            };
+            match &change.hint {
+                Some(hint) => eprintln!("  {} {what} ({hint})", change.name),
+                None => eprintln!("  {} {what}", change.name),
+            }
+        }
+    }
+}
 
 pub fn status_human(status: &Status) -> String {
     let mut out = String::new();
@@ -150,7 +182,7 @@ pub fn log_row(entry: &LogEntry, now: i64) -> String {
     )
 }
 
-fn relative_age(now: i64, then: i64) -> String {
+pub fn relative_age(now: i64, then: i64) -> String {
     let delta = now - then;
     if delta < 0 {
         return "future".into();

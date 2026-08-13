@@ -159,6 +159,59 @@ awk -v ns=$((e - s)) \
 cd "$REPO"
 
 echo
+echo "== phase 2 verbs (5000 files) =="
+git config user.name bench
+git config user.email bench@bench.test
+git branch bench-other
+
+# Close: each run commits a genuinely new change.
+iters=5
+total=0
+for i in $(seq $iters); do
+    echo "close $i" >> dir1/f1.txt
+    s=$(date +%s%N)
+    "$FF" commit -m "bench close $i" > /dev/null
+    e=$(date +%s%N)
+    total=$((total + e - s))
+done
+awk -v ns="$total" -v c="$iters" \
+    'BEGIN { printf "%-34s %8.2f ms/run\n", "ff commit (1 modified file)", ns / c / 1e6 }'
+
+# Clean switch round trip (HEAD, index, worktree transition; no park).
+iters=5
+total=0
+for i in $(seq $iters); do
+    s=$(date +%s%N)
+    "$FF" switch bench-other > /dev/null
+    "$FF" switch main > /dev/null
+    e=$(date +%s%N)
+    total=$((total + e - s))
+done
+awk -v ns="$total" -v c=$((iters * 2)) \
+    'BEGIN { printf "%-34s %8.2f ms/run\n", "ff switch (clean, per leg)", ns / c / 1e6 }'
+
+# Dirty switch round trip: park on the way out, arrive on the way back.
+iters=5
+total=0
+for i in $(seq $iters); do
+    echo "park me $i" >> dir2/f2.txt
+    s=$(date +%s%N)
+    "$FF" switch bench-other > /dev/null
+    "$FF" switch main > /dev/null
+    e=$(date +%s%N)
+    total=$((total + e - s))
+    git checkout -q -- dir2/f2.txt
+done
+awk -v ns="$total" -v c="$iters" \
+    'BEGIN { printf "%-34s %8.2f ms/run\n", "ff park+arrive (round trip)", ns / c / 1e6 }'
+
+# Reconcile overhead: the clean path runs inside every verb; measure it via
+# the status verb against the phase-1 style capture-only floor (bare ff).
+row "ff status (capture+reconcile)" "$FF" status
+row "ff (capture only)" "$FF"
+run_rows
+
+echo
 echo "== log -n 25 =="
 row "git log -25 (floor)" git --no-optional-locks log -25 --format='%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s'
 row "ff log -n 25" "$FF" log -n 25

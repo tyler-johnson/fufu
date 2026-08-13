@@ -43,6 +43,9 @@ pub enum Command {
         /// Commits only — the plain history view
         #[arg(long)]
         commits: bool,
+        /// The operation journal — every fufu mutation, with op ids
+        #[arg(long, conflicts_with = "commits")]
+        ops: bool,
     },
     /// Capture-first git passthrough; daily forms translate to ff verbs
     #[command(disable_help_flag = true)]
@@ -75,6 +78,87 @@ pub enum Command {
         /// Also drop whole chains whose branch no longer exists
         #[arg(long)]
         gone: bool,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Close the open change into a commit (the working tree is the change)
+    Commit {
+        /// Describe what is closing; wins over the pending description
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Skip pre-commit and commit-msg hooks
+        #[arg(long)]
+        no_verify: bool,
+        /// Land the close on this branch: claims an anonymous branch, or
+        /// forks a fresh one here (the old branch stays)
+        #[arg(short = 'b', value_name = "branch")]
+        branch: Option<String>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Switch branches; a dirty tree is parked, a parked change resumes
+    Switch {
+        /// Branch name, or a unique prefix of one
+        #[arg(value_name = "branch")]
+        target: String,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Roll the repository back to the state before an operation
+    Undo {
+        /// Op id (journal-sha prefix, see ff log --ops); newest if omitted
+        #[arg(value_name = "op")]
+        op: Option<String>,
+        /// Roll back what remains even if parts were trimmed
+        #[arg(long)]
+        force: bool,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open a new change: close the current one, optionally moving first
+    New {
+        /// Branch, revision, or nothing to stay here
+        #[arg(value_name = "target")]
+        target: Option<String>,
+        /// Pending description for the change being opened
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Name for the minted/forked branch (or claim a placeholder)
+        #[arg(short = 'b', value_name = "branch")]
+        branch: Option<String>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Edit the pending description of the open change
+    Describe {
+        /// The description text; omitted opens $EDITOR
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Rename the current branch instead (proper names allowed)
+        #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
+        branch: Option<String>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List branches, claim the current anonymous branch, or delete one
+    Branch {
+        /// Claim the current anonymous branch with this name
+        #[arg(value_name = "name")]
+        name: Option<String>,
+        /// Delete a branch (timeline moves to trash; undoable via ff undo)
+        #[arg(
+            short = 'd',
+            long = "delete",
+            value_name = "branch",
+            conflicts_with = "name"
+        )]
+        delete: Option<String>,
         /// Emit machine-readable JSON
         #[arg(long)]
         json: bool,

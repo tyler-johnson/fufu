@@ -11,12 +11,17 @@ use ff_core::Result;
 pub enum Translated {
     Status,
     Log { limit: Option<usize> },
+    Switch { target: String },
+    Commit { message: Option<String> },
+    Branch,
 }
 
-/// The Phase-1 translation table. Pure argv inspection, no repo access.
+/// The translation table. Pure argv inspection, no repo access.
 /// `git log -n 0` deliberately does NOT translate: git shows nothing there,
 /// while `ff log -n 0` means unlimited — semantics must map exactly or not
-/// at all.
+/// at all. Same discipline everywhere: `git switch` only in its bare
+/// `switch <branch>` form, `git commit` only bare or with one `-m <msg>`,
+/// `git branch` only bare. Any other token falls through to git verbatim.
 pub fn translate(args: &[OsString]) -> Option<Translated> {
     let utf8: Vec<&str> = args
         .iter()
@@ -39,6 +44,14 @@ pub fn translate(args: &[OsString]) -> Option<Translated> {
             };
             Some(Translated::Log { limit })
         }
+        (&"switch", [target]) if !target.starts_with('-') => Some(Translated::Switch {
+            target: target.to_string(),
+        }),
+        (&"commit", []) => Some(Translated::Commit { message: None }),
+        (&"commit", ["-m", msg]) => Some(Translated::Commit {
+            message: Some(msg.to_string()),
+        }),
+        (&"branch", []) => Some(Translated::Branch),
         _ => None,
     }
 }
@@ -63,6 +76,13 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
                 Translated::Log { limit } => {
                     crate::cmd::log::run_inner(false, limit.unwrap_or(0), false)
                 }
+                // The mutating verbs own their pre-snapshot (a no-op after
+                // the capture above) and their journal entry.
+                Translated::Switch { target } => crate::cmd::switch::run(target, false),
+                Translated::Commit { message } => {
+                    crate::cmd::commit::run(message, false, None, false)
+                }
+                Translated::Branch => crate::cmd::branch::run(None, None, false),
             }
         }
         None => super::git_exec::exec(args),
@@ -91,6 +111,9 @@ fn hint_once(verb: &Translated) {
     let spelling = match verb {
         Translated::Status => "ff status",
         Translated::Log { .. } => "ff log",
+        Translated::Switch { .. } => "ff switch",
+        Translated::Commit { .. } => "ff commit",
+        Translated::Branch => "ff branch",
     };
     eprintln!("ff: tip: that's {spelling}");
 }
@@ -131,5 +154,34 @@ mod tests {
         assert_eq!(t(&["log", "main"]), None);
         assert_eq!(t(&["push"]), None);
         assert_eq!(t(&[]), None);
+    }
+
+    #[test]
+    fn phase2_whitelist_is_strict() {
+        assert_eq!(
+            t(&["switch", "feature"]),
+            Some(Translated::Switch {
+                target: "feature".into()
+            })
+        );
+        // Flags, creation, detach: git's business.
+        assert_eq!(t(&["switch", "-c", "x"]), None);
+        assert_eq!(t(&["switch", "--detach", "x"]), None);
+        assert_eq!(t(&["switch"]), None);
+
+        assert_eq!(t(&["commit"]), Some(Translated::Commit { message: None }));
+        assert_eq!(
+            t(&["commit", "-m", "msg"]),
+            Some(Translated::Commit {
+                message: Some("msg".into())
+            })
+        );
+        assert_eq!(t(&["commit", "-am", "msg"]), None);
+        assert_eq!(t(&["commit", "--amend"]), None);
+        assert_eq!(t(&["commit", "-m", "msg", "--no-verify"]), None);
+
+        assert_eq!(t(&["branch"]), Some(Translated::Branch));
+        assert_eq!(t(&["branch", "-d", "x"]), None);
+        assert_eq!(t(&["branch", "new-name"]), None);
     }
 }

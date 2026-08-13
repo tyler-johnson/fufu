@@ -131,6 +131,96 @@ fn translated_git_status_never_spawns() {
     assert_eq!(subject.trim(), "pre: git status");
 }
 
+/// Every Phase 2 verb is native: commit, switch, branch, new, describe,
+/// undo, and the ops view all run under the trap PATH without a spawn.
+#[test]
+fn phase2_verbs_never_spawn() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["branch", "other"]);
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+
+    let trap = build_trap();
+    fx.write("a.txt", "change to close\n");
+    for args in [
+        &["commit", "-m", "closed natively"][..],
+        &["describe", "-m", "pending text"][..],
+        &["switch", "other"][..],
+        &["switch", "main"][..],
+        &["branch"][..],
+        &["log", "--ops"][..],
+        &["undo"][..],
+        &["new", "-m", "next change"][..],
+    ] {
+        let out = ff_trapped(&trap, &fx.path(), args);
+        assert!(
+            out.status.success(),
+            "ff {:?} failed under trap PATH: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(
+        !trap.log.exists(),
+        "a phase-2 verb spawned git: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
+/// Hooks are sanctioned spawns: with an executable pre-commit present, the
+/// close still succeeds under the trap PATH (the hook itself runs), and the
+/// trap proves the hook was the only kind of process fufu started — a hook
+/// that calls `git` hits the trap and vetoes the commit.
+#[test]
+fn hook_exec_is_a_sanctioned_spawn_and_distinguished() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    let hooks = fx.path().join(".git/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let marker = fx.path().join(".git/hook-ran");
+    // Only shell builtins: the trap PATH has no coreutils.
+    std::fs::write(
+        hooks.join("pre-commit"),
+        format!("#!/bin/sh\n: > {}\nexit 0\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        hooks.join("pre-commit"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    let trap = build_trap();
+    fx.write("a.txt", "hooked change\n");
+    let out = ff_trapped(&trap, &fx.path(), &["commit", "-m", "with hook"]);
+    assert!(
+        out.status.success(),
+        "commit with hook failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(marker.exists(), "the hook really ran");
+    assert!(!trap.log.exists(), "fufu itself never called git");
+
+    // A hook that shells out to git is caught by the trap and, because the
+    // fake git fails, would veto a hook that depends on it — spawns inside
+    // hooks are the hook author's, visibly.
+    std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\ngit status\n").unwrap();
+    std::fs::set_permissions(
+        hooks.join("pre-commit"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    fx.write("a.txt", "second change\n");
+    let out = ff_trapped(&trap, &fx.path(), &["commit", "-m", "hook calls git"]);
+    assert!(!out.status.success(), "trap git fails → hook declines");
+    assert!(trap.log.exists(), "the hook's git call hit the trap");
+}
+
 /// The trap itself works: anything that does spawn git gets caught.
 #[test]
 fn trap_catches_spawns() {

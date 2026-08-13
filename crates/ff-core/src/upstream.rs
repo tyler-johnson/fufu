@@ -23,7 +23,15 @@ pub fn upstream(repo: &gix::Repository) -> Result<Option<Upstream>> {
         gix::head::Kind::Unborn(name) => (name, None),
         gix::head::Kind::Detached { .. } => return Ok(None),
     };
+    upstream_for(repo, ref_name, local_id)
+}
 
+/// The upstream of an arbitrary branch ref.
+pub(crate) fn upstream_for(
+    repo: &gix::Repository,
+    ref_name: gix::refs::FullName,
+    local_id: Option<gix::ObjectId>,
+) -> Result<Option<Upstream>> {
     let Some(tracking) =
         repo.branch_remote_tracking_ref_name(ref_name.as_ref(), gix::remote::Direction::Fetch)
     else {

@@ -3,15 +3,13 @@
 //! looked at), then take the mandatory pre-restore snapshot, then write.
 //! Writes touch only the worktree — never the index, HEAD, or branches.
 
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
 use gix::prelude::ObjectIdExt;
 
 use crate::error::{Error, Result};
 use crate::model::{RestoreReport, SnapEntry, SnapOutcome};
 use crate::snapshot::chain;
 use crate::snapshot::{Provenance, TakeOptions};
+use crate::worktree;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RestoreTarget {
@@ -86,10 +84,9 @@ pub fn restore(
     opts: &RestoreOptions,
     prov: &Provenance,
 ) -> Result<RestoreReport> {
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| Error::msg("bare repository: nothing to restore into"))?
-        .to_owned();
+    if repo.workdir().is_none() {
+        return Err(Error::msg("bare repository: nothing to restore into"));
+    }
     if !opts.all && opts.paths.is_empty() {
         return Err(Error::msg("nothing selected: pass paths or --all"));
     }
@@ -153,7 +150,7 @@ pub fn restore(
         }
     };
 
-    // 3. Diff target ↔ fresh snapshot — never target ↔ worktree, where
+    // 3. Diff fresh snapshot → target — never worktree → target, where
     //    untracked files would read as deletions.
     let target_tree = repo
         .find_commit(target_id)
@@ -161,182 +158,16 @@ pub fn restore(
         .tree_id()
         .map_err(Error::repo)?
         .detach();
-    let changes = tree_changes(repo, target_tree, fresh_tree)?;
+    let select = |path: &str| opts.all || path_selected(path, &opts.paths);
+    let transition = worktree::apply_tree_transition(repo, fresh_tree, target_tree, &select)?;
 
-    let mut report = RestoreReport {
+    Ok(RestoreReport {
         target: target_entry,
-        restored: Vec::new(),
-        deleted: Vec::new(),
-        skipped_gitlinks: Vec::new(),
+        restored: transition.written,
+        deleted: transition.deleted,
+        skipped_gitlinks: transition.skipped_gitlinks,
         pre_snapshot,
-    };
-    let (mut pipeline, _index) = repo.filter_pipeline(None).map_err(Error::repo)?;
-
-    for change in changes {
-        if !opts.all && !path_selected(&change.path, &opts.paths) {
-            continue;
-        }
-        match change.action {
-            Action::DeleteFromWorktree => {
-                let abs = workdir.join(&change.path);
-                match std::fs::remove_file(&abs) {
-                    Ok(()) => {
-                        prune_empty_parents(&workdir, &abs);
-                        report.deleted.push(change.path);
-                    }
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                        report.deleted.push(change.path);
-                    }
-                    Err(err) => {
-                        return Err(Error::msg(format!(
-                            "could not delete {}: {err}",
-                            change.path
-                        )));
-                    }
-                }
-            }
-            Action::Materialize { oid, kind } => {
-                use gix::objs::tree::EntryKind;
-                match kind {
-                    EntryKind::Commit => {
-                        report.skipped_gitlinks.push(change.path);
-                    }
-                    EntryKind::Tree => {}
-                    EntryKind::Link => {
-                        let blob = repo.find_object(oid).map_err(Error::repo)?.detach();
-                        let target: PathBuf =
-                            gix::path::from_bstr(gix::bstr::BStr::new(&blob.data)).into_owned();
-                        let abs = workdir.join(&change.path);
-                        if let Some(parent) = abs.parent() {
-                            std::fs::create_dir_all(parent).map_err(Error::repo)?;
-                        }
-                        let _ = std::fs::remove_file(&abs);
-                        std::os::unix::fs::symlink(&target, &abs).map_err(Error::repo)?;
-                        report.restored.push(change.path);
-                    }
-                    EntryKind::Blob | EntryKind::BlobExecutable => {
-                        let blob = repo.find_object(oid).map_err(Error::repo)?.detach();
-                        let converted = pipeline
-                            .convert_to_worktree(
-                                &blob.data,
-                                change.path.as_str().into(),
-                                gix::filter::plumbing::driver::apply::Delay::Forbid,
-                            )
-                            .map_err(Error::repo)?;
-                        let bytes: Vec<u8> = match converted.as_bytes() {
-                            Some(bytes) => bytes.to_vec(),
-                            None => {
-                                let mut out = Vec::new();
-                                let mut reader = converted;
-                                reader.read_to_end(&mut out).map_err(Error::repo)?;
-                                out
-                            }
-                        };
-                        write_atomic(
-                            &workdir,
-                            &change.path,
-                            &bytes,
-                            matches!(kind, EntryKind::BlobExecutable),
-                        )?;
-                        report.restored.push(change.path);
-                    }
-                }
-            }
-        }
-    }
-
-    report.restored.sort();
-    report.deleted.sort();
-    report.skipped_gitlinks.sort();
-    Ok(report)
-}
-
-enum Action {
-    DeleteFromWorktree,
-    Materialize {
-        oid: gix::ObjectId,
-        kind: gix::objs::tree::EntryKind,
-    },
-}
-
-struct PathChange {
-    path: String,
-    action: Action,
-}
-
-/// File-level changes to apply to the worktree so it matches `target`,
-/// given the current state `fresh`.
-fn tree_changes(
-    repo: &gix::Repository,
-    target: gix::ObjectId,
-    fresh: gix::ObjectId,
-) -> Result<Vec<PathChange>> {
-    if target == fresh {
-        return Ok(Vec::new());
-    }
-    let lhs = repo.find_object(target).map_err(Error::repo)?.detach();
-    let rhs = repo.find_object(fresh).map_err(Error::repo)?.detach();
-    let mut recorder = gix::diff::tree::Recorder::default();
-    gix::diff::tree(
-        gix::objs::TreeRefIter::from_bytes(&lhs.data),
-        gix::objs::TreeRefIter::from_bytes(&rhs.data),
-        gix::diff::tree::State::default(),
-        &repo.objects,
-        &mut recorder,
-    )
-    .map_err(Error::repo)?;
-
-    use gix::diff::tree::recorder::Change as Rec;
-    let mut out = Vec::new();
-    for record in recorder.records {
-        match record {
-            // Present now, absent in the target: delete.
-            Rec::Addition {
-                entry_mode, path, ..
-            } => {
-                if !entry_mode.is_tree() {
-                    out.push(PathChange {
-                        path: path.to_string(),
-                        action: Action::DeleteFromWorktree,
-                    });
-                }
-            }
-            // In the target, absent now: materialize the target's version.
-            Rec::Deletion {
-                entry_mode,
-                oid,
-                path,
-                ..
-            } => {
-                if !entry_mode.is_tree() {
-                    out.push(PathChange {
-                        path: path.to_string(),
-                        action: Action::Materialize {
-                            oid,
-                            kind: entry_mode.kind(),
-                        },
-                    });
-                }
-            }
-            Rec::Modification {
-                previous_entry_mode,
-                previous_oid,
-                path,
-                ..
-            } => {
-                if !previous_entry_mode.is_tree() {
-                    out.push(PathChange {
-                        path: path.to_string(),
-                        action: Action::Materialize {
-                            oid: previous_oid,
-                            kind: previous_entry_mode.kind(),
-                        },
-                    });
-                }
-            }
-        }
-    }
-    Ok(out)
+    })
 }
 
 fn path_selected(path: &str, selectors: &[String]) -> bool {
@@ -344,60 +175,6 @@ fn path_selected(path: &str, selectors: &[String]) -> bool {
         let sel = sel.trim_end_matches('/');
         path == sel || path.starts_with(&format!("{sel}/"))
     })
-}
-
-/// Atomic materialization: temp file in the same directory, then rename.
-fn write_atomic(workdir: &Path, rela: &str, bytes: &[u8], executable: bool) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let abs = workdir.join(rela);
-    let parent = abs.parent().unwrap_or(workdir).to_owned();
-    std::fs::create_dir_all(&parent).map_err(Error::repo)?;
-    let tmp = parent.join(format!(
-        ".ff-restore-{}-{}",
-        std::process::id(),
-        abs.file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ));
-    std::fs::write(&tmp, bytes).map_err(Error::repo)?;
-    if executable {
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
-            .map_err(Error::repo)?;
-    }
-    // A symlink or directory may occupy the destination: clear it.
-    if let Ok(md) = std::fs::symlink_metadata(&abs)
-        && md.is_dir()
-    {
-        std::fs::remove_dir_all(&abs).map_err(Error::repo)?;
-    }
-    if let Err(err) = std::fs::rename(&tmp, &abs) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Error::msg(format!("could not write {rela}: {err}")));
-    }
-    Ok(())
-}
-
-/// Remove now-empty parent directories, bottom-up, stopping at the worktree
-/// root (and never touching `.git`).
-fn prune_empty_parents(workdir: &Path, deleted: &Path) {
-    let mut dir = deleted.parent();
-    while let Some(d) = dir {
-        if d == workdir {
-            break;
-        }
-        match std::fs::read_dir(d) {
-            Ok(mut entries) => {
-                if entries.next().is_some() {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-        if std::fs::remove_dir(d).is_err() {
-            break;
-        }
-        dir = d.parent();
-    }
 }
 
 fn entry_of(repo: &gix::Repository, id: gix::ObjectId) -> Result<SnapEntry> {

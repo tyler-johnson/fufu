@@ -1,0 +1,65 @@
+//! `ff switch` — branches without ceremony. Parking and arrival reports are
+//! part of the verb's voice: the user should always know where their work
+//! went and where it came back from.
+
+use ff_core::{ArrivalReport, Error, Result, SwitchOptions};
+
+pub fn run(target: String, json: bool) -> Result<()> {
+    let repo = ff_core::discover(".")?;
+    let (report, ctx) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target,
+            now: None,
+            argv: std::env::args().collect(),
+        },
+        &crate::provenance::pre_ff(),
+    )?;
+
+    crate::render::reconcile_notice(&ctx.reconcile);
+
+    if json {
+        let body = serde_json::to_string(&serde_json::json!({
+            "switch": report,
+            "reconcile": ctx.reconcile,
+            "undo": "ff undo",
+        }))
+        .map_err(Error::repo)?;
+        println!("{body}");
+        return Ok(());
+    }
+
+    if report.from == report.to {
+        println!("already on {}", report.to);
+        return Ok(());
+    }
+    if let Some(stash) = &report.parked {
+        println!(
+            "parked the open change on {} ({})",
+            report.from,
+            &stash[..stash.len().min(8)]
+        );
+    }
+    println!("switched to {}", report.to);
+    match &report.arrival {
+        ArrivalReport::None => {}
+        ArrivalReport::Restored { files, .. } => {
+            println!("resumed the parked change ({} file(s))", files.len());
+        }
+        ArrivalReport::StillParked { paths, .. } => {
+            println!("a parked change is waiting here but no longer applies cleanly:");
+            for path in paths {
+                println!("  conflicts: {path}");
+            }
+            println!("it stays parked; resolve by hand with git stash, or continue working");
+        }
+        ArrivalReport::Invalidated { stash } => {
+            println!(
+                "note: the parked change ({}) was dropped outside fufu; its entry was cleared",
+                &stash[..stash.len().min(8)]
+            );
+        }
+    }
+    println!("undo: ff undo");
+    Ok(())
+}

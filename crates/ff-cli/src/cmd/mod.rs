@@ -1,9 +1,15 @@
+pub mod branch;
+pub mod commit;
+pub mod describe;
 pub mod git;
 pub mod git_exec;
 pub mod hook;
 pub mod log;
+pub mod new;
 pub mod restore;
 pub mod shell;
 pub mod snap;
 pub mod status;
+pub mod switch;
 pub mod trim;
+pub mod undo;

@@ -539,6 +539,35 @@ branches and the claim-rename — and `ff commit` closing the open change (fufu'
 first index write: a close must leave `.git/index` matching the new HEAD, or
 foreign `git status` shows phantom changes). The daily driver exists after this phase.
 
+*Phase 2 implementation notes (shipped Aug 2026).* The journal is a commit
+chain at `refs/fufu/journal`: parent 1 the previous entry, parents 2..n the
+commits the entry references — reachability is the gc pin, and the CAS append
+is the op serialization lock. Every mutating verb journals write-ahead
+(planned post-state before mutating); a crash between append and mutation is
+labeled "may not have completed" by the next reconcile. Foreign motion is
+absorbed as one `foreign` entry per pass, quoted with git's own reflog
+messages, undoable and labeled; the notice stays pinned in `ff status` while
+the journal tip is foreign. Parks are byte-shaped `git stash push -u -m
+"fufu: wip on <branch>"` entries (differentially proven), tracked by identity
+in `refs/fufu/parked/<branch>`; drop is reflog surgery matching `git reflog
+delete --rewrite` byte-for-byte. Indexes fufu writes carry a synthesized TREE
+cache extension (gix can't attach one, but its serializer is public — the
+spike succeeded, so the staged-known-clean shortcut survives fufu's own
+writes); stat data carries over where (path, id, mode) survived. Documented
+divergences from git: fufu-written indexes are V2/V3 with no
+UNTR/FSMN/REUC carry; branch renames replay the reflog but write no
+"Branch: renamed" line (its old and new values are equal, which the ref
+transaction machinery drops) and the first replayed line's previous-oid
+column is null; parks refuse intent-to-add entries exactly as `git stash`
+does; `ff commit` during a foreign merge/rebase refuses, pointing at git,
+until Phase 4 owns merges. Journal retention rides the same `fufu.keep`
+knob through `ff trim` — trash-first at `refs/fufu/trash/@journal`, pin
+parents preserved verbatim, prev links rewritten — and the oldest survivor
+becomes the undo floor. Petnames are `ff/<adjective>-<noun>` from embedded
+wordlists. Two-phase descriptions live in plain JSON files under
+`<common-dir>/fufu/branch/<branch>` (pending description + fork base),
+journaled on every change so `ff undo` restores the text.
+
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
 reporting futures, not just facts; the ambient shell channel speaks at pause
 points. Pure reads — no automation yet, just foreknowledge.
@@ -567,10 +596,11 @@ a working development machine.
 - **Tree memory residuals** — same branch checked out in two worktrees; parked
   entries orphaned by foreign branch deletion; whether to set `status.showStash`
   so plain `git status` mentions parked work.
-- **Anonymous-branch hygiene** — unnamed branches accumulate; whether
-  `ff branch` segregates them in listings and offers a tidy of merged or
-  abandoned ones; the generated-name scheme; where the pending description and
-  fork-base metadata live.
+- **Anonymous-branch hygiene** — unnamed branches accumulate; `ff branch`
+  segregates them in listings (Phase 2) and the name scheme and metadata
+  home are settled (`ff/<adjective>-<noun>`; JSON under
+  `<common-dir>/fufu/branch/`), but a tidy of merged or abandoned anonymous
+  branches remains open.
 - **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an
   entry rewritten outside fufu is invalidated, loudly); pruning cadence and the
   map's ref representation are not.
@@ -590,9 +620,11 @@ a working development machine.
   how capture attributes mid-session snapshots (to the target commit, not the
   tip); whether editing a published commit warns or refuses; and how a
   session-turned-held-rewrite composes with the parked tip state.
-- **Undo across foreign events** — a reconciled foreign mutation becomes a
-  journal entry; whether `ff undo` reverts it like any other (probably yes,
-  labeled as foreign), and how that's disclosed.
+- **Undo across foreign events** — settled in Phase 2: a reconciled foreign
+  mutation is a journal entry, `ff undo` rolls it back like any other, the
+  report labels it as a change made outside fufu. One rough edge stays open:
+  a foreign entry records no pre-state index (fufu wasn't running), so its
+  undo restores a clean index at the pre-state HEAD.
 - **Auto-sync policy surface** — per-branch opt-in defaults; whether
   tracked-upstream branches default to "offer" or "auto."
 - **Name/packaging sweep** — `fufu` and binary `ff` against crates.io, npm,

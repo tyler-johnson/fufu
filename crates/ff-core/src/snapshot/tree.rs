@@ -20,9 +20,12 @@ pub(crate) struct Scan {
     /// gix's tree↔index diff skips unmerged entries, which would otherwise
     /// surface conflicts as phantom staged deletions).
     pub staged_deletes: BTreeSet<String>,
-    /// Paths whose worktree content must be rehashed through the filter
-    /// pipeline: modified/typechange/intent-to-add/untracked ∪ conflicted.
+    /// Tracked paths whose worktree content must be rehashed through the
+    /// filter pipeline: modified/typechange/intent-to-add ∪ conflicted.
     pub rehash: BTreeSet<String>,
+    /// Untracked paths — separate from `rehash` so stash can commit them
+    /// apart; capture treats both buckets identically.
+    pub untracked: BTreeSet<String>,
     /// Paths deleted in the worktree (minus conflicted).
     pub wt_deletes: BTreeSet<String>,
 }
@@ -32,6 +35,7 @@ impl Scan {
         self.staged_upserts.is_empty()
             && self.staged_deletes.is_empty()
             && self.rehash.is_empty()
+            && self.untracked.is_empty()
             && self.wt_deletes.is_empty()
     }
 }
@@ -156,7 +160,7 @@ pub(crate) fn scan(repo: &gix::Repository) -> Result<Scan> {
                             // Plain directories can't be tracked; embedded
                             // repositories become gitlinks via the rehash.
                             if !matches!(entry.disk_kind, Some(gix::dir::entry::Kind::Directory)) {
-                                scan.rehash.insert(entry.rela_path.to_string());
+                                scan.untracked.insert(entry.rela_path.to_string());
                             }
                         }
                     }
@@ -212,15 +216,18 @@ pub(crate) fn assemble(
     }
 
     let mut skipped = Vec::new();
-    if !scan.rehash.is_empty() {
+    // Capture makes no tracked/untracked distinction: both buckets rehash.
+    // The merged iteration stays sorted (the filter pipeline stats attribute
+    // files per directory change, so sorted order keeps that cheap).
+    let mut rehash_all: Vec<&String> = scan.rehash.iter().chain(scan.untracked.iter()).collect();
+    rehash_all.sort();
+    if !rehash_all.is_empty() {
         let workdir = repo
             .workdir()
             .ok_or_else(|| Error::msg("bare repository: cannot capture"))?
             .to_owned();
         let (mut pipeline, index) = repo.filter_pipeline(None).map_err(Error::repo)?;
-        // BTreeSet iteration is sorted: the filter pipeline stats attribute
-        // files per directory change, so sorted order keeps that cheap.
-        for path in &scan.rehash {
+        for path in rehash_all {
             let abs = workdir.join(path);
             if let Ok(md) = std::fs::symlink_metadata(&abs) {
                 // Only regular files are size-capped; user-staged big blobs
