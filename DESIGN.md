@@ -185,11 +185,20 @@ IDs do. Git's own machinery has been converging on the needed primitives for yea
 `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an
 autopilot.
 
-**Editing at a distance.** jj is *navigational*: to edit a mid-stack commit you
-travel to it (`jj edit`), which in git terms means detaching. fufu is *operational*:
-you stay at your branch tip and reach back. "Amend this into commit X" applies the
-change to X in memory, rebases descendants in memory, and moves refs. You never
-leave your branch. Mid-stack editing is a verb, not a place.
+**Mid-stack editing, two reaches.** jj edits a mid-stack commit by traveling to
+it (`jj edit`), which in git terms means detaching HEAD. fufu keeps the reach and
+drops the detachment. The short reach is at a distance: `ff absorb` (aimed with
+`--into <rev>`) applies working changes to a commit in memory, rebases its
+descendants in memory, and moves refs — you never leave your tip. The long reach
+is a session: `ff edit <rev>` parks the tip's state through tree memory and
+materializes `<rev>`'s tree into the working tree, HEAD staying attached to the
+branch the whole time. You edit the commit's actual content — the thing distance
+can't give you — and `ff done` amends it, restacks descendants in memory, and
+returns you to tip with the parked state restored. A conflicting restack holds
+like any other rewrite. Travel happens in tree-space, never in ref-space: to
+plain git a session is nothing more exotic than a dirty working tree on the
+branch, abandoning fufu mid-session leaves exactly that, and the capture floor
+holds the tip state regardless.
 
 **Land-if-clean automation.** Operations attempt themselves speculatively. Clean →
 refs move, status says so afterward. Not clean → nothing is touched and the
@@ -230,9 +239,10 @@ result, unresolved regions carried forward as literal marker content, conflicts
 that later commits resolve anyway vanishing along the way. `ff resolve` then
 presents every *surviving* region in the working tree in one editing session —
 ordinary conflict markers, each labeled with the commit that owns it
-(`<<<<<<< rebasing "add parser options" (3/10)`). Resolutions are absorbed back
-into their owning steps (the `ff absorb` machinery pointed at the replay), the
-chain re-runs in memory, and the whole rebased stack lands at once: refs move
+(`<<<<<<< rebasing "add parser options" (3/10)`). `ff done` ends the session:
+resolutions are absorbed back into their owning steps (the `ff absorb` machinery
+pointed at the replay), the chain re-runs in memory, and the whole rebased stack
+lands at once: refs move
 one time, every landed commit clean, no conflicted state ever existing in the
 graph. When same-line conflicts chain across commits the carried markers nest —
 jj's notorious ergonomic wart — so `ff resolve --step` keeps the sequential
@@ -276,16 +286,21 @@ identically to its git counterpart, it must not exist; git is right there. The
 moment fufu verbs are just spellings, the tool collapses into shell aliases with
 extra steps.
 
-The daily surface, roughly a dozen verbs:
+The daily surface. Where the workflow is jj's, the vocabulary is too: `new`,
+`edit`, and `describe` are deliberate imports, with `switch` staying underneath
+them as the general movement verb.
 
 | verb | what it does | what it replaces |
 |---|---|---|
 | `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | cut a slice from the capture stream; interactive form picks hunks | the `add`/index two-phase ritual (which still works, for those who want it) |
+| `ff describe [<rev>]` | reword any commit's message; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
+| `ff new <name>` | start a new line of work: branch from trunk (or `--from <rev>`) and arrive on it, departing state parked by tree memory | `git switch -c` + the stash dance |
 | `ff switch` | branch switch with tree memory | `stash` dances |
-| `ff branch` | create/move lines of work | `git branch`/`switch -c` |
-| `ff absorb` | fold working changes into the stack commits they belong to; descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
-| `ff amend <rev>` | explicit-target editing at a distance | `rebase -i` edit dances |
+| `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware | `git branch` bookkeeping |
+| `ff absorb` | fold working changes into the stack commits they belong to (`--into <rev>` aims a specific one); descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
+| `ff edit <rev>` | editing session on any commit: parks tip state, materializes `<rev>`'s tree, HEAD never moves | detached-HEAD `rebase -i` edit dances |
+| `ff done` | finish the current session (`edit` or `resolve`): absorb the edits, restack in memory, land, return to tip | `rebase --continue` ceremony |
 | `ff sync` | fetch; speculatively rebase onto main; land if clean, hold if not | manual rebase-onto-main ceremony |
 | `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
 | `ff undo` | whole-repo undo: refs + tree together | reflog archaeology, `reset --hard` fear |
@@ -353,8 +368,8 @@ semantics; fufu chooses the execution per call-site.**
 
 The destination is **completely git-free**: a machine with only `ff` on it is a
 fully working development machine, the way a jj user never installs git. The
-staging is honest — the daily surface (status, commit, switch, absorb, amend,
-sync, undo, log, restore) goes git-free first; the long tail (credential
+staging is honest — the daily surface (status, commit, describe, new, switch,
+edit, absorb, sync, undo, log, restore) goes git-free first; the long tail (credential
 helpers, filters/LFS, submodules) follows as the substrate matures. The escape
 hatch assumes git is present and is expected to be extremely rare; on a
 git-free machine, its territory (bisect, plumbing, forensics) arrives inside
@@ -431,16 +446,17 @@ lessons carried over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The op journal and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
-tree memory via driven stash — `ff switch`, `ff branch` — and `ff commit`
-cutting slices from the stream. The daily driver exists after this phase.
+tree memory via driven stash — `ff switch`, `ff new`, `ff branch` — and
+`ff commit` cutting slices from the stream. The daily driver exists after this phase.
 
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
 reporting futures, not just facts; the ambient shell channel speaks at pause
 points. Pure reads — no automation yet, just foreknowledge.
 
-**Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff amend` at a
-distance, `ff sync` with land-if-clean, held rewrites and `ff resolve`. The
-jj-grade workflow lands here, safe because phases 1–3 are underneath it.
+**Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff describe`,
+`ff edit` sessions with `ff done`, `ff sync` with land-if-clean, held rewrites
+and `ff resolve`. The jj-grade workflow lands here, safe because phases 1–3 are
+underneath it.
 
 **Phase 5 — Exits and adoption.** `ff push` with lease semantics and the held-
 rewrite guard; `ff git` passthrough with the translation whitelist and the
@@ -474,6 +490,11 @@ a working development machine.
 - **Resolution absorb-back edges** — edits outside any marked region during
   `ff resolve` need an owner (nearest region's step, or ask); when nested
   markers should trigger the recommendation to fall back to `--step`.
+- **Edit-session boundaries** — while an `ff edit` session is open: what a
+  foreign switch or commit does to it; how capture attributes mid-session
+  snapshots (to the target commit, not the tip); whether editing a published
+  commit warns or refuses; and how a conflicting `ff done` restack composes
+  with the parked tip state.
 - **Undo across foreign events** — a reconciled foreign mutation becomes a
   journal entry; whether `ff undo` reverts it like any other (probably yes,
   labeled as foreign), and how that's disclosed.
