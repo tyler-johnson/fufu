@@ -1,0 +1,17 @@
+[package]
+name = "ff-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ff"
+path = "src/main.rs"
+
+[dependencies]
+ff-core.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+ff-testsupport.workspace = true
+tempfile.workspace = true

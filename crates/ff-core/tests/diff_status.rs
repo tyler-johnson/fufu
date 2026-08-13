@@ -1,0 +1,206 @@
+//! The status fixture matrix, table-driven: every scenario is built with real
+//! git, then ff-core's status is compared against `git status --porcelain=v2
+//! --branch` — including the `.git/index` byte-identity tripwire.
+
+use ff_testsupport::Fixture;
+use ff_testsupport::porcelain::assert_status_matches;
+
+type Scenario = (&'static str, fn(&Fixture));
+
+fn scenarios() -> Vec<Scenario> {
+    vec![
+        ("unborn", |_fx| {}),
+        ("unborn_dirty", |fx| {
+            fx.write("staged.txt", "staged\n");
+            fx.git(&["add", "staged.txt"]);
+            fx.write("loose.txt", "untracked\n");
+        }),
+        ("clean_with_history", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.write("dir/b.txt", "b\n");
+            fx.commit("init");
+        }),
+        ("detached_dirty", |fx| {
+            fx.write("a.txt", "a\n");
+            let first = fx.commit("one");
+            fx.write("a.txt", "aa\n");
+            fx.commit("two");
+            fx.git(&["checkout", "-q", &first]);
+            fx.write("a.txt", "dirty\n");
+        }),
+        ("staged_only", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.commit("init");
+            fx.write("new.txt", "new\n");
+            fx.write("a.txt", "changed\n");
+            fx.git(&["add", "-A"]);
+        }),
+        ("staged_delete", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.commit("init");
+            fx.git(&["rm", "-q", "a.txt"]);
+        }),
+        ("unstaged_only", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.write("b.txt", "b\n");
+            fx.commit("init");
+            fx.write("a.txt", "changed\n");
+            fx.remove("b.txt");
+        }),
+        ("untracked_nested_collapses", |fx| {
+            fx.write("tracked.txt", "t\n");
+            fx.commit("init");
+            fx.write("a/b/c.txt", "c\n");
+            fx.write("a/d.txt", "d\n");
+            fx.write("top.txt", "top\n");
+        }),
+        ("ignored_appears_nowhere", |fx| {
+            fx.write(".gitignore", "ignored.txt\nignored-dir/\n");
+            fx.commit("init");
+            fx.write("ignored.txt", "x\n");
+            fx.write("ignored-dir/deep.txt", "x\n");
+        }),
+        ("mixed", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.write("b.txt", "b\n");
+            fx.commit("init");
+            fx.write("a.txt", "staged\n");
+            fx.git(&["add", "a.txt"]);
+            fx.write("a.txt", "staged then modified again\n");
+            fx.write("b.txt", "unstaged\n");
+            fx.write("new/nested.txt", "untracked\n");
+        }),
+        ("slash_branch", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.commit("init");
+            fx.git(&["checkout", "-q", "-b", "feat/x/y"]);
+            fx.write("a.txt", "changed\n");
+            fx.git(&["add", "a.txt"]);
+        }),
+        ("packed_refs", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.commit("init");
+            fx.git(&["pack-refs", "--all"]);
+            fx.write("a.txt", "changed\n");
+        }),
+        ("staged_rename", |fx| {
+            fx.write("old-name.txt", "same content, long enough to match\n");
+            fx.write("other.txt", "other\n");
+            fx.commit("init");
+            fx.git(&["mv", "old-name.txt", "new-name.txt"]);
+        }),
+        ("staged_rename_with_edit", |fx| {
+            fx.write(
+                "old.txt",
+                "line one\nline two\nline three\nline four\nline five\n",
+            );
+            fx.commit("init");
+            fx.git(&["mv", "old.txt", "new.txt"]);
+            fx.write(
+                "new.txt",
+                "line one\nline two\nline three\nline four\nCHANGED\n",
+            );
+            fx.git(&["add", "new.txt"]);
+        }),
+        ("intent_to_add", |fx| {
+            fx.write("a.txt", "a\n");
+            fx.commit("init");
+            fx.write("later.txt", "content\n");
+            fx.git(&["add", "-N", "later.txt"]);
+        }),
+        ("typechange_unstaged", |fx| {
+            fx.write("target.txt", "target\n");
+            fx.write("link.txt", "was a file\n");
+            fx.commit("init");
+            fx.remove("link.txt");
+            std::os::unix::fs::symlink("target.txt", fx.path().join("link.txt")).unwrap();
+        }),
+        ("typechange_staged", |fx| {
+            fx.write("target.txt", "target\n");
+            fx.write("link.txt", "was a file\n");
+            fx.commit("init");
+            fx.remove("link.txt");
+            std::os::unix::fs::symlink("target.txt", fx.path().join("link.txt")).unwrap();
+            fx.git(&["add", "-A"]);
+        }),
+        ("exec_bit_is_modified_not_typechange", |fx| {
+            fx.write("script.sh", "#!/bin/sh\n");
+            fx.commit("init");
+            fx.git(&["update-index", "--chmod=+x", "script.sh"]);
+        }),
+        ("conflicted_merge", |fx| {
+            fx.write("conflict.txt", "base\n");
+            fx.write("peaceful.txt", "fine\n");
+            fx.commit("base");
+            fx.git(&["checkout", "-q", "-b", "other"]);
+            fx.write("conflict.txt", "theirs\n");
+            fx.commit("theirs");
+            fx.git(&["checkout", "-q", "main"]);
+            fx.write("conflict.txt", "ours\n");
+            fx.commit("ours");
+            let out = fx.try_git(&["merge", "other"]);
+            assert!(!out.status.success(), "merge should conflict");
+        }),
+        ("conflicted_merge_with_other_changes", |fx| {
+            fx.write("conflict.txt", "base\n");
+            fx.write("peaceful.txt", "fine\n");
+            fx.commit("base");
+            fx.git(&["checkout", "-q", "-b", "other"]);
+            fx.write("conflict.txt", "theirs\n");
+            fx.commit("theirs");
+            fx.git(&["checkout", "-q", "main"]);
+            fx.write("conflict.txt", "ours\n");
+            fx.commit("ours");
+            let out = fx.try_git(&["merge", "other"]);
+            assert!(!out.status.success(), "merge should conflict");
+            fx.write("peaceful.txt", "edited during conflict\n");
+            fx.write("untracked.txt", "new\n");
+        }),
+        ("backdated_mass_tree", |fx| {
+            for d in 0..5 {
+                for f in 0..20 {
+                    fx.write(&format!("d{d}/f{f}.txt"), &format!("{d}/{f}\n"));
+                }
+            }
+            fx.commit("many files");
+            fx.backdate();
+            fx.write("d0/f0.txt", "modified\n");
+            fx.write("straggler.txt", "untracked\n");
+        }),
+    ]
+}
+
+#[test]
+fn status_matrix() {
+    for (name, build) in scenarios() {
+        println!("scenario: {name}");
+        let fx = Fixture::new();
+        build(&fx);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_status_matches(&fx);
+        }));
+        if let Err(err) = result {
+            let msg = err
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "non-string panic".into());
+            panic!("scenario '{name}' failed: {msg}");
+        }
+    }
+}
+
+/// Repeated status calls stay byte-identical — nothing accumulates.
+#[test]
+fn status_is_idempotent() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "untracked\n");
+    let before = fx.index_bytes();
+    for _ in 0..3 {
+        assert_status_matches(&fx);
+    }
+    assert_eq!(before, fx.index_bytes());
+}
