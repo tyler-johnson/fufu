@@ -12,16 +12,9 @@ git remains the VCS. fufu is the pilot.*
 
 ---
 
-fufu (`ff`) is built on the belief that jj got the workflow right and git got
-the repository right — and that you can have both. At every instant, the
-repository is a boring git repository: HEAD attached to a branch, ordinary
-commits, `git status` legible. fufu automates the transitions between such
-states — capture, movement, history rewriting, undo — and leaves the durable
-graph entirely to git.
+fufu (`ff`) is built on the belief that jj got the workflow right and git got the repository right — and that you can have both. At every instant, the repository is a boring git repository: HEAD attached to a branch, ordinary commits, `git status` legible. fufu automates the transitions between such states — capture, movement, history rewriting, undo — and leaves the durable graph entirely to git.
 
-> **Early days.** fufu is young and under active construction. The design —
-> what exists, what's coming, and why — lives in [DESIGN.md](DESIGN.md).
-> Windows binaries are provided and CI-tested, but young.
+> **Early days.** fufu is young and under active construction. The design — what exists, what's coming, and why — lives in [DESIGN.md](DESIGN.md). Windows binaries are provided and CI-tested, but young.
 
 ## Install
 
