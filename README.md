@@ -61,6 +61,8 @@ ff hook shell install          # alias git='ff git' in your shell rc
 ff hook agent install claude   # capture around Claude Code's tool actions
 ```
 
+Settings live in plain git config under `fufu.*` — `ff config` lists every one with its value and meaning; `ff config keep 30d` sets one.
+
 ## License
 
 [MIT](LICENSE)

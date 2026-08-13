@@ -178,6 +178,36 @@ fn phase2_verbs_never_spawn() {
     );
 }
 
+/// The config write path is native — gix File + config.lock, no `git config` shellout.
+#[test]
+fn config_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let trap = build_trap();
+    for args in [
+        &["config"][..],
+        &["config", "keep"][..],
+        &["config", "keep", "30d"][..],
+        &["config", "--unset", "keep"][..],
+        &["config", "--json"][..],
+    ] {
+        let out = ff_trapped(&trap, &fx.path(), args);
+        assert!(
+            out.status.success(),
+            "ff {:?} failed under trap PATH: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(
+        !trap.log.exists(),
+        "config spawned git: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
 /// Hooks are sanctioned spawns: with an executable pre-commit present, the
 /// close still succeeds under the trap PATH (the hook itself runs), and the
 /// trap proves the hook was the only kind of process fufu started — a hook

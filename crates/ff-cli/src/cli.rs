@@ -178,6 +178,24 @@ pub enum Command {
         #[command(subcommand)]
         kind: HookKind,
     },
+    /// Read and write fufu's settings (plain git config under fufu.*)
+    Config {
+        /// Setting name — case-insensitive, the fufu. prefix optional
+        #[arg(value_name = "key")]
+        key: Option<String>,
+        /// New value to set for this repo (--global: every repo)
+        #[arg(value_name = "value", conflicts_with = "unset")]
+        value: Option<String>,
+        /// Remove the setting, returning to the default
+        #[arg(long, requires = "key")]
+        unset: bool,
+        /// Apply the set/unset to every repo (user-level git config)
+        #[arg(long)]
+        global: bool,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Everything that feeds the capture floor is a hook. One grammar:

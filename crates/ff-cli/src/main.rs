@@ -58,6 +58,13 @@ fn main() {
             json,
         }) => cmd::describe::run(message, branch, json),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(kind),
+        Some(cli::Command::Config {
+            key,
+            value,
+            unset,
+            global,
+            json,
+        }) => cmd::config::run(key, value, unset, global, json),
     };
     if let Err(err) = result {
         eprintln!("ff: {err}");

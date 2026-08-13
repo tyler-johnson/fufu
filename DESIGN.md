@@ -388,6 +388,7 @@ them as the general movement verb.
 | `ff restore <path> --at <id>` | pull anything back from the timeline | hoping |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
 | `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
+| `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
 
 ### Presentation conventions
 
@@ -428,6 +429,12 @@ The index: fufu ignores it (commit slices from the stream, with hunk selection a
 commit time — jj's actual insight about staging). The index still exists and
 `git add -p && git commit` still works, because a boring repo tolerates both. fufu
 stops *requiring* the ritual; it doesn't break it.
+
+### `ff config`
+
+jog's config command, carried over: no subcommands, arity decides. Bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker; a key gets; key plus value sets; `--unset` returns to the default; `--global` widens a set or unset to every repo. Storage is plain git config under `fufu.<key>`, so `git config fufu.keep` and fufu never disagree, and precedence is git's own — local over global, environment over both.
+
+The earned existence: git config can't say what settings fufu has, what they default to, or whether a value will parse. Every fufu reader falls back to its default on a value it can't read, so a typo'd `fufu.keep` looks set and does nothing. `ff config` closes that gap — a typed registry (size, duration, command), validation through the same parsers the readers use before anything touches disk, and exit codes that mean something: 0 done, 2 usage or bad value, 1 real failure. Writes are native like everything else: gix's lossless config file, git's own `config.lock` convention, atomic rename, comments preserved. Zero spawns, including the write path.
 
 ## Substrate
 

@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod commit;
+pub mod config;
 pub mod describe;
 pub mod evolog;
 pub mod git;
