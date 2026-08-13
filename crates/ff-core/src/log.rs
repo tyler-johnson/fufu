@@ -33,25 +33,31 @@ pub fn log<'repo>(
 
     let entries = walk.map(|info| -> Result<LogEntry> {
         let info = info.map_err(Error::repo)?;
-        let commit = info.object().map_err(Error::repo)?;
-        let short_id = info.id().shorten().map_err(Error::repo)?.to_string();
-        let author = commit.author().map_err(Error::repo)?;
-        // Safe to rely on commit_time() elsewhere only because we date-sort;
-        // for the entry itself we want the author time, like `git log %at`.
-        let time = author.time().map_err(Error::repo)?.seconds;
-        let subject = commit.message().map_err(Error::repo)?.summary().to_string();
-        Ok(LogEntry {
-            id: info.id.to_string(),
-            short_id,
-            subject,
-            author_name: author.name.to_string(),
-            author_email: author.email.to_string(),
-            time,
-        })
+        entry_for(repo, info.id)
     });
 
     Ok(match opts.limit {
         Some(n) => Box::new(entries.take(n)),
         None => Box::new(entries),
+    })
+}
+
+/// One commit formatted as a log entry — shared by the plain log walk and the
+/// timeline's base rows so both render identically.
+pub(crate) fn entry_for(repo: &gix::Repository, id: gix::ObjectId) -> Result<LogEntry> {
+    use gix::prelude::ObjectIdExt;
+    let commit = repo.find_commit(id).map_err(Error::repo)?;
+    let short_id = id.attach(repo).shorten().map_err(Error::repo)?.to_string();
+    let author = commit.author().map_err(Error::repo)?;
+    // Author time, like `git log %at` (log order is by commit time elsewhere).
+    let time = author.time().map_err(Error::repo)?.seconds;
+    let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+    Ok(LogEntry {
+        id: id.to_string(),
+        short_id,
+        subject,
+        author_name: author.name.to_string(),
+        author_email: author.email.to_string(),
+        time,
     })
 }

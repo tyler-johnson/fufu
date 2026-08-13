@@ -1,6 +1,8 @@
 //! Human-readable rendering: plain rows, no TUI, no color yet.
 
-use ff_core::{ChangeKind, HeadState, LogEntry, Operation, Status, StatusEntry, Upstream};
+use ff_core::{
+    ChangeKind, HeadState, LogEntry, Operation, Status, StatusEntry, TimelineRow, Upstream,
+};
 
 pub fn status_human(status: &Status) -> String {
     let mut out = String::new();
@@ -99,6 +101,43 @@ fn kind_letter(kind: ChangeKind) -> char {
         ChangeKind::Copied => 'C',
         ChangeKind::IntentToAdd => 'I',
     }
+}
+
+/// One timeline row. Snapshot: `<snap7>  <base7|blank>  <age>  <subject>`;
+/// base (HEAD move or anchor): `● <sha7>  <subject> — <age>`. Shared by bare
+/// `ff` and `ff log` so the two never diverge.
+pub fn timeline_row(row: &TimelineRow, now: i64) -> String {
+    match row {
+        TimelineRow::Snapshot(snap) => {
+            let base = snap.base.as_deref().map(short7).unwrap_or_default();
+            format!(
+                "{:<9} {:<8} {:>8}  {}",
+                snap.short_id,
+                base,
+                relative_age(now, snap.time),
+                snap.subject
+            )
+        }
+        TimelineRow::Base(entry) => format!(
+            "● {:<7} {} — {}",
+            entry.short_id,
+            entry.subject,
+            relative_age(now, entry.time)
+        ),
+    }
+}
+
+pub fn timeline_human(rows: &[TimelineRow], now: i64) -> String {
+    let mut out = String::new();
+    for row in rows {
+        out.push_str(&timeline_row(row, now));
+        out.push('\n');
+    }
+    out
+}
+
+fn short7(hex: &str) -> &str {
+    &hex[..hex.len().min(7)]
 }
 
 pub fn log_row(entry: &LogEntry, now: i64) -> String {

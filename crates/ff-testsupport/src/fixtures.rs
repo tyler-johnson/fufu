@@ -78,8 +78,34 @@ impl Fixture {
         self.try_git_in(&self.path(), args)
     }
 
+    /// Run git with extra environment variables (e.g. `GIT_INDEX_FILE`),
+    /// panicking on failure. Advances the fixture clock.
+    pub fn git_env_in(&self, cwd: &Path, args: &[&str], envs: &[(&str, &str)]) -> String {
+        let out = self.try_git_env_in(cwd, args, envs);
+        if !out.status.success() {
+            panic!(
+                "git {:?} (env {:?}) failed with {}\nstdout: {}\nstderr: {}",
+                args,
+                envs,
+                out.status,
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr),
+            );
+        }
+        String::from_utf8(out.stdout).expect("git output is utf-8")
+    }
+
+    /// Set a repository-local config value.
+    pub fn set_config(&self, key: &str, value: &str) {
+        self.git(&["config", key, value]);
+    }
+
     /// Run git with the hermetic environment. Advances the fixture clock.
     pub fn try_git_in(&self, cwd: &Path, args: &[&str]) -> Output {
+        self.try_git_env_in(cwd, args, &[])
+    }
+
+    fn try_git_env_in(&self, cwd: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         self.clock.set(self.clock.get() + 60);
         let date = format!("@{} +0000", self.clock.get());
         let home = self.root.path().join("home");
@@ -101,6 +127,9 @@ impl Fixture {
             .env("GIT_COMMITTER_DATE", &date)
             .env("LC_ALL", "C")
             .env("TZ", "UTC");
+        for (key, value) in envs {
+            cmd.env(key, value);
+        }
         cmd.output().expect("spawn git")
     }
 

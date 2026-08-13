@@ -60,6 +60,9 @@ fn status_and_log_never_spawn() {
         &["status"][..],
         &["log", "--json"][..],
         &["log", "-n", "5"][..],
+        // Bare ff captures natively — the write side is zero-spawn too.
+        &[][..],
+        &["--json"][..],
     ] {
         let out = ff_trapped(&trap, &fx.path(), args);
         assert!(
@@ -87,6 +90,45 @@ fn status_and_log_never_spawn() {
         fx.index_bytes(),
         ".git/index must stay byte-identical"
     );
+}
+
+/// A translated `ff git status` never execs git: capture + translation are
+/// fully native. (Verbatim passthrough forms exec by design — not this test.)
+#[test]
+fn translated_git_status_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "dirty\n");
+    let index_before = fx.index_bytes();
+
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["git", "status"]);
+    assert!(
+        out.status.success(),
+        "ff git status failed under trap PATH: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("ff: tip: that's ff status"),
+        "first translation hints once: {stderr:?}"
+    );
+
+    let again = ff_trapped(&trap, &fx.path(), &["git", "status"]);
+    let stderr = String::from_utf8(again.stderr).unwrap();
+    assert!(!stderr.contains("tip"), "hint prints only once: {stderr:?}");
+
+    assert!(
+        !trap.log.exists(),
+        "translated ff git spawned: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+    assert_eq!(index_before, fx.index_bytes());
+
+    // The capture happened, natively.
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: git status");
 }
 
 /// The trap itself works: anything that does spawn git gets caught.

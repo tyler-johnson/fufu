@@ -1,0 +1,398 @@
+//! Chain mechanics: parent order, identity, one chain per branch, no-op
+//! tiers, reflogs, the gc config guard, and contention behavior.
+
+use ff_core::{Provenance, SnapOutcome, TakeOptions};
+use ff_testsupport::Fixture;
+use ff_testsupport::capture::chain_via_git;
+
+fn take(fx: &Fixture) -> SnapOutcome {
+    let repo = fx.repo();
+    ff_core::take(&repo, &Provenance::new("manual", None)).expect("take")
+}
+
+fn take_created(fx: &Fixture) -> String {
+    match take(fx) {
+        SnapOutcome::Created { id, .. } => id,
+        other => panic!("expected Created, got {other:?}"),
+    }
+}
+
+fn parents_of(fx: &Fixture, id: &str) -> Vec<String> {
+    let out = fx.git(&["rev-list", "--parents", "-n", "1", id]);
+    out.split_whitespace().skip(1).map(str::to_string).collect()
+}
+
+#[test]
+fn parent_order_across_takes() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let base1 = fx.commit("init");
+
+    // First snapshot: parent = HEAD only.
+    fx.write("a.txt", "one\n");
+    let snap1 = take_created(&fx);
+    assert_eq!(parents_of(&fx, &snap1), vec![base1.clone()]);
+
+    // Second: [prev snapshot, HEAD] — order load-bearing.
+    fx.write("a.txt", "two\n");
+    let snap2 = take_created(&fx);
+    assert_eq!(parents_of(&fx, &snap2), vec![snap1.clone(), base1.clone()]);
+
+    // Committing exactly the captured state is a no-op: the head tree now
+    // equals the last snapshot's tree, so there is nothing new to record.
+    let base2 = fx.commit("landed");
+    match take(&fx) {
+        SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, Some(snap2.clone())),
+        other => panic!("expected NoOp after landing the captured state, got {other:?}"),
+    }
+    fx.write("a.txt", "three\n");
+    let snap3 = take_created(&fx);
+    assert_eq!(parents_of(&fx, &snap3), vec![snap2.clone(), base2.clone()]);
+
+    // A clean tree whose commit content no snapshot recorded (tier-1 with a
+    // moved head tree): the take records the post-commit state itself.
+    fx.write("a.txt", "four\n");
+    let base3 = fx.commit("landed again");
+    let snap4 = take_created(&fx);
+    assert_eq!(parents_of(&fx, &snap4), vec![snap3.clone(), base3.clone()]);
+    let snap4_tree = fx.git(&["rev-parse", &format!("{snap4}^{{tree}}")]);
+    let head_tree = fx.git(&["rev-parse", "HEAD^{tree}"]);
+    assert_eq!(snap4_tree, head_tree, "records the post-commit tree");
+
+    // The whole chain bears the fufu identity, and the walk stops at base1.
+    assert_eq!(
+        chain_via_git(&fx, &fx.path()),
+        vec![snap4, snap3, snap2, snap1]
+    );
+}
+
+#[test]
+fn unborn_chain_has_zero_then_one_parent() {
+    let fx = Fixture::new();
+    fx.write("first.txt", "1\n");
+    let snap1 = take_created(&fx);
+    assert!(parents_of(&fx, &snap1).is_empty(), "unborn first snapshot");
+    fx.write("second.txt", "2\n");
+    let snap2 = take_created(&fx);
+    assert_eq!(parents_of(&fx, &snap2), vec![snap1.clone()]);
+    assert_eq!(chain_via_git(&fx, &fx.path()), vec![snap2, snap1]);
+}
+
+#[test]
+fn one_chain_per_branch_and_detached() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let first = fx.commit("init");
+
+    fx.write("a.txt", "main dirty\n");
+    take_created(&fx);
+    fx.git(&["checkout", "-q", "-b", "feat/nested"]);
+    fx.write("a.txt", "feat dirty\n");
+    take_created(&fx);
+    fx.git(&["checkout", "-q", &first]);
+    fx.write("a.txt", "detached dirty\n");
+    take_created(&fx);
+
+    for r in [
+        "refs/fufu/snap/main",
+        "refs/fufu/snap/feat/nested",
+        "refs/fufu/snap/@detached",
+    ] {
+        let out = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
+        assert!(out.status.success(), "missing chain ref {r}");
+    }
+}
+
+fn object_file_count(fx: &Fixture) -> usize {
+    let mut count = 0;
+    let objects = fx.path().join(".git/objects");
+    let mut stack = vec![objects];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            } else {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn tier1_noop_writes_no_objects() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let snap = take_created(&fx);
+
+    // Clean up the dirt so the worktree equals the snapshot? No — the tree is
+    // still dirty relative to HEAD but equal to the snapshot: tier-2 territory.
+    // For tier-1, use a clean tree: check out the state git already has.
+    fx.git(&["checkout", "-q", "--", "a.txt"]);
+    // Worktree now equals HEAD, but the snapshot tip's tree differs (it holds
+    // the dirty state) — this take records the post-restore state.
+    let snap2 = take_created(&fx);
+    assert_ne!(snap, snap2);
+
+    // Now truly clean AND captured: tier-1, zero object writes.
+    let before = object_file_count(&fx);
+    for _ in 0..2 {
+        match take(&fx) {
+            SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, Some(snap2.clone())),
+            other => panic!("expected NoOp, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        object_file_count(&fx),
+        before,
+        "tier-1 no-op must write zero objects"
+    );
+}
+
+#[test]
+fn noop_without_chain_creates_nothing() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    match take(&fx) {
+        SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, None),
+        other => panic!("expected NoOp, got {other:?}"),
+    }
+    let out = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/main"]);
+    assert!(!out.status.success(), "clean tree must not create a chain");
+}
+
+#[test]
+fn reflog_visible_to_git() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "one\n");
+    take_created(&fx);
+    fx.write("a.txt", "two\n");
+    take_created(&fx);
+    let log = fx.git(&["reflog", "show", "refs/fufu/snap/main"]);
+    assert_eq!(log.lines().count(), 2, "two reflog entries: {log:?}");
+    assert!(
+        log.contains("manual"),
+        "reflog message is the subject: {log:?}"
+    );
+}
+
+#[test]
+fn gc_config_written_once_and_preserving() {
+    let fx = Fixture::new();
+    // A hand-written config with a comment that must survive byte-for-byte.
+    let config_path = fx.path().join(".git/config");
+    let mut existing = std::fs::read_to_string(&config_path).unwrap();
+    existing.push_str("# user comment\n[custom]\n\tkey = value\n");
+    std::fs::write(&config_path, &existing).unwrap();
+
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    take_created(&fx);
+
+    let after = std::fs::read_to_string(&config_path).unwrap();
+    assert!(after.contains("# user comment"), "user content preserved");
+    assert!(after.contains("[custom]"), "foreign section preserved");
+    assert_eq!(
+        fx.git(&["config", "gc.refs/fufu/*.reflogExpire"]).trim(),
+        "never"
+    );
+    assert_eq!(
+        fx.git(&["config", "gc.refs/fufu/*.reflogExpireUnreachable"])
+            .trim(),
+        "never"
+    );
+
+    // A second chain creation must not duplicate the section.
+    fx.git(&["checkout", "-q", "-b", "feat"]);
+    fx.write("a.txt", "feat dirty\n");
+    take_created(&fx);
+    let again = std::fs::read_to_string(&config_path).unwrap();
+    assert_eq!(
+        again.matches("reflogExpire = never").count(),
+        1,
+        "no duplicate keys: {again}"
+    );
+    assert_eq!(
+        after, again,
+        "second chain creation leaves config untouched"
+    );
+}
+
+#[test]
+fn gc_config_never_overwrites_user_values() {
+    let fx = Fixture::new();
+    fx.set_config("gc.refs/fufu/*.reflogExpire", "1.day");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    take_created(&fx);
+    assert_eq!(
+        fx.git(&["config", "gc.refs/fufu/*.reflogExpire"]).trim(),
+        "1.day",
+        "user value kept"
+    );
+    assert_eq!(
+        fx.git(&["config", "gc.refs/fufu/*.reflogExpireUnreachable"])
+            .trim(),
+        "never",
+        "missing key appended"
+    );
+}
+
+#[test]
+fn held_lock_reports_contended() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "one\n");
+    take_created(&fx);
+
+    let lock = fx.path().join(".git/refs/fufu/snap/main.lock");
+    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    std::fs::write(&lock, "held by someone else").unwrap();
+
+    fx.write("a.txt", "two\n");
+    let start = std::time::Instant::now();
+    match take(&fx) {
+        SnapOutcome::Contended { r#ref } => assert_eq!(r#ref, "refs/fufu/snap/main"),
+        other => panic!("expected Contended, got {other:?}"),
+    }
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "contention must report promptly, not block"
+    );
+    std::fs::remove_file(&lock).unwrap();
+
+    // After the lock clears, capture resumes and the chain is intact.
+    take_created(&fx);
+    assert_eq!(chain_via_git(&fx, &fx.path()).len(), 2);
+}
+
+/// Two racing captures: losers must report Contended (never error, never
+/// corrupt the chain).
+#[test]
+fn concurrent_takes_never_error() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    for round in 0..4 {
+        fx.write("a.txt", &format!("round {round}\n"));
+        let dir = fx.path();
+        let results: Vec<SnapOutcome> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let dir = dir.clone();
+                    scope.spawn(move || {
+                        let repo = ff_core::discover_isolated(&dir).expect("discover");
+                        ff_core::take_with(
+                            &repo,
+                            &Provenance::new("manual", None),
+                            &TakeOptions::default(),
+                        )
+                        .expect("take must not error under contention")
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert!(
+            results
+                .iter()
+                .any(|r| matches!(r, SnapOutcome::Created { .. } | SnapOutcome::NoOp { .. })),
+            "at least one racer must make progress: {results:?}"
+        );
+    }
+
+    // The chain survived the races as a valid fufu chain.
+    let chain = chain_via_git(&fx, &fx.path());
+    assert!(!chain.is_empty());
+}
+
+#[test]
+fn timeline_interleaves_base_moves_and_anchor() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let base1 = fx.commit("init");
+    fx.write("a.txt", "one\n");
+    let snap1 = take_created(&fx);
+    fx.write("a.txt", "two\n");
+    let snap2 = take_created(&fx);
+    fx.write("a.txt", "three\n");
+    let base2 = fx.commit("landed");
+    fx.write("a.txt", "four\n");
+    let snap3 = take_created(&fx);
+
+    let repo = fx.repo();
+    let rows = ff_core::timeline(&repo, &ff_core::TimelineOptions::default()).expect("timeline");
+    use ff_core::TimelineRow as R;
+    let shape: Vec<String> = rows
+        .iter()
+        .map(|row| match row {
+            R::Snapshot(s) => format!("snap {}", s.id),
+            R::Base(b) => format!("base {}", b.id),
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        vec![
+            format!("snap {snap3}"),
+            format!("base {base2}"), // HEAD moved between snap2 and snap3
+            format!("snap {snap2}"),
+            format!("snap {snap1}"),
+            format!("base {base1}"), // the anchor
+        ]
+    );
+
+    // Snapshot rows carry their edges.
+    let R::Snapshot(s) = &rows[0] else { panic!() };
+    assert_eq!(s.base.as_deref(), Some(base2.as_str()));
+    assert_eq!(s.prev.as_deref(), Some(snap2.as_str()));
+    let R::Snapshot(first) = &rows[3] else {
+        panic!()
+    };
+    assert_eq!(first.prev, None, "oldest snapshot has no prev");
+    assert_eq!(first.base.as_deref(), Some(base1.as_str()));
+
+    // The limit counts snapshot rows; a cut chain gets no anchor.
+    let rows = ff_core::timeline(
+        &repo,
+        &ff_core::TimelineOptions {
+            limit: Some(2),
+            ..Default::default()
+        },
+    )
+    .expect("timeline");
+    let snaps = rows.iter().filter(|r| matches!(r, R::Snapshot(_))).count();
+    assert_eq!(snaps, 2);
+    assert!(
+        !matches!(rows.last(), Some(R::Base(b)) if b.id == base1),
+        "limited walk must not reach the anchor"
+    );
+}
+
+#[test]
+fn snapshot_subject_records_provenance() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    let outcome = ff_core::take(
+        &repo,
+        &Provenance::new("manual", Some("checkpoint   before\nrefactor".into())),
+    )
+    .expect("take");
+    let SnapOutcome::Created { id, .. } = outcome else {
+        panic!("expected Created");
+    };
+    let subject = fx.git(&["log", "-1", "--format=%s", &id]);
+    assert_eq!(subject.trim(), "manual: checkpoint before refactor");
+}

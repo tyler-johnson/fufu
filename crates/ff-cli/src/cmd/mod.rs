@@ -1,2 +1,9 @@
+pub mod git;
+pub mod git_exec;
+pub mod hook;
 pub mod log;
+pub mod restore;
+pub mod shell;
+pub mod snap;
 pub mod status;
+pub mod trim;

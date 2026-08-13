@@ -292,6 +292,7 @@ them as the general movement verb.
 
 | verb | what it does | what it replaces |
 |---|---|---|
+| `ff [-m <msg>]` | take a manual snapshot — bare `ff` is the snapshot verb, jj-style | `wip` commits, stash-as-backup rituals |
 | `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | cut a slice from the capture stream; interactive form picks hunks | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>]` | reword any commit's message; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
@@ -440,9 +441,16 @@ objects, index, status, log); the differential test harness against the git
 binary, which lives forever after; read-only `ff status` and `ff log`. Proves
 the substrate and the zero-spawn budget before anything depends on them.
 
-**Phase 1 — Capture.** Floor 1 rebuilt native: snapshot engine, triggers
-(shell, agents, editors), per-branch timeline, `ff restore`, retention. jog's
-lessons carried over, its code not owed. From here on, nothing can be lost.
+**Phase 1 — Capture.** Floor 1 rebuilt native: the snapshot engine, with bare
+`ff` as the snapshot verb (jj-style — `ff [-m <msg>]` is a manual snapshot,
+and every other ff command captures first); the per-branch timeline
+interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). The
+`ff git` passthrough with its translation whitelist and the recommended
+alias move up from Phase 5: the translation layer grows with the verbs, and
+anything reaching for git grabs fufu instead from day one. Triggers are the
+capture-first commands, the alias, and agent hooks (Claude Code); editor
+integration is deferred until a real need shows up. jog's lessons carried
+over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The op journal and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
@@ -459,9 +467,9 @@ and `ff resolve`. The jj-grade workflow lands here, safe because phases 1–3 ar
 underneath it.
 
 **Phase 5 — Exits and adoption.** `ff push` with lease semantics and the held-
-rewrite guard; `ff git` passthrough with the translation whitelist and the
-recommended alias; install/uninstall; the name and packaging sweep. The tool
-becomes recommendable to someone who isn't its author.
+rewrite guard; the name and packaging sweep. (The `ff git` passthrough and
+alias shipped with Phase 1; by here the translation whitelist has grown with
+every verb.) The tool becomes recommendable to someone who isn't its author.
 
 **Phase 6 — Git-free.** The long tail moves native — fetch/push, checkout
 through filters, hooks exec'd by fufu — until the git binary is an optional

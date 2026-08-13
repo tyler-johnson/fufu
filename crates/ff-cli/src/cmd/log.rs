@@ -1,9 +1,57 @@
-use ff_core::{Error, LogOptions, Result};
+use ff_core::{Error, LogOptions, Result, TimelineOptions, TimelineRow};
 
-pub fn run(json: bool, count: usize) -> Result<()> {
+pub fn run(json: bool, count: usize, commits: bool) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff());
+    run_inner(json, count, commits)
+}
+
+/// Default view: the interleaved timeline when the branch has snapshots,
+/// otherwise the plain commits view (a fresh clone looks unchanged).
+/// `--commits` forces the commits view and keeps Phase 0's exact JSON shape.
+pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     let mut repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
-    let entries = ff_core::log(&mut repo, &LogOptions { limit })?;
+
+    if !commits_only {
+        let rows = ff_core::timeline(
+            &repo,
+            &TimelineOptions {
+                limit,
+                ..Default::default()
+            },
+        )?;
+        if rows
+            .iter()
+            .any(|row| matches!(row, TimelineRow::Snapshot(_)))
+        {
+            if json {
+                let commits: Vec<_> =
+                    ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;
+                let body = serde_json::to_string(
+                    &serde_json::json!({ "commits": commits, "timeline": rows }),
+                )
+                .map_err(Error::repo)?;
+                println!("{body}");
+            } else {
+                let now = now_secs();
+                for row in &rows {
+                    println!("{}", crate::render::timeline_row(row, now));
+                }
+            }
+            return Ok(());
+        }
+    }
+
+    commits_view(&mut repo, json, limit)
+}
+
+/// Phase 0's commits view, byte-stable: `{"commits":[...]}`.
+fn commits_view(
+    repo: &mut ff_core::gix::Repository,
+    json: bool,
+    limit: Option<usize>,
+) -> Result<()> {
+    let entries = ff_core::log(repo, &LogOptions { limit })?;
     if json {
         let commits: Vec<_> = entries.collect::<Result<_>>()?;
         // Envelope object so future fields can be added without breaking consumers.
@@ -11,14 +59,18 @@ pub fn run(json: bool, count: usize) -> Result<()> {
             .map_err(Error::repo)?;
         println!("{body}");
     } else {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+        let now = now_secs();
         for entry in entries {
             let entry = entry?;
             println!("{}", crate::render::log_row(&entry, now));
         }
     }
     Ok(())
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }

@@ -130,10 +130,13 @@ fn log_defaults_to_25() {
 #[test]
 fn log_unborn_is_empty_success() {
     let fx = Fixture::new();
-    let out = ff(&fx, &["log", "--json"]);
+    let out = ff(&fx, &["log", "--commits", "--json"]);
     assert!(out.status.success(), "unborn log exits 0");
     assert_eq!(stdout(&out), "{\"commits\":[]}\n");
-    let human = ff(&fx, &["log"]);
+    // The default view falls back to commits when no chain exists.
+    let out = ff(&fx, &["log", "--json"]);
+    assert_eq!(stdout(&out), "{\"commits\":[]}\n");
+    let human = ff(&fx, &["log", "--commits"]);
     assert!(human.status.success());
     assert_eq!(stdout(&human), "", "unborn human log prints nothing");
 }
@@ -163,10 +166,242 @@ fn usage_errors_exit_2() {
     let fx = Fixture::new();
     let unknown_flag = ff(&fx, &["status", "--nope"]);
     assert_eq!(unknown_flag.status.code(), Some(2));
-    let no_command = ff(&fx, &[]);
-    assert_eq!(no_command.status.code(), Some(2));
+    // Bare-ff args conflict with subcommands: `ff -m x status` is nonsense.
+    let mixed = ff(&fx, &["-m", "msg", "status"]);
+    assert_eq!(mixed.status.code(), Some(2));
     let bad_count = ff(&fx, &["log", "-n", "many"]);
     assert_eq!(bad_count.status.code(), Some(2));
+}
+
+#[test]
+fn bare_ff_snapshots_and_noops() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+
+    let out = ff(&fx, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(
+        text.starts_with("snapshot ") && text.contains(" on main\n"),
+        "created line: {text:?}"
+    );
+    // The top of the timeline follows after a blank line.
+    assert!(text.contains("\n\n"), "blank separator: {text:?}");
+    assert!(
+        text.contains("manual"),
+        "timeline shows the snapshot: {text:?}"
+    );
+
+    let chain = fx.git(&["rev-parse", "--verify", "refs/fufu/snap/main"]);
+    assert!(!chain.trim().is_empty());
+
+    let again = ff(&fx, &[]);
+    assert_eq!(
+        stdout(&again),
+        "no changes since the last snapshot on main\n"
+    );
+}
+
+#[test]
+fn bare_ff_json_shapes() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+
+    let out = ff(&fx, &["--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["outcome"], "created");
+    assert_eq!(v["branch"], "main");
+    assert!(
+        v["id"]
+            .as_str()
+            .unwrap()
+            .starts_with(v["short_id"].as_str().unwrap())
+    );
+
+    let again = ff(&fx, &["--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&again)).unwrap();
+    assert_eq!(v["outcome"], "noop");
+    assert_eq!(v["branch"], "main");
+}
+
+#[test]
+fn bare_ff_message_becomes_subject() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let out = ff(&fx, &["-m", "before the refactor"]);
+    assert!(out.status.success());
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "manual: before the refactor");
+}
+
+#[test]
+fn status_and_log_capture_first() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: ff status");
+
+    fx.write("a.txt", "more dirt\n");
+    let out = ff(&fx, &["log"]);
+    assert!(out.status.success());
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: ff log");
+}
+
+#[test]
+fn log_timeline_interleaves_and_json_envelopes() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "one\n");
+    assert!(ff(&fx, &[]).status.success());
+    fx.write("a.txt", "two\n");
+    fx.commit("landed");
+    fx.write("a.txt", "three\n");
+    assert!(ff(&fx, &[]).status.success());
+
+    // Human timeline: snapshot rows plus base rows (● prefix).
+    let out = ff(&fx, &["log"]);
+    let text = stdout(&out);
+    assert!(text.contains("manual"), "snapshot rows present: {text:?}");
+    assert!(text.contains("● "), "base rows present: {text:?}");
+
+    // Timeline JSON envelope carries both keys.
+    let out = ff(&fx, &["log", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert!(v["commits"].is_array());
+    let timeline = v["timeline"].as_array().unwrap();
+    assert!(
+        timeline
+            .iter()
+            .any(|row| row["kind"] == "snapshot" && !row["id"].is_null()),
+        "snapshot rows serialize the core model: {timeline:?}"
+    );
+    assert!(
+        timeline.iter().any(|row| row["kind"] == "base"),
+        "base rows present: {timeline:?}"
+    );
+
+    // --commits --json keeps the exact Phase 0 envelope.
+    let out = ff(&fx, &["log", "--commits", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert!(v["commits"].is_array());
+    assert!(
+        v.get("timeline").is_none(),
+        "no timeline key in commits view"
+    );
+    // On a tree with uncaptured changes the newest row is the log's own
+    // pre-capture — intended, jj-like.
+    fx.write("a.txt", "uncaptured\n");
+    let out = ff(&fx, &["log"]);
+    assert!(stdout(&out).contains("pre: ff log"));
+}
+
+#[test]
+fn restore_requires_paths_or_all() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["restore"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "paths XOR --all is a usage error"
+    );
+    let out = ff(&fx, &["restore", "--all", "some/path"]);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn restore_round_trip_with_undo_hint() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    assert!(ff(&fx, &[]).status.success());
+    fx.write("a.txt", "diverged\n");
+
+    let out = ff(&fx, &["restore", "--all"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.starts_with("restored to "), "header: {text:?}");
+    assert!(text.contains("restored  a.txt"), "file list: {text:?}");
+    assert!(
+        text.trim_end().ends_with("undo: ff restore --all"),
+        "undo hint: {text:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "captured\n"
+    );
+
+    // The undo hint works: restore --all again returns to the diverged state
+    // (captured by restore's own mandatory pre-snapshot).
+    let out = ff(&fx, &["restore", "--all"]);
+    assert!(out.status.success());
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "diverged\n"
+    );
+}
+
+#[test]
+fn restore_json_shape() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    assert!(ff(&fx, &[]).status.success());
+    fx.write("a.txt", "diverged\n");
+
+    let out = ff(&fx, &["restore", "--all", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert!(v["target"]["id"].is_string());
+    assert_eq!(v["restored"][0], "a.txt");
+    assert_eq!(v["undo"], "ff restore --all");
+    assert!(
+        v["pre_snapshot"].is_string(),
+        "pre-restore snapshot recorded"
+    );
+}
+
+#[test]
+fn trim_reports_and_dry_runs() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "fresh\n");
+    assert!(ff(&fx, &[]).status.success());
+
+    let out = ff(&fx, &["trim"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("main: nothing to drop"),
+        "fresh chains report kept counts: {text:?}"
+    );
+
+    let out = ff(&fx, &["trim", "--dry-run", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["dry_run"], true);
+    assert_eq!(v["chains"][0]["branch"], "main");
+    assert_eq!(v["chains"][0]["dropped"], 0);
 }
 
 #[test]

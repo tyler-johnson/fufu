@@ -2,7 +2,11 @@ pub mod error;
 mod head;
 mod log;
 pub mod model;
+mod restore;
+pub mod snapshot;
 mod status;
+mod timeline;
+mod trim;
 mod upstream;
 
 use std::path::Path;
@@ -14,7 +18,11 @@ pub use error::{Error, Result};
 pub use head::{head_state, operation};
 pub use log::{LogOptions, log};
 pub use model::*;
+pub use restore::{RestoreOptions, RestoreTarget, parse_target, restore};
+pub use snapshot::{Provenance, TakeOptions, take, take_with};
 pub use status::status;
+pub use timeline::{TimelineOptions, timeline};
+pub use trim::{TrimOptions, trim};
 pub use upstream::upstream;
 
 /// Verifying the index trailer SHA-1 on every read costs ~2ms on a 5k-file

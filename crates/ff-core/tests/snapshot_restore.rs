@@ -1,0 +1,358 @@
+//! Restore contract: worktree-only writes, mandatory pre-snapshot, target
+//! grammar, round-trips, and refusals.
+
+use ff_core::{Provenance, RestoreOptions, SnapOutcome};
+use ff_testsupport::Fixture;
+
+fn take_created(fx: &Fixture) -> String {
+    let repo = fx.repo();
+    match ff_core::take(&repo, &Provenance::new("manual", None)).expect("take") {
+        SnapOutcome::Created { id, .. } => id,
+        other => panic!("expected Created, got {other:?}"),
+    }
+}
+
+fn restore_all(fx: &Fixture, target: Option<&str>) -> ff_core::RestoreReport {
+    let repo = fx.repo();
+    ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: target.map(String::from),
+            paths: Vec::new(),
+            all: true,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore --all".into())),
+    )
+    .expect("restore")
+}
+
+/// Restore --all to a target, then take: the take must be a no-op against
+/// the target's tree — the worktree matches the snapshot exactly.
+#[test]
+fn round_trip_restore_then_take_is_target_tree() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.write("dir/b.txt", "b\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured state\n");
+    fx.write("dir/new.txt", "captured untracked\n");
+    let snap = take_created(&fx);
+
+    // Mutate: change, add, delete.
+    fx.write("a.txt", "diverged\n");
+    fx.write("extra.txt", "should disappear\n");
+    fx.remove("dir/new.txt");
+
+    let report = restore_all(&fx, Some(&snap[..7]));
+    assert_eq!(report.target.id, snap);
+    assert!(
+        report.pre_snapshot.is_some(),
+        "pre-restore snapshot happened"
+    );
+
+    // Worktree content matches the snapshot.
+    let a = std::fs::read_to_string(fx.path().join("a.txt")).unwrap();
+    assert_eq!(a, "captured state\n");
+    let new = std::fs::read_to_string(fx.path().join("dir/new.txt")).unwrap();
+    assert_eq!(new, "captured untracked\n");
+    assert!(!fx.path().join("extra.txt").exists(), "extra file deleted");
+
+    // A fresh take now equals the target's tree.
+    let repo = fx.repo();
+    let outcome = ff_core::take(&repo, &Provenance::new("manual", None)).expect("take");
+    let tree_of = |id: &str| {
+        fx.git(&["rev-parse", &format!("{id}^{{tree}}")])
+            .trim()
+            .to_string()
+    };
+    match outcome {
+        SnapOutcome::Created { id, .. } => assert_eq!(tree_of(&id), tree_of(&snap)),
+        SnapOutcome::NoOp { tip: Some(tip), .. } => assert_eq!(tree_of(&tip), tree_of(&snap)),
+        other => panic!("unexpected outcome {other:?}"),
+    }
+}
+
+#[test]
+fn index_and_head_untouched() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    fx.write("staged.txt", "staged\n");
+    fx.git(&["add", "staged.txt"]);
+    let snap = take_created(&fx);
+    fx.write("a.txt", "diverged\n");
+
+    let index_before = fx.index_bytes();
+    let head_before = fx.git(&["rev-parse", "HEAD"]);
+    restore_all(&fx, Some(&snap));
+    assert_eq!(fx.index_bytes(), index_before, "index byte-identical");
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD"]),
+        head_before,
+        "HEAD untouched"
+    );
+    let branch = fx.git(&["symbolic-ref", "HEAD"]);
+    assert_eq!(branch.trim(), "refs/heads/main");
+}
+
+#[test]
+fn ignored_files_untouched() {
+    let fx = Fixture::new();
+    fx.write(".gitignore", "cache/\n");
+    fx.commit("init");
+    fx.write("tracked.txt", "captured\n");
+    let snap = take_created(&fx);
+    fx.write("tracked.txt", "diverged\n");
+    fx.write("cache/scratch.bin", "ignored bytes");
+
+    restore_all(&fx, Some(&snap));
+    assert!(
+        fx.path().join("cache/scratch.bin").exists(),
+        "ignored files are invisible to capture, so restore never deletes them"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("tracked.txt")).unwrap(),
+        "captured\n"
+    );
+}
+
+#[test]
+fn emptied_directories_are_pruned() {
+    let fx = Fixture::new();
+    fx.write("keep.txt", "k\n");
+    fx.commit("init");
+    let snap = take_created_after(&fx, || fx.write("keep.txt", "captured\n"));
+    fx.write("deep/nested/only.txt", "temporary\n");
+    restore_all(&fx, Some(&snap));
+    assert!(
+        !fx.path().join("deep").exists(),
+        "emptied parent dirs pruned bottom-up"
+    );
+}
+
+fn take_created_after(fx: &Fixture, mutate: impl FnOnce()) -> String {
+    mutate();
+    take_created(fx)
+}
+
+#[test]
+fn path_scoped_restore_leaves_the_rest() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.write("dir/b.txt", "b\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured a\n");
+    fx.write("dir/b.txt", "captured b\n");
+    let snap = take_created(&fx);
+    fx.write("a.txt", "diverged a\n");
+    fx.write("dir/b.txt", "diverged b\n");
+
+    let repo = fx.repo();
+    let report = ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: Some(snap.clone()),
+            paths: vec!["dir".into()],
+            all: false,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore dir".into())),
+    )
+    .expect("restore");
+    assert_eq!(report.restored, vec!["dir/b.txt".to_string()]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("dir/b.txt")).unwrap(),
+        "captured b\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "diverged a\n",
+        "unselected paths stay diverged"
+    );
+}
+
+#[test]
+fn target_grammar_resolves() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "one\n");
+    let snap1 = take_created(&fx);
+    fx.write("a.txt", "two\n");
+    let snap2 = take_created(&fx);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    // Default: newest.
+    use ff_core::RestoreTarget;
+    assert_eq!(
+        ff_core::parse_target(None, now).unwrap(),
+        RestoreTarget::Newest
+    );
+    // Hex prefix.
+    assert_eq!(
+        ff_core::parse_target(Some(&snap1[..7]), now).unwrap(),
+        RestoreTarget::Id(snap1[..7].to_string())
+    );
+    // @{n}.
+    assert_eq!(
+        ff_core::parse_target(Some("@{1}"), now).unwrap(),
+        RestoreTarget::Back(1)
+    );
+    // Compact ages.
+    assert_eq!(
+        ff_core::parse_target(Some("30m"), now).unwrap(),
+        RestoreTarget::AtTime(now - 1800)
+    );
+    assert_eq!(
+        ff_core::parse_target(Some("2h"), now).unwrap(),
+        RestoreTarget::AtTime(now - 7200)
+    );
+
+    // @{1} restores the previous snapshot's state.
+    fx.write("a.txt", "diverged\n");
+    let report = restore_all(&fx, Some("@{1}"));
+    assert_eq!(report.target.id, snap1);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "one\n"
+    );
+    let _ = snap2;
+}
+
+#[test]
+fn refuses_non_fufu_targets() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let head = fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    take_created(&fx);
+
+    let repo = fx.repo();
+    let err = ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: Some(head.clone()),
+            paths: Vec::new(),
+            all: true,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore".into())),
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("not a fufu snapshot")
+            || err.to_string().contains("no snapshot matching"),
+        "refusal names the problem: {err}"
+    );
+}
+
+#[test]
+fn contended_pre_snapshot_aborts_before_writing() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    let snap = take_created(&fx);
+    fx.write("a.txt", "diverged\n");
+
+    // Hold the chain lock: the mandatory pre-snapshot must hit Contended.
+    let lock = fx.path().join(".git/refs/fufu/snap/main.lock");
+    std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    std::fs::write(&lock, "held").unwrap();
+
+    let repo = fx.repo();
+    let err = ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: Some(snap),
+            paths: Vec::new(),
+            all: true,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore --all".into())),
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("concurrent"),
+        "contended abort: {err}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "diverged\n",
+        "nothing was written"
+    );
+}
+
+#[test]
+fn no_chain_means_nothing_to_restore() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let repo = fx.repo();
+    let err = ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: None,
+            paths: Vec::new(),
+            all: true,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore --all".into())),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("no snapshots"), "{err}");
+}
+
+#[test]
+fn untracked_files_survive_because_diff_is_target_vs_snapshot() {
+    // The load-bearing subtlety: the write diff is target ↔ fresh snapshot,
+    // never target ↔ worktree. An untracked file present in both states
+    // simply isn't in the diff.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    fx.write("untracked.txt", "present in the snapshot too\n");
+    let snap = take_created(&fx);
+    fx.write("a.txt", "diverged\n");
+
+    restore_all(&fx, Some(&snap));
+    assert!(
+        fx.path().join("untracked.txt").exists(),
+        "untracked-but-captured file untouched"
+    );
+}
+
+#[test]
+fn symlink_and_exec_bit_restore() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fixture::new();
+    fx.write("target.txt", "t\n");
+    fx.commit("init");
+    fx.write("run.sh", "#!/bin/sh\n");
+    let sh = fx.path().join("run.sh");
+    let mut perms = std::fs::metadata(&sh).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&sh, perms).unwrap();
+    std::os::unix::fs::symlink("target.txt", fx.path().join("link")).unwrap();
+    let snap = take_created(&fx);
+
+    fx.remove("run.sh");
+    fx.remove("link");
+    restore_all(&fx, Some(&snap));
+
+    let md = std::fs::metadata(fx.path().join("run.sh")).unwrap();
+    assert_eq!(md.permissions().mode() & 0o111, 0o111, "exec bit restored");
+    let link_md = std::fs::symlink_metadata(fx.path().join("link")).unwrap();
+    assert!(link_md.is_symlink(), "symlink recreated as a symlink");
+    assert_eq!(
+        std::fs::read_link(fx.path().join("link")).unwrap(),
+        std::path::PathBuf::from("target.txt")
+    );
+}

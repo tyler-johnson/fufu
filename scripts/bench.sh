@@ -105,6 +105,60 @@ echo new > untracked.txt
 run_suite
 
 echo
+echo "== snapshot (bare ff is the verb) =="
+# The dirty state above was already captured by the ff status rows
+# (capture-first), so repeated bare ff here is the tier-2 no-op steady state:
+# full scan + rehash of the dirty files + tree build, ref untouched.
+row "ff (tier-2 dirty no-op)" "$FF"
+row "git status --porcelain (floor)" git --no-optional-locks status --porcelain
+run_rows
+
+# Create: each run records a genuinely new state, so runs are timed one at a
+# time around a fresh mutation. Budget: tier-2 + 3ms.
+iters=10
+total=0
+for i in $(seq $iters); do
+    echo "create $i" >> dir0/f0.txt
+    s=$(date +%s%N)
+    "$FF" > /dev/null
+    e=$(date +%s%N)
+    total=$((total + e - s))
+done
+awk -v ns="$total" -v c="$iters" \
+    'BEGIN { printf "%-34s %8.2f ms/run\n", "ff (create, 1 modified file)", ns / c / 1e6 }'
+
+# Tier-1: clean tree whose state the chain already holds — the scan proves
+# emptiness and nothing else runs. Commit the bench dirt so the cache tree is
+# valid again (checkout would invalidate it and degrade every scan equally).
+# Budget: ff status + 1ms.
+git add -A
+git commit -qm "bench steady state"
+touch -t 202001010000.00 dir0/f0.txt untracked.txt
+"$FF" > /dev/null
+row "ff (tier-1 clean no-op)" "$FF"
+row "ff status (reference)" "$FF" status
+run_rows
+
+echo
+echo "== first capture of a 5000-file untracked tree (filter-pipeline probe) =="
+PROBE="$WORK/probe"
+mkdir -p "$PROBE"
+cd "$PROBE"
+git init -q -b main
+for d in $(seq 0 49); do
+    mkdir -p "pd$d"
+    for f in $(seq 0 99); do
+        echo "probe $d $f" > "pd$d/f$f.txt"
+    done
+done
+s=$(date +%s%N)
+"$FF" > /dev/null
+e=$(date +%s%N)
+awk -v ns=$((e - s)) \
+    'BEGIN { printf "%-34s %8.2f ms (one shot)\n", "ff (5000 untracked, first snap)", ns / 1e6 }'
+cd "$REPO"
+
+echo
 echo "== log -n 25 =="
 row "git log -25 (floor)" git --no-optional-locks log -25 --format='%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s'
 row "ff log -n 25" "$FF" log -n 25
