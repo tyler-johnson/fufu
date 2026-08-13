@@ -32,3 +32,12 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Local dogfood builds: release semantics without the LTO link cost.
+# Separate target dir (target/dogfood), so it never thrashes the pristine
+# fat-LTO target/release that benches and shipping use.
+[profile.dogfood]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+incremental = true
