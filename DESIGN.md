@@ -165,6 +165,64 @@ changes carry over or the switch is refused — and any parked entry simply wait
 visible in `git stash list`. Conflict risk on foreign moves is expected (the two
 regimes); the capture floor holds the safety copy regardless.
 
+**The open change.** jj makes the working copy a literal commit, eagerly created
+empty and continuously amended. fufu keeps the guarantee and drops the object:
+the working tree *is* the open change, its history is the capture chain, and no
+commit exists until the change closes. `ff commit` is the close — build the
+tree (`add -A` semantics), write the commit, the branch advances, status is
+clean. A clean tree makes the close a no-op: **no empty commit is ever
+created** — jj's placeholder commits are exactly the kind of state a boring
+repository shouldn't contain. Descriptions are two-phase: `ff commit -m`
+describes the change being closed, `ff new -m` the change being opened — a
+pending description parked per branch until its close; bare `ff describe`
+edits it, `ff describe <rev>` rewords what's already closed. An undescribed
+close is legal ("(no description)", jj-style); hygiene enforces at the exit,
+where `ff push` flags undescribed commits rather than letting them past the
+boundary.
+
+`ff new` is composition, not a primitive: with no target it is the close
+itself, differing from `ff commit` only in what `-m` names; with a target it
+is `ff switch <target>` then the close — park here, arrive there (resuming the
+target's parked change, if any), seal what was open, and the next change
+begins on a clean slate. Nothing to seal → the switch happens and the close
+no-ops. `ff edit` sits adjacent: it targets *commits* (a session), `ff switch`
+targets *branches*, and `ff edit <branch>` is accepted as a convenience that
+simply behaves as `ff switch`.
+
+**Branches without ceremony.** Every head is a real ref under `refs/heads/`
+from the moment it exists — HEAD never detaches, and branches auto-move as
+commits land, because that is git's own behavior once HEAD is attached
+(contrast jj's bookmarks, which sit still until told). Work doesn't wait for a
+name: a `ff new` target that forks the graph mints an **anonymous branch** — a
+real branch with a generated name under a reserved prefix (`ff/quiet-lake`) —
+and `ff branch <name>` claims it later: a rename that carries the capture
+chain, the parked entry, and fufu's metadata along, which is the part a bare
+`git branch -m` would orphan. A `-b <name>` flag rides the change verbs
+on the same axis as `-m`: on `ff describe` it always *renames* — the claim,
+made inline, and the one form that renames proper names too. On `ff new` and
+`ff commit` it names the branch the change lands on, and the reserved prefix
+makes the meaning decidable rather than guessed: a placeholder — fufu-named,
+or a fork about to be minted — is claimed in place, while a branch the user
+deliberately named is never renamed implicitly, so a fresh branch is created
+instead. Thus `ff commit -b` on a named branch lands the closing change on the
+new branch and leaves the current one where it stands (the "this shouldn't go
+on main" rescue); `ff new -b` opens the next change on it (`switch -c` without
+the ceremony); and either verb on a placeholder simply names the line you were
+already on. Creating a branch never moves the branch it forks from: the old
+branch keeps its tip — advanced only by its own change's close, never by the
+new branch's commits. A `-b` name that already exists is an error, never a
+reuse. To every foreign tool an anonymous branch is
+ordinary; no push refspec matches it by accident, and naming one is the
+natural "this is real now" gesture at the publish boundary.
+
+Target resolution never guesses. A branch name — or the tip of exactly one
+branch — continues that branch. A tip shared by several branches is an error
+naming them (say which). Anything else — a commit with children, mid-stack, a
+historical sha — forks. Git permits no divergence inside one ref and no
+`foo/2` beside `foo` (a ref is a file, and can't also be a directory), so
+every fork is its own ref; "forked from main" is metadata recorded at fork
+time and shown at display time, never encoded in the name.
+
 **Whole-repo undo.** Git has per-ref reflogs but no operation log. Every fufu
 operation journals all refs plus the tree state; `ff undo` restores both together.
 One timeline for the repository. Because fufu is the primary interface, the journal
@@ -200,9 +258,29 @@ plain git a session is nothing more exotic than a dirty working tree on the
 branch, abandoning fufu mid-session leaves exactly that, and the capture floor
 holds the tip state regardless.
 
-**Land-if-clean automation.** Operations attempt themselves speculatively. Clean →
-refs move, status says so afterward. Not clean → nothing is touched and the
-operation becomes a **held rewrite** (below). Per-branch policy chooses the rung:
+A session must end — `ff done` is the only place the amend-and-restack fires —
+but ending it is not always the user's chore. Any verb that needs the branch
+to move on treats an open session as land-if-clean automation: `ff new` or
+`ff commit`, mid-session or arriving back at a branch whose session was
+parked, attempts `ff done` speculatively first. Clean → the edit lands,
+descendants restack, the verb proceeds, and status says what happened.
+Conflicting → the verb stops *in* the session: the session state is
+materialized (back onto the edited commit's content, if you'd switched away)
+and fufu says exactly what's going on — editing which commit, conflicting
+where — with the exits listed: finish and `ff done`, `ff resolve`, abandon,
+or switch away to defer again. This is not automation guessing intent:
+`ff edit` declared the operation, `done` is its bookend, and finishing a
+declared operation when finishing is free is the floor's theme again — just
+work when it can just work, stop for the user when it can't. `ff switch`
+remains the deliberate "later": leaving a branch parks the session, note
+included, like any dirty state, and status pins it until return. An explicit
+abandon (`ff done --abandon`) drops the session and restores the parked tip;
+the session's edits stay in the capture chain regardless.
+
+**Land-if-clean automation.** The theme of the whole floor: **just work when it
+can just work; stop for the user only when it can't.** Operations attempt
+themselves speculatively. Clean → refs move, status says so afterward. Not
+clean → nothing is touched and the operation becomes a **held rewrite** (below). Per-branch policy chooses the rung:
 report only, offer, or fully automatic. Auto-rebase never chains into anything
 outward-facing (never auto-push): textually clean is not semantically clean, and
 the status line saying "auto-rebased onto main" is safety information, not
@@ -294,13 +372,13 @@ them as the general movement verb.
 |---|---|---|
 | `ff [-m <msg>]` | take a manual snapshot — bare `ff` is the snapshot verb, jj-style | `wip` commits, stash-as-backup rituals |
 | `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
-| `ff commit` | cut a slice from the capture stream; interactive form picks hunks | the `add`/index two-phase ritual (which still works, for those who want it) |
-| `ff describe [<rev>]` | reword any commit's message; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
-| `ff new <name>` | start a new line of work: branch from trunk (or `--from <rev>`) and arrive on it, departing state parked by tree memory | `git switch -c` + the stash dance |
+| `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
+| `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
+| `ff new [<rev>] [-m <msg>] [-b <name>]` | start the next change: the close alone, or `ff switch` + close with a target; `-m` describes the change being *opened*, `-b` opens it on a new branch; forking targets mint anonymous branches (or take `-b`'s name); never an empty commit | `git switch -c` + the stash dance |
 | `ff switch` | branch switch with tree memory | `stash` dances |
-| `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware | `git branch` bookkeeping |
+| `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, capture chain and parked state carried along | `git branch` bookkeeping |
 | `ff absorb` | fold working changes into the stack commits they belong to (`--into <rev>` aims a specific one); descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
-| `ff edit <rev>` | editing session on any commit: parks tip state, materializes `<rev>`'s tree, HEAD never moves | detached-HEAD `rebase -i` edit dances |
+| `ff edit <rev>` | editing session on any commit: parks tip state, materializes `<rev>`'s tree, HEAD never moves; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
 | `ff done` | finish the current session (`edit` or `resolve`): absorb the edits, restack in memory, land, return to tip | `rebase --continue` ceremony |
 | `ff sync` | fetch; speculatively rebase onto main; land if clean, hold if not | manual rebase-onto-main ceremony |
 | `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
@@ -417,7 +495,9 @@ fufu over time or waits for a machine that has git.
   (own store, git as backend) and its consequences (detached HEAD, conflicted
   commits as objects, git demoted).
 - **git-branchless / Sapling** — proved undo, smartlog, and restack over git
-  storage, but drift toward anonymous heads: jj's paradigm again.
+  storage, but drift toward anonymous heads: jj's paradigm again. (fufu's
+  anonymous *branches* are the opposite corner — heads that are real refs from
+  birth, merely not yet named.)
 - **Graphite** — stays on named branches ("needs restack" is its vocabulary, which
   held rewrites deliberately echo) but solves only stacking, with no capture layer
   underneath.
@@ -454,8 +534,10 @@ over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The op journal and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
-tree memory via driven stash — `ff switch`, `ff new`, `ff branch` — and
-`ff commit` cutting slices from the stream. The daily driver exists after this phase.
+tree memory via driven stash — `ff switch`, `ff new`, `ff branch`, anonymous
+branches and the claim-rename — and `ff commit` closing the open change (fufu's
+first index write: a close must leave `.git/index` matching the new HEAD, or
+foreign `git status` shows phantom changes). The daily driver exists after this phase.
 
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
 reporting futures, not just facts; the ambient shell channel speaks at pause
@@ -485,6 +567,10 @@ a working development machine.
 - **Tree memory residuals** — same branch checked out in two worktrees; parked
   entries orphaned by foreign branch deletion; whether to set `status.showStash`
   so plain `git status` mentions parked work.
+- **Anonymous-branch hygiene** — unnamed branches accumulate; whether
+  `ff branch` segregates them in listings and offers a tidy of merged or
+  abandoned ones; the generated-name scheme; where the pending description and
+  fork-base metadata live.
 - **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an
   entry rewritten outside fufu is invalidated, loudly); pruning cadence and the
   map's ref representation are not.
@@ -498,11 +584,12 @@ a working development machine.
 - **Resolution absorb-back edges** — edits outside any marked region during
   `ff resolve` need an owner (nearest region's step, or ask); when nested
   markers should trigger the recommendation to fall back to `--step`.
-- **Edit-session boundaries** — while an `ff edit` session is open: what a
-  foreign switch or commit does to it; how capture attributes mid-session
-  snapshots (to the target commit, not the tip); whether editing a published
-  commit warns or refuses; and how a conflicting `ff done` restack composes
-  with the parked tip state.
+- **Edit-session boundaries** — fufu's own verbs are settled (close verbs
+  attempt `done` land-if-clean; `ff switch` parks the session; explicit
+  abandon), but: what a *foreign* switch or commit does to an open session;
+  how capture attributes mid-session snapshots (to the target commit, not the
+  tip); whether editing a published commit warns or refuses; and how a
+  session-turned-held-rewrite composes with the parked tip state.
 - **Undo across foreign events** — a reconciled foreign mutation becomes a
   journal entry; whether `ff undo` reverts it like any other (probably yes,
   labeled as foreign), and how that's disclosed.
