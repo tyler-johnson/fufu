@@ -107,6 +107,70 @@ fn close_then_undo_is_identity_and_undo_undo_is_redo() {
 }
 
 #[test]
+fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
+    // The common real-world shape: an agent/shell hook snapshots the dirty
+    // tree moments before `ff commit`, so the close's own capture-first
+    // snapshot no-ops. The journal entry must still carry the pre-verb state
+    // (the chain tip that already holds it), and undo must reopen the
+    // change — modified AND untracked files — not check out a clean tree at
+    // the parent.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "the change\n");
+    fx.write("new.txt", "untracked\n");
+
+    let repo = fx.repo();
+    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    // The hook's snapshot captures the dirty state onto the chain first.
+    let snap = ff_core::take_with(
+        &repo,
+        &ff_core::Provenance::new("claude", Some("hook".into())),
+        &ff_core::TakeOptions {
+            now: Some(NOW - 5),
+            max_file_size: None,
+        },
+    )
+    .unwrap();
+    assert!(matches!(snap, ff_core::SnapOutcome::Created { .. }));
+    let before = world_state(&fx);
+
+    let (outcome, ctx) = ff_core::close(
+        &repo,
+        &CloseOptions {
+            message: Some("landed".into()),
+            now: Some(NOW),
+            argv: Vec::new(),
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+    let CommitOutcome::Closed { .. } = outcome else {
+        panic!("expected close");
+    };
+    assert!(
+        ctx.pre_snapshot.is_some(),
+        "a no-op capture must still surface the chain tip as the pre-verb snapshot"
+    );
+
+    let report = run_undo(&fx, None);
+    assert!(report.target_summary.contains("landed"));
+    assert_eq!(world_state(&fx), before, "close→undo = identity");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "the change\n",
+        "dirty worktree restored"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("new.txt")).unwrap(),
+        "untracked\n",
+        "untracked file restored"
+    );
+}
+
+#[test]
 fn switch_then_undo_returns_with_the_parked_change_reopened() {
     let fx = Fixture::new();
     fx.write("shared.txt", "base\n");

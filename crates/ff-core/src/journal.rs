@@ -633,7 +633,10 @@ pub fn read_ops(repo: &gix::Repository, limit: usize) -> Result<Vec<OpEntry>> {
 /// journal-pinned.
 pub struct VerbContext {
     pub now: i64,
-    /// The pre-verb snapshot, when one was created (clean tree = none).
+    /// A snapshot commit whose tree IS the pre-verb worktree: freshly
+    /// created, or the chain tip that already captured the identical state
+    /// (hooks snapshot constantly, so the no-op case is the common one).
+    /// `None` only when the worktree matches HEAD and no chain tip exists.
     pub pre_snapshot: Option<String>,
     pub reconcile: ReconcileReport,
 }
@@ -659,7 +662,11 @@ pub fn begin_verb(
     )?;
     let pre_snapshot = match pre {
         crate::model::SnapOutcome::Created { id, .. } => Some(id),
-        crate::model::SnapOutcome::NoOp { .. } => None,
+        // A no-op with a tip means the chain's newest snapshot already holds
+        // the exact current worktree tree — that commit IS the pre-verb
+        // state. Dropping it here would make undo of a hook-pre-captured op
+        // restore a clean tree instead of the open change.
+        crate::model::SnapOutcome::NoOp { tip, .. } => tip,
         crate::model::SnapOutcome::Contended { .. } => {
             return Err(Error::msg(
                 "a concurrent ff snapshot is in progress; aborted (nothing was written)",

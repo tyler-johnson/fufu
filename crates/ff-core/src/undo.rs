@@ -164,7 +164,8 @@ pub fn undo(
     }
 
     // Where the worktree lands: the target op's pre-verb snapshot when one
-    // exists (the tree was dirty), else the pre-state HEAD tree.
+    // exists (fresh or the chain tip that already held the state), else the
+    // pre-state HEAD tree — no snapshot means the tree matched HEAD.
     let to_head_tree = head_tree_of_table(repo, &to_table)?;
     let target_wt_tree = wt_tree_source.unwrap_or(to_head_tree);
     // Where it starts: this undo's own pre-verb snapshot (= the tree now),
