@@ -13,6 +13,7 @@ mod new;
 pub mod petname;
 mod refs;
 mod restore;
+pub mod snapid;
 pub mod snapshot;
 pub mod stash;
 mod status;

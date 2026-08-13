@@ -23,8 +23,9 @@ pub enum RestoreTarget {
     AtTime(i64),
 }
 
-/// Parse the target grammar: nothing, a hex prefix, `@{n}`, a compact
-/// duration (`90s`/`15m`/`2h`/`3d`/`1w`), or a git-style date string.
+/// Parse the target grammar: nothing, a hex or letters-spelled id prefix,
+/// `@{n}`, a compact duration (`90s`/`15m`/`2h`/`3d`/`1w`), or a git-style
+/// date string.
 pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
     let Some(raw) = raw else {
         return Ok(RestoreTarget::Newest);
@@ -42,6 +43,15 @@ pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
     }
     if raw.len() >= 4 && raw.len() <= 40 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
         return Ok(RestoreTarget::Id(raw.to_ascii_lowercase()));
+    }
+    // Letters-spelled ids win over date words: `noon` and `tomorrow` are
+    // all-alphabet and parse as id prefixes — accepted shadowing (DESIGN.md).
+    if raw.len() >= 4
+        && raw.len() <= 40
+        && crate::snapid::is_encoded(raw)
+        && let Some(hex) = crate::snapid::decode(raw)
+    {
+        return Ok(RestoreTarget::Id(hex));
     }
     let time = gix::date::parse(raw, Some(std::time::SystemTime::now()))
         .map_err(|err| Error::msg(format!("unrecognized restore target {raw:?}: {err}")))?;

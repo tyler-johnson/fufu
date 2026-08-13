@@ -214,6 +214,23 @@ fn target_grammar_resolves() {
         RestoreTarget::AtTime(now - 7200)
     );
 
+    // Letters-spelled prefix (jj-style reverse hex) decodes to the hex id.
+    let letters = ff_core::snapid::encode(&snap1[..7]);
+    assert_eq!(
+        ff_core::parse_target(Some(&letters), now).unwrap(),
+        RestoreTarget::Id(snap1[..7].to_string())
+    );
+    // Uppercase letters are accepted.
+    assert_eq!(
+        ff_core::parse_target(Some(&letters.to_ascii_uppercase()), now).unwrap(),
+        RestoreTarget::Id(snap1[..7].to_string())
+    );
+    // `noon` is all-alphabet: the id branch shadows the date word by design.
+    assert_eq!(
+        ff_core::parse_target(Some("noon"), now).unwrap(),
+        RestoreTarget::Id("cbbc".to_string())
+    );
+
     // @{1} restores the previous snapshot's state.
     fx.write("a.txt", "diverged\n");
     let report = restore_all(&fx, Some("@{1}"));
@@ -223,6 +240,25 @@ fn target_grammar_resolves() {
         "one\n"
     );
     let _ = snap2;
+}
+
+/// A letters-spelled id drives a real restore end to end.
+#[test]
+fn letters_id_restores() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    let snap = take_created(&fx);
+    fx.write("a.txt", "diverged\n");
+
+    let letters = ff_core::snapid::encode(&snap[..8]);
+    let report = restore_all(&fx, Some(&letters));
+    assert_eq!(report.target.id, snap);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "captured\n"
+    );
 }
 
 #[test]

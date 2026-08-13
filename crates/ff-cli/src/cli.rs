@@ -56,8 +56,9 @@ pub enum Command {
     },
     /// Restore worktree files from the timeline
     Restore {
-        /// Snapshot to restore from: id, @{n}, 30m/2h/1d/1w, or a date;
-        /// defaults to the newest snapshot
+        /// Snapshot to restore from: id (hex or letters as shown by ff
+        /// evolog), @{n}, 30m/2h/1d/1w, or a date; defaults to the newest
+        /// snapshot
         #[arg(long, value_name = "target")]
         at: Option<String>,
         /// Restore the entire worktree to the target state
