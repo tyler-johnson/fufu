@@ -170,6 +170,8 @@ fn translated_log_with_count() {
         std::fs::read_to_string(&fake.log).unwrap_or_default()
     );
     let text = String::from_utf8(out.stdout).unwrap();
-    // Commits view (no snapshots yet): two rows.
-    assert_eq!(text.lines().count(), 2, "count honored: {text:?}");
+    // Change-centric view: the @ row plus exactly two ● commit rows.
+    assert!(text.starts_with("@  "), "{text:?}");
+    let commit_rows = text.lines().filter(|l| l.starts_with('●')).count();
+    assert_eq!(commit_rows, 2, "count honored: {text:?}");
 }

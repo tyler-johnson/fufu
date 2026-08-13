@@ -1,8 +1,8 @@
 //! Human-readable rendering: plain rows, no TUI, no color yet.
 
 use ff_core::{
-    ChangeKind, HeadState, LogEntry, Operation, ReconcileReport, SnapEntry, Status, StatusEntry,
-    Upstream,
+    ChangeKind, HeadState, LogEntry, OpenChange, Operation, ReconcileReport, SnapEntry, Status,
+    StatusEntry, Upstream,
 };
 
 /// Render a reconcile pass to stderr, loudly, before any verb output —
@@ -159,6 +159,78 @@ pub fn snap_row(
 
 fn short7(hex: &str) -> &str {
     &hex[..hex.len().min(7)]
+}
+
+const ID_WIDTH: usize = 8;
+const BLANK_ID: &str = "        ";
+
+/// The `@` row (two lines): the open change. Letters id = chain tip, sha =
+/// HEAD (the base), subject = pending description or `(no description)`.
+/// `(clean)` when the tip tree equals the HEAD tree; `(no commits yet)` on
+/// an unborn branch.
+pub fn change_row(
+    open: &OpenChange,
+    lens: &std::collections::HashMap<String, usize>,
+    now: i64,
+    colored: bool,
+) -> String {
+    let letters = match &open.id {
+        Some(id) => styled_id(
+            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
+            lens.get(id).copied().unwrap_or(1),
+            ID_WIDTH,
+            colored,
+        ),
+        None => BLANK_ID.to_string(),
+    };
+    let sha = match &open.base {
+        Some(base) => styled_sha(base, open.base_short.as_deref(), colored),
+        None => BLANK_ID.to_string(),
+    };
+    let age = open.time.map(|t| relative_age(now, t)).unwrap_or_default();
+    let marker = if open.base.is_none() {
+        "  (no commits yet)"
+    } else if open.clean {
+        "  (clean)"
+    } else {
+        ""
+    };
+    let subject = open.subject.as_deref().unwrap_or("(no description)");
+    let head = format!("@  {letters} {sha} {age:>8}{marker}");
+    format!("{}\n│  {subject}", head.trim_end())
+}
+
+/// One `●` commit row (two lines). The letters column is the commit's
+/// chain-segment tip — the newest snapshot based on it, the evolog drill-in
+/// anchor — blank when no snapshot was ever taken on this commit.
+pub fn commit_row(
+    entry: &LogEntry,
+    segment: Option<&str>,
+    lens: &std::collections::HashMap<String, usize>,
+    now: i64,
+    colored: bool,
+) -> String {
+    let letters = match segment {
+        Some(id) => styled_id(
+            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
+            lens.get(id).copied().unwrap_or(1),
+            ID_WIDTH,
+            colored,
+        ),
+        None => BLANK_ID.to_string(),
+    };
+    let sha = styled_sha(&entry.id, Some(&entry.short_id), colored);
+    let age = relative_age(now, entry.time);
+    let head = format!("●  {letters} {sha} {age:>8}");
+    format!("{}\n│  {}", head.trim_end(), entry.subject)
+}
+
+/// A commit sha column: 8 display chars, bright prefix = the odb-unique
+/// length with a floor of 7 — subtle by design; the snapshot column is
+/// where prefix highlighting pays.
+fn styled_sha(id: &str, short: Option<&str>, colored: bool) -> String {
+    let unique = short.map(str::len).unwrap_or(7).max(7);
+    styled_id(&id[..id.len().min(ID_WIDTH)], unique, ID_WIDTH, colored)
 }
 
 pub fn log_row(entry: &LogEntry, now: i64) -> String {

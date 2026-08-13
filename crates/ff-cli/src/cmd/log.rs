@@ -45,51 +45,81 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
     result.map_err(Error::repo)
 }
 
-/// Default view: the snapshot chain when the branch has snapshots, otherwise
-/// the plain commits view (a fresh clone looks unchanged). Interim shape —
-/// the change-centric spine lands with the presentation phases.
-/// `--commits` forces the commits view and keeps Phase 0's exact JSON shape.
+/// Default view, jj-style: the open change (`@`) as the spine's head, then
+/// the commit walk (`●` rows) with each commit's chain-segment tip beside
+/// it. `--commits` forces the plain commits view and keeps Phase 0's exact
+/// JSON shape.
 pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     let mut repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
 
-    if !commits_only {
-        let rows = ff_core::evolog(
-            &repo,
-            &EvologOptions {
-                limit,
-                ..Default::default()
-            },
-        )?;
-        if !rows.is_empty() {
-            if json {
-                let commits: Vec<_> =
-                    ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;
-                let body = serde_json::to_string(
-                    &serde_json::json!({ "commits": commits, "timeline": rows }),
-                )
-                .map_err(Error::repo)?;
-                println!("{body}");
-            } else {
-                use std::io::Write as _;
-                let lens = crate::cmd::evolog::prefix_lens(&repo)?;
-                let now = now_secs();
-                let mut out = crate::pager::LogOut::new(&repo, false);
-                let colored = out.colored();
-                let result = (|| -> std::io::Result<()> {
-                    for row in &rows {
-                        writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
-                    }
-                    Ok(())
-                })();
-                out.finish();
-                result.map_err(Error::repo)?;
-            }
-            return Ok(());
-        }
+    if commits_only {
+        return commits_view(&mut repo, json, limit);
     }
 
-    commits_view(&mut repo, json, limit)
+    let open = ff_core::open_change(&repo)?;
+    // Segment tips from the LIVE chain only (trash never earns a ● column):
+    // newest-first walk, first-wins — the newest snapshot based on a commit
+    // is that commit's evolog drill-in anchor.
+    let live = ff_core::evolog(
+        &repo,
+        &EvologOptions {
+            limit: None,
+            ..Default::default()
+        },
+    )?;
+    let mut segments: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for snap in &live {
+        if let Some(base) = snap.base.as_deref() {
+            segments.entry(base).or_insert(snap.id.as_str());
+        }
+    }
+    let commits: Vec<ff_core::LogEntry> =
+        ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;
+
+    if json {
+        // `commits` key contract preserved; `id_letters` is composed at this
+        // edge — the model stays hex.
+        let body = serde_json::to_string(&serde_json::json!({
+            "commits": commits,
+            "open": {
+                "branch": open.branch,
+                "id": open.id,
+                "id_letters": open.id.as_deref().map(ff_core::snapid::encode),
+                "base": open.base,
+                "subject": open.subject,
+                "time": open.time,
+                "clean": open.clean,
+            },
+        }))
+        .map_err(Error::repo)?;
+        println!("{body}");
+        return Ok(());
+    }
+
+    use std::io::Write as _;
+    let lens = crate::cmd::evolog::prefix_lens(&repo)?;
+    let now = now_secs();
+    let mut out = crate::pager::LogOut::new(&repo, false);
+    let colored = out.colored();
+    let result = (|| -> std::io::Result<()> {
+        writeln!(
+            out,
+            "{}",
+            crate::render::change_row(&open, &lens, now, colored)
+        )?;
+        for entry in &commits {
+            let segment = segments.get(entry.id.as_str()).copied();
+            writeln!(
+                out,
+                "{}",
+                crate::render::commit_row(entry, segment, &lens, now, colored)
+            )?;
+        }
+        Ok(())
+    })();
+    out.finish();
+    result.map_err(Error::repo)
 }
 
 /// Phase 0's commits view, byte-stable: `{"commits":[...]}`.

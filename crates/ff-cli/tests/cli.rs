@@ -134,12 +134,22 @@ fn log_unborn_is_empty_success() {
     let out = ff(&fx, &["log", "--commits", "--json"]);
     assert!(out.status.success(), "unborn log exits 0");
     assert_eq!(stdout(&out), "{\"commits\":[]}\n");
-    // The default view falls back to commits when no chain exists.
+    // The default view still carries the open change, with null fields.
     let out = ff(&fx, &["log", "--json"]);
-    assert_eq!(stdout(&out), "{\"commits\":[]}\n");
+    assert_eq!(
+        stdout(&out),
+        "{\"commits\":[],\"open\":{\"branch\":\"main\",\"id\":null,\"id_letters\":null,\
+         \"base\":null,\"subject\":null,\"time\":null,\"clean\":true}}\n"
+    );
     let human = ff(&fx, &["log", "--commits"]);
     assert!(human.status.success());
-    assert_eq!(stdout(&human), "", "unborn human log prints nothing");
+    assert_eq!(stdout(&human), "", "unborn --commits human prints nothing");
+    // The default human view shows the @ row alone: no commits, no ● rows.
+    let human = ff(&fx, &["log"]);
+    let text = stdout(&human);
+    assert!(text.starts_with("@"), "unborn @ row: {text:?}");
+    assert!(text.contains("(no commits yet)"), "{text:?}");
+    assert!(!text.contains('●'), "no commit rows: {text:?}");
 }
 
 #[test]
@@ -273,7 +283,7 @@ fn status_and_log_capture_first() {
 }
 
 #[test]
-fn log_timeline_interleaves_and_json_envelopes() {
+fn log_default_is_change_centric() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -284,35 +294,118 @@ fn log_timeline_interleaves_and_json_envelopes() {
     fx.write("a.txt", "three\n");
     assert!(ff(&fx, &[]).status.success());
 
-    // Human view: snapshot rows (interim shape — the change-centric spine
-    // replaces this in the presentation phases).
+    // Human view: the @ row leads, ● commit rows follow, subjects on │ rails.
     let out = ff(&fx, &["log"]);
     let text = stdout(&out);
-    assert!(text.contains("manual"), "snapshot rows present: {text:?}");
+    assert!(text.starts_with("@  "), "@ row leads: {text:?}");
+    assert!(text.contains("\n●  "), "commit rows: {text:?}");
+    assert!(text.contains("\n│  "), "subject rails: {text:?}");
+    assert!(
+        text.contains("(no description)"),
+        "open change without a pending description: {text:?}"
+    );
+    assert!(
+        text.contains("│  landed") && text.contains("│  init"),
+        "commit subjects present: {text:?}"
+    );
 
-    // JSON envelope carries both keys.
+    // JSON: commits key preserved, open object present, timeline gone.
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert!(v["commits"].is_array());
-    let timeline = v["timeline"].as_array().unwrap();
+    assert!(v.get("timeline").is_none(), "timeline key retired");
+    assert_eq!(v["open"]["branch"], "main");
+    assert!(v["open"]["id"].is_string(), "chain tip present");
+    let letters = v["open"]["id_letters"].as_str().unwrap();
     assert!(
-        timeline.iter().all(|row| !row["id"].is_null()),
-        "snapshot rows serialize the core model: {timeline:?}"
+        letters.chars().all(|c| ('k'..='z').contains(&c)),
+        "letters spelling at the JSON edge: {letters:?}"
     );
+    assert_eq!(v["open"]["clean"], false, "uncaptured-free but dirty tree");
 
     // --commits --json keeps the exact Phase 0 envelope.
     let out = ff(&fx, &["log", "--commits", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert!(v["commits"].is_array());
+    assert!(v.get("open").is_none(), "no open key in commits view");
     assert!(
         v.get("timeline").is_none(),
         "no timeline key in commits view"
     );
-    // On a tree with uncaptured changes the newest row is the log's own
-    // pre-capture — intended, jj-like.
-    fx.write("a.txt", "uncaptured\n");
-    let out = ff(&fx, &["log"]);
-    assert!(stdout(&out).contains("pre: ff log"));
+}
+
+/// The @ row states: pending description, (clean), dirty, described.
+#[test]
+fn log_at_row_states() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "At Row");
+    fx.set_config("user.email", "at@row.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // Clean tree, no chain: (clean) marker, no description.
+    let text = stdout(&ff(&fx, &["log"]));
+    let mut lines = text.lines();
+    let at = lines.next().unwrap();
+    assert!(at.starts_with("@  ") && at.ends_with("(clean)"), "{at:?}");
+    assert_eq!(lines.next().unwrap(), "│  (no description)");
+
+    // Dirty tree: ff log's own pre-capture becomes the tip — not clean.
+    fx.write("a.txt", "dirty\n");
+    let text = stdout(&ff(&fx, &["log"]));
+    let at = lines_first(&text);
+    assert!(!at.contains("(clean)"), "{at:?}");
+
+    // A pending description owns the subject line.
+    assert!(
+        ff(&fx, &["describe", "-m", "work in progress"])
+            .status
+            .success()
+    );
+    let text = stdout(&ff(&fx, &["log"]));
+    assert_eq!(text.lines().nth(1).unwrap(), "│  work in progress");
+
+    // Closing the change lands the captured state: clean again.
+    assert!(ff(&fx, &["commit", "-m", "landed"]).status.success());
+    let text = stdout(&ff(&fx, &["log"]));
+    assert!(lines_first(&text).ends_with("(clean)"), "{text:?}");
+}
+
+fn lines_first(text: &str) -> &str {
+    text.lines().next().unwrap()
+}
+
+/// ● rows carry the segment tip (newest snapshot based on that commit) in
+/// the letters column, or leave it blank when no snapshot ever sat there.
+#[test]
+fn log_segment_tips_fill_and_blank() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let bare = fx.commit("no snapshots here");
+    fx.write("a.txt", "b\n");
+    let snapped = fx.commit("snapshots land here");
+    fx.write("a.txt", "dirty\n");
+    assert!(ff(&fx, &[]).status.success());
+
+    let text = stdout(&ff(&fx, &["log"]));
+    let row_of = |sha: &str| {
+        text.lines()
+            .find(|line| line.starts_with('●') && line.contains(&sha[..8]))
+            .unwrap_or_else(|| panic!("no ● row for {sha}: {text:?}"))
+            .to_string()
+    };
+    let snapped_row = row_of(&snapped);
+    let tokens: Vec<&str> = snapped_row.split_whitespace().collect();
+    assert!(
+        tokens[1].len() == 8 && tokens[1].chars().all(|c| ('k'..='z').contains(&c)),
+        "segment tip in the letters column: {snapped_row:?}"
+    );
+    let bare_row = row_of(&bare);
+    let tokens: Vec<&str> = bare_row.split_whitespace().collect();
+    assert!(
+        tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
+        "blank letters column jumps straight to the sha: {bare_row:?}"
+    );
 }
 
 #[test]

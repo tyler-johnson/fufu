@@ -42,6 +42,9 @@ fn ff_trapped(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
         .args(args)
         // Only the child gets the booby-trapped PATH — parallel-safe.
         .env("PATH", &trap.bin)
+        // The pager is TTY-gated; aim it at the trap so a broken gate (a
+        // pager spawn on piped stdout) springs it.
+        .env("FF_PAGER", trap.bin.join("git"))
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -64,6 +67,8 @@ fn status_and_log_never_spawn() {
         &["status"][..],
         &["log", "--json"][..],
         &["log", "-n", "5"][..],
+        &["log", "--ops"][..],
+        &["evolog"][..],
         // Bare ff captures natively — the write side is zero-spawn too.
         &[][..],
         &["--json"][..],
