@@ -383,10 +383,19 @@ them as the general movement verb.
 | `ff sync` | fetch; speculatively rebase onto main; land if clean, hold if not | manual rebase-onto-main ceremony |
 | `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
 | `ff undo` | whole-repo undo: refs + tree together | reflog archaeology, `reset --hard` fear |
-| `ff log` | the timeline: snapshots interleaved with commits | `reflog` + `log` |
+| `ff log` | changes as the spine, jj-style: the open change (`@`) atop the commit walk (`●`), each commit wearing its newest snapshot's id | `reflog` + `log` |
+| `ff evolog` | the open change's snapshot chain, newest first — the drill-in behind `ff log`'s letters column | `reflog` spelunking |
 | `ff restore <path> --at <id>` | pull anything back from the timeline | hoping |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
 | `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
+
+### Presentation conventions
+
+Snapshot ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps to `"zyxwvutsrqponmlk"[i]`, so `0` → `z` down through `f` → `k`. The letter range k–z shares no character with hex, so a snapshot id can never be misread as a commit sha, and parsers can accept both without ambiguity. Everywhere a snapshot id is input (`ff restore --at`), the letters spelling is accepted alongside raw hex. Accepted shadowing: all-letters date words of four or more characters (`noon`, `tomorrow`) now parse as id prefixes, not dates — spell times as `12:00`, `1d`, or a full date instead.
+
+Id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The two id kinds have deliberately different uniqueness domains. Snapshot ids are unique within exactly the set `ff restore --at` resolves against — the current branch's live and trash chains — so the bold prefix is precisely what restore accepts unambiguously. Commit shas are odb-unique (gix `shorten`) with a floor of 7 — subtle by design; the snapshot column is where the highlighting pays.
+
+The log family (`ff log`, `ff evolog`, `ff log --ops`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
 ### `ff git` and the alias
 
