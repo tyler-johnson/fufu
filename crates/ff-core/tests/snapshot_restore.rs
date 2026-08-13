@@ -329,6 +329,8 @@ fn untracked_files_survive_because_diff_is_target_vs_snapshot() {
     );
 }
 
+// unix-only: exec bits and freely creatable symlinks don't exist on Windows.
+#[cfg(unix)]
 #[test]
 fn symlink_and_exec_bit_restore() {
     use std::os::unix::fs::PermissionsExt;

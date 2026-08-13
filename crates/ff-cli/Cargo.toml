@@ -2,6 +2,10 @@
 name = "ff-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "fufu (ff): jj's workflow on git's repository — the CLI"
+publish = false
 
 [[bin]]
 name = "ff"

@@ -3,8 +3,6 @@
 //! `GIT_INDEX_FILE=<tmp> read-tree HEAD && add -A && write-tree`, with
 //! `.git/index` byte-identical around the capture.
 
-use std::os::unix::fs::PermissionsExt;
-
 use ff_testsupport::Fixture;
 use ff_testsupport::capture::{
     assert_snapshot_matches, assert_snapshot_matches_at, git_capture_tree,
@@ -67,8 +65,11 @@ fn gitattributes_eol() {
     assert_snapshot_matches(&fx);
 }
 
+// unix-only: exercises the worktree exec bit, which Windows doesn't have.
+#[cfg(unix)]
 #[test]
 fn executable_bit_new_file() {
+    use std::os::unix::fs::PermissionsExt;
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -80,6 +81,8 @@ fn executable_bit_new_file() {
     assert_snapshot_matches(&fx);
 }
 
+// unix-only: creating symlinks on Windows needs Developer Mode/privilege.
+#[cfg(unix)]
 #[test]
 fn symlink_untracked() {
     let fx = Fixture::new();
@@ -89,6 +92,8 @@ fn symlink_untracked() {
     assert_snapshot_matches(&fx);
 }
 
+// unix-only: creating symlinks on Windows needs Developer Mode/privilege.
+#[cfg(unix)]
 #[test]
 fn symlink_replaces_file() {
     let fx = Fixture::new();

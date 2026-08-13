@@ -180,12 +180,17 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
 }
 
 fn install_hook(fx: &Fixture, name: &str, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = fx.path().join(".git/hooks");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     std::fs::write(&path, body).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Windows has no exec bit; hook discovery there is existence-only,
+    // and the `#!/bin/sh` body runs via Git Bash's sh, as under git itself.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 #[test]

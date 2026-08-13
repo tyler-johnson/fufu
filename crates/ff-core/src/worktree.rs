@@ -211,7 +211,6 @@ pub(crate) fn write_atomic(
     bytes: &[u8],
     executable: bool,
 ) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     let abs = workdir.join(rela);
     let parent = abs.parent().unwrap_or(workdir).to_owned();
     std::fs::create_dir_all(&parent).map_err(Error::repo)?;
@@ -223,10 +222,15 @@ pub(crate) fn write_atomic(
             .unwrap_or_default()
     ));
     std::fs::write(&tmp, bytes).map_err(Error::repo)?;
+    // The exec bit only exists on unix; on Windows git ignores worktree mode.
+    #[cfg(unix)]
     if executable {
+        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
             .map_err(Error::repo)?;
     }
+    #[cfg(not(unix))]
+    let _ = executable;
     // A symlink or directory may occupy the destination: clear it.
     if let Ok(md) = std::fs::symlink_metadata(&abs)
         && md.is_dir()

@@ -2,6 +2,10 @@
 name = "ff-testsupport"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared test fixtures for fufu's crates"
+publish = false
 
 [dependencies]
 ff-core.workspace = true

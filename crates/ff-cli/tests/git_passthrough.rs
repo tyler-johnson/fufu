@@ -2,6 +2,10 @@
 //! argv fidelity (hyphen flags included), capture-before-exec ordering,
 //! exit-code mirroring, `--help` reaching git, and 127 when git is absent.
 
+// unix-only: the fake `git` is a `#!/bin/sh` script on PATH, which Windows
+// cannot execute (CreateProcess wants an .exe), so it can't intercept.
+#![cfg(unix)]
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};

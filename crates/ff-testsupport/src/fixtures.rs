@@ -23,6 +23,7 @@ impl Fixture {
     pub fn new() -> Self {
         let fx = Self::empty();
         fx.git(&["init", "-q", "-b", "main"]);
+        fx.pin_config();
         fx
     }
 
@@ -30,7 +31,15 @@ impl Fixture {
     pub fn new_bare() -> Self {
         let fx = Self::empty();
         fx.git(&["init", "-q", "--bare", "-b", "main"]);
+        fx.pin_config();
         fx
+    }
+
+    /// Pin repo-local config that must not float with the platform: the
+    /// differential tests assert byte parity between fufu and git, so eol
+    /// conversion has to be identical for both readers on every OS.
+    fn pin_config(&self) {
+        self.git(&["config", "core.autocrlf", "false"]);
     }
 
     fn empty() -> Self {
@@ -116,8 +125,8 @@ impl Fixture {
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", &home)
             .env("XDG_CONFIG_HOME", home.join(".config"))
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", null_device())
+            .env("GIT_CONFIG_SYSTEM", null_device())
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_AUTHOR_NAME", "Fixture Author")
             .env("GIT_AUTHOR_EMAIL", "author@fixture.test")
@@ -127,6 +136,19 @@ impl Fixture {
             .env("GIT_COMMITTER_DATE", &date)
             .env("LC_ALL", "C")
             .env("TZ", "UTC");
+        // env_clear() strips vars Windows processes cannot live without
+        // (SystemRoot backs winsock init; TEMP backs tempfiles). Re-add the
+        // system set, and keep the profile hermetic by pointing USERPROFILE
+        // at the fixture home.
+        #[cfg(windows)]
+        {
+            cmd.env("USERPROFILE", &home);
+            for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
+                if let Some(value) = std::env::var_os(key) {
+                    cmd.env(key, value);
+                }
+            }
+        }
         for (key, value) in envs {
             cmd.env(key, value);
         }
@@ -180,6 +202,11 @@ impl Default for Fixture {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The OS's null device, for pointing git config paths at nothing.
+pub fn null_device() -> &'static str {
+    if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
 /// Read the index bytes for a worktree directory, following `.git` files of

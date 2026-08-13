@@ -4,6 +4,10 @@
 //! git's failure would surface — so a clean run with no log is proof that no
 //! spawn happened anywhere in the binary.
 
+// unix-only: the booby-trap is a `#!/bin/sh` script on PATH, which Windows
+// cannot execute — the trap would never spring, proving nothing.
+#![cfg(unix)]
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};

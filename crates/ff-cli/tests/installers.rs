@@ -5,15 +5,24 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+use ff_testsupport::fixtures::null_device;
+
 fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
     cmd.current_dir(dir)
         .args(args)
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1");
+    // env_clear() strips vars Windows processes cannot live without.
+    #[cfg(windows)]
+    for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
+        if let Some(value) = std::env::var_os(key) {
+            cmd.env(key, value);
+        }
+    }
     for (k, v) in envs {
         cmd.env(k, v);
     }

@@ -31,8 +31,17 @@ fn find_hook(repo: &gix::Repository, name: &str) -> Result<Option<PathBuf>> {
     let Ok(md) = std::fs::metadata(&hook) else {
         return Ok(None);
     };
-    use std::os::unix::fs::PermissionsExt;
-    if !md.is_file() || md.permissions().mode() & 0o111 == 0 {
+    // Unix skips non-executable hooks; Windows has no exec bit, so any
+    // regular file runs — the same split git itself makes.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if !md.is_file() || md.permissions().mode() & 0o111 == 0 {
+            return Ok(None);
+        }
+    }
+    #[cfg(not(unix))]
+    if !md.is_file() {
         return Ok(None);
     }
     Ok(Some(hook))

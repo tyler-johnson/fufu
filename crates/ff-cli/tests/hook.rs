@@ -7,13 +7,14 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use ff_testsupport::Fixture;
+use ff_testsupport::fixtures::null_device;
 
 fn ff_hook(cwd: &Path, payload: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
         .args(["hook", "agent", "trigger", "claude"])
         .current_dir(cwd)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -204,8 +205,8 @@ fn legacy_trigger_spelling_still_captures() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
         .args(["hook", "claude"])
         .current_dir(fx.path())
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

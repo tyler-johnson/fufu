@@ -3,8 +3,10 @@ resolver = "3"
 members = ["crates/ff-core", "crates/ff-cli", "crates/ff-testsupport"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/tyler-johnson/fufu"
 
 [workspace.dependencies]
 ff-core = { path = "crates/ff-core" }

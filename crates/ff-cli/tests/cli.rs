@@ -5,14 +5,15 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
+use ff_testsupport::fixtures::null_device;
 
 fn ff_at(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(dir)
         .args(args)
         // Hermetic like the fixtures: production discover() reads these.
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("spawn ff")

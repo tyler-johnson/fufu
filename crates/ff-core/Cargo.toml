@@ -2,6 +2,10 @@
 name = "ff-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "fufu's engine: snapshots, the op journal, undo — on gitoxide"
+publish = false
 
 [dependencies]
 gix.workspace = true
