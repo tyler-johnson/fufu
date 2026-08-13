@@ -34,8 +34,7 @@ fn main() {
             gone,
             json,
         }) => cmd::trim::run(dry_run, gone, json),
-        Some(cli::Command::Shell { action }) => cmd::shell::run(action),
-        Some(cli::Command::Hook { action }) => cmd::hook::run(action),
+        Some(cli::Command::Hook { kind }) => cmd::hook::run(kind),
     };
     if let Err(err) = result {
         eprintln!("ff: {err}");

@@ -1,53 +1,98 @@
-//! `ff hook` — agent hook runtime and installers. The runtime contract is
-//! absolute: `ff hook claude` ALWAYS exits 0 (a hook must never veto an
-//! agent action), prints nothing except the once-per-session notice, and
-//! treats every failure as a silent success (`FF_DEBUG=1` for diagnostics).
+//! `ff hook` — everything that feeds the capture floor is a hook, under one
+//! grammar: `ff hook <agent|shell|editor> <install|uninstall|list|trigger>
+//! [name]`. The agent-trigger contract is absolute: it ALWAYS exits 0 (a
+//! hook must never veto an agent action), prints nothing except the
+//! once-per-session notice, and treats every failure as a silent success
+//! (`FF_DEBUG=1` for diagnostics).
 
 use std::io::Read;
 
 use ff_core::{Error, Provenance, Result};
 use serde::Deserialize;
 
-use crate::cli::HookAction;
+use crate::cli::{HookKind, HookVerb};
 
 const MAX_PAYLOAD: u64 = 8 * 1024 * 1024;
-const HOOK_COMMAND: &str = "ff hook claude";
+const HOOK_COMMAND: &str = "ff hook agent trigger claude";
+/// Spellings older installs may still carry; recognized (and upgraded by
+/// `install`) so capture never silently stops behind a stale settings entry.
+const LEGACY_HOOK_COMMANDS: [&str; 1] = ["ff hook claude"];
 const PRE_TOOL_MATCHER: &str = "Bash|Edit|Write|NotebookEdit";
 
-pub fn run(action: HookAction) -> Result<()> {
-    match action {
-        HookAction::Claude => {
-            if let Err(err) = runtime_claude()
-                && std::env::var_os("FF_DEBUG").is_some()
-            {
-                eprintln!("ff[debug]: hook failed: {err}");
+pub fn run(kind: HookKind) -> Result<()> {
+    match kind {
+        HookKind::Agent { verb } => agent(verb),
+        HookKind::Shell { verb } => super::shell::run(verb),
+        HookKind::Editor { verb } => editor(verb),
+        HookKind::Other(args) => {
+            // The Phase 1 spelling `ff hook claude` is committed history and
+            // may live in a settings file: forward it to the trigger rather
+            // than silently dropping the capture.
+            if args.first().and_then(|a| a.to_str()) == Some("claude") {
+                return agent(HookVerb::Trigger {
+                    name: Some("claude".into()),
+                });
             }
+            // Anything else unknown exits 0 silently: whatever invoked us
+            // keeps working.
             Ok(())
         }
-        HookAction::Install { client } => {
-            require_claude(&client)?;
-            install()
-        }
-        HookAction::Uninstall { client } => {
-            require_claude(&client)?;
-            uninstall()
-        }
-        HookAction::List { client } => {
-            require_claude(&client)?;
-            list()
-        }
-        // Unknown clients exit 0 silently: whatever invoked us keeps working.
-        HookAction::Other(_) => Ok(()),
     }
 }
 
-fn require_claude(client: &str) -> Result<()> {
-    if client == "claude" {
-        Ok(())
-    } else {
-        Err(Error::msg(format!(
-            "unknown hook client {client:?} (supported: claude)"
-        )))
+fn agent(verb: HookVerb) -> Result<()> {
+    match verb {
+        HookVerb::Trigger { name } => {
+            match name.as_deref() {
+                // A trigger must never veto, and never speak on failure.
+                None | Some("claude") => {
+                    if let Err(err) = runtime_claude()
+                        && std::env::var_os("FF_DEBUG").is_some()
+                    {
+                        eprintln!("ff[debug]: hook failed: {err}");
+                    }
+                }
+                // Unknown agents included: exit 0, say nothing.
+                Some(_) => {}
+            }
+            Ok(())
+        }
+        HookVerb::Install { name } => {
+            require_agent(name.as_deref())?;
+            install()
+        }
+        HookVerb::Uninstall { name } => {
+            require_agent(name.as_deref())?;
+            uninstall()
+        }
+        HookVerb::List { name } => {
+            require_agent(name.as_deref())?;
+            list()
+        }
+    }
+}
+
+/// Installers are for humans: unknown names are real errors there.
+fn require_agent(name: Option<&str>) -> Result<()> {
+    match name {
+        None | Some("claude") => Ok(()),
+        Some(other) => Err(Error::msg(format!(
+            "unknown agent {other:?} (supported: claude)"
+        ))),
+    }
+}
+
+/// Reserved in the grammar; nothing exists yet (deferred until a real need
+/// shows up).
+fn editor(verb: HookVerb) -> Result<()> {
+    match verb {
+        HookVerb::List { .. } => {
+            println!("no editor hooks exist yet");
+            Ok(())
+        }
+        _ => Err(Error::msg(
+            "no editor hooks exist yet (deferred until a real need shows up)",
+        )),
     }
 }
 
@@ -201,12 +246,14 @@ fn load_settings(path: &std::path::Path) -> Result<serde_json::Map<String, serde
     }
 }
 
+fn is_our_command(command: Option<&str>) -> bool {
+    command.is_some_and(|cmd| cmd == HOOK_COMMAND || LEGACY_HOOK_COMMANDS.contains(&cmd))
+}
+
 fn entry_has_our_command(entry: &serde_json::Value) -> bool {
-    entry["hooks"].as_array().is_some_and(|hooks| {
-        hooks
-            .iter()
-            .any(|h| h["command"].as_str() == Some(HOOK_COMMAND))
-    })
+    entry["hooks"]
+        .as_array()
+        .is_some_and(|hooks| hooks.iter().any(|h| is_our_command(h["command"].as_str())))
 }
 
 fn install() -> Result<()> {
@@ -234,6 +281,21 @@ fn install() -> Result<()> {
                 path.display()
             ))
         })?;
+        // Upgrade any legacy spelling in place before the idempotence check.
+        for entry in entries.iter_mut() {
+            let Some(cmds) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) else {
+                continue;
+            };
+            for cmd in cmds.iter_mut() {
+                if cmd["command"]
+                    .as_str()
+                    .is_some_and(|c| LEGACY_HOOK_COMMANDS.contains(&c))
+                {
+                    cmd["command"] = HOOK_COMMAND.into();
+                    changed = true;
+                }
+            }
+        }
         if entries.iter().any(entry_has_our_command) {
             continue;
         }
@@ -276,7 +338,7 @@ fn uninstall() -> Result<()> {
                 continue;
             };
             let before = cmds.len();
-            cmds.retain(|h| h["command"].as_str() != Some(HOOK_COMMAND));
+            cmds.retain(|h| !is_our_command(h["command"].as_str()));
             changed |= cmds.len() != before;
         }
         let before = entries.len();

@@ -10,7 +10,7 @@ use ff_testsupport::Fixture;
 
 fn ff_hook(cwd: &Path, payload: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
-        .args(["hook", "claude"])
+        .args(["hook", "agent", "trigger", "claude"])
         .current_dir(cwd)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
@@ -185,6 +185,37 @@ fn malformed_and_hostile_payloads_exit_zero_silently() {
         assert!(out.stdout.is_empty(), "no output on failure");
         assert!(out.stderr.is_empty(), "silent without FF_DEBUG");
     }
+}
+
+/// The committed Phase 1 spelling `ff hook claude` still triggers a capture:
+/// a stale settings entry must never become a silent capture outage.
+#[test]
+fn legacy_trigger_spelling_still_captures() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let body = payload(
+        "PreToolUse",
+        "legacysess",
+        &fx.path(),
+        r#""tool_name":"Bash","tool_input":{"command":"ls"}"#,
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .args(["hook", "claude"])
+        .current_dir(fx.path())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let _ = child.stdin.take().unwrap().write_all(body.as_bytes());
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(chain_subject(&fx), "claude[legacyse]: Bash(ls)");
 }
 
 #[test]

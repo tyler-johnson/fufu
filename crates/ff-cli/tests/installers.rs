@@ -27,7 +27,7 @@ fn bash_install_uninstall_round_trip() {
     std::fs::write(&rc, "# my prompt setup\nexport FOO=bar\n").unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
 
-    let out = ff_env(home.path(), &["shell", "install", "bash"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "install", "bash"], &env);
     assert!(
         out.status.success(),
         "{}",
@@ -36,17 +36,17 @@ fn bash_install_uninstall_round_trip() {
     let contents = std::fs::read_to_string(&rc).unwrap();
     assert!(contents.starts_with("# my prompt setup\nexport FOO=bar\n"));
     assert!(
-        contents.contains("alias git='ff git'  # fufu — added by `ff shell install`"),
+        contents.contains("alias git='ff git'  # fufu — added by `ff hook shell install`"),
         "marked line appended: {contents:?}"
     );
 
     // Idempotent.
     let before = contents.clone();
-    ff_env(home.path(), &["shell", "install", "bash"], &env);
+    ff_env(home.path(), &["hook", "shell", "install", "bash"], &env);
     assert_eq!(std::fs::read_to_string(&rc).unwrap(), before);
 
     // Uninstall removes exactly the marked line.
-    let out = ff_env(home.path(), &["shell", "uninstall", "bash"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "uninstall", "bash"], &env);
     assert!(out.status.success());
     assert_eq!(
         std::fs::read_to_string(&rc).unwrap(),
@@ -67,7 +67,7 @@ fn zsh_honors_zdotdir_and_fish_honors_xdg() {
     ];
 
     assert!(
-        ff_env(home.path(), &["shell", "install", "zsh"], &env)
+        ff_env(home.path(), &["hook", "shell", "install", "zsh"], &env)
             .status
             .success()
     );
@@ -75,7 +75,7 @@ fn zsh_honors_zdotdir_and_fish_honors_xdg() {
     assert!(zshrc.contains("alias git='ff git'"));
 
     assert!(
-        ff_env(home.path(), &["shell", "install", "fish"], &env)
+        ff_env(home.path(), &["hook", "shell", "install", "fish"], &env)
             .status
             .success()
     );
@@ -94,7 +94,7 @@ fn hand_written_alias_is_never_touched() {
     std::fs::write(&rc, original).unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
 
-    let out = ff_env(home.path(), &["shell", "install", "bash"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "install", "bash"], &env);
     assert!(out.status.success());
     assert_eq!(
         std::fs::read_to_string(&rc).unwrap(),
@@ -102,7 +102,7 @@ fn hand_written_alias_is_never_touched() {
         "install left it alone"
     );
 
-    let out = ff_env(home.path(), &["shell", "uninstall", "bash"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "uninstall", "bash"], &env);
     assert!(out.status.success());
     assert_eq!(
         std::fs::read_to_string(&rc).unwrap(),
@@ -117,7 +117,7 @@ fn hand_written_alias_is_never_touched() {
 fn unsupported_shell_errors() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    let out = ff_env(home.path(), &["shell", "install", "tcsh"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "install", "tcsh"], &env);
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("unsupported shell"));
@@ -127,8 +127,8 @@ fn unsupported_shell_errors() {
 fn shell_list_reports_state() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    ff_env(home.path(), &["shell", "install", "bash"], &env);
-    let out = ff_env(home.path(), &["shell", "list"], &env);
+    ff_env(home.path(), &["hook", "shell", "install", "bash"], &env);
+    let out = ff_env(home.path(), &["hook", "shell", "list"], &env);
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("bash  installed"), "{text:?}");
     assert!(text.contains("zsh   not installed"), "{text:?}");
@@ -145,7 +145,7 @@ fn hook_install_creates_both_events_idempotently() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
 
-    let out = ff_env(home.path(), &["hook", "install", "claude"], &env);
+    let out = ff_env(home.path(), &["hook", "agent", "install", "claude"], &env);
     assert!(
         out.status.success(),
         "{}",
@@ -155,18 +155,24 @@ fn hook_install_creates_both_events_idempotently() {
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();
     let pre = v["hooks"]["PreToolUse"].as_array().unwrap();
     assert_eq!(pre[0]["matcher"], "Bash|Edit|Write|NotebookEdit");
-    assert_eq!(pre[0]["hooks"][0]["command"], "ff hook claude");
+    assert_eq!(
+        pre[0]["hooks"][0]["command"],
+        "ff hook agent trigger claude"
+    );
     let ups = v["hooks"]["UserPromptSubmit"].as_array().unwrap();
-    assert_eq!(ups[0]["hooks"][0]["command"], "ff hook claude");
+    assert_eq!(
+        ups[0]["hooks"][0]["command"],
+        "ff hook agent trigger claude"
+    );
 
     // Second install: byte-identical file.
-    ff_env(home.path(), &["hook", "install", "claude"], &env);
+    ff_env(home.path(), &["hook", "agent", "install", "claude"], &env);
     assert_eq!(
         std::fs::read_to_string(settings_at(home.path())).unwrap(),
         text
     );
 
-    let out = ff_env(home.path(), &["hook", "list", "claude"], &env);
+    let out = ff_env(home.path(), &["hook", "agent", "list", "claude"], &env);
     let listing = String::from_utf8(out.stdout).unwrap();
     assert!(
         listing.contains("PreToolUse       installed"),
@@ -195,7 +201,7 @@ fn hook_install_preserves_foreign_content() {
     std::fs::write(&settings, serde_json::to_string_pretty(&foreign).unwrap()).unwrap();
 
     assert!(
-        ff_env(home.path(), &["hook", "install", "claude"], &env)
+        ff_env(home.path(), &["hook", "agent", "install", "claude"], &env)
             .status
             .success()
     );
@@ -212,13 +218,13 @@ fn hook_install_preserves_foreign_content() {
         "notify-send done"
     );
     assert_eq!(
-        v["hooks"]["PreToolUse"][1]["hooks"][0]["command"], "ff hook claude",
+        v["hooks"]["PreToolUse"][1]["hooks"][0]["command"], "ff hook agent trigger claude",
         "our entry appended after foreign ones"
     );
 
     // Uninstall removes only ours.
     assert!(
-        ff_env(home.path(), &["hook", "uninstall", "claude"], &env)
+        ff_env(home.path(), &["hook", "agent", "uninstall", "claude"], &env)
             .status
             .success()
     );
@@ -254,7 +260,7 @@ fn hook_install_refuses_malformed_files_untouched() {
         r#"{ "hooks": { "PreToolUse": "not an array" } }"#,
     ] {
         std::fs::write(&settings, bad).unwrap();
-        let out = ff_env(home.path(), &["hook", "install", "claude"], &env);
+        let out = ff_env(home.path(), &["hook", "agent", "install", "claude"], &env);
         assert_eq!(out.status.code(), Some(1), "must refuse: {bad}");
         assert_eq!(
             std::fs::read_to_string(&settings).unwrap(),
@@ -264,18 +270,93 @@ fn hook_install_refuses_malformed_files_untouched() {
     }
 }
 
+/// A settings file carrying the Phase 1 spelling (`ff hook claude`) is
+/// upgraded in place by install — never duplicated, never orphaned.
+#[test]
+fn legacy_hook_command_is_upgraded_not_duplicated() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let settings = settings_at(home.path());
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let legacy = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                { "matcher": "Bash|Edit|Write|NotebookEdit",
+                  "hooks": [{ "type": "command", "command": "ff hook claude" }] }
+            ],
+            "UserPromptSubmit": [
+                { "hooks": [{ "type": "command", "command": "ff hook claude" }] }
+            ]
+        }
+    });
+    std::fs::write(&settings, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+
+    assert!(
+        ff_env(home.path(), &["hook", "agent", "install", "claude"], &env)
+            .status
+            .success()
+    );
+    let text = std::fs::read_to_string(&settings).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        v["hooks"]["PreToolUse"].as_array().unwrap().len(),
+        1,
+        "no duplicate entry"
+    );
+    assert_eq!(
+        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "ff hook agent trigger claude",
+        "legacy command upgraded in place"
+    );
+    assert!(!text.contains("\"ff hook claude\""), "old spelling gone");
+
+    // And uninstall recognizes both spellings.
+    std::fs::write(&settings, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+    assert!(
+        ff_env(home.path(), &["hook", "agent", "uninstall", "claude"], &env)
+            .status
+            .success()
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    assert!(v.get("hooks").is_none(), "legacy entries removed: {v}");
+}
+
+/// The Phase 1 shell marker is still recognized by uninstall and list.
+#[test]
+fn legacy_shell_marker_still_managed() {
+    let home = tempfile::TempDir::new().unwrap();
+    let rc = home.path().join(".bashrc");
+    std::fs::write(
+        &rc,
+        "export FOO=bar\nalias git='ff git'  # fufu — added by `ff shell install`\n",
+    )
+    .unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    let out = ff_env(home.path(), &["hook", "shell", "list"], &env);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("bash  installed"), "{text:?}");
+
+    assert!(
+        ff_env(home.path(), &["hook", "shell", "uninstall", "bash"], &env)
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read_to_string(&rc).unwrap(), "export FOO=bar\n");
+}
+
 #[test]
 fn unknown_hook_client_install_errors_but_runtime_is_silent() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    let out = ff_env(home.path(), &["hook", "install", "cursor"], &env);
+    let out = ff_env(home.path(), &["hook", "agent", "install", "cursor"], &env);
     assert_eq!(
         out.status.code(),
         Some(1),
         "installers are for humans: real errors"
     );
     // But an unknown runtime client must never veto: exit 0, no output.
-    let out = ff_env(home.path(), &["hook", "cursor"], &env);
+    let out = ff_env(home.path(), &["hook", "agent", "trigger", "cursor"], &env);
     assert_eq!(out.status.code(), Some(0));
     assert!(out.stdout.is_empty());
     assert!(out.stderr.is_empty());

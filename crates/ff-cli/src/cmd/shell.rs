@@ -1,4 +1,4 @@
-//! `ff shell` — the alias, and only the alias (`alias git='ff git'`).
+//! `ff hook shell` — the alias, and only the alias (`alias git='ff git'`).
 //! Marked-line rc editing: install appends one line tagged with the fufu
 //! marker; uninstall removes exactly the marked lines. A hand-written alias
 //! is detected, respected, and never touched. All paths are env-resolved
@@ -8,10 +8,16 @@ use std::path::PathBuf;
 
 use ff_core::{Error, Result};
 
-use crate::cli::ShellAction;
+use crate::cli::HookVerb;
 
-const MARKER: &str = "# fufu — added by `ff shell install`";
+const MARKER: &str = "# fufu — added by `ff hook shell install`";
+/// The Phase 1 spelling, still recognized so older installs stay managed.
+const LEGACY_MARKERS: [&str; 1] = ["# fufu — added by `ff shell install`"];
 const SHELLS: [&str; 3] = ["bash", "zsh", "fish"];
+
+fn is_marked(line: &str) -> bool {
+    line.contains(MARKER) || LEGACY_MARKERS.iter().any(|m| line.contains(m))
+}
 
 fn env_path(var: &str) -> Option<PathBuf> {
     std::env::var_os(var)
@@ -77,7 +83,7 @@ enum AliasState {
 
 fn state_of(contents: &str) -> AliasState {
     for line in contents.lines() {
-        if line.contains(MARKER) {
+        if is_marked(line) {
             return AliasState::Installed;
         }
     }
@@ -90,11 +96,14 @@ fn state_of(contents: &str) -> AliasState {
     AliasState::Absent
 }
 
-pub fn run(action: ShellAction) -> Result<()> {
-    match action {
-        ShellAction::Install { shell } => install(&resolve_shell(shell)?),
-        ShellAction::Uninstall { shell } => uninstall(&resolve_shell(shell)?),
-        ShellAction::List => list(),
+pub fn run(verb: HookVerb) -> Result<()> {
+    match verb {
+        HookVerb::Install { name } => install(&resolve_shell(name)?),
+        HookVerb::Uninstall { name } => uninstall(&resolve_shell(name)?),
+        HookVerb::List { name } => list(name.as_deref()),
+        HookVerb::Trigger { .. } => Err(Error::msg(
+            "shell hooks have no trigger — the alias routes typed git through `ff git`",
+        )),
     }
 }
 
@@ -162,10 +171,7 @@ fn uninstall(shell: &str) -> Result<()> {
             return Ok(());
         }
     }
-    let kept: Vec<&str> = contents
-        .lines()
-        .filter(|line| !line.contains(MARKER))
-        .collect();
+    let kept: Vec<&str> = contents.lines().filter(|line| !is_marked(line)).collect();
     let mut updated = kept.join("\n");
     if contents.ends_with('\n') && !updated.is_empty() {
         updated.push('\n');
@@ -175,8 +181,19 @@ fn uninstall(shell: &str) -> Result<()> {
     Ok(())
 }
 
-fn list() -> Result<()> {
-    for shell in SHELLS {
+fn list(only: Option<&str>) -> Result<()> {
+    let shells: Vec<&str> = match only {
+        Some(name) => {
+            if !SHELLS.contains(&name) {
+                return Err(Error::msg(format!(
+                    "unsupported shell {name:?} (supported: bash, zsh, fish)"
+                )));
+            }
+            vec![name]
+        }
+        None => SHELLS.to_vec(),
+    };
+    for shell in shells {
         let rc = rc_file(shell)?;
         let contents = std::fs::read_to_string(&rc).unwrap_or_default();
         let state = match state_of(&contents) {

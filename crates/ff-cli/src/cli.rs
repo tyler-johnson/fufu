@@ -79,55 +79,59 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Manage the shell alias (`alias git='ff git'`)
-    Shell {
-        #[command(subcommand)]
-        action: ShellAction,
-    },
-    /// Agent hook runtime and installers
+    /// Manage fufu's capture hooks: agents, shells, editors
     Hook {
         #[command(subcommand)]
-        action: HookAction,
+        kind: HookKind,
     },
 }
 
+/// Everything that feeds the capture floor is a hook. One grammar:
+/// `ff hook <agent|shell|editor> <install|uninstall|list|trigger> [name]`.
 #[derive(Subcommand)]
-pub enum ShellAction {
-    /// Add the alias to the shell's rc file
-    Install {
-        /// Shell to install for (bash, zsh, fish); defaults to $SHELL
-        shell: Option<String>,
+pub enum HookKind {
+    /// Agent hooks (claude): capture around agent tool actions
+    Agent {
+        #[command(subcommand)]
+        verb: HookVerb,
     },
-    /// Remove exactly the lines `ff shell install` added
-    Uninstall {
-        /// Shell to uninstall from; defaults to $SHELL
-        shell: Option<String>,
+    /// Shell hooks (bash, zsh, fish): the `alias git='ff git'` line
+    Shell {
+        #[command(subcommand)]
+        verb: HookVerb,
     },
-    /// Show alias status for each known shell
-    List,
-}
-
-#[derive(Subcommand)]
-pub enum HookAction {
-    /// Claude Code hook runtime: reads the hook payload on stdin.
-    /// Always exits 0 — a hook must never veto an agent action.
-    Claude,
-    /// Install the hook entries into the client's settings
-    Install {
-        /// Hook client (claude)
-        client: String,
+    /// Editor hooks: reserved — none exist yet
+    Editor {
+        #[command(subcommand)]
+        verb: HookVerb,
     },
-    /// Remove the hook entries from the client's settings
-    Uninstall {
-        /// Hook client (claude)
-        client: String,
-    },
-    /// Show hook installation status
-    List {
-        /// Hook client (claude)
-        client: String,
-    },
-    /// Unknown hook clients exit 0 silently: never break a caller's hook.
+    /// Unknown kinds exit 0 silently: never break a caller's hook.
+    /// (Also forwards the committed Phase 1 spelling `ff hook claude`.)
     #[command(external_subcommand)]
-    Other(#[allow(dead_code)] Vec<OsString>),
+    Other(Vec<OsString>),
+}
+
+#[derive(Subcommand)]
+pub enum HookVerb {
+    /// Install the hook (agent: settings entries; shell: the alias line)
+    Install {
+        /// Agent (claude) or shell (bash, zsh, fish); defaults to claude / $SHELL
+        name: Option<String>,
+    },
+    /// Remove exactly what install added
+    Uninstall {
+        /// Agent or shell name; defaults to claude / $SHELL
+        name: Option<String>,
+    },
+    /// Show installation state
+    List {
+        /// Optional name to narrow to
+        name: Option<String>,
+    },
+    /// Hook runtime, invoked by the client with a payload on stdin.
+    /// Agent triggers always exit 0 — a hook must never veto an action.
+    Trigger {
+        /// Agent name; defaults to claude
+        name: Option<String>,
+    },
 }
