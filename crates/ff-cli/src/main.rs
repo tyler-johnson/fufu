@@ -1,6 +1,7 @@
 mod capture;
 mod cli;
 mod cmd;
+mod pager;
 mod provenance;
 mod render;
 

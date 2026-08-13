@@ -10,32 +10,39 @@ pub fn run(json: bool, count: usize, commits: bool, ops: bool) -> Result<()> {
 
 /// `ff log --ops` — the operation journal, newest first, with op ids.
 fn ops_view(json: bool, count: usize) -> Result<()> {
+    use std::io::Write as _;
     let repo = ff_core::discover(".")?;
     let entries = ff_core::journal::read_ops(&repo, count)?;
-    if json {
-        let body =
-            serde_json::to_string(&serde_json::json!({ "ops": entries })).map_err(Error::repo)?;
-        println!("{body}");
-        return Ok(());
-    }
-    if entries.is_empty() {
-        println!("no operations journaled yet");
-        return Ok(());
-    }
-    let now = now_secs();
-    for op in &entries {
-        let branch = op.branch.as_deref().unwrap_or("");
-        println!(
-            "{}  {:>8}  {:<8} {:<10} {}",
-            op.short_id,
-            crate::render::relative_age(now, op.time),
-            op.kind,
-            branch,
-            op.summary
-        );
-    }
-    println!("undo: ff undo <op>");
-    Ok(())
+    let mut out = crate::pager::LogOut::new(&repo, json);
+    let result = (|| -> std::io::Result<()> {
+        if json {
+            let body = serde_json::to_string(&serde_json::json!({ "ops": entries }))
+                .map_err(std::io::Error::other)?;
+            writeln!(out, "{body}")?;
+            return Ok(());
+        }
+        if entries.is_empty() {
+            writeln!(out, "no operations journaled yet")?;
+            return Ok(());
+        }
+        let now = now_secs();
+        for op in &entries {
+            let branch = op.branch.as_deref().unwrap_or("");
+            writeln!(
+                out,
+                "{}  {:>8}  {:<8} {:<10} {}",
+                op.short_id,
+                crate::render::relative_age(now, op.time),
+                op.kind,
+                branch,
+                op.summary
+            )?;
+        }
+        writeln!(out, "undo: ff undo <op>")?;
+        Ok(())
+    })();
+    out.finish();
+    result.map_err(Error::repo)
 }
 
 /// Default view: the snapshot chain when the branch has snapshots, otherwise
