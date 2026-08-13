@@ -1,4 +1,5 @@
-//! Human-readable rendering: plain rows, no TUI, no color yet.
+//! Human-readable rendering: plain rows, no TUI; the log family carries
+//! ANSI color when the stream says so (see the palette below).
 
 use ff_core::{
     ChangeKind, HeadState, LogEntry, OpenChange, Operation, ReconcileReport, SnapEntry, Status,
@@ -135,6 +136,36 @@ fn kind_letter(kind: ChangeKind) -> char {
     }
 }
 
+/// The palette, jj-adjacent: snapshot ids magenta (bold unique prefix, dim
+/// rest), commit shas blue and plain, ages cyan, the working-copy `@` green,
+/// rails dim — so a metadata line and a subject line never read as one.
+const SNAP_UNIQUE: anstyle::Style = anstyle::AnsiColor::Magenta.on_default().bold();
+const SHA: anstyle::Style = anstyle::AnsiColor::Blue.on_default();
+const AGE: anstyle::Style = anstyle::AnsiColor::Cyan.on_default();
+const AT: anstyle::Style = anstyle::AnsiColor::Green.on_default().bold();
+const CLEAN: anstyle::Style = anstyle::AnsiColor::Green.on_default();
+const DIM: anstyle::Style = anstyle::Style::new().dimmed();
+
+/// Paint `text`, or hand it back untouched when color is off or it's empty.
+fn paint(text: &str, style: anstyle::Style, colored: bool) -> String {
+    if !colored || text.is_empty() {
+        return text.to_string();
+    }
+    format!("{}{text}{}", style.render(), style.render_reset())
+}
+
+/// A left-aligned column: pad FIRST (format-width would count escape bytes).
+fn col(text: &str, width: usize, style: anstyle::Style, colored: bool) -> String {
+    let pad = " ".repeat(width.saturating_sub(text.chars().count()));
+    format!("{}{pad}", paint(text, style, colored))
+}
+
+/// A right-aligned column, same escape-safe padding.
+fn col_right(text: &str, width: usize, style: anstyle::Style, colored: bool) -> String {
+    let pad = " ".repeat(width.saturating_sub(text.chars().count()));
+    format!("{pad}{}", paint(text, style, colored))
+}
+
 /// One snapshot row: `<letters8> <base7|blank> <age>  <subject>`, the
 /// letters id styled so its shortest-unique prefix is what you can type at
 /// `ff restore --at`. Shared by `ff evolog` and bare `ff` so the two never
@@ -149,10 +180,10 @@ pub fn snap_row(
     let unique = lens.get(&snap.id).copied().unwrap_or(1);
     let base = snap.base.as_deref().map(short7).unwrap_or_default();
     format!(
-        "{} {:<8} {:>8}  {}",
-        styled_id(&letters, unique, 8, colored),
-        base,
-        relative_age(now, snap.time),
+        "{} {} {}  {}",
+        styled_id(&letters, unique, ID_WIDTH, colored),
+        col(base, SHA_WIDTH, SHA, colored),
+        col_right(&relative_age(now, snap.time), AGE_WIDTH, AGE, colored),
         snap.subject
     )
 }
@@ -162,6 +193,8 @@ fn short7(hex: &str) -> &str {
 }
 
 const ID_WIDTH: usize = 8;
+const SHA_WIDTH: usize = 7;
+const AGE_WIDTH: usize = 8;
 const BLANK_ID: &str = "        ";
 
 /// The `@` row (two lines): the open change. Letters id = chain tip, sha =
@@ -183,21 +216,33 @@ pub fn change_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let sha = match &open.base {
-        Some(base) => styled_sha(base, open.base_short.as_deref(), colored),
-        None => BLANK_ID.to_string(),
-    };
-    let age = open.time.map(|t| relative_age(now, t)).unwrap_or_default();
+    let sha = col(
+        open.base.as_deref().map(short7).unwrap_or_default(),
+        SHA_WIDTH,
+        SHA,
+        colored,
+    );
+    let age = col_right(
+        &open.time.map(|t| relative_age(now, t)).unwrap_or_default(),
+        AGE_WIDTH,
+        AGE,
+        colored,
+    );
     let marker = if open.base.is_none() {
-        "  (no commits yet)"
+        format!("  {}", paint("(no commits yet)", DIM, colored))
     } else if open.clean {
-        "  (clean)"
+        format!("  {}", paint("(clean)", CLEAN, colored))
     } else {
-        ""
+        String::new()
     };
-    let subject = open.subject.as_deref().unwrap_or("(no description)");
-    let head = format!("@  {letters} {sha} {age:>8}{marker}");
-    format!("{}\n│  {subject}", head.trim_end())
+    let subject = match open.subject.as_deref() {
+        Some(text) => text.to_string(),
+        None => paint("(no description)", DIM, colored),
+    };
+    let sym = paint("@", AT, colored);
+    let rail = paint("│", DIM, colored);
+    let head = format!("{sym}  {letters} {sha} {age}{marker}");
+    format!("{}\n{rail}  {subject}", head.trim_end())
 }
 
 /// One `●` commit row (two lines). The letters column is the commit's
@@ -219,18 +264,12 @@ pub fn commit_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let sha = styled_sha(&entry.id, Some(&entry.short_id), colored);
-    let age = relative_age(now, entry.time);
-    let head = format!("●  {letters} {sha} {age:>8}");
-    format!("{}\n│  {}", head.trim_end(), entry.subject)
-}
-
-/// A commit sha column: 8 display chars, bright prefix = the odb-unique
-/// length with a floor of 7 — subtle by design; the snapshot column is
-/// where prefix highlighting pays.
-fn styled_sha(id: &str, short: Option<&str>, colored: bool) -> String {
-    let unique = short.map(str::len).unwrap_or(7).max(7);
-    styled_id(&id[..id.len().min(ID_WIDTH)], unique, ID_WIDTH, colored)
+    let sha = col(short7(&entry.id), SHA_WIDTH, SHA, colored);
+    let age = col_right(&relative_age(now, entry.time), AGE_WIDTH, AGE, colored);
+    let sym = paint("●", SHA, colored);
+    let rail = paint("│", DIM, colored);
+    let head = format!("{sym}  {letters} {sha} {age}");
+    format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
 }
 
 pub fn log_row(entry: &LogEntry, now: i64) -> String {
@@ -243,23 +282,19 @@ pub fn log_row(entry: &LogEntry, now: i64) -> String {
     )
 }
 
-/// Style an id column: pad FIRST (format-width would count escape bytes),
+/// A snapshot id column: pad FIRST (format-width would count escape bytes),
 /// then brighten the shortest-unique prefix and dim the rest — "the bold
-/// part is what you can type".
+/// part is what you can type". Snapshot ids only; commit shas are plain.
 pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> String {
     let pad = " ".repeat(width.saturating_sub(display.chars().count()));
     if !colored {
         return format!("{display}{pad}");
     }
     let (head, tail) = display.split_at(unique.min(display.len()));
-    let bold = anstyle::Style::new().bold();
-    let dim = anstyle::Style::new().dimmed();
     format!(
-        "{}{head}{}{}{tail}{}{pad}",
-        bold.render(),
-        bold.render_reset(),
-        dim.render(),
-        dim.render_reset()
+        "{}{}{pad}",
+        paint(head, SNAP_UNIQUE, colored),
+        paint(tail, DIM, colored)
     )
 }
 

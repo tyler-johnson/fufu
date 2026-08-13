@@ -390,7 +390,7 @@ fn log_segment_tips_fill_and_blank() {
     let text = stdout(&ff(&fx, &["log"]));
     let row_of = |sha: &str| {
         text.lines()
-            .find(|line| line.starts_with('●') && line.contains(&sha[..8]))
+            .find(|line| line.starts_with('●') && line.contains(&sha[..7]))
             .unwrap_or_else(|| panic!("no ● row for {sha}: {text:?}"))
             .to_string()
     };
