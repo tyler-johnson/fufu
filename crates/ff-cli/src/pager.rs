@@ -12,8 +12,6 @@ use std::process::{Child, Command, Stdio};
 
 pub struct LogOut {
     inner: Inner,
-    // expect lifted when the styled renderers land (evolog / change-centric log).
-    #[expect(dead_code)]
     colored: bool,
 }
 
@@ -61,6 +59,16 @@ impl LogOut {
         }
     }
 
+    /// Direct-to-stdout with the same color decision, never a pager — for
+    /// short confirmations (bare `ff`) that must not interpose less.
+    pub fn unpaged() -> Self {
+        let colored = !matches!(
+            anstream::AutoStream::choice(&std::io::stdout()),
+            anstream::ColorChoice::Never
+        );
+        Self::direct(colored)
+    }
+
     fn direct(colored: bool) -> Self {
         LogOut {
             inner: Inner::Direct(anstream::AutoStream::auto(std::io::stdout())),
@@ -69,7 +77,6 @@ impl LogOut {
     }
 
     /// Whether renderers should emit ANSI styling into this stream.
-    #[expect(dead_code)]
     pub fn colored(&self) -> bool {
         self.colored
     }

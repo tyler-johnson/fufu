@@ -1,6 +1,7 @@
 pub mod branch;
 pub mod commit;
 pub mod describe;
+pub mod evolog;
 pub mod git;
 pub mod git_exec;
 pub mod hook;

@@ -192,11 +192,20 @@ fn bare_ff_snapshots_and_noops() {
         text.starts_with("snapshot ") && text.contains(" on main\n"),
         "created line: {text:?}"
     );
-    // The top of the timeline follows after a blank line.
+    // The top of the snapshot chain follows after a blank line.
     assert!(text.contains("\n\n"), "blank separator: {text:?}");
     assert!(
         text.contains("manual"),
-        "timeline shows the snapshot: {text:?}"
+        "confirmation shows the snapshot: {text:?}"
+    );
+    // Rows lead with the letters-spelled snapshot id.
+    let confirmation = text.split("\n\n").nth(1).unwrap();
+    assert!(
+        confirmation.lines().all(|line| {
+            let token = line.split_whitespace().next().unwrap_or("");
+            token.len() >= 4 && token.chars().all(|c| ('k'..='z').contains(&c))
+        }),
+        "letters ids lead the rows: {confirmation:?}"
     );
 
     let chain = fx.git(&["rev-parse", "--verify", "refs/fufu/snap/main"]);
@@ -304,6 +313,82 @@ fn log_timeline_interleaves_and_json_envelopes() {
     fx.write("a.txt", "uncaptured\n");
     let out = ff(&fx, &["log"]);
     assert!(stdout(&out).contains("pre: ff log"));
+}
+
+#[test]
+fn evolog_lists_snapshots_and_json() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // Empty chain: a friendly line, exit 0.
+    let out = ff(&fx, &["evolog"]);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "no snapshots on main yet\n");
+
+    fx.write("a.txt", "one\n");
+    assert!(ff(&fx, &["-m", "first"]).status.success());
+    fx.write("a.txt", "two\n");
+    assert!(ff(&fx, &["-m", "second"]).status.success());
+
+    let out = ff(&fx, &["evolog"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "snapshot rows only: {text:?}");
+    assert!(lines[0].contains("second") && lines[1].contains("first"));
+    for line in &lines {
+        let token = line.split_whitespace().next().unwrap();
+        assert_eq!(token.len(), 8, "letters8 id column: {line:?}");
+        assert!(
+            token.chars().all(|c| ('k'..='z').contains(&c)),
+            "letters alphabet: {token:?}"
+        );
+    }
+
+    let out = ff(&fx, &["evolog", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let snaps = v["snapshots"].as_array().unwrap();
+    assert_eq!(snaps.len(), 2);
+    assert!(
+        snaps[0]["id"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()),
+        "JSON ids stay hex"
+    );
+}
+
+/// A letters id copied from evolog output round-trips into `ff restore --at`.
+#[test]
+fn restore_accepts_letters_id_from_evolog() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "captured\n");
+    assert!(ff(&fx, &["-m", "keep this"]).status.success());
+    fx.write("a.txt", "diverged\n");
+
+    let out = ff(&fx, &["evolog"]);
+    let text = stdout(&out);
+    let letters = text
+        .lines()
+        .find(|line| line.contains("keep this"))
+        .and_then(|line| line.split_whitespace().next())
+        .expect("letters id on the manual row")
+        .to_string();
+
+    let out = ff(&fx, &["restore", "--all", "--at", &letters]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "captured\n"
+    );
 }
 
 #[test]

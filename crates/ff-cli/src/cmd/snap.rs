@@ -36,11 +36,18 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
                         ..Default::default()
                     },
                 )?;
+                let lens = crate::cmd::evolog::prefix_lens(&repo)?;
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                print!("{}", crate::render::timeline_human(&rows, now));
+                use std::io::Write as _;
+                let mut out = crate::pager::LogOut::unpaged();
+                let colored = out.colored();
+                for row in &rows {
+                    let _ = writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored));
+                }
+                out.finish();
             }
         }
         SnapOutcome::NoOp { r#ref, .. } => {

@@ -135,26 +135,26 @@ fn kind_letter(kind: ChangeKind) -> char {
     }
 }
 
-/// One snapshot row: `<snap7>  <base7|blank>  <age>  <subject>`. Shared by
-/// bare `ff` and `ff log` so the two never diverge.
-pub fn timeline_row(snap: &SnapEntry, now: i64) -> String {
+/// One snapshot row: `<letters8> <base7|blank> <age>  <subject>`, the
+/// letters id styled so its shortest-unique prefix is what you can type at
+/// `ff restore --at`. Shared by `ff evolog` and bare `ff` so the two never
+/// diverge.
+pub fn snap_row(
+    snap: &SnapEntry,
+    lens: &std::collections::HashMap<String, usize>,
+    now: i64,
+    colored: bool,
+) -> String {
+    let letters = ff_core::snapid::encode(&snap.id[..snap.id.len().min(8)]);
+    let unique = lens.get(&snap.id).copied().unwrap_or(1);
     let base = snap.base.as_deref().map(short7).unwrap_or_default();
     format!(
-        "{:<9} {:<8} {:>8}  {}",
-        snap.short_id,
+        "{} {:<8} {:>8}  {}",
+        styled_id(&letters, unique, 8, colored),
         base,
         relative_age(now, snap.time),
         snap.subject
     )
-}
-
-pub fn timeline_human(rows: &[SnapEntry], now: i64) -> String {
-    let mut out = String::new();
-    for row in rows {
-        out.push_str(&timeline_row(row, now));
-        out.push('\n');
-    }
-    out
 }
 
 fn short7(hex: &str) -> &str {
@@ -174,9 +174,6 @@ pub fn log_row(entry: &LogEntry, now: i64) -> String {
 /// Style an id column: pad FIRST (format-width would count escape bytes),
 /// then brighten the shortest-unique prefix and dim the rest — "the bold
 /// part is what you can type".
-// allow lifted when the styled renderers land (evolog / change-centric log);
-// the unit tests below keep it alive in test builds.
-#[allow(dead_code)]
 pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> String {
     let pad = " ".repeat(width.saturating_sub(display.chars().count()));
     if !colored {
@@ -197,9 +194,6 @@ pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> S
 /// Shortest-unique-prefix length per id: sort, then each id needs one more
 /// character than its longest common prefix with either neighbor. Bijective
 /// per-character encodings (hex ↔ letters) preserve these lengths.
-// allow lifted when the styled renderers land (evolog / change-centric log);
-// the unit tests below keep it alive in test builds.
-#[allow(dead_code)]
 pub fn unique_prefix_lens(ids: &[String]) -> std::collections::HashMap<String, usize> {
     let mut sorted: Vec<&str> = ids.iter().map(String::as_str).collect();
     sorted.sort_unstable();

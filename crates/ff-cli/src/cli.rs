@@ -47,6 +47,15 @@ pub enum Command {
         #[arg(long, conflicts_with = "commits")]
         ops: bool,
     },
+    /// Show the open change's snapshot chain (the evolution log)
+    Evolog {
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Number of rows to show; 0 means unlimited
+        #[arg(short = 'n', long = "max-count", default_value_t = 25)]
+        count: usize,
+    },
     /// Capture-first git passthrough; daily forms translate to ff verbs
     #[command(disable_help_flag = true)]
     Git {

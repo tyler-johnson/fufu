@@ -24,6 +24,7 @@ fn main() {
             commits,
             ops,
         }) => cmd::log::run(json, count, commits, ops),
+        Some(cli::Command::Evolog { json, count }) => cmd::evolog::run(json, count),
         Some(cli::Command::Git { args }) => cmd::git::run(args),
         Some(cli::Command::Restore {
             at,

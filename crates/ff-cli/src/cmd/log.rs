@@ -71,10 +71,19 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
                 .map_err(Error::repo)?;
                 println!("{body}");
             } else {
+                use std::io::Write as _;
+                let lens = crate::cmd::evolog::prefix_lens(&repo)?;
                 let now = now_secs();
-                for row in &rows {
-                    println!("{}", crate::render::timeline_row(row, now));
-                }
+                let mut out = crate::pager::LogOut::new(&repo, false);
+                let colored = out.colored();
+                let result = (|| -> std::io::Result<()> {
+                    for row in &rows {
+                        writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
+                    }
+                    Ok(())
+                })();
+                out.finish();
+                result.map_err(Error::repo)?;
             }
             return Ok(());
         }
