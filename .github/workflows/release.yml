@@ -19,7 +19,9 @@ jobs:
         include:
           - { os: linux, arch: amd64, runner: ubuntu-latest }
           - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
-          - { os: darwin, arch: amd64, runner: macos-13 }
+          # macos-15-intel is the last x86_64 macOS image (macos-13 retired
+          # Dec 2025); it lives until Aug 2027, then darwin/amd64 goes too.
+          - { os: darwin, arch: amd64, runner: macos-15-intel }
           - { os: darwin, arch: arm64, runner: macos-latest }
           - { os: windows, arch: amd64, runner: windows-latest }
           - { os: windows, arch: arm64, runner: windows-11-arm }
