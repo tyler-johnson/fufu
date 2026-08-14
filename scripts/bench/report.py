@@ -159,11 +159,30 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
     floor_sd_min = p_min["floor"]["stddev_ms"]
     floor_sd_max = p_max["floor"]["stddev_ms"]
 
+    # A floor whose own stddev rivals its mean means the box was too busy to
+    # measure anything on: say so, rather than letting a wild floor quietly
+    # reshape every verdict derived from it.
+    for p in (p_min, p_max):
+        f = p["floor"]
+        if f["mean_ms"] > 0 and f["stddev_ms"] > 0.5 * f["mean_ms"]:
+            g["notes"].append(
+                "noisy floor at n=%d (%.2f+-%.2fms): treat this row as unreliable"
+                % (p["n"], f["mean_ms"], f["stddev_ms"])
+            )
+
     threshold_min = max(0.05, floor_sd_min)
     if adj_min < threshold_min:
         g["verdict"] = "below-floor"
         threshold_max = max(0.5, 4 * floor_sd_max)
-        if adj_max > threshold_max:
+        # Growth is required, not just a large-N cost above the floor. The two
+        # ends are judged against their own point's floor stddev, so a run
+        # where only the small-N floor was noisy makes threshold_min huge while
+        # threshold_max stays small -- and every row, including ones that got
+        # measurably FASTER, would trip the "linear term" branch on that
+        # asymmetry alone. Observed doing exactly that: 2.47ms -> 2.24ms
+        # reported as a suspected linear term. A cost that did not grow cannot
+        # be linear in anything, whatever the floors did.
+        if adj_max > threshold_max and adj_max > adj_min * flat_max:
             # Small-N cost vanished into the floor, but large-N did not --
             # that shape is a linear term hiding behind a noisy near-zero
             # baseline, not genuine flatness. Fails even though the ratio

@@ -46,6 +46,10 @@ case_check "expect-report.json is never gated"         expect-report.json      0
 # A typo in rows.tsv's expect column would silently switch the gate off for
 # that row and still print green, so an unknown value must refuse to run.
 case_check "bad-expect.json refuses to run"            bad-expect.json         2 "unknown expect 'falt'"
+# A noisy small-N floor once made every row -- including ones that got FASTER --
+# trip the below-floor "linear term suspected" branch, because the two ends were
+# judged against their own point's floor stddev. Growth is required now.
+case_check "noisy-floor.json does not false-fail"      noisy-floor.json        0 "noisy floor at n=100"
 
 # stdin ('-') must read identically to a path argument.
 out=$(python3 "$REPORT" - < "$DATA/flat.json" 2>&1)

@@ -6,6 +6,8 @@
 //! mid-replay leaves a shorter-but-valid chain plus the full pre-trim state
 //! in trash.
 
+use std::collections::HashMap;
+
 use gix::refs::transaction::PreviousValue;
 
 use crate::error::{Error, Result};
@@ -120,13 +122,21 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
             continue;
         }
 
-        // Rebuild oldest-survivor→newest. Trees, messages, and dates are
-        // byte-preserved; only parent slots relink, so any commit whose
-        // parents don't change reproduces its original sha by content
-        // addressing.
+        // Rebuild oldest-survivor→newest. Trees and dates are byte-preserved;
+        // parent slots relink, and so — when a message carries the segment
+        // skip-link trailer (see `snapshot::message`) — does that trailer, to
+        // keep pointing at the id its target now has. A commit whose message
+        // has no trailer, and whose parents don't change, still reproduces
+        // its original sha by content addressing; one whose trailer relinks
+        // does not, by construction — the id it named no longer exists under
+        // that name.
         let survivors: Vec<&ChainEntry> = entries[..kept].iter().rev().collect();
         let mut new_tips: Vec<(gix::ObjectId, i64, String)> = Vec::new();
         let mut prev_new: Option<gix::ObjectId> = None;
+        // Old id -> rewritten id, filled in survivor order (oldest first) so
+        // that by the time a later survivor's trailer is resolved, whatever
+        // it could possibly point at (always older) is already in here.
+        let mut old_to_new: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
         for (i, entry) in survivors.iter().enumerate() {
             let obj = repo.find_object(entry.id).map_err(Error::repo)?;
             let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
@@ -147,7 +157,30 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
                 parents = entry.base_parents.clone();
             }
             commit.parents = parents.into();
+
+            // Relink the segment pointer to the target's rewritten id when
+            // the target survived; drop it when the target was itself
+            // trimmed away. `ChainStart` is kept — trim removes the oldest
+            // snapshots, so a survivor that was in the first segment is
+            // still in the first segment. A message with no trailer at all
+            // is untouched — `rewrite_segment_prev` is a byte-for-byte
+            // no-op on it.
+            let text = String::from_utf8_lossy(commit.message.as_ref()).into_owned();
+            let old_ptr = crate::snapshot::message::parse_segment_prev(&text);
+            let new_ptr: Option<crate::snapshot::message::SegmentPrev> = match old_ptr {
+                Some(crate::snapshot::message::SegmentPrev::At(old)) => old_to_new
+                    .get(&old)
+                    .copied()
+                    .map(crate::snapshot::message::SegmentPrev::At),
+                Some(crate::snapshot::message::SegmentPrev::ChainStart) => {
+                    Some(crate::snapshot::message::SegmentPrev::ChainStart)
+                }
+                None => None,
+            };
+            commit.message = crate::snapshot::message::rewrite_segment_prev(&text, new_ptr).into();
+
             let new_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
+            old_to_new.insert(entry.id, new_id);
             prev_new = Some(new_id);
             new_tips.push((new_id, entry.time, entry.subject.clone()));
         }

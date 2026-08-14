@@ -133,7 +133,33 @@ pub fn take_with(
             .unwrap_or(0)
     });
     let subject = message::clean_subject(&prov.subject(), message::MAX_SUBJECT);
-    let msg = message::build(&prov.subject(), &skipped);
+
+    // The segment skip-link (see `evolog::segment_anchors`): `prev` sitting
+    // on the same base as this capture means we are still inside its
+    // segment, so its own pointer is copied verbatim — every snapshot in a
+    // segment ends up carrying the same pointer, which is what lets the
+    // anchor walk hop out of the segment from any member of it. A different
+    // base means this capture opens a fresh segment, whose pointer is `prev`
+    // itself. No `prev` at all means this is the first snapshot of the
+    // chain, so the pointer is `ChainStart` — the walk can stop immediately
+    // when it reaches a segment whose base nobody wants. One extra object
+    // decode, paid here so the display-side walk never has to pay it per
+    // snapshot.
+    let segment_prev: Option<message::SegmentPrev> = match prev {
+        None => Some(message::SegmentPrev::ChainStart),
+        Some(p) => {
+            let prev_decoded = crate::evolog::snap_entry(repo, p)?;
+            match prev_decoded {
+                Some(decoded) if decoded.entry.base == base.map(|b| b.to_string()) => {
+                    // Same segment: copy the predecessor's value verbatim,
+                    // including None (pointerless old chain).
+                    decoded.segment_prev
+                }
+                _ => Some(message::SegmentPrev::At(p)),
+            }
+        }
+    };
+    let msg = message::build(&prov.subject(), &skipped, segment_prev);
     let changed_files = count_file_changes(repo, prev_tree.unwrap_or(head_tree), tree_id)?;
 
     // Parent order is load-bearing: parent 1 = previous snapshot (first-parent
