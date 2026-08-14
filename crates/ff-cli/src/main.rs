@@ -5,6 +5,8 @@ mod pager;
 mod provenance;
 mod render;
 
+mod selfupdate;
+
 use clap::Parser;
 
 fn main() {
@@ -65,6 +67,7 @@ fn main() {
             global,
             json,
         }) => cmd::config::run(key, value, unset, global, json),
+        Some(cli::Command::Update { check }) => cmd::update::run(check),
     };
     if let Err(err) = result {
         eprintln!("ff: {err}");

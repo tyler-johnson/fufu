@@ -15,3 +15,4 @@ pub mod status;
 pub mod switch;
 pub mod trim;
 pub mod undo;
+pub mod update;

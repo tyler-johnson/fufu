@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: cargo build --release -p ff-cli
+        env:
+          FF_OFFICIAL_BUILD: "1"
       - name: archive (tar.gz)
         if: matrix.os != 'windows'
         run: |

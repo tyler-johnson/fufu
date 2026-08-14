@@ -18,7 +18,14 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 anstyle.workspace = true
 anstream.workspace = true
+ureq.workspace = true
+sha2.workspace = true
+tar.workspace = true
+flate2.workspace = true
 
 [dev-dependencies]
 ff-testsupport.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }

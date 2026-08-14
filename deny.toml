@@ -24,4 +24,10 @@ allow = [
 # while we depend on gix. Scoped to this crate so no other MPL code sneaks in.
 exceptions = [
     { allow = ["MPL-2.0"], crate = "uluru" },
+    # Self-update TLS stack. ISC is permissive (BSD-simplified), fits the
+    # no-copyleft policy; CDLA-Permissive-2.0 covers Mozilla's CA root data.
+    { allow = ["ISC"], crate = "ring" },            # Apache-2.0 AND ISC
+    { allow = ["ISC"], crate = "untrusted" },
+    { allow = ["ISC"], crate = "rustls-webpki" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
 ]

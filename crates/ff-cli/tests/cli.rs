@@ -912,3 +912,18 @@ fn new_closes_described_empty_but_not_totally_empty() {
         .unwrap();
     assert_eq!(after2, after, "second new is a no-op");
 }
+
+/// `ff update` on an unofficial (test) build refuses before any network:
+/// classification precedes the API call, so this is hermetic.
+#[test]
+fn update_on_unofficial_build_advises_cargo() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["update"]);
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8(out.stderr.clone()).expect("utf-8 stderr");
+    assert!(err.contains("ff: ff was built from source"), "got: {err}");
+    assert!(
+        err.contains("cargo install --git https://github.com/tyler-johnson/fufu ff-cli"),
+        "got: {err}"
+    );
+}

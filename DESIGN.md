@@ -389,6 +389,7 @@ them as the general movement verb.
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
 | `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
+| `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
 
 ### Presentation conventions
 
@@ -434,7 +435,13 @@ stops *requiring* the ritual; it doesn't break it.
 
 jog's config command, carried over: no subcommands, arity decides. Bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker; a key gets; key plus value sets; `--unset` returns to the default; `--global` widens a set or unset to every repo. Storage is plain git config under `fufu.<key>`, so `git config fufu.keep` and fufu never disagree, and precedence is git's own — local over global, environment over both.
 
-The earned existence: git config can't say what settings fufu has, what they default to, or whether a value will parse. Every fufu reader falls back to its default on a value it can't read, so a typo'd `fufu.keep` looks set and does nothing. `ff config` closes that gap — a typed registry (size, duration, command), validation through the same parsers the readers use before anything touches disk, and exit codes that mean something: 0 done, 2 usage or bad value, 1 real failure. Writes are native like everything else: gix's lossless config file, git's own `config.lock` convention, atomic rename, comments preserved. Zero spawns, including the write path.
+The earned existence: git config can't say what settings fufu has, what they default to, or whether a value will parse. Every fufu reader falls back to its default on a value it can't read, so a typo'd `fufu.keep` looks set and does nothing. `ff config` closes that gap — a typed registry (size, duration, command, cadence, bool), validation through the same parsers the readers use before anything touches disk, and exit codes that mean something: 0 done, 2 usage or bad value, 1 real failure. Writes are native like everything else: gix's lossless config file, git's own `config.lock` convention, atomic rename, comments preserved. Zero spawns, including the write path.
+
+### `ff update`
+
+jog's self-updater, carried over. The earned existence: fufu ships six release targets, a tap, and two install scripts — plenty of ways to install, and until now nothing that keeps an installed binary fresh. `ff update` moves the running binary to the latest GitHub release: pick the platform asset, stream it through sha256 against the release's `checksums.txt`, extract, and atomically rename over the executable (unix rename never touches the busy inode, so there's no ETXTBSY; windows does the `.old` two-step and rolls back on failure). Not every install is fufu's to touch: Homebrew binaries get pointed at `brew upgrade fufu`, source builds at `cargo install` — and the official/source distinction is a compile-time marker the release workflow sets, because on linux `current_exe()` is already symlink-resolved and path inspection cannot tell a dogfood build from an official one.
+
+The passive lane keeps installs fresh without being asked. Official binaries (never dev, dogfood, or test builds; never under CI) spawn a detached `ff update --check` at most once per `fufu.updateCheck` (default daily) — the one sanctioned self-spawn in a zero-spawn binary; it refreshes a small cache file under the user cache dir and exits. Foreground commands read that cache: with `fufu.autoUpdate` on (the default) a newer release installs itself silently in the background — the in-flight command finishes on the old inode, the next one runs the new binary; with it off, a one-line notice lands on stderr instead. Three throttles keep it polite: the cadence gates the checks, auto-install probes retry at most daily, and a release is announced at most once, ever. `fufu.updateCheck false` turns the whole machinery off. The trust root is deliberately plain: HTTPS to GitHub plus the release's sha256 — the same root the install scripts already rely on.
 
 ## Substrate
 

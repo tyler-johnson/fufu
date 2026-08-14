@@ -169,6 +169,7 @@ fn runtime_claude() -> Result<()> {
             );
         }
     }
+    crate::selfupdate::notify::maybe_spawn_check(&repo);
     Ok(())
 }
 

@@ -37,6 +37,8 @@ fn list_shows_defaults() {
     assert!(text.contains("90d"), "missing 90d");
     assert!(text.contains("pager"), "missing pager");
     assert!(text.contains("less"), "missing less");
+    assert!(text.contains("updateCheck"), "missing updateCheck");
+    assert!(text.contains("autoUpdate"), "missing autoUpdate");
     assert!(text.contains("(default)"), "missing (default) tag");
     assert!(
         text.contains("Stored as plain git config under fufu."),
@@ -278,7 +280,7 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["settings"].is_array());
-    assert_eq!(v["settings"].as_array().unwrap().len(), 3);
+    assert_eq!(v["settings"].as_array().unwrap().len(), 5);
     assert_eq!(v["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -293,4 +295,116 @@ fn json_shapes() {
     let a = ff_cfg(&fx.path(), &["config", "--json"], &global);
     let b = ff_cfg(&fx.path(), &["config", "--json"], &global);
     assert_eq!(a.stdout, b.stdout, "identical bytes run to run");
+}
+
+#[test]
+fn update_settings_validate() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    // updateCheck bogus → exit 2
+    let out = ff_cfg(&fx.path(), &["config", "updateCheck", "bogus"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("invalid value for updateCheck"));
+
+    // autoUpdate maybe → exit 2
+    let out = ff_cfg(&fx.path(), &["config", "autoUpdate", "maybe"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("invalid value for autoUpdate"));
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn update_check_syncs_cache() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let cache = tempfile::TempDir::new().expect("create cache tempdir");
+    let state_file = cache.path().join("fufu").join("update.json");
+
+    fn run_cfg(
+        dir: &Path,
+        args: &[&str],
+        global: &Path,
+        cache_home: &Path,
+    ) -> std::process::Output {
+        Command::new(env!("CARGO_BIN_EXE_ff"))
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", global)
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("XDG_CACHE_HOME", cache_home)
+            .output()
+            .expect("spawn ff")
+    }
+
+    // Set to 12h
+    let out = run_cfg(
+        &fx.path(),
+        &["config", "updateCheck", "12h"],
+        &global,
+        cache.path(),
+    );
+    assert!(
+        out.status.success(),
+        "set 12h failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let content = std::fs::read_to_string(&state_file).expect("read state file");
+    assert!(
+        content.contains("\"interval_secs\":43200"),
+        "expected 43200, got: {}",
+        content
+    );
+
+    // Set to false (disabled)
+    let out = run_cfg(
+        &fx.path(),
+        &["config", "updateCheck", "false"],
+        &global,
+        cache.path(),
+    );
+    assert!(
+        out.status.success(),
+        "set false failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let content = std::fs::read_to_string(&state_file).expect("read state file");
+    assert!(
+        content.contains("\"interval_secs\":-1"),
+        "expected -1, got: {}",
+        content
+    );
+
+    // Unset → back to default (0)
+    let out = run_cfg(
+        &fx.path(),
+        &["config", "--unset", "updateCheck"],
+        &global,
+        cache.path(),
+    );
+    assert!(
+        out.status.success(),
+        "unset failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let content = std::fs::read_to_string(&state_file).expect("read state file");
+    assert!(
+        content.contains("\"interval_secs\":0"),
+        "expected 0, got: {}",
+        content
+    );
+
+    // autoUpdate false → exit 0 (Bool sets cleanly)
+    let out = run_cfg(
+        &fx.path(),
+        &["config", "autoUpdate", "false"],
+        &global,
+        cache.path(),
+    );
+    assert!(
+        out.status.success(),
+        "set autoUpdate false failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

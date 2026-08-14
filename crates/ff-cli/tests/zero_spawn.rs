@@ -3,6 +3,12 @@
 //! argv and fails. If ff ever shells out, the trap log appears and the fake
 //! git's failure would surface — so a clean run with no log is proof that no
 //! spawn happened anywhere in the binary.
+//!
+//! One sanctioned self-spawn exists outside this proof: official release
+//! builds may spawn `<current_exe> update --check` (absolute path, never
+//! PATH) from the passive update lane. Test binaries are never official
+//! (FF_OFFICIAL_BUILD unset), so that lane is structurally dead here and
+//! every assertion below still proves full zero-spawn for everything else.
 
 // unix-only: the booby-trap is a `#!/bin/sh` script on PATH, which Windows
 // cannot execute — the trap would never spring, proving nothing.

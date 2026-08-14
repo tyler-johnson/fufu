@@ -67,11 +67,16 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
     // the user asked git to do something; a skipped net deserves a notice.
     crate::capture::pre_loud(&crate::provenance::pre_git(&args));
 
+    let repo = ff_core::discover(".").ok();
+    if let Some(repo) = &repo {
+        crate::selfupdate::notify::maybe_spawn_check(repo);
+    }
+
     match translated {
         Some(verb) => {
             hint_once(&verb);
             // Capture already happened; run the verb's inner body directly.
-            match verb {
+            let result = match verb {
                 Translated::Status => crate::cmd::status::run_inner(false),
                 Translated::Log { limit } => {
                     crate::cmd::log::run_inner(false, limit.unwrap_or(0), false)
@@ -83,10 +88,44 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
                     crate::cmd::commit::run(message, false, None, false)
                 }
                 Translated::Branch => crate::cmd::branch::run(None, None, false),
+            };
+            if let Some(repo) = &repo {
+                if let Some(notice) =
+                    crate::selfupdate::notify::pending(repo, env!("CARGO_PKG_VERSION"))
+                {
+                    eprintln!("{notice}");
+                    crate::selfupdate::notify::mark_notified();
+                }
+            }
+            result
+        }
+        None => {
+            let notice = repo
+                .as_ref()
+                .and_then(|r| crate::selfupdate::notify::pending(r, env!("CARGO_PKG_VERSION")));
+            match notice {
+                // A notice is pending and the verb tolerates child-mode: run git as a
+                // child so ff regains control to speak after git's own output.
+                Some(notice) if deferrable(&args) => {
+                    let code = super::git_exec::run_wait(args);
+                    eprintln!("{notice}");
+                    crate::selfupdate::notify::mark_notified();
+                    std::process::exit(code);
+                }
+                // No notice (or a non-deferrable verb): the exec fast path, exactly as
+                // before. The notice, if any, waits for a future command.
+                _ => super::git_exec::exec(args),
             }
         }
-        None => super::git_exec::exec(args),
     }
+}
+
+fn deferrable(args: &[OsString]) -> bool {
+    let first = args.first().and_then(|a| a.to_str());
+    matches!(
+        first,
+        Some("status" | "diff" | "log" | "branch" | "fetch" | "pull" | "push")
+    )
 }
 
 /// Mention the native spelling once per repository — policy, not nag.

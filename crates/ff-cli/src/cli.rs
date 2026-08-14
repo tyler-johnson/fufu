@@ -196,6 +196,12 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Download the latest release and replace this binary
+    Update {
+        /// Refresh the update cache only (used by the background check)
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 /// Everything that feeds the capture floor is a hook. One grammar:

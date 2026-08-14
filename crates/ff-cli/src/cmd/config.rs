@@ -9,6 +9,8 @@ enum SettingKind {
     Size,
     Duration,
     Command,
+    Cadence,
+    Bool,
 }
 
 struct Setting {
@@ -51,6 +53,27 @@ fn registry() -> &'static [Setting] {
             desc: &[
                 "Pager for ff log and ff evolog on a TTY. When set it overrides FF_PAGER",
                 "and PAGER; whitespace-split, no shell quoting; cat means no pager.",
+            ],
+        },
+        Setting {
+            name: "updateCheck",
+            key: "fufu.updateCheck",
+            def: "1d",
+            kind: SettingKind::Cadence,
+            desc: &[
+                "How often ff looks for a new release in the background. false turns",
+                "the whole machinery off (checks, notices, auto-install); true means",
+                "daily; durations work too (12h, 7d, 2w), floored at one minute.",
+            ],
+        },
+        Setting {
+            name: "autoUpdate",
+            key: "fufu.autoUpdate",
+            def: "true",
+            kind: SettingKind::Bool,
+            desc: &[
+                "Install new releases silently in the background. false prints a",
+                "one-line notice instead; updateCheck false disables both.",
             ],
         },
     ]
@@ -168,6 +191,22 @@ fn validate_value(setting: &Setting, value: &str) {
                 std::process::exit(2);
             }
         }
+        SettingKind::Cadence => {
+            if crate::selfupdate::notify::parse_cadence(value).is_none() {
+                eprintln!(
+                    "ff: invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
+                );
+                std::process::exit(2);
+            }
+        }
+        SettingKind::Bool => {
+            let ok = ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value))
+                .is_ok();
+            if !ok {
+                eprintln!("ff: invalid value for autoUpdate: want true or false");
+                std::process::exit(2);
+            }
+        }
     }
 }
 
@@ -224,6 +263,8 @@ pub fn run(
                     SettingKind::Size => "size",
                     SettingKind::Duration => "duration",
                     SettingKind::Command => "command",
+                    SettingKind::Cadence => "cadence",
+                    SettingKind::Bool => "bool",
                 };
                 let source_json = if source.is_empty() {
                     serde_json::Value::Null
@@ -370,6 +411,14 @@ pub fn run(
 
         let (still_val, still_source) = scope_label_excluding(file_snap, setting, removed_kind);
 
+        if setting.name == "updateCheck" {
+            let encoded = still_val
+                .as_deref()
+                .and_then(crate::selfupdate::notify::parse_cadence)
+                .unwrap_or(0);
+            crate::selfupdate::notify::sync_interval(encoded);
+        }
+
         if json {
             let still_json = still_val.as_ref().map(|v| {
                 serde_json::json!({
@@ -459,6 +508,12 @@ pub fn run(
     file.set_raw_value_by("fufu", None, setting.name, new_value.as_str())
         .map_err(Error::repo)?;
     ff_core::snapshot::config::write_config_file(&path, &file)?;
+
+    if setting.name == "updateCheck"
+        && let Some(encoded) = crate::selfupdate::notify::parse_cadence(&new_value)
+    {
+        crate::selfupdate::notify::sync_interval(encoded);
+    }
 
     if json {
         let body = serde_json::to_string(&serde_json::json!({

@@ -35,3 +35,21 @@ pub fn exec(args: Vec<OsString>) -> Result<()> {
         }
     }
 }
+
+/// Spawn-and-wait sibling of `exec`, for when ff must speak after git:
+/// runs git as a child, mirrors its exit code (127 not-found / 126 failed,
+/// matching exec's codes), and RETURNS instead of exiting so the caller can
+/// print before terminating the process.
+pub fn run_wait(args: Vec<OsString>) -> i32 {
+    match std::process::Command::new("git").args(&args).status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("ff: git not found on PATH");
+            127
+        }
+        Err(err) => {
+            eprintln!("ff: failed to run git: {err}");
+            126
+        }
+    }
+}
