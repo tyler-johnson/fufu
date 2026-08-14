@@ -10,6 +10,18 @@
 use std::io::{IsTerminal, Write};
 use std::process::{Child, Command, Stdio};
 
+/// The color decision on its own, made against the real stdout exactly as
+/// [`LogOut`] makes it. Callers ask this *before* building the stream when
+/// the answer decides whether some presentation work is worth doing at all:
+/// styling is the only consumer of unique-prefix lengths, so a run that
+/// cannot emit ANSI must not pay to compute them.
+pub fn color_enabled() -> bool {
+    !matches!(
+        anstream::AutoStream::choice(&std::io::stdout()),
+        anstream::ColorChoice::Never
+    )
+}
+
 pub struct LogOut {
     inner: Inner,
     colored: bool,
@@ -26,10 +38,7 @@ impl LogOut {
     /// auto-detection (NO_COLOR, TERM=dumb, TTY) applies to the pager pipe
     /// too, since the pager just relays to the same terminal.
     pub fn new(repo: &ff_core::gix::Repository, json: bool) -> Self {
-        let colored = !matches!(
-            anstream::AutoStream::choice(&std::io::stdout()),
-            anstream::ColorChoice::Never
-        );
+        let colored = color_enabled();
         if json || !std::io::stdout().is_terminal() {
             return Self::direct(colored);
         }
@@ -62,11 +71,7 @@ impl LogOut {
     /// Direct-to-stdout with the same color decision, never a pager — for
     /// short confirmations (bare `ff`) that must not interpose less.
     pub fn unpaged() -> Self {
-        let colored = !matches!(
-            anstream::AutoStream::choice(&std::io::stdout()),
-            anstream::ColorChoice::Never
-        );
-        Self::direct(colored)
+        Self::direct(color_enabled())
     }
 
     fn direct(colored: bool) -> Self {

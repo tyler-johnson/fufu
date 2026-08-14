@@ -31,7 +31,7 @@ pub fn run(json: bool, count: usize) -> Result<()> {
         return Ok(());
     }
     let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
-    let lens = prefix_lens(&repo, &ids)?;
+    let lens = displayed_prefix_lens(&repo, &ids)?;
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
@@ -43,6 +43,28 @@ pub fn run(json: bool, count: usize) -> Result<()> {
     })();
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// Unique-prefix lengths for the ids a view is about to print, or nothing at
+/// all when the view cannot show them.
+///
+/// The bold prefix is the only consumer of these lengths, and `styled_id`
+/// ignores them outright when color is off — so a piped or `NO_COLOR` run
+/// would be computing a table it then throws away. Skipping it keeps such a
+/// run read-only against the id index too: no rebuild, no write into `.git`,
+/// which is what a fresh clone or a read-only checkout would otherwise pay
+/// (~9ms here) to render nothing.
+///
+/// The empty map is not a fallback: every renderer already defaults a missing
+/// id to a 1-character prefix, and that value is discarded uncolored.
+pub fn displayed_prefix_lens(
+    repo: &ff_core::gix::Repository,
+    ids: &[String],
+) -> Result<HashMap<String, usize>> {
+    if !crate::pager::color_enabled() {
+        return Ok(HashMap::new());
+    }
+    prefix_lens(repo, ids)
 }
 
 /// Unique-prefix lengths over the restore-resolution domain: the live AND

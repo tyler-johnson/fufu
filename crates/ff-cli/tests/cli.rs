@@ -30,6 +30,21 @@ fn ff(fx: &Fixture, args: &[&str]) -> Output {
     ff_at(&fx.path(), args)
 }
 
+/// `ff` with color forced on despite the captured (non-TTY) stdout —
+/// anstream honors `CLICOLOR_FORCE`, which is the only way a test can reach
+/// the styling paths at all.
+fn ff_colored(fx: &Fixture, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(args)
+        .env("CLICOLOR_FORCE", "1")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn ff")
+}
+
 fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).expect("utf-8 stdout")
 }
@@ -1026,5 +1041,47 @@ fn update_on_unofficial_build_advises_cargo() {
     assert!(
         err.contains("cargo install --git https://github.com/tyler-johnson/fufu ff-cli"),
         "got: {err}"
+    );
+}
+
+/// The bold prefix is the only consumer of unique-prefix lengths, so a run
+/// that cannot emit ANSI must not build the id index to compute them. This
+/// pins the invariant from the observable side: an uncolored view leaves no
+/// index behind, a colored one builds it. If someone ever makes those lengths
+/// matter without color, this fails rather than silently rendering `1`.
+#[test]
+fn uncolored_views_do_not_build_the_id_index() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    // A chain deep enough that the append path needs an existing file, and
+    // then a clean tree so neither run below captures anything.
+    for i in 0..4 {
+        fx.write("a.txt", &format!("v{i}\n"));
+        assert!(ff(&fx, &[]).status.success());
+    }
+    fx.commit("settle");
+    assert!(ff(&fx, &[]).status.success());
+
+    let index = fx.path().join(".git/fufu/ids/live/main");
+    std::fs::remove_file(&index).expect("remove index");
+
+    // stdout here is a pipe, so anstream resolves color to never.
+    let out = ff(&fx, &["log", "-n", "5"]);
+    assert!(out.status.success(), "uncolored log should succeed");
+    assert!(
+        !index.exists(),
+        "an uncolored view must not build the id index"
+    );
+
+    let out = ff_colored(&fx, &["log", "-n", "5"]);
+    assert!(out.status.success(), "colored log should succeed");
+    assert!(
+        index.exists(),
+        "a colored view builds the index it needs to embolden with"
+    );
+    assert!(
+        stdout(&out).contains('\u{1b}'),
+        "forced color really did emit ANSI, so the assertion above means something"
     );
 }
