@@ -23,12 +23,22 @@ FIXTURES_DIR="bench-fixtures"
 KEEP_GOING=0
 REAL_REPO_ARG="git"
 REAL_SHA_ARG=""
+FF_BINARY_ARG=""
+
+# FIXTURE_STAMP_FORMAT is the version of the fixture stamp format on disk.
+# Every stamp string written or compared in this file carries it as its first
+# field. Bump this number whenever a fixture's construction changes in a way
+# that would make an on-disk fixture unsafe to reuse. The split of the
+# real-history base (git becomes pristine, ff is derived from it) is such a
+# change: without the bump, git and jj fixtures would be reused in their old
+# fufu-metadata-polluted shape.
+FIXTURE_STAMP_FORMAT=2
 
 usage() {
     cat <<'EOF' >&2
 run.sh [--axis chain-depth|history-depth|real-history|file-count|all] [--points 100,1000,10000]
        [--rows name[,name...]] [--tools ff[,git,jj]] [--out PATH]
-       [--min-runs N] [--fixtures DIR] [--keep-going]
+       [--min-runs N] [--fixtures DIR] [--keep-going] [--ff-binary PATH]
        [--real-repo alias|url] [--real-sha SHA]
 EOF
 }
@@ -45,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --keep-going) KEEP_GOING=1; shift ;;
         --real-repo) REAL_REPO_ARG=$2; shift 2 ;;
         --real-sha) REAL_SHA_ARG=$2; shift 2 ;;
+        --ff-binary) FF_BINARY_ARG=$2; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "run.sh: unknown argument: $1" >&2; usage; exit 2 ;;
     esac
@@ -149,15 +160,56 @@ mkdir -p "$OUT_DIR" "$RAW_DIR" "$FIXTURES_DIR"
 
 info() { echo "$@" >&2; }
 
-# The measured binary is always the fat-LTO release build, never the
+# Compute a content-based identity for the ff binary: version string plus the
+# first 12 hex characters of the SHA-256 of the binary's bytes. A compile-time
+# git sha can go stale in an incremental build, and it says nothing about which
+# build of a given commit (release and dogfood profiles produce different
+# binaries from identical source). The bytes cannot lie.
+ff_build_id() {
+    local bin=$1
+    local ver; ver=$("$bin" --version)
+    local hash=""
+    if command -v sha256sum > /dev/null 2>&1; then
+        hash=$(sha256sum "$bin" | cut -c1-12)
+    elif command -v shasum > /dev/null 2>&1; then
+        hash=$(shasum -a 256 "$bin" | cut -c1-12)
+    else
+        # No hasher available: fall back to size+mtime. This is weaker than a
+        # content hash -- two different binaries of the same size and mtime
+        # would collide -- but it is better than the version string alone.
+        hash=$(stat -c '%s%Y' "$bin" 2>/dev/null | md5sum | cut -c1-12) || \
+        hash=$(stat -f '%z%m' "$bin" 2>/dev/null | md5sum | cut -c1-12) || \
+        hash="nohash"
+    fi
+    echo "$ver $hash"
+}
+
+# The measured binary is the fat-LTO release build by default, never the
 # incremental dogfood profile (Makefile:3, Cargo.toml's [profile.dogfood]
 # comment) -- a dogfood binary would make every measurement here a lie about
-# what a release actually costs.
-FF="$ROOT_DIR/target/release/ff"
-if [[ ! -x "$FF" ]]; then
-    info "building release binary (target/release/ff missing)..."
-    (cd "$ROOT_DIR" && cargo build --release -q)
+# what a release actually costs. --ff-binary lets the operator deliberately
+# measure a different build; using it for a dogfood binary makes the numbers
+# a lie about release cost.
+if [[ -n "$FF_BINARY_ARG" ]]; then
+    # An explicitly named binary is the operator's choice; quietly building
+    # over it would defeat the purpose of the flag.
+    case "$FF_BINARY_ARG" in
+        /*) FF="$FF_BINARY_ARG" ;;
+        *) FF="$ROOT_DIR/$FF_BINARY_ARG" ;;
+    esac
+    if [[ ! -x "$FF" ]]; then
+        echo "run.sh: --ff-binary path is not an executable file: $FF" >&2
+        exit 2
+    fi
+else
+    FF="$ROOT_DIR/target/release/ff"
+    if [[ ! -x "$FF" ]]; then
+        info "building release binary (target/release/ff missing)..."
+        (cd "$ROOT_DIR" && cargo build --release -q)
+    fi
 fi
+
+FF_BUILD_ID=$(ff_build_id "$FF")
 
 # Hermetic git environment, lifted from scripts/bench.sh: no user config
 # leaking in, fixed identity and timestamps so fixtures are reproducible.
@@ -531,7 +583,13 @@ build_jj_file_count() {
 # prepare, the saved id index -- already assumes that branch name; fetching
 # an arbitrary pinned SHA works at all because GitHub enables
 # uploadpack.allowAnySHA1InWant.
-build_real_history_base() {
+#
+# The base is fetched clean, with no ff capture inside it. The old code
+# captured in the staging dir before copying, so $dir/git and (via it)
+# $dir/jj both carried refs/fufu/* and .git/fufu/ — fufu metadata inside
+# the trees other tools are measured in, violating the invariant at
+# run.sh:262. After the split only $dir/ff is ever captured into.
+build_real_history_base_git() {
     local n=$1 dir=$2 stage="$dir/.stage"
     rm -rf "$stage"
     mkdir -p "$stage"
@@ -546,30 +604,45 @@ build_real_history_base() {
     ( cd "$stage"
       git config user.name bench
       git config user.email bench@bench.test
-      # A bare capture on a tree that already matches HEAD exactly is a
-      # no-op against ff's chain tip (same reasoning as
-      # build_ff_history_depth above): dirty a real tracked file first to
-      # force a snapshot into existence, then revert it and capture the
-      # now-clean state too, so the chain has a real entry and the tree
-      # that ends up measured still matches HEAD.
-      local dirty_file; dirty_file=$(git ls-files | head -1)
-      if [[ -n "$dirty_file" ]]; then
-          printf '\nbench dirty\n' >> "$dirty_file"
-          "$FF" > /dev/null
-          git checkout -q -- "$dirty_file"
-      fi
       backdate_tree
-      "$FF" > /dev/null
     )
     # What actually got fetched, which is not what was asked for: results are
     # reported against this count, never against the requested depth. Labeling
     # a row "n=500" when the repo behind it holds 81k commits would misstate
     # the scale by two orders of magnitude.
     ( cd "$stage" && git rev-list --count HEAD ) > "$dir/commits"
-    rm -rf "$dir/ff" "$dir/git"
-    cp -a "$stage" "$dir/ff"
-    cp -a "$stage" "$dir/git"
-    rm -rf "$stage"
+    # mv rather than cp -a: it is a rename on the same filesystem and saves
+    # copying gigabytes.
+    mv "$stage" "$dir/git"
+}
+
+# $dir/ff is derived from the pristine $dir/git. The ff captures that force
+# a snapshot chain into existence happen here, not in the base, so the git
+# and jj copies never see fufu metadata.
+#
+# The order of steps is load-bearing: step 1 dirties the first tracked file
+# and sets its mtime to now; step 2 (backdate_tree) puts it back to 2020 so
+# the racy-clean logic at run.sh:286-294 behaves; step 3 writes the stat
+# cache against those backdated mtimes. Swapping 1 and 2 leaves one file
+# with a fresh mtime and makes `ff status` on the "clean" fixture do real
+# work.
+build_real_history_base_ff() {
+    local dir=$1
+    rm -rf "$dir/ff"
+    cp -a "$dir/git" "$dir/ff"
+    ( cd "$dir/ff"
+      # 1. dirty the first tracked file, capture, revert
+      local dirty_file; dirty_file=$(git ls-files | head -1)
+      if [[ -n "$dirty_file" ]]; then
+          printf '\nbench dirty\n' >> "$dirty_file"
+          "$FF" > /dev/null
+          git checkout -q -- "$dirty_file"
+      fi
+      # 2. backdate so racy-clean doesn't fire
+      backdate_tree
+      # 3. capture the clean state against backdated mtimes
+      "$FF" > /dev/null
+    )
 }
 
 # The n a result is reported under. On the synthetic axes the requested point
@@ -678,24 +751,34 @@ tool_fixture_fresh() {
 ensure_real_history_fixture() {
     local n=$1 dir=$2
 
-    local ff_version; ff_version=$("$FF" --version)
-    local want_ff="real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA $ff_version"
-    local want_git="real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA git"
-    local need_base=0
-    tool_fixture_fresh "$dir" ff "$want_ff" || need_base=1
-    tool_fixture_fresh "$dir" git "$want_git" || need_base=1
-    [[ -d "$dir/git" ]] || need_base=1
+    local want_ff="$FIXTURE_STAMP_FORMAT real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA $FF_BUILD_ID"
+    local want_git="$FIXTURE_STAMP_FORMAT real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA git"
+    local need_git=0 need_ff=0
+    tool_fixture_fresh "$dir" git "$want_git" || need_git=1
+    tool_fixture_fresh "$dir" ff "$want_ff" || need_ff=1
+    [[ -d "$dir/git" ]] || need_git=1
 
-    if [[ $need_base -eq 1 ]]; then
+    # If the git base is stale, fetch and then necessarily re-derive ff from
+    # the fresh clone. If only ff is stale, re-derive ff alone — cp -a plus
+    # three ff invocations, no network. A stale git base always implies a
+    # stale ff copy (the ff copy comes from git), so clear need_ff to avoid
+    # duplicating the derive step.
+    if [[ $need_git -eq 1 ]]; then
         info "fixture real-history/$REAL_REPO_ALIAS/$n: fetching $REAL_REPO_URL @ $REAL_REPO_SHA depth $n (this can take minutes at large n, not a hang)..."
-        if ! build_real_history_base "$n" "$dir"; then
+        if ! build_real_history_base_git "$n" "$dir"; then
             echo "run.sh: fetch of $REAL_REPO_URL (depth $n) failed -- real-history needs network access to GitHub; skipping the axis" >&2
             return 1
         fi
-        record_ff_fixture_state "$dir"
         record_git_fixture_state "$dir"
-        echo "$want_ff" > "$dir/stamp-ff"
         echo "$want_git" > "$dir/stamp-git"
+        need_ff=1
+    fi
+
+    if [[ $need_ff -eq 1 ]]; then
+        info "fixture real-history/$REAL_REPO_ALIAS/$n: deriving ff copy from git base..."
+        build_real_history_base_ff "$dir"
+        record_ff_fixture_state "$dir"
+        echo "$want_ff" > "$dir/stamp-ff"
         local size; size=$(du -sh "$dir/git" 2>/dev/null | cut -f1)
         info "fixture real-history/$REAL_REPO_ALIAS/$n: built (${size:-?} on disk per tool copy)"
     else
@@ -704,7 +787,7 @@ ensure_real_history_fixture() {
 
     if [[ -n "$JJ_BIN" ]] && [[ " ${TOOLS[*]} " == *" jj "* ]]; then
         local jj_version; jj_version=$("$JJ_BIN" --version)
-        local want_jj="real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA $jj_version"
+        local want_jj="$FIXTURE_STAMP_FORMAT real-history $n $REAL_REPO_ALIAS $REAL_REPO_URL $REAL_REPO_SHA $jj_version"
         if tool_fixture_fresh "$dir" jj "$want_jj" && [[ -d "$dir/jj" ]]; then
             info "fixture real-history/$REAL_REPO_ALIAS/$n jj: reused"
         else
@@ -737,8 +820,12 @@ ensure_fixture() {
         return
     fi
 
-    local ff_version; ff_version=$("$FF" --version)
-    local want_ff="$axis $n $ff_version"
+    # The ff stamp carries FF_BUILD_ID (version + content hash of the binary)
+    # instead of the version string alone. Any change to the ff binary now
+    # rebuilds ff fixtures. That is the point — a change to what ff writes at
+    # capture time must not be measured against a chain in the old format.
+    # The cost is a cold chain-depth 10 000 rebuild of roughly 40 s.
+    local want_ff="$FIXTURE_STAMP_FORMAT $axis $n $FF_BUILD_ID"
     if tool_fixture_fresh "$dir" ff "$want_ff"; then
         info "fixture $axis/$n ff: reused"
     else
@@ -764,7 +851,7 @@ ensure_fixture() {
     [[ ( "$axis" == "history-depth" || "$axis" == "file-count" ) && " ${TOOLS[*]} " == *" jj "* ]] && want_git=1
     if [[ $want_git -eq 1 ]] && [[ "$axis" == "history-depth" || "$axis" == "file-count" || "$n" == "$POINTS_MAX" ]]; then
         local git_version; git_version=$(git --version)
-        local want="$axis $n $git_version"
+        local want="$FIXTURE_STAMP_FORMAT $axis $n $git_version"
         if tool_fixture_fresh "$dir" git "$want"; then
             info "fixture $axis/$n git: reused"
         else
@@ -783,7 +870,7 @@ ensure_fixture() {
 
     if [[ -n "$JJ_BIN" ]] && [[ " ${TOOLS[*]} " == *" jj "* ]]; then
         local jj_version; jj_version=$("$JJ_BIN" --version)
-        local want="$axis $n $jj_version"
+        local want="$FIXTURE_STAMP_FORMAT $axis $n $jj_version"
         if tool_fixture_fresh "$dir" jj "$want"; then
             info "fixture $axis/$n jj: reused"
         else
@@ -1174,11 +1261,11 @@ done
 axes_json+="}"
 
 python3 - "$MANIFEST" "$OUT_PATH" "$GENERATED_UNIX" "$ff_version" "$git_version" "$jj_version" \
-    "$hyperfine_version" "$FF" "$MIN_RUNS" "$axes_json" <<'PY'
+    "$hyperfine_version" "$FF" "$MIN_RUNS" "$axes_json" "$FF_BUILD_ID" <<'PY'
 import json, os, subprocess, sys
 
 (manifest_path, out_path, generated_unix, ff_version, git_version, jj_version,
- hyperfine_version, ff_binary, min_runs, axes_json) = sys.argv[1:11]
+ hyperfine_version, ff_binary, min_runs, axes_json, ff_build_id) = sys.argv[1:12]
 
 
 def null_or(v):
@@ -1219,6 +1306,7 @@ meta = {
         "jj": null_or(jj_version),
         "hyperfine": hyperfine_version,
     },
+    "ff_build_id": ff_build_id,
     "ff_binary": ff_binary,
     "axes": json.loads(axes_json),
     "flat_ratio_max": 1.5,
