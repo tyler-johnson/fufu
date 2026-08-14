@@ -4,15 +4,20 @@
 //! means the binary was built without git available (source tarball, crates.io
 //! vendor, docker context without `.git`).
 //!
-//! **No `rerun-if-changed` directives.** Cargo re-runs the script whenever any
-//! file in the `ff-cli` package changes, which is the behavior we want.
-//! Watching `.git/HEAD` is the usual recipe and is wrong here: in a git
-//! *worktree* `.git` is a file, not a directory, and the `--against` bench flow
-//! builds precisely in worktrees.
+//! **Rerun directives.** We watch the git state that determines the sha, not
+//! the package files: the value depends on the commit, not on the sources.
+//! Each path is resolved through `git rev-parse --git-path` so the directive
+//! is worktree-safe (`.git` is a file in a worktree, not a directory).
 //!
-//! Known limit: a commit that touches only `ff-core` can leave the recorded sha
-//! one commit stale in an incremental dev build. Release and bench builds are
-//! clean, so they are exact.
+//! Watched paths:
+//! - `HEAD` — branch switches and detached checkouts.
+//! - The current branch ref file (e.g. `refs/heads/main`) — an ordinary commit.
+//!   Silently skipped when the ref is packed and the file does not exist.
+//! - `packed-refs` — packed ref updates and `git gc`.
+//!
+//! Known limit: a commit made while a build is in flight, or dirty working-tree
+//! changes, are not reflected — the sha names a commit, and an uncommitted tree
+//! has none.
 //!
 //! A git failure (missing `.git`, `git` not on `PATH`, non-zero exit,
 //! non-UTF-8 output) is deliberately silent — the build succeeds with an empty
@@ -23,6 +28,19 @@ use std::process::Command;
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let dir = std::path::Path::new(&manifest_dir);
+
+    // Emit rerun-if-changed for the git paths that determine the sha.
+    // --git-path resolves through worktrees so the directive is correct
+    // whether .git is a directory or a file.
+    watch_git_path(dir, "HEAD");
+
+    // Current branch ref file catches an ordinary commit.
+    if let Some(sym) = run_git(dir, &["symbolic-ref", "-q", "HEAD"]) {
+        watch_git_path(dir, &sym);
+    }
+
+    // packed-refs covers packed refs and git gc.
+    watch_git_path(dir, "packed-refs");
 
     let sha = run_git(dir, &["rev-parse", "--short=7", "HEAD"]);
     let date = run_git(dir, &["log", "-1", "--format=%cs"]);
@@ -55,4 +73,17 @@ fn run_git(dir: &std::path::Path, args: &[&str]) -> Option<String> {
         .lines()
         .next()
         .map(|l| l.trim().to_string())
+}
+
+/// Resolve a git internal path through `--git-path` and emit
+/// `cargo::rerun-if-changed` if the resulting file exists.
+fn watch_git_path(dir: &std::path::Path, name: &str) {
+    let resolved = match run_git(dir, &["rev-parse", "--git-path", name]) {
+        Some(p) => p,
+        None => return,
+    };
+    let path = dir.join(&resolved);
+    if path.exists() {
+        println!("cargo::rerun-if-changed={}", path.display());
+    }
 }
