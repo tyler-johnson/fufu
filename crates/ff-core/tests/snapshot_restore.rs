@@ -1,7 +1,7 @@
 //! Restore contract: worktree-only writes, mandatory pre-snapshot, target
 //! grammar, round-trips, and refusals.
 
-use ff_core::{Provenance, RestoreOptions, SnapOutcome};
+use ff_core::{Provenance, RestoreOptions, SnapOutcome, TakeOptions, TrimOptions};
 use ff_testsupport::Fixture;
 
 fn take_created(fx: &Fixture) -> String {
@@ -393,4 +393,127 @@ fn symlink_and_exec_bit_restore() {
         std::fs::read_link(fx.path().join("link")).unwrap(),
         std::path::PathBuf::from("target.txt")
     );
+}
+
+/// A hash collision can't be forced, so ambiguity is forced by prefix length
+/// instead: keep taking snapshots until two ids share a 4+ character prefix,
+/// then restore to exactly that shared prefix and check the error names both
+/// full ids. Real collisions this short are rare, so the loop is capped —
+/// hitting the cap (no ambiguity found) is an accepted outcome, not a
+/// failure.
+#[test]
+fn ambiguous_prefix_errors_with_both_ids() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut collision: Option<(String, String, String)> = None;
+    for i in 0..300 {
+        fx.write("a.txt", &format!("v{i}\n"));
+        let id = take_created(&fx);
+        for existing in &ids {
+            let shared = existing
+                .bytes()
+                .zip(id.bytes())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if shared >= 4 {
+                collision = Some((existing.clone(), id.clone(), existing[..shared].to_string()));
+                break;
+            }
+        }
+        let found = collision.is_some();
+        ids.push(id);
+        if found {
+            break;
+        }
+    }
+
+    // Two ids sharing four hex characters is a birthday event: at this cap it
+    // turns up most runs but not every run, and forcing it would cost thousands
+    // of captures. When it does not, assert the other half of the same code
+    // path instead — that a 4-character prefix resolves to exactly one id — so
+    // this test always exercises index-backed resolution rather than passing
+    // vacuously.
+    let Some((a, b, prefix)) = collision else {
+        let newest = ids.last().expect("at least one snapshot").clone();
+        let report = restore_all(&fx, Some(&newest[..4]));
+        assert_eq!(
+            report.target.id, newest,
+            "an unambiguous 4-character prefix must resolve to its own id"
+        );
+        return;
+    };
+
+    let repo = fx.repo();
+
+    let err = ff_core::restore(
+        &repo,
+        &RestoreOptions {
+            target: Some(prefix.clone()),
+            paths: Vec::new(),
+            all: true,
+            now: None,
+        },
+        &Provenance::new("pre", Some("ff restore".into())),
+    )
+    .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.starts_with(&format!("ambiguous snapshot prefix {prefix}: ")),
+        "unexpected message: {msg}"
+    );
+    assert!(msg.contains(&a), "missing {a} in {msg}");
+    assert!(msg.contains(&b), "missing {b} in {msg}");
+}
+
+/// Trim moves the pre-cutoff suffix of the chain to `refs/fufu/trash/<name>`
+/// — those ids no longer live on the live chain at all. Restore's prefix
+/// resolution must still find them there.
+#[test]
+fn trash_ids_still_resolve() {
+    const NOW: i64 = 1_700_000_000;
+
+    fn snap_at(fx: &Fixture, days_ago: i64) -> String {
+        let repo = fx.repo();
+        match ff_core::take_with(
+            &repo,
+            &Provenance::new("manual", Some(format!("{days_ago}d ago"))),
+            &TakeOptions {
+                now: Some(NOW - days_ago * 86_400),
+                max_file_size: None,
+            },
+        )
+        .expect("take")
+        {
+            SnapOutcome::Created { id, .. } => id,
+            other => panic!("expected Created, got {other:?}"),
+        }
+    }
+
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    fx.write("a.txt", "old\n");
+    let old_id = snap_at(&fx, 100);
+    fx.write("a.txt", "new\n");
+    let _new_id = snap_at(&fx, 5);
+
+    let repo = fx.repo();
+    ff_core::trim(
+        &repo,
+        &TrimOptions {
+            now: Some(NOW),
+            dry_run: false,
+            gone: false,
+            keep_secs: Some(10 * 86_400), // drops the 100-day-old snapshot, keeps the 5-day one
+        },
+    )
+    .expect("trim");
+
+    // Now only reachable via refs/fufu/trash/main, not the live chain.
+    let report = restore_all(&fx, Some(&old_id[..8]));
+    assert_eq!(report.target.id, old_id);
 }

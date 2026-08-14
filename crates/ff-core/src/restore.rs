@@ -240,12 +240,27 @@ fn resolve(
             ))
         })?,
         RestoreTarget::Id(prefix) => {
-            let mut candidates = Vec::new();
-            for r in [snap_ref.clone(), chain::trash_ref(chain_name)] {
-                if let Some(tip) = chain::tip(repo, &r)? {
-                    collect_prefix_matches(repo, tip, prefix, &mut candidates)?;
+            // Try the materialized index first; fall back to the walk when
+            // the index can't be consulted. Either way the id below still
+            // passes through the identity guard at the end of this function,
+            // so a stale index can only ever offer a candidate that then
+            // fails the guard — never cause a wrong restore.
+            let mut candidates = match crate::idindex::prefix_matches(repo, chain_name, prefix)? {
+                Some(found) => found,
+                None => {
+                    let mut candidates = Vec::new();
+                    for r in [snap_ref.clone(), chain::trash_ref(chain_name)] {
+                        if let Some(tip) = chain::tip(repo, &r)? {
+                            collect_prefix_matches(repo, tip, prefix, &mut candidates)?;
+                        }
+                    }
+                    candidates
                 }
-            }
+            };
+            // Index candidates come back in sorted hex order rather than
+            // newest-first walk order, so an ambiguous-prefix error may list
+            // ids in a different order than before. The message text is
+            // unchanged; only the order of the list it prints can differ.
             candidates.dedup();
             match candidates.as_slice() {
                 [] => {
