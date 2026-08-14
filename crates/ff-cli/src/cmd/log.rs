@@ -86,7 +86,9 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     }
 
     use std::io::Write as _;
-    let lens = crate::cmd::evolog::prefix_lens(&repo)?;
+    let mut ids: Vec<String> = segments.values().cloned().collect();
+    ids.extend(open.id.clone());
+    let lens = crate::cmd::evolog::prefix_lens(&repo, &ids)?;
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();

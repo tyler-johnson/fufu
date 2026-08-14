@@ -30,7 +30,8 @@ pub fn run(json: bool, count: usize) -> Result<()> {
         println!("no snapshots on {branch} yet");
         return Ok(());
     }
-    let lens = prefix_lens(&repo)?;
+    let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let lens = prefix_lens(&repo, &ids)?;
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
@@ -46,19 +47,16 @@ pub fn run(json: bool, count: usize) -> Result<()> {
 
 /// Unique-prefix lengths over the restore-resolution domain: the live AND
 /// trash chains — so the bold prefix is exactly what `ff restore --at`
-/// accepts unambiguously.
-pub fn prefix_lens(repo: &ff_core::gix::Repository) -> Result<HashMap<String, usize>> {
-    // Ids only: the domain has to be the whole chain for the bold prefix to
-    // mean what it claims, so it must not also pay for rows it never shows.
-    let ids = ff_core::chain_ids(
-        repo,
-        &EvologOptions {
-            limit: None,
-            chain: None,
-            include_trash: true,
-        },
-    )?;
-    Ok(crate::render::unique_prefix_lens(&ids))
+/// accepts unambiguously. The domain is still exactly the live and trash
+/// chains; what changed is that the domain is materialized per chain in the
+/// id index instead of re-walked, so the cost is now the number of ids on
+/// screen, not the length of the chain.
+pub fn prefix_lens(
+    repo: &ff_core::gix::Repository,
+    ids: &[String],
+) -> Result<HashMap<String, usize>> {
+    let chain = ff_core::snapshot::chain::chain_name(&ff_core::head_state(repo)?);
+    ff_core::idindex::prefix_lens(repo, &chain, ids)
 }
 
 fn now_secs() -> i64 {

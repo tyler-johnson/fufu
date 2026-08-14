@@ -36,7 +36,8 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
                         ..Default::default()
                     },
                 )?;
-                let lens = crate::cmd::evolog::prefix_lens(&repo)?;
+                let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+                let lens = crate::cmd::evolog::prefix_lens(&repo, &ids)?;
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)

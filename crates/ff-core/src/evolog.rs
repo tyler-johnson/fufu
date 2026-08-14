@@ -46,36 +46,6 @@ pub fn evolog(repo: &gix::Repository, opts: &EvologOptions) -> Result<Vec<SnapEn
     Ok(rows)
 }
 
-/// Every snapshot id on the chain, in walk order — the domain `ff restore
-/// --at` resolves against, and so the domain unique-prefix highlighting is
-/// computed over. Ids only: no abbreviation, which is what makes this
-/// affordable to run over a whole chain when [`evolog`] is not.
-pub fn chain_ids(repo: &gix::Repository, opts: &EvologOptions) -> Result<Vec<String>> {
-    let chain_name = match &opts.chain {
-        Some(name) => name.clone(),
-        None => chain::chain_name(&crate::head::head_state(repo)?),
-    };
-    let mut ids = Vec::new();
-    let mut collect = |entry: SnapEntry, _tree| {
-        ids.push(entry.id);
-        !opts.limit.is_some_and(|n| ids.len() >= n)
-    };
-    walk_chain_while(
-        repo,
-        &format!("{}{chain_name}", chain::SNAP_PREFIX),
-        &mut collect,
-    )?;
-    if opts.include_trash {
-        let start = ids.len();
-        let mut collect_trash = |entry: SnapEntry, _tree| {
-            ids.push(entry.id);
-            !opts.limit.is_some_and(|n| ids.len() - start >= n)
-        };
-        walk_chain_while(repo, &chain::trash_ref(&chain_name), &mut collect_trash)?;
-    }
-    Ok(ids)
-}
-
 /// Every snapshot id on one chain ref, in walk order (newest first), no limit.
 /// This is a resolution domain in its materialized form — ids only, no
 /// abbreviation, which is what makes it affordable over a whole chain.

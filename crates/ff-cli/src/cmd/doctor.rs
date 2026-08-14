@@ -531,6 +531,39 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
             }
         }
 
+        // id index — read-only: reports what's there, never rebuilds. An
+        // absent or stale index is a fact, not a finding: both self-heal on
+        // the next `ff log`/`ff evolog`.
+        if has_chains {
+            let mut all_in_sync = true;
+            let multi = chain_data.len() > 1;
+            let mut parts: Vec<String> = Vec::with_capacity(chain_data.len());
+            for (short, _tip) in &chain_data {
+                let detail = match ff_core::idindex::status(repo, short)? {
+                    ff_core::idindex::Status::InSync { ids } => format!("{ids} ids, in sync"),
+                    ff_core::idindex::Status::Stale => {
+                        all_in_sync = false;
+                        "stale — rebuilds on the next read".to_string()
+                    }
+                    ff_core::idindex::Status::Absent => {
+                        all_in_sync = false;
+                        "absent — builds on the next log".to_string()
+                    }
+                };
+                if multi {
+                    parts.push(format!("{short} {detail}"));
+                } else {
+                    parts.push(detail);
+                }
+            }
+            let detail = parts.join("; ");
+            if all_in_sync {
+                rows.push(Row::ok("id index", detail));
+            } else {
+                rows.push(Row::info("id index", detail));
+            }
+        }
+
         // journal
         match ff_core::journal::tip(repo)? {
             None => {

@@ -299,26 +299,6 @@ pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> S
     )
 }
 
-/// Shortest-unique-prefix length per id: sort, then each id needs one more
-/// character than its longest common prefix with either neighbor. Bijective
-/// per-character encodings (hex ↔ letters) preserve these lengths.
-pub fn unique_prefix_lens(ids: &[String]) -> std::collections::HashMap<String, usize> {
-    let mut sorted: Vec<&str> = ids.iter().map(String::as_str).collect();
-    sorted.sort_unstable();
-    let common = |a: &str, b: &str| a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
-    let mut lens = std::collections::HashMap::new();
-    for (i, id) in sorted.iter().enumerate() {
-        let prev = if i > 0 { common(sorted[i - 1], id) } else { 0 };
-        let next = if i + 1 < sorted.len() {
-            common(id, sorted[i + 1])
-        } else {
-            0
-        };
-        lens.insert(id.to_string(), (prev.max(next) + 1).min(id.len().max(1)));
-    }
-    lens
-}
-
 pub fn relative_age(now: i64, then: i64) -> String {
     let delta = now - then;
     if delta < 0 {
@@ -344,7 +324,7 @@ pub fn relative_age(now: i64, then: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{relative_age, styled_id, unique_prefix_lens};
+    use super::{relative_age, styled_id};
 
     #[test]
     fn ages() {
@@ -352,25 +332,6 @@ mod tests {
         assert_eq!(relative_age(10_000, 100), "2h ago");
         assert_eq!(relative_age(1_000_000, 100), "1w ago");
         assert_eq!(relative_age(100_000_000, 100), "3y ago");
-    }
-
-    #[test]
-    fn unique_prefixes() {
-        let ids: Vec<String> = ["abcd", "abxy", "zzzz"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let lens = unique_prefix_lens(&ids);
-        assert_eq!(lens["abcd"], 3, "ab is shared, abc is unique");
-        assert_eq!(lens["abxy"], 3);
-        assert_eq!(lens["zzzz"], 1);
-
-        let one: Vec<String> = vec!["solo".into()];
-        assert_eq!(unique_prefix_lens(&one)["solo"], 1);
-
-        // Duplicates cap at the full length instead of overflowing it.
-        let dup: Vec<String> = vec!["same".into(), "same".into()];
-        assert_eq!(unique_prefix_lens(&dup)["same"], 4);
     }
 
     #[test]

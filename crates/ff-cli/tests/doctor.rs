@@ -211,6 +211,30 @@ fn all_green_after_snapshot_and_wiring() {
         out_text.contains("no findings — the net is under you"),
         "clean summary:\n{out_text}"
     );
+    assert!(
+        out_text.contains("ok    id index"),
+        "id index ok:\n{out_text}"
+    );
+    let id_index = out_text
+        .lines()
+        .find(|line| line.contains("id index"))
+        .expect("id index row");
+    let mut detail_parts = id_index
+        .split("id index")
+        .nth(1)
+        .expect("id index detail")
+        .trim()
+        .splitn(2, ' ');
+    let n: usize = detail_parts
+        .next()
+        .and_then(|s| s.parse().ok())
+        .expect("id count is a number");
+    assert!(n >= 1, "id index has at least one id: {id_index}");
+    assert_eq!(
+        detail_parts.next(),
+        Some("ids, in sync"),
+        "id index detail: {id_index}"
+    );
 }
 
 /// 3. Missing gc config keys warn; --fix repairs them; subsequent doctor is clean.

@@ -72,7 +72,8 @@ pub fn take_with(
         ));
     }
     let head = crate::head::head_state(repo)?;
-    let chain_ref_name = chain::chain_ref(&head);
+    let chain_name = chain::chain_name(&head);
+    let chain_ref_name = format!("{}{chain_name}", chain::SNAP_PREFIX);
     let base = chain::base_commit(&head)?;
 
     // Previous tip — the exact value CAS must later see again.
@@ -203,6 +204,13 @@ pub fn take_with(
             warnings.push(format!("could not write gc config guard: {err}"));
         }
     }
+
+    // The id index rides the capture — one 41-byte record and a 50-byte
+    // header rewrite, best effort and silent. A failed append leaves a
+    // stale header, which the next read rebuilds; `take` must not gain a
+    // failure mode from a derived cache. This runs after the CAS above, so
+    // an index record can never describe a snapshot that is not on the ref.
+    crate::idindex::record(repo, &chain_name, prev, commit_id);
 
     let short_id = commit_id
         .attach(repo)
