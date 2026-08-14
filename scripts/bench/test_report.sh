@@ -23,7 +23,7 @@ case_check() {
         fail_count=$((fail_count + 1))
         return
     fi
-    if ! grep -qF "$pattern" <<< "$out"; then
+    if ! grep -qF -- "$pattern" <<< "$out"; then
         echo "FAIL: $name (output missing '$pattern')"
         fail_count=$((fail_count + 1))
         return
@@ -51,6 +51,52 @@ case_check "bad-expect.json refuses to run"            bad-expect.json         2
 # judged against their own point's floor stddev. Growth is required now.
 case_check "noisy-floor.json does not false-fail"      noisy-floor.json        0 "noisy floor at n=100"
 
+# Compare mode (--compare BASE HEAD) tests.
+case_compare() {
+    local name="$1" base="$2" head="$3" want_exit="$4" pattern="$5"
+    local out
+    out=$(python3 "$REPORT" --compare "$DATA/$base" "$DATA/$head" 2>&1)
+    local got_exit=$?
+
+    if [[ "$got_exit" != "$want_exit" ]]; then
+        echo "FAIL: $name (exit=$got_exit, want=$want_exit)"
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    if ! grep -qF -- "$pattern" <<< "$out"; then
+        echo "FAIL: $name (output missing '$pattern')"
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    echo "PASS: $name"
+}
+
+# Three groups: stable (<2%), slower (+25%), faster (-25%). The ! marker
+# appears on the two >=10% changes, and the percentage signs should match.
+case_compare "compare: stable/slower/faster groups" \
+    "compare-base.json" "compare-head.json" \
+    0 "!"
+
+# The slower row: adjusted 5.00 -> 6.25 is +25.0%.
+case_compare "compare: slower row shows +25.0%" \
+    "compare-base.json" "compare-head.json" \
+    0 "+25.0%"
+
+# The faster row: adjusted 5.00 -> 3.75 is -25.0%.
+case_compare "compare: faster row shows -25.0%" \
+    "compare-base.json" "compare-head.json" \
+    0 "-25.0%"
+
+# Base missing a group the head has (evolog not in old binary).
+case_compare "compare: missing group names the side" \
+    "compare-missing-base.json" "compare-missing-head.json" \
+    0 "base: missing"
+
+# Hosts differing between the two files.
+case_compare "compare: host difference warning" \
+    "compare-hosts-base.json" "compare-hosts-head.json" \
+    0 "WARNING: hosts differ"
+
 # stdin ('-') must read identically to a path argument.
 out=$(python3 "$REPORT" - < "$DATA/flat.json" 2>&1)
 got_exit=$?
@@ -60,6 +106,37 @@ else
     echo "FAIL: stdin (-) reads the same as a path (exit=$got_exit)"
     fail_count=$((fail_count + 1))
 fi
+
+# Compare mode: commands that differ only in the leading binary token
+# (against.sh gives the ref binary a version-stamped name) should NOT
+# trigger "commands differ".
+case_compare_absent() {
+    local name="$1" base="$2" head="$3" want_exit="$4" pattern="$5"
+    local out
+    out=$(python3 "$REPORT" --compare "$DATA/$base" "$DATA/$head" 2>&1)
+    local got_exit=$?
+
+    if [[ "$got_exit" != "$want_exit" ]]; then
+        echo "FAIL: $name (exit=$got_exit, want=$want_exit)"
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    if grep -qF -- "$pattern" <<< "$out"; then
+        echo "FAIL: $name (output unexpectedly contains '$pattern')"
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    echo "PASS: $name"
+}
+
+case_compare_absent "compare: binary-token-only diff hides commands differ" \
+    "compare-cmds-base.json" "compare-cmds-head.json" \
+    0 "commands differ"
+
+# Commands that differ in their arguments should still show "commands differ".
+case_compare "compare: argument diff shows commands differ" \
+    "compare-cmds-diff-base.json" "compare-cmds-diff-head.json" \
+    0 "commands differ"
 
 if [[ "$fail_count" -eq 0 ]]; then
     echo "all cases passed"

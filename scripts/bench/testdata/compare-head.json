@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "generated_unix": 1755100100,
+    "host": {
+      "os": "linux",
+      "arch": "aarch64",
+      "kernel": "6.18.39+rpt-rpi-2712",
+      "cpu": "Cortex-A76",
+      "nproc": 4
+    },
+    "versions": {
+      "ff": "ff 0.2.0-dev",
+      "git": "git version 2.50.1",
+      "jj": "jj 0.44.0",
+      "hyperfine": "hyperfine 1.18.0"
+    },
+    "ff_binary": "/home/pi/Development/fufu/target/release/ff",
+    "ff_build_id": "build-def",
+    "axes": {
+      "chain-depth": {
+        "points": [100, 1000]
+      }
+    },
+    "flat_ratio_max": 1.5,
+    "hyperfine": {
+      "warmup": 3,
+      "min_runs": 3,
+      "max_runs": 10
+    }
+  },
+  "results": [
+    {"kind": "floor", "row": "floor", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 100, "prepare": "-", "command": "ff --version", "mean_ms": 5.0, "stddev_ms": 0.1, "median_ms": 5.0, "min_ms": 4.8, "max_ms": 5.2, "runs": 10, "exit_ok": true},
+    {"kind": "floor", "row": "floor", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 1000, "prepare": "-", "command": "ff --version", "mean_ms": 5.0, "stddev_ms": 0.1, "median_ms": 5.0, "min_ms": 4.8, "max_ms": 5.2, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "stable", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 100, "prepare": "-", "command": "ff log -n 25", "mean_ms": 10.1, "stddev_ms": 0.2, "median_ms": 10.1, "min_ms": 9.8, "max_ms": 10.4, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "stable", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 1000, "prepare": "-", "command": "ff log -n 25", "mean_ms": 10.1, "stddev_ms": 0.2, "median_ms": 10.1, "min_ms": 9.8, "max_ms": 10.4, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "slower", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 100, "prepare": "-", "command": "ff status", "mean_ms": 11.25, "stddev_ms": 0.2, "median_ms": 11.25, "min_ms": 11.0, "max_ms": 11.5, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "slower", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 1000, "prepare": "-", "command": "ff status", "mean_ms": 11.25, "stddev_ms": 0.2, "median_ms": 11.25, "min_ms": 11.0, "max_ms": 11.5, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "faster", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 100, "prepare": "-", "command": "ff log -n 1", "mean_ms": 8.75, "stddev_ms": 0.2, "median_ms": 8.75, "min_ms": 8.5, "max_ms": 9.0, "runs": 10, "exit_ok": true},
+    {"kind": "row", "row": "faster", "axis": "chain-depth", "expect": "flat", "tool": "ff", "n": 1000, "prepare": "-", "command": "ff log -n 1", "mean_ms": 8.75, "stddev_ms": 0.2, "median_ms": 8.75, "min_ms": 8.5, "max_ms": 9.0, "runs": 10, "exit_ok": true}
+  ]
+}

@@ -432,6 +432,306 @@ def build_json(meta, groups, flat_max, failing, quiet):
     }
 
 
+# --- Compare mode --------------------------------------------------------
+# --compare BASE HEAD: side-by-side view of two measurement runs. This is
+# deliberately not a gate: performance gets looked at on every change when
+# there is a visual diff, but turning it into a CI gate is a separate
+# decision that has not been made, and a gate nobody trusts gets disabled.
+
+def _iso_ts(unix):
+    """Convert a unix timestamp to an ISO-8601 string, or '(unknown)'."""
+    if unix is None:
+        return "(unknown)"
+    try:
+        dt = __import__("datetime").datetime.fromtimestamp(unix, __import__("datetime").timezone.utc)
+        return dt.isoformat()
+    except Exception:
+        return "(unknown)"
+
+
+def _shown(x):
+    return x if x not in (None, "") else "(not measured)"
+
+
+def compare_provenance(base_meta, head_meta):
+    """Yield the provenance header lines for a comparison report."""
+    bv = base_meta.get("versions") or {}
+    hv = head_meta.get("versions") or {}
+    bh = base_meta.get("host") or {}
+    hh = head_meta.get("host") or {}
+
+    lines = []
+    lines.append("# fufu benchmark comparison")
+    lines.append("")
+    lines.append(
+        "base: ff=%s build=%s binary=%s"
+        % (_shown(bv.get("ff")),
+           _shown(base_meta.get("ff_build_id")) or "(not recorded)",
+           _shown(base_meta.get("ff_binary")))
+    )
+    lines.append(
+        "head: ff=%s build=%s binary=%s"
+        % (_shown(hv.get("ff")),
+           _shown(head_meta.get("ff_build_id")) or "(not recorded)",
+           _shown(head_meta.get("ff_binary")))
+    )
+    lines.append(
+        "host: os=%s arch=%s cpu=%s nproc=%s kernel=%s"
+        % (bh.get("os"), bh.get("arch"), _shown(bh.get("cpu")),
+           bh.get("nproc"), bh.get("kernel"))
+    )
+    lines.append("generated: base %s, head %s" % (_iso_ts(base_meta.get("generated_unix")),
+                                                  _iso_ts(head_meta.get("generated_unix"))))
+
+    # Cross-machine comparison is meaningless — the whole premise is
+    # same-session measurement. Flag it rather than letting it look ordinary.
+    if bh != hh:
+        diffs = []
+        all_keys = set(list(bh.keys()) + list(hh.keys()))
+        for k in sorted(all_keys):
+            if bh.get(k) != hh.get(k):
+                diffs.append(k)
+        if diffs:
+            lines.append("WARNING: hosts differ in: %s" % ", ".join(diffs))
+
+    lines.append("")
+    return lines
+
+
+def _strip_binary(cmd):
+    """Drop the leading binary token from a command string.
+
+    against.sh gives the ref binary a version-stamped name (ff-373cd45)
+    while the head is just "ff".  Stripping the first token lets us compare
+    the actual subcommand and arguments without a false disagreement.
+    A command with no whitespace normalizes to itself.
+    """
+    parts = cmd.split(None, 1)
+    return parts[1] if len(parts) > 1 else cmd
+
+
+def _compare_cell(base_val, head_val, base_has, head_has):
+    """Format a single comparison cell. Returns (cell_text, notable_bool, note_or_none)."""
+    if base_val is None and head_val is None:
+        return ("—", False, "both sides missing")
+    if base_val is None:
+        return ("—", False, "base: missing")
+    if head_val is None:
+        return ("—", False, "head: missing")
+    pct = ((head_val - base_val) / base_val * 100) if base_val != 0 else 0.0
+    notable = abs(pct) >= 10.0
+    cell = "%.2f → %.2f (%+.1f%%)" % (base_val, head_val, pct)
+    if notable:
+        cell += " !"
+    return (cell, notable, None)
+
+
+def compare_markdown(base_meta, base_groups, head_meta, head_groups):
+    """Produce the full comparison markdown. Returns (lines, notable_count, not_comparable_count)."""
+    # Index groups by (axis, row, tool) for both sides.
+    base_idx = {}
+    for g in base_groups:
+        base_idx[(g["axis"], g["row"], g["tool"])] = g
+    head_idx = {}
+    for g in head_groups:
+        head_idx[(g["axis"], g["row"], g["tool"])] = g
+
+    all_keys = set(list(base_idx.keys()) + list(head_idx.keys()))
+    # Group by axis for section ordering.
+    axes_seen = []
+    axes_set = set()
+    axis_groups = {}
+    for key in sorted(all_keys):
+        ax = key[0]
+        if ax not in axes_set:
+            axes_seen.append(ax)
+            axes_set.add(ax)
+        axis_groups.setdefault(ax, []).append(key)
+
+    notable_count = 0
+    not_comparable_count = 0
+    total_rows = 0
+
+    lines = compare_provenance(base_meta, head_meta)
+
+    for ax in axes_seen:
+        keys = axis_groups[ax]
+        # Collect the union of n values across all groups in this axis.
+        all_ns = set()
+        for key in keys:
+            for g in (base_idx.get(key), head_idx.get(key)):
+                if g is not None:
+                    for p in g["points"]:
+                        all_ns.add(p["n"])
+        ns = sorted(all_ns)
+
+        header = (["row", "tool", "command"]
+                  + ["n=%d" % n for n in ns]
+                  + ["per decade", "note"])
+        lines.append("## " + ax)
+        lines.append("")
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("|" + "|".join(["---"] * len(header)) + "|")
+
+        for key in keys:
+            bg = base_idx.get(key)
+            hg = head_idx.get(key)
+            row_name = key[1]
+            tool_name = key[2]
+            total_rows += 1
+
+            # Command: compare with the leading binary token stripped so
+            # against.sh's version-stamped ref name (ff-373cd45) doesn't
+            # trigger a false disagreement.
+            b_cmd = bg["command"] if bg else None
+            h_cmd = hg["command"] if hg else None
+            b_norm = _strip_binary(b_cmd) if b_cmd is not None else None
+            h_norm = _strip_binary(h_cmd) if h_cmd is not None else None
+            if b_cmd is not None and h_cmd is not None and b_norm != h_norm:
+                cmd_cell = "`%s / %s`" % (b_cmd, h_cmd)
+            elif h_cmd is not None:
+                cmd_cell = "`%s`" % h_cmd
+            elif b_cmd is not None:
+                cmd_cell = "`%s`" % b_cmd
+            else:
+                cmd_cell = ""
+
+            row_notes = []
+            cell_notable = False
+
+            # Build point lookup dicts for each side, keyed by n.
+            bg_by_n = {}
+            if bg is not None:
+                for p in bg["points"]:
+                    bg_by_n[p["n"]] = p
+            hg_by_n = {}
+            if hg is not None:
+                for p in hg["points"]:
+                    hg_by_n[p["n"]] = p
+
+            cells = [row_name, tool_name, cmd_cell]
+            for n in ns:
+                bp = bg_by_n.get(n)
+                hp = hg_by_n.get(n)
+
+                # Determine values: prefer adjusted_ms, fall back to mean_ms.
+                b_val = None
+                h_val = None
+                b_has_adj = False
+                h_has_adj = False
+
+                if bp is not None:
+                    b_val = bp.get("adjusted_ms")
+                    b_has_adj = b_val is not None
+                    if b_val is None:
+                        b_val = bp["elem"]["mean_ms"]
+                if hp is not None:
+                    h_val = hp.get("adjusted_ms")
+                    h_has_adj = h_val is not None
+                    if h_val is None:
+                        h_val = hp["elem"]["mean_ms"]
+
+                # Errored groups: treat all their points as missing.
+                if bg is not None and bg["verdict"] == "errored":
+                    b_val = None
+                    b_has_adj = False
+                    row_notes.append("base: errored")
+                if hg is not None and hg["verdict"] == "errored":
+                    h_val = None
+                    h_has_adj = False
+                    row_notes.append("head: errored")
+
+                cell_text, is_notable, cell_note = _compare_cell(b_val, h_val,
+                                                                 b_val is not None, h_val is not None)
+                if is_notable:
+                    cell_notable = True
+                    notable_count += 1
+                if cell_note is not None:
+                    not_comparable_count += 1
+                    row_notes.append(cell_note)
+                if not b_has_adj and not h_has_adj and b_val is not None and h_val is not None:
+                    row_notes.append("raw ms (no floor)")
+                cells.append(cell_text)
+
+            # Per decade column.
+            b_pd = bg["ratio_per_decade"] if bg is not None and bg.get("ratio_per_decade") is not None else None
+            h_pd = hg["ratio_per_decade"] if hg is not None and hg.get("ratio_per_decade") is not None else None
+            if b_pd is not None and h_pd is not None:
+                pd_cell = "%.2fx → %.2fx" % (b_pd, h_pd)
+            elif b_pd is not None:
+                pd_cell = "%.2fx → n/a" % b_pd
+            elif h_pd is not None:
+                pd_cell = "n/a → %.2fx" % h_pd
+            else:
+                pd_cell = "n/a"
+            cells.append(pd_cell)
+
+            # Command disagreement note. The leading binary token is dropped
+            # before comparison because against.sh gives the ref binary a
+            # version-stamped name (ff-373cd45) while the head is just "ff".
+            if b_cmd is not None and h_cmd is not None and _strip_binary(b_cmd) != _strip_binary(h_cmd):
+                row_notes.append("commands differ")
+
+            cells.append("; ".join(row_notes) if row_notes else "")
+            lines.append("| " + " | ".join(cells) + " |")
+
+        lines.append("")
+
+    # Summary line.
+    lines.append(
+        "compared %d row(s) across %d axis(es): %d notable (>=10%%), %d not comparable"
+        % (total_rows, len(axes_seen), notable_count, not_comparable_count)
+    )
+
+    return lines, notable_count, not_comparable_count
+
+
+def compare_json(base_meta, base_groups, head_meta, head_groups):
+    """Produce the comparison structure as a JSON-serializable dict."""
+    lines, notable, not_comp = compare_markdown(base_meta, base_groups, head_meta, head_groups)
+    # For --json, emit the analyzed groups side by side plus summary.
+    base_idx = {}
+    for g in base_groups:
+        base_idx[(g["axis"], g["row"], g["tool"])] = group_summary(g)
+    head_idx = {}
+    for g in head_groups:
+        head_idx[(g["axis"], g["row"], g["tool"])] = group_summary(g)
+    all_keys = set(list(base_idx.keys()) + list(head_idx.keys()))
+    rows = []
+    for key in sorted(all_keys):
+        entry = {"axis": key[0], "row": key[1], "tool": key[2]}
+        if key in base_idx:
+            entry["base"] = base_idx[key]
+        if key in head_idx:
+            entry["head"] = head_idx[key]
+        rows.append(entry)
+    return {
+        "provenance": {
+            "base": {
+                "versions": base_meta.get("versions"),
+                "ff_build_id": base_meta.get("ff_build_id"),
+                "ff_binary": base_meta.get("ff_binary"),
+                "host": base_meta.get("host"),
+                "generated_unix": base_meta.get("generated_unix"),
+            },
+            "head": {
+                "versions": head_meta.get("versions"),
+                "ff_build_id": head_meta.get("ff_build_id"),
+                "ff_binary": head_meta.get("ff_binary"),
+                "host": head_meta.get("host"),
+                "generated_unix": head_meta.get("generated_unix"),
+            },
+        },
+        "rows": rows,
+        "summary": {
+            "total_rows": len(all_keys),
+            "total_axes": len(set(k[0] for k in all_keys)),
+            "notable": notable,
+            "not_comparable": not_comp,
+        },
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="report.py",
@@ -441,8 +741,40 @@ def main(argv=None):
     parser.add_argument("--flat-max", type=float, default=None, help="override meta.flat_ratio_max (default 1.5)")
     parser.add_argument("--json", action="store_true", help="emit the computed analysis as JSON instead of markdown")
     parser.add_argument("--quiet", action="store_true", help="print only failures")
+    parser.add_argument("--compare", nargs=2, metavar="FILE",
+                        help="side-by-side comparison of two result files (base head)")
     args = parser.parse_args(argv)
 
+    # --- Compare mode ---------------------------------------------------
+    if args.compare:
+        base_path, head_path = args.compare
+        try:
+            base_doc = load_doc(base_path)
+            head_doc = load_doc(head_path)
+        except (OSError, ValueError) as e:
+            print("error: could not read comparison file: %s" % (e,), file=sys.stderr)
+            return 2
+
+        # Both sides go through the same analysis the single-file path uses,
+        # which is what makes adjusted_ms and ratio_per_decade available.
+        flat_max = DEFAULT_FLAT_MAX
+        try:
+            base_meta, base_groups = analyze(base_doc, flat_max)
+            head_meta, head_groups = analyze(head_doc, flat_max)
+        except (KeyError, TypeError, ValueError) as e:
+            print("error: malformed bench results: %s" % (e,), file=sys.stderr)
+            return 2
+
+        if args.json:
+            print(json.dumps(compare_json(base_meta, base_groups, head_meta, head_groups), indent=2))
+        else:
+            lines, _, _ = compare_markdown(base_meta, base_groups, head_meta, head_groups)
+            print("\n".join(lines).rstrip("\n"))
+
+        # Exit 0 always — this is a comparison view, not a gate.
+        return 0
+
+    # --- Single-file mode (unchanged) -----------------------------------
     try:
         doc = load_doc(args.path)
     except (OSError, ValueError) as e:

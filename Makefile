@@ -2,7 +2,7 @@
 # target/dogfood/ff, so the binary is live the moment it links.
 # `make release` is the honest fat-LTO build benches and releases use.
 
-.PHONY: build release bench bench-real bench-report
+.PHONY: build release bench bench-real bench-report bench-against
 
 build:
 	cargo build --profile dogfood
@@ -30,3 +30,10 @@ bench-real: release
 # this skips run.sh entirely.
 bench-report:
 	scripts/bench/report.py
+
+# Compare the working tree against a rebuilt older binary, measured back to
+# back on the same fixtures. REF defaults to the most recent tag. Costs a
+# full rebuild of the ref (~2m50s cold on a Pi 5, faster once target/against
+# is warm) plus two measurement passes. This is a comparison view, not a gate.
+bench-against: release
+	scripts/bench/against.sh $(or $(REF),$(shell git describe --tags --abbrev=0))
