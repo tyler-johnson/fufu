@@ -673,17 +673,19 @@ emitted_n() {
 record_ff_fixture_state() {
     local dir=$1
     mkdir -p "$dir/saved"
-    ( cd "$dir/ff"
+
+    # Capture chain-tip, settle the id index, and query the snapshot log.
+    # Settle the id index before saving it. Building a fixture by n
+    # sequential captures leaves an index of one sorted record plus an n-long
+    # unsorted tail, and the first read past MERGE_TAIL pays a one-time O(n)
+    # merge to compact it -- amortized to nothing in real use, where it
+    # happens once. Saving the pre-merge file would make `reset` restore that
+    # debt before every timed run, so every run would pay a cost a user pays
+    # once, and capture-ish rows would read as O(chain) when they are not.
+    # CLICOLOR_FORCE because the prefix table -- and so the index read that
+    # triggers the merge -- is skipped entirely when color is off.
+    if ! ( cd "$dir/ff"
       git rev-parse refs/fufu/snap/main > "../saved/chain-tip"
-      # Settle the id index before saving it. Building a fixture by n
-      # sequential captures leaves an index of one sorted record plus an n-long
-      # unsorted tail, and the first read past MERGE_TAIL pays a one-time O(n)
-      # merge to compact it -- amortized to nothing in real use, where it
-      # happens once. Saving the pre-merge file would make `reset` restore that
-      # debt before every timed run, so every run would pay a cost a user pays
-      # once, and capture-ish rows would read as O(chain) when they are not.
-      # CLICOLOR_FORCE because the prefix table -- and so the index read that
-      # triggers the merge -- is skipped entirely when color is off.
       CLICOLOR_FORCE=1 "$FF" evolog -n 1 > /dev/null 2>&1 || true
       # May not exist on a one-snapshot chain -- record() still writes it
       # unconditionally on this codebase, but tolerate absence rather than
@@ -694,8 +696,16 @@ record_ff_fixture_state() {
           rm -f "../saved/ids-live"
       fi
       "$FF" evolog -n 0 --json > "../.evolog.json"
-    )
-    python3 - "$dir" <<'PY'
+    ); then
+        echo "run.sh: fixture build failed — '$FF' exited non-zero during evolog; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        exit 1
+    fi
+
+    # Parse the evolog JSON to extract the mid-chain snapshot id for restore-at.
+    # A JSONDecodeError here means evolog produced no valid output — same root
+    # cause as above (binary too old or broken), caught explicitly rather than
+    # letting python3 traceback be the error signal.
+    python3 - "$dir" <<'PY' || { echo "run.sh: fixture build failed — '$FF' evolog --json output was not valid JSON; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2; exit 1; }
 import json, sys
 d = sys.argv[1]
 with open(f"{d}/.evolog.json") as f:
@@ -706,6 +716,23 @@ with open(f"{d}/restore-id", "w") as f:
     f.write(mid)
 PY
     rm -f "$dir/.evolog.json"
+
+    # Verify the artifacts we depend on for measurement exist.
+    # saved/chain-tip is what reset prepare restores; restore-id is the {ID}
+    # substituted into restore-at rows. Without either, every measured row
+    # reports numbers that mean nothing — the exact false-linear-term trap
+    # this suite was designed to catch.
+    # Note: --keep-going guards the per-row smoke run, not fixture
+    # construction. A fixture that did not build corrupts every row measured
+    # against it, so there is nothing to "keep going" past.
+    if [[ ! -s "$dir/saved/chain-tip" ]]; then
+        echo "run.sh: fixture build failed — saved/chain-tip is missing or empty for '$FF'; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        exit 1
+    fi
+    if [[ ! -s "$dir/restore-id" ]]; then
+        echo "run.sh: fixture build failed — restore-id is missing or empty for '$FF'; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        exit 1
+    fi
 }
 
 # saved/git-base-sha is git's steady state, used the same way as ff's
