@@ -48,7 +48,8 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             })
         }
         Some("@") => Err(Error::msg(
-            "ff: @ is not a start target — ff start always opens a clean branch; to move the open change onto its own branch, use ff commit -b <name>",
+            "@ is not a start target — ff start always opens a clean branch; \
+             to move the open change onto its own branch, use ff commit -b <name>",
         )),
         Some(raw) => {
             let names = crate::switch::branch_names(repo)?;

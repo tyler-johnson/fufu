@@ -171,6 +171,23 @@ fn bare_repo_status_errors_log_works() {
 }
 
 #[test]
+fn errors_carry_exactly_one_ff_prefix() {
+    // The CLI owns the `ff: ` prefix (main.rs); engine messages must not
+    // embed their own, or errors print as `ff: ff: ...`.
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let out = ff(&fx, &["start", "@"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.starts_with("ff: "), "error convention: {stderr:?}");
+    assert!(!stderr.contains("ff: ff: "), "doubled prefix: {stderr:?}");
+}
+
+#[test]
 fn outside_repo_is_runtime_error() {
     let dir = tempfile::TempDir::new().unwrap();
     let out = ff_at(dir.path(), &["status"]);

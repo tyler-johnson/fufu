@@ -84,7 +84,7 @@ pub fn trunk(repo: &gix::Repository) -> Result<Trunk> {
         }
         (true, true) => {
             return Err(Error::msg(
-                "ff: cannot tell which branch is trunk (candidates: main, master); \
+                "cannot tell which branch is trunk (candidates: main, master); \
                  set one with ff config trunk <branch>",
             ));
         }
@@ -103,7 +103,7 @@ pub fn trunk(repo: &gix::Repository) -> Result<Trunk> {
     }
 
     Err(Error::msg(
-        "ff: cannot tell which branch is trunk; set one with ff config trunk <branch>",
+        "cannot tell which branch is trunk; set one with ff config trunk <branch>",
     ))
 }
 
@@ -138,7 +138,7 @@ fn resolve_config_trunk(repo: &gix::Repository, value: &str) -> Result<Trunk> {
     }
 
     Err(Error::msg(format!(
-        "ff: fufu.trunk names {value}, which is not a branch here"
+        "fufu.trunk names {value}, which is not a branch here"
     )))
 }
 

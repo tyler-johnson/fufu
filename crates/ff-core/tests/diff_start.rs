@@ -168,7 +168,7 @@ fn at_is_rejected() {
     };
     assert_eq!(
         err.to_string(),
-        "ff: @ is not a start target — ff start always opens a clean branch; \
+        "@ is not a start target — ff start always opens a clean branch; \
          to move the open change onto its own branch, use ff commit -b <name>"
     );
 

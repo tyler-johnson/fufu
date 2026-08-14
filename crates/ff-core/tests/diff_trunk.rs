@@ -35,7 +35,7 @@ fn config_naming_a_missing_branch_errors() {
     fx.commit("init");
     fx.set_config("fufu.trunk", "nope");
     let msg = trunk_err(&fx);
-    assert_eq!(msg, "ff: fufu.trunk names nope, which is not a branch here");
+    assert_eq!(msg, "fufu.trunk names nope, which is not a branch here");
 }
 
 // --- rung 2: origin/HEAD ---
@@ -124,7 +124,7 @@ fn main_and_master_is_ambiguous() {
     let msg = trunk_err(&fx);
     assert_eq!(
         msg,
-        "ff: cannot tell which branch is trunk (candidates: main, master); \
+        "cannot tell which branch is trunk (candidates: main, master); \
          set one with ff config trunk <branch>"
     );
 }
