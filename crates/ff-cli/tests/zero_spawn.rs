@@ -172,6 +172,7 @@ fn phase2_verbs_never_spawn() {
         &["log", "--ops"][..],
         &["undo"][..],
         &["new", "-m", "next change"][..],
+        &["start", "-m", "next change"][..],
     ] {
         let out = ff_trapped(&trap, &fx.path(), args);
         assert!(

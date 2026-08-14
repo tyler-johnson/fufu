@@ -208,24 +208,26 @@ Examples:
   ff undo 3f1c8a2                roll back to before that op
   ff undo                        …and that undo was itself an op: redo";
 
-pub const NEW: &str = "\
-Composition, nothing more: `ff new` is `ff commit`, and `ff new <target>`
-is `ff switch <target>` followed by `ff commit`. Either way you end up on a
-clean slate, with -m describing the change being *opened* rather than the
-one closing.
+pub const START: &str = "\
+Begin a new line of work on a fresh branch. `ff commit` records, `ff switch`
+resumes, `ff start` begins.
 
-Target resolution never guesses. A branch name — or a tip that belongs to
-exactly one branch — continues that branch. A tip shared by several is an
-error that lists them. Anything else (a commit mid-stack, a raw sha) mints
-an anonymous branch, which `ff branch <name>` or `ff commit -b <name>` can
-claim later, once the work has earned a name.";
+Bare `ff start` forks from trunk; a `<rev>` argument forks there instead. A
+branch name forks at that branch's tip rather than continuing it — continuing
+is `ff switch`'s job.
 
-pub const NEW_EXAMPLES: &str = "\
+The open change parks where it was; the new branch opens clean. Nothing is
+ever carried across a fork. -m describes the change being *opened*; -b names
+the minted branch, else it is anonymous.
+
+`ff start` never creates a commit.";
+
+pub const START_EXAMPLES: &str = "\
 Examples:
-  ff new                         close what's open, start the next thing here
-  ff new -m \"the next thing\"     …with the new change already described
-  ff new main                    park this, move to main, start fresh there
-  ff new 5b7a90e -b hotfix       branch off a commit, named on the spot";
+  ff start                       begin new work, forked from trunk
+  ff start -m \"the next thing\"   …with the new change already described
+  ff start -b hotfix             name the branch at birth
+  ff start 5b7a90e               fork from a specific commit";
 
 pub const DESCRIBE: &str = "\
 The open change carries a description before it is ever a commit, so you

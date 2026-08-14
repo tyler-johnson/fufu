@@ -51,12 +51,12 @@ fn main() {
         Some(cli::Command::Switch { target, json }) => cmd::switch::run(target, json),
         Some(cli::Command::Undo { op, force, json }) => cmd::undo::run(op, force, json),
         Some(cli::Command::Branch { name, delete, json }) => cmd::branch::run(name, delete, json),
-        Some(cli::Command::New {
+        Some(cli::Command::Start {
             target,
             message,
             branch,
             json,
-        }) => cmd::new::run(target, message, branch, json),
+        }) => cmd::start::run(target, message, branch, json),
         Some(cli::Command::Describe {
             message,
             branch,

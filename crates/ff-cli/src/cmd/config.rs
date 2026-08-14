@@ -11,6 +11,7 @@ pub(crate) enum SettingKind {
     Command,
     Cadence,
     Bool,
+    Branch,
 }
 
 pub(crate) struct Setting {
@@ -85,6 +86,17 @@ pub(crate) fn registry() -> &'static [Setting] {
             desc: &[
                 "Install new releases silently in the background. false prints a",
                 "one-line notice instead; updateCheck false disables both.",
+            ],
+        },
+        Setting {
+            name: "trunk",
+            key: "fufu.trunk",
+            def: "",
+            kind: SettingKind::Branch,
+            desc: &[
+                "Which branch is trunk: what ff sync rebases onto, what ff status measures",
+                "against, and where a bare ff start forks from. Local (main) or",
+                "remote-qualified (origin/main). Unset means fufu works it out.",
             ],
         },
     ]
@@ -174,7 +186,7 @@ fn global_config_path() -> Option<std::path::PathBuf> {
 }
 
 pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
-    match setting.kind {
+    match &setting.kind {
         SettingKind::Duration => ff_core::snapshot::config::parse_keep(value).is_some(),
         SettingKind::Size => {
             ff_core::gix::config::Integer::try_from(ff_core::gix::bstr::BStr::new(value))
@@ -187,12 +199,17 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
         SettingKind::Bool => {
             ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value)).is_ok()
         }
+        SettingKind::Branch => {
+            !value.is_empty()
+                && !value.starts_with('-')
+                && value.chars().all(|c| !c.is_whitespace() && c >= ' ')
+        }
     }
 }
 
 fn validate_value(setting: &Setting, value: &str) {
     if !value_is_valid(setting, value) {
-        match setting.kind {
+        match &setting.kind {
             SettingKind::Duration => {
                 eprintln!(
                     "ff: invalid value for keep: want a duration like 90d, 36h, 2w, or days as a \
@@ -218,6 +235,13 @@ fn validate_value(setting: &Setting, value: &str) {
             }
             SettingKind::Bool => {
                 eprintln!("ff: invalid value for autoUpdate: want true or false");
+                std::process::exit(2);
+            }
+            SettingKind::Branch => {
+                eprintln!(
+                    "ff: invalid value for {}: want a branch name like main or origin/main",
+                    setting.name
+                );
                 std::process::exit(2);
             }
         }
@@ -273,12 +297,13 @@ pub fn run(
             let display = val.as_deref().unwrap_or(setting.def);
 
             if json {
-                let kind_str = match setting.kind {
+                let kind_str = match &setting.kind {
                     SettingKind::Size => "size",
                     SettingKind::Duration => "duration",
                     SettingKind::Command => "command",
                     SettingKind::Cadence => "cadence",
                     SettingKind::Bool => "bool",
+                    SettingKind::Branch => "branch",
                 };
                 let source_json = if source.is_empty() {
                     serde_json::Value::Null

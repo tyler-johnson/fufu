@@ -249,17 +249,16 @@ pub struct DescribeReport {
     pub new: Option<String>,
 }
 
-/// The result of `ff new` — composition of switch and close.
+/// The result of `ff start` — always mints a fresh branch and parks
+/// whatever was open where it was.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct NewReport {
-    /// The switch leg, when a target was given.
-    pub switch: Option<SwitchReport>,
-    /// The close leg (of the change that was open on arrival).
-    pub commit: CommitOutcome,
-    /// The branch the fresh slate opened on.
-    pub opened: String,
-    /// The anonymous or `-b` branch this invocation minted, if any.
-    pub minted: Option<String>,
+pub struct StartReport {
+    /// The branch that was minted. start always mints.
+    pub minted: String,
+    /// Short name of what it forked from, for the "(forked from X)" line.
+    pub forked_from: String,
+    /// The stash sha the open change parked under, when the tree was dirty.
+    pub parked: Option<String>,
 }
 
 /// One branch row for `ff branch`.

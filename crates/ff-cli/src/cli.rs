@@ -141,9 +141,13 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Open a new change: close the current one, optionally moving first
-    #[command(long_about = help::NEW, after_long_help = help::NEW_EXAMPLES)]
-    New {
+    /// Begin new work on a fresh branch
+    #[command(
+        visible_alias = "new",
+        long_about = help::START,
+        after_long_help = help::START_EXAMPLES
+    )]
+    Start {
         /// Branch, revision, or nothing to stay here
         #[arg(value_name = "target")]
         target: Option<String>,

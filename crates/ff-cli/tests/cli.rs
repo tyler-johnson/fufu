@@ -869,18 +869,18 @@ fn commit_totally_empty_refuses() {
     assert_eq!(after, before, "rev-list count unchanged");
 }
 
-/// `ff new` on a clean+described tree closes (empty commit). A second `ff new`
-/// on clean+undescribed is a no-op.
+/// `ff start` never creates a commit: a described change stays pending,
+/// the description does not become a commit, and the new branch opens clean.
 #[test]
-fn new_closes_described_empty_but_not_totally_empty() {
+fn start_never_commits() {
     let fx = Fixture::new();
     fx.set_config("user.name", "Test User");
     fx.set_config("user.email", "test@user.test");
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    // Describe then new → closes an empty commit.
-    let out = ff(&fx, &["describe", "-m", "spec first"]);
+    // Describe something.
+    let out = ff(&fx, &["describe", "-m", "planned work"]);
     assert!(out.status.success());
 
     let before: u32 = fx
@@ -889,7 +889,8 @@ fn new_closes_described_empty_but_not_totally_empty() {
         .parse()
         .unwrap();
 
-    let out = ff(&fx, &["new"]);
+    // start does not commit.
+    let out = ff(&fx, &["start"]);
     assert!(out.status.success());
 
     let after: u32 = fx
@@ -897,20 +898,37 @@ fn new_closes_described_empty_but_not_totally_empty() {
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(after, before + 1);
+    assert_eq!(after, before, "rev-list count unchanged");
 
-    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "spec first");
+    // The description did not become a commit — HEAD is still "init".
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s"]).trim(),
+        "init",
+        "no commit was created for the description"
+    );
+}
 
-    // Second new on clean+undescribed: no-op, count unchanged.
-    let out = ff(&fx, &["new"]);
-    assert!(out.status.success());
+/// Two consecutive bare `ff start` runs on a clean tree produce two distinct
+/// new branches; neither is a no-op.
+#[test]
+fn start_always_mints() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
 
-    let after2: u32 = fx
-        .git(&["rev-list", "--count", "HEAD"])
-        .trim()
-        .parse()
-        .unwrap();
-    assert_eq!(after2, after, "second new is a no-op");
+    let out1 = ff(&fx, &["start", "--json"]);
+    assert!(out1.status.success());
+    let v1: serde_json::Value = serde_json::from_str(&stdout(&out1)).unwrap();
+    let branch1 = v1["start"]["minted"].as_str().unwrap();
+
+    let out2 = ff(&fx, &["start", "--json"]);
+    assert!(out2.status.success());
+    let v2: serde_json::Value = serde_json::from_str(&stdout(&out2)).unwrap();
+    let branch2 = v2["start"]["minted"].as_str().unwrap();
+
+    assert_ne!(branch1, branch2, "two starts produce two distinct branches");
 }
 
 /// `ff update` on an unofficial (test) build refuses before any network:

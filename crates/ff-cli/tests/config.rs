@@ -280,7 +280,7 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["settings"].is_array());
-    assert_eq!(v["settings"].as_array().unwrap().len(), 6);
+    assert_eq!(v["settings"].as_array().unwrap().len(), 7);
     assert_eq!(v["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -407,4 +407,25 @@ fn update_check_syncs_cache() {
         "set autoUpdate false failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+#[test]
+fn trunk_is_listed() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("trunk"), "missing trunk");
+}
+
+#[test]
+fn trunk_accepts_remote_qualified() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config", "trunk", "origin/main"], &global);
+    assert!(out.status.success());
+    // Read back via git config
+    let git_val = fx.git(&["config", "fufu.trunk"]);
+    assert_eq!(git_val.trim(), "origin/main");
 }
