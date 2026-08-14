@@ -1085,3 +1085,66 @@ fn uncolored_views_do_not_build_the_id_index() {
         "forced color really did emit ANSI, so the assertion above means something"
     );
 }
+
+#[test]
+fn version_names_the_build() {
+    let out = ff_at(&std::env::temp_dir(), &["--version"]);
+
+    assert!(
+        out.status.success(),
+        "exit status: {}; stderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let out_str = stdout(&out).trim_end().to_string();
+    let prefix = format!("ff {}", env!("CARGO_PKG_VERSION"));
+    assert!(
+        out_str.starts_with(&prefix),
+        "stdout did not start with \"{prefix}\": {out_str}"
+    );
+
+    let rest = &out_str[prefix.len()..];
+
+    if !rest.is_empty() {
+        assert!(
+            rest.starts_with(" (") && rest.ends_with(')'),
+            "build info should be parenthesised: {rest:?}"
+        );
+
+        let inner = &rest[2..rest.len() - 1];
+        let parts: Vec<&str> = inner.splitn(2, ' ').collect();
+        assert_eq!(
+            parts.len(),
+            2,
+            "build info inner should have exactly two space-separated parts: {inner:?}"
+        );
+
+        let sha = parts[0];
+        assert!(
+            sha.len() >= 7
+                && sha
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+            "sha part is not 7+ lowercase hex: {sha:?}"
+        );
+
+        let date = parts[1];
+        assert!(
+            date.len() == 10
+                && date.as_bytes()[4] == b'-'
+                && date.as_bytes()[7] == b'-'
+                && date
+                    .chars()
+                    .enumerate()
+                    .all(|(i, c)| (i == 4 || i == 7) || c.is_ascii_digit()),
+            "date part is not YYYY-MM-DD: {date:?}"
+        );
+    }
+
+    assert!(
+        out.stderr.is_empty(),
+        "stderr was not empty: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

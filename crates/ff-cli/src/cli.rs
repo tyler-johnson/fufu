@@ -10,7 +10,7 @@ use crate::help;
 #[derive(Parser)]
 #[command(
     name = "ff",
-    version,
+    version = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO")),
     about = "a friendlier interface to plain git",
     long_about = help::ROOT,
     after_long_help = help::ROOT_EXAMPLES,
