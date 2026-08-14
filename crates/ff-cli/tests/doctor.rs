@@ -153,6 +153,22 @@ fn all_green_after_snapshot_and_wiring() {
         "gc config detail:\n{out_text}"
     );
     assert!(
+        out_text.contains("ok    objects"),
+        "objects ok:\n{out_text}"
+    );
+    // Loose vs packed is why a chain walk is fast or slow, so doctor says it.
+    let objects = out_text
+        .lines()
+        .find(|line| line.contains("objects"))
+        .expect("objects row");
+    let loose: usize = objects
+        .split_whitespace()
+        .nth(2)
+        .and_then(|n| n.parse().ok())
+        .expect("loose count is a number");
+    assert!(loose > 0, "a snapshotted repo has loose objects: {objects}");
+    assert!(objects.contains("pack"), "pack count named: {objects}");
+    assert!(
         out_text.contains("info  journal"),
         "journal info:\n{out_text}"
     );

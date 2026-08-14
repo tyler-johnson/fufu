@@ -173,6 +173,26 @@ fn tip_time(repo: &ff_core::gix::Repository, id: ff_core::gix::ObjectId) -> Resu
     Ok(commit.committer.time().map_err(Error::repo)?.seconds)
 }
 
+/// Loose objects and packs, counted where `git count-objects` counts them:
+/// the 256 fanout directories, then the pack directory. Best effort — an
+/// unreadable objects directory reports zeroes rather than failing a
+/// read-only check.
+fn count_objects(objects_dir: &std::path::Path) -> (usize, usize) {
+    let dir = |path: std::path::PathBuf| std::fs::read_dir(path).into_iter().flatten().flatten();
+    let loose = dir(objects_dir.to_path_buf())
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.len() == 2 && name.bytes().all(|b| b.is_ascii_hexdigit())
+        })
+        .map(|fanout| dir(fanout.path()).count())
+        .sum();
+    let packs = dir(objects_dir.join("pack"))
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "pack"))
+        .count();
+    (loose, packs)
+}
+
 // ── Pure row builders (unit-testable, no IO) ─────────────────────────────
 
 fn hooks_row(wiring: &crate::cmd::hook::AgentWiring) -> Row {
@@ -484,6 +504,30 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
                         trash_parts.join(", ")
                     ),
                 ));
+            }
+        }
+
+        // objects
+        {
+            let (loose, packs) = count_objects(&repo.common_dir().join("objects"));
+            // fufu writes objects natively, so nothing here ever triggers
+            // git's auto-gc on its own; `ff trim` is what nudges it.
+            let auto = repo
+                .config_snapshot()
+                .integer("gc.auto")
+                .unwrap_or(6700)
+                .max(0) as usize;
+            let summary = format!(
+                "{loose} loose, {packs} pack{}",
+                if packs == 1 { "" } else { "s" }
+            );
+            if auto > 0 && loose >= auto {
+                rows.push(Row::info(
+                    "objects",
+                    format!("{summary} — past gc.auto ({auto}); `ff trim` nudges git to pack them"),
+                ));
+            } else {
+                rows.push(Row::ok("objects", summary));
             }
         }
 

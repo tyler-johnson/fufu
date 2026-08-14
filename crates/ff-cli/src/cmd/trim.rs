@@ -1,6 +1,8 @@
-//! `ff trim` — manual retention. Reports per chain; after a run that dropped
-//! anything, nudges git's own gc (the one pragmatic spawn in fufu: native
-//! writes never trigger auto-gc).
+//! `ff trim` — manual retention. Reports per chain; after any real run,
+//! nudges git's own gc (the one pragmatic spawn in fufu: native writes never
+//! trigger auto-gc, so without this nothing ever packs the object store —
+//! not just the objects a trim orphaned). `gc --auto` is self-limiting: below
+//! git's own threshold it returns having done nothing.
 
 use ff_core::{Error, Result, TrimOptions};
 
@@ -67,7 +69,7 @@ pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
         }
     }
 
-    if anything_dropped && !dry_run {
+    if !dry_run {
         // Best effort; a machine without git skips silently.
         let _ = std::process::Command::new("git")
             .args(["gc", "--auto", "--quiet"])

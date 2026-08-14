@@ -42,7 +42,52 @@ pub fn evolog(repo: &gix::Repository, opts: &EvologOptions) -> Result<Vec<SnapEn
                 .map(|(entry, _)| entry),
         );
     }
+    fill_short_ids(repo, &mut rows);
     Ok(rows)
+}
+
+/// Every snapshot id on the chain, in walk order — the domain `ff restore
+/// --at` resolves against, and so the domain unique-prefix highlighting is
+/// computed over. Ids only: no abbreviation, which is what makes this
+/// affordable to run over a whole chain when [`evolog`] is not.
+pub fn chain_ids(repo: &gix::Repository, opts: &EvologOptions) -> Result<Vec<String>> {
+    let chain_name = match &opts.chain {
+        Some(name) => name.clone(),
+        None => chain::chain_name(&crate::head::head_state(repo)?),
+    };
+    let mut ids = Vec::new();
+    let mut collect = |entry: SnapEntry, _tree| {
+        ids.push(entry.id);
+        !opts.limit.is_some_and(|n| ids.len() >= n)
+    };
+    walk_chain_while(
+        repo,
+        &format!("{}{chain_name}", chain::SNAP_PREFIX),
+        &mut collect,
+    )?;
+    if opts.include_trash {
+        let start = ids.len();
+        let mut collect_trash = |entry: SnapEntry, _tree| {
+            ids.push(entry.id);
+            !opts.limit.is_some_and(|n| ids.len() - start >= n)
+        };
+        walk_chain_while(repo, &chain::trash_ref(&chain_name), &mut collect_trash)?;
+    }
+    Ok(ids)
+}
+
+/// Abbreviate the ids of rows that are about to be shown or serialized.
+/// `shorten()` is an object-store prefix lookup, not a string operation —
+/// affordable per displayed row, ruinous per chain link — so the walk leaves
+/// `short_id` empty and only this fills it.
+fn fill_short_ids(repo: &gix::Repository, rows: &mut [SnapEntry]) {
+    for row in rows {
+        row.short_id = gix::ObjectId::from_hex(row.id.as_bytes())
+            .ok()
+            .and_then(|id| id.attach(repo).shorten().ok())
+            .map(|prefix| prefix.to_string())
+            .unwrap_or_else(|| row.id.clone());
+    }
 }
 
 /// The open change: HEAD's chain summarized as one row — tip snapshot id,
@@ -211,14 +256,10 @@ fn snap_entry(
             }
         }
     };
-    let short_id = id
-        .attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string());
     let entry = SnapEntry {
         id: id.to_string(),
-        short_id,
+        // Filled by `fill_short_ids` on the display paths only.
+        short_id: String::new(),
         subject,
         time,
         base: base.map(|b| b.to_string()),
@@ -227,26 +268,42 @@ fn snap_entry(
     Ok(Some((entry, prev, tree)))
 }
 
+/// Walk a chain newest-first, handing each snapshot and its tree to `visit`.
+/// The walk ends when `visit` returns false, when the chain runs out, or when
+/// a foreign commit terminates it. Every chain walk goes through here, so
+/// "how far do we walk" is one decision per caller rather than a habit.
+fn walk_chain_while(
+    repo: &gix::Repository,
+    ref_name: &str,
+    visit: &mut dyn FnMut(SnapEntry, gix::ObjectId) -> bool,
+) -> Result<()> {
+    let Some(tip_id) = chain::tip(repo, ref_name)? else {
+        return Ok(());
+    };
+    let mut cur = Some(tip_id);
+    while let Some(id) = cur {
+        let Some((entry, next, tree)) = snap_entry(repo, id)? else {
+            break;
+        };
+        if !visit(entry, tree) {
+            break;
+        }
+        cur = next;
+    }
+    Ok(())
+}
+
 fn walk_chain_trees(
     repo: &gix::Repository,
     ref_name: &str,
     limit: Option<usize>,
 ) -> Result<Vec<(SnapEntry, gix::ObjectId)>> {
-    let Some(tip_id) = chain::tip(repo, ref_name)? else {
-        return Ok(Vec::new());
-    };
     let mut rows = Vec::new();
-    let mut cur = Some(tip_id);
-    while let Some(id) = cur {
-        if limit.is_some_and(|n| rows.len() >= n) {
-            break;
-        }
-        let Some((entry, next, tree)) = snap_entry(repo, id)? else {
-            break;
-        };
+    let mut collect = |entry, tree| {
         rows.push((entry, tree));
-        cur = next;
-    }
+        !limit.is_some_and(|n| rows.len() >= n)
+    };
+    walk_chain_while(repo, ref_name, &mut collect)?;
     Ok(rows)
 }
 
@@ -258,28 +315,58 @@ pub fn segment_anchors(
     repo: &gix::Repository,
     commit_ids: &[String],
 ) -> Result<HashMap<String, String>> {
+    let mut result = HashMap::new();
+    if commit_ids.is_empty() {
+        return Ok(result);
+    }
     let head = crate::head::head_state(repo)?;
     let chain_name = chain::chain_name(&head);
     let ref_name = format!("{}{chain_name}", chain::SNAP_PREFIX);
-    let chain_entries = walk_chain_trees(repo, &ref_name, None)?;
 
-    // Build map keyed by (base, tree) → newest snapshot id.
-    let mut anchor_map: HashMap<(Option<String>, gix::ObjectId), String> = HashMap::new();
-    for (entry, tree) in chain_entries {
-        anchor_map
-            .entry((entry.base.clone(), tree))
-            .or_insert_with(|| entry.id.clone());
-    }
-
-    let mut result = HashMap::new();
+    // What the displayed commits are asking, keyed the way a snapshot answers:
+    // (base, tree). Two commits can share a key — an empty commit beside the
+    // one whose tree it repeats — so a key answers a list.
+    let mut wanted: HashMap<(Option<String>, gix::ObjectId), Vec<&str>> = HashMap::new();
+    // A snapshot cannot be based on a commit that did not exist when it was
+    // taken, so nothing below the oldest base's time can anchor anything here
+    // and the walk stops there. A base we cannot read (a root commit, a
+    // shallow boundary) drops the floor away rather than risk a lost anchor.
+    // Rewrites are safe — a rewritten base is a different object, so its
+    // snapshots are younger too. Only a committer date faked into the future
+    // can cut the walk short, and it costs that row its letters, nothing more.
+    let mut floor: Option<i64> = Some(i64::MAX);
     for id in commit_ids {
         let oid = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::repo)?;
         let commit = repo.find_commit(oid).map_err(Error::repo)?;
-        let parent = commit.parent_ids().next().map(|p| p.detach().to_string());
+        let parent = commit.parent_ids().next().map(|p| p.detach());
         let tree = commit.tree_id().map_err(Error::repo)?.detach();
-        if let Some(anchor) = anchor_map.get(&(parent, tree)) {
-            result.insert(id.clone(), anchor.clone());
-        }
+        let base_time = parent
+            .and_then(|p| repo.find_commit(p).ok())
+            .and_then(|base| base.time().ok())
+            .map(|time| time.seconds);
+        floor = match base_time {
+            Some(seconds) => floor.map(|f| f.min(seconds)),
+            None => None,
+        };
+        wanted
+            .entry((parent.map(|p| p.to_string()), tree))
+            .or_default()
+            .push(id.as_str());
     }
+    let floor = floor.unwrap_or(i64::MIN);
+
+    // Newest first, so the first snapshot to answer a key is the newest one —
+    // the same pick the full-chain sweep made, reached without walking past it.
+    let mut anchor = |entry: SnapEntry, tree| {
+        if let Some(ids) = wanted.get(&(entry.base.clone(), tree)) {
+            for id in ids {
+                result
+                    .entry((*id).to_string())
+                    .or_insert_with(|| entry.id.clone());
+            }
+        }
+        result.len() < commit_ids.len() && entry.time >= floor
+    };
+    walk_chain_while(repo, &ref_name, &mut anchor)?;
     Ok(result)
 }

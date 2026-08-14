@@ -392,3 +392,53 @@ fn auto_trim_never_spawns() {
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
 }
+
+/// The other side of that contract: manual `ff trim` nudges gc on any real
+/// run, not only one that dropped something. Native writes never trigger
+/// auto-gc, so a repo younger than its retention window would otherwise never
+/// pack — and an unpacked store makes every chain walk pay for it.
+#[test]
+fn manual_trim_nudges_gc_even_when_nothing_dropped() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    assert!(
+        ff_trapped(&build_trap(), &fx.path(), &["-m", "one"])
+            .status
+            .success(),
+        "snapshot taken"
+    );
+
+    // Retention leaves everything in place: this run drops nothing.
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["trim"]);
+    assert!(
+        out.status.success(),
+        "ff trim succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("nothing to drop"),
+        "nothing was dropped: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let logged = std::fs::read_to_string(&trap.log).unwrap_or_default();
+    assert!(
+        logged.contains("gc --auto"),
+        "trim nudged git's gc: {logged:?}"
+    );
+
+    // --dry-run stays inert.
+    let trap = build_trap();
+    assert!(
+        ff_trapped(&trap, &fx.path(), &["trim", "--dry-run"])
+            .status
+            .success()
+    );
+    assert!(
+        !trap.log.exists(),
+        "dry run spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}

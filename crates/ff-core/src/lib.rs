@@ -32,7 +32,7 @@ pub use gix;
 
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
-pub use evolog::{EvologOptions, evolog, open_change, segment_anchors};
+pub use evolog::{EvologOptions, chain_ids, evolog, open_change, segment_anchors};
 pub use head::{head_state, operation};
 pub use log::{LogOptions, log};
 pub use model::*;
@@ -65,7 +65,15 @@ pub fn discover(dir: impl AsRef<Path>) -> Result<gix::Repository> {
         Default::default(),
         read_tuned(gix::open::Options::default()),
     )?;
-    Ok(repo.to_thread_local())
+    Ok(cached(repo.to_thread_local()))
+}
+
+/// Chain walks meet every snapshot twice — once as a row, once as the next
+/// row's parent check — so a decoded-object cache halves the reads for any
+/// command that follows a chain. The cap is a ceiling, not an allocation.
+fn cached(mut repo: gix::Repository) -> gix::Repository {
+    repo.object_cache_size_if_unset(4 * 1024 * 1024);
+    repo
 }
 
 /// Discover with an isolated configuration: no environment overrides, no
@@ -76,5 +84,5 @@ pub fn discover_isolated(dir: impl AsRef<Path>) -> Result<gix::Repository> {
         Default::default(),
         read_tuned(gix::open::Options::isolated()),
     )?;
-    Ok(repo.to_thread_local())
+    Ok(cached(repo.to_thread_local()))
 }

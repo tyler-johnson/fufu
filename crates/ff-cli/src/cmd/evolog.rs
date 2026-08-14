@@ -48,7 +48,9 @@ pub fn run(json: bool, count: usize) -> Result<()> {
 /// trash chains — so the bold prefix is exactly what `ff restore --at`
 /// accepts unambiguously.
 pub fn prefix_lens(repo: &ff_core::gix::Repository) -> Result<HashMap<String, usize>> {
-    let domain = ff_core::evolog(
+    // Ids only: the domain has to be the whole chain for the bold prefix to
+    // mean what it claims, so it must not also pay for rows it never shows.
+    let ids = ff_core::chain_ids(
         repo,
         &EvologOptions {
             limit: None,
@@ -56,7 +58,6 @@ pub fn prefix_lens(repo: &ff_core::gix::Repository) -> Result<HashMap<String, us
             include_trash: true,
         },
     )?;
-    let ids: Vec<String> = domain.into_iter().map(|s| s.id).collect();
     Ok(crate::render::unique_prefix_lens(&ids))
 }
 

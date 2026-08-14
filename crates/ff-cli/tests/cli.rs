@@ -517,6 +517,62 @@ fn log_segment_tips_fill_and_blank() {
     );
 }
 
+/// The anchor walk stops early — once every displayed commit is answered, or
+/// once the chain predates the oldest of them — so what it reports must not
+/// depend on how far it happened to walk. Same chain, two window sizes, same
+/// letters.
+#[test]
+fn log_segment_tips_ignore_how_far_the_walk_went() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Segment User");
+    fx.set_config("user.email", "segment@test");
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+
+    // Three ff-made commits, each with snapshots piled on top, so every
+    // anchor sits well below newer chain links.
+    let mut landed = Vec::new();
+    for round in 0..3 {
+        for noise in 0..3 {
+            fx.write("noise.txt", &format!("{round}-{noise}\n"));
+            assert!(ff(&fx, &[]).status.success());
+        }
+        fx.write("a.txt", &format!("round {round}\n"));
+        assert!(
+            ff(&fx, &["commit", "-m", &format!("landed {round}")])
+                .status
+                .success()
+        );
+        landed.push(fx.git(&["rev-parse", "HEAD"]).trim().to_string());
+    }
+
+    let letters_for = |text: &str, sha: &str| -> String {
+        let row = text
+            .lines()
+            .find(|line| line.starts_with('●') && line.contains(&sha[..7]))
+            .unwrap_or_else(|| panic!("no ● row for {sha}: {text:?}"));
+        row.split_whitespace().nth(1).unwrap().to_string()
+    };
+
+    // The tree is clean and stays clean, so these reads add no snapshots and
+    // the two windows see the identical chain.
+    let full = stdout(&ff(&fx, &["log"]));
+    let narrow = stdout(&ff(&fx, &["log", "-n", "1"]));
+
+    for sha in &landed {
+        let id = letters_for(&full, sha);
+        assert!(
+            id.chars().all(|c| ('k'..='z').contains(&c)),
+            "ff-made commit keeps its anchor behind newer snapshots: {id:?}"
+        );
+    }
+    assert_eq!(
+        letters_for(&narrow, landed.last().unwrap()),
+        letters_for(&full, landed.last().unwrap()),
+        "-n 1 and the full log agree on the newest commit's anchor"
+    );
+}
+
 #[test]
 fn evolog_lists_snapshots_and_json() {
     let fx = Fixture::new();
@@ -560,6 +616,16 @@ fn evolog_lists_snapshots_and_json() {
             .all(|c| c.is_ascii_hexdigit()),
         "JSON ids stay hex"
     );
+    // The chain walk leaves short_id empty and the display paths fill it;
+    // this is the guard against an unfilled row reaching a reader.
+    for snap in snaps {
+        let (id, short) = (
+            snap["id"].as_str().unwrap(),
+            snap["short_id"].as_str().unwrap(),
+        );
+        assert!(!short.is_empty(), "short_id is filled: {snap}");
+        assert!(id.starts_with(short), "short_id abbreviates id: {snap}");
+    }
 }
 
 /// A letters id copied from evolog output round-trips into `ff restore --at`.
