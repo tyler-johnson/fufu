@@ -6,6 +6,7 @@ pub mod error;
 mod evolog;
 mod head;
 mod hooks;
+pub mod idindex;
 pub mod index;
 pub mod journal;
 mod log;
@@ -32,7 +33,7 @@ pub use gix;
 
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
-pub use evolog::{EvologOptions, chain_ids, evolog, open_change, segment_anchors};
+pub use evolog::{EvologOptions, chain_ids, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
 pub use log::{LogOptions, log};
 pub use model::*;

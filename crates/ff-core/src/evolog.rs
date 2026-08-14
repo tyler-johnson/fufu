@@ -76,6 +76,18 @@ pub fn chain_ids(repo: &gix::Repository, opts: &EvologOptions) -> Result<Vec<Str
     Ok(ids)
 }
 
+/// Every snapshot id on one chain ref, in walk order (newest first), no limit.
+/// This is a resolution domain in its materialized form — ids only, no
+/// abbreviation, which is what makes it affordable over a whole chain.
+pub fn ref_ids(repo: &gix::Repository, ref_name: &str) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    walk_chain_while(repo, ref_name, &mut |entry: SnapEntry, _tree| {
+        ids.push(entry.id);
+        true
+    })?;
+    Ok(ids)
+}
+
 /// Abbreviate the ids of rows that are about to be shown or serialized.
 /// `shorten()` is an object-store prefix lookup, not a string operation —
 /// affordable per displayed row, ruinous per chain link — so the walk leaves
