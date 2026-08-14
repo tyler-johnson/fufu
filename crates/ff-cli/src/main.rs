@@ -3,6 +3,7 @@ mod cadence;
 mod capture;
 mod cli;
 mod cmd;
+mod help;
 mod pager;
 mod provenance;
 mod render;

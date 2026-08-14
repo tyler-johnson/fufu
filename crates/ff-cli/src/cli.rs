@@ -2,6 +2,8 @@ use std::ffi::OsString;
 
 use clap::{Parser, Subcommand};
 
+use crate::help;
+
 /// Bare `ff` is the snapshot verb (jj-style): `ff [-m <msg>]` takes a manual
 /// snapshot; every other command captures first, then does its work.
 /// `args_conflicts_with_subcommands` makes `ff -m x status` a usage error.
@@ -10,7 +12,8 @@ use clap::{Parser, Subcommand};
     name = "ff",
     version,
     about = "a friendlier interface to plain git",
-    disable_help_subcommand = true,
+    long_about = help::ROOT,
+    after_long_help = help::ROOT_EXAMPLES,
     args_conflicts_with_subcommands = true
 )]
 pub struct Cli {
@@ -27,12 +30,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Show the working tree status
+    #[command(long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
     Status {
         /// Emit machine-readable JSON
         #[arg(long)]
         json: bool,
     },
     /// Show the timeline: snapshots interleaved with commits
+    #[command(long_about = help::LOG, after_long_help = help::LOG_EXAMPLES)]
     Log {
         /// Emit machine-readable JSON
         #[arg(long)]
@@ -48,6 +53,7 @@ pub enum Command {
         ops: bool,
     },
     /// Show the open change's snapshot chain (the evolution log)
+    #[command(long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
     Evolog {
         /// Emit machine-readable JSON
         #[arg(long)]
@@ -57,17 +63,20 @@ pub enum Command {
         count: usize,
     },
     /// Capture-first git passthrough; daily forms translate to ff verbs
-    #[command(disable_help_flag = true)]
+    #[command(
+        disable_help_flag = true,
+        long_about = help::GIT,
+        after_long_help = help::GIT_EXAMPLES
+    )]
     Git {
         /// Arguments passed to git verbatim
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
     /// Restore worktree files from the timeline
+    #[command(long_about = help::RESTORE, after_long_help = help::RESTORE_EXAMPLES)]
     Restore {
-        /// Snapshot to restore from: id (hex or letters as shown by ff
-        /// evolog), @{n}, 30m/2h/1d/1w, or a date; defaults to the newest
-        /// snapshot
+        /// Snapshot to restore from: an id, '@{1}', 30m/2h/1d/1w, or a date
         #[arg(long, value_name = "target")]
         at: Option<String>,
         /// Restore the entire worktree to the target state
@@ -80,7 +89,8 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Drop snapshots older than the retention cutoff (fufu.keep, 90d default)
+    /// Drop snapshots past the retention cutoff (fufu.keep, 90d)
+    #[command(long_about = help::TRIM, after_long_help = help::TRIM_EXAMPLES)]
     Trim {
         /// Report what would be dropped without writing anything
         #[arg(short = 'n', long)]
@@ -93,6 +103,7 @@ pub enum Command {
         json: bool,
     },
     /// Close the open change into a commit (the working tree is the change)
+    #[command(long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
     Commit {
         /// Describe what is closing; wins over the pending description
         #[arg(short = 'm', value_name = "msg")]
@@ -100,8 +111,7 @@ pub enum Command {
         /// Skip pre-commit and commit-msg hooks
         #[arg(long)]
         no_verify: bool,
-        /// Land the close on this branch: claims an anonymous branch, or
-        /// forks a fresh one here (the old branch stays)
+        /// Branch to land the close on: claim an anonymous one, or fork here
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
         /// Emit machine-readable JSON
@@ -109,6 +119,7 @@ pub enum Command {
         json: bool,
     },
     /// Switch branches; a dirty tree is parked, a parked change resumes
+    #[command(long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
     Switch {
         /// Branch name, or a unique prefix of one
         #[arg(value_name = "branch")]
@@ -118,6 +129,7 @@ pub enum Command {
         json: bool,
     },
     /// Roll the repository back to the state before an operation
+    #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
     Undo {
         /// Op id (journal-sha prefix, see ff log --ops); newest if omitted
         #[arg(value_name = "op")]
@@ -130,6 +142,7 @@ pub enum Command {
         json: bool,
     },
     /// Open a new change: close the current one, optionally moving first
+    #[command(long_about = help::NEW, after_long_help = help::NEW_EXAMPLES)]
     New {
         /// Branch, revision, or nothing to stay here
         #[arg(value_name = "target")]
@@ -145,6 +158,7 @@ pub enum Command {
         json: bool,
     },
     /// Edit the pending description of the open change
+    #[command(long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
     Describe {
         /// The description text; omitted opens $EDITOR
         #[arg(short = 'm', value_name = "msg")]
@@ -157,6 +171,7 @@ pub enum Command {
         json: bool,
     },
     /// List branches, claim the current anonymous branch, or delete one
+    #[command(long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
         /// Claim the current anonymous branch with this name
         #[arg(value_name = "name")]
@@ -174,11 +189,13 @@ pub enum Command {
         json: bool,
     },
     /// Manage fufu's capture hooks: agents, shells, editors
+    #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
     Hook {
         #[command(subcommand)]
         kind: HookKind,
     },
     /// Read and write fufu's settings (plain git config under fufu.*)
+    #[command(long_about = help::CONFIG, after_long_help = help::CONFIG_EXAMPLES)]
     Config {
         /// Setting name — case-insensitive, the fufu. prefix optional
         #[arg(value_name = "key")]
@@ -197,6 +214,7 @@ pub enum Command {
         json: bool,
     },
     /// Verify the safety net: chains, identity, reflogs, gc guard, wiring
+    #[command(long_about = help::DOCTOR, after_long_help = help::DOCTOR_EXAMPLES)]
     Doctor {
         /// Repair the gc config keys (the one write doctor performs)
         #[arg(long)]
@@ -206,6 +224,7 @@ pub enum Command {
         json: bool,
     },
     /// Download the latest release and replace this binary
+    #[command(long_about = help::UPDATE, after_long_help = help::UPDATE_EXAMPLES)]
     Update {
         /// Refresh the update cache only (used by the background check)
         #[arg(long)]
@@ -218,16 +237,19 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum HookKind {
     /// Agent hooks (claude): capture around agent tool actions
+    #[command(long_about = help::HOOK_AGENT, after_long_help = help::HOOK_AGENT_EXAMPLES)]
     Agent {
         #[command(subcommand)]
         verb: HookVerb,
     },
     /// Shell hooks (bash, zsh, fish): the `alias git='ff git'` line
+    #[command(long_about = help::HOOK_SHELL, after_long_help = help::HOOK_SHELL_EXAMPLES)]
     Shell {
         #[command(subcommand)]
         verb: HookVerb,
     },
     /// Editor hooks: reserved — none exist yet
+    #[command(long_about = help::HOOK_EDITOR)]
     Editor {
         #[command(subcommand)]
         verb: HookVerb,
@@ -255,8 +277,8 @@ pub enum HookVerb {
         /// Optional name to narrow to
         name: Option<String>,
     },
-    /// Hook runtime, invoked by the client with a payload on stdin.
-    /// Agent triggers always exit 0 — a hook must never veto an action.
+    /// Hook runtime, called by the client with a payload on stdin
+    #[command(long_about = help::HOOK_TRIGGER)]
     Trigger {
         /// Agent name; defaults to claude
         name: Option<String>,

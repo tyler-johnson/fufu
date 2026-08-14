@@ -173,58 +173,67 @@ tree (`add -A` semantics), write the commit, the branch advances, status is
 clean. A clean tree makes the close a no-op: **no empty commit is ever
 created** — jj's placeholder commits are exactly the kind of state a boring
 repository shouldn't contain. Descriptions are two-phase: `ff commit -m`
-describes the change being closed, `ff new -m` the change being opened — a
+describes the change being closed, `ff start -m` the change being opened — a
 pending description parked per branch until its close; bare `ff describe`
 edits it, `ff describe <rev>` rewords what's already closed. An undescribed
 close is legal ("(no description)", jj-style); hygiene enforces at the exit,
 where `ff push` flags undescribed commits rather than letting them past the
 boundary.
 
-`ff new` (alias `ff start`) always begins a new line of work — a fresh
+`ff start` (alias `ff new`) always begins a new line of work — a fresh
 branch, every time. The verbs carve cleanly: `ff commit` records, `ff
-switch` resumes, `ff new` begins. Bare, it reaches for trunk: fetch, fork a
-fresh branch at the fetched tip, arrive with a clean tree — the open change
-you were holding parks on its branch through tree memory, exactly as a
-switch would leave it. `ff new @` begins from here instead — and *here*
-includes the working copy: the new branch forks at the current tip and the
-open change comes along, the "this should be its own branch" gesture.
-Because uncommitted work just changed address, the carry is announced with
-a warning; `--commit` closes the open change on the current branch first —
-a commit that branch keeps — and forks clean from the advanced tip. The
-wrong pick costs nothing: `ff undo`, rerun the other way. `fufu.newAt`
-(`carry`, the default, or `commit`) makes either the standing default. `@`
-is the only target that carries. Every other `<rev>` — a branch, a commit,
-a remote ref — is travel, and travel parks: the open change stays parked
-on its branch, the target's tree materializes fresh, and the next change
-opens clean on the new branch. `-m` describes the change being opened.
-`ff edit` sits
-adjacent: it targets *commits* (a session), `ff switch` targets *branches*,
-and `ff edit <branch>` is accepted as a convenience that simply behaves as
+switch` resumes, `ff start` begins. A tree belongs to its branch and every
+arrival materializes the destination's own, which is why only `start` has
+anything to decide: a branch that doesn't exist yet has no tree, so
+something must say what it starts as. Bare, it seeds empty from trunk —
+fetch, fork at the fetched tip, arrive clean, the open change parked behind
+you as a switch would leave it. `ff start @` seeds from here: the new branch
+forks at the current tip and the open change moves with it, the "this should
+be its own branch" gesture. `@` is the only target that carries, because it
+is the only one where the tree keeps its base — nothing displaced, nothing
+merged, only the address changed. Every other `<rev>` forks elsewhere, so
+carrying would be a merge; those park and begin clean. The carry is
+announced, the work having been uncommitted; `--commit` closes on the
+current branch first and forks from the advanced tip, and `fufu.startAt`
+(`carry` or `commit`) sets the standing default. `-m` describes the change
+being opened. `ff edit` sits adjacent: it targets *commits* (a session),
+`ff switch` targets *branches*, and `ff edit <branch>` simply behaves as
 `ff switch`.
 
 **Trunk is known.** Several verbs need to know what "main" is: `ff sync`
 rebases onto it, futures in `ff status` measure against it, and bare `ff
-new` starts from it. fufu resolves trunk once per repo: config first
+start` starts from it. fufu resolves trunk once per repo: config first
 (`fufu.trunk`, set through `ff config trunk <branch>`), heuristics when
 unset — `origin/HEAD` if the remote declares it, else a lone local `main`
 or `master`, else the branch the repository was born on. Ambiguity is an
 error naming the candidates, never a guess. Trunk may live only on the
-remote: with no local `main`, bare `ff new` forks straight from the fetched
-tip — no local trunk branch is required or created.
+remote: with no local `main`, bare `ff start` forks straight from the
+fetched tip — no local trunk branch is required or created.
+
+**Someone else's branch.** Reviewing work that isn't yours is arriving at a
+branch that already exists — `ff switch`'s job, not `ff start`'s, which
+would fork a branch of your own beginning at their tip. The
+`<branch>@<remote>` spelling is both address and freshness request:
+`ff switch feature-x@origin` fetches, then lands you there. Switch may
+create a branch, never move one: a name that resolves only on the remote is
+fetched and created here, while a branch already local stays offline and
+untouched. `@<remote>` is the opt-in that permits moving it — fast-forwarding
+where the remote fully contains it, stopping to name the commits where it
+doesn't, rather than discarding work no snapshot took.
 
 **Branches without ceremony.** Every head is a real ref under `refs/heads/`
 from the moment it exists — HEAD never detaches, and branches auto-move as
 commits land, because that is git's own behavior once HEAD is attached
 (contrast jj's bookmarks, which sit still until told). Work doesn't wait for a
-name: every `ff new` mints an **anonymous branch** — a
+name: every `ff start` mints an **anonymous branch** — a
 real branch with a generated name under a reserved prefix (`ff/quiet-lake`) —
 unless `-b` names it at birth; `ff branch <name>` claims it later: a rename that carries the capture
 chain, the parked entry, and fufu's metadata along, which is the part a bare
 `git branch -m` would orphan. A `-b <name>` flag rides the change verbs
 on the same axis as `-m`: on `ff describe` it always *renames* — the claim,
-made inline, and the one form that renames proper names too. On `ff new` it
-names the branch being minted — every `new` creates one, so there is nothing
-to decide. On `ff commit` it names the branch the closing change lands on,
+made inline, and the one form that renames proper names too. On `ff start`
+it names the branch being minted — every `start` creates one, so there is
+nothing to decide. On `ff commit` it names the branch the closing change lands on,
 and the reserved prefix makes the meaning decidable rather than guessed: a
 placeholder — fufu-named — is claimed in place, while a branch the user
 deliberately named is never renamed implicitly, so a fresh branch is created
@@ -238,9 +247,9 @@ reuse. To every foreign tool an anonymous branch is
 ordinary; no push refspec matches it by accident, and naming one is the
 natural "this is real now" gesture at the publish boundary.
 
-Target resolution is uniform: every `ff new` target forks — continuing an
-existing branch is `ff switch`'s job, never `new`'s, so there is nothing to
-guess. Git permits no divergence inside one ref and no
+Target resolution is uniform: every `ff start` target forks — continuing an
+existing branch is `ff switch`'s job, never `start`'s, so there is nothing
+to guess. Git permits no divergence inside one ref and no
 `foo/2` beside `foo` (a ref is a file, and can't also be a directory), so
 every fork is its own ref; "forked from main" is metadata recorded at fork
 time and shown at display time, never encoded in the name.
@@ -282,7 +291,7 @@ holds the tip state regardless.
 
 A session must end — `ff done` is the only place the amend-and-restack fires —
 but ending it is not always the user's chore. Any verb that needs the branch
-to move on treats an open session as land-if-clean automation: `ff new` or
+to move on treats an open session as land-if-clean automation: `ff start` or
 `ff commit`, mid-session or arriving back at a branch whose session was
 parked, attempts `ff done` speculatively first. Clean → the edit lands,
 descendants restack, the verb proceeds, and status says what happened.
@@ -386,9 +395,9 @@ identically to its git counterpart, it must not exist; git is right there. The
 moment fufu verbs are just spellings, the tool collapses into shell aliases with
 extra steps.
 
-The daily surface. Where the workflow is jj's, the vocabulary is too: `new`,
-`edit`, and `describe` are deliberate imports, with `switch` staying underneath
-them as the general movement verb.
+The daily surface. Where the workflow is jj's, the vocabulary is too: `edit`
+and `describe` are deliberate imports, and jj's `new` survives as the alias for
+`ff start`, with `switch` staying underneath them as the general movement verb.
 
 | verb | what it does | what it replaces |
 |---|---|---|
@@ -396,8 +405,8 @@ them as the general movement verb.
 | `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
-| `ff new [<rev>] [-m <msg>] [-b <name>]` (alias `ff start`) | begin new work on a fresh branch, always: bare forks a fetched trunk with a clean tree (the open change parks), `@` forks the current tip and *carries* the open change (warned; `--commit` closes it here first, `fufu.newAt` flips the default), any other `<rev>` forks fresh; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
-| `ff switch` | branch switch with tree memory | `stash` dances |
+| `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks a fetched trunk with a clean tree (the open change parks), `@` forks the current tip and *carries* the open change (warned; `--commit` closes it here first, `fufu.startAt` flips the default), any other `<rev>` forks fresh; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
+| `ff switch <branch>[@<remote>]` | branch switch with tree memory; `@<remote>` fetches first and lands you on a synced copy | `stash` dances, `fetch` + `switch -c --track` |
 | `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, capture chain and parked state carried along | `git branch` bookkeeping |
 | `ff absorb` | fold working changes into the stack commits they belong to (`--into <rev>` aims a specific one); descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
 | `ff edit <rev>` | editing session on any commit: parks tip state, materializes `<rev>`'s tree, HEAD never moves; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
@@ -593,7 +602,7 @@ over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The op journal and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
-tree memory via driven stash — `ff switch`, `ff new`, `ff branch`, anonymous
+tree memory via driven stash — `ff switch`, `ff start`, `ff branch`, anonymous
 branches and the claim-rename — and `ff commit` closing the open change (fufu's
 first index write: a close must leave `.git/index` matching the new HEAD, or
 foreign `git status` shows phantom changes). The daily driver exists after this phase.
