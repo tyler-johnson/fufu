@@ -1,8 +1,9 @@
 //! `ff commit` — the close. The working tree IS the open change; closing it
 //! builds the `add -A` tree, writes an ordinary commit with the USER's
 //! identity, advances the branch, and rewrites the index to match — the
-//! next edit opens the next change. A clean tree closes nothing: no empty
-//! commits, ever.
+//! next edit opens the next change. A clean tree with no message closes
+//! nothing; a message (`-m` or pending description) closes as an empty
+//! commit — no totally-empty commits.
 //!
 //! Ordering is write-ahead: capture-first snapshot → reconcile → hooks →
 //! tree + message + plan → journal append → mutate (branch axis, ref CAS,
@@ -74,10 +75,21 @@ pub fn close(
         }
     };
 
-    // Emptiness first (git's order too): a clean tree runs no hooks.
+    // Read branchmeta early so emptiness can consult the pending description.
+    let meta = branchmeta::read(repo, &current_branch)?;
+    let pending = meta.pending_description.clone();
+
+    // Emptiness first (git's order too): a clean tree with no message runs
+    // no hooks and closes nothing.
     let mut scan = snaptree::scan(repo)?;
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    if scan.is_empty() {
+    let effective = opts
+        .message
+        .clone()
+        .or_else(|| pending.clone())
+        .unwrap_or_default();
+    let has_message = !normalize_message(&effective).is_empty();
+    if scan.is_empty() && !has_message {
         return Ok((
             CommitOutcome::NothingToClose {
                 branch: current_branch,
@@ -90,7 +102,7 @@ pub fn close(
     // hook that ran invalidates the scan.
     if !opts.no_verify && hooks::pre_commit(repo)? {
         scan = snaptree::scan(repo)?;
-        if scan.is_empty() {
+        if scan.is_empty() && !has_message {
             return Ok((
                 CommitOutcome::NothingToClose {
                     branch: current_branch,
@@ -101,8 +113,14 @@ pub fn close(
     }
 
     // The close tree is exact: nothing is size-capped out of a commit.
-    let (tree_id, _skipped) = snaptree::assemble(repo, head_tree, &scan, u64::MAX)?;
-    if tree_id == head_tree {
+    // When the scan is empty but a message exists, skip assemble — the
+    // close tree IS the head tree (empty commit).
+    let (tree_id, _skipped) = if scan.is_empty() {
+        (head_tree, Vec::new())
+    } else {
+        snaptree::assemble(repo, head_tree, &scan, u64::MAX)?
+    };
+    if tree_id == head_tree && !has_message {
         return Ok((
             CommitOutcome::NothingToClose {
                 branch: current_branch,
@@ -113,8 +131,6 @@ pub fn close(
 
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
-    let meta = branchmeta::read(repo, &current_branch)?;
-    let pending = meta.pending_description.clone();
     let mut message = opts
         .message
         .clone()
@@ -321,7 +337,7 @@ pub fn close(
 
 /// Git-style minimal cleanup: strip trailing whitespace per line end, cap
 /// to one trailing newline, empty stays empty.
-fn normalize_message(message: &str) -> String {
+pub(crate) fn normalize_message(message: &str) -> String {
     let trimmed = message.trim_end();
     if trimmed.is_empty() {
         return String::new();

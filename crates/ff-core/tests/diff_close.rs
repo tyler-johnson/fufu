@@ -73,15 +73,11 @@ fn matrix_close_matches_git_add_a_commit() {
         let (outcome, _ctx) = close_with(&fx_ff, default_opts());
 
         fx_git.git(&["add", "-A"]);
-        let git_commit = fx_git.try_git(&["commit", "-q", "-m", "close message"]);
+        let git_commit = fx_git.try_git(&["commit", "-q", "--allow-empty", "-m", "close message"]);
 
         match outcome {
             CommitOutcome::NothingToClose { .. } => {
-                assert!(
-                    !git_commit.status.success(),
-                    "scenario {name}: git commits where close no-ops"
-                );
-                continue;
+                panic!("scenario {name}: close with -m never no-ops under the message-aware rule")
             }
             CommitOutcome::Closed { id, .. } => {
                 assert!(

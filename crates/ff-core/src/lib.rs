@@ -31,7 +31,7 @@ pub use gix;
 
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
-pub use evolog::{EvologOptions, evolog, open_change};
+pub use evolog::{EvologOptions, evolog, open_change, segment_anchors};
 pub use head::{head_state, operation};
 pub use log::{LogOptions, log};
 pub use model::*;

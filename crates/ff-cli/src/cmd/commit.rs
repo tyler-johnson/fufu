@@ -56,7 +56,7 @@ pub fn run(
             println!("undo: ff undo");
         }
         CommitOutcome::NothingToClose { branch } => {
-            println!("nothing to close on {branch}: the working tree is clean");
+            println!("nothing to close on {branch}: no changes and no description");
         }
     }
     Ok(())

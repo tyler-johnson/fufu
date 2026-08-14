@@ -143,7 +143,6 @@ const SNAP_UNIQUE: anstyle::Style = anstyle::AnsiColor::Magenta.on_default().bol
 const SHA: anstyle::Style = anstyle::AnsiColor::Blue.on_default();
 const AGE: anstyle::Style = anstyle::AnsiColor::Cyan.on_default();
 const AT: anstyle::Style = anstyle::AnsiColor::Green.on_default().bold();
-const CLEAN: anstyle::Style = anstyle::AnsiColor::Green.on_default();
 const DIM: anstyle::Style = anstyle::Style::new().dimmed();
 
 /// Paint `text`, or hand it back untouched when color is off or it's empty.
@@ -197,16 +196,30 @@ const SHA_WIDTH: usize = 7;
 const AGE_WIDTH: usize = 8;
 const BLANK_ID: &str = "        ";
 
-/// The `@` row (two lines): the open change. Letters id = chain tip, sha =
-/// HEAD (the base), subject = pending description or `(no description)`.
-/// `(clean)` when the tip tree equals the HEAD tree; `(no commits yet)` on
-/// an unborn branch.
+/// The `@` row (two lines): the open change. The sha column is the pending
+/// commit hash (the change's own identity). Letters id = chain tip (via
+/// `lens`), age = tip snapshot time. Clean + undescribed collapses to
+/// `@  no changes`.
 pub fn change_row(
     open: &OpenChange,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
 ) -> String {
+    let sym = paint("@", AT, colored);
+    let rail = paint("│", DIM, colored);
+    let subject = match open.subject.as_deref() {
+        Some(text) => text.to_string(),
+        None => paint("(no description)", DIM, colored),
+    };
+
+    // Born + clean + no description: collapsed "no changes" line.
+    if open.base.is_some() && open.clean && open.subject.is_none() {
+        let head = format!("{sym}  {}", paint("no changes", DIM, colored));
+        return format!("{}\n{rail}  {subject}", head.trim_end());
+    }
+
+    // Full layout: letters + pending sha + age + optional marker.
     let letters = match &open.id {
         Some(id) => styled_id(
             &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
@@ -216,12 +229,8 @@ pub fn change_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let sha = col(
-        open.base.as_deref().map(short7).unwrap_or_default(),
-        SHA_WIDTH,
-        SHA,
-        colored,
-    );
+    let pending_short = open.pending.as_deref().map(short7).unwrap_or_default();
+    let sha = col(pending_short, SHA_WIDTH, SHA, colored);
     let age = col_right(
         &open.time.map(|t| relative_age(now, t)).unwrap_or_default(),
         AGE_WIDTH,
@@ -230,17 +239,9 @@ pub fn change_row(
     );
     let marker = if open.base.is_none() {
         format!("  {}", paint("(no commits yet)", DIM, colored))
-    } else if open.clean {
-        format!("  {}", paint("(clean)", CLEAN, colored))
     } else {
         String::new()
     };
-    let subject = match open.subject.as_deref() {
-        Some(text) => text.to_string(),
-        None => paint("(no description)", DIM, colored),
-    };
-    let sym = paint("@", AT, colored);
-    let rail = paint("│", DIM, colored);
     let head = format!("{sym}  {letters} {sha} {age}{marker}");
     format!("{}\n{rail}  {subject}", head.trim_end())
 }

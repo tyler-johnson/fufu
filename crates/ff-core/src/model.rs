@@ -163,6 +163,11 @@ pub struct OpenChange {
     pub time: Option<i64>,
     /// The tip tree equals the HEAD tree (or no chain exists yet).
     pub clean: bool,
+    /// The pending change's stable identity: the hash of the commit the close
+    /// would mint — not a prediction (the real close re-stamps time, and hooks
+    /// may rewrite tree or message). `None` when nothing is pending or no
+    /// user identity is configured.
+    pub pending: Option<String>,
 }
 
 /// The result of a worktree restore.

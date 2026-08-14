@@ -15,6 +15,13 @@ fn ff_at(dir: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
         .output()
         .expect("spawn ff")
 }
@@ -139,7 +146,7 @@ fn log_unborn_is_empty_success() {
     assert_eq!(
         stdout(&out),
         "{\"commits\":[],\"open\":{\"branch\":\"main\",\"id\":null,\"id_letters\":null,\
-         \"base\":null,\"subject\":null,\"time\":null,\"clean\":true}}\n"
+         \"base\":null,\"subject\":null,\"time\":null,\"clean\":true,\"pending\":null,\"pending_short\":null}}\n"
     );
     let human = ff(&fx, &["log", "--commits"]);
     assert!(human.status.success());
@@ -322,6 +329,10 @@ fn log_default_is_change_centric() {
         "letters spelling at the JSON edge: {letters:?}"
     );
     assert_eq!(v["open"]["clean"], false, "uncaptured-free but dirty tree");
+    assert!(
+        v["open"]["pending"].is_null(),
+        "no identity configured in the fixture"
+    );
 
     // --commits --json keeps the exact Phase 0 envelope.
     let out = ff(&fx, &["log", "--commits", "--json"]);
@@ -334,7 +345,10 @@ fn log_default_is_change_centric() {
     );
 }
 
-/// The @ row states: pending description, (clean), dirty, described.
+/// The @ row states: clean undescribed collapses to "no changes", dirty shows
+/// letters + pending sha, describe changes the pending sha, close returns to
+/// "no changes", clean+described shows a pending empty commit whose letters
+/// match the ● anchor row.
 #[test]
 fn log_at_row_states() {
     let fx = Fixture::new();
@@ -343,20 +357,30 @@ fn log_at_row_states() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    // Clean tree, no chain: (clean) marker, no description.
+    // Clean, undescribed: collapsed "no changes" line.
     let text = stdout(&ff(&fx, &["log"]));
-    let mut lines = text.lines();
-    let at = lines.next().unwrap();
-    assert!(at.starts_with("@  ") && at.ends_with("(clean)"), "{at:?}");
-    assert_eq!(lines.next().unwrap(), "│  (no description)");
+    let lines = text.lines().collect::<Vec<&str>>();
+    assert_eq!(lines[0], "@  no changes", "{text:?}");
+    assert_eq!(lines[1], "│  (no description)", "{text:?}");
 
-    // Dirty tree: ff log's own pre-capture becomes the tip — not clean.
+    // Dirty tree: ff log's own pre-capture becomes the tip.
     fx.write("a.txt", "dirty\n");
     let text = stdout(&ff(&fx, &["log"]));
-    let at = lines_first(&text);
-    assert!(!at.contains("(clean)"), "{at:?}");
+    let at_line = text.lines().next().unwrap();
+    let tokens: Vec<&str> = at_line.split_whitespace().collect();
+    assert_eq!(tokens[0], "@");
+    assert!(
+        tokens[1].len() == 8 && tokens[1].chars().all(|c| ('k'..='z').contains(&c)),
+        "tip letters: {at_line:?}"
+    );
+    assert!(
+        tokens[2].len() == 7 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        "pending sha: {at_line:?}"
+    );
+    let dirty_letters = tokens[1].to_string();
+    let dirty_sha = tokens[2].to_string();
 
-    // A pending description owns the subject line.
+    // Describe while dirty: letters unchanged, pending sha changes.
     assert!(
         ff(&fx, &["describe", "-m", "work in progress"])
             .status
@@ -364,28 +388,68 @@ fn log_at_row_states() {
     );
     let text = stdout(&ff(&fx, &["log"]));
     assert_eq!(text.lines().nth(1).unwrap(), "│  work in progress");
+    let tokens: Vec<&str> = text.lines().next().unwrap().split_whitespace().collect();
+    assert_eq!(tokens[1], dirty_letters, "letters unchanged after describe");
+    assert_ne!(tokens[2], dirty_sha, "pending sha changed after describe");
 
-    // Closing the change lands the captured state: clean again.
+    // Close: back to "no changes".
     assert!(ff(&fx, &["commit", "-m", "landed"]).status.success());
     let text = stdout(&ff(&fx, &["log"]));
-    assert!(lines_first(&text).ends_with("(clean)"), "{text:?}");
+    assert_eq!(text.lines().next().unwrap(), "@  no changes");
+
+    // Describe while clean: pending empty commit, letters match ● anchor row.
+    assert!(ff(&fx, &["describe", "-m", "next up"]).status.success());
+    let text = stdout(&ff(&fx, &["log"]));
+    let tokens: Vec<&str> = text.lines().next().unwrap().split_whitespace().collect();
+    assert!(
+        tokens[1].len() == 8 && tokens[1].chars().all(|c| ('k'..='z').contains(&c)),
+        "clean+described letters: {text:?}"
+    );
+    assert!(
+        tokens[2].len() == 7 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        "clean+described pending sha: {text:?}"
+    );
+    let clean_letters = tokens[1].to_string();
+    // The first ● row should have the same letters (anchor duplication).
+    let bullet_line = text
+        .lines()
+        .find(|l| l.starts_with('●'))
+        .expect("a ● row exists");
+    let bullet_tokens: Vec<&str> = bullet_line.split_whitespace().collect();
+    assert_eq!(
+        bullet_tokens[1], clean_letters,
+        "● row shares letters with @ row (anchor)"
+    );
 }
 
-fn lines_first(text: &str) -> &str {
-    text.lines().next().unwrap()
-}
-
-/// ● rows carry the segment tip (newest snapshot based on that commit) in
-/// the letters column, or leave it blank when no snapshot ever sat there.
+/// Anchor rule: a commit earns a letters id in the ● row when the live chain
+/// has a snapshot whose base is the commit's first parent AND whose tree
+/// equals the commit's tree. Git-made roots and partial-stage commits have
+/// no matching snapshot → blank letters column.
 #[test]
 fn log_segment_tips_fill_and_blank() {
+    fn letters8(hex: &str) -> String {
+        const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
+        hex[..8]
+            .chars()
+            .map(|c| ALPHABET[c.to_digit(16).unwrap() as usize] as char)
+            .collect()
+    }
+
     let fx = Fixture::new();
+    fx.set_config("user.name", "Segment User");
+    fx.set_config("user.email", "segment@test");
     fx.write("a.txt", "a\n");
     let bare = fx.commit("no snapshots here");
     fx.write("a.txt", "b\n");
-    let snapped = fx.commit("snapshots land here");
-    fx.write("a.txt", "dirty\n");
+    assert!(ff(&fx, &["commit", "-m", "landed by ff"]).status.success());
+    let landed = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.write("a.txt", "c\n");
+    fx.write("other.txt", "x\n");
     assert!(ff(&fx, &[]).status.success());
+    fx.git(&["add", "a.txt"]);
+    fx.git(&["commit", "-q", "-m", "partial"]);
+    let partial = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
 
     let text = stdout(&ff(&fx, &["log"]));
     let row_of = |sha: &str| {
@@ -394,17 +458,45 @@ fn log_segment_tips_fill_and_blank() {
             .unwrap_or_else(|| panic!("no ● row for {sha}: {text:?}"))
             .to_string()
     };
-    let snapped_row = row_of(&snapped);
-    let tokens: Vec<&str> = snapped_row.split_whitespace().collect();
-    assert!(
-        tokens[1].len() == 8 && tokens[1].chars().all(|c| ('k'..='z').contains(&c)),
-        "segment tip in the letters column: {snapped_row:?}"
+
+    // landed's row: letters column is the pre-commit snapshot.
+    let landed_row = row_of(&landed);
+    let landed_tokens: Vec<&str> = landed_row.split_whitespace().collect();
+    // Verify against evolog: find the snapshot with base == bare.
+    let evolog_out = ff(&fx, &["evolog", "--json"]);
+    let evolog: serde_json::Value = serde_json::from_str(&stdout(&evolog_out)).unwrap();
+    let pre_snap = evolog["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| {
+            s["base"] == bare
+                && s["subject"]
+                    .as_str()
+                    .map(|subj| subj.starts_with("pre: ff commit"))
+                    .unwrap_or(false)
+        })
+        .expect("pre-commit snapshot exists");
+    let expected_letters = letters8(pre_snap["id"].as_str().unwrap());
+    assert_eq!(
+        landed_tokens[1], expected_letters,
+        "landed row letters match pre-commit snapshot"
     );
+
+    // bare's row: blank letters → sha is first token after ●.
     let bare_row = row_of(&bare);
-    let tokens: Vec<&str> = bare_row.split_whitespace().collect();
+    let bare_tokens: Vec<&str> = bare_row.split_whitespace().collect();
     assert!(
-        tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
-        "blank letters column jumps straight to the sha: {bare_row:?}"
+        bare_tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
+        "bare row has blank letters, sha visible: {bare_row:?}"
+    );
+
+    // partial's row: blank letters → sha is first token after ●.
+    let partial_row = row_of(&partial);
+    let partial_tokens: Vec<&str> = partial_row.split_whitespace().collect();
+    assert!(
+        partial_tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
+        "partial row has blank letters, sha visible: {partial_row:?}"
     );
 }
 
@@ -598,4 +690,225 @@ fn merge_conflict_renders_sections() {
         text.contains("conflicts:\n  conflict.txt\n"),
         "body: {text:?}"
     );
+}
+
+/// Running `ff log --json` twice on the same dirty tree must produce the same
+/// pending hash (no-op pre-captures must not move it). A further tree change
+/// must produce a different hash. Dropping identity makes pending null.
+#[test]
+fn log_pending_hash_stability() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+
+    // Two runs on the same dirty tree → same pending hash.
+    let out1 = ff(&fx, &["log", "--json"]);
+    let v1: serde_json::Value = serde_json::from_str(&stdout(&out1)).unwrap();
+    let open1 = &v1["open"];
+
+    let out2 = ff(&fx, &["log", "--json"]);
+    let v2: serde_json::Value = serde_json::from_str(&stdout(&out2)).unwrap();
+    let open2 = &v2["open"];
+
+    let pending1 = open1["pending"].as_str().expect("pending is a string");
+    assert_eq!(pending1.len(), 40, "40-char hex");
+    assert!(pending1.chars().all(|c| c.is_ascii_hexdigit()), "ascii hex");
+
+    let pending_short1 = open1["pending_short"]
+        .as_str()
+        .expect("pending_short is a string");
+    assert_eq!(pending_short1, &pending1[..7]);
+
+    assert_eq!(
+        open2["pending"].as_str().unwrap(),
+        pending1,
+        "pending hash stable across runs"
+    );
+
+    // Edit again → hash changes.
+    fx.write("a.txt", "more\n");
+    let out3 = ff(&fx, &["log", "--json"]);
+    let v3: serde_json::Value = serde_json::from_str(&stdout(&out3)).unwrap();
+    assert_ne!(
+        v3["open"]["pending"].as_str().unwrap(),
+        pending1,
+        "pending hash differs after tree change"
+    );
+
+    // Drop identity → pending and pending_short become null.
+    fx.git(&["config", "--unset", "user.name"]);
+    fx.git(&["config", "--unset", "user.email"]);
+    let out4 = ff(&fx, &["log", "--json"]);
+    assert!(out4.status.success());
+    let v4: serde_json::Value = serde_json::from_str(&stdout(&out4)).unwrap();
+    assert!(
+        v4["open"]["pending"].is_null(),
+        "pending null without identity"
+    );
+    assert!(
+        v4["open"]["pending_short"].is_null(),
+        "pending_short null without identity"
+    );
+}
+
+/// `ff describe -m` sets a description; `ff commit` with no `-m` on a clean
+/// tree mints an empty commit using that description, then the description is
+/// consumed.
+#[test]
+fn commit_closes_described_empty_change() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // Describe while clean.
+    let out = ff(&fx, &["describe", "-m", "planned work"]);
+    assert!(out.status.success());
+
+    let before: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+
+    // Commit without -m should close using the description.
+    let out = ff(&fx, &["commit"]);
+    assert!(out.status.success());
+    assert!(stdout(&out).starts_with("closed "));
+
+    let after: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(after, before + 1);
+
+    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "planned work");
+
+    // Empty commit: HEAD tree == HEAD~1 tree.
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD^{tree}"]).trim(),
+        fx.git(&["rev-parse", "HEAD~1^{tree}"]).trim(),
+        "empty commit — trees match"
+    );
+
+    // Description consumed.
+    let out = ff(&fx, &["log", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert!(v["open"]["subject"].is_null(), "subject null after consume");
+}
+
+/// `ff commit -m` on a clean tree with no pending description still lands an
+/// empty commit using the flag message.
+#[test]
+fn commit_clean_with_message_flag_lands_empty() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let before: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+
+    let out = ff(&fx, &["commit", "-m", "checkpoint"]);
+    assert!(out.status.success());
+
+    let after: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(after, before + 1);
+
+    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "checkpoint");
+
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD^{tree}"]).trim(),
+        fx.git(&["rev-parse", "HEAD~1^{tree}"]).trim(),
+        "empty commit — trees match"
+    );
+}
+
+/// `ff commit` on a clean tree with no description is a no-op: exit 0,
+/// informative stdout, rev-list count unchanged.
+#[test]
+fn commit_totally_empty_refuses() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let before: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+
+    let out = ff(&fx, &["commit"]);
+    assert!(out.status.success(), "exit 0 — not an error");
+    assert!(
+        stdout(&out).contains("nothing to close on main"),
+        "refusal message: {:?}",
+        stdout(&out)
+    );
+
+    let after: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(after, before, "rev-list count unchanged");
+}
+
+/// `ff new` on a clean+described tree closes (empty commit). A second `ff new`
+/// on clean+undescribed is a no-op.
+#[test]
+fn new_closes_described_empty_but_not_totally_empty() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // Describe then new → closes an empty commit.
+    let out = ff(&fx, &["describe", "-m", "spec first"]);
+    assert!(out.status.success());
+
+    let before: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+
+    let out = ff(&fx, &["new"]);
+    assert!(out.status.success());
+
+    let after: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(after, before + 1);
+
+    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "spec first");
+
+    // Second new on clean+undescribed: no-op, count unchanged.
+    let out = ff(&fx, &["new"]);
+    assert!(out.status.success());
+
+    let after2: u32 = fx
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(after2, after, "second new is a no-op");
 }

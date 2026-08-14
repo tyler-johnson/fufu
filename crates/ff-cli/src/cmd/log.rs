@@ -1,4 +1,4 @@
-use ff_core::{Error, EvologOptions, LogOptions, Result};
+use ff_core::{Error, LogOptions, Result};
 
 pub fn run(json: bool, count: usize, commits: bool, ops: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
@@ -58,24 +58,10 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     }
 
     let open = ff_core::open_change(&repo)?;
-    // Segment tips from the LIVE chain only (trash never earns a ● column):
-    // newest-first walk, first-wins — the newest snapshot based on a commit
-    // is that commit's evolog drill-in anchor.
-    let live = ff_core::evolog(
-        &repo,
-        &EvologOptions {
-            limit: None,
-            ..Default::default()
-        },
-    )?;
-    let mut segments: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    for snap in &live {
-        if let Some(base) = snap.base.as_deref() {
-            segments.entry(base).or_insert(snap.id.as_str());
-        }
-    }
     let commits: Vec<ff_core::LogEntry> =
         ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;
+    let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
+    let segments = ff_core::segment_anchors(&repo, &ids)?;
 
     if json {
         // `commits` key contract preserved; `id_letters` is composed at this
@@ -90,6 +76,8 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
                 "subject": open.subject,
                 "time": open.time,
                 "clean": open.clean,
+                "pending": open.pending,
+                "pending_short": open.pending.as_deref().map(|p| &p[..7]),
             },
         }))
         .map_err(Error::repo)?;
@@ -109,7 +97,7 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
             crate::render::change_row(&open, &lens, now, colored)
         )?;
         for entry in &commits {
-            let segment = segments.get(entry.id.as_str()).copied();
+            let segment = segments.get(&entry.id).map(String::as_str);
             writeln!(
                 out,
                 "{}",

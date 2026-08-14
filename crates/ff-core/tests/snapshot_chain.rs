@@ -382,40 +382,107 @@ fn open_change_reports_pending_description_and_tip() {
     assert_eq!(open.subject.as_deref(), Some("fix the frobnicator"));
     assert!(open.time.is_some());
     assert!(!open.clean, "tip tree differs from HEAD tree");
+
+    // No identity → no pending hash.
+    assert_eq!(open.pending, None);
+
+    // With identity, pending is Some and stable.
+    fx.set_config("user.name", "Pending User");
+    fx.set_config("user.email", "pending@test");
+    let repo = fx.repo();
+    let open1 = ff_core::open_change(&repo).expect("open_change");
+    let pending1 = open1.pending.clone();
+    assert!(pending1.is_some(), "pending with identity + dirty tree");
+    let pending1_str = pending1.as_ref().unwrap();
+    assert_eq!(pending1_str.len(), 40);
+    assert!(pending1_str.chars().all(|c| c.is_ascii_hexdigit()));
+
+    // Stability: second call gives same hash.
+    let open2 = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(open2.pending, pending1, "pending hash is stable");
+
+    // Changing the pending description changes the hash.
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: Some("different plan".into()),
+            forked_from: None,
+        },
+    )
+    .expect("write meta");
+    let open3 = ff_core::open_change(&repo).expect("open_change");
+    assert!(
+        open3.pending != pending1,
+        "changing description changes pending hash"
+    );
 }
 
 #[test]
 fn open_change_clean_flips_with_the_tree() {
     let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@test");
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    // No chain yet: clean by definition.
+    // No chain yet: clean by definition, no pending (clean + no description).
     let repo = fx.repo();
     let open = ff_core::open_change(&repo).expect("open_change");
     assert!(open.clean);
     assert_eq!(open.id, None);
+    assert_eq!(open.pending, None, "no chain + no description → no pending");
 
     // Dirty + captured: tip tree diverges from HEAD.
     fx.write("a.txt", "dirty\n");
     take_created(&fx);
     let open = ff_core::open_change(&repo).expect("open_change");
     assert!(!open.clean);
+    assert!(open.pending.is_some(), "dirty + identity → pending");
 
     // Landing the captured state: HEAD tree catches up to the tip.
     fx.commit("landed");
     let open = ff_core::open_change(&repo).expect("open_change");
     assert!(open.clean);
+    assert_eq!(open.pending, None, "clean + no description → no pending");
 }
 
 #[test]
 fn open_change_unborn_and_detached() {
     let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@test");
     let repo = fx.repo();
     let open = ff_core::open_change(&repo).expect("open_change");
     assert_eq!(open.branch, "main");
     assert_eq!(open.base, None, "unborn has no base");
     assert!(open.clean, "no chain yet");
+
+    // Unborn + no tip + described has no timestamp source → pending == None.
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: Some("unborn plan".into()),
+            forked_from: None,
+        },
+    )
+    .expect("write meta");
+    let open = ff_core::open_change(&repo).expect("open_change");
+    assert_eq!(
+        open.pending, None,
+        "unborn + no tip + described → no timestamp source"
+    );
+    // Clear the description before continuing.
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: None,
+            forked_from: None,
+        },
+    )
+    .expect("clear meta");
 
     // A snapshot on the unborn branch: tip exists, still no base.
     fx.write("a.txt", "a\n");
@@ -424,6 +491,7 @@ fn open_change_unborn_and_detached() {
     assert_eq!(open.base, None);
     assert!(open.id.is_some());
     assert!(!open.clean, "tip tree is not the empty tree");
+    assert!(open.pending.is_some(), "unborn + tip + identity → pending");
 
     // Detached HEAD gets the @detached chain.
     let base = fx.commit("init");
@@ -431,6 +499,106 @@ fn open_change_unborn_and_detached() {
     let open = ff_core::open_change(&repo).expect("open_change");
     assert_eq!(open.branch, "@detached");
     assert_eq!(open.base.as_deref(), Some(base.as_str()));
+}
+
+#[test]
+fn pending_hash_matches_git_commit_tree() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Pending User");
+    fx.set_config("user.email", "pending@test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    take_created(&fx);
+    let repo = fx.repo();
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: Some("plan the work".into()),
+            forked_from: None,
+        },
+    )
+    .expect("write meta");
+    let pending = ff_core::open_change(&repo)
+        .expect("open_change")
+        .pending
+        .expect("pending");
+    // git's own oracle: commit-tree with identical tree/parent/message/identity/time.
+    let tip_time = fx
+        .git(&["log", "-1", "--format=%ct", "refs/fufu/snap/main"])
+        .trim()
+        .to_string();
+    let tree = fx
+        .git(&["rev-parse", "refs/fufu/snap/main^{tree}"])
+        .trim()
+        .to_string();
+    let date = format!("@{tip_time} +0000");
+    let sha = fx.git_env_in(
+        &fx.path(),
+        &["commit-tree", &tree, "-p", "HEAD", "-m", "plan the work"],
+        &[
+            ("GIT_AUTHOR_NAME", "Pending User"),
+            ("GIT_AUTHOR_EMAIL", "pending@test"),
+            ("GIT_COMMITTER_NAME", "Pending User"),
+            ("GIT_COMMITTER_EMAIL", "pending@test"),
+            ("GIT_AUTHOR_DATE", &date),
+            ("GIT_COMMITTER_DATE", &date),
+        ],
+    );
+    assert_eq!(sha.trim(), pending, "pending hash == git commit-tree");
+}
+
+#[test]
+fn pending_empty_commit_parent_is_head() {
+    // Clean tree, no snapshot chain, but a pending description: the close
+    // would mint an empty commit whose parent is HEAD.
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Pending User");
+    fx.set_config("user.email", "pending@test");
+    fx.write("a.txt", "a\n");
+    let head = fx.commit("init");
+
+    // Write the pending description for "main".
+    let repo = fx.repo();
+    ff_core::branchmeta::write(
+        &repo,
+        "main",
+        &ff_core::branchmeta::BranchMeta {
+            pending_description: Some("plan the work".into()),
+            forked_from: None,
+        },
+    )
+    .expect("write meta");
+
+    // open_change should report a pending hash.
+    let open = ff_core::open_change(&repo).expect("open_change");
+    let pending = open.pending.expect("pending");
+
+    // Oracle: git commit-tree with the same tree, parent == HEAD, same message.
+    let head_time = fx
+        .git(&["log", "-1", "--format=%ct", "HEAD"])
+        .trim()
+        .to_string();
+    let tree = fx.git(&["rev-parse", "HEAD^{tree}"]).trim().to_string();
+    let date = format!("@{head_time} +0000");
+    let sha = fx.git_env_in(
+        &fx.path(),
+        &["commit-tree", &tree, "-p", &head, "-m", "plan the work"],
+        &[
+            ("GIT_AUTHOR_NAME", "Pending User"),
+            ("GIT_AUTHOR_EMAIL", "pending@test"),
+            ("GIT_COMMITTER_NAME", "Pending User"),
+            ("GIT_COMMITTER_EMAIL", "pending@test"),
+            ("GIT_AUTHOR_DATE", &date),
+            ("GIT_COMMITTER_DATE", &date),
+        ],
+    );
+    assert_eq!(
+        sha.trim(),
+        pending,
+        "pending hash == git commit-tree with HEAD as parent"
+    );
 }
 
 #[test]
