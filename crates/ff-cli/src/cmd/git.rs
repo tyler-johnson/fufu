@@ -70,6 +70,7 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
     let repo = ff_core::discover(".").ok();
     if let Some(repo) = &repo {
         crate::selfupdate::notify::maybe_spawn_check(repo);
+        crate::autotrim::maybe_trim(repo);
     }
 
     match translated {
@@ -89,13 +90,12 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
                 }
                 Translated::Branch => crate::cmd::branch::run(None, None, false),
             };
-            if let Some(repo) = &repo {
-                if let Some(notice) =
+            if let Some(repo) = &repo
+                && let Some(notice) =
                     crate::selfupdate::notify::pending(repo, env!("CARGO_PKG_VERSION"))
-                {
-                    eprintln!("{notice}");
-                    crate::selfupdate::notify::mark_notified();
-                }
+            {
+                eprintln!("{notice}");
+                crate::selfupdate::notify::mark_notified();
             }
             result
         }

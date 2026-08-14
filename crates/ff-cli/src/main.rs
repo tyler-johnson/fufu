@@ -1,3 +1,5 @@
+mod autotrim;
+mod cadence;
 mod capture;
 mod cli;
 mod cmd;

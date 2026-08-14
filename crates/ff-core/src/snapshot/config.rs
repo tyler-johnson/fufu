@@ -90,7 +90,7 @@ pub fn write_config_file(path: &std::path::Path, file: &gix::config::File<'_>) -
         .and_then(|()| lock_file.sync_all())
         .and_then(|()| {
             drop(lock_file);
-            std::fs::rename(&lock, &path)
+            std::fs::rename(&lock, path)
         });
     if let Err(err) = write {
         let _ = std::fs::remove_file(&lock);

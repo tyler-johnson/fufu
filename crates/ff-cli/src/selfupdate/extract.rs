@@ -119,7 +119,6 @@ fn extract_zip(
 #[cfg(unix)]
 mod tests {
     use super::*;
-    use std::io::{Read as _, Write as _};
 
     #[test]
     fn extract_tar_gz_member() {

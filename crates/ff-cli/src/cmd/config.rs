@@ -46,6 +46,17 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "autoTrim",
+            key: "fufu.autoTrim",
+            def: "1d",
+            kind: SettingKind::Cadence,
+            desc: &[
+                "How often retention enforces itself: a trim rides an ff command at",
+                "most this often, per repo. false leaves trimming entirely to",
+                "`ff trim`; durations work too (12h, 2w), floored at one minute.",
+            ],
+        },
+        Setting {
             name: "pager",
             key: "fufu.pager",
             def: "less",
@@ -149,15 +160,15 @@ fn global_config_path() -> Option<std::path::PathBuf> {
     let user = Source::User.storage_location(&mut env);
     let xdg = Source::Git.storage_location(&mut env);
 
-    if let Some(p) = &user {
-        if p.exists() {
-            return Some(p.to_path_buf());
-        }
+    if let Some(p) = &user
+        && p.exists()
+    {
+        return Some(p.to_path_buf());
     }
-    if let Some(p) = &xdg {
-        if p.exists() {
-            return Some(p.to_path_buf());
-        }
+    if let Some(p) = &xdg
+        && p.exists()
+    {
+        return Some(p.to_path_buf());
     }
     user.map(|p| p.to_path_buf())
 }
@@ -172,7 +183,7 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
                 .is_some_and(|n| n >= 0)
         }
         SettingKind::Command => !value.trim().is_empty(),
-        SettingKind::Cadence => crate::selfupdate::notify::parse_cadence(value).is_some(),
+        SettingKind::Cadence => crate::cadence::parse(value).is_some(),
         SettingKind::Bool => {
             ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value)).is_ok()
         }
@@ -417,9 +428,17 @@ pub fn run(
         if setting.name == "updateCheck" {
             let encoded = still_val
                 .as_deref()
-                .and_then(crate::selfupdate::notify::parse_cadence)
+                .and_then(crate::cadence::parse)
                 .unwrap_or(0);
             crate::selfupdate::notify::sync_interval(encoded);
+        }
+
+        if setting.name == "autoTrim" {
+            let encoded = still_val
+                .as_deref()
+                .and_then(crate::cadence::parse)
+                .unwrap_or(0);
+            crate::autotrim::sync_interval(&repo, encoded);
         }
 
         if json {
@@ -513,9 +532,15 @@ pub fn run(
     ff_core::snapshot::config::write_config_file(&path, &file)?;
 
     if setting.name == "updateCheck"
-        && let Some(encoded) = crate::selfupdate::notify::parse_cadence(&new_value)
+        && let Some(encoded) = crate::cadence::parse(&new_value)
     {
         crate::selfupdate::notify::sync_interval(encoded);
+    }
+
+    if setting.name == "autoTrim"
+        && let Some(encoded) = crate::cadence::parse(&new_value)
+    {
+        crate::autotrim::sync_interval(&repo, encoded);
     }
 
     if json {

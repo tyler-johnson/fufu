@@ -1,5 +1,5 @@
-//! The passive lane's state file and cadence grammar (this brief);
-//! the spawn/pending machinery lands in a later change.
+//! The passive lane's state file; the spawn/pending machinery; the cadence
+//! grammar has been extracted to [`crate::cadence`].
 
 use serde::{Deserialize, Serialize};
 use std::io::IsTerminal;
@@ -75,42 +75,6 @@ pub fn save_state(path: &std::path::Path, state: &UpdateState) -> std::io::Resul
     std::fs::write(&tmp, &body)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
-}
-
-/// Parse a cadence string (the `fufu.updateCheck` value language).
-///
-/// Returns `Some(-1)` for disabled, `Some(0)` for default, `Some(secs)` for
-/// explicit durations, or `None` for unparseable input.
-pub fn parse_cadence(raw: &str) -> Option<i64> {
-    let raw = raw.trim();
-    match raw.to_ascii_lowercase().as_str() {
-        "false" | "no" | "off" | "never" | "0" => return Some(-1),
-        "true" | "yes" | "on" => return Some(0),
-        _ => {}
-    }
-    ff_core::snapshot::config::parse_keep(raw).map(|secs| secs.max(60))
-}
-
-/// Decode an encoded interval value into an effective interval in seconds.
-///
-/// `-1` → disabled (`None`), `0` → daily default, `n` → `n` floored at 60.
-pub fn effective_interval(encoded: i64) -> Option<i64> {
-    match encoded {
-        -1 => None,
-        0 => Some(86_400),
-        n => Some(n.max(60)),
-    }
-}
-
-/// Read `fufu.updateCheck` from a gix config file and encode its cadence.
-///
-/// Absent or invalid values behave like every other fufu reader: fall back to
-/// `0` (default).
-pub fn read_cadence_encoded(file: &ff_core::gix::config::File) -> i64 {
-    match file.string("fufu.updateCheck") {
-        Some(val) => parse_cadence(&val.to_string()).unwrap_or(0),
-        None => 0,
-    }
 }
 
 /// Auto-install probes are hard-coded daily, independent of the check cadence.
@@ -241,16 +205,14 @@ pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
     let now = now_secs();
 
     // Staleness gate on the CACHED interval (hot path — one file read, zero config loads).
-    let stale_after = match state.interval_secs {
-        n if n >= 1 => n.max(60),
-        _ => 86_400,
-    };
+    let stale_after = crate::cadence::stale_after(state.interval_secs);
     if now - state.checked_at < stale_after {
         return;
     }
 
     // Only now read live config (jog parity — scope-agnostic, repo wins).
-    let encoded = read_cadence_encoded(repo.config_snapshot().plumbing());
+    let encoded =
+        crate::cadence::read_encoded(repo.config_snapshot().plumbing(), "fufu.updateCheck");
     state.interval_secs = encoded;
 
     // Disabled: stamp to prevent daily config re-reads from becoming frequent file writes.
@@ -261,11 +223,11 @@ pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
     }
 
     // Still fresh under the LIVE cadence — persist the encoding and return.
-    if let Some(interval) = effective_interval(encoded) {
-        if now - state.checked_at < interval {
-            let _ = save_state(&path, &state);
-            return;
-        }
+    if let Some(interval) = crate::cadence::effective(encoded)
+        && now - state.checked_at < interval
+    {
+        let _ = save_state(&path, &state);
+        return;
     }
 
     // Stale — spawn a detached check. checked_at is NOT stamped here;
@@ -283,9 +245,7 @@ pub fn pending(repo: &ff_core::gix::Repository, current_version: &str) -> Option
     if !gates_open() {
         return None;
     }
-    let Some(path) = state_path() else {
-        return None;
-    };
+    let path = state_path()?;
     let state = load_state(&path);
     let tty = std::io::stderr().is_terminal();
 
@@ -300,28 +260,28 @@ pub fn pending(repo: &ff_core::gix::Repository, current_version: &str) -> Option
     let due = compute_due(&state, current, now_secs(), brew, tty)?;
 
     // Something is due — NOW check live config.
-    if read_cadence_encoded(repo.config_snapshot().plumbing()) == -1 {
+    if crate::cadence::read_encoded(repo.config_snapshot().plumbing(), "fufu.updateCheck") == -1 {
         return None;
     }
 
     // Auto-install path.
-    if due.auto {
-        if let Some(exe) = exe {
-            let mut state = state;
-            state.auto_tried_at = now_secs();
-            let _ = save_state(&path, &state);
+    if due.auto
+        && let Some(exe) = exe
+    {
+        let mut state = state;
+        state.auto_tried_at = now_secs();
+        let _ = save_state(&path, &state);
 
-            let auto_update = repo
-                .config_snapshot()
-                .boolean("fufu.autoUpdate")
-                .unwrap_or(true);
+        let auto_update = repo
+            .config_snapshot()
+            .boolean("fufu.autoUpdate")
+            .unwrap_or(true);
 
-            if auto_update {
-                spawn_detached(&exe, &["update"]);
-                return None;
-            }
-            // autoUpdate false — fall through to the notice.
+        if auto_update {
+            spawn_detached(&exe, &["update"]);
+            return None;
         }
+        // autoUpdate false — fall through to the notice.
     }
 
     // Notice path.
@@ -365,32 +325,6 @@ pub fn sync_interval(encoded: i64) {
 mod tests {
     use super::*;
     use std::ffi::OsString;
-
-    #[test]
-    fn parse_cadence_values() {
-        assert_eq!(parse_cadence("false"), Some(-1));
-        assert_eq!(parse_cadence("NO"), Some(-1));
-        assert_eq!(parse_cadence("off"), Some(-1));
-        assert_eq!(parse_cadence("never"), Some(-1));
-        assert_eq!(parse_cadence("0"), Some(-1));
-        assert_eq!(parse_cadence("true"), Some(0));
-        assert_eq!(parse_cadence("YES"), Some(0));
-        assert_eq!(parse_cadence("on"), Some(0));
-        assert_eq!(parse_cadence("12h"), Some(43_200));
-        assert_eq!(parse_cadence("7"), Some(604_800));
-        assert_eq!(parse_cadence("45s"), Some(60)); // floor
-        assert_eq!(parse_cadence("2w"), Some(1_209_600));
-        assert!(parse_cadence("bogus").is_none());
-        assert_eq!(parse_cadence("  true  "), Some(0));
-    }
-
-    #[test]
-    fn effective_interval_values() {
-        assert_eq!(effective_interval(-1), None);
-        assert_eq!(effective_interval(0), Some(86_400));
-        assert_eq!(effective_interval(30), Some(60));
-        assert_eq!(effective_interval(7_200), Some(7_200));
-    }
 
     #[test]
     fn cache_root_from_linux() {

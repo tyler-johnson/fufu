@@ -72,6 +72,7 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
         }
     }
     crate::selfupdate::notify::maybe_spawn_check(&repo);
+    crate::autotrim::maybe_trim(&repo);
     if let Some(notice) = crate::selfupdate::notify::pending(&repo, env!("CARGO_PKG_VERSION")) {
         eprintln!("{notice}");
         crate::selfupdate::notify::mark_notified();

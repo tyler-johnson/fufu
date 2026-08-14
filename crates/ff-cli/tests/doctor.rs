@@ -287,8 +287,8 @@ fn invalid_keep_warns_settings() {
     );
     // Trim preview skipped when keep is invalid
     assert!(
-        !out_text.contains("trim"),
-        "trim should be skipped with invalid keep:\n{out_text}"
+        !out_text.contains("trim preview"),
+        "trim preview should be skipped with invalid keep:\n{out_text}"
     );
 }
 
@@ -417,8 +417,7 @@ fn partial_hook_wiring_warns() {
     );
 }
 
-/// 8. JSON output shape: parses, findings matches warn count, every check has
-///     level/name/detail fields.
+/// 8. JSON output shape: parses, findings matches warn count, every check has level/name/detail fields.
 #[test]
 fn json_shape_and_exit() {
     let fx = Fixture::new();
@@ -503,5 +502,49 @@ fn outside_repository() {
     assert!(
         !out_text.contains("chains"),
         "chains should be absent outside repo:\n{out_text}"
+    );
+}
+
+/// 10. Auto-trim row reports the lane is on with the default cadence.
+#[test]
+fn auto_trim_row_reports_on() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    ff_init(&fx);
+
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("auto-trim"),
+        "auto-trim row present:\n{out_text}"
+    );
+    assert!(
+        out_text.contains("1d"),
+        "default cadence named:\n{out_text}"
+    );
+}
+
+/// 11. Auto-trim row reports off when `fufu.autoTrim` is false.
+#[test]
+fn auto_trim_row_reports_off() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    fx.set_config("fufu.autoTrim", "false");
+
+    ff_init(&fx);
+
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("auto-trim"),
+        "auto-trim row present:\n{out_text}"
+    );
+    assert!(
+        out_text.contains("off (the autoTrim setting) — trim runs only by hand"),
+        "off detail:\n{out_text}"
     );
 }

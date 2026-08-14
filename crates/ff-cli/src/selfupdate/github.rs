@@ -28,10 +28,10 @@ pub fn get(agent: &ureq::Agent, url: &str) -> ff_core::Result<ureq::http::Respon
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "ff");
 
-    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-        if !token.is_empty() {
-            req = req.header("Authorization", format!("Bearer {token}"));
-        }
+    if let Ok(token) = std::env::var("GITHUB_TOKEN")
+        && !token.is_empty()
+    {
+        req = req.header("Authorization", format!("Bearer {token}"));
     }
 
     req.call()
@@ -43,18 +43,16 @@ pub fn fetch_latest(agent: &ureq::Agent, api_base: &str) -> ff_core::Result<Rele
     let mut resp = get(agent, &url)?;
 
     let status = resp.status().as_u16();
-    if status == 403 {
-        if let Some(remaining) = resp
+    if status == 403
+        && let Some(remaining) = resp
             .headers()
             .get("x-ratelimit-remaining")
             .and_then(|v| v.to_str().ok())
-        {
-            if remaining == "0" {
-                return Err(ff_core::Error::msg(
-                    "GitHub API rate limit hit — try again later, or set GITHUB_TOKEN",
-                ));
-            }
-        }
+        && remaining == "0"
+    {
+        return Err(ff_core::Error::msg(
+            "GitHub API rate limit hit — try again later, or set GITHUB_TOKEN",
+        ));
     }
 
     if !(200..300).contains(&status) {

@@ -118,10 +118,6 @@ Homebrew:
 brew install tyler-johnson/tap/fufu
 ```
 
-Installed binaries check for a new release in the background about once a day and quietly update themselves. `ff config updateCheck false` turns that off entirely; `ff config autoUpdate false` keeps the check but prints a one-line notice instead of installing.
-
-`ff doctor` verifies the whole net in one pass — chains, snapshot identity, reflogs, the gc guard, hook and alias wiring, update state — and exits 1 on findings; `--fix` repairs the one thing it's allowed to, the gc config.
-
 ## License
 
 [MIT](LICENSE)

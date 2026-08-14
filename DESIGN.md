@@ -408,6 +408,7 @@ them as the general movement verb.
 | `ff log` | changes as the spine, jj-style: the open change (`@`) atop the commit walk (`●`), each commit wearing its newest snapshot's id | `reflog` + `log` |
 | `ff evolog` | the open change's snapshot chain, newest first — the drill-in behind `ff log`'s letters column | `reflog` spelunking |
 | `ff restore <path> --at <id>` | pull anything back from the timeline | hoping |
+| `ff trim` | drop snapshots past the keep window — trash-first, so the last trim is itself undoable; rides an ff command daily, so retention enforces itself | remembering to prune, or quietly never pruning |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
 | `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
@@ -454,6 +455,12 @@ commit time — jj's actual insight about staging). The index still exists and
 `git add -p && git commit` still works, because a boring repo tolerates both. fufu
 stops *requiring* the ritual; it doesn't break it.
 
+### `ff trim`
+
+Retention with an undo. `ff trim` drops the oldest suffix of every chain past `fufu.keep` (90 days by default), and the op journal rides the same cutoff. Each chain's pre-trim tip is written to `refs/fufu/trash/<branch>` before a single ref moves, so the last trim is itself recoverable; survivors keep their trees, messages, and dates byte-for-byte, only parent slots relink, and the reflog is replayed with the original times so `@{n}` and `@{time}` stay truthful. A crash mid-trim leaves a shorter-but-valid chain and the full pre-trim state in trash.
+
+The earned existence is the automatic half: a safety net whose upkeep is a chore is a net that quietly rots. A trim rides an ff command at most once per `fufu.autoTrim` (daily by default), per repository, and it runs **inline** — the engine is native, so there is no child to spawn and nothing to wait on. The hot path is one read of a per-repo stamp beside the common git dir; config is consulted only when the stamp says a trim might be due, and the stamp is written *before* the trim runs, so a failure retries on the cadence rather than on every command. The one thing the automatic lane deliberately skips is manual trim's `git gc --auto` nudge: that would put a spawn on the commands that carry the lane, and bare `ff`, `ff git`, and `ff hook` stay provably spawn-free. Dropped objects free at the next git command or the next hand-run `ff trim`. `fufu.autoTrim false` leaves trimming entirely by hand.
+
 ### `ff config`
 
 jog's config command, carried over: no subcommands, arity decides. Bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker; a key gets; key plus value sets; `--unset` returns to the default; `--global` widens a set or unset to every repo. Storage is plain git config under `fufu.<key>`, so `git config fufu.keep` and fufu never disagree, and precedence is git's own — local over global, environment over both.
@@ -468,7 +475,7 @@ The passive lane keeps installs fresh without being asked. Official binaries (ne
 
 ### `ff doctor`
 
-jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (a chain moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (chains and their ages, the snapshot identity on every tip, reflogs, the gc guard, journal health and pending foreign drift, settings validated through the same parsers the readers use, a trim preview), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
+jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (a chain moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (chains and their ages, the snapshot identity on every tip, reflogs, the gc guard, journal health and pending foreign drift, settings validated through the same parsers the readers use, a trim preview and the auto-trim clock), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
 
 Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the journal will absorb and never absorbs it, takes no snapshot, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
 

@@ -16,6 +16,9 @@ pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
             keep_secs: None,
         },
     )?;
+    if !dry_run {
+        crate::autotrim::stamp(&repo);
+    }
     let anything_dropped = report.chains.iter().any(|c| c.dropped > 0);
 
     if json {

@@ -170,6 +170,9 @@ fn runtime_claude() -> Result<()> {
         }
     }
     crate::selfupdate::notify::maybe_spawn_check(&repo);
+    // The agent hook is often the only trigger a repo has, so it carries the
+    // lane too — a daily inline walk is the price of an engine that maintains itself.
+    crate::autotrim::maybe_trim(&repo);
     Ok(())
 }
 

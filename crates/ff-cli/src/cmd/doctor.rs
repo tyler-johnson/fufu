@@ -191,11 +191,7 @@ fn hooks_row(wiring: &crate::cmd::hook::AgentWiring) -> Row {
             "claude hooks",
             "not wired (optional — `ff hook agent install`)".into(),
         ),
-        crate::cmd::hook::AgentWiring::Events {
-            pre_tool,
-            prompt: _,
-            ..
-        } => {
+        crate::cmd::hook::AgentWiring::Events { pre_tool, .. } => {
             let (wired, missing) = if *pre_tool {
                 ("PreToolUse", "UserPromptSubmit")
             } else {
@@ -359,7 +355,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
         if has_chains {
             let mut parts: Vec<String> = Vec::new();
             for (short, tip) in &chain_data {
-                let age = crate::render::relative_age(now, tip_time(&repo, *tip)?);
+                let age = crate::render::relative_age(now, tip_time(repo, *tip)?);
                 parts.push(format!("{short} {age}"));
             }
             rows.push(Row::ok(
@@ -370,7 +366,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
             // identity
             let mut offenders: Vec<String> = Vec::new();
             for (short, tip) in &chain_data {
-                if !ff_core::snapshot::chain::id_is_snapshot(&repo, *tip)? {
+                if !ff_core::snapshot::chain::id_is_snapshot(repo, *tip)? {
                     offenders.push(short.clone());
                 }
             }
@@ -442,7 +438,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
                     "reflog expiry disabled for refs/fufu/*".into(),
                 ));
             } else if fix {
-                ff_core::snapshot::config::force_gc_config(&repo)?;
+                ff_core::snapshot::config::force_gc_config(repo)?;
                 rows.push(Row::ok(
                     "gc config",
                     "reflog expiry disabled for refs/fufu/* (fixed)".into(),
@@ -477,7 +473,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
                 let short = name
                     .strip_prefix(ff_core::snapshot::chain::TRASH_PREFIX)
                     .unwrap_or(&name);
-                let age = crate::render::relative_age(now, tip_time(&repo, tip)?);
+                let age = crate::render::relative_age(now, tip_time(repo, tip)?);
                 trash_parts.push(format!("{short} {age}"));
             }
             if !trash_parts.is_empty() {
@@ -492,14 +488,14 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
         }
 
         // journal
-        match ff_core::journal::tip(&repo)? {
+        match ff_core::journal::tip(repo)? {
             None => {
                 rows.push(Row::info(
                     "journal",
                     "no journal yet — initializes on the first fufu operation".into(),
                 ));
             }
-            Some(tip) => match ff_core::journal::read_entry(&repo, tip) {
+            Some(tip) => match ff_core::journal::read_entry(repo, tip) {
                 Err(err) => {
                     rows.push(Row::warn(
                         "journal",
@@ -515,7 +511,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
                     ));
 
                     // drift
-                    let current = ff_core::journal::observe_refs(&repo)?;
+                    let current = ff_core::journal::observe_refs(repo)?;
                     let drift = entry.refs.diff(&current);
                     if !drift.is_empty() {
                         rows.push(Row::info(
@@ -596,9 +592,9 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
 
         // trim preview — skip if fufu.keep was present-and-invalid
         if keep_valid {
-            let keep_secs = ff_core::snapshot::config::keep_secs(&repo)?;
+            let keep_secs = ff_core::snapshot::config::keep_secs(repo)?;
             let report = ff_core::trim(
-                &repo,
+                repo,
                 &ff_core::TrimOptions {
                     now: Some(now),
                     dry_run: true,
@@ -620,6 +616,37 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
                 rows.push(Row::info(
                     "trim",
                     "nothing to drop — every snapshot is inside the keep window".into(),
+                ));
+            }
+        }
+
+        // auto-trim lane — reported even when fufu.keep is unreadable
+        let encoded = crate::cadence::read_encoded(file, "fufu.autoTrim");
+        let at_state = crate::autotrim::load(repo);
+        let at_display = file
+            .string("fufu.autoTrim")
+            .and_then(|v| crate::cadence::parse(&v.to_string()).map(|_| v.to_string()))
+            .unwrap_or_else(|| "1d".to_string());
+        match crate::cadence::effective(encoded) {
+            None => {
+                rows.push(Row::info(
+                    "auto-trim",
+                    "off (the autoTrim setting) — trim runs only by hand".into(),
+                ));
+            }
+            Some(_) if at_state.trimmed_at == 0 => {
+                rows.push(Row::info(
+                    "auto-trim",
+                    format!("on — a trim rides an ff command at most every {at_display}"),
+                ));
+            }
+            Some(_) => {
+                rows.push(Row::info(
+                    "auto-trim",
+                    format!(
+                        "last ran {} (at most every {at_display})",
+                        crate::render::relative_age(now, at_state.trimmed_at)
+                    ),
                 ));
             }
         }

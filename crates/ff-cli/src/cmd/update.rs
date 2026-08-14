@@ -44,7 +44,7 @@ fn refresh_cache() -> ff_core::Result<()> {
     // Re-read cadence if we can discover a repo
     if let Ok(repo) = ff_core::discover(".") {
         state.interval_secs =
-            selfupdate::notify::read_cadence_encoded(repo.config_snapshot().plumbing());
+            crate::cadence::read_encoded(repo.config_snapshot().plumbing(), "fufu.updateCheck");
     }
     let _ = selfupdate::notify::save_state(&path, &state);
 

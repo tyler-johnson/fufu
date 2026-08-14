@@ -17,6 +17,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
+use std::time::Duration;
 
 use ff_testsupport::Fixture;
 
@@ -54,6 +55,9 @@ fn ff_trapped(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        // Real CI sets CI, and the auto-trim lane skips when it is set —
+        // remove so the zero-spawn auto-trim case actually exercises the lane.
+        .env_remove("CI")
         .output()
         .expect("spawn ff")
 }
@@ -329,4 +333,61 @@ fn trap_catches_spawns() {
     assert!(trap.log.exists(), "fake git must have logged the call");
     let logged = std::fs::read_to_string(&trap.log).unwrap();
     assert!(logged.contains("--version"));
+}
+
+/// The auto lane deliberately skips the `git gc --auto` nudge that manual
+/// `ff trim` does, so the commands that carry the lane stay spawn-free.
+#[test]
+fn auto_trim_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // Take two snapshots so there is content to trim.
+    fx.write("a.txt", "dirty1\n");
+    let out = ff_trapped(&build_trap(), &fx.path(), &["-m", "one"]);
+    assert!(out.status.success(), "snapshot one");
+
+    fx.write("a.txt", "dirty2\n");
+    let out = ff_trapped(&build_trap(), &fx.path(), &["-m", "two"]);
+    assert!(out.status.success(), "snapshot two");
+
+    // Make snapshots old enough to drop.
+    fx.set_config("fufu.keep", "0s");
+    std::thread::sleep(Duration::from_millis(1200));
+
+    // Overwrite the stamp as due.
+    let dir = fx.path().join(".git/fufu");
+    std::fs::create_dir_all(&dir).ok();
+    std::fs::write(
+        dir.join("autotrim.json"),
+        r#"{"trimmed_at":0,"interval_secs":0}"#,
+    )
+    .expect("write due stamp");
+
+    // Build a fresh trap so the log is clean for this specific check.
+    let trap = build_trap();
+
+    // Run bare ff — the auto-trim lane should fire inline, without spawning.
+    let out = ff_trapped(&trap, &fx.path(), &[]);
+    assert!(
+        out.status.success(),
+        "bare ff succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The trim really ran — without this the test proves nothing.
+    assert!(
+        fx.try_git(&["rev-parse", "--verify", "refs/fufu/trash/main"])
+            .status
+            .success(),
+        "trash ref exists — trim actually ran"
+    );
+
+    // No spawn happened.
+    assert!(
+        !trap.log.exists(),
+        "auto-trim spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
 }
