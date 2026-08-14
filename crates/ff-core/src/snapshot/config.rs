@@ -50,8 +50,8 @@ pub fn parse_keep(raw: &str) -> Option<i64> {
     (secs >= 0).then_some(secs)
 }
 
-const GC_SUBSECTION: &str = "refs/fufu/*";
-const GC_KEYS: [&str; 2] = ["reflogExpire", "reflogExpireUnreachable"];
+pub const GC_SUBSECTION: &str = "refs/fufu/*";
+pub const GC_KEYS: [&str; 2] = ["reflogExpire", "reflogExpireUnreachable"];
 
 /// Read a git config file losslessly (comments and formatting preserved);
 /// an absent file yields an empty File carrying the given source metadata.
@@ -126,6 +126,21 @@ pub fn ensure_gc_config(repo: &gix::Repository) -> Result<()> {
         if !existing.contains(&key) {
             section.push(key.try_into().map_err(Error::repo)?, Some("never".into()));
         }
+    }
+
+    write_config_file(&path, &file)
+}
+
+/// Doctor's consented `--fix` front door: unlike the lazy append-only guard
+/// above, this unconditionally overwrites both gc keys to `never` in the local
+/// config file, so a manually-tweaked value is corrected rather than left alone.
+pub fn force_gc_config(repo: &gix::Repository) -> Result<()> {
+    let path = repo.common_dir().join("config");
+    let mut file = load_config_file(&path, gix::config::Source::Local)?;
+
+    for key in GC_KEYS {
+        file.set_raw_value_by("gc", Some(GC_SUBSECTION.into()), key, "never")
+            .map_err(Error::repo)?;
     }
 
     write_config_file(&path, &file)

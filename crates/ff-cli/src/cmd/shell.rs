@@ -75,7 +75,7 @@ fn default_shell() -> Result<String> {
 }
 
 #[derive(Debug, PartialEq)]
-enum AliasState {
+pub(crate) enum AliasState {
     Installed,
     HandWritten,
     Absent,
@@ -94,6 +94,30 @@ fn state_of(contents: &str) -> AliasState {
         }
     }
     AliasState::Absent
+}
+
+pub(crate) struct ShellAlias {
+    pub(crate) shell: &'static str,
+    pub(crate) state: AliasState,
+    /// None when the rc path cannot be resolved (HOME unset).
+    pub(crate) rc: Option<std::path::PathBuf>,
+}
+
+pub(crate) fn alias_states() -> Vec<ShellAlias> {
+    SHELLS
+        .into_iter()
+        .map(|shell| {
+            let rc = rc_file(shell).ok();
+            let state = match &rc {
+                Some(path) => {
+                    let contents = std::fs::read_to_string(path).unwrap_or_default();
+                    state_of(&contents)
+                }
+                None => AliasState::Absent,
+            };
+            ShellAlias { shell, state, rc }
+        })
+        .collect()
 }
 
 pub fn run(verb: HookVerb) -> Result<()> {
@@ -182,26 +206,31 @@ fn uninstall(shell: &str) -> Result<()> {
 }
 
 fn list(only: Option<&str>) -> Result<()> {
-    let shells: Vec<&str> = match only {
+    let filter: Option<&str> = match only {
         Some(name) => {
             if !SHELLS.contains(&name) {
                 return Err(Error::msg(format!(
                     "unsupported shell {name:?} (supported: bash, zsh, fish)"
                 )));
             }
-            vec![name]
+            Some(name)
         }
-        None => SHELLS.to_vec(),
+        None => None,
     };
-    for shell in shells {
-        let rc = rc_file(shell)?;
-        let contents = std::fs::read_to_string(&rc).unwrap_or_default();
-        let state = match state_of(&contents) {
+    for entry in alias_states()
+        .into_iter()
+        .filter(|e| filter.map(|f| e.shell == f).unwrap_or(true))
+    {
+        let rc = entry
+            .rc
+            .as_ref()
+            .ok_or_else(|| Error::msg("HOME is not set"))?;
+        let state_str = match entry.state {
             AliasState::Installed => "installed",
             AliasState::HandWritten => "hand-written alias (not fufu-managed)",
             AliasState::Absent => "not installed",
         };
-        println!("{shell:<5} {state}  ({})", rc.display());
+        println!("{:<5} {}  ({})", entry.shell, state_str, rc.display());
     }
     Ok(())
 }

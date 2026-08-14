@@ -146,6 +146,53 @@ fn spawn_detached(exe: &std::path::Path, args: &[&str]) {
     let _ = cmd.spawn();
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CheckStatus {
+    Unofficial,
+    NoCheckYet,
+    Available(String), // the newer release tag, e.g. "v0.2.0"
+    UpToDate,
+}
+
+/// Pure core: no IO, no compile-time gates, fully testable.
+pub(crate) fn check_status_from(
+    official: bool,
+    state: &UpdateState,
+    current: Option<crate::selfupdate::Version>,
+) -> CheckStatus {
+    if !official {
+        return CheckStatus::Unofficial;
+    }
+    let cur = match current {
+        Some(v) => v,
+        None => return CheckStatus::NoCheckYet,
+    };
+    let (latest_ver, latest_tag) = match &state.latest {
+        Some(tag) => match crate::selfupdate::parse_tag(tag) {
+            Some(v) => (v, tag.clone()),
+            None => return CheckStatus::NoCheckYet,
+        },
+        None => return CheckStatus::NoCheckYet,
+    };
+    if latest_ver > cur {
+        return CheckStatus::Available(latest_tag);
+    }
+    CheckStatus::UpToDate
+}
+
+/// The IO wrapper doctor calls: OFFICIAL + the state file + parse_semver.
+pub(crate) fn check_status(current_version: &str) -> CheckStatus {
+    let state = match state_path() {
+        Some(p) => load_state(&p),
+        None => UpdateState::default(),
+    };
+    check_status_from(
+        crate::selfupdate::OFFICIAL,
+        &state,
+        crate::selfupdate::parse_semver(current_version),
+    )
+}
+
 /// Result of the passive decision core — which actions are due.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Due {
@@ -605,5 +652,63 @@ mod tests {
     fn compute_due_latest_unparseable() {
         let state = state_builder(Some("not-a-version"), None, 0);
         assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // check_status_from matrix — pure decision logic, no IO
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn check_status_unofficial_wins() {
+        let state = state_builder(Some("v1.0.0"), None, 0);
+        assert_eq!(
+            check_status_from(false, &state, Some(crate::selfupdate::Version(0, 1, 0))),
+            CheckStatus::Unofficial
+        );
+    }
+
+    #[test]
+    fn check_status_no_latest() {
+        let state = state_builder(None, None, 0);
+        assert_eq!(
+            check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
+            CheckStatus::NoCheckYet
+        );
+    }
+
+    #[test]
+    fn check_status_unparseable_latest() {
+        let state = state_builder(Some("gibberish"), None, 0);
+        assert_eq!(
+            check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
+            CheckStatus::NoCheckYet
+        );
+    }
+
+    #[test]
+    fn check_status_available() {
+        let state = state_builder(Some("v0.2.0"), None, 0);
+        assert_eq!(
+            check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
+            CheckStatus::Available("v0.2.0".into())
+        );
+    }
+
+    #[test]
+    fn check_status_up_to_date() {
+        let state = state_builder(Some("v0.1.0"), None, 0);
+        assert_eq!(
+            check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
+            CheckStatus::UpToDate
+        );
+    }
+
+    #[test]
+    fn check_status_no_current() {
+        let state = state_builder(Some("v0.2.0"), None, 0);
+        assert_eq!(
+            check_status_from(true, &state, None),
+            CheckStatus::NoCheckYet
+        );
     }
 }

@@ -180,34 +180,57 @@ close is legal ("(no description)", jj-style); hygiene enforces at the exit,
 where `ff push` flags undescribed commits rather than letting them past the
 boundary.
 
-`ff new` is composition, not a primitive: with no target it is the close
-itself, differing from `ff commit` only in what `-m` names; with a target it
-is `ff switch <target>` then the close — park here, arrive there (resuming the
-target's parked change, if any), seal what was open, and the next change
-begins on a clean slate. Nothing to seal → the switch happens and the close
-no-ops. `ff edit` sits adjacent: it targets *commits* (a session), `ff switch`
-targets *branches*, and `ff edit <branch>` is accepted as a convenience that
-simply behaves as `ff switch`.
+`ff new` (alias `ff start`) always begins a new line of work — a fresh
+branch, every time. The verbs carve cleanly: `ff commit` records, `ff
+switch` resumes, `ff new` begins. Bare, it reaches for trunk: fetch, fork a
+fresh branch at the fetched tip, arrive with a clean tree — the open change
+you were holding parks on its branch through tree memory, exactly as a
+switch would leave it. `ff new @` begins from here instead — and *here*
+includes the working copy: the new branch forks at the current tip and the
+open change comes along, the "this should be its own branch" gesture.
+Because uncommitted work just changed address, the carry is announced with
+a warning; `--commit` closes the open change on the current branch first —
+a commit that branch keeps — and forks clean from the advanced tip. The
+wrong pick costs nothing: `ff undo`, rerun the other way. `fufu.newAt`
+(`carry`, the default, or `commit`) makes either the standing default. `@`
+is the only target that carries. Every other `<rev>` — a branch, a commit,
+a remote ref — is travel, and travel parks: the open change stays parked
+on its branch, the target's tree materializes fresh, and the next change
+opens clean on the new branch. `-m` describes the change being opened.
+`ff edit` sits
+adjacent: it targets *commits* (a session), `ff switch` targets *branches*,
+and `ff edit <branch>` is accepted as a convenience that simply behaves as
+`ff switch`.
+
+**Trunk is known.** Several verbs need to know what "main" is: `ff sync`
+rebases onto it, futures in `ff status` measure against it, and bare `ff
+new` starts from it. fufu resolves trunk once per repo: config first
+(`fufu.trunk`, set through `ff config trunk <branch>`), heuristics when
+unset — `origin/HEAD` if the remote declares it, else a lone local `main`
+or `master`, else the branch the repository was born on. Ambiguity is an
+error naming the candidates, never a guess. Trunk may live only on the
+remote: with no local `main`, bare `ff new` forks straight from the fetched
+tip — no local trunk branch is required or created.
 
 **Branches without ceremony.** Every head is a real ref under `refs/heads/`
 from the moment it exists — HEAD never detaches, and branches auto-move as
 commits land, because that is git's own behavior once HEAD is attached
 (contrast jj's bookmarks, which sit still until told). Work doesn't wait for a
-name: a `ff new` target that forks the graph mints an **anonymous branch** — a
+name: every `ff new` mints an **anonymous branch** — a
 real branch with a generated name under a reserved prefix (`ff/quiet-lake`) —
-and `ff branch <name>` claims it later: a rename that carries the capture
+unless `-b` names it at birth; `ff branch <name>` claims it later: a rename that carries the capture
 chain, the parked entry, and fufu's metadata along, which is the part a bare
 `git branch -m` would orphan. A `-b <name>` flag rides the change verbs
 on the same axis as `-m`: on `ff describe` it always *renames* — the claim,
-made inline, and the one form that renames proper names too. On `ff new` and
-`ff commit` it names the branch the change lands on, and the reserved prefix
-makes the meaning decidable rather than guessed: a placeholder — fufu-named,
-or a fork about to be minted — is claimed in place, while a branch the user
+made inline, and the one form that renames proper names too. On `ff new` it
+names the branch being minted — every `new` creates one, so there is nothing
+to decide. On `ff commit` it names the branch the closing change lands on,
+and the reserved prefix makes the meaning decidable rather than guessed: a
+placeholder — fufu-named — is claimed in place, while a branch the user
 deliberately named is never renamed implicitly, so a fresh branch is created
 instead. Thus `ff commit -b` on a named branch lands the closing change on the
 new branch and leaves the current one where it stands (the "this shouldn't go
-on main" rescue); `ff new -b` opens the next change on it (`switch -c` without
-the ceremony); and either verb on a placeholder simply names the line you were
+on main" rescue), and on a placeholder simply names the line you were
 already on. Creating a branch never moves the branch it forks from: the old
 branch keeps its tip — advanced only by its own change's close, never by the
 new branch's commits. A `-b` name that already exists is an error, never a
@@ -215,10 +238,9 @@ reuse. To every foreign tool an anonymous branch is
 ordinary; no push refspec matches it by accident, and naming one is the
 natural "this is real now" gesture at the publish boundary.
 
-Target resolution never guesses. A branch name — or the tip of exactly one
-branch — continues that branch. A tip shared by several branches is an error
-naming them (say which). Anything else — a commit with children, mid-stack, a
-historical sha — forks. Git permits no divergence inside one ref and no
+Target resolution is uniform: every `ff new` target forks — continuing an
+existing branch is `ff switch`'s job, never `new`'s, so there is nothing to
+guess. Git permits no divergence inside one ref and no
 `foo/2` beside `foo` (a ref is a file, and can't also be a directory), so
 every fork is its own ref; "forked from main" is metadata recorded at fork
 time and shown at display time, never encoded in the name.
@@ -374,7 +396,7 @@ them as the general movement verb.
 | `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
-| `ff new [<rev>] [-m <msg>] [-b <name>]` | start the next change: the close alone, or `ff switch` + close with a target; `-m` describes the change being *opened*, `-b` opens it on a new branch; forking targets mint anonymous branches (or take `-b`'s name); never an empty commit | `git switch -c` + the stash dance |
+| `ff new [<rev>] [-m <msg>] [-b <name>]` (alias `ff start`) | begin new work on a fresh branch, always: bare forks a fetched trunk with a clean tree (the open change parks), `@` forks the current tip and *carries* the open change (warned; `--commit` closes it here first, `fufu.newAt` flips the default), any other `<rev>` forks fresh; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
 | `ff switch` | branch switch with tree memory | `stash` dances |
 | `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, capture chain and parked state carried along | `git branch` bookkeeping |
 | `ff absorb` | fold working changes into the stack commits they belong to (`--into <rev>` aims a specific one); descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
@@ -390,6 +412,7 @@ them as the general movement verb.
 | `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
 | `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
+| `ff doctor` | verify the net: chains, identity, reflogs, gc guard, wiring, update — `--fix` repairs exactly the gc keys | "is this thing even on?" doubt |
 
 ### Presentation conventions
 
@@ -442,6 +465,12 @@ The earned existence: git config can't say what settings fufu has, what they def
 jog's self-updater, carried over. The earned existence: fufu ships six release targets, a tap, and two install scripts — plenty of ways to install, and until now nothing that keeps an installed binary fresh. `ff update` moves the running binary to the latest GitHub release: pick the platform asset, stream it through sha256 against the release's `checksums.txt`, extract, and atomically rename over the executable (unix rename never touches the busy inode, so there's no ETXTBSY; windows does the `.old` two-step and rolls back on failure). Not every install is fufu's to touch: Homebrew binaries get pointed at `brew upgrade fufu`, source builds at `cargo install` — and the official/source distinction is a compile-time marker the release workflow sets, because on linux `current_exe()` is already symlink-resolved and path inspection cannot tell a dogfood build from an official one.
 
 The passive lane keeps installs fresh without being asked. Official binaries (never dev, dogfood, or test builds; never under CI) spawn a detached `ff update --check` at most once per `fufu.updateCheck` (default daily) — the one sanctioned self-spawn in a zero-spawn binary; it refreshes a small cache file under the user cache dir and exits. Foreground commands read that cache: with `fufu.autoUpdate` on (the default) a newer release installs itself silently in the background — the in-flight command finishes on the old inode, the next one runs the new binary; with it off, a one-line notice lands on stderr instead. Three throttles keep it polite: the cadence gates the checks, auto-install probes retry at most daily, and a release is announced at most once, ever. `fufu.updateCheck false` turns the whole machinery off. The trust root is deliberately plain: HTTPS to GitHub plus the release's sha256 — the same root the install scripts already rely on.
+
+### `ff doctor`
+
+jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (a chain moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (chains and their ages, the snapshot identity on every tip, reflogs, the gc guard, journal health and pending foreign drift, settings validated through the same parsers the readers use, a trim preview), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
+
+Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the journal will absorb and never absorbs it, takes no snapshot, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
 
 ## Substrate
 

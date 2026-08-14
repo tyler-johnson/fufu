@@ -67,6 +67,7 @@ fn main() {
             global,
             json,
         }) => cmd::config::run(key, value, unset, global, json),
+        Some(cli::Command::Doctor { fix, json }) => cmd::doctor::run(fix, json),
         Some(cli::Command::Update { check }) => cmd::update::run(check),
     };
     if let Err(err) = result {

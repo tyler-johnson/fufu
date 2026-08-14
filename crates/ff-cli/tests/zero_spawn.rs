@@ -214,6 +214,56 @@ fn config_never_spawns() {
     );
 }
 
+/// Doctor reads everything and spawns nothing: engine checks via gix, wiring
+/// checks via plain file reads, and the update line from the cache file (the
+/// background check spawn is official-build-gated, structurally dead here).
+#[test]
+fn doctor_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "untracked\n");
+
+    let trap = build_trap();
+    // Bare ff creates a chain so doctor exercises the full engine path.
+    let out = ff_trapped(&trap, &fx.path(), &[]);
+    assert!(
+        out.status.success(),
+        "bare ff failed under trap: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let index_bytes = fx.index_bytes();
+
+    for args in [
+        &["doctor"][..],
+        &["doctor", "--json"][..],
+        &["doctor", "--fix"][..],
+    ] {
+        let out = ff_trapped(&trap, &fx.path(), args);
+        assert!(
+            out.status.code() == Some(0) || out.status.code() == Some(1),
+            "ff {:?} exited with unexpected code: {} (stderr: {})",
+            args,
+            out.status
+                .code()
+                .map_or("signal".to_string(), |c| c.to_string()),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    assert!(
+        !trap.log.exists(),
+        "doctor spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+    assert_eq!(
+        index_bytes,
+        fx.index_bytes(),
+        ".git/index must stay byte-identical"
+    );
+}
+
 /// Hooks are sanctioned spawns: with an executable pre-commit present, the
 /// close still succeeds under the trap PATH (the hook itself runs), and the
 /// trap proves the hook was the only kind of process fufu started — a hook

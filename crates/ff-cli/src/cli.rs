@@ -196,6 +196,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Verify the safety net: chains, identity, reflogs, gc guard, wiring
+    Doctor {
+        /// Repair the gc config keys (the one write doctor performs)
+        #[arg(long)]
+        fix: bool,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Download the latest release and replace this binary
     Update {
         /// Refresh the update cache only (used by the background check)

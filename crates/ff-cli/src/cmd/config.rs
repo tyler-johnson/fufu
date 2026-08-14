@@ -5,7 +5,7 @@ use ff_core::gix::config::Source;
 use ff_core::gix::config::source::Kind;
 use ff_core::{Error, Result};
 
-enum SettingKind {
+pub(crate) enum SettingKind {
     Size,
     Duration,
     Command,
@@ -13,15 +13,15 @@ enum SettingKind {
     Bool,
 }
 
-struct Setting {
-    name: &'static str,
-    key: &'static str,
-    def: &'static str,
-    kind: SettingKind,
-    desc: &'static [&'static str],
+pub(crate) struct Setting {
+    pub(crate) name: &'static str,
+    pub(crate) key: &'static str,
+    pub(crate) def: &'static str,
+    pub(crate) kind: SettingKind,
+    pub(crate) desc: &'static [&'static str],
 }
 
-fn registry() -> &'static [Setting] {
+pub(crate) fn registry() -> &'static [Setting] {
     &[
         Setting {
             name: "maxFileSize",
@@ -162,47 +162,50 @@ fn global_config_path() -> Option<std::path::PathBuf> {
     user.map(|p| p.to_path_buf())
 }
 
-fn validate_value(setting: &Setting, value: &str) {
+pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
     match setting.kind {
-        SettingKind::Duration => {
-            if ff_core::snapshot::config::parse_keep(value).is_none() {
+        SettingKind::Duration => ff_core::snapshot::config::parse_keep(value).is_some(),
+        SettingKind::Size => {
+            ff_core::gix::config::Integer::try_from(ff_core::gix::bstr::BStr::new(value))
+                .ok()
+                .and_then(|i| i.to_decimal())
+                .is_some_and(|n| n >= 0)
+        }
+        SettingKind::Command => !value.trim().is_empty(),
+        SettingKind::Cadence => crate::selfupdate::notify::parse_cadence(value).is_some(),
+        SettingKind::Bool => {
+            ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value)).is_ok()
+        }
+    }
+}
+
+fn validate_value(setting: &Setting, value: &str) {
+    if !value_is_valid(setting, value) {
+        match setting.kind {
+            SettingKind::Duration => {
                 eprintln!(
                     "ff: invalid value for keep: want a duration like 90d, 36h, 2w, or days as a \
                      bare number"
                 );
                 std::process::exit(2);
             }
-        }
-        SettingKind::Size => {
-            let ok = ff_core::gix::config::Integer::try_from(ff_core::gix::bstr::BStr::new(value))
-                .ok()
-                .and_then(|i| i.to_decimal())
-                .is_some_and(|n| n >= 0);
-            if !ok {
+            SettingKind::Size => {
                 eprintln!(
                     "ff: invalid value for maxFileSize: want a byte count like 52428800 or 100M"
                 );
                 std::process::exit(2);
             }
-        }
-        SettingKind::Command => {
-            if value.trim().is_empty() {
+            SettingKind::Command => {
                 eprintln!("ff: invalid value for pager: want a command");
                 std::process::exit(2);
             }
-        }
-        SettingKind::Cadence => {
-            if crate::selfupdate::notify::parse_cadence(value).is_none() {
+            SettingKind::Cadence => {
                 eprintln!(
                     "ff: invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
                 );
                 std::process::exit(2);
             }
-        }
-        SettingKind::Bool => {
-            let ok = ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value))
-                .is_ok();
-            if !ok {
+            SettingKind::Bool => {
                 eprintln!("ff: invalid value for autoUpdate: want true or false");
                 std::process::exit(2);
             }

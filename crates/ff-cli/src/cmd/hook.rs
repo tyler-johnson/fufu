@@ -269,6 +269,42 @@ fn entry_has_our_command(entry: &serde_json::Value) -> bool {
         .is_some_and(|hooks| hooks.iter().any(|h| is_our_command(h["command"].as_str())))
 }
 
+pub(crate) enum AgentWiring {
+    /// HOME unset, or settings unreadable/invalid — the complaint text.
+    Unavailable(String),
+    Events {
+        path: std::path::PathBuf,
+        pre_tool: bool,
+        prompt: bool,
+    },
+}
+
+pub(crate) fn agent_wiring() -> AgentWiring {
+    let path = match settings_path() {
+        Ok(p) => p,
+        Err(err) => return AgentWiring::Unavailable(err.to_string()),
+    };
+    let settings = match load_settings(&path) {
+        Ok(s) => s,
+        Err(err) => return AgentWiring::Unavailable(err.to_string()),
+    };
+    let pre_tool = settings
+        .get("hooks")
+        .and_then(|h| h.get("PreToolUse"))
+        .and_then(|e| e.as_array())
+        .is_some_and(|entries| entries.iter().any(entry_has_our_command));
+    let prompt = settings
+        .get("hooks")
+        .and_then(|h| h.get("UserPromptSubmit"))
+        .and_then(|e| e.as_array())
+        .is_some_and(|entries| entries.iter().any(entry_has_our_command));
+    AgentWiring::Events {
+        path,
+        pre_tool,
+        prompt,
+    }
+}
+
 fn install() -> Result<()> {
     let path = settings_path()?;
     let mut settings = load_settings(&path)?;
@@ -383,22 +419,31 @@ fn uninstall() -> Result<()> {
 }
 
 fn list() -> Result<()> {
-    let path = settings_path()?;
-    let settings = load_settings(&path)?;
-    for (event, _) in EVENTS {
-        let installed = settings["hooks"][event]
-            .as_array()
-            .is_some_and(|entries| entries.iter().any(entry_has_our_command));
-        println!(
-            "{event:<16} {}",
-            if installed {
-                "installed"
-            } else {
-                "not installed"
+    match agent_wiring() {
+        AgentWiring::Unavailable(msg) => Err(Error::msg(msg)),
+        AgentWiring::Events {
+            path: _,
+            pre_tool,
+            prompt,
+        } => {
+            for (event, _) in EVENTS {
+                let installed = match event {
+                    "PreToolUse" => pre_tool,
+                    "UserPromptSubmit" => prompt,
+                    _ => false,
+                };
+                println!(
+                    "{event:<16} {}",
+                    if installed {
+                        "installed"
+                    } else {
+                        "not installed"
+                    }
+                );
             }
-        );
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 fn write_settings(
