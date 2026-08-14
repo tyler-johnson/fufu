@@ -549,6 +549,14 @@ fufu over time or waits for a machine that has git.
     over merge, malleable unpublished history, routine leased force-pushes. The
     repository stays boring for everyone else; the opinions never leak past the
     push boundary.
+13. **No linear-time costs.** What a verb costs must not depend on how much has
+    accumulated — how deep the history, how long the snapshot chain, how many
+    operations the journal holds. Capture runs before every agent action, so a
+    cost that grows with what capture has already recorded compounds against
+    itself. Growth is measured as cost per 10× of an axis and gated in CI
+    (`scripts/bench/`); a verb genuinely allowed to scale — scanning N files
+    costs O(N) for everyone — declares that in the table rather than escaping
+    the check. Absolute speed is the machine's business; flatness is fufu's.
 
 ## Prior art, and the unclaimed square
 

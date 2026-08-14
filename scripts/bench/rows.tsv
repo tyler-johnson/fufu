@@ -1,0 +1,73 @@
+# rows.tsv -- the declared bench table. Tab-separated, "#" starts a comment.
+#
+# capture and restore-at use prepare=reset rather than prepare=dirty because both
+# verbs are capture-first: a measured run of either one appends a snapshot to the
+# very chain the axis is varying. Without restoring the chain ref (and its id
+# index) before every timed run, the fixture would drift under the measurement --
+# n would silently grow across warmup and timed runs alike. The same is true of
+# jj's own snapshot-on-every-command behavior, so its capture-ish rows use
+# prepare=reset too, restored via `jj op restore` instead of a git ref.
+#
+# A `-` git or jj column means the tool has no honest equivalent for that row,
+# not that measuring it was skipped by accident.
+#
+# --no-optional-locks on the git read rows keeps git from writing index lock
+# files mid-measurement, same reason scripts/bench.sh uses it.
+#
+# git has no automatically-recorded working-tree state at all, so chain-depth
+# has nothing for it to grow: every git column on that axis is measured once,
+# at the largest point only, as a reference number for what the operation
+# costs in git at all -- never a claim about scaling. run.sh enforces that
+# restriction; report.py's single-point verdict and the per-n dashes in the
+# table are what keep a reader from misreading it as a tested chain.
+#
+# capture's jj column is `status`, not a typo: jj has no dedicated "record
+# the working copy" verb, but every command snapshots it as a side effect,
+# and `jj status` is the cheapest command that does. In git, capture is the
+# usual stage-and-commit.
+#
+# No `undo` row in this version: `ff undo` and `jj undo` both mutate
+# repository state, and an O(1) prepare that undoes that mutation before
+# every timed run is a design problem of its own, separate from this suite.
+# Leaving it out is a decision, not an oversight.
+#
+# No `commit` row either, for the same reason: `ff commit` mutates repository state (advances HEAD), and an O(1) prepare that undoes that before every timed run hits the same unsolved problem left open for `undo` above. The `capture` row plus the `history-depth` axis already cover the ground bench.sh's `ff commit` row measured.
+#
+# What "expect" may say: "flat" is the gate -- the row must not grow with
+# its axis. "linear" is a row allowed to scale with its axis, recorded so a
+# worse-than-linear turn is visible. "report" is a row measured purely for
+# comparison, on an axis that is not enforcement -- the real-history rows
+# below. Only "flat" ever fails a run (report.py's EXPECT_VALUES).
+#
+# real-history's log row uses a shorter git format (hash/abbrev/subject
+# only, no author/date fields) than chain-depth's and history-depth's log
+# rows above -- intentional, not a typo; a real repo's commit metadata isn't
+# needed for this axis's comparison.
+#
+# file-count's rows are all "linear", not "flat": scanning n files costs O(n) for fufu and for git alike, so nothing on this axis is gated. What it buys is honest ff-vs-git-vs-jj comparison numbers at a realistic tree size, plus visibility if something ever goes worse than linear -- a reader can see that in the consecutive-point ratios report.py already prints, even though nothing here fails a run.
+#
+# switch and park-arrive measure a round trip (switch away, then back), not a single leg: a single leg is not self-inverse, and undoing it would need an O(n) prepare, while the round trip needs none.
+#
+# noop's ff column is the bare capture on a tree the chain already matches exactly -- the scan proves emptiness and nothing else runs, the tier-1 case from bench.sh.
+#
+# first-capture uses a new prepare kind, `fresh` (see gen_prepare in run.sh): the tree is fully untracked, and the whole point of the row is the cost of a first capture -- there is no way to measure that repeatedly without restoring "never captured" before every run.
+#
+# name        axis            expect  prepare  ff                       git                                                          jj
+log	chain-depth	flat	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s	log -n 25
+evolog	chain-depth	flat	-	evolog -n 25	-	evolog -n 25
+status	chain-depth	flat	-	status	--no-optional-locks status --porcelain	status
+capture	chain-depth	flat	reset	(bare)	add -A && commit -m x	status
+restore-at	chain-depth	flat	reset	restore --all --at {ID}	-	-
+oplog	chain-depth	flat	-	log --ops -n 25	-	op log -n 25
+log	history-depth	linear	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s	log -n 25
+log	real-history	report	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x1f%s	log -n 25
+status	real-history	report	-	status	--no-optional-locks status --porcelain	status
+status-dirty	real-history	report	dirty	status	--no-optional-locks status --porcelain	status
+capture	real-history	report	reset	(bare)	add -A && commit -m x	status
+status	file-count	linear	-	status	--no-optional-locks status --porcelain	status
+status-dirty	file-count	linear	dirty	status	--no-optional-locks status --porcelain	status
+capture	file-count	linear	reset	(bare)	add -A && commit -m x	status
+noop	file-count	linear	-	(bare)	-	-
+first-capture	file-count	linear	fresh	(bare)	add -A && commit -m x	status
+switch	file-count	linear	-	switch bench-other && switch main	-	-
+park-arrive	file-count	linear	dirty	switch bench-other && switch main	-	-

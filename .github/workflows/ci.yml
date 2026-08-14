@@ -38,3 +38,32 @@ jobs:
           $errs = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errs)
           if ($errs) { $errs; exit 1 }
+      # bench needs the release binary but must not rebuild it from scratch.
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ff-linux
+          path: target/release/ff
+
+  # Guards fufu's core claim -- no linear-time costs -- by failing when a
+  # flat-declared row scales with its axis. Reduced matrix only (100/1000
+  # points, ff alone, no jj); the full 10 000-point comparison matrix is
+  # local-only, this job exists purely as the ratio gate.
+  bench:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: ff-linux
+          path: target/release
+      - run: chmod +x target/release/ff
+      - run: sudo apt-get update && sudo apt-get install -y hyperfine
+      - run: scripts/bench/run.sh --points 100,1000 --tools ff
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-raw-json
+          path: bench-results/raw.json
+      - run: scripts/bench/report.py

@@ -1,0 +1,145 @@
+{
+  "meta": {
+    "generated_unix": 1755100000,
+    "host": {
+      "os": "linux",
+      "arch": "aarch64",
+      "kernel": "6.18.39+rpt-rpi-2712",
+      "cpu": "Cortex-A76",
+      "nproc": 4
+    },
+    "versions": {
+      "ff": "ff 0.1.0",
+      "git": "git version 2.50.1",
+      "jj": "jj 0.44.0-af45d57de7163cc5f17f3df178a31577e4951ea3",
+      "hyperfine": "hyperfine 1.18.0"
+    },
+    "ff_binary": "/home/pi/Development/fufu/target/release/ff",
+    "axes": {
+      "chain-depth": {
+        "points": [
+          100,
+          1000,
+          10000
+        ]
+      },
+      "history-depth": {
+        "points": [
+          100,
+          1000,
+          10000
+        ]
+      }
+    },
+    "flat_ratio_max": 1.5,
+    "hyperfine": {
+      "warmup": 3,
+      "min_runs": 10,
+      "max_runs": 50
+    }
+  },
+  "results": [
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 50.0,
+      "stddev_ms": 0.15,
+      "median_ms": 49.98,
+      "min_ms": 49.8,
+      "max_ms": 50.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 50.0,
+      "stddev_ms": 0.15,
+      "median_ms": 49.98,
+      "min_ms": 49.8,
+      "max_ms": 50.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 10000,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 50.0,
+      "stddev_ms": 0.15,
+      "median_ms": 49.98,
+      "min_ms": 49.8,
+      "max_ms": 50.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "evolog",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff evolog -n 25",
+      "mean_ms": 50.41,
+      "stddev_ms": 0.2,
+      "median_ms": 50.379999999999995,
+      "min_ms": 50.209999999999994,
+      "max_ms": 51.01,
+      "runs": 40,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "evolog",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff evolog -n 25",
+      "mean_ms": 51.6,
+      "stddev_ms": 0.2,
+      "median_ms": 51.57,
+      "min_ms": 51.4,
+      "max_ms": 52.2,
+      "runs": 40,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "evolog",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 10000,
+      "prepare": "-",
+      "command": "ff evolog -n 25",
+      "mean_ms": 54.03,
+      "stddev_ms": 0.2,
+      "median_ms": 54.0,
+      "min_ms": 53.83,
+      "max_ms": 54.63,
+      "runs": 40,
+      "exit_ok": true
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "meta": {
+    "generated_unix": 1755100000,
+    "host": {
+      "os": "linux",
+      "arch": "aarch64",
+      "kernel": "6.18.39+rpt-rpi-2712",
+      "cpu": "Cortex-A76",
+      "nproc": 4
+    },
+    "versions": {
+      "ff": "ff 0.1.0",
+      "git": "git version 2.50.1",
+      "jj": "jj 0.44.0-af45d57de7163cc5f17f3df178a31577e4951ea3",
+      "hyperfine": "hyperfine 1.18.0"
+    },
+    "ff_binary": "/home/pi/Development/fufu/target/release/ff",
+    "axes": {
+      "chain-depth": {
+        "points": [
+          100,
+          1000,
+          10000
+        ]
+      },
+      "history-depth": {
+        "points": [
+          100,
+          1000,
+          10000
+        ]
+      }
+    },
+    "flat_ratio_max": 1.5,
+    "hyperfine": {
+      "warmup": 3,
+      "min_runs": 10,
+      "max_runs": 50
+    }
+  },
+  "results": [
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 5.0,
+      "stddev_ms": 0.05,
+      "median_ms": 4.98,
+      "min_ms": 4.8,
+      "max_ms": 5.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 5.0,
+      "stddev_ms": 0.05,
+      "median_ms": 4.98,
+      "min_ms": 4.8,
+      "max_ms": 5.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 10000,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 5.0,
+      "stddev_ms": 0.05,
+      "median_ms": 4.98,
+      "min_ms": 4.8,
+      "max_ms": 5.4,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "hidden-scan",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff hidden-scan",
+      "mean_ms": 5.02,
+      "stddev_ms": 0.05,
+      "median_ms": 4.989999999999999,
+      "min_ms": 4.97,
+      "max_ms": 5.17,
+      "runs": 40,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "hidden-scan",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff hidden-scan",
+      "mean_ms": 5.4,
+      "stddev_ms": 0.05,
+      "median_ms": 5.37,
+      "min_ms": 5.3500000000000005,
+      "max_ms": 5.550000000000001,
+      "runs": 40,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "hidden-scan",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 10000,
+      "prepare": "-",
+      "command": "ff hidden-scan",
+      "mean_ms": 6.5,
+      "stddev_ms": 0.05,
+      "median_ms": 6.47,
+      "min_ms": 6.45,
+      "max_ms": 6.65,
+      "runs": 40,
+      "exit_ok": true
+    }
+  ]
+}
