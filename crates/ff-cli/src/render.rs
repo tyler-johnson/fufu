@@ -2,8 +2,8 @@
 //! ANSI color when the stream says so (see the palette below).
 
 use ff_core::{
-    ChangeKind, HeadState, LogEntry, OpenChange, Operation, ReconcileReport, SnapEntry, Status,
-    StatusEntry, Upstream,
+    ChangeKind, ChangeStat, FileStat, HeadState, LogEntry, OpenChange, Operation, ReconcileReport,
+    SnapEntry, Status, Upstream,
 };
 
 /// Render a reconcile pass to stderr, loudly, before any verb output —
@@ -37,32 +37,93 @@ pub fn reconcile_notice(report: &ReconcileReport) {
     }
 }
 
-pub fn status_human(status: &Status) -> String {
+/// The foreign-changes shape: `(ref_name, old_oid?, new_oid?)`.
+pub type ForeignChanges = Option<Vec<(String, Option<String>, Option<String>)>>;
+
+/// Bundled render inputs for `status_human` to avoid too-many-arguments.
+pub struct StatusView<'a> {
+    pub status: &'a Status,
+    pub open: &'a OpenChange,
+    pub change_stat: &'a ChangeStat,
+    pub lens: &'a std::collections::HashMap<String, usize>,
+    pub parent: Option<&'a LogEntry>,
+    pub now: i64,
+    pub colored: bool,
+    pub foreign: ForeignChanges,
+}
+
+/// Render the new status view: header, open change row, diffstat, parent commit,
+/// then conflicts and foreign blocks if present.
+pub fn status_human(view: &StatusView<'_>) -> String {
+    let StatusView {
+        status,
+        open,
+        change_stat,
+        lens,
+        parent,
+        now,
+        colored,
+        foreign,
+    } = &view;
+    let now = *now;
+    let colored = *colored;
     let mut out = String::new();
-    out.push_str(&header_line(status));
+
+    // Header line
+    out.push_str(&status_header(status, colored));
     out.push('\n');
 
-    let clean = status.staged.is_empty()
-        && status.unstaged.is_empty()
-        && status.untracked.is_empty()
-        && status.conflicts.is_empty();
-    if clean {
-        out.push_str("clean\n");
-        return out;
+    // Open change row
+    out.push_str(&change_row(open, lens, now, colored));
+    out.push('\n');
+
+    // Diffstat rows (rail rows) when files exist
+    if !change_stat.files.is_empty() {
+        out.push_str(&render_diffstat(change_stat, colored));
+        out.push('\n');
     }
 
-    section(&mut out, "conflicts", &status.conflicts, |p| {
-        format!("  {p}")
-    });
-    entry_section(&mut out, "staged", &status.staged);
-    entry_section(&mut out, "unstaged", &status.unstaged);
-    section(&mut out, "untracked", &status.untracked, |p| {
-        format!("  {p}")
-    });
+    // Parent commit row (only when born)
+    if let Some(p) = parent {
+        out.push_str(&commit_row(p, None, lens, now, colored));
+        out.push('\n');
+    }
+
+    // Conflicts block
+    if !status.conflicts.is_empty() {
+        out.push_str("conflicts:\n");
+        for c in &status.conflicts {
+            out.push_str("  ");
+            out.push_str(c);
+            out.push('\n');
+        }
+    }
+
+    // Foreign changes block
+    if let Some(foreign) = foreign
+        && !foreign.is_empty()
+    {
+        out.push_str("changes made outside fufu (absorbed; ff undo can roll them back):\n");
+        for (name, old, new) in foreign {
+            let what = match (old, new) {
+                (_, Some(new)) => format!("moved to {}", &new[..new.len().min(8)]),
+                (Some(_), None) => "deleted".to_string(),
+                (None, None) => continue,
+            };
+            out.push_str("  ");
+            out.push_str(name);
+            out.push(' ');
+            out.push_str(&what);
+            out.push('\n');
+        }
+    }
+
     out
 }
 
-fn header_line(status: &Status) -> String {
+/// Build the header line: branch + upstream phrase + operation.
+/// The upstream phrase is colored by state.
+fn status_header(status: &Status, colored: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(match &status.head {
         HeadState::Unborn { r#ref } => {
@@ -70,15 +131,38 @@ fn header_line(status: &Status) -> String {
             format!("on {name} (no commits yet)")
         }
         HeadState::Branch { name, .. } => format!("on {name}"),
-        HeadState::Detached { commit } => format!("detached at {}", &commit[..commit.len().min(8)]),
+        HeadState::Detached { commit } => {
+            format!("detached at {}", &commit[..commit.len().min(8)])
+        }
     });
     if let Some(upstream) = &status.upstream {
-        parts.push(upstream_phrase(upstream));
+        parts.push(colored_upstream_phrase(upstream, colored));
     }
     if let Some(op) = &status.operation {
         parts.push(operation_phrase(*op).to_string());
     }
     parts.join(" · ")
+}
+
+/// Build the upstream phrase, colored by state.
+fn colored_upstream_phrase(u: &Upstream, colored: bool) -> String {
+    let phrase = upstream_phrase(u);
+    if !colored {
+        return phrase;
+    }
+    let style = if u.gone {
+        None
+    } else if u.ahead == 0 && u.behind == 0 {
+        Some(DIM)
+    } else if u.ahead > 0 && u.behind == 0 {
+        Some(AHEAD)
+    } else {
+        None
+    };
+    match style {
+        Some(s) => format!("{}{phrase}{}", s.render(), s.render_reset()),
+        None => phrase,
+    }
 }
 
 fn upstream_phrase(u: &Upstream) -> String {
@@ -105,22 +189,162 @@ fn operation_phrase(op: Operation) -> &'static str {
     }
 }
 
-fn entry_section(out: &mut String, title: &str, entries: &[StatusEntry]) {
-    section(out, title, entries, |e| match (&e.from, e.kind) {
-        (Some(from), _) => format!("  {}  {} -> {}", kind_letter(e.kind), from, e.path),
-        (None, _) => format!("  {}  {}", kind_letter(e.kind), e.path),
-    });
+/// Render the diffstat block: file rows with kind, path, counts, bar, then summary.
+fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
+    let files = &stat.files;
+    let rail = paint("│", DIM, colored);
+
+    // Signed count strings: insertions get +, deletions get -
+    let ins_str = |n: u32| format!("+{n}");
+    let del_str = |n: u32| format!("-{n}");
+
+    // Compute column widths from every value that appears in the column
+    // (file rows AND the summary row), so the widest value dictates width.
+    let max_path = files
+        .iter()
+        .map(|f| file_path_for_stat(f).chars().count())
+        .max()
+        .unwrap_or(0);
+    let max_ins = files
+        .iter()
+        .map(|f| ins_str(f.insertions).chars().count())
+        .max()
+        .unwrap_or(ins_str(stat.insertions).chars().count())
+        .max(ins_str(stat.insertions).chars().count());
+    let max_del = files
+        .iter()
+        .map(|f| del_str(f.deletions).chars().count())
+        .max()
+        .unwrap_or(del_str(stat.deletions).chars().count())
+        .max(del_str(stat.deletions).chars().count());
+
+    // Determine max_total for bar scaling
+    let max_total = files
+        .iter()
+        .map(|f| f.insertions + f.deletions)
+        .max()
+        .unwrap_or(0);
+
+    let mut lines = Vec::new();
+
+    for f in files {
+        let path_display = file_path_for_stat(f);
+        let path_padded = {
+            let pad = " ".repeat(max_path.saturating_sub(path_display.chars().count()));
+            format!("{path_display}{pad}")
+        };
+
+        let kind = paint(&format!("{}", kind_letter(f.kind)), DIM, colored);
+
+        if f.binary {
+            // Binary: dim "binary" in place of counts, no bar
+            let bin = paint("binary", DIM, colored);
+            let bin_col = {
+                let width = max_ins + 2 + max_del; // ins + gap + del
+                let pad = " ".repeat(width.saturating_sub(bin.chars().count()));
+                format!("{bin}{pad}")
+            };
+            lines.push(format!("{rail}  {kind} {path_padded} {bin_col}"));
+        } else {
+            let ins = ins_str(f.insertions);
+            let del = del_str(f.deletions);
+
+            // Pad counts (right-aligned within column)
+            let ins_padded = {
+                let pad = " ".repeat(max_ins.saturating_sub(ins.chars().count()));
+                format!("{pad}{ins}")
+            };
+            let del_padded = {
+                let pad = " ".repeat(max_del.saturating_sub(del.chars().count()));
+                format!("{pad}{del}")
+            };
+
+            // Color the counts
+            let ins_colored = paint(&ins_padded, INS, colored);
+            let del_colored = paint(&del_padded, DEL, colored);
+
+            // Bar
+            let bar = if max_total > 0 && (f.insertions > 0 || f.deletions > 0) {
+                let total = f.insertions + f.deletions;
+                let bar_len = (total as f64 * 20.0 / max_total as f64).round() as usize;
+                let bar_len = bar_len.clamp(1, 20);
+
+                let mut plus =
+                    (bar_len as f64 * f.insertions as f64 / total as f64).round() as usize;
+                let mut minus = bar_len - plus;
+
+                // Force at least 1 on each side if that side has counts
+                if f.insertions > 0 && plus == 0 {
+                    plus = 1;
+                    minus = bar_len.saturating_sub(1);
+                }
+                if f.deletions > 0 && minus == 0 {
+                    minus = 1;
+                    plus = bar_len.saturating_sub(1);
+                }
+
+                let plus_str = "+".repeat(plus);
+                let minus_str = "-".repeat(minus);
+                let plus_c = paint(&plus_str, INS, colored);
+                let minus_c = paint(&minus_str, DEL, colored);
+                format!("{plus_c}{minus_c}")
+            } else {
+                String::new()
+            };
+
+            let bar_prefix = if bar.is_empty() {
+                String::new()
+            } else {
+                "  ".to_string()
+            };
+
+            lines.push(format!(
+                "{rail}  {kind} {path_padded} {ins_colored}  {del_colored}{bar_prefix}{bar}"
+            ));
+        }
+    }
+
+    // Summary row — label starts in the path column (blank where kind letter goes)
+    let file_count = files.len();
+    let label = if file_count == 1 {
+        "1 file"
+    } else {
+        &format!("{file_count} files")
+    };
+    let label_dim = paint(label, DIM, colored);
+    // Pad label to max_path width
+    let label_padded = {
+        let width = label.chars().count();
+        let pad = " ".repeat(max_path.saturating_sub(width));
+        format!("{label_dim}{pad}")
+    };
+
+    let total_ins = ins_str(stat.insertions);
+    let total_del = del_str(stat.deletions);
+    let total_ins_padded = {
+        let pad = " ".repeat(max_ins.saturating_sub(total_ins.chars().count()));
+        format!("{pad}{total_ins}")
+    };
+    let total_del_padded = {
+        let pad = " ".repeat(max_del.saturating_sub(total_del.chars().count()));
+        format!("{pad}{total_del}")
+    };
+    let total_ins_colored = paint(&total_ins_padded, INS, colored);
+    let total_del_colored = paint(&total_del_padded, DEL, colored);
+
+    lines.push(format!(
+        "{rail}    {label_padded} {total_ins_colored}  {total_del_colored}"
+    ));
+
+    lines.join("\n")
 }
 
-fn section<T>(out: &mut String, title: &str, items: &[T], row: impl Fn(&T) -> String) {
-    if items.is_empty() {
-        return;
-    }
-    out.push_str(title);
-    out.push_str(":\n");
-    for item in items {
-        out.push_str(&row(item));
-        out.push('\n');
+/// The display path for a stat row: "from => path" for renames/copies, else "path".
+fn file_path_for_stat(f: &FileStat) -> String {
+    if let Some(from) = &f.from {
+        format!("{from} => {}", f.path)
+    } else {
+        f.path.clone()
     }
 }
 
@@ -136,14 +360,18 @@ fn kind_letter(kind: ChangeKind) -> char {
     }
 }
 
-/// The palette, jj-adjacent: snapshot ids magenta (bold unique prefix, dim
-/// rest), commit shas blue and plain, ages cyan, the working-copy `@` green,
-/// rails dim — so a metadata line and a subject line never read as one.
-const SNAP_UNIQUE: anstyle::Style = anstyle::AnsiColor::Magenta.on_default().bold();
-const SHA: anstyle::Style = anstyle::AnsiColor::Blue.on_default();
-const AGE: anstyle::Style = anstyle::AnsiColor::Cyan.on_default();
-const AT: anstyle::Style = anstyle::AnsiColor::Green.on_default().bold();
+/// The palette, muted 256: snapshot ids 139 (bold unique prefix, dim rest),
+/// commit shas 67, ages 73, the working-copy `@` 71 bold, rails dim —
+/// so a metadata line and a subject line never read as one.
+/// anstream downgrades 256-colour on terminals that cannot do it.
+const SNAP_UNIQUE: anstyle::Style = anstyle::Ansi256Color(139).on_default().bold();
+const SHA: anstyle::Style = anstyle::Ansi256Color(67).on_default();
+const AGE: anstyle::Style = anstyle::Ansi256Color(73).on_default();
+const AT: anstyle::Style = anstyle::Ansi256Color(71).on_default().bold();
 const DIM: anstyle::Style = anstyle::Style::new().dimmed();
+const INS: anstyle::Style = anstyle::Ansi256Color(71).on_default();
+const DEL: anstyle::Style = anstyle::Ansi256Color(167).on_default();
+const AHEAD: anstyle::Style = anstyle::Ansi256Color(67).on_default();
 
 /// Paint `text`, or hand it back untouched when color is off or it's empty.
 fn paint(text: &str, style: anstyle::Style, colored: bool) -> String {

@@ -84,6 +84,27 @@ pub struct StatusEntry {
     pub kind: ChangeKind,
 }
 
+/// One file's contribution to the open change, as `ff status` prints it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FileStat {
+    pub path: String,
+    /// Source path for renames and copies.
+    pub from: Option<String>,
+    pub kind: ChangeKind,
+    pub insertions: u32,
+    pub deletions: u32,
+    /// Line counts are meaningless — both counts are 0.
+    pub binary: bool,
+}
+
+/// The open change as a diffstat: HEAD's tree against the capture chain tip's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChangeStat {
+    pub files: Vec<FileStat>,
+    pub insertions: u32,
+    pub deletions: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Status {
     pub head: HeadState,

@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod branchmeta;
+mod changestat;
 mod close;
 pub mod describe;
 pub mod error;
@@ -31,6 +32,7 @@ use std::path::Path;
 /// Re-exported so downstream crates name the exact gix this core was built with.
 pub use gix;
 
+pub use changestat::change_stat;
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};

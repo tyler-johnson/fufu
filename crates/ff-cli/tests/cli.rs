@@ -69,10 +69,20 @@ fn status_json_shape() {
     assert_eq!(v["head"]["ref"], "refs/heads/main");
     assert_eq!(v["operation"], serde_json::Value::Null);
     assert_eq!(v["upstream"], serde_json::Value::Null);
-    assert_eq!(v["unstaged"][0]["path"], "a.txt");
-    assert_eq!(v["unstaged"][0]["kind"], "modified");
-    assert_eq!(v["untracked"][0], "new.txt");
-    assert_eq!(v["staged"].as_array().unwrap().len(), 0);
+    // Old keys are gone
+    assert_eq!(v["staged"], serde_json::Value::Null);
+    assert_eq!(v["unstaged"], serde_json::Value::Null);
+    assert_eq!(v["untracked"], serde_json::Value::Null);
+    // New shape: changes array with modified + added (untracked = ordinary addition)
+    assert!(v["changes"].is_array(), "changes is array");
+    let changes = v["changes"].as_array().unwrap();
+    assert!(changes.len() >= 2, "at least modified and added entries");
+    let kinds: std::collections::HashSet<_> = changes
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains("modified"), "modified entry present");
+    assert!(kinds.contains("added"), "added entry present");
     assert_eq!(v["conflicts"].as_array().unwrap().len(), 0);
 }
 
@@ -95,7 +105,10 @@ fn status_human_header() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(text.starts_with("on main\n"), "header: {text:?}");
-    assert!(text.contains("clean"), "clean tree: {text:?}");
+    assert!(
+        text.contains("no changes"),
+        "clean tree shows no changes: {text:?}"
+    );
 }
 
 #[test]
@@ -103,7 +116,64 @@ fn status_human_unborn() {
     let fx = Fixture::new();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
-    assert!(stdout(&out).starts_with("on main (no commits yet)"));
+    let text = stdout(&out);
+    assert!(text.starts_with("on main (no commits yet)"));
+    // No commit row (●) when unborn
+    assert!(!text.contains("●"), "no parent row when unborn: {text:?}");
+}
+
+#[test]
+fn status_human_shows_stat_rows() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\nworld\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "untracked content\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("a.txt"), "modified file visible: {text:?}");
+    assert!(text.contains("new.txt"), "untracked file visible: {text:?}");
+    assert!(text.contains("+"), "insertion count present: {text:?}");
+    assert!(text.contains("2 files"), "summary row: {text:?}");
+}
+
+#[test]
+fn status_human_has_no_staging_words() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(!text.contains("staged"), "no 'staged': {text:?}");
+    assert!(!text.contains("unstaged"), "no 'unstaged': {text:?}");
+    assert!(!text.contains("untracked"), "no 'untracked': {text:?}");
+}
+
+#[test]
+fn status_human_parent_row() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "one\n");
+    fx.commit("first");
+    fx.write("a.txt", "two\n");
+    fx.commit("second");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("●"), "parent row bullet present: {text:?}");
+    assert!(text.contains("second"), "parent subject visible: {text:?}");
+}
+
+#[test]
+fn status_json_parent_null_when_unborn() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["parent"], serde_json::Value::Null);
 }
 
 #[test]

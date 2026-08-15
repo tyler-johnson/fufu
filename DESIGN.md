@@ -395,7 +395,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | verb | what it does | what it replaces |
 |---|---|---|
 | `ff [-m <msg>]` | take a manual snapshot — bare `ff` is the snapshot verb, jj-style | `wip` commits, stash-as-backup rituals |
-| `ff status` | state + futures: captured work, held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
+| `ff status` | `ff log` cropped to two rows — the open change and the commit under it — with the diffstat between them, plus futures: held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
 | `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
@@ -421,7 +421,9 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 
 Snapshot ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps to `"zyxwvutsrqponmlk"[i]`, so `0` → `z` down through `f` → `k`. The letter range k–z shares no character with hex, so a snapshot id can never be misread as a commit sha, and parsers can accept both without ambiguity. Everywhere a snapshot id is input (`ff restore --at`), the letters spelling is accepted alongside raw hex. Accepted shadowing: all-letters date words of four or more characters (`noon`, `tomorrow`) now parse as id prefixes, not dates — spell times as `12:00`, `1d`, or a full date instead.
 
-Snapshot id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff restore --at` resolves against — the current branch's live and trash chains — so the bold prefix is precisely what restore accepts unambiguously. That domain is materialized per chain under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the chain tip moves out from under it, so highlighting and restore read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the snapshot column is where the highlighting pays. Color separates the row kinds: snapshot ids magenta, commit shas blue, ages cyan, the working-copy `@` green, subject rails dim.
+Snapshot id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff restore --at` resolves against — the current branch's live and trash chains — so the bold prefix is precisely what restore accepts unambiguously. That domain is materialized per chain under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the chain tip moves out from under it, so highlighting and restore read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the snapshot column is where the highlighting pays. One palette serves every view, separating the row kinds: snapshot ids magenta, commit shas blue, ages cyan, the working-copy `@` green, subject rails dim.
+
+`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction — and the futures line closes the block. Color stays as sparing here as everywhere: insertions green, deletions red, the rest plain, and the futures line carrying its verdict as color — dim when there is nothing to say, blue when the branch is only ahead, green when upstream moved and the rebase is clean, orange when it conflicts. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. The verdict outranks ahead-ness when both are true, because it is the half that needs a decision. `--json` mirrors the shape: one `changes` array, plus `open` and `parent`.
 
 The log family (`ff log`, `ff evolog`, `ff log --ops`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
@@ -452,10 +454,20 @@ Much of fufu's presence is not commands at all: the ambient status channel (shel
 integration) speaks at natural pause points — "main moved, rebased you cleanly,
 undo if you disagree." The tool is used mostly by *reading* it.
 
-The index: fufu ignores it (commit slices from the stream, with hunk selection at
-commit time — jj's actual insight about staging). The index still exists and
-`git add -p && git commit` still works, because a boring repo tolerates both. fufu
-stops *requiring* the ritual; it doesn't break it.
+Staged and tracked are git states fufu has no concept of. The working tree *is*
+the change, whole: `.gitignore` is the only line left — ignored is invisible,
+everything else is already in the commit about to be cut. Selection survives
+where it belongs, at commit time (`ff commit` picks hunks — jj's actual insight
+about staging): a choice made once, not a state maintained. That makes the
+ignore file load-bearing in a way git never asked it to be — git lets an
+unignored `target/` sit untracked and harmless, fufu commits it — so an
+arriving file that is large or unusual is the one thing worth a word before it
+lands.
+
+Git's own commands still write the index, and `git add -p && git commit` still
+cuts exactly what it always did, because a boring repo tolerates both. fufu just
+never reads it: partial staging is invisible to `ff status` and subsumed by
+`ff commit`, which takes the tree.
 
 ### `ff trim`
 

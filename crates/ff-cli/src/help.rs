@@ -118,8 +118,8 @@ Files come back as they were in a snapshot — the newest one unless --at
 names another. --all restores the whole tree, including deleting files
 that were created since.
 
-Only the worktree is written. The index, HEAD, branches, and staged
-changes stay exactly as they are. Restore takes its own snapshot first, and
+Only the worktree is written. The index, HEAD, and branches
+stay exactly as they are. Restore takes its own snapshot first, and
 that one is mandatory: if the pre-restore capture fails, nothing is
 written. So any restore is undone by another restore, or by `ff undo`.
 
