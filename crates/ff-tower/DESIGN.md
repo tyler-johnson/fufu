@@ -114,7 +114,13 @@ Not files in the working tree. `.tower/flights/*.md` is the obvious move and the
 
 The conflict problem dissolves because of what is stored. Derived fields are never stored at all, so they have zero merge surface and self-heal when someone works around tower. Stored intent is an append-only event log partitioned per author, so merging divergent logs is a **union, not a merge** — conflict-free by construction. The board is a fold over the union. The only genuine collision is two people editing one field in the same window; last-writer-wins with a stable tiebreak, and both events survive in the log regardless.
 
-One honest consequence: this is the first fufu-adjacent state that is not a cache. fufu's principle 3 says state is rebuildable and the repository wins; authored text is derivable from nothing. It holds anyway — the store *is* ordinary git objects in the repository, so the repository still wins literally — but unpushed flights are losable in a way no fufu state is, and doctor needs a row saying so.
+**Sync is three tiers, and only one of them needs anything built.** *Machine-local* — bays, pool state, caches — never syncs and mostly rebuilds. *Mine across machines* — solo flights, notes, decompositions — is single-author and append-only, so roaming is `git push refs/tower/log/<me>` with no protocol at all; that is backup, not sync. *Shared with others* is the only hard tier, and tower does not have it: in team mode upstream already holds it, and in solo mode it does not exist.
+
+Multi-writer works anyway — fetch `refs/tower/log/*`, fold the union — and it stays documented and unsupported. Every git-native tracker that tried to be the shared board was technically fine and socially dead: shared work needs a place people look, and a ref in a repository is not one. Making it one means notifications, identity, and permissions, which is a different product wearing this one as a hat. **tower never becomes the shared board; sharing is `tower promote`.**
+
+The deeper reason is that tower has no mechanism for agreement. Facts need no consensus — the branch exists, these hunks collide, CI failed — which is why tower can assert them unilaterally and be believed. Upstream state is negotiated: priority, ownership, what ships this cycle. A shared tower board would manufacture consensus data with nothing underneath it, and two people would confidently read different boards.
+
+One honest consequence: this is the first fufu-adjacent state that is not a cache. fufu's principle 3 says state is rebuildable and the repository wins; authored text is derivable from nothing. It holds anyway — the store *is* ordinary git objects in the repository, so the repository still wins literally — but authored flights are losable in a way no fufu state is. That earns the held-rewrite treatment: `14 flights exist only on this machine · tower push`, pinned on every render until it is false, with a doctor row beside it.
 
 ## Surfaces
 
@@ -134,6 +140,20 @@ Triage is the whole product. `tower next` beats an assigned-to-me list because i
 
 The review loop deserves modeling directly, because it is mostly waiting and mostly agent-shaped: an incoming review is work arriving, and triaging its comments into mechanically-fixable versus needs-a-decision is where the ergonomic win lives. Answer the one design question, let the other three land.
 
+## Skills
+
+tower ships agent skills, and they are where the orchestrator lives. That is not a contradiction of principle 2: a skill is instructions the harness executes, not a process tower spawns. tower ships the recipe, the harness runs it, and uninstalling the harness leaves tower working. tower never grows a process supervisor.
+
+It is also the right home for judgment. tower reports facts and what is clear; a skill decides what to do when a flight holds, when a review comment needs a person, when to stop. Policy in markdown the user can fork beats policy compiled into Rust.
+
+The shipped set is small: **plan** (decompose a goal into linked flights — solo mode's entry point), **work** (claim, do, hold or commit, repeat — the one that pairs with a loop), and **review** (first-pass a review request, or apply the mechanically-fixable half of one and hold the rest).
+
+Loop control is exit codes, fufu's own: **0** here is work, **1** nothing available, **3** work exists but it needs you. A loop runs until 1 or 3 and reports which. No timeout, no sentinel.
+
+Fan-out needs a set, not an item, because conflict-freedom is a property of the set: `tower next -n 3` returns three flights that collide with neither each other nor anything already flying, and the caller spawns one agent per bay. That is deconfliction as an API rather than a report, and it is the sharpest reason the design is worth building.
+
+The shipped default stops short of the push boundary — committed on a branch, PR unopened — because principle 3 is easy to state and easy for an unattended loop to violate fourteen times before anyone looks. Editing that is the user's call, and visibly theirs.
+
 ## The three modes
 
 **Solo** — no adapters. An agent decomposes a goal, calls `tower.file` per step and `tower.link` for the order, and tower stores a DAG it did not author. Then context can be wiped safely, because tower is the durable half: the plan, each brief, the handoff notes, and every capture chain live outside the agent. The agent is disposable; the flight is not.
@@ -142,7 +162,7 @@ The review loop deserves modeling directly, because it is mostly waiting and mos
 
 **In between** — one upstream ticket, many local steps, one promotion when a step outgrows the local board.
 
-Two kinds of memory stay apart: a tower brief carries what is true about *this flight* — files, prior art, the verify command. The agent's own memory carries house style and conventions. tower should not try to own the second; it would do it badly, and the agent already has a system for it.
+Three layers of memory stay apart: a **skill** knows how to drive tower, the **agent's own memory** knows house style and conventions, and a **brief** knows this flight — files, prior art, the verify command. tower owns only the third. A skill that starts accumulating project conventions has taken the agent's job, and tower trying to own house style would do it badly when the agent already has a system for it.
 
 ## Principles
 
@@ -155,6 +175,7 @@ Two kinds of memory stay apart: a tower brief carries what is true about *this f
 7. **Local work stays local until promoted.** Steps are anonymous branches; promotion is the publish boundary.
 8. **Deferred requires loud.** Inherited whole from fufu: a held flight is announced, pinned, and blocks its exits.
 9. **One model, every surface.** CLI, MCP, and anything later consume one contract.
+10. **Facts, not consensus.** tower is authoritative over what the repository shows and what you alone authored. It holds no negotiated state, because it has no way to negotiate.
 
 ## What it waits on
 
@@ -175,4 +196,5 @@ What works on today's primitives: the board through `active`, flight-to-branch l
 - **What a flight means after a rewrite** folds its snapshots into a commit — fufu's open session-boundary question, made urgent rather than theoretical.
 - **Bay relocation.** tower prints a path and cannot make a running agent honor it. How loudly should misplaced work be reported, and is there a consented way to move an agent?
 - **Sandboxing composes but is unaddressed.** A bay can be a worktree bind-mounted into a container without tower's model changing; whether that is tower's concern at all is open.
+- **How much orchestration belongs in a shipped skill** before it is a scheduler with extra steps and principle 2 has been defeated by paperwork.
 - **Naming.** `tower` against crates.io, npm, and Homebrew. Almost certainly taken; the metaphor is what matters, not the word.

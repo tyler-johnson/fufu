@@ -15,6 +15,7 @@ pub mod model;
 pub mod petname;
 mod refs;
 mod restore;
+mod session;
 pub mod snapid;
 pub mod snapshot;
 mod start;
@@ -32,7 +33,7 @@ use std::path::Path;
 /// Re-exported so downstream crates name the exact gix this core was built with.
 pub use gix;
 
-pub use changestat::change_stat;
+pub use changestat::{change_stat, tree_diff_stat};
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
@@ -40,6 +41,7 @@ pub use head::{head_state, operation};
 pub use log::{LogOptions, log};
 pub use model::*;
 pub use restore::{RestoreOptions, RestoreTarget, parse_target, restore};
+pub use session::{SessionSpan, snapshot_session, span_start_tree, spans};
 pub use snapshot::{Provenance, TakeOptions, take, take_with};
 pub use start::{StartOptions, start};
 pub use status::status;

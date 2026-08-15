@@ -237,8 +237,10 @@ fn operation_phrase(op: Operation) -> &'static str {
     }
 }
 
-/// Render the diffstat block: file rows with kind, path, counts, bar, then summary.
-fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
+/// Render the diffstat block: file rows with kind, path, counts, bar, then
+/// summary. `pub(crate)` so `ff session diff` reuses the exact renderer `ff
+/// status` does rather than a second one.
+pub(crate) fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
     let files = &stat.files;
     let rail = paint("│", DIM, colored);
 
@@ -642,6 +644,72 @@ pub fn commit_row(
     format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
 }
 
+/// One slot in a `--session`-grouped listing: either a row outside any
+/// session (rendered exactly as it always has been) or a contiguous run of
+/// rows carrying the same session name (rendered under one header). Indices
+/// into the caller's own row slice — grouping is pure sequence processing
+/// over rows already fetched, not a second walk of anything.
+pub enum SessionSlot {
+    Row(usize),
+    Span { name: String, rows: Vec<usize> },
+}
+
+/// Group a sequence of per-row session names (in display order) into
+/// contiguous runs — the same "same name, no gap" rule
+/// `ff_core::session::spans` applies to the chain itself. `None` never joins
+/// a group; the same name reappearing after a `None` starts a new span
+/// rather than extending the old one.
+pub fn session_slots(sessions: &[Option<String>]) -> Vec<SessionSlot> {
+    let mut slots: Vec<SessionSlot> = Vec::new();
+    for (idx, session) in sessions.iter().enumerate() {
+        match session {
+            None => slots.push(SessionSlot::Row(idx)),
+            Some(name) => match slots.last_mut() {
+                Some(SessionSlot::Span { name: last, rows }) if last == name => {
+                    rows.push(idx);
+                }
+                _ => slots.push(SessionSlot::Span {
+                    name: name.clone(),
+                    rows: vec![idx],
+                }),
+            },
+        }
+    }
+    slots
+}
+
+/// The header line printed before a grouped span in `ff log --session` /
+/// `ff evolog --session`. The name is left plain: it sits right beside rows
+/// whose own ids already carry the log family's magenta id role, and reusing
+/// that role here would read as two different things sharing one color.
+pub fn session_header(name: &str, count: usize, unit: &str) -> String {
+    let word = if count == 1 {
+        unit.to_string()
+    } else {
+        format!("{unit}s")
+    };
+    format!("session {name}  {count} {word}")
+}
+
+/// One row of `ff session list`: name, snapshot count, age of the newest
+/// snapshot, and the span's own elapsed duration. Here the name IS the
+/// row's primary identifier (nothing else on the row is an id it could be
+/// confused with), so it takes the log family's id color the way a
+/// snapshot id would.
+pub fn session_span_row(span: &ff_core::SessionSpan, now: i64, colored: bool) -> String {
+    let name = paint(&span.name, palette().snap, colored);
+    let count = if span.snapshots == 1 {
+        "1 snapshot".to_string()
+    } else {
+        format!("{} snapshots", span.snapshots)
+    };
+    format!(
+        "{name}  {count}  {}  {}",
+        relative_age(now, span.ended),
+        duration_human(span.started, span.ended)
+    )
+}
+
 pub fn log_row(entry: &LogEntry, now: i64) -> String {
     format!(
         "{}  {:>8}  {}  {}",
@@ -668,27 +736,41 @@ pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> S
     )
 }
 
+const AGE_STEPS: &[(i64, &str)] = &[
+    (60, "s"),
+    (60 * 60, "m"),
+    (60 * 60 * 24, "h"),
+    (60 * 60 * 24 * 7, "d"),
+    (60 * 60 * 24 * 30, "w"),
+    (60 * 60 * 24 * 365, "mo"),
+];
+
+/// A non-negative span of seconds, bucketed to its coarsest unit — the
+/// shared core of `relative_age` (which appends " ago") and
+/// `duration_human` (a plain elapsed span, no "ago").
+fn bucketed(delta: i64) -> String {
+    let mut prev = 1;
+    for &(limit, unit) in AGE_STEPS {
+        if delta < limit {
+            return format!("{}{unit}", delta / prev);
+        }
+        prev = limit;
+    }
+    format!("{}y", delta / (60 * 60 * 24 * 365))
+}
+
 pub fn relative_age(now: i64, then: i64) -> String {
     let delta = now - then;
     if delta < 0 {
         return "future".into();
     }
-    const STEPS: &[(i64, &str)] = &[
-        (60, "s"),
-        (60 * 60, "m"),
-        (60 * 60 * 24, "h"),
-        (60 * 60 * 24 * 7, "d"),
-        (60 * 60 * 24 * 30, "w"),
-        (60 * 60 * 24 * 365, "mo"),
-    ];
-    let mut prev = 1;
-    for &(limit, unit) in STEPS {
-        if delta < limit {
-            return format!("{}{unit} ago", delta / prev);
-        }
-        prev = limit;
-    }
-    format!("{}y ago", delta / (60 * 60 * 24 * 365))
+    format!("{} ago", bucketed(delta))
+}
+
+/// How long a span lasted, given its start and end Unix seconds — a plain
+/// duration, not an "ago" phrase.
+pub fn duration_human(started: i64, ended: i64) -> String {
+    bucketed((ended - started).max(0))
 }
 
 /// Painter helpers — one-liners that command files use instead of touching

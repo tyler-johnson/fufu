@@ -84,8 +84,20 @@ pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
         .map_err(Error::repo)?
         .detach();
 
+    tree_diff_stat(repo, head_tree_id, tip_tree_id)
+}
+
+/// The diffstat between two arbitrary trees. `change_stat` drives this with
+/// (HEAD tree, chain tip tree); `session::span_start_tree` and a span's
+/// newest snapshot's tree are the other caller, so the tree-diff engine
+/// lives in exactly one place regardless of which two trees are in question.
+pub fn tree_diff_stat(
+    repo: &gix::Repository,
+    old_tree_id: gix::ObjectId,
+    new_tree_id: gix::ObjectId,
+) -> Result<ChangeStat> {
     // Identical trees: nothing to report.
-    if tip_tree_id == head_tree_id {
+    if old_tree_id == new_tree_id {
         return Ok(ChangeStat {
             files: Vec::new(),
             insertions: 0,
@@ -93,8 +105,8 @@ pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
         });
     }
 
-    let old_tree = repo.find_tree(head_tree_id).map_err(Error::repo)?;
-    let new_tree = repo.find_tree(tip_tree_id).map_err(Error::repo)?;
+    let old_tree = repo.find_tree(old_tree_id).map_err(Error::repo)?;
+    let new_tree = repo.find_tree(new_tree_id).map_err(Error::repo)?;
     let mut cache = repo
         .diff_resource_cache_for_tree_diff()
         .map_err(Error::repo)?;

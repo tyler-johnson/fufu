@@ -80,7 +80,7 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
             let result = match verb {
                 Translated::Status => crate::cmd::status::run_inner(false),
                 Translated::Log { limit } => {
-                    crate::cmd::log::run_inner(false, limit.unwrap_or(0), false)
+                    crate::cmd::log::run_inner(false, limit.unwrap_or(0), false, None)
                 }
                 // The mutating verbs own their pre-snapshot (a no-op after
                 // the capture above) and their journal entry.

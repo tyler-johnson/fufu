@@ -47,7 +47,15 @@ fn pre(prov: &Provenance) -> ff_core::Result<()> {
 
 /// Resolve the current session and attach it to the provenance. Core must
 /// not read `FF_SESSION` itself — resolution is the CLI's job.
-fn attach_session(repo: &gix::Repository, prov: &Provenance) -> Provenance {
+///
+/// `pub(crate)`: `pre_best_effort`/`pre_loud` call this for every
+/// capture-first read command, but a verb whose own mandatory pre-capture
+/// bypasses this module entirely — `ff commit`'s `ff_core::close`, in
+/// particular — needs the same resolution before building its own
+/// `Provenance`, or a commit made while a session is open would close on a
+/// pre-capture with no session trailer at all, and `ff log --session` would
+/// never find it.
+pub(crate) fn attach_session(repo: &gix::Repository, prov: &Provenance) -> Provenance {
     let session = crate::session::current(repo).map(|m| m.name);
     prov.clone().with_session(session)
 }

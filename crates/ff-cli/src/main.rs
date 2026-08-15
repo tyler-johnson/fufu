@@ -57,8 +57,13 @@ fn main() {
             count,
             commits,
             ops,
-        }) => cmd::log::run(json, count, commits, ops),
-        Some(cli::Command::Evolog { json, count }) => cmd::evolog::run(json, count),
+            session,
+        }) => cmd::log::run(json, count, commits, ops, session),
+        Some(cli::Command::Evolog {
+            json,
+            count,
+            session,
+        }) => cmd::evolog::run(json, count, session),
         Some(cli::Command::Git { args }) => cmd::git::run(args),
         Some(cli::Command::Restore {
             at,
@@ -106,6 +111,8 @@ fn main() {
             let (action_str, name) = match action {
                 Some(cli::SessionAction::Start { name }) => (Some("start"), name),
                 Some(cli::SessionAction::End) => (Some("end"), None),
+                Some(cli::SessionAction::List) => (Some("list"), None),
+                Some(cli::SessionAction::Diff { name }) => (Some("diff"), name),
                 None => (None, None),
             };
             cmd::session::run(action_str, name, json)

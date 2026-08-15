@@ -143,6 +143,14 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff describe -m <msg>"],
     },
     Entry {
+        id: "usage/needs-session",
+        summary: "no session to diff — none was named and none is open",
+        detail: "ff session diff needs to know which session's span to show: name one, or open one \
+                 first so the bare form has an obvious answer. ff session list shows what spans \
+                 exist to name.",
+        exits: &["ff session list", "ff session diff <name>"],
+    },
+    Entry {
         id: "usage/unknown-error-id",
         summary: "no error goes by that id",
         detail: "Error ids are stable and namespaced — usage/ for a command line that was wrong, \

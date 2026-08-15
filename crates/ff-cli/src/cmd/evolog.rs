@@ -8,7 +8,10 @@ use std::io::Write as _;
 
 use ff_core::{Error, EvologOptions, Result};
 
-pub fn run(json: bool, count: usize) -> Result<()> {
+/// `session` is the `--session` flag: `None` when absent, `Some("")` for the
+/// bare form (group everything), `Some(name)` to narrow to one session's
+/// spans.
+pub fn run(json: bool, count: usize, session: Option<String>) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
     let repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
@@ -19,11 +22,43 @@ pub fn run(json: bool, count: usize) -> Result<()> {
             ..Default::default()
         },
     )?;
+
+    // Every row's session, one targeted message read each — bounded by the
+    // rows already fetched, not a second chain walk. JSON always wants this
+    // (a plain `ff evolog --json` carries it too); human rendering only
+    // spends it when --session is actually in play.
+    let want_sessions = json || session.is_some();
+    let row_sessions: Vec<Option<String>> = if want_sessions {
+        rows.iter()
+            .map(|row| ff_core::snapshot_session(&repo, &row.id))
+            .collect::<Result<_>>()?
+    } else {
+        vec![None; rows.len()]
+    };
+    let narrow: Option<&str> = match &session {
+        Some(name) if !name.is_empty() => Some(name.as_str()),
+        _ => None,
+    };
+
     if json {
-        let payload = serde_json::json!({ "snapshots": rows });
+        let mut snapshots = Vec::with_capacity(rows.len());
+        for (row, sess) in rows.iter().zip(&row_sessions) {
+            if let Some(target) = narrow
+                && sess.as_deref() != Some(target)
+            {
+                continue;
+            }
+            let mut value = serde_json::to_value(row).map_err(Error::repo)?;
+            if let serde_json::Value::Object(ref mut map) = value {
+                map.insert("session".into(), serde_json::json!(sess));
+            }
+            snapshots.push(value);
+        }
+        let payload = serde_json::json!({ "snapshots": snapshots });
         crate::machine::emit("evolog", &payload)?;
         return Ok(());
     }
+
     if rows.is_empty() {
         let branch = ff_core::open_change(&repo)?.branch;
         println!("no snapshots on {branch} yet");
@@ -36,8 +71,47 @@ pub fn run(json: bool, count: usize) -> Result<()> {
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
-        for row in &rows {
-            writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
+        if session.is_none() {
+            for row in &rows {
+                writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
+            }
+            return Ok(());
+        }
+        // --session (bare or named): group into spans, header per span.
+        // Rows outside any session render exactly as they do today, unless
+        // a name narrowed the view — then only that session's spans show.
+        for slot in crate::render::session_slots(&row_sessions) {
+            match slot {
+                crate::render::SessionSlot::Row(idx) => {
+                    if narrow.is_some() {
+                        continue;
+                    }
+                    writeln!(
+                        out,
+                        "{}",
+                        crate::render::snap_row(&rows[idx], &lens, now, colored)
+                    )?;
+                }
+                crate::render::SessionSlot::Span { name, rows: idxs } => {
+                    if let Some(target) = narrow
+                        && name != target
+                    {
+                        continue;
+                    }
+                    writeln!(
+                        out,
+                        "{}",
+                        crate::render::session_header(&name, idxs.len(), "snapshot")
+                    )?;
+                    for idx in idxs {
+                        writeln!(
+                            out,
+                            "{}",
+                            crate::render::snap_row(&rows[idx], &lens, now, colored)
+                        )?;
+                    }
+                }
+            }
         }
         Ok(())
     })();

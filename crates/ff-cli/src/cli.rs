@@ -55,6 +55,9 @@ pub enum Command {
         /// The operation journal — every fufu mutation, with op ids
         #[arg(long, conflicts_with = "commits")]
         ops: bool,
+        /// Group by session span; a name narrows to that session's spans
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        session: Option<String>,
     },
     /// Show the open change's snapshot chain (the evolution log)
     #[command(long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
@@ -65,6 +68,9 @@ pub enum Command {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
+        /// Group by session span; a name narrows to that session's spans
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        session: Option<String>,
     },
     /// Capture-first git passthrough; daily forms translate to ff verbs
     #[command(
@@ -256,7 +262,11 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<SessionAction>,
         /// Emit machine-readable JSON
-        #[arg(long)]
+        // `global` so `ff session list --json` and `ff session diff <name>
+        // --json` parse — without it clap only accepts `--json` before the
+        // subcommand name, which every JSON-emitting session verb needs to
+        // not have to know or care about.
+        #[arg(long, global = true)]
         json: bool,
     },
 }
@@ -270,6 +280,13 @@ pub enum SessionAction {
     },
     /// Close the open capture session
     End,
+    /// List the session spans on the current chain
+    List,
+    /// Show what a session's span changed
+    Diff {
+        /// Session name; defaults to the currently open session
+        name: Option<String>,
+    },
 }
 
 /// Everything that feeds the capture floor is a hook. One grammar:

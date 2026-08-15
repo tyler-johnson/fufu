@@ -10,6 +10,12 @@ pub fn run(
     json: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    // The close's own mandatory pre-capture bypasses `capture::pre_best_effort`
+    // (it's core's to take, not a generic capture-first read), so the
+    // session resolution that module normally does has to happen here
+    // instead — otherwise a commit closed under an open session would carry
+    // no trailer at all.
+    let prov = crate::capture::attach_session(&repo, &crate::provenance::pre_ff());
     let (outcome, ctx) = ff_core::close(
         &repo,
         &CloseOptions {
@@ -19,7 +25,7 @@ pub fn run(
             now: None,
             argv: std::env::args().collect(),
         },
-        &crate::provenance::pre_ff(),
+        &prov,
     )?;
 
     crate::render::init_palette(&repo);
