@@ -173,6 +173,45 @@ fn path_scoped_restore_leaves_the_rest() {
     );
 }
 
+/// `d` is a duration unit and a hex digit both, so the two readings of a
+/// target overlap and the order of the checks decides the winner. Git's
+/// four-character prefix minimum is what separates them: at or above it a
+/// hex-shaped target is an id, below it there is no id it could be.
+#[test]
+fn hex_shaped_targets_are_ids_not_durations() {
+    let now = 1_700_000_000;
+    let id = |s: &str| ff_core::RestoreTarget::Id(s.to_string());
+    let age = |secs: i64| ff_core::RestoreTarget::AtTime(now - secs);
+
+    let table: &[(&str, ff_core::RestoreTarget)] = &[
+        // Four hex characters or more: an object prefix, whatever it spells.
+        ("123d", id("123d")),
+        ("1234d", id("1234d")),
+        ("beed", id("beed")),
+        ("0000", id("0000")),
+        ("123D", id("123d")),
+        ("abcdef1", id("abcdef1")),
+        // Too short to be a prefix, so the duration reading is the only one.
+        ("3d", age(3 * 86_400)),
+        ("10d", age(10 * 86_400)),
+        ("9s", age(9)),
+        // Never hex-shaped at any length: the unit is not a hex digit.
+        ("30m", age(1800)),
+        ("2h", age(7200)),
+        ("1w", age(7 * 86_400)),
+        ("123w", age(123 * 7 * 86_400)),
+        ("90s", age(90)),
+    ];
+
+    for (raw, want) in table {
+        assert_eq!(
+            &ff_core::parse_target(Some(raw), now).unwrap(),
+            want,
+            "target {raw:?}"
+        );
+    }
+}
+
 #[test]
 fn target_grammar_resolves() {
     let fx = Fixture::new();

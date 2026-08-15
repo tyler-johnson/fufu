@@ -23,9 +23,13 @@ pub enum RestoreTarget {
     AtTime(i64),
 }
 
+/// Git's own shortest-accepted object prefix. Borrowed rather than restated:
+/// it is what separates an id from a duration below.
+const MIN_HEX_LEN: usize = gix::hash::Prefix::MIN_HEX_LEN;
+
 /// Parse the target grammar: nothing, a hex or letters-spelled id prefix,
 /// `@{n}`, a compact duration (`90s`/`15m`/`2h`/`3d`/`1w`), or a git-style
-/// date string.
+/// date string. Ids are tried before durations — see the note inline.
 pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
     let Some(raw) = raw else {
         return Ok(RestoreTarget::Newest);
@@ -38,15 +42,19 @@ pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
     {
         return Ok(RestoreTarget::Back(n));
     }
+    // Hex before ages: `d` is both a duration unit and a hex digit, so `123d`
+    // is a legal object prefix and must resolve as one. Ages survive because
+    // git's own four-character prefix minimum excludes them — `3d` and `10d`
+    // are too short to be a prefix, so they still read as durations.
+    if raw.len() >= MIN_HEX_LEN && raw.len() <= 40 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(RestoreTarget::Id(raw.to_ascii_lowercase()));
+    }
     if let Some(secs) = parse_compact_age(raw) {
         return Ok(RestoreTarget::AtTime(now - secs));
     }
-    if raw.len() >= 4 && raw.len() <= 40 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(RestoreTarget::Id(raw.to_ascii_lowercase()));
-    }
     // Letters-spelled ids win over date words: `noon` and `tomorrow` are
     // all-alphabet and parse as id prefixes — accepted shadowing (DESIGN.md).
-    if raw.len() >= 4
+    if raw.len() >= MIN_HEX_LEN
         && raw.len() <= 40
         && crate::snapid::is_encoded(raw)
         && let Some(hex) = crate::snapid::decode(raw)
