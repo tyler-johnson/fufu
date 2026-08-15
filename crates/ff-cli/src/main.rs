@@ -3,6 +3,7 @@ mod cadence;
 mod capture;
 mod cli;
 mod cmd;
+mod explain;
 mod help;
 mod machine;
 mod pager;
@@ -42,6 +43,7 @@ fn main() {
         Some(cli::Command::Hook { .. }) => (false, "hook"),
         Some(cli::Command::Config { json, .. }) => (*json, "config"),
         Some(cli::Command::Doctor { json, .. }) => (*json, "doctor"),
+        Some(cli::Command::Explain { json, .. }) => (*json, "explain"),
         Some(cli::Command::Update { .. }) => (false, "update"),
     };
 
@@ -96,6 +98,7 @@ fn main() {
             json,
         }) => cmd::config::run(key, value, unset, global, json),
         Some(cli::Command::Doctor { fix, json }) => cmd::doctor::run(fix, json),
+        Some(cli::Command::Explain { id, list, json }) => cmd::explain::run(id, list, json),
         Some(cli::Command::Update { check }) => cmd::update::run(check),
     };
 

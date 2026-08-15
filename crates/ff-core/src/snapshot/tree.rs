@@ -224,7 +224,7 @@ pub(crate) fn assemble(
     if !rehash_all.is_empty() {
         let workdir = repo
             .workdir()
-            .ok_or_else(|| Error::msg("bare repository: cannot capture"))?
+            .ok_or_else(|| Error::coded("repo/bare", "bare repository: cannot capture", vec![]))?
             .to_owned();
         let (mut pipeline, index) = repo.filter_pipeline(None).map_err(Error::repo)?;
         for path in rehash_all {

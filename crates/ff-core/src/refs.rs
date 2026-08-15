@@ -116,7 +116,11 @@ pub(crate) fn write_ref(
         time,
     )? {
         EditOutcome::Applied => Ok(()),
-        EditOutcome::Contended => Err(Error::msg(format!("could not update {name}: contended"))),
+        EditOutcome::Contended => Err(Error::coded(
+            "ref/contended",
+            format!("could not update {name}: contended"),
+            vec![],
+        )),
     }
 }
 
@@ -129,7 +133,11 @@ pub(crate) fn delete_ref(
 ) -> Result<()> {
     match commit_edits(repo, Some(delete_edit(name, expected)?), time)? {
         EditOutcome::Applied => Ok(()),
-        EditOutcome::Contended => Err(Error::msg(format!("could not delete {name}: contended"))),
+        EditOutcome::Contended => Err(Error::coded(
+            "ref/contended",
+            format!("could not delete {name}: contended"),
+            vec![],
+        )),
     }
 }
 
@@ -194,7 +202,11 @@ pub(crate) fn create_ref_with_log(
         match commit_edits_as(repo, Some(edit), sig)? {
             EditOutcome::Applied => {}
             EditOutcome::Contended => {
-                return Err(Error::msg(format!("{name} is contended during replay")));
+                return Err(Error::coded(
+                    "ref/contended",
+                    format!("{name} is contended during replay"),
+                    vec![],
+                ));
             }
         }
         expected = PreviousValue::MustExistAndMatch(gix::refs::Target::Object(line.new));
@@ -215,7 +227,14 @@ pub(crate) fn user_signature(repo: &gix::Repository, now: i64) -> Result<gix::ac
         .transpose()
         .map_err(Error::repo)?
         .ok_or_else(|| {
-            Error::msg("no identity configured: set user.name and user.email (git config)")
+            Error::coded(
+                "identity/missing",
+                "no identity configured: set user.name and user.email (git config)",
+                vec![
+                    "git config user.name <name>".into(),
+                    "git config user.email <email>".into(),
+                ],
+            )
         })?;
     Ok(gix::actor::Signature {
         name: sig.name.to_owned(),

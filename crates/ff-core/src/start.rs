@@ -47,15 +47,19 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
                 forked_from: t.name,
             })
         }
-        Some("@") => Err(Error::msg(
+        Some("@") => Err(Error::coded(
+            "target/unresolvable",
             "@ is not a start target — ff start always opens a clean branch; \
              to move the open change onto its own branch, use ff commit -b <name>",
+            vec!["ff commit -b <name>".into()],
         )),
         Some(raw) => {
             let names = crate::switch::branch_names(repo)?;
             if names.iter().any(|n| n == raw) {
-                let at = refs::ref_target(repo, &format!("refs/heads/{raw}"))?
-                    .ok_or_else(|| Error::msg(format!("no branch named {raw}")))?;
+                let at =
+                    refs::ref_target(repo, &format!("refs/heads/{raw}"))?.ok_or_else(|| {
+                        Error::coded("branch/not-found", format!("no branch named {raw}"), vec![])
+                    })?;
                 return Ok(ForkPoint {
                     at,
                     forked_from: raw.to_string(),
@@ -64,7 +68,13 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             // Not a branch name: try a revision.
             let commit = repo
                 .rev_parse_single(raw)
-                .map_err(|_| Error::msg(format!("{raw} is neither a branch nor a revision")))?
+                .map_err(|_| {
+                    Error::coded(
+                        "target/unresolvable",
+                        format!("{raw} is neither a branch nor a revision"),
+                        vec!["ff log".into(), "ff evolog".into()],
+                    )
+                })?
                 .object()
                 .map_err(Error::repo)?
                 .peel_to_kind(gix::objs::Kind::Commit)
@@ -98,7 +108,11 @@ pub fn start(
         Some(name) => {
             branch::validate_name(name)?;
             if refs::ref_target(repo, &format!("refs/heads/{name}"))?.is_some() {
-                return Err(Error::msg(format!("a branch named {name} already exists")));
+                return Err(Error::coded(
+                    "branch/exists",
+                    format!("a branch named {name} already exists"),
+                    vec!["ff branch".into()],
+                ));
             }
             name.clone()
         }

@@ -33,7 +33,7 @@ pub(crate) fn apply_tree_transition(
 ) -> Result<Transition> {
     let workdir = repo
         .workdir()
-        .ok_or_else(|| Error::msg("bare repository: no worktree to write"))?
+        .ok_or_else(|| Error::coded("repo/bare", "bare repository: no worktree to write", vec![]))?
         .to_owned();
     let changes = tree_changes(repo, from, to)?;
     let mut out = Transition::default();

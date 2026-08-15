@@ -31,7 +31,11 @@ pub fn resolve_branch(repo: &gix::Repository, raw: &str) -> Result<String> {
     }
     let matches: Vec<&String> = names.iter().filter(|n| n.starts_with(raw)).collect();
     match matches.as_slice() {
-        [] => Err(Error::msg(format!("no branch named {raw}"))),
+        [] => Err(Error::coded(
+            "branch/not-found",
+            format!("no branch named {raw}"),
+            vec![],
+        )),
         [one] => Ok((*one).clone()),
         many => {
             let list: Vec<&str> = many.iter().map(|n| n.as_str()).collect();
@@ -66,7 +70,11 @@ pub fn switch(
     prov: &Provenance,
 ) -> Result<(SwitchReport, journal::VerbContext)> {
     if repo.workdir().is_none() {
-        return Err(Error::msg("bare repository: nothing to switch"));
+        return Err(Error::coded(
+            "repo/bare",
+            "bare repository: nothing to switch",
+            vec![],
+        ));
     }
     if let Some(op) = crate::head::operation(repo) {
         return Err(Error::msg(format!(
@@ -93,8 +101,13 @@ pub fn switch(
         ));
     }
     let target_ref = format!("refs/heads/{target}");
-    let target_commit = crate::refs::ref_target(repo, &target_ref)?
-        .ok_or_else(|| Error::msg(format!("no branch named {target}")))?;
+    let target_commit = crate::refs::ref_target(repo, &target_ref)?.ok_or_else(|| {
+        Error::coded(
+            "branch/not-found",
+            format!("no branch named {target}"),
+            vec![],
+        )
+    })?;
     let target_tree = repo
         .find_commit(target_commit)
         .map_err(Error::repo)?

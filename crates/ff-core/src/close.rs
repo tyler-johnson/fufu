@@ -44,7 +44,11 @@ pub fn close(
     prov: &Provenance,
 ) -> Result<(CommitOutcome, journal::VerbContext)> {
     if repo.workdir().is_none() {
-        return Err(Error::msg("bare repository: nothing to commit"));
+        return Err(Error::coded(
+            "repo/bare",
+            "bare repository: nothing to commit",
+            vec![],
+        ));
     }
     if let Some(op) = crate::head::operation(repo) {
         return Err(Error::msg(format!(
@@ -69,8 +73,10 @@ pub fn close(
             None,
         ),
         HeadState::Detached { .. } => {
-            return Err(Error::msg(
+            return Err(Error::coded(
+                "repo/detached",
                 "detached HEAD: there is no branch to close onto (ff branch <name> to mint one)",
+                vec!["ff branch <name>".into()],
             ));
         }
     };
@@ -155,7 +161,11 @@ pub fn close(
         Some(name) => {
             branch::validate_name(name)?;
             if refs::ref_target(repo, &format!("refs/heads/{name}"))?.is_some() {
-                return Err(Error::msg(format!("a branch named {name} already exists")));
+                return Err(Error::coded(
+                    "branch/exists",
+                    format!("a branch named {name} already exists"),
+                    vec!["ff branch".into()],
+                ));
             }
             if branch::is_anonymous(&current_branch) {
                 claim_from = Some(current_branch.clone());
@@ -288,9 +298,13 @@ pub fn close(
     match refs::commit_edits_as(repo, Some(edit), sig_ref)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
-            return Err(Error::msg(format!(
-                "{target_ref} moved while closing; nothing was committed (re-run to close on the new tip)"
-            )));
+            return Err(Error::coded(
+                "ref/contended",
+                format!(
+                    "{target_ref} moved while closing; nothing was committed (re-run to close on the new tip)"
+                ),
+                vec![],
+            ));
         }
     }
 

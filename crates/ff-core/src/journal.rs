@@ -408,8 +408,10 @@ pub fn append(
             EditOutcome::Applied => return Ok(commit_id),
             EditOutcome::Contended if attempt < 2 => continue,
             EditOutcome::Contended => {
-                return Err(Error::msg(
+                return Err(Error::coded(
+                    "ref/contended",
                     "journal is contended: another fufu operation is in progress",
+                    vec![],
                 ));
             }
         }

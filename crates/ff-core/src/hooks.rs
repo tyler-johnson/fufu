@@ -58,9 +58,13 @@ fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr]) -> Result<
     // backslashes are escapes: hand sh POSIX separators, as git does.
     #[cfg(windows)]
     let hook = std::path::PathBuf::from(hook.to_string_lossy().replace('\\', "/"));
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| Error::msg("bare repository: no worktree for hooks"))?;
+    let workdir = repo.workdir().ok_or_else(|| {
+        Error::coded(
+            "repo/bare",
+            "bare repository: no worktree for hooks",
+            vec![],
+        )
+    })?;
     let mut prepare = gix::command::prepare(hook)
         .with_shell()
         .with_context(repo.command_context().map_err(Error::repo)?);
@@ -74,7 +78,11 @@ fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr]) -> Result<
         .status()
         .map_err(|err| Error::msg(format!("could not run {name} hook: {err}")))?;
     if !status.success() {
-        return Err(Error::msg(format!("{name} hook declined the commit")));
+        return Err(Error::coded(
+            "hook/declined",
+            format!("{name} hook declined the commit"),
+            vec!["ff commit --no-verify".into()],
+        ));
     }
     Ok(true)
 }

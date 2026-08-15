@@ -4,6 +4,7 @@ pub mod config;
 pub mod describe;
 pub mod doctor;
 pub mod evolog;
+pub mod explain;
 pub mod git;
 pub mod git_exec;
 pub mod hook;

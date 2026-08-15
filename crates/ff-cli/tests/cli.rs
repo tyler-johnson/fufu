@@ -1423,7 +1423,7 @@ fn human_error_lists_its_exits() {
 
 #[test]
 fn uncoded_errors_report_as_internal_and_exit_one() {
-    // Detached HEAD causes ff describe to return Error::msg (id "internal").
+    // Detached HEAD causes ff describe to return Error::coded("repo/detached", ...).
     // -m bypasses the non-interactive guard so the detached-HEAD path is reached.
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
@@ -1433,5 +1433,99 @@ fn uncoded_errors_report_as_internal_and_exit_one() {
     assert_eq!(out.status.code(), Some(1));
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["error"]["id"], "internal");
+    assert_eq!(v["error"]["id"], "repo/detached");
+}
+
+/// `ff explain <id>` works outside a repository and renders the entry.
+#[test]
+fn explain_known_id_works_outside_repo() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "repo/bare"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.starts_with("repo/bare"));
+    assert!(text.contains("bare repository"));
+}
+
+/// `ff explain --list` renders all entries, works outside a repository.
+#[test]
+fn explain_list_works_outside_repo() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "--list"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("repo/bare"));
+    assert!(text.contains("branch/not-found"));
+    assert!(text.contains("internal"));
+}
+
+/// `ff explain <id> --json` emits the versioned envelope with entry data.
+#[test]
+fn explain_json_single_entry() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "branch/exists", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1, "envelope version");
+    assert_eq!(v["cmd"], "explain");
+    assert_eq!(v["data"]["id"], "branch/exists");
+    assert!(v["data"]["summary"].is_string());
+    assert!(v["data"]["detail"].is_string());
+    assert!(v["data"]["exits"].is_array());
+}
+
+/// `ff explain --list --json` emits an array of entries.
+#[test]
+fn explain_json_list() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "--list", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1);
+    assert_eq!(v["cmd"], "explain");
+    let entries = v["data"]["entries"].as_array().expect("entries is array");
+    assert!(entries.len() >= 16, "registry has entries");
+    for entry in entries {
+        assert!(entry["id"].is_string(), "each entry has id");
+        assert!(entry["summary"].is_string(), "each entry has summary");
+    }
+}
+
+/// `ff explain <unknown-id>` exits 2 (usage/) with usage/unknown-error-id.
+#[test]
+fn explain_unknown_id_exits_two() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "nonexistent/foo", "--json"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["error"]["id"], "usage/unknown-error-id");
+}
+
+/// `ff explain` with no arguments exits 2 (usage error).
+#[test]
+fn explain_no_args_exits_two() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain"]);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// Human explain output includes try: hints when the entry has exits.
+#[test]
+fn explain_human_includes_hints() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "branch/not-found"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("try:"));
+    assert!(text.contains("ff branch"));
+}
+
+/// Human explain output omits try: block when the entry has no exits.
+#[test]
+fn explain_human_no_hints_when_empty() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "repo/bare"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(!text.contains("try:"), "no exits means no try: block");
 }

@@ -8,8 +8,10 @@ use crate::model::{ChangeKind, Status, StatusEntry};
 /// so `.git/index` stays byte-identical.
 pub fn status(repo: &gix::Repository) -> Result<Status> {
     if repo.workdir().is_none() {
-        return Err(Error::msg(
+        return Err(Error::coded(
+            "repo/bare",
             "bare repository: status requires a working tree",
+            vec![],
         ));
     }
     let head = crate::head::head_state(repo)?;

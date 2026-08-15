@@ -29,7 +29,11 @@ pub fn set_pending(
             .unwrap_or(r#ref)
             .to_string(),
         crate::model::HeadState::Detached { .. } => {
-            return Err(Error::msg("detached HEAD: there is no change to describe"));
+            return Err(Error::coded(
+                "repo/detached",
+                "detached HEAD: there is no change to describe",
+                vec!["ff switch <branch>".into()],
+            ));
         }
     };
     let text = text

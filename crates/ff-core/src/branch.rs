@@ -82,10 +82,15 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
     validate_name(new)?;
     let old_ref = heads_ref(old);
     let new_ref = heads_ref(new);
-    let target = refs::ref_target(repo, &old_ref)?
-        .ok_or_else(|| Error::msg(format!("no branch named {old}")))?;
+    let target = refs::ref_target(repo, &old_ref)?.ok_or_else(|| {
+        Error::coded("branch/not-found", format!("no branch named {old}"), vec![])
+    })?;
     if refs::ref_target(repo, &new_ref)?.is_some() {
-        return Err(Error::msg(format!("a branch named {new} already exists")));
+        return Err(Error::coded(
+            "branch/exists",
+            format!("a branch named {new} already exists"),
+            vec!["ff branch".into()],
+        ));
     }
     guard_other_worktrees(repo, old)?;
 
@@ -195,7 +200,9 @@ pub(crate) fn retarget_head(repo: &gix::Repository, full_ref: &str, now: i64) ->
     };
     match refs::commit_edits(repo, Some(edit), now)? {
         refs::EditOutcome::Applied => Ok(()),
-        refs::EditOutcome::Contended => Err(Error::msg("HEAD is contended")),
+        refs::EditOutcome::Contended => {
+            Err(Error::coded("ref/contended", "HEAD is contended", vec![]))
+        }
     }
 }
 
@@ -291,9 +298,11 @@ pub fn rename_current(
     }
     validate_name(new_name)?;
     if refs::ref_target(repo, &heads_ref(new_name))?.is_some() {
-        return Err(Error::msg(format!(
-            "a branch named {new_name} already exists"
-        )));
+        return Err(Error::coded(
+            "branch/exists",
+            format!("a branch named {new_name} already exists"),
+            vec!["ff branch".into()],
+        ));
     }
     guard_other_worktrees(repo, &current)?;
 
@@ -385,8 +394,13 @@ pub fn delete(
         )));
     }
     let full = heads_ref(name);
-    let tip = refs::ref_target(repo, &full)?
-        .ok_or_else(|| Error::msg(format!("no branch named {name}")))?;
+    let tip = refs::ref_target(repo, &full)?.ok_or_else(|| {
+        Error::coded(
+            "branch/not-found",
+            format!("no branch named {name}"),
+            vec![],
+        )
+    })?;
     guard_other_worktrees(repo, name)?;
 
     let parked = crate::stash::parked_entry(repo, name)?;
@@ -468,9 +482,11 @@ pub fn create_at(
     validate_name(branch)?;
     let full = heads_ref(branch);
     if refs::ref_target(repo, &full)?.is_some() {
-        return Err(Error::msg(format!(
-            "a branch named {branch} already exists"
-        )));
+        return Err(Error::coded(
+            "branch/exists",
+            format!("a branch named {branch} already exists"),
+            vec!["ff branch".into()],
+        ));
     }
     refs::write_ref(
         repo,

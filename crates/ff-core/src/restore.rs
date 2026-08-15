@@ -95,10 +95,21 @@ pub fn restore(
     prov: &Provenance,
 ) -> Result<RestoreReport> {
     if repo.workdir().is_none() {
-        return Err(Error::msg("bare repository: nothing to restore into"));
+        return Err(Error::coded(
+            "repo/bare",
+            "bare repository: nothing to restore into",
+            vec![],
+        ));
     }
     if !opts.all && opts.paths.is_empty() {
-        return Err(Error::msg("nothing selected: pass paths or --all"));
+        return Err(Error::coded(
+            "restore/nothing-selected",
+            "nothing selected: pass paths or --all",
+            vec![
+                "ff restore --all".into(),
+                "ff restore <path> --at <id>".into(),
+            ],
+        ));
     }
     let head = crate::head::head_state(repo)?;
     let chain_name = chain::chain_name(&head);

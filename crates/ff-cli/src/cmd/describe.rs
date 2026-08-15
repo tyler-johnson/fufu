@@ -84,7 +84,11 @@ fn edit_in_editor(repo: &ff_core::gix::Repository) -> Result<Option<String>> {
             .unwrap_or(r#ref)
             .to_string(),
         ff_core::HeadState::Detached { .. } => {
-            return Err(Error::msg("detached HEAD: there is no change to describe"));
+            return Err(Error::coded(
+                "repo/detached",
+                "detached HEAD: there is no change to describe",
+                vec!["ff switch <branch>".into()],
+            ));
         }
     };
     let current = ff_core::branchmeta::read(repo, &branch)?
@@ -105,10 +109,20 @@ fn edit_in_editor(repo: &ff_core::gix::Repository) -> Result<Option<String>> {
         .arg("sh")
         .arg(&path)
         .status()
-        .map_err(|err| Error::msg(format!("could not run editor {editor}: {err}")))?;
+        .map_err(|err| {
+            Error::coded(
+                "editor/failed",
+                format!("could not run editor {editor}: {err}"),
+                vec!["ff describe -m <msg>".into()],
+            )
+        })?;
     if !status.success() {
         let _ = std::fs::remove_file(&path);
-        return Err(Error::msg("editor exited non-zero; description unchanged"));
+        return Err(Error::coded(
+            "editor/failed",
+            "editor exited non-zero; description unchanged",
+            vec!["ff describe -m <msg>".into()],
+        ));
     }
     let raw = std::fs::read_to_string(&path).map_err(Error::repo)?;
     let _ = std::fs::remove_file(&path);

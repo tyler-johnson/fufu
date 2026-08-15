@@ -32,7 +32,11 @@ pub fn undo(
     prov: &Provenance,
 ) -> Result<(UndoReport, journal::VerbContext)> {
     if repo.workdir().is_none() {
-        return Err(Error::msg("bare repository: nothing to undo"));
+        return Err(Error::coded(
+            "repo/bare",
+            "bare repository: nothing to undo",
+            vec![],
+        ));
     }
     if let Some(op) = crate::head::operation(repo) {
         return Err(Error::msg(format!(
@@ -45,7 +49,13 @@ pub fn undo(
 
     // Resolve the target AFTER reconciliation: bare undo then sees (and can
     // undo) freshly absorbed foreign motion.
-    let tip = journal::tip(repo)?.ok_or_else(|| Error::msg("no journal yet: nothing to undo"))?;
+    let tip = journal::tip(repo)?.ok_or_else(|| {
+        Error::coded(
+            "undo/nothing",
+            "no journal yet: nothing to undo",
+            vec!["ff log --ops".into()],
+        )
+    })?;
     let target_id = match &opts.op {
         Some(prefix) => journal::resolve_op_prefix(repo, prefix)?,
         None => newest_undoable(repo, tip)?,
@@ -366,7 +376,11 @@ fn newest_undoable(repo: &gix::Repository, tip: gix::ObjectId) -> Result<gix::Ob
         }
         cursor = entry.prev;
     }
-    Err(Error::msg("nothing undoable in the journal yet"))
+    Err(Error::coded(
+        "undo/nothing",
+        "nothing undoable in the journal yet",
+        vec!["ff log --ops".into()],
+    ))
 }
 
 fn branch_of_table(table: &journal::RefsTable) -> Option<String> {
@@ -415,6 +429,8 @@ fn detach_head(repo: &gix::Repository, at: gix::ObjectId, now: i64) -> Result<()
     };
     match refs::commit_edits(repo, Some(edit), now)? {
         refs::EditOutcome::Applied => Ok(()),
-        refs::EditOutcome::Contended => Err(Error::msg("HEAD is contended")),
+        refs::EditOutcome::Contended => {
+            Err(Error::coded("ref/contended", "HEAD is contended", vec![]))
+        }
     }
 }

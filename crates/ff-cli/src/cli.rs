@@ -231,6 +231,18 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Look up an error id and see what it means
+    Explain {
+        /// The error id to look up
+        #[arg(value_name = "id")]
+        id: Option<String>,
+        /// List every error id fufu knows
+        #[arg(long)]
+        list: bool,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Download the latest release and replace this binary
     #[command(long_about = help::UPDATE, after_long_help = help::UPDATE_EXAMPLES)]
     Update {

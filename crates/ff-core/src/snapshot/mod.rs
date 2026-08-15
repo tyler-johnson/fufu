@@ -67,8 +67,10 @@ pub fn take_with(
     opts: &TakeOptions,
 ) -> Result<SnapOutcome> {
     if repo.workdir().is_none() {
-        return Err(Error::msg(
+        return Err(Error::coded(
+            "repo/bare",
             "bare repository: capture requires a working tree",
+            vec![],
         ));
     }
     let head = crate::head::head_state(repo)?;

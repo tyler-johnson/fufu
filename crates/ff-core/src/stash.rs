@@ -263,7 +263,11 @@ pub fn execute_park(repo: &gix::Repository, plan: &ParkPlan) -> Result<()> {
     match refs::commit_edits_as(repo, Some(edit), sig_ref) {
         Ok(EditOutcome::Applied) => {}
         Ok(EditOutcome::Contended) => {
-            return Err(Error::msg("refs/stash is contended; park aborted"));
+            return Err(Error::coded(
+                "ref/contended",
+                "refs/stash is contended; park aborted",
+                vec![],
+            ));
         }
         Err(err) => return Err(err),
     }
@@ -490,7 +494,7 @@ pub fn execute_arrival(
             // (ignored files) still block the untracked restoration.
             let workdir = repo
                 .workdir()
-                .ok_or_else(|| Error::msg("bare repository: cannot arrive"))?
+                .ok_or_else(|| Error::coded("repo/bare", "bare repository: cannot arrive", vec![]))?
                 .to_owned();
             let mut collisions = Vec::new();
             for (path, _, _) in tree_files(repo, *untracked_tree)? {
@@ -712,7 +716,11 @@ pub fn drop_stash_entry(repo: &gix::Repository, sha: gix::ObjectId) -> Result<()
         match refs::commit_edits_as(repo, Some(edit), sig)? {
             EditOutcome::Applied => {}
             EditOutcome::Contended => {
-                return Err(Error::msg("refs/stash is contended during replay"));
+                return Err(Error::coded(
+                    "ref/contended",
+                    "refs/stash is contended during replay",
+                    vec![],
+                ));
             }
         }
         expected = gix::refs::transaction::PreviousValue::MustExistAndMatch(
