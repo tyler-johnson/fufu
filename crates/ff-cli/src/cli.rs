@@ -10,6 +10,10 @@ use crate::help;
 #[derive(Parser)]
 #[command(
     name = "ff",
+    // Pinned, not derived: clap falls back to argv[0]'s file name, which is
+    // "ff.exe" on Windows, so usage lines would read "Usage: ff.exe hook agent"
+    // there and "Usage: ff hook agent" everywhere else. Subcommands inherit it.
+    bin_name = "ff",
     version = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO")),
     about = "a friendlier interface to plain git",
     long_about = help::ROOT,
