@@ -7,6 +7,16 @@ use ff_core::{Error, Result};
 pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
+    // Non-interactive gate: when no terminal and no -m, fail early instead
+    // of trying to spawn an editor.
+    if message.is_none() && branch.is_none() && !crate::machine::interactive() {
+        return Err(Error::coded(
+            "usage/needs-message",
+            "no description given and no terminal to open an editor on",
+            vec!["ff describe -m <msg>".into()],
+        ));
+    }
+
     if let Some(new_name) = branch {
         let (report, ctx) = ff_core::branch::rename_current(
             &repo,

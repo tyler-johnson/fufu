@@ -1381,3 +1381,57 @@ fn log_ops_and_commits_share_the_log_name() {
         assert_eq!(v["cmd"], "log", "cmd is log for {:?}", args);
     }
 }
+
+#[test]
+fn error_json_uses_the_envelope() {
+    // Running ff status --json outside any repository provokes a discovery error.
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["status", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["ff"], 1, "envelope version");
+    assert!(v.get("error").is_some(), "has error object");
+    assert!(!v["error"]["id"].is_null(), "error.id is non-empty");
+    assert!(
+        !v["error"]["message"].is_null(),
+        "error.message is non-empty"
+    );
+    assert!(v.get("data").is_none(), "has no data key");
+}
+
+#[test]
+fn human_error_lists_its_exits() {
+    let fx = Fixture::new();
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["describe"])
+        .env("FF_NONINTERACTIVE", "1")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn ff");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("try:"), "stderr contains try:");
+    assert!(
+        stderr.contains("ff describe -m <msg>"),
+        "stderr contains hint"
+    );
+}
+
+#[test]
+fn uncoded_errors_report_as_internal_and_exit_one() {
+    // Detached HEAD causes ff describe to return Error::msg (id "internal").
+    // -m bypasses the non-interactive guard so the detached-HEAD path is reached.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["checkout", "--detach", "HEAD"]);
+    let out = ff(&fx, &["describe", "-m", "test", "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["error"]["id"], "internal");
+}

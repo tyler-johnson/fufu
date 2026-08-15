@@ -114,7 +114,7 @@ pub(crate) fn registry() -> &'static [Setting] {
     ]
 }
 
-fn lookup_key(input: &str) -> &'static Setting {
+fn lookup_key(input: &str) -> Result<&'static Setting> {
     let stripped = if input.len() >= 5 && input[..5].eq_ignore_ascii_case("fufu.") {
         &input[5..]
     } else {
@@ -123,9 +123,12 @@ fn lookup_key(input: &str) -> &'static Setting {
     registry()
         .iter()
         .find(|s| s.name.eq_ignore_ascii_case(stripped))
-        .unwrap_or_else(|| {
-            eprintln!("ff: unknown setting \"{input}\" — `ff config` lists them all");
-            std::process::exit(2);
+        .ok_or_else(|| {
+            Error::coded(
+                "usage/unknown-key",
+                format!("unknown setting \"{input}\" — `ff config` lists them all"),
+                vec!["ff config".into()],
+            )
         })
 }
 
@@ -220,53 +223,36 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
     }
 }
 
-fn validate_value(setting: &Setting, value: &str) {
+fn validate_value(setting: &Setting, value: &str) -> Result<()> {
     if !value_is_valid(setting, value) {
-        match &setting.kind {
+        let msg = match &setting.kind {
             SettingKind::Duration => {
-                eprintln!(
-                    "ff: invalid value for keep: want a duration like 90d, 36h, 2w, or days as a \
-                     bare number"
-                );
-                std::process::exit(2);
+                "invalid value for keep: want a duration like 90d, 36h, 2w, or days as a \
+                 bare number"
+                    .to_string()
             }
             SettingKind::Size => {
-                eprintln!(
-                    "ff: invalid value for maxFileSize: want a byte count like 52428800 or 100M"
-                );
-                std::process::exit(2);
+                "invalid value for maxFileSize: want a byte count like 52428800 or 100M".to_string()
             }
-            SettingKind::Command => {
-                eprintln!("ff: invalid value for pager: want a command");
-                std::process::exit(2);
-            }
+            SettingKind::Command => "invalid value for pager: want a command".to_string(),
             SettingKind::Cadence => {
-                eprintln!(
-                    "ff: invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
-                );
-                std::process::exit(2);
+                "invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
+                    .to_string()
             }
-            SettingKind::Bool => {
-                eprintln!("ff: invalid value for autoUpdate: want true or false");
-                std::process::exit(2);
-            }
-            SettingKind::Branch => {
-                eprintln!(
-                    "ff: invalid value for {}: want a branch name like main or origin/main",
-                    setting.name
-                );
-                std::process::exit(2);
-            }
-            SettingKind::Choice(valid) => {
-                eprintln!(
-                    "ff: invalid value for {}: want one of {}",
-                    setting.name,
-                    valid.join(", ")
-                );
-                std::process::exit(2);
-            }
-        }
+            SettingKind::Bool => "invalid value for autoUpdate: want true or false".to_string(),
+            SettingKind::Branch => format!(
+                "invalid value for {}: want a branch name like main or origin/main",
+                setting.name
+            ),
+            SettingKind::Choice(valid) => format!(
+                "invalid value for {}: want one of {}",
+                setting.name,
+                valid.join(", ")
+            ),
+        };
+        return Err(Error::coded("usage/bad-value", msg, vec![]));
     }
+    Ok(())
 }
 
 fn scope_human_label(source: &str) -> &str {
@@ -372,7 +358,7 @@ pub fn run(
 
     // Lookup the setting
     let input_key = key.as_deref().unwrap_or("");
-    let setting = lookup_key(input_key);
+    let setting = lookup_key(input_key)?;
 
     // Unset
     if unset {
@@ -542,7 +528,7 @@ pub fn run(
 
     // Set (key + value)
     let new_value = value.unwrap();
-    validate_value(setting, &new_value);
+    validate_value(setting, &new_value)?;
 
     // Normalize Choice values to lowercase so readers always see canonical form.
     let new_value = if matches!(setting.kind, SettingKind::Choice(_)) {

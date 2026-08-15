@@ -4,6 +4,12 @@ pub enum Error {
     Discover(#[from] Box<gix::discover::Error>),
     #[error("{0}")]
     Repo(String),
+    #[error("{message}")]
+    Coded {
+        id: &'static str,
+        message: String,
+        exits: Vec<String>,
+    },
 }
 
 impl From<gix::discover::Error> for Error {
@@ -28,6 +34,68 @@ impl Error {
     pub fn msg(m: impl Into<String>) -> Self {
         Error::Repo(m.into())
     }
+
+    pub fn coded(id: &'static str, message: impl Into<String>, exits: Vec<String>) -> Self {
+        Error::Coded {
+            id,
+            message: message.into(),
+            exits,
+        }
+    }
+
+    /// Stable identifier for this error. `"internal"` for uncoded variants.
+    pub fn id(&self) -> &str {
+        match self {
+            Error::Discover(_) => "repo/not-found",
+            Error::Repo(_) => "internal",
+            Error::Coded { id, .. } => id,
+        }
+    }
+
+    /// Suggested exit commands. Empty for uncoded variants.
+    pub fn exits(&self) -> &[String] {
+        match self {
+            Error::Coded { exits, .. } => exits,
+            _ => &[],
+        }
+    }
+
+    /// Exit code derived from the id's namespace prefix.
+    /// `usage/` → 2, `held/` → 3, anything else → 1.
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Error::Coded { id, .. } => {
+                if id.starts_with("usage/") {
+                    2
+                } else if id.starts_with("held/") {
+                    3
+                } else {
+                    1
+                }
+            }
+            _ => 1,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_from_namespace() {
+        let e = Error::coded("usage/bad-value", "oops", vec![]);
+        assert_eq!(e.exit_code(), 2);
+
+        let e = Error::coded("held/wait", "paused", vec![]);
+        assert_eq!(e.exit_code(), 3);
+
+        let e = Error::coded("internal/something", "err", vec![]);
+        assert_eq!(e.exit_code(), 1);
+
+        let e = Error::msg("plain");
+        assert_eq!(e.exit_code(), 1);
+    }
+}

@@ -429,3 +429,16 @@ fn trunk_accepts_remote_qualified() {
     let git_val = fx.git(&["config", "fufu.trunk"]);
     assert_eq!(git_val.trim(), "origin/main");
 }
+
+#[test]
+fn usage_ids_exit_two() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    // Unknown key exits 2 and reports usage/unknown-key in JSON
+    let out = ff_cfg(&fx.path(), &["config", "--json", "nope"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["error"]["id"], "usage/unknown-key");
+}

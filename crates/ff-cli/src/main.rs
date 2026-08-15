@@ -21,6 +21,30 @@ fn main() {
     let _interrupt = unsafe { ff_core::gix::interrupt::init_handler(1, || {}) };
 
     let args = cli::Cli::parse();
+
+    // Bookkeeping for error rendering: whether --json was passed and the
+    // canonical command name. Both are captured here before the dispatch
+    // so the error handler below has them without threading anything.
+    let (is_json, cmd_name) = match &args.command {
+        None => (args.json, "snap"),
+        Some(cli::Command::Status { json }) => (*json, "status"),
+        Some(cli::Command::Log { json, .. }) => (*json, "log"),
+        Some(cli::Command::Evolog { json, .. }) => (*json, "evolog"),
+        Some(cli::Command::Git { .. }) => (false, "git"),
+        Some(cli::Command::Restore { json, .. }) => (*json, "restore"),
+        Some(cli::Command::Trim { json, .. }) => (*json, "trim"),
+        Some(cli::Command::Commit { json, .. }) => (*json, "commit"),
+        Some(cli::Command::Switch { json, .. }) => (*json, "switch"),
+        Some(cli::Command::Undo { json, .. }) => (*json, "undo"),
+        Some(cli::Command::Branch { json, .. }) => (*json, "branch"),
+        Some(cli::Command::Start { json, .. }) => (*json, "start"),
+        Some(cli::Command::Describe { json, .. }) => (*json, "describe"),
+        Some(cli::Command::Hook { .. }) => (false, "hook"),
+        Some(cli::Command::Config { json, .. }) => (*json, "config"),
+        Some(cli::Command::Doctor { json, .. }) => (*json, "doctor"),
+        Some(cli::Command::Update { .. }) => (false, "update"),
+    };
+
     let result = match args.command {
         None => cmd::snap::run(args.message, args.json),
         Some(cli::Command::Status { json }) => cmd::status::run(json),
@@ -74,10 +98,25 @@ fn main() {
         Some(cli::Command::Doctor { fix, json }) => cmd::doctor::run(fix, json),
         Some(cli::Command::Update { check }) => cmd::update::run(check),
     };
+
     if let Err(err) = result {
-        eprintln!("ff: {err}");
-        std::process::exit(1);
+        if is_json {
+            // The envelope shape lives in one place; a failure to emit it
+            // must not mask the failure being reported.
+            let _ = machine::emit_error(cmd_name, &err);
+        } else {
+            // Human rendering on stderr
+            eprintln!("ff: {err}");
+            if !err.exits().is_empty() {
+                eprintln!("  try:");
+                for hint in err.exits() {
+                    eprintln!("    {hint}");
+                }
+            }
+        }
+        std::process::exit(err.exit_code());
     }
+
     // Exit without unwinding: skips munmap/thread teardown of the repo, which
     // is pure latency. Stdout is flushed explicitly first.
     use std::io::Write;
