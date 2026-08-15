@@ -6,11 +6,9 @@ fn branch_of(r#ref: &str) -> &str {
     r#ref.strip_prefix("refs/fufu/snap/").unwrap_or(r#ref)
 }
 
-pub fn run(message: Option<String>, session_name: Option<String>, json: bool) -> Result<()> {
+pub fn run(message: Option<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    // --session flag takes precedence over FF_SESSION environment variable.
-    let session = session_name.or_else(crate::session::current);
-    let prov = Provenance::new("manual", message).with_session(session);
+    let prov = Provenance::new("manual", message).with_session(crate::session::current());
     let outcome = ff_core::take(&repo, &prov)?;
     match &outcome {
         SnapOutcome::Created {

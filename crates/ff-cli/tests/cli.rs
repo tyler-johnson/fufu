@@ -1619,3 +1619,57 @@ fn explain_human_no_hints_when_empty() {
     let text = stdout(&out);
     assert!(!text.contains("try:"), "no exits means no try: block");
 }
+
+/// `--json` after the verb parses and emits an envelope. The "before the verb"
+/// position (`ff --json status`) does not work because clap's
+/// `args_conflicts_with_subcommands` does not exempt `global = true` args.
+#[test]
+fn json_flag_parses_after_the_verb() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success(), "exit 0");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["cmd"], "status");
+
+    let out = ff(&fx, &["log", "--json"]);
+    assert!(out.status.success(), "exit 0");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["cmd"], "log");
+}
+
+/// `--json` is accepted by every verb (clap does not reject it with exit 2).
+#[test]
+fn json_is_accepted_by_every_verb() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    for verb in [
+        "status", "log", "evolog", "doctor", "config", "branch", "session",
+    ] {
+        let out = ff(&fx, &[verb, "--json"]);
+        // A clap usage error exits 2 with "unexpected argument". We assert
+        // that does NOT happen: the flag is accepted.
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.contains("unexpected argument"),
+            "--json rejected by {verb}: {stderr}"
+        );
+    }
+}
+
+/// `ff -m x status` remains a usage error, proving `args_conflicts_with_subcommands`
+/// survived the change.
+#[test]
+fn bare_flags_still_conflict_with_subcommands() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["-m", "x", "status"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "bare ff args must still conflict with subcommands"
+    );
+}

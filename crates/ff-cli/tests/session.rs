@@ -426,6 +426,123 @@ fn session_diff_without_a_session_errors() {
     assert_eq!(v["error"]["id"], "usage/needs-session");
 }
 
+// --- --session flag rides every verb ---
+
+#[test]
+fn session_flag_rides_every_verb() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // --session on a commit: the pre-commit snapshot carries it.
+    fx.write("a.txt", "changed\n");
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["commit", "--session", "work", "-m", "under flag"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env_remove("FF_SESSION")
+        .output()
+        .expect("spawn ff");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(
+        msg.contains("fufu-session: work"),
+        "commit pre-snapshot carries --session flag value: {msg}"
+    );
+}
+
+// --- --session flag beats env on any verb ---
+
+#[test]
+fn session_flag_beats_env_on_any_verb() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    fx.git(&["branch", "other"]);
+    fx.write("a.txt", "changed\n");
+
+    // FF_SESSION=a, but --session b — the switch pre-snapshot should stamp b.
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["switch", "--session", "b", "other"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env("FF_SESSION", "a")
+        .output()
+        .expect("spawn ff");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(msg.contains("fufu-session: b"), "flag value stamped: {msg}");
+    assert!(
+        !msg.contains("fufu-session: a"),
+        "env value should not appear: {msg}"
+    );
+}
+
+// --- bad --session flag errors before work ---
+
+#[test]
+fn bad_session_flag_errors_before_work() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // Empty session name — should exit 2 with usage/bad-session.
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["status", "--session", "", "--json"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env_remove("FF_SESSION")
+        .output()
+        .expect("spawn ff");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "exit code 2 for empty session: stderr={}",
+        stderr(&out)
+    );
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["error"]["id"], "usage/bad-session");
+}
+
 // --- helpers ---
 
 fn read_ref(repo: &Path, r#ref: &str) -> String {

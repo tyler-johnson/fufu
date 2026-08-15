@@ -3,7 +3,19 @@
 //! Sessions are stateless: the only source is the `FF_SESSION` environment
 //! variable. There is no marker file, no mode, and nothing to open or close.
 
+use std::sync::OnceLock;
+
 use ff_core::error::{Error, Result};
+
+/// The session set by `--session` on this invocation, if any. Set once from
+/// main before any capture runs; read by the provenance constructors.
+static OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
+
+/// Record the session override from the `--session` flag. Called once from
+/// main after parsing, before any dispatch.
+pub fn set_override(name: Option<String>) {
+    OVERRIDE.set(name).ok();
+}
 
 /// Validate a session name. Any UTF-8 string is legal — the rules are only
 /// what storing it as a commit-message trailer actually requires.
@@ -33,10 +45,18 @@ pub fn parse(raw: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
-/// The session a snapshot taken right now belongs to, from `FF_SESSION`.
-/// An unusable value is ignored rather than fatal: the environment is
-/// ambient, and a bad one must not stop a capture. `FF_DEBUG=1` says why.
+/// The session a snapshot taken right now belongs to. The `--session` flag
+/// (recorded via `set_override`) wins, then `FF_SESSION`. An unusable env
+/// value is ignored rather than fatal; the flag is a hard error, validated
+/// before `set_override` is called.
 pub fn current() -> Option<String> {
+    // If the flag was explicitly provided, it wins. If not, fall through to
+    // the environment variable.
+    if let Some(override_val) = OVERRIDE.get()
+        && let Some(name) = override_val
+    {
+        return Some(name.clone());
+    }
     let val = std::env::var_os("FF_SESSION")?;
     let raw = val.to_string_lossy();
     match parse(&raw) {

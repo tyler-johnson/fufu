@@ -24,12 +24,12 @@ pub struct Cli {
     /// Message for the manual snapshot
     #[arg(short = 'm', value_name = "msg")]
     pub message: Option<String>,
-    /// Session name for the manual snapshot
-    #[arg(long, value_name = "name")]
-    pub session: Option<String>,
     /// Emit machine-readable JSON
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub json: bool,
+    /// Session name for this invocation
+    #[arg(long, value_name = "name", global = true)]
+    pub session: Option<String>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -38,17 +38,10 @@ pub struct Cli {
 pub enum Command {
     /// Show the working tree status
     #[command(long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
-    Status {
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Status,
     /// Show the timeline: snapshots interleaved with commits
     #[command(long_about = help::LOG, after_long_help = help::LOG_EXAMPLES)]
     Log {
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
@@ -65,9 +58,6 @@ pub enum Command {
     /// Show the open change's snapshot chain (the evolution log)
     #[command(long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
     Evolog {
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
@@ -98,9 +88,6 @@ pub enum Command {
         /// Paths to restore from the target
         #[arg(value_name = "path", required_unless_present = "all")]
         paths: Vec<String>,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Drop snapshots past the retention cutoff (fufu.keep, 90d)
     #[command(long_about = help::TRIM, after_long_help = help::TRIM_EXAMPLES)]
@@ -111,9 +98,6 @@ pub enum Command {
         /// Also drop whole chains whose branch no longer exists
         #[arg(long)]
         gone: bool,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Close the open change into a commit (the working tree is the change)
     #[command(long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
@@ -127,9 +111,6 @@ pub enum Command {
         /// Branch to land the close on: claim an anonymous one, or fork here
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Switch branches; a dirty tree is parked, a parked change resumes
     #[command(long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
@@ -137,9 +118,6 @@ pub enum Command {
         /// Branch name, or a unique prefix of one
         #[arg(value_name = "branch")]
         target: String,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Roll the repository back to the state before an operation
     #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
@@ -150,9 +128,6 @@ pub enum Command {
         /// Roll back what remains even if parts were trimmed
         #[arg(long)]
         force: bool,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Begin new work on a fresh branch
     #[command(
@@ -170,9 +145,6 @@ pub enum Command {
         /// Name for the minted/forked branch (or claim a placeholder)
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Edit the pending description of the open change
     #[command(long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
@@ -183,9 +155,6 @@ pub enum Command {
         /// Rename the current branch instead (proper names allowed)
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// List branches, claim the current anonymous branch, or delete one
     #[command(long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
@@ -201,9 +170,6 @@ pub enum Command {
             conflicts_with = "name"
         )]
         delete: Option<String>,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Manage fufu's capture hooks: agents, shells, editors
     #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
@@ -226,9 +192,6 @@ pub enum Command {
         /// Apply the set/unset to every repo (user-level git config)
         #[arg(long)]
         global: bool,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Verify the safety net: chains, identity, reflogs, gc guard, wiring
     #[command(long_about = help::DOCTOR, after_long_help = help::DOCTOR_EXAMPLES)]
@@ -236,9 +199,6 @@ pub enum Command {
         /// Repair the gc config keys (the one write doctor performs)
         #[arg(long)]
         fix: bool,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Look up an error id and see what it means
     Explain {
@@ -248,9 +208,6 @@ pub enum Command {
         /// List every error id fufu knows
         #[arg(long)]
         list: bool,
-        /// Emit machine-readable JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Download the latest release and replace this binary
     #[command(long_about = help::UPDATE, after_long_help = help::UPDATE_EXAMPLES)]
@@ -264,13 +221,6 @@ pub enum Command {
     Session {
         #[command(subcommand)]
         action: Option<SessionAction>,
-        /// Emit machine-readable JSON
-        // `global` so `ff session list --json` and `ff session diff <name>
-        // --json` parse — without it clap only accepts `--json` before the
-        // subcommand name, which every JSON-emitting session verb needs to
-        // not have to know or care about.
-        #[arg(long, global = true)]
-        json: bool,
     },
 }
 
