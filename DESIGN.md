@@ -116,6 +116,8 @@ exists only in the filesystem), but HEAD never moves anywhere strange.
 Once nothing can be lost, every other layer is allowed to be aggressive. Automatic
 history rewriting is only a defensible feature on top of total capture.
 
+Capture is entirely automatic, and there is no verb for asking. A snapshot's description is written by fufu — what ran, or which agent acted — and never by a person, so the chain stays a machine's account of what happened rather than a place to leave notes. The manual checkpoint is one of the rituals fufu exists to delete, the way the stash dance is: what a user would reach for by hand already happened before the command they typed. The channels for saying what work *means* are elsewhere and are commits — `ff describe` names the change you are in the middle of, `ff commit` names the one you finished.
+
 This floor is proven technology: it is what jog does today. jog is the proving
 ground for fufu, not its ancestor — lessons carry over, compatibility is not owed.
 
@@ -396,7 +398,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 
 | verb | what it does | what it replaces |
 |---|---|---|
-| `ff [-m <msg>]` | take a manual snapshot — bare `ff` is the snapshot verb, jj-style | `wip` commits, stash-as-backup rituals |
+| `ff` | the map: recent work across every branch, parked changes included — where you left things | `git branch -v`, `git stash list`, and remembering |
 | `ff status` | `ff log` cropped to two rows — the open change and the commit under it — with the diffstat between them, plus futures: held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
@@ -422,6 +424,8 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff explain <id>` | what an error id means, and the ways out of it | searching the message text |
 | `ff watch` | stream journal entries as they land, newline-delimited JSON | polling `git status` in a loop |
 | `ff completions <shell>` | shell completion, with branches, revs, and snapshot ids resolved live | hand-rolled dotfile fragments |
+
+Two flag conventions keep the surface from turning into a scramble for letters. **`-m` describes what the verb creates** — the commit `ff commit` closes, the change `ff start` opens, the description `ff describe` sets — so one letter means one thing across every verb that makes something. And **universal flags are long-only**: the few flags every verb carries (`--json`, `--session`) never take a short form, so a verb may claim any letter without consulting a list, and the collision is caught by the parser rather than by convention. Because capture is automatic and unlabeled, the only thing a universal flag ever shapes about a snapshot is which session it joins.
 
 ### Presentation conventions
 
@@ -650,10 +654,11 @@ objects, index, status, log); the differential test harness against the git
 binary, which lives forever after; read-only `ff status` and `ff log`. Proves
 the substrate and the zero-spawn budget before anything depends on them.
 
-**Phase 1 — Capture.** Floor 1 rebuilt native: the snapshot engine, with bare
-`ff` as the snapshot verb (jj-style — `ff [-m <msg>]` is a manual snapshot,
-and every other ff command captures first); the per-branch timeline
-interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). The
+**Phase 1 — Capture.** Floor 1 rebuilt native: the snapshot engine, with every
+ff command capturing first; the per-branch timeline
+interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). (Phase 1
+shipped a manual snapshot verb on bare `ff`; it retires when bare `ff` becomes
+the map, and capture is automatic-only from then on.) The
 `ff git` passthrough with its translation whitelist and the recommended
 alias move up from Phase 5: the translation layer grows with the verbs, and
 anything reaching for git grabs fufu instead from day one. Triggers are the
