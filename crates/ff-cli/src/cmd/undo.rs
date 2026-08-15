@@ -6,6 +6,7 @@ use ff_core::{Error, Result, UndoOptions};
 
 pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    crate::render::init_palette(&repo);
     let (report, ctx) = ff_core::undo(
         &repo,
         &UndoOptions {
@@ -29,6 +30,8 @@ pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
+    let colored = crate::pager::color_enabled();
+
     let label = if report.target_kind == "foreign" {
         " (a change made outside fufu)"
     } else {
@@ -36,7 +39,7 @@ pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
     };
     println!(
         "undid {}{}: {}",
-        &report.target[..8],
+        crate::render::paint_sha(&report.target[..8], colored),
         label,
         report.target_summary
     );
@@ -48,21 +51,34 @@ pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
     }
     for t in &report.refs {
         let what = match (&t.old, &t.new) {
-            (_, Some(new)) => format!("→ {}", &new[..new.len().min(8)]),
+            (_, Some(new)) => {
+                let sha = &new[..new.len().min(8)];
+                format!("→ {}", crate::render::paint_sha(sha, colored))
+            }
             (Some(_), None) => "deleted".to_string(),
             (None, None) => continue,
         };
         println!("  {} {what}", t.name);
     }
     if let Some(head) = &report.head_moved {
-        println!("  HEAD → {}", head.strip_prefix("ref:").unwrap_or(head));
+        let display = head.strip_prefix("ref:").unwrap_or(head);
+        let is_sha = display.chars().all(|c| c.is_ascii_hexdigit());
+        let painted = if is_sha {
+            crate::render::paint_sha(display, colored)
+        } else {
+            display.to_string()
+        };
+        println!("  HEAD → {painted}");
     }
     if !report.files.is_empty() {
         println!("  {} worktree file(s) restored", report.files.len());
     }
     for warning in &report.warnings {
-        println!("  warning: {warning}");
+        println!(
+            "{}",
+            crate::render::paint_warn(&format!("  warning: {warning}"), colored)
+        );
     }
-    println!("redo: ff undo");
+    println!("{}", crate::render::paint_dim("redo: ff undo", colored));
     Ok(())
 }

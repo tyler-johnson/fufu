@@ -33,6 +33,7 @@ pub fn run(json: bool, count: usize) -> Result<()> {
     let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let lens = displayed_prefix_lens(&repo, &ids)?;
     let now = now_secs();
+    crate::render::init_palette(&repo);
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {

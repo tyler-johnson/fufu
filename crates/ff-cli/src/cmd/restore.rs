@@ -6,6 +6,7 @@ use ff_core::{Error, RestoreOptions, Result};
 
 pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    crate::render::init_palette(&repo);
     let report = ff_core::restore(
         &repo,
         &RestoreOptions {
@@ -31,6 +32,8 @@ pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Res
         return Ok(());
     }
 
+    let colored = crate::pager::color_enabled();
+
     println!(
         "restored to {} ({})",
         report.target.short_id, report.target.subject
@@ -47,6 +50,9 @@ pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Res
     if report.restored.is_empty() && report.deleted.is_empty() {
         println!("  (no files differed)");
     }
-    println!("undo: ff restore --all");
+    println!(
+        "{}",
+        crate::render::paint_dim("undo: ff restore --all", colored)
+    );
     Ok(())
 }

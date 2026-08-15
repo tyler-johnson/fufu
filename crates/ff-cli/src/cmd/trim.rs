@@ -9,6 +9,7 @@ use ff_core::{Error, Result, TrimOptions};
 pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
     let repo = ff_core::discover(".")?;
+    crate::render::init_palette(&repo);
     let report = ff_core::trim(
         &repo,
         &TrimOptions {

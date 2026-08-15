@@ -42,6 +42,7 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
+                crate::render::init_palette(&repo);
                 use std::io::Write as _;
                 let mut out = crate::pager::LogOut::unpaged();
                 let colored = out.colored();

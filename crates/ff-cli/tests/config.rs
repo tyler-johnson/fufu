@@ -280,7 +280,7 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["settings"].is_array());
-    assert_eq!(v["settings"].as_array().unwrap().len(), 7);
+    assert_eq!(v["settings"].as_array().unwrap().len(), 8);
     assert_eq!(v["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON

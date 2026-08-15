@@ -39,6 +39,7 @@ pub fn run_inner(json: bool) -> Result<()> {
     if json {
         render_json(&status, &open, &change_stat, &parent, colored)?;
     } else {
+        crate::render::init_palette(&repo);
         let view = crate::render::StatusView {
             status: &status,
             open: &open,

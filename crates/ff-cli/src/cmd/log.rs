@@ -86,6 +86,7 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     }
 
     use std::io::Write as _;
+    crate::render::init_palette(&repo);
     let mut ids: Vec<String> = segments.values().cloned().collect();
     ids.extend(open.id.clone());
     let lens = crate::cmd::evolog::displayed_prefix_lens(&repo, &ids)?;

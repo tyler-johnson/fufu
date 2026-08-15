@@ -12,6 +12,7 @@ pub(crate) enum SettingKind {
     Cadence,
     Bool,
     Branch,
+    Choice(&'static [&'static str]),
 }
 
 pub(crate) struct Setting {
@@ -97,6 +98,17 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "Which branch is trunk: what ff sync rebases onto, what ff status measures",
                 "against, and where a bare ff start forks from. Local (main) or",
                 "remote-qualified (origin/main). Unset means fufu works it out.",
+            ],
+        },
+        Setting {
+            name: "theme",
+            key: "fufu.theme",
+            def: "muted",
+            kind: SettingKind::Choice(&["muted", "vivid", "terminal"]),
+            desc: &[
+                "Color theme for ff output. muted gives desaturated 256-color (the default);",
+                "vivid the saturated cut; terminal the base sixteen so your own",
+                "terminal theme decides the actual hues.",
             ],
         },
     ]
@@ -204,6 +216,7 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
                 && !value.starts_with('-')
                 && value.chars().all(|c| !c.is_whitespace() && c >= ' ')
         }
+        SettingKind::Choice(valid) => valid.iter().any(|v| v.eq_ignore_ascii_case(value)),
     }
 }
 
@@ -244,16 +257,15 @@ fn validate_value(setting: &Setting, value: &str) {
                 );
                 std::process::exit(2);
             }
+            SettingKind::Choice(valid) => {
+                eprintln!(
+                    "ff: invalid value for {}: want one of {}",
+                    setting.name,
+                    valid.join(", ")
+                );
+                std::process::exit(2);
+            }
         }
-    }
-}
-
-fn dim(s: &str, colored: bool) -> String {
-    if colored {
-        let style = anstyle::Style::new().dimmed();
-        format!("{style}{s}{style:#}")
-    } else {
-        s.to_string()
     }
 }
 
@@ -275,10 +287,8 @@ pub fn run(
     json: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    let colored = !matches!(
-        anstream::AutoStream::choice(&std::io::stdout()),
-        anstream::ColorChoice::Never
-    );
+    crate::render::init_palette(&repo);
+    let colored = crate::pager::color_enabled();
 
     // No key: list all settings
     if key.is_none() && !unset {
@@ -304,6 +314,7 @@ pub fn run(
                     SettingKind::Cadence => "cadence",
                     SettingKind::Bool => "bool",
                     SettingKind::Branch => "branch",
+                    SettingKind::Choice(_) => "choice",
                 };
                 let source_json = if source.is_empty() {
                     serde_json::Value::Null
@@ -322,7 +333,7 @@ pub fn run(
                 entries.push(entry);
             } else {
                 let default_tag = if is_default {
-                    format!(" {}", dim("(default)", colored))
+                    format!(" {}", crate::render::paint_dim("(default)", colored))
                 } else {
                     String::new()
                 };
@@ -345,15 +356,18 @@ pub fn run(
         if !json {
             println!(
                 "{}",
-                dim(
+                crate::render::paint_dim(
                     "Set with:     ff config <key> <value>   (--global: every repo)",
                     colored
                 )
             );
-            println!("{}", dim("Remove with:  ff config --unset <key>", colored));
             println!(
                 "{}",
-                dim("Stored as plain git config under fufu.<key>", colored)
+                crate::render::paint_dim("Remove with:  ff config --unset <key>", colored)
+            );
+            println!(
+                "{}",
+                crate::render::paint_dim("Stored as plain git config under fufu.<key>", colored)
             );
         }
         return Ok(());
@@ -535,6 +549,13 @@ pub fn run(
     // Set (key + value)
     let new_value = value.unwrap();
     validate_value(setting, &new_value);
+
+    // Normalize Choice values to lowercase so readers always see canonical form.
+    let new_value = if matches!(setting.kind, SettingKind::Choice(_)) {
+        new_value.to_lowercase()
+    } else {
+        new_value
+    };
 
     let path = if global {
         match global_config_path() {

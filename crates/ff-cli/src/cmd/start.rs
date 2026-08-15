@@ -22,6 +22,7 @@ pub fn run(
         &crate::provenance::pre_ff(),
     )?;
 
+    crate::render::init_palette(&repo);
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
@@ -35,11 +36,13 @@ pub fn run(
         return Ok(());
     }
 
+    let colored = crate::pager::color_enabled();
+
     if let Some(stash) = &report.parked {
         println!(
             "parked the open change on {} ({})",
             report.forked_from,
-            &stash[..stash.len().min(8)]
+            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
         );
     }
     println!(
@@ -47,6 +50,6 @@ pub fn run(
         report.minted, report.forked_from
     );
     println!("open change on {}", report.minted);
-    println!("undo: ff undo");
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
     Ok(())
 }

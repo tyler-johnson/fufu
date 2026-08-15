@@ -22,6 +22,7 @@ pub fn run(
         &crate::provenance::pre_ff(),
     )?;
 
+    crate::render::init_palette(&repo);
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
@@ -34,6 +35,8 @@ pub fn run(
         println!("{body}");
         return Ok(());
     }
+
+    let colored = crate::pager::color_enabled();
 
     match &outcome {
         CommitOutcome::Closed {
@@ -52,8 +55,14 @@ pub fn run(
             } else {
                 subject.clone()
             };
-            println!("closed {short_id} on {branch}: {described} ({files_changed} file(s))");
-            println!("undo: ff undo");
+            println!(
+                "closed {} on {}: {} ({} file(s))",
+                crate::render::paint_sha(short_id, colored),
+                branch,
+                described,
+                files_changed
+            );
+            println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
         CommitOutcome::NothingToClose { branch } => {
             println!("nothing to close on {branch}: no changes and no description");

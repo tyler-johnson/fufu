@@ -1218,3 +1218,78 @@ fn version_names_the_build() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// `ff config` lists the theme setting and its three values.
+#[test]
+fn config_lists_theme() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["config"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("theme"), "missing theme: {text}");
+    assert!(text.contains("muted"), "missing muted: {text}");
+    assert!(text.contains("vivid"), "missing vivid: {text}");
+    assert!(text.contains("terminal"), "missing terminal: {text}");
+}
+
+/// `ff config theme <v>` accepts each valid value and echoes it back.
+#[test]
+fn config_theme_accepts_each_value() {
+    let fx = Fixture::new();
+    for value in &["muted", "vivid", "terminal"] {
+        let out = ff(&fx, &["config", "theme", value]);
+        assert!(
+            out.status.success(),
+            "setting theme to {value} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let out = ff(&fx, &["config", "theme"]);
+        assert!(out.status.success());
+        assert_eq!(
+            stdout(&out).trim(),
+            *value,
+            "reading back theme after setting {value}"
+        );
+    }
+}
+
+/// `ff config theme VIVID` normalizes to lowercase on read.
+#[test]
+fn config_theme_normalizes_case() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["config", "theme", "VIVID"]);
+    assert!(out.status.success(), "uppercase set failed");
+    let out = ff(&fx, &["config", "theme"]);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim(), "vivid", "normalized to lowercase");
+}
+
+/// `ff config theme neon` rejects an unknown value with exit code 2.
+#[test]
+fn config_theme_rejects_unknown() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["config", "theme", "neon"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "unknown theme value should exit 2"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("muted") && err.contains("vivid") && err.contains("terminal"),
+        "stderr should name valid values: {err}"
+    );
+}
+
+/// Unset theme falls back to the default `muted`.
+#[test]
+fn config_theme_default_is_muted() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["config", "theme"]);
+    assert!(out.status.success());
+    assert_eq!(
+        stdout(&out).trim(),
+        "muted",
+        "unset theme reports muted default"
+    );
+}

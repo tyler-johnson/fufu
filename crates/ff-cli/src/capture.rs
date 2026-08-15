@@ -19,7 +19,11 @@ pub fn pre_best_effort(prov: &Provenance) {
 /// stderr, and the command proceeds anyway — capture must never block git.
 pub fn pre_loud(prov: &Provenance) {
     if let Err(err) = pre(prov) {
-        eprintln!("ff: snapshot skipped: {err}");
+        let colored = crate::pager::color_enabled();
+        eprintln!(
+            "{}",
+            crate::render::paint_warn(&format!("ff: snapshot skipped: {err}"), colored)
+        );
     }
 }
 

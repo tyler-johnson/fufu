@@ -12,7 +12,9 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
             None,
             std::env::args().collect(),
         )?;
+        crate::render::init_palette(&repo);
         crate::render::reconcile_notice(&ctx.reconcile);
+        let colored = crate::pager::color_enabled();
         if json {
             let body = serde_json::to_string(&serde_json::json!({
                 "deleted": report,
@@ -25,7 +27,7 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
         println!(
             "deleted {} (was {})",
             report.name,
-            &report.tip[..report.tip.len().min(8)]
+            crate::render::paint_sha(&report.tip[..report.tip.len().min(8)], colored)
         );
         if let Some(trash) = &report.trash_ref {
             println!("  its timeline moved to {trash}");
@@ -33,7 +35,7 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
         if report.parked_demoted.is_some() {
             println!("  its parked change stays in the stash (git stash list)");
         }
-        println!("undo: ff undo");
+        println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         return Ok(());
     }
     if let Some(new_name) = name {
@@ -44,7 +46,9 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
             None,
             std::env::args().collect(),
         )?;
+        crate::render::init_palette(&repo);
         crate::render::reconcile_notice(&ctx.reconcile);
+        let colored = crate::pager::color_enabled();
         if json {
             let body = serde_json::to_string(&serde_json::json!({
                 "claimed": report,
@@ -55,7 +59,7 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
             return Ok(());
         }
         println!("claimed {} as {}", report.from, report.to);
-        println!("undo: ff undo");
+        println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         return Ok(());
     }
 

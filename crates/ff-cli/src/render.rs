@@ -14,8 +14,12 @@ pub fn reconcile_notice(report: &ReconcileReport) {
     if report.is_quiet() {
         return;
     }
+    let colored = !matches!(
+        anstream::AutoStream::choice(&std::io::stderr()),
+        anstream::ColorChoice::Never
+    );
     for warning in &report.warnings {
-        eprintln!("ff: {warning}");
+        eprintln!("{}", paint_warn(&format!("ff: {warning}"), colored));
     }
     if report.bootstrapped && !report.reinitialized {
         eprintln!("ff: journal initialized; operations from here on are undoable");
@@ -24,8 +28,14 @@ pub fn reconcile_notice(report: &ReconcileReport) {
         eprintln!("ff: absorbed changes made outside fufu:");
         for change in &report.foreign {
             let what = match (&change.old, &change.new) {
-                (Some(_), Some(new)) => format!("moved to {}", &new[..new.len().min(8)]),
-                (None, Some(new)) => format!("created at {}", &new[..new.len().min(8)]),
+                (Some(_), Some(new)) => {
+                    let sha = &new[..new.len().min(8)];
+                    format!("moved to {}", paint_sha(sha, colored))
+                }
+                (None, Some(new)) => {
+                    let sha = &new[..new.len().min(8)];
+                    format!("created at {}", paint_sha(sha, colored))
+                }
                 (Some(_), None) => "deleted".to_string(),
                 (None, None) => "changed".to_string(),
             };
@@ -155,7 +165,7 @@ fn colored_upstream_phrase(u: &Upstream, colored: bool) -> String {
     } else if u.ahead == 0 && u.behind == 0 {
         Some(DIM)
     } else if u.ahead > 0 && u.behind == 0 {
-        Some(AHEAD)
+        Some(palette().ahead)
     } else {
         None
     };
@@ -260,8 +270,8 @@ fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
             };
 
             // Color the counts
-            let ins_colored = paint(&ins_padded, INS, colored);
-            let del_colored = paint(&del_padded, DEL, colored);
+            let ins_colored = paint(&ins_padded, palette().ins, colored);
+            let del_colored = paint(&del_padded, palette().del, colored);
 
             // Bar
             let bar = if max_total > 0 && (f.insertions > 0 || f.deletions > 0) {
@@ -285,8 +295,8 @@ fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
 
                 let plus_str = "+".repeat(plus);
                 let minus_str = "-".repeat(minus);
-                let plus_c = paint(&plus_str, INS, colored);
-                let minus_c = paint(&minus_str, DEL, colored);
+                let plus_c = paint(&plus_str, palette().ins, colored);
+                let minus_c = paint(&minus_str, palette().del, colored);
                 format!("{plus_c}{minus_c}")
             } else {
                 String::new()
@@ -329,8 +339,8 @@ fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
         let pad = " ".repeat(max_del.saturating_sub(total_del.chars().count()));
         format!("{pad}{total_del}")
     };
-    let total_ins_colored = paint(&total_ins_padded, INS, colored);
-    let total_del_colored = paint(&total_del_padded, DEL, colored);
+    let total_ins_colored = paint(&total_ins_padded, palette().ins, colored);
+    let total_del_colored = paint(&total_del_padded, palette().del, colored);
 
     lines.push(format!(
         "{rail}    {label_padded} {total_ins_colored}  {total_del_colored}"
@@ -360,18 +370,101 @@ fn kind_letter(kind: ChangeKind) -> char {
     }
 }
 
-/// The palette, muted 256: snapshot ids 139 (bold unique prefix, dim rest),
-/// commit shas 67, ages 73, the working-copy `@` 71 bold, rails dim —
-/// so a metadata line and a subject line never read as one.
-/// anstream downgrades 256-colour on terminals that cannot do it.
-const SNAP_UNIQUE: anstyle::Style = anstyle::Ansi256Color(139).on_default().bold();
-const SHA: anstyle::Style = anstyle::Ansi256Color(67).on_default();
-const AGE: anstyle::Style = anstyle::Ansi256Color(73).on_default();
-const AT: anstyle::Style = anstyle::Ansi256Color(71).on_default().bold();
+/// Dim is a modifier, not a color — it is never themed.
 const DIM: anstyle::Style = anstyle::Style::new().dimmed();
-const INS: anstyle::Style = anstyle::Ansi256Color(71).on_default();
-const DEL: anstyle::Style = anstyle::Ansi256Color(167).on_default();
-const AHEAD: anstyle::Style = anstyle::Ansi256Color(67).on_default();
+
+/// Nine semantic roles, each an ANSI style. Three themes are provided; the
+/// process-global palette defaults to `MUTED` so every path works without
+/// explicit initialization (tests, callers that forget, color-off pipes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    pub snap: anstyle::Style,
+    pub sha: anstyle::Style,
+    pub age: anstyle::Style,
+    pub at: anstyle::Style,
+    pub ins: anstyle::Style,
+    pub del: anstyle::Style,
+    pub ok: anstyle::Style,
+    pub warn: anstyle::Style,
+    pub ahead: anstyle::Style,
+}
+
+impl Palette {
+    /// Desaturated 256-color — the default.
+    pub const MUTED: Palette = Palette {
+        snap: anstyle::Ansi256Color(139).on_default().bold(),
+        sha: anstyle::Ansi256Color(67).on_default(),
+        age: anstyle::Ansi256Color(73).on_default(),
+        at: anstyle::Ansi256Color(71).on_default().bold(),
+        ins: anstyle::Ansi256Color(71).on_default(),
+        del: anstyle::Ansi256Color(167).on_default(),
+        ok: anstyle::Ansi256Color(71).on_default(),
+        warn: anstyle::Ansi256Color(173).on_default(),
+        ahead: anstyle::Ansi256Color(67).on_default(),
+    };
+
+    /// Saturated 256-color — brighter, higher contrast.
+    pub const VIVID: Palette = Palette {
+        snap: anstyle::Ansi256Color(170).on_default().bold(),
+        sha: anstyle::Ansi256Color(39).on_default(),
+        age: anstyle::Ansi256Color(44).on_default(),
+        at: anstyle::Ansi256Color(41).on_default().bold(),
+        ins: anstyle::Ansi256Color(41).on_default(),
+        del: anstyle::Ansi256Color(203).on_default(),
+        ok: anstyle::Ansi256Color(41).on_default(),
+        warn: anstyle::Ansi256Color(208).on_default(),
+        ahead: anstyle::Ansi256Color(39).on_default(),
+    };
+
+    /// Base sixteen colors — lets the user's terminal theme decide the actual hues.
+    pub const TERMINAL: Palette = Palette {
+        snap: anstyle::AnsiColor::Magenta.on_default().bold(),
+        sha: anstyle::AnsiColor::Blue.on_default(),
+        age: anstyle::AnsiColor::Cyan.on_default(),
+        at: anstyle::AnsiColor::Green.on_default().bold(),
+        ins: anstyle::AnsiColor::Green.on_default(),
+        del: anstyle::AnsiColor::Red.on_default(),
+        ok: anstyle::AnsiColor::Green.on_default(),
+        warn: anstyle::AnsiColor::Yellow.on_default(),
+        ahead: anstyle::AnsiColor::Blue.on_default(),
+    };
+}
+
+static PALETTE: std::sync::OnceLock<Palette> = std::sync::OnceLock::new();
+
+/// Store the palette for the process. First call wins; subsequent calls are
+/// silently ignored so a caller that initializes twice does not panic.
+pub fn set_palette(p: Palette) {
+    // OnceLock::set returns Err if already initialized — we drop it because
+    // the first winner stands and a double-init is harmless.
+    let _ = PALETTE.set(p);
+}
+
+/// The current palette, or `MUTED` when nothing was set.
+pub fn palette() -> &'static Palette {
+    PALETTE.get().unwrap_or(&Palette::MUTED)
+}
+
+/// Map a config string to a palette. Unrecognized values and `None` yield `MUTED`.
+pub fn palette_for(name: Option<&str>) -> Palette {
+    match name {
+        Some(n) => match n.to_lowercase().as_str() {
+            "vivid" => Palette::VIVID,
+            "terminal" => Palette::TERMINAL,
+            _ => Palette::MUTED,
+        },
+        None => Palette::MUTED,
+    }
+}
+
+/// Read `fufu.theme` from the repo config and install the matching palette.
+pub fn init_palette(repo: &ff_core::gix::Repository) {
+    let theme = repo
+        .config_snapshot()
+        .string("fufu.theme")
+        .map(|s| s.to_string());
+    set_palette(palette_for(theme.as_deref()));
+}
 
 /// Paint `text`, or hand it back untouched when color is off or it's empty.
 fn paint(text: &str, style: anstyle::Style, colored: bool) -> String {
@@ -409,8 +502,13 @@ pub fn snap_row(
     format!(
         "{} {} {}  {}",
         styled_id(&letters, unique, ID_WIDTH, colored),
-        col(base, SHA_WIDTH, SHA, colored),
-        col_right(&relative_age(now, snap.time), AGE_WIDTH, AGE, colored),
+        col(base, SHA_WIDTH, palette().sha, colored),
+        col_right(
+            &relative_age(now, snap.time),
+            AGE_WIDTH,
+            palette().age,
+            colored
+        ),
         snap.subject
     )
 }
@@ -434,7 +532,7 @@ pub fn change_row(
     now: i64,
     colored: bool,
 ) -> String {
-    let sym = paint("@", AT, colored);
+    let sym = paint("@", palette().at, colored);
     let rail = paint("│", DIM, colored);
     let subject = match open.subject.as_deref() {
         Some(text) => text.to_string(),
@@ -458,11 +556,11 @@ pub fn change_row(
         None => BLANK_ID.to_string(),
     };
     let pending_short = open.pending.as_deref().map(short7).unwrap_or_default();
-    let sha = col(pending_short, SHA_WIDTH, SHA, colored);
+    let sha = col(pending_short, SHA_WIDTH, palette().sha, colored);
     let age = col_right(
         &open.time.map(|t| relative_age(now, t)).unwrap_or_default(),
         AGE_WIDTH,
-        AGE,
+        palette().age,
         colored,
     );
     let marker = if open.base.is_none() {
@@ -493,9 +591,14 @@ pub fn commit_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let sha = col(short7(&entry.id), SHA_WIDTH, SHA, colored);
-    let age = col_right(&relative_age(now, entry.time), AGE_WIDTH, AGE, colored);
-    let sym = paint("●", SHA, colored);
+    let sha = col(short7(&entry.id), SHA_WIDTH, palette().sha, colored);
+    let age = col_right(
+        &relative_age(now, entry.time),
+        AGE_WIDTH,
+        palette().age,
+        colored,
+    );
+    let sym = paint("●", palette().sha, colored);
     let rail = paint("│", DIM, colored);
     let head = format!("{sym}  {letters} {sha} {age}");
     format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
@@ -522,7 +625,7 @@ pub fn styled_id(display: &str, unique: usize, width: usize, colored: bool) -> S
     let (head, tail) = display.split_at(unique.min(display.len()));
     format!(
         "{}{}{pad}",
-        paint(head, SNAP_UNIQUE, colored),
+        paint(head, palette().snap, colored),
         paint(tail, DIM, colored)
     )
 }
@@ -550,9 +653,28 @@ pub fn relative_age(now: i64, then: i64) -> String {
     format!("{}y ago", delta / (60 * 60 * 24 * 365))
 }
 
+/// Painter helpers — one-liners that command files use instead of touching
+/// `anstyle` directly. Each takes `(text, colored)` and delegates to the
+/// private `paint` with the correct semantic role from the current palette.
+pub fn paint_sha(text: &str, colored: bool) -> String {
+    paint(text, palette().sha, colored)
+}
+
+pub fn paint_ok(text: &str, colored: bool) -> String {
+    paint(text, palette().ok, colored)
+}
+
+pub fn paint_warn(text: &str, colored: bool) -> String {
+    paint(text, palette().warn, colored)
+}
+
+pub fn paint_dim(text: &str, colored: bool) -> String {
+    paint(text, DIM, colored)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{relative_age, styled_id};
+    use super::{Palette, palette_for, relative_age, styled_id};
 
     #[test]
     fn ages() {
@@ -575,4 +697,23 @@ mod tests {
         // Width shorter than the id: no pad, no truncation.
         assert_eq!(styled_id("abcdef", 3, 4, false), "abcdef");
     }
+
+    #[test]
+    fn palette_defaults_to_muted() {
+        assert_eq!(palette_for(None), Palette::MUTED);
+        assert_eq!(palette_for(Some("nonsense")), Palette::MUTED);
+    }
+
+    #[test]
+    fn palette_parses_case_insensitively() {
+        assert_eq!(palette_for(Some("VIVID")), Palette::VIVID);
+        assert_eq!(palette_for(Some("Terminal")), Palette::TERMINAL);
+        assert_eq!(palette_for(Some("muted")), Palette::MUTED);
+    }
+
+    // The OnceLock behind `palette()` is process-global, so a test that sets
+    // it races every other test in the same binary — cargo runs them as
+    // threads. `palette_for` is where the real mapping logic lives and it is
+    // pure; the set-once plumbing is std behavior and is covered end-to-end by
+    // the `ff config theme` integration tests instead.
 }

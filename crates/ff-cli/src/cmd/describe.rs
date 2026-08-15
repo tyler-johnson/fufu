@@ -16,7 +16,9 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
             None,
             std::env::args().collect(),
         )?;
+        crate::render::init_palette(&repo);
         crate::render::reconcile_notice(&ctx.reconcile);
+        let colored = crate::pager::color_enabled();
         if json {
             let body = serde_json::to_string(&serde_json::json!({
                 "renamed": report,
@@ -27,7 +29,7 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
             return Ok(());
         }
         println!("renamed {} to {}", report.from, report.to);
-        println!("undo: ff undo");
+        println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         return Ok(());
     }
 
@@ -43,6 +45,7 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
         None,
         std::env::args().collect(),
     )?;
+    crate::render::init_palette(&repo);
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {

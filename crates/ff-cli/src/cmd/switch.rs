@@ -16,6 +16,7 @@ pub fn run(target: String, json: bool) -> Result<()> {
         &crate::provenance::pre_ff(),
     )?;
 
+    crate::render::init_palette(&repo);
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
@@ -29,6 +30,8 @@ pub fn run(target: String, json: bool) -> Result<()> {
         return Ok(());
     }
 
+    let colored = crate::pager::color_enabled();
+
     if report.from == report.to {
         println!("already on {}", report.to);
         return Ok(());
@@ -37,7 +40,7 @@ pub fn run(target: String, json: bool) -> Result<()> {
         println!(
             "parked the open change on {} ({})",
             report.from,
-            &stash[..stash.len().min(8)]
+            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
         );
     }
     println!("switched to {}", report.to);
@@ -49,17 +52,20 @@ pub fn run(target: String, json: bool) -> Result<()> {
         ArrivalReport::StillParked { paths, .. } => {
             println!("a parked change is waiting here but no longer applies cleanly:");
             for path in paths {
-                println!("  conflicts: {path}");
+                println!(
+                    "{}",
+                    crate::render::paint_warn(&format!("  conflicts: {path}"), colored)
+                );
             }
             println!("it stays parked; resolve by hand with git stash, or continue working");
         }
         ArrivalReport::Invalidated { stash } => {
             println!(
                 "note: the parked change ({}) was dropped outside fufu; its entry was cleared",
-                &stash[..stash.len().min(8)]
+                crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
             );
         }
     }
-    println!("undo: ff undo");
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
     Ok(())
 }

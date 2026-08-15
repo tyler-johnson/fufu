@@ -63,64 +63,46 @@ fn pad(text: &str, width: usize) -> String {
 }
 
 fn format_row(row: &Row, colored: bool) -> String {
-    let style = match row.level {
-        Level::Ok => anstyle::AnsiColor::Green.on_default(),
-        Level::Info => anstyle::Style::new().dimmed(),
-        Level::Warn => anstyle::AnsiColor::Yellow.on_default(),
-    };
-
     let level_text = match row.level {
         Level::Ok => "ok",
         Level::Info => "info",
         Level::Warn => "WARN",
     };
 
-    if colored {
-        match row.level {
-            Level::Ok => {
-                let painted = format!("{}{}{}", style.render(), level_text, style.render_reset());
-                let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
-                format!(
-                    "  {}{}{}{}",
-                    painted,
-                    level_pad,
-                    pad(row.name, 15),
-                    row.detail
-                )
-            }
-            Level::Info => {
-                let painted_level =
-                    format!("{}{}{}", style.render(), level_text, style.render_reset());
-                let painted_name =
-                    format!("{}{}{}", style.render(), row.name, style.render_reset());
-                let painted_detail =
-                    format!("{}{}{}", style.render(), row.detail, style.render_reset());
-                let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
-                let name_pad = " ".repeat(15usize.saturating_sub(row.name.chars().count()));
-                format!(
-                    "  {}{}{}{}{}",
-                    painted_level, level_pad, painted_name, name_pad, painted_detail
-                )
-            }
-            Level::Warn => {
-                let painted = format!("{}{}{}", style.render(), level_text, style.render_reset());
-                let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
-                format!(
-                    "  {}{}{}{}",
-                    painted,
-                    level_pad,
-                    pad(row.name, 15),
-                    row.detail
-                )
-            }
+    match row.level {
+        Level::Ok => {
+            let painted = crate::render::paint_ok(level_text, colored);
+            let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
+            format!(
+                "  {}{}{}{}",
+                painted,
+                level_pad,
+                pad(row.name, 15),
+                row.detail
+            )
         }
-    } else {
-        format!(
-            "  {}{}{}",
-            pad(level_text, 6),
-            pad(row.name, 15),
-            row.detail
-        )
+        Level::Info => {
+            let painted_level = crate::render::paint_dim(level_text, colored);
+            let painted_name = crate::render::paint_dim(row.name, colored);
+            let painted_detail = crate::render::paint_dim(&row.detail, colored);
+            let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
+            let name_pad = " ".repeat(15usize.saturating_sub(row.name.chars().count()));
+            format!(
+                "  {}{}{}{}{}",
+                painted_level, level_pad, painted_name, name_pad, painted_detail
+            )
+        }
+        Level::Warn => {
+            let painted = crate::render::paint_warn(level_text, colored);
+            let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
+            format!(
+                "  {}{}{}{}",
+                painted,
+                level_pad,
+                pad(row.name, 15),
+                row.detail
+            )
+        }
     }
 }
 
@@ -310,16 +292,14 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    let colored = !matches!(
-        anstream::AutoStream::choice(&std::io::stdout()),
-        anstream::ColorChoice::Never
-    );
+    let colored = crate::pager::color_enabled();
 
     let mut rows: Vec<Row> = Vec::new();
 
     // repository
     let repo: Option<ff_core::gix::Repository> = match ff_core::discover(".") {
         Ok(r) => {
+            crate::render::init_palette(&r);
             if r.workdir().is_none() {
                 rows.push(Row::info(
                     "repository",
@@ -773,16 +753,10 @@ fn render(rows: &[Row], fix: bool, json: bool, colored: bool) {
         println!();
 
         let sum = summary_text(findings, fixable, fix);
-        if colored && findings == 0 {
-            println!(
-                "{}{}{}",
-                anstyle::AnsiColor::Green.on_default().render(),
-                sum,
-                anstyle::AnsiColor::Green.on_default().render_reset()
-            );
-        } else {
-            println!("{}", sum);
-        }
+        println!(
+            "{}",
+            crate::render::paint_ok(&sum, colored && findings == 0)
+        );
     }
 
     if findings > 0 {
