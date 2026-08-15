@@ -379,7 +379,8 @@ fn usage_errors_exit_2() {
     let fx = Fixture::new();
     let unknown_flag = ff(&fx, &["status", "--nope"]);
     assert_eq!(unknown_flag.status.code(), Some(2));
-    // Bare-ff args conflict with subcommands: `ff -m x status` is nonsense.
+    // `-m` is bare ff's snapshot message: riding another verb is nonsense,
+    // and `usage/bad-flags` puts it in the same exit-2 class as clap's own.
     let mixed = ff(&fx, &["-m", "msg", "status"]);
     assert_eq!(mixed.status.code(), Some(2));
     let bad_count = ff(&fx, &["log", "-n", "many"]);
@@ -1661,8 +1662,9 @@ fn json_is_accepted_by_every_verb() {
     }
 }
 
-/// `ff -m x status` remains a usage error, proving `args_conflicts_with_subcommands`
-/// survived the change.
+/// `ff -m x status` remains a usage error. clap no longer refuses it — the
+/// setting that did also refused the global flags — so main names the one
+/// real conflict itself, and it must keep landing as `usage/bad-flags`.
 #[test]
 fn bare_flags_still_conflict_with_subcommands() {
     let fx = Fixture::new();
@@ -1672,4 +1674,60 @@ fn bare_flags_still_conflict_with_subcommands() {
         Some(2),
         "bare ff args must still conflict with subcommands"
     );
+
+    let out = ff(&fx, &["-m", "x", "status", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["error"]["id"], "usage/bad-flags");
+}
+
+/// This error is raised before there is a `Ctx` to consult, which is exactly
+/// where a rendering can start depending on how early the failure happened
+/// rather than on what the caller asked for. Without `--json` it must read as
+/// prose on stderr and leave stdout empty, the same as every other failure.
+#[test]
+fn a_usage_error_without_json_stays_prose_on_stderr() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["-m", "x", "status"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "", "stdout must stay empty without --json");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("ff: "),
+        "expected prose on stderr, got {stderr:?}"
+    );
+    assert!(
+        !stderr.contains("\"ff\":1"),
+        "the machine envelope must not appear without --json: {stderr:?}"
+    );
+}
+
+/// The globals are `global = true` precisely so they can ride any verb, and
+/// `ff --json status` — the spelling DESIGN uses for `--at-op` too — was a
+/// clap usage error until the conflict setting came off.
+#[test]
+fn globals_ride_ahead_of_the_subcommand() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let out = ff(&fx, &["--json", "status"]);
+    assert!(
+        out.status.success(),
+        "ff --json status must parse: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["cmd"], "status", "envelope names the verb");
+    assert!(v["data"].is_object(), "envelope carries a payload");
+
+    // The trailing spelling, which always worked, still does.
+    let trailing = ff(&fx, &["status", "--json"]);
+    assert!(trailing.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&trailing)).expect("valid json");
+    assert_eq!(v["cmd"], "status");
+
+    // And --session rides the same way.
+    let out = ff(&fx, &["--session", "leading", "session", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["data"]["name"], "leading");
 }

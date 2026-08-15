@@ -4,10 +4,12 @@
 
 use ff_core::{Result, UndoOptions};
 
-pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, op: Option<String>, force: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
-    let (report, ctx) = ff_core::undo(
+    let (report, verb_ctx) = ff_core::undo(
         &repo,
         &UndoOptions {
             op,
@@ -15,12 +17,12 @@ pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
             now: None,
             argv: std::env::args().collect(),
         },
-        &crate::provenance::pre_ff(),
+        &crate::provenance::pre_ff(ctx),
     )?;
 
-    crate::render::reconcile_notice(&ctx.reconcile);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "undo": report,
             "redo": "ff undo",

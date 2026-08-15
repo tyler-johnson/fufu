@@ -5,8 +5,11 @@ use clap::{Parser, Subcommand};
 use crate::help;
 
 /// Bare `ff` is the snapshot verb (jj-style): `ff [-m <msg>]` takes a manual
-/// snapshot; every other command captures first, then does its work.
-/// `args_conflicts_with_subcommands` makes `ff -m x status` a usage error.
+/// snapshot; every other command captures first, then does its work. `-m`
+/// belongs to that bare form alone — `ff -m x status` is refused by hand in
+/// main, not by clap, because the clap setting that used to do it
+/// (`args_conflicts_with_subcommands`) refuses every root-level arg beside a
+/// subcommand, `global = true` ones included.
 #[derive(Parser)]
 #[command(
     name = "ff",
@@ -17,8 +20,7 @@ use crate::help;
     version = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO")),
     about = "a friendlier interface to plain git",
     long_about = help::ROOT,
-    after_long_help = help::ROOT_EXAMPLES,
-    args_conflicts_with_subcommands = true
+    after_long_help = help::ROOT_EXAMPLES
 )]
 pub struct Cli {
     /// Message for the manual snapshot
@@ -222,6 +224,46 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<SessionAction>,
     },
+}
+
+impl Command {
+    /// The name this verb stamps on its JSON envelope, success or error. It
+    /// lives beside the variant so a verb added without one is a compile
+    /// error rather than a silently mislabeled envelope.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Command::Status => "status",
+            Command::Log { .. } => "log",
+            Command::Evolog { .. } => "evolog",
+            Command::Git { .. } => "git",
+            Command::Restore { .. } => "restore",
+            Command::Trim { .. } => "trim",
+            Command::Commit { .. } => "commit",
+            Command::Switch { .. } => "switch",
+            Command::Undo { .. } => "undo",
+            Command::Branch { .. } => "branch",
+            Command::Start { .. } => "start",
+            Command::Describe { .. } => "describe",
+            Command::Hook { .. } => "hook",
+            Command::Config { .. } => "config",
+            Command::Doctor { .. } => "doctor",
+            Command::Explain { .. } => "explain",
+            Command::Update { .. } => "update",
+            Command::Session { .. } => "session",
+        }
+    }
+
+    /// Whether `--json` means anything here. Three verbs own their stream
+    /// rather than emit an envelope on it: `git` passes real git's output
+    /// through (often by exec'ing it), `hook` speaks the agent client's
+    /// protocol on stdout, and `update` narrates a download to a person. For
+    /// those the flag is ignored, not honored with an empty envelope.
+    pub fn json_capable(&self) -> bool {
+        !matches!(
+            self,
+            Command::Git { .. } | Command::Hook { .. } | Command::Update { .. }
+        )
+    }
 }
 
 #[derive(clap::Subcommand)]

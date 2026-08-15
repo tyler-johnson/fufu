@@ -7,6 +7,8 @@ use std::ffi::OsString;
 
 use ff_core::Result;
 
+use crate::ctx::Ctx;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Translated {
     Status,
@@ -61,11 +63,11 @@ fn parse_count(text: &str) -> Option<usize> {
     (n >= 1).then_some(n)
 }
 
-pub fn run(args: Vec<OsString>) -> Result<()> {
+pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
     let translated = translate(&args);
     // Capture before anything runs — translated or not. Loud on failure:
     // the user asked git to do something; a skipped net deserves a notice.
-    crate::capture::pre_loud(&crate::provenance::pre_git(&args));
+    crate::capture::pre_loud(&crate::provenance::pre_git(ctx, &args));
 
     let repo = ff_core::discover(".").ok();
     if let Some(repo) = &repo {
@@ -77,18 +79,20 @@ pub fn run(args: Vec<OsString>) -> Result<()> {
         Some(verb) => {
             hint_once(&verb);
             // Capture already happened; run the verb's inner body directly.
+            // The ctx is `git`'s own, so `--json` is already off in it — the
+            // translated verb speaks git's prose, not an envelope.
             let result = match verb {
-                Translated::Status => crate::cmd::status::run_inner(false),
+                Translated::Status => crate::cmd::status::run_inner(ctx),
                 Translated::Log { limit } => {
-                    crate::cmd::log::run_inner(false, limit.unwrap_or(0), false, None)
+                    crate::cmd::log::run_inner(ctx, limit.unwrap_or(0), false, None)
                 }
                 // The mutating verbs own their pre-snapshot (a no-op after
                 // the capture above) and their journal entry.
-                Translated::Switch { target } => crate::cmd::switch::run(target, false),
+                Translated::Switch { target } => crate::cmd::switch::run(ctx, target),
                 Translated::Commit { message } => {
-                    crate::cmd::commit::run(message, false, None, false)
+                    crate::cmd::commit::run(ctx, message, false, None)
                 }
-                Translated::Branch => crate::cmd::branch::run(None, None, false),
+                Translated::Branch => crate::cmd::branch::run(ctx, None, None),
             };
             if let Some(repo) = &repo
                 && let Some(notice) =

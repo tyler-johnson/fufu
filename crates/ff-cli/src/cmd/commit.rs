@@ -3,19 +3,21 @@
 
 use ff_core::{CloseOptions, CommitOutcome, Result};
 
+use crate::ctx::Ctx;
+
 pub fn run(
+    ctx: &Ctx,
     message: Option<String>,
     no_verify: bool,
     branch: Option<String>,
-    json: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
     // The close's own mandatory pre-capture bypasses `capture::pre_best_effort`
     // (it's core's to take, not a generic capture-first read). The session
     // is now attached when `pre_ff()` builds the provenance, so every path
     // carries it without hand-wiring.
-    let prov = crate::provenance::pre_ff();
-    let (outcome, ctx) = ff_core::close(
+    let prov = crate::provenance::pre_ff(ctx);
+    let (outcome, verb_ctx) = ff_core::close(
         &repo,
         &CloseOptions {
             message,
@@ -28,12 +30,12 @@ pub fn run(
     )?;
 
     crate::render::init_palette(&repo);
-    crate::render::reconcile_notice(&ctx.reconcile);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "commit": outcome,
-            "reconcile": ctx.reconcile,
+            "reconcile": verb_ctx.reconcile,
             "undo": "ff undo",
         });
         crate::machine::emit("commit", &payload)?;

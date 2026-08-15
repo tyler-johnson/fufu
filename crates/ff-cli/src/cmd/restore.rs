@@ -4,7 +4,9 @@
 
 use ff_core::{RestoreOptions, Result};
 
-pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, at: Option<String>, all: bool, paths: Vec<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let report = ff_core::restore(
@@ -15,10 +17,10 @@ pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Res
             all,
             now: None,
         },
-        &crate::provenance::pre_ff(),
+        &crate::provenance::pre_ff(ctx),
     )?;
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "target": report.target,
             "restored": report.restored,

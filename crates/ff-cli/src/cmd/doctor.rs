@@ -3,6 +3,8 @@
 
 use ff_core::{Error, Result};
 
+use crate::ctx::Ctx;
+
 enum Level {
     Ok,
     Info,
@@ -283,7 +285,7 @@ fn update_row() -> Row {
     }
 }
 
-pub fn run(fix: bool, json: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     // No capture call — doctor observes; capturing would absorb the very drift
     // the journal check reports.
 
@@ -724,7 +726,7 @@ pub fn run(fix: bool, json: bool) -> Result<()> {
         crate::selfupdate::notify::maybe_spawn_check(repo);
     }
 
-    render(&rows, fix, json, colored);
+    render(&rows, fix, ctx.json, colored);
 
     Ok(())
 }

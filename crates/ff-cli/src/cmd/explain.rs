@@ -3,9 +3,11 @@
 
 use ff_core::{Error, Result};
 
-pub fn run(id: Option<String>, list: bool, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, id: Option<String>, list: bool) -> Result<()> {
     if list {
-        if json {
+        if ctx.json {
             return crate::explain::emit_json_list();
         }
         return crate::explain::render_list().map_err(Error::repo);
@@ -21,7 +23,7 @@ pub fn run(id: Option<String>, list: bool, json: bool) -> Result<()> {
 
     let entry = crate::explain::find(&id).ok_or_else(|| crate::explain::unknown_id(&id))?;
 
-    if json {
+    if ctx.json {
         crate::explain::emit_json(entry)
     } else {
         crate::explain::render(entry).map_err(Error::repo)

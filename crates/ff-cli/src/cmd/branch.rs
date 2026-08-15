@@ -2,20 +2,22 @@
 
 use ff_core::{BranchInfo, Result};
 
-pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, name: Option<String>, delete: Option<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
     if let Some(target) = delete {
-        let (report, ctx) = ff_core::branch::delete(
+        let (report, verb_ctx) = ff_core::branch::delete(
             &repo,
             &target,
-            &crate::provenance::pre_ff(),
+            &crate::provenance::pre_ff(ctx),
             None,
             std::env::args().collect(),
         )?;
         crate::render::init_palette(&repo);
-        crate::render::reconcile_notice(&ctx.reconcile);
+        crate::render::reconcile_notice(&verb_ctx.reconcile);
         let colored = crate::pager::color_enabled();
-        if json {
+        if ctx.json {
             let payload = serde_json::json!({
                 "deleted": report,
                 "undo": "ff undo",
@@ -38,17 +40,17 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
         return Ok(());
     }
     if let Some(new_name) = name {
-        let (report, ctx) = ff_core::branch::claim_current(
+        let (report, verb_ctx) = ff_core::branch::claim_current(
             &repo,
             &new_name,
-            &crate::provenance::pre_ff(),
+            &crate::provenance::pre_ff(ctx),
             None,
             std::env::args().collect(),
         )?;
         crate::render::init_palette(&repo);
-        crate::render::reconcile_notice(&ctx.reconcile);
+        crate::render::reconcile_notice(&verb_ctx.reconcile);
         let colored = crate::pager::color_enabled();
-        if json {
+        if ctx.json {
             let payload = serde_json::json!({
                 "claimed": report,
                 "undo": "ff undo",
@@ -63,7 +65,7 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
 
     // List. Reads don't reconcile-journal here; `ff status` owns loudness.
     let list = ff_core::branch::list(&repo)?;
-    if json {
+    if ctx.json {
         crate::machine::emit("branch", &list)?;
         return Ok(());
     }

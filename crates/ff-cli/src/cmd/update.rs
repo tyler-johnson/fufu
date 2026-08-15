@@ -1,9 +1,10 @@
 //! `ff update` — download the latest release and replace this binary.
 //! `--check` is the background lane: refresh the update cache, print nothing.
 
+use crate::ctx::Ctx;
 use crate::selfupdate;
 
-pub fn run(check: bool) -> ff_core::Result<()> {
+pub fn run(_ctx: &Ctx, check: bool) -> ff_core::Result<()> {
     if check {
         return refresh_cache();
     }

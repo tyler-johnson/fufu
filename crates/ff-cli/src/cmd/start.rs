@@ -3,14 +3,16 @@
 
 use ff_core::{Result, StartOptions};
 
+use crate::ctx::Ctx;
+
 pub fn run(
+    ctx: &Ctx,
     target: Option<String>,
     message: Option<String>,
     branch: Option<String>,
-    json: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    let (report, ctx) = ff_core::start(
+    let (report, verb_ctx) = ff_core::start(
         &repo,
         &StartOptions {
             target,
@@ -19,16 +21,16 @@ pub fn run(
             now: None,
             argv: std::env::args().collect(),
         },
-        &crate::provenance::pre_ff(),
+        &crate::provenance::pre_ff(ctx),
     )?;
 
     crate::render::init_palette(&repo);
-    crate::render::reconcile_notice(&ctx.reconcile);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "start": report,
-            "reconcile": ctx.reconcile,
+            "reconcile": verb_ctx.reconcile,
             "undo": "ff undo",
         });
         crate::machine::emit("start", &payload)?;

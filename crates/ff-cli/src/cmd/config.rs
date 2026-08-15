@@ -5,6 +5,8 @@ use ff_core::gix::config::Source;
 use ff_core::gix::config::source::Kind;
 use ff_core::{Error, Result};
 
+use crate::ctx::Ctx;
+
 pub(crate) enum SettingKind {
     Size,
     Duration,
@@ -266,11 +268,11 @@ fn scope_human_label(source: &str) -> &str {
 }
 
 pub fn run(
+    ctx: &Ctx,
     key: Option<String>,
     value: Option<String>,
     unset: bool,
     global: bool,
-    json: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
@@ -292,7 +294,7 @@ pub fn run(
             let is_default = val.is_none();
             let display = val.as_deref().unwrap_or(setting.def);
 
-            if json {
+            if ctx.json {
                 let kind_str = match &setting.kind {
                     SettingKind::Size => "size",
                     SettingKind::Duration => "duration",
@@ -331,12 +333,12 @@ pub fn run(
             }
         }
 
-        if json {
+        if ctx.json {
             let payload = serde_json::json!({"settings": entries});
             crate::machine::emit("config", &payload)?;
         }
 
-        if !json {
+        if !ctx.json {
             println!(
                 "{}",
                 crate::render::paint_dim(
@@ -406,7 +408,7 @@ pub fn run(
         if !removed {
             // Not removed — check what still applies from other scopes
             let (still_val, still_source) = scope_label_excluding(file_snap, setting, removed_kind);
-            if json {
+            if ctx.json {
                 let still_json = still_val.as_ref().map(|v| {
                     serde_json::json!({
                         "value": v,
@@ -462,7 +464,7 @@ pub fn run(
             crate::autotrim::sync_interval(&repo, encoded);
         }
 
-        if json {
+        if ctx.json {
             let still_json = still_val.as_ref().map(|v| {
                 serde_json::json!({
                     "value": v,
@@ -506,7 +508,7 @@ pub fn run(
         let is_default = val.is_none();
         let display = val.as_deref().unwrap_or(setting.def);
 
-        if json {
+        if ctx.json {
             let source_json = if source.is_empty() {
                 serde_json::Value::Null
             } else {
@@ -569,7 +571,7 @@ pub fn run(
         crate::autotrim::sync_interval(&repo, encoded);
     }
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "key": setting.name,
             "value": new_value,

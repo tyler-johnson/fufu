@@ -11,6 +11,7 @@ use ff_core::{Error, Provenance, Result};
 use serde::Deserialize;
 
 use crate::cli::{HookKind, HookVerb};
+use crate::ctx::Ctx;
 
 const MAX_PAYLOAD: u64 = 8 * 1024 * 1024;
 const HOOK_COMMAND: &str = "ff hook agent trigger claude";
@@ -19,9 +20,9 @@ const HOOK_COMMAND: &str = "ff hook agent trigger claude";
 const LEGACY_HOOK_COMMANDS: [&str; 1] = ["ff hook claude"];
 const PRE_TOOL_MATCHER: &str = "Bash|Edit|Write|NotebookEdit";
 
-pub fn run(kind: HookKind) -> Result<()> {
+pub fn run(ctx: &Ctx, kind: HookKind) -> Result<()> {
     match kind {
-        HookKind::Agent { verb } => agent(verb),
+        HookKind::Agent { verb } => agent(ctx, verb),
         HookKind::Shell { verb } => super::shell::run(verb),
         HookKind::Editor { verb } => editor(verb),
         HookKind::Other(args) => {
@@ -29,9 +30,12 @@ pub fn run(kind: HookKind) -> Result<()> {
             // may live in a settings file: forward it to the trigger rather
             // than silently dropping the capture.
             if args.first().and_then(|a| a.to_str()) == Some("claude") {
-                return agent(HookVerb::Trigger {
-                    name: Some("claude".into()),
-                });
+                return agent(
+                    ctx,
+                    HookVerb::Trigger {
+                        name: Some("claude".into()),
+                    },
+                );
             }
             // Anything else unknown exits 0 silently: whatever invoked us
             // keeps working.
@@ -40,13 +44,13 @@ pub fn run(kind: HookKind) -> Result<()> {
     }
 }
 
-fn agent(verb: HookVerb) -> Result<()> {
+fn agent(ctx: &Ctx, verb: HookVerb) -> Result<()> {
     match verb {
         HookVerb::Trigger { name } => {
             match name.as_deref() {
                 // A trigger must never veto, and never speak on failure.
                 None | Some("claude") => {
-                    if let Err(err) = runtime_claude()
+                    if let Err(err) = runtime_claude(ctx)
                         && std::env::var_os("FF_DEBUG").is_some()
                     {
                         eprintln!("ff[debug]: hook failed: {err}");
@@ -115,7 +119,7 @@ struct ToolInput {
     notebook_path: String,
 }
 
-fn runtime_claude() -> Result<()> {
+fn runtime_claude(ctx: &Ctx) -> Result<()> {
     let mut buf = Vec::new();
     std::io::stdin()
         .lock()
@@ -134,7 +138,7 @@ fn runtime_claude() -> Result<()> {
         return Ok(());
     }
 
-    let prov = provenance_for(&payload, &repo);
+    let prov = provenance_for(ctx, &payload, &repo);
     // Contended and NoOp are fine; only real errors matter (and only under
     // FF_DEBUG at that).
     ff_core::take(&repo, &prov)?;
@@ -176,7 +180,7 @@ fn runtime_claude() -> Result<()> {
     Ok(())
 }
 
-fn provenance_for(payload: &Payload, repo: &ff_core::gix::Repository) -> Provenance {
+fn provenance_for(ctx: &Ctx, payload: &Payload, repo: &ff_core::gix::Repository) -> Provenance {
     let detail = match payload.hook_event_name.as_str() {
         "PreToolUse" => match payload.tool_name.as_str() {
             "Bash" => format!(
@@ -203,7 +207,7 @@ fn provenance_for(payload: &Payload, repo: &ff_core::gix::Repository) -> Provena
         }
         other => format!("event {other}"),
     };
-    crate::provenance::claude(&payload.session_id, detail)
+    crate::provenance::claude(ctx, &payload.session_id, detail)
 }
 
 /// Show tool paths relative to the worktree when possible.

@@ -2,13 +2,15 @@
 
 use ff_core::{EvologOptions, Provenance, Result, SnapOutcome};
 
+use crate::ctx::Ctx;
+
 fn branch_of(r#ref: &str) -> &str {
     r#ref.strip_prefix("refs/fufu/snap/").unwrap_or(r#ref)
 }
 
-pub fn run(message: Option<String>, json: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    let prov = Provenance::new("manual", message).with_session(crate::session::current());
+    let prov = Provenance::new("manual", message).with_session(ctx.session.clone());
     let outcome = ff_core::take(&repo, &prov)?;
     match &outcome {
         SnapOutcome::Created {
@@ -18,7 +20,7 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
             ..
         } => {
             let branch = branch_of(r#ref);
-            if json {
+            if ctx.json {
                 let payload = serde_json::json!({
                     "outcome": "created",
                     "id": id,
@@ -54,7 +56,7 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
         }
         SnapOutcome::NoOp { r#ref, .. } => {
             let branch = branch_of(r#ref);
-            if json {
+            if ctx.json {
                 let payload = serde_json::json!({
                     "outcome": "noop",
                     "branch": branch,
@@ -65,7 +67,7 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
             }
         }
         SnapOutcome::Contended { .. } => {
-            if json {
+            if ctx.json {
                 let payload = serde_json::json!({ "outcome": "contended" });
                 crate::machine::emit("snap", &payload)?;
             } else {

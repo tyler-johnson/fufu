@@ -6,8 +6,10 @@
 
 use ff_core::{Result, TrimOptions};
 
-pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff());
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let report = ff_core::trim(
@@ -24,7 +26,7 @@ pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
     }
     let anything_dropped = report.chains.iter().any(|c| c.dropped > 0);
 
-    if json {
+    if ctx.json {
         crate::machine::emit("trim", &report)?;
     } else {
         if report.chains.is_empty() {

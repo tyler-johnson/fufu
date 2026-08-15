@@ -4,7 +4,9 @@
 
 use ff_core::{Error, Result};
 
-pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     // Non-interactive gate: when no terminal and no -m, fail early instead
@@ -18,18 +20,18 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
     }
 
     if let Some(new_name) = branch {
-        let (report, ctx) = ff_core::branch::rename_current(
+        let (report, verb_ctx) = ff_core::branch::rename_current(
             &repo,
             &new_name,
             false,
-            &crate::provenance::pre_ff(),
+            &crate::provenance::pre_ff(ctx),
             None,
             std::env::args().collect(),
         )?;
         crate::render::init_palette(&repo);
-        crate::render::reconcile_notice(&ctx.reconcile);
+        crate::render::reconcile_notice(&verb_ctx.reconcile);
         let colored = crate::pager::color_enabled();
-        if json {
+        if ctx.json {
             let payload = serde_json::json!({
                 "renamed": report,
                 "undo": "ff undo",
@@ -47,17 +49,17 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
         None => edit_in_editor(&repo)?,
     };
 
-    let (report, ctx) = ff_core::describe::set_pending(
+    let (report, verb_ctx) = ff_core::describe::set_pending(
         &repo,
         text,
-        &crate::provenance::pre_ff(),
+        &crate::provenance::pre_ff(ctx),
         None,
         std::env::args().collect(),
     )?;
     crate::render::init_palette(&repo);
-    crate::render::reconcile_notice(&ctx.reconcile);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "describe": report,
             "undo": "ff undo",

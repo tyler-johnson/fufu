@@ -6,8 +6,10 @@ use std::ffi::OsString;
 
 use ff_core::Provenance;
 
+use crate::ctx::Ctx;
+
 /// `pre: ff <args>` — rebuilt from this process's own argv.
-pub fn pre_ff() -> Provenance {
+pub fn pre_ff(ctx: &Ctx) -> Provenance {
     let args: Vec<String> = std::env::args().collect();
     let mut summary = String::from("ff");
     for arg in args.iter().skip(1) {
@@ -15,18 +17,18 @@ pub fn pre_ff() -> Provenance {
         summary.push_str(arg);
     }
     let prov = Provenance::new("pre", Some(summary));
-    prov.with_session(crate::session::current())
+    prov.with_session(ctx.session.clone())
 }
 
 /// `pre: git <args>` for the passthrough.
-pub fn pre_git(args: &[OsString]) -> Provenance {
+pub fn pre_git(ctx: &Ctx, args: &[OsString]) -> Provenance {
     let mut summary = String::from("git");
     for arg in args {
         summary.push(' ');
         summary.push_str(&arg.to_string_lossy());
     }
     let prov = Provenance::new("pre", Some(summary));
-    prov.with_session(crate::session::current())
+    prov.with_session(ctx.session.clone())
 }
 
 /// Truncate to at most `max` characters, appending `…` when cut.
@@ -45,7 +47,7 @@ pub fn truncate(text: &str, max: usize) -> String {
 /// The session id from the hook payload is used verbatim as the session
 /// trailer (it says *which run*). The subject prefix stays unchanged — it
 /// says *who*.
-pub fn claude(session_id: &str, detail: String) -> Provenance {
+pub fn claude(ctx: &Ctx, session_id: &str, detail: String) -> Provenance {
     let sess: String = session_id.chars().take(8).collect();
     let source = if sess.is_empty() {
         "claude".to_string()
@@ -60,8 +62,9 @@ pub fn claude(session_id: &str, detail: String) -> Provenance {
     } else {
         None
     };
-    // If the agent's id is unusable or empty, fall back to the environment.
-    let session = session.or_else(crate::session::current);
+    // If the agent's id is unusable or empty, fall back to the invocation's
+    // own session — the flag, or the environment behind it.
+    let session = session.or_else(|| ctx.session.clone());
     prov.with_session(session)
 }
 
@@ -75,13 +78,41 @@ mod tests {
         assert_eq!(truncate("abcdefghij", 5), "abcd…");
     }
 
+    fn ctx() -> Ctx {
+        Ctx {
+            json: false,
+            session: None,
+            command: "hook",
+        }
+    }
+
     #[test]
     fn claude_source_includes_session_prefix() {
-        let p = claude("0123456789abcdef", "Bash(ls)".into());
+        let p = claude(&ctx(), "0123456789abcdef", "Bash(ls)".into());
         assert_eq!(p.source, "claude[01234567]");
         assert_eq!(p.subject(), "claude[01234567]: Bash(ls)");
-        let p = claude("", "prompt \"hi\"".into());
+        let p = claude(&ctx(), "", "prompt \"hi\"".into());
         assert_eq!(p.subject(), "claude: prompt \"hi\"");
+    }
+
+    #[test]
+    fn claude_prefers_the_hook_payload_id_over_the_invocation_session() {
+        let ctx = Ctx {
+            session: Some("from-the-flag".into()),
+            ..ctx()
+        };
+        // A usable payload id is the session trailer, verbatim.
+        let p = claude(&ctx, "0123456789abcdef", "Bash(ls)".into());
+        assert_eq!(p.session.as_deref(), Some("0123456789abcdef"));
+        // An empty or unusable one falls back to the invocation's session.
+        assert_eq!(
+            claude(&ctx, "", "Bash(ls)".into()).session.as_deref(),
+            Some("from-the-flag")
+        );
+        assert_eq!(
+            claude(&ctx, "a\nb", "Bash(ls)".into()).session.as_deref(),
+            Some("from-the-flag")
+        );
     }
 
     #[test]

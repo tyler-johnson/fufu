@@ -4,25 +4,27 @@
 
 use ff_core::{ArrivalReport, Result, SwitchOptions};
 
-pub fn run(target: String, json: bool) -> Result<()> {
+use crate::ctx::Ctx;
+
+pub fn run(ctx: &Ctx, target: String) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    let (report, ctx) = ff_core::switch(
+    let (report, verb_ctx) = ff_core::switch(
         &repo,
         &SwitchOptions {
             target,
             now: None,
             argv: std::env::args().collect(),
         },
-        &crate::provenance::pre_ff(),
+        &crate::provenance::pre_ff(ctx),
     )?;
 
     crate::render::init_palette(&repo);
-    crate::render::reconcile_notice(&ctx.reconcile);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "switch": report,
-            "reconcile": ctx.reconcile,
+            "reconcile": verb_ctx.reconcile,
             "undo": "ff undo",
         });
         crate::machine::emit("switch", &payload)?;

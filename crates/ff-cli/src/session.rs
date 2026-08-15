@@ -3,19 +3,7 @@
 //! Sessions are stateless: the only source is the `FF_SESSION` environment
 //! variable. There is no marker file, no mode, and nothing to open or close.
 
-use std::sync::OnceLock;
-
 use ff_core::error::{Error, Result};
-
-/// The session set by `--session` on this invocation, if any. Set once from
-/// main before any capture runs; read by the provenance constructors.
-static OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
-
-/// Record the session override from the `--session` flag. Called once from
-/// main after parsing, before any dispatch.
-pub fn set_override(name: Option<String>) {
-    OVERRIDE.set(name).ok();
-}
 
 /// Validate a session name. Any UTF-8 string is legal — the rules are only
 /// what storing it as a commit-message trailer actually requires.
@@ -45,27 +33,28 @@ pub fn parse(raw: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
-/// The session a snapshot taken right now belongs to. The `--session` flag
-/// (recorded via `set_override`) wins, then `FF_SESSION`. An unusable env
-/// value is ignored rather than fatal; the flag is a hard error, validated
-/// before `set_override` is called.
-pub fn current() -> Option<String> {
-    // If the flag was explicitly provided, it wins. If not, fall through to
-    // the environment variable.
-    if let Some(override_val) = OVERRIDE.get()
-        && let Some(name) = override_val
-    {
-        return Some(name.clone());
+/// The session a snapshot belongs to: the `--session` flag wins, then
+/// `FF_SESSION`. Both go through the same `parse`, but only the flag is
+/// fatal — the environment is ambient rather than something typed on this
+/// command line, so an unusable value there is ignored (and named under
+/// `FF_DEBUG`) instead of aborting the command.
+///
+/// Both sources are arguments: the answer belongs to one invocation, and
+/// `Ctx` settles it once at startup rather than letting each caller ask.
+pub fn resolve(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> {
+    if let Some(raw) = flag {
+        return Ok(Some(parse(raw)?));
     }
-    let val = std::env::var_os("FF_SESSION")?;
-    let raw = val.to_string_lossy();
-    match parse(&raw) {
-        Ok(name) => Some(name),
+    let Some(raw) = env else {
+        return Ok(None);
+    };
+    match parse(raw) {
+        Ok(name) => Ok(Some(name)),
         Err(err) => {
             if std::env::var_os("FF_DEBUG").is_some() {
                 eprintln!("ff[debug]: FF_SESSION ignored: {err}");
             }
-            None
+            Ok(None)
         }
     }
 }

@@ -3,17 +3,17 @@
 use ff_core::Result;
 use ff_core::gix;
 
-use crate::session;
+use crate::ctx::Ctx;
 
 /// Run the session command. `action` is `None` for bare `ff session`,
 /// `Some("list")` for `ff session list`, `Some("diff")` for `ff session diff`.
-pub fn run(action: Option<&str>, name: Option<String>, json: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, action: Option<&str>, name: Option<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     match action {
-        None => status(json),
-        Some("list") => list(&repo, json),
-        Some("diff") => diff(&repo, name, json),
+        None => status(ctx),
+        Some("list") => list(&repo, ctx.json),
+        Some("diff") => diff(ctx, &repo, name),
         Some(other) => Err(ff_core::Error::msg(format!(
             "unknown session action: {other}"
         ))),
@@ -49,10 +49,10 @@ fn list(repo: &gix::Repository, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn diff(repo: &gix::Repository, name: Option<String>, json: bool) -> Result<()> {
+fn diff(ctx: &Ctx, repo: &gix::Repository, name: Option<String>) -> Result<()> {
     let name = match name {
         Some(n) => n,
-        None => match session::current() {
+        None => match ctx.session.clone() {
             Some(n) => n,
             None => {
                 return Err(ff_core::Error::coded(
@@ -84,7 +84,7 @@ fn diff(repo: &gix::Repository, name: Option<String>, json: bool) -> Result<()> 
     let start_tree = ff_core::span_start_tree(repo, &span)?;
     let change_stat = ff_core::tree_diff_stat(repo, start_tree, newest_tree)?;
 
-    if json {
+    if ctx.json {
         let payload = serde_json::json!({
             "name": span.name,
             "span": span,
@@ -116,10 +116,10 @@ fn diff(repo: &gix::Repository, name: Option<String>, json: bool) -> Result<()> 
     Ok(())
 }
 
-fn status(json: bool) -> Result<()> {
-    match session::current() {
+fn status(ctx: &Ctx) -> Result<()> {
+    match &ctx.session {
         Some(name) => {
-            if json {
+            if ctx.json {
                 let payload = serde_json::json!({ "name": name });
                 crate::machine::emit("session", &payload)?;
             } else {
@@ -127,7 +127,7 @@ fn status(json: bool) -> Result<()> {
             }
         }
         None => {
-            if json {
+            if ctx.json {
                 let payload = serde_json::json!({ "name": serde_json::Value::Null });
                 crate::machine::emit("session", &payload)?;
             } else {

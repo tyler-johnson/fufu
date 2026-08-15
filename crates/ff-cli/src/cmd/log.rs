@@ -1,28 +1,30 @@
 use ff_core::{Error, LogOptions, Result};
 
+use crate::ctx::Ctx;
+
 /// `session` is the `--session` flag: `None` when absent, `Some("")` for the
 /// bare form (group everything), `Some(name)` to narrow to one session's
 /// spans. Meaningless for `--ops` and `--commits`, which walk operations and
 /// commits rather than the snapshot chain a session lives on — reject
 /// rather than silently ignore.
 pub fn run(
-    json: bool,
+    ctx: &Ctx,
     count: usize,
     commits: bool,
     ops: bool,
     session: Option<String>,
 ) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff());
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     if ops {
         if session.is_some() {
             return Err(session_bad_flags("--ops"));
         }
-        return ops_view(json, count);
+        return ops_view(ctx.json, count);
     }
     if commits && session.is_some() {
         return Err(session_bad_flags("--commits"));
     }
-    run_inner(json, count, commits, session)
+    run_inner(ctx, count, commits, session)
 }
 
 fn session_bad_flags(flag: &str) -> Error {
@@ -77,7 +79,7 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
 /// it. `--commits` forces the plain commits view and keeps Phase 0's exact
 /// JSON shape.
 pub fn run_inner(
-    json: bool,
+    ctx: &Ctx,
     count: usize,
     commits_only: bool,
     session: Option<String>,
@@ -86,7 +88,7 @@ pub fn run_inner(
     let limit = if count == 0 { None } else { Some(count) };
 
     if commits_only {
-        return commits_view(&mut repo, json, limit);
+        return commits_view(&mut repo, ctx.json, limit);
     }
 
     let open = ff_core::open_change(&repo)?;
@@ -101,7 +103,7 @@ pub fn run_inner(
     // anchor already found, bounded by the commits already fetched: no
     // second chain walk. JSON always wants this; human rendering only
     // spends it when --session is in play.
-    let want_sessions = json || session.is_some();
+    let want_sessions = ctx.json || session.is_some();
     let row_sessions: Vec<Option<String>> = if want_sessions {
         commits
             .iter()
@@ -118,7 +120,7 @@ pub fn run_inner(
         _ => None,
     };
 
-    if json {
+    if ctx.json {
         // `commits` key contract preserved; `id_letters` is composed at this
         // edge — the model stays hex. Every row now also carries `session`
         // (null when the anchor snapshot has none); a name narrows the

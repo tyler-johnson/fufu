@@ -1,5 +1,7 @@
 use ff_core::{LogEntry, Result};
 
+use crate::ctx::Ctx;
+
 /// Raw foreign ref change tuple before conversion to the model's `ForeignEntry`.
 type ForeignRefTuple = (String, Option<String>, Option<String>);
 
@@ -52,13 +54,13 @@ pub struct ForeignEntry {
     pub new: Option<String>,
 }
 
-pub fn run(json: bool) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff());
-    run_inner(json)
+pub fn run(ctx: &Ctx) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
+    run_inner(ctx)
 }
 
 /// The verb itself, capture already handled (or deliberately skipped).
-pub fn run_inner(json: bool) -> Result<()> {
+pub fn run_inner(ctx: &Ctx) -> Result<()> {
     let mut repo = ff_core::discover(".")?;
 
     let status = ff_core::status(&repo)?;
@@ -123,7 +125,7 @@ pub fn run_inner(json: bool) -> Result<()> {
     let now = now_secs();
     let colored = crate::pager::color_enabled();
 
-    if json {
+    if ctx.json {
         render_json(&model)?;
     } else {
         crate::render::init_palette(&repo);

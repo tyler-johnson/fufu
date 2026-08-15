@@ -8,11 +8,13 @@ use std::io::Write as _;
 
 use ff_core::{Error, EvologOptions, Result};
 
+use crate::ctx::Ctx;
+
 /// `session` is the `--session` flag: `None` when absent, `Some("")` for the
 /// bare form (group everything), `Some(name)` to narrow to one session's
 /// spans.
-pub fn run(json: bool, count: usize, session: Option<String>) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff());
+pub fn run(ctx: &Ctx, count: usize, session: Option<String>) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
     let rows = ff_core::evolog(
@@ -27,7 +29,7 @@ pub fn run(json: bool, count: usize, session: Option<String>) -> Result<()> {
     // rows already fetched, not a second chain walk. JSON always wants this
     // (a plain `ff evolog --json` carries it too); human rendering only
     // spends it when --session is actually in play.
-    let want_sessions = json || session.is_some();
+    let want_sessions = ctx.json || session.is_some();
     let row_sessions: Vec<Option<String>> = if want_sessions {
         rows.iter()
             .map(|row| ff_core::snapshot_session(&repo, &row.id))
@@ -40,7 +42,7 @@ pub fn run(json: bool, count: usize, session: Option<String>) -> Result<()> {
         _ => None,
     };
 
-    if json {
+    if ctx.json {
         let mut snapshots = Vec::with_capacity(rows.len());
         for (row, sess) in rows.iter().zip(&row_sessions) {
             if let Some(target) = narrow
