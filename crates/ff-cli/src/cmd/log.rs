@@ -92,17 +92,30 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
+        let change_display = crate::render::ChangeRowDisplay {
+            subject: open.subject.as_deref(),
+            born: open.base.is_some(),
+            clean: open.clean,
+            id: open.id.as_deref(),
+            pending: open.pending.as_deref(),
+            time: open.time,
+        };
         writeln!(
             out,
             "{}",
-            crate::render::change_row(&open, &lens, now, colored)
+            crate::render::change_row(&change_display, &lens, now, colored)
         )?;
         for entry in &commits {
             let segment = segments.get(&entry.id).map(String::as_str);
+            let commit_display = crate::render::CommitRowDisplay {
+                id: &entry.id,
+                subject: &entry.subject,
+                time: entry.time,
+            };
             writeln!(
                 out,
                 "{}",
-                crate::render::commit_row(entry, segment, &lens, now, colored)
+                crate::render::commit_row(&commit_display, segment, &lens, now, colored)
             )?;
         }
         Ok(())

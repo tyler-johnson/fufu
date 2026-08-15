@@ -178,6 +178,96 @@ fn status_json_parent_null_when_unborn() {
 }
 
 #[test]
+fn status_json_reports_foreign_motion() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    // Bootstrap the journal so reconcile has a baseline
+    let _ = ff(&fx, &["status"]);
+    // Move HEAD with raw git so reconcile detects foreign motion
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    // First ff status after the amend: reconcile absorbs AND reports the foreign change
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let foreign = &v["data"]["foreign"];
+    assert!(foreign.is_array(), "foreign is array: {foreign}");
+    assert!(
+        !foreign.as_array().unwrap().is_empty(),
+        "foreign is non-empty"
+    );
+    let first = &foreign[0];
+    assert!(first.get("ref").is_some(), "has ref key");
+    assert!(first.get("old").is_some(), "has old key");
+    assert!(first.get("new").is_some(), "has new key");
+}
+
+#[test]
+fn status_json_foreign_is_null_when_clean() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["data"]["foreign"], serde_json::Value::Null);
+}
+
+#[test]
+fn status_json_keys_are_unchanged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("b.txt", "modified\n");
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let d = &v["data"];
+    // Every pre-existing key must be present (non-null for non-optional fields)
+    for key in [
+        "head",
+        "changes",
+        "insertions",
+        "deletions",
+        "open",
+        "conflicts",
+    ] {
+        assert!(!d[key].is_null(), "key {} is non-null", key);
+    }
+    // Optional keys exist (may be null)
+    for key in ["operation", "upstream", "parent", "foreign"] {
+        assert!(d.get(key).is_some(), "key {} exists", key);
+    }
+    // open sub-keys
+    let open = &d["open"];
+    for key in ["id", "id_letters", "pending", "subject", "clean"] {
+        assert!(open.get(key).is_some(), "open.{} exists", key);
+    }
+}
+
+#[test]
+fn status_human_output_is_unchanged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    // Two-row shape: header + open change row (plus diffstat)
+    assert!(text.starts_with("on main\n"), "header line: {text:?}");
+    // Diffstat line for the modified file
+    assert!(
+        text.contains("a.txt"),
+        "modified file in diffstat: {text:?}"
+    );
+    assert!(text.contains("1 file"), "summary row: {text:?}");
+}
+
+#[test]
 fn log_json_envelope_and_limit() {
     let fx = Fixture::new();
     for i in 0..4 {

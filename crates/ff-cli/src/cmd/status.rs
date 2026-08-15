@@ -1,5 +1,56 @@
-use crate::render::ForeignChanges;
 use ff_core::{LogEntry, Result};
+
+/// Raw foreign ref change tuple before conversion to the model's `ForeignEntry`.
+type ForeignRefTuple = (String, Option<String>, Option<String>);
+
+/// Everything `ff status` computed. Both renderings consume this and only
+/// this, so neither can carry a fact the other lacks.
+#[derive(serde::Serialize)]
+pub struct StatusModel {
+    pub head: ff_core::HeadState,
+    pub operation: Option<ff_core::Operation>,
+    pub upstream: Option<ff_core::Upstream>,
+    pub changes: Vec<ff_core::FileStat>,
+    pub insertions: u32,
+    pub deletions: u32,
+    pub open: OpenStatus,
+    pub parent: Option<ParentStatus>,
+    pub conflicts: Vec<String>,
+    pub foreign: Option<Vec<ForeignEntry>>,
+}
+
+/// The open change as serialized by `ff status --json`. `base` and `time`
+/// are carried, not skipped: the human view renders `time` as a relative age
+/// and `base` as the born/unborn distinction, and one model means whatever a
+/// person can read a script reads as data.
+#[derive(serde::Serialize)]
+pub struct OpenStatus {
+    pub id: Option<String>,
+    pub id_letters: Option<String>,
+    pub pending: Option<String>,
+    pub subject: Option<String>,
+    pub clean: bool,
+    pub base: Option<String>,
+    /// Unix seconds of the newest snapshot; the age the human view prints.
+    pub time: Option<i64>,
+}
+
+/// The parent commit as serialized by `ff status --json`.
+#[derive(serde::Serialize)]
+pub struct ParentStatus {
+    pub id: String,
+    pub subject: String,
+    /// Unix seconds; `ff log --json` spells the same field the same way.
+    pub time: i64,
+}
+
+/// One foreign ref change (reconciled motion outside fufu).
+#[derive(serde::Serialize)]
+pub struct ForeignEntry {
+    pub r#ref: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
 
 pub fn run(json: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
@@ -33,22 +84,54 @@ pub fn run_inner(json: bool) -> Result<()> {
     // Reconcile pinned (foreign changes)
     let foreign = reconcile_foreign(&repo);
 
+    // Build the single data model both renderers consume
+    let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
+    let model = StatusModel {
+        head: status.head.clone(),
+        operation: status.operation,
+        upstream: status.upstream.clone(),
+        changes: change_stat.files.clone(),
+        insertions: change_stat.insertions,
+        deletions: change_stat.deletions,
+        open: OpenStatus {
+            id: open.id.clone(),
+            id_letters,
+            pending: open.pending.clone(),
+            subject: open.subject.clone(),
+            clean: open.clean,
+            base: open.base.clone(),
+            time: open.time,
+        },
+        parent: parent.as_ref().map(|p| ParentStatus {
+            id: p.id.clone(),
+            subject: p.subject.clone(),
+            time: p.time,
+        }),
+        conflicts: status.conflicts.clone(),
+        foreign: foreign.map(|entries| {
+            entries
+                .into_iter()
+                .map(|(name, old, new)| ForeignEntry {
+                    r#ref: name,
+                    old,
+                    new,
+                })
+                .collect()
+        }),
+    };
+
     let now = now_secs();
     let colored = crate::pager::color_enabled();
 
     if json {
-        render_json(&status, &open, &change_stat, &parent, colored)?;
+        render_json(&model)?;
     } else {
         crate::render::init_palette(&repo);
         let view = crate::render::StatusView {
-            status: &status,
-            open: &open,
-            change_stat: &change_stat,
+            model: &model,
             lens: &lens,
-            parent: parent.as_ref(),
             now,
             colored,
-            foreign,
         };
         print!("{}", crate::render::status_human(&view));
     }
@@ -56,39 +139,13 @@ pub fn run_inner(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn render_json(
-    status: &ff_core::Status,
-    open: &ff_core::OpenChange,
-    change_stat: &ff_core::ChangeStat,
-    parent: &Option<LogEntry>,
-    _colored: bool,
-) -> Result<()> {
-    let payload = serde_json::json!({
-        "head": status.head,
-        "operation": status.operation,
-        "upstream": status.upstream,
-        "changes": change_stat.files,
-        "insertions": change_stat.insertions,
-        "deletions": change_stat.deletions,
-        "open": {
-            "id": open.id,
-            "id_letters": open.id.as_deref().map(ff_core::snapid::encode),
-            "pending": open.pending,
-            "subject": open.subject,
-            "clean": open.clean,
-        },
-        "parent": parent.as_ref().map(|p| serde_json::json!({
-            "id": p.id,
-            "subject": p.subject,
-        })),
-        "conflicts": status.conflicts,
-    });
-    crate::machine::emit("status", &payload)
+fn render_json(model: &StatusModel) -> Result<()> {
+    crate::machine::emit("status", model)
 }
 
 /// Reconcile (best-effort — status must never fail because the journal
 /// can't be written) and return foreign ref changes while the tip is foreign.
-fn reconcile_foreign(repo: &ff_core::gix::Repository) -> ForeignChanges {
+fn reconcile_foreign(repo: &ff_core::gix::Repository) -> Option<Vec<ForeignRefTuple>> {
     repo.workdir()?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

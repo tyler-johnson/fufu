@@ -2,8 +2,8 @@
 //! ANSI color when the stream says so (see the palette below).
 
 use ff_core::{
-    ChangeKind, ChangeStat, FileStat, HeadState, LogEntry, OpenChange, Operation, ReconcileReport,
-    SnapEntry, Status, Upstream,
+    ChangeKind, ChangeStat, FileStat, HeadState, LogEntry, Operation, ReconcileReport, SnapEntry,
+    Status, Upstream,
 };
 
 /// Render a reconcile pass to stderr, loudly, before any verb output —
@@ -47,62 +47,100 @@ pub fn reconcile_notice(report: &ReconcileReport) {
     }
 }
 
-/// The foreign-changes shape: `(ref_name, old_oid?, new_oid?)`.
-pub type ForeignChanges = Option<Vec<(String, Option<String>, Option<String>)>>;
+/// The data `change_row` needs, extracted from whatever source holds it
+/// (the status model or an ff-core \`OpenChange\`).
+pub struct ChangeRowDisplay<'a> {
+    pub subject: Option<&'a str>,
+    pub born: bool,
+    pub clean: bool,
+    pub id: Option<&'a str>,
+    pub pending: Option<&'a str>,
+    pub time: Option<i64>,
+}
 
-/// Bundled render inputs for `status_human` to avoid too-many-arguments.
+/// The data `commit_row` needs, extracted from a \`LogEntry\` or the status model.
+pub struct CommitRowDisplay<'a> {
+    pub id: &'a str,
+    pub subject: &'a str,
+    pub time: i64,
+}
+
+/// Bundled render inputs for `status_human`: presentation parameters and a
+/// borrow of the shared data model.
 pub struct StatusView<'a> {
-    pub status: &'a Status,
-    pub open: &'a OpenChange,
-    pub change_stat: &'a ChangeStat,
+    pub model: &'a crate::cmd::status::StatusModel,
     pub lens: &'a std::collections::HashMap<String, usize>,
-    pub parent: Option<&'a LogEntry>,
     pub now: i64,
     pub colored: bool,
-    pub foreign: ForeignChanges,
 }
 
 /// Render the new status view: header, open change row, diffstat, parent commit,
 /// then conflicts and foreign blocks if present.
 pub fn status_human(view: &StatusView<'_>) -> String {
     let StatusView {
-        status,
-        open,
-        change_stat,
+        model,
         lens,
-        parent,
         now,
         colored,
-        foreign,
-    } = &view;
+    } = view;
     let now = *now;
     let colored = *colored;
+
+    // Reconstruct the types the helper functions expect from model fields.
+    let status = Status {
+        head: model.head.clone(),
+        operation: model.operation,
+        upstream: model.upstream.clone(),
+        staged: vec![],
+        unstaged: vec![],
+        untracked: vec![],
+        conflicts: model.conflicts.clone(),
+    };
+    let change_stat = ChangeStat {
+        files: model.changes.clone(),
+        insertions: model.insertions,
+        deletions: model.deletions,
+    };
+
     let mut out = String::new();
 
     // Header line
-    out.push_str(&status_header(status, colored));
+    out.push_str(&status_header(&status, colored));
     out.push('\n');
 
     // Open change row
-    out.push_str(&change_row(open, lens, now, colored));
+    let change_row_display = ChangeRowDisplay {
+        subject: model.open.subject.as_deref(),
+        born: model.open.base.is_some(),
+        clean: model.open.clean,
+        id: model.open.id.as_deref(),
+        pending: model.open.pending.as_deref(),
+        time: model.open.time,
+    };
+    out.push_str(&change_row(&change_row_display, lens, now, colored));
     out.push('\n');
 
     // Diffstat rows (rail rows) when files exist
-    if !change_stat.files.is_empty() {
-        out.push_str(&render_diffstat(change_stat, colored));
+    if !model.changes.is_empty() {
+        out.push_str(&render_diffstat(&change_stat, colored));
         out.push('\n');
     }
 
     // Parent commit row (only when born)
-    if let Some(p) = parent {
-        out.push_str(&commit_row(p, None, lens, now, colored));
+    if let Some(parent) = &model.parent {
+        let commit_display = CommitRowDisplay {
+            id: &parent.id,
+            subject: &parent.subject,
+            time: parent.time,
+        };
+        out.push_str(&commit_row(&commit_display, None, lens, now, colored));
         out.push('\n');
     }
 
     // Conflicts block
-    if !status.conflicts.is_empty() {
+    if !model.conflicts.is_empty() {
         out.push_str("conflicts:\n");
-        for c in &status.conflicts {
+        for c in &model.conflicts {
             out.push_str("  ");
             out.push_str(c);
             out.push('\n');
@@ -110,18 +148,18 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     }
 
     // Foreign changes block
-    if let Some(foreign) = foreign
+    if let Some(foreign) = &model.foreign
         && !foreign.is_empty()
     {
         out.push_str("changes made outside fufu (absorbed; ff undo can roll them back):\n");
-        for (name, old, new) in foreign {
-            let what = match (old, new) {
+        for entry in foreign {
+            let what = match (&entry.old, &entry.new) {
                 (_, Some(new)) => format!("moved to {}", &new[..new.len().min(8)]),
                 (Some(_), None) => "deleted".to_string(),
                 (None, None) => continue,
             };
             out.push_str("  ");
-            out.push_str(name);
+            out.push_str(&entry.r#ref);
             out.push(' ');
             out.push_str(&what);
             out.push('\n');
@@ -527,26 +565,26 @@ const BLANK_ID: &str = "        ";
 /// `lens`), age = tip snapshot time. Clean + undescribed collapses to
 /// `@  no changes`.
 pub fn change_row(
-    open: &OpenChange,
+    open: &ChangeRowDisplay<'_>,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
 ) -> String {
     let sym = paint("@", palette().at, colored);
     let rail = paint("│", DIM, colored);
-    let subject = match open.subject.as_deref() {
+    let subject = match open.subject {
         Some(text) => text.to_string(),
         None => paint("(no description)", DIM, colored),
     };
 
     // Born + clean + no description: collapsed "no changes" line.
-    if open.base.is_some() && open.clean && open.subject.is_none() {
+    if open.born && open.clean && open.subject.is_none() {
         let head = format!("{sym}  {}", paint("no changes", DIM, colored));
         return format!("{}\n{rail}  {subject}", head.trim_end());
     }
 
     // Full layout: letters + pending sha + age + optional marker.
-    let letters = match &open.id {
+    let letters = match open.id {
         Some(id) => styled_id(
             &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
             lens.get(id).copied().unwrap_or(1),
@@ -555,7 +593,7 @@ pub fn change_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let pending_short = open.pending.as_deref().map(short7).unwrap_or_default();
+    let pending_short = open.pending.map(short7).unwrap_or_default();
     let sha = col(pending_short, SHA_WIDTH, palette().sha, colored);
     let age = col_right(
         &open.time.map(|t| relative_age(now, t)).unwrap_or_default(),
@@ -563,7 +601,7 @@ pub fn change_row(
         palette().age,
         colored,
     );
-    let marker = if open.base.is_none() {
+    let marker = if !open.born {
         format!("  {}", paint("(no commits yet)", DIM, colored))
     } else {
         String::new()
@@ -576,7 +614,7 @@ pub fn change_row(
 /// chain-segment tip — the newest snapshot based on it, the evolog drill-in
 /// anchor — blank when no snapshot was ever taken on this commit.
 pub fn commit_row(
-    entry: &LogEntry,
+    entry: &CommitRowDisplay<'_>,
     segment: Option<&str>,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
@@ -591,7 +629,7 @@ pub fn commit_row(
         ),
         None => BLANK_ID.to_string(),
     };
-    let sha = col(short7(&entry.id), SHA_WIDTH, palette().sha, colored);
+    let sha = col(short7(entry.id), SHA_WIDTH, palette().sha, colored);
     let age = col_right(
         &relative_age(now, entry.time),
         AGE_WIDTH,
