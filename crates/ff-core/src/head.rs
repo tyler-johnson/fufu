@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::model::{HeadState, Operation};
+use crate::model::{HeadState, InProgress};
 
 pub fn head_state(repo: &gix::Repository) -> Result<HeadState> {
     let head = repo.head().map_err(Error::repo)?;
@@ -32,6 +32,6 @@ pub fn head_state(repo: &gix::Repository) -> Result<HeadState> {
     })
 }
 
-pub fn operation(repo: &gix::Repository) -> Option<Operation> {
-    repo.state().map(Operation::from)
+pub fn operation(repo: &gix::Repository) -> Option<InProgress> {
+    repo.state().map(InProgress::from)
 }

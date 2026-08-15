@@ -2,7 +2,7 @@
 //! ANSI color when the stream says so (see the palette below).
 
 use ff_core::{
-    ChangeKind, ChangeStat, FileStat, HeadState, LogEntry, Operation, ReconcileReport, SnapEntry,
+    ChangeKind, ChangeStat, FileStat, HeadState, InProgress, LogEntry, ReconcileReport, SnapEntry,
     Status, Upstream,
 };
 
@@ -225,15 +225,15 @@ fn upstream_phrase(u: &Upstream) -> String {
     }
 }
 
-fn operation_phrase(op: Operation) -> &'static str {
+fn operation_phrase(op: InProgress) -> &'static str {
     match op {
-        Operation::ApplyMailbox => "applying mailbox",
-        Operation::ApplyMailboxRebase => "applying mailbox (rebase)",
-        Operation::Bisect => "bisecting",
-        Operation::CherryPick | Operation::CherryPickSequence => "cherry-picking",
-        Operation::Merge => "merging",
-        Operation::Rebase | Operation::RebaseInteractive => "rebasing",
-        Operation::Revert | Operation::RevertSequence => "reverting",
+        InProgress::ApplyMailbox => "applying mailbox",
+        InProgress::ApplyMailboxRebase => "applying mailbox (rebase)",
+        InProgress::Bisect => "bisecting",
+        InProgress::CherryPick | InProgress::CherryPickSequence => "cherry-picking",
+        InProgress::Merge => "merging",
+        InProgress::Rebase | InProgress::RebaseInteractive => "rebasing",
+        InProgress::Revert | InProgress::RevertSequence => "reverting",
     }
 }
 

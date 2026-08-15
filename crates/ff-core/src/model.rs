@@ -20,10 +20,12 @@ pub enum HeadState {
     Detached { commit: String },
 }
 
-/// An operation in progress in the repository, mirroring `gix::state::InProgress`.
+/// A git operation in progress (a rebase, a merge, a bisect), mirroring
+/// `gix::state::InProgress`. Named for what git calls it, because in fufu's
+/// own vocabulary an "operation" is an entry in the op log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Operation {
+pub enum InProgress {
     ApplyMailbox,
     ApplyMailboxRebase,
     Bisect,
@@ -36,20 +38,20 @@ pub enum Operation {
     RevertSequence,
 }
 
-impl From<gix::state::InProgress> for Operation {
+impl From<gix::state::InProgress> for InProgress {
     fn from(state: gix::state::InProgress) -> Self {
         use gix::state::InProgress as S;
         match state {
-            S::ApplyMailbox => Operation::ApplyMailbox,
-            S::ApplyMailboxRebase => Operation::ApplyMailboxRebase,
-            S::Bisect => Operation::Bisect,
-            S::CherryPick => Operation::CherryPick,
-            S::CherryPickSequence => Operation::CherryPickSequence,
-            S::Merge => Operation::Merge,
-            S::Rebase => Operation::Rebase,
-            S::RebaseInteractive => Operation::RebaseInteractive,
-            S::Revert => Operation::Revert,
-            S::RevertSequence => Operation::RevertSequence,
+            S::ApplyMailbox => InProgress::ApplyMailbox,
+            S::ApplyMailboxRebase => InProgress::ApplyMailboxRebase,
+            S::Bisect => InProgress::Bisect,
+            S::CherryPick => InProgress::CherryPick,
+            S::CherryPickSequence => InProgress::CherryPickSequence,
+            S::Merge => InProgress::Merge,
+            S::Rebase => InProgress::Rebase,
+            S::RebaseInteractive => InProgress::RebaseInteractive,
+            S::Revert => InProgress::Revert,
+            S::RevertSequence => InProgress::RevertSequence,
         }
     }
 }
@@ -108,7 +110,7 @@ pub struct ChangeStat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Status {
     pub head: HeadState,
-    pub operation: Option<Operation>,
+    pub operation: Option<InProgress>,
     pub upstream: Option<Upstream>,
     pub staged: Vec<StatusEntry>,
     pub unstaged: Vec<StatusEntry>,

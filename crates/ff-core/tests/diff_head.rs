@@ -3,7 +3,7 @@
 //! Operation state is not in porcelain v2, so its contract is construction-
 //! based: real git drives the repo into the state, fufu must read it back.
 
-use ff_core::{HeadState, Operation};
+use ff_core::{HeadState, InProgress};
 use ff_testsupport::Fixture;
 use ff_testsupport::porcelain::assert_status_matches;
 
@@ -145,7 +145,7 @@ fn operation_merge() {
     diverging_file_branches(&fx);
     let out = fx.try_git(&["merge", "other"]);
     assert!(!out.status.success(), "merge should conflict");
-    assert_eq!(ff_core::operation(&fx.repo()), Some(Operation::Merge));
+    assert_eq!(ff_core::operation(&fx.repo()), Some(InProgress::Merge));
     assert_status_matches(&fx);
 }
 
@@ -155,7 +155,7 @@ fn operation_rebase_apply_backend() {
     diverging_file_branches(&fx);
     let out = fx.try_git(&["-c", "rebase.backend=apply", "rebase", "other"]);
     assert!(!out.status.success(), "rebase should conflict");
-    assert_eq!(ff_core::operation(&fx.repo()), Some(Operation::Rebase));
+    assert_eq!(ff_core::operation(&fx.repo()), Some(InProgress::Rebase));
     assert_status_matches(&fx);
 }
 
@@ -169,7 +169,7 @@ fn operation_rebase_merge_backend() {
     // plain rebase, so the on-disk state legitimately reads as interactive.
     assert_eq!(
         ff_core::operation(&fx.repo()),
-        Some(Operation::RebaseInteractive)
+        Some(InProgress::RebaseInteractive)
     );
     assert_status_matches(&fx);
 }
@@ -182,7 +182,7 @@ fn operation_rebase_interactive() {
     assert!(!out.status.success(), "interactive rebase should conflict");
     assert_eq!(
         ff_core::operation(&fx.repo()),
-        Some(Operation::RebaseInteractive)
+        Some(InProgress::RebaseInteractive)
     );
     assert_status_matches(&fx);
 }
@@ -193,7 +193,7 @@ fn operation_cherry_pick() {
     let (_, theirs) = diverging_file_branches(&fx);
     let out = fx.try_git(&["cherry-pick", &theirs]);
     assert!(!out.status.success(), "cherry-pick should conflict");
-    assert_eq!(ff_core::operation(&fx.repo()), Some(Operation::CherryPick));
+    assert_eq!(ff_core::operation(&fx.repo()), Some(InProgress::CherryPick));
     assert_status_matches(&fx);
 }
 
@@ -208,7 +208,7 @@ fn operation_revert() {
     fx.commit("three");
     let out = fx.try_git(&["revert", "--no-edit", &second]);
     assert!(!out.status.success(), "revert should conflict");
-    assert_eq!(ff_core::operation(&fx.repo()), Some(Operation::Revert));
+    assert_eq!(ff_core::operation(&fx.repo()), Some(InProgress::Revert));
     assert_status_matches(&fx);
 }
 
@@ -226,7 +226,7 @@ fn operation_bisect() {
     fx.git(&["bisect", "start"]);
     fx.git(&["bisect", "bad", "HEAD"]);
     fx.git(&["bisect", "good", &first]);
-    assert_eq!(ff_core::operation(&fx.repo()), Some(Operation::Bisect));
+    assert_eq!(ff_core::operation(&fx.repo()), Some(InProgress::Bisect));
     assert_status_matches(&fx);
     fx.git(&["bisect", "reset"]);
     assert_eq!(ff_core::operation(&fx.repo()), None);

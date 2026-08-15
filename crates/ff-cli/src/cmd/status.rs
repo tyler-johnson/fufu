@@ -10,7 +10,7 @@ type ForeignRefTuple = (String, Option<String>, Option<String>);
 #[derive(serde::Serialize)]
 pub struct StatusModel {
     pub head: ff_core::HeadState,
-    pub operation: Option<ff_core::Operation>,
+    pub operation: Option<ff_core::InProgress>,
     pub upstream: Option<ff_core::Upstream>,
     pub changes: Vec<ff_core::FileStat>,
     pub insertions: u32,
