@@ -63,20 +63,34 @@ fn doctor_output_unchanged_without_color() {
     );
 }
 
+/// Exit code tracks findings, and nothing else. Asserting a bare `exit 0`
+/// here would be asserting something about the *machine*: doctor's wiring
+/// checks look at agent hooks and the shell alias, which exist on a dev box
+/// and never on a CI runner, so the same repo scores 0 locally and 1 in CI.
+/// The invariant that holds everywhere is the correspondence itself.
 #[test]
-fn doctor_exit_codes_unchanged() {
+fn doctor_exit_code_tracks_findings() {
     let fx = Fixture::new();
-
-    // Create a proper fufu snapshot so doctor reports healthy (exit 0).
     fx.write("a.txt", "a\n");
     let snap = ff(&fx, &["-m", "initial"]);
     assert!(snap.status.success(), "snapshot should succeed");
 
-    let out = ff(&fx, &["doctor"]);
-    assert!(
-        out.status.success(),
-        "doctor on a healthy repo should exit 0, got {:?\n}{}",
-        out.status.code(),
+    let out = ff(&fx, &["doctor", "--json"]);
+    let body: serde_json::Value =
+        serde_json::from_str(&stdout(&out)).expect("doctor --json is valid json");
+    let findings = body["findings"].as_u64().expect("findings count");
+    let warns = body["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .filter(|row| row["level"] == "warn")
+        .count() as u64;
+
+    assert_eq!(findings, warns, "findings must count exactly the warn rows");
+    assert_eq!(
+        out.status.code() == Some(1),
+        findings > 0,
+        "exit 1 iff there are findings (findings={findings}): {}",
         stdout(&out)
     );
 }
