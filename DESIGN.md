@@ -102,6 +102,8 @@ The boundary is execution path, not spelling: the recommended shell alias
 forms translate into fufu verbs (see `ff git`, below) — while everything that
 resolves git on PATH stays foreign.
 
+Automation is not foreign by nature, only by habit. A script, a CI job, or an agent that calls `ff` is inside the surface with everyone else, and gets everything the surface promises. Today they reach for git because fufu gives them nothing better to reach for; the machine surface (below) is the work of making that choice obvious.
+
 ## Architecture: three floors
 
 ### Floor 1 — Capture (the foundation)
@@ -409,6 +411,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff undo` | whole-repo undo: refs + tree together | reflog archaeology, `reset --hard` fear |
 | `ff log` | changes as the spine, jj-style: the open change (`@`) atop the commit walk (`●`), each commit wearing its newest snapshot's id | `reflog` + `log` |
 | `ff evolog` | the open change's snapshot chain, newest first — the drill-in behind `ff log`'s letters column | `reflog` spelunking |
+| `ff session [start\|end] [<label>]` | open or close a named span of the capture chain; snapshots taken inside it carry its id, so a stretch of work is one thing you can ask about | nothing — git has no concept of work that isn't a commit |
 | `ff restore <path> --at <id>` | pull anything back from the timeline | hoping |
 | `ff trim` | drop snapshots past the keep window — trash-first, so the last trim is itself undoable; rides an ff command daily, so retention enforces itself | remembering to prune, or quietly never pruning |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
@@ -416,14 +419,17 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
 | `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
 | `ff doctor` | verify the net: chains, identity, reflogs, gc guard, objects, wiring, update — `--fix` repairs exactly the gc keys | "is this thing even on?" doubt |
+| `ff explain <id>` | what an error id means, and the ways out of it | searching the message text |
+| `ff watch` | stream journal entries as they land, newline-delimited JSON | polling `git status` in a loop |
+| `ff completions <shell>` | shell completion, with branches, revs, and snapshot ids resolved live | hand-rolled dotfile fragments |
 
 ### Presentation conventions
 
-Snapshot ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps to `"zyxwvutsrqponmlk"[i]`, so `0` → `z` down through `f` → `k`. The letter range k–z shares no character with hex, so a snapshot id can never be misread as a commit sha, and parsers can accept both without ambiguity. Everywhere a snapshot id is input (`ff restore --at`), the letters spelling is accepted alongside raw hex. Accepted shadowing: all-letters date words of four or more characters (`noon`, `tomorrow`) now parse as id prefixes, not dates — spell times as `12:00`, `1d`, or a full date instead.
+Snapshot ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps to `"zyxwvutsrqponmlk"[i]`, so `0` → `z` down through `f` → `k`. The letter range k–z shares no character with hex, so a snapshot id can never be misread as a commit sha, and parsers can accept both without ambiguity. Everywhere a snapshot id is input (`ff restore --at`), the letters spelling is accepted alongside raw hex. Ids never contend with times for a position, because the grammar gives a time exactly one spelling — see One target grammar.
 
-Snapshot id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff restore --at` resolves against — the current branch's live and trash chains — so the bold prefix is precisely what restore accepts unambiguously. That domain is materialized per chain under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the chain tip moves out from under it, so highlighting and restore read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the snapshot column is where the highlighting pays. One palette serves the whole tool, and it colors **roles, not commands**: snapshot ids magenta, commit shas blue, ages cyan, the working-copy `@` green, insertions green and deletions red, rails and asides dim, plus three verdict colors — green for clear, orange for trouble, blue for ahead-of-upstream. Prose stays plain; color marks the tokens you scan for (hex, ids, times) and the verdicts you act on. That is why `ff doctor`'s WARN, a rebase that would conflict, and a check that failed are all the same orange: one color per meaning, wherever the meaning turns up.
+Snapshot id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff restore --at` resolves against — the current branch's live and trash chains — so the bold prefix is precisely what restore accepts unambiguously. That domain is materialized per chain under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the chain tip moves out from under it, so highlighting and restore read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the snapshot column is where the highlighting pays. One palette serves the whole tool, and it colors **roles, not commands**: snapshot ids magenta, commit shas blue, ages cyan, the working-copy `@` green, insertions green and deletions red, rails and asides dim, plus three verdict colors — green for clear, orange for trouble, blue for ahead-of-upstream. Prose stays plain; color marks the tokens you scan for (hex, ids, times) and the verdicts you act on. That is why `ff doctor`'s WARN, a rebase that would conflict, and a check that failed are all the same orange: one color per meaning, wherever the meaning turns up. Color is redundant encoding and never the only encoding: every verdict carries a word or a glyph saying the same thing, so `NO_COLOR`, a monochrome terminal, and a screen reader cost the reader decoration and never information.
 
-`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction — and the futures line closes the block. The futures line spends the three verdict colors exactly as the shared rule defines them — dim when there is nothing to say, blue when the branch is only ahead, green when upstream moved and the rebase is clean, orange when it conflicts — and the verdict outranks ahead-ness when both are true, because it is the half that needs a decision. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` mirrors the shape: one `changes` array, plus `open` and `parent`.
+`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction — and the futures line closes the block. The futures line spends the three verdict colors exactly as the shared rule defines them — dim when there is nothing to say, blue when the branch is only ahead, green when upstream moved and the rebase is clean, orange when it conflicts — and the verdict outranks ahead-ness when both are true, because it is the half that needs a decision. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the two-row view compresses into one line.
 
 The log family (`ff log`, `ff evolog`, `ff log --ops`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
@@ -493,6 +499,42 @@ jog's doctor, carried over. The earned existence: a safety net you can't inspect
 
 Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the journal will absorb and never absorbs it, takes no snapshot, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
 
+## The machine surface
+
+The regimes sort by execution path, and that sorting has been quietly exiling automation: a script, a CI job, an editor plugin, or an agent reaches for git because fufu offers it nothing better to reach for, and takes git's guarantees instead of fufu's. Nothing about a script deserves less than a person at a prompt. So the machine is a first-class reader, and the surface it reads has to be good enough that automation chooses it.
+
+Agents make this urgent rather than merely tidy. An agent edits at machine rate, commits nothing for an hour, and cannot read a status block built to be scanned by eye. Capture already runs before every action it takes — fufu holds a record of that work no other tool has. What is missing is a way to ask for it.
+
+**One model, every surface.** A verb computes one data model, and the human rendering and the JSON rendering are both consumers of it, never translations of each other. `--json` is therefore not a mirror of the human layout: `ff status` crops to two rows because that is what an eye wants, while its JSON carries the model whole. That is what keeps the two from drifting a release apart, and what makes any further surface — an MCP server, a completion source — a thin shell over one contract rather than a second implementation with its own opinions. The JSON is enveloped and versioned (`{"ff": 1, "cmd": "status", …}`) so a script can assert what it is talking to. Notices belong to the model too, not to the margin beside it: anything fufu would tell a person, a script reads as data.
+
+**Every stop names its exits.** Every error carries a stable id, one line of what happened, and the ways out. Prose gets reworded; ids do not, so a script branches on the id instead of matching a sentence, and `ff explain <id>` turns one back into prose on demand. The exits are the accessibility half — fufu is a workflow shift, and where a newcomer bounces is the first stop whose way out they cannot see.
+
+Exit codes carry the same verdict at shell resolution: **0** done, or yes; **1** no — it failed, or the check's answer is negative; **2** the command line was wrong; **3** held — nothing was touched and a human decision is required. `3` is the code git has no use for, because only a tool with land-if-clean produces that outcome: `ff sync` exiting 3 is a scriptable "main moved and it needs you."
+
+**Every ask has a non-interactive answer.** Wherever this document says fufu asks — the ambiguous parked entry, an undescribed close, an unusual file about to land — a flag supplies the answer up front, and in a non-interactive environment (`FF_NONINTERACTIVE`, or stdin that is not a terminal) the question becomes a structured error naming that flag. No verb ever blocks on a prompt or an editor with nobody there to answer it. `FF_READONLY` completes the pair from the other side: a mode refusing every mutation, so a supervisor or a CI job can be certain a read stayed a read.
+
+**Sessions.** A session is a named span of the capture chain: snapshots taken while one is open carry its id, and the span is exactly the snapshots carrying it. Anything that snapshots can open one — `ff session start <label>` before a long afternoon, `FF_SESSION` in a script's environment, the agent trigger opening one per agent session without being asked. Nothing has to close cleanly: an unended session stops where its labeled snapshots stop, so a crash costs nothing. The id rides a trailer on the snapshot commit — git objects, legible to anyone who reads them — with a per-repo index as the usual rebuildable cache.
+
+Grouping is the whole feature, and it buys a question nothing answers today: what did that entire stretch of work change? Agents sharpen it — an agent edits for twenty minutes and commits nothing, so its work exists only as capture — but it is not an agent question, and a person's afternoon groups the same way. Sessions are named by flag, never by address (`ff log --session`, `ff session diff <label>`): they name a set, and the target grammar below names points. Keeping those apart is what leaves room for a set language to arrive later with sessions as a natural member, instead of retrofitting one into a grammar that never meant to hold it.
+
+**One target grammar.** Every argument naming a point in history goes through one resolver, and it takes every namespace fufu knows: commit shas, snapshot ids in letters or hex, branch names including anonymous ones, `<branch>@<remote>`, `@` for the open change and `@-` for the commit under it, `trunk`, and git's own suffixes and `@{…}` times. It is deliberately `gitrevisions(7)` plus fufu's namespaces rather than a replacement — respelling ancestry would make the grammar a dialect instead of a superset, and fail rule ten. Ranges are not in it: no verb takes one yet, and staying out of range and set syntax now leaves that vocabulary unspent for whatever set language sessions eventually want. The earned existence is uniformity, which git does not have — `git log <rev>`, `git checkout <rev>`, and a pathspec resolve by three different rules — and it is principle 11 mechanized: a script constructs a target without a mapping table because there is one grammar to know.
+
+The grammar is unambiguous by construction, not by precedence: **one spelling per meaning**, so no token can belong to two namespaces and no resolution order has to break a tie. A time is `@{…}` and only that — bare compact ages (`3d`) and date words (`noon`) are not times here, which is what lets `123d` be the hex id it looks like and retires an entire class of shadowing rather than documenting it. Ergonomics return through typed positions: a flag whose kind *is* a time (`--since`, `--before`) takes bare `3d` freely, because nothing else can appear there. When a token has no available reading, the error names the other spelling — `3d` is an id here; a time is `@{3d}` — which is principle 16 with nothing left to guess between.
+
+The same discipline governs arguments generally: **a positional argument has exactly one kind.** Where a verb needs a second kind it takes a flag, which is why `ff restore <path> --at <id>` puts the path in the position and the point behind a flag. fufu never inherits git's `--` disease, where one position means a rev or a path and a separator arbitrates.
+
+Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `ff switch <sha>` has exactly one sensible reading, so fufu mints an anonymous branch there and says so, naming `ff branch <name>` to claim it and `ff start` as the verb that meant it; `ff edit <branch>` already redirects the other way. Acting is not guessing: one available reading is taken and announced, while more than one is an error naming the candidates — which is why trunk resolution still refuses to pick.
+
+**Extension.** Three mechanisms, all of them git idioms:
+
+- `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches — git's own extension model, with the repository, the machine contract, and the open session handed down in the environment.
+- `ff watch` streams journal entries as they land, newline-delimited JSON. The op journal is already an event log; this gives it subscribers — status lines, editor plugins, dashboards, agent supervisors. It is not a daemon: it is a foreground process the user started, and it holds no authority.
+- `ff-core` is a library before it is a binary. Publishing it is the deepest hook and the largest promise, so it waits until what it would freeze has stopped moving.
+
+The rule that keeps extension from eating the invariant: **extensions read fufu state and call fufu verbs; only fufu writes fufu state.** A plugin editing `refs/fufu/*` is a second author of a cache whose entire safety argument is that it has one — principle 3, with the author named.
+
+Hooks are the oldest mechanism and the widest: everything feeding the capture floor is `ff hook`, and the agent trigger's contract *is* its extension point — always exit 0, never veto, fail silently, `FF_DEBUG=1` to see why. That contract is what makes the trigger safe to install into a tool fufu has never heard of, so it is published rather than reimplemented per vendor: known agents get a thin installer, anything else calls the generic trigger with its payload on stdin. A hook never vetoes, ever; the wish to stop an agent from touching a branch is policy, and policy lives in config.
+
 ## Substrate
 
 Rust, on gitoxide (`gix`). The rule that governs execution: **git defines the
@@ -557,6 +599,7 @@ fufu over time or waits for a machine that has git.
     identical, the verb doesn't exist.
 11. **Self-sufficient surface.** Users and agents never need to learn a fufu↔git
     ref mapping or read internals; if they'd have to, add a flag or verb instead.
+    The reader may be a script or an agent, and is owed the same self-sufficiency.
 12. **Opinionated workflow, neutral repository.** fufu takes positions — rebase
     over merge, malleable unpublished history, routine leased force-pushes. The
     repository stays boring for everyone else; the opinions never leak past the
@@ -569,6 +612,9 @@ fufu over time or waits for a machine that has git.
     (`scripts/bench/`); a verb genuinely allowed to scale — scanning N files
     costs O(N) for everyone — declares that in the table rather than escaping
     the check. Absolute speed is the machine's business; flatness is fufu's.
+14. **One model, every surface.** A verb computes one data model; every rendering of it — human, JSON, whatever comes later — consumes that model rather than translating another rendering. Whatever a person can read, a script reads as data.
+15. **Every stop names its exits.** Errors carry a stable id, what happened, and the ways out. Machines branch on the id and people take the exit; neither has to read prose that changed last release.
+16. **Do what they meant, and say so.** Where there is one sensible reading, act on it and announce it — a kind mismatch redirects, a clean rewrite lands. Where there is more than one, stop and name the candidates. Guessing between meanings is what's forbidden, not acting on the only meaning there is.
 
 ## Prior art, and the unclaimed square
 
@@ -596,6 +642,8 @@ before courage (nothing aggressive ships before nothing can be lost), futures
 before automation (land-if-clean needs the simulation), exits last (publishing
 is the highest-stakes surface). Every phase ends with a tool worth dogfooding
 daily — fufu is built by using fufu.
+
+The machine surface is not a phase but a constraint on every one: one model with two renderers is a Phase 0 substrate decision, error ids and exit codes arrive with the verbs that raise them, sessions ride the capture floor in Phase 1, `ff watch` follows the journal in Phase 2, and the generated surfaces — MCP, completions — land with adoption in Phase 5.
 
 **Phase 0 — Bedrock.** Rust workspace on gix; the native read core (refs,
 objects, index, status, log); the differential test harness against the git
@@ -708,6 +756,14 @@ a working development machine.
   undo restores a clean index at the pre-state HEAD.
 - **Auto-sync policy surface** — per-branch opt-in defaults; whether
   tracked-upstream branches default to "offer" or "auto."
+- **Agent adoption** — the machine surface makes fufu usable by an agent; what
+  makes an agent reach for `ff` instead of `git` is a separate question.
+  Candidates: guidance delivered into the agent's own instructions at hook
+  install, an MCP server that is simply the path of least resistance, and
+  translating agent-issued git the way the alias translates a person's.
+- **Session boundaries** — nesting (an agent's session inside a person's),
+  whether one may span branches, and what a session id means once a rewrite
+  folds its snapshots into a commit.
 - **Name/packaging sweep** — `fufu` and binary `ff` against crates.io, npm,
   Homebrew, apt before anything ships. (Known neighbors: `ffuf` the web fuzzer,
   `fuf` an obscure file browser — distinct, but check registries.)
