@@ -464,10 +464,27 @@ fn at_walks_back_and_stops_at_the_floor() {
     let log = OpLog::open(&repo).unwrap();
 
     assert_eq!(log.resolve("@").unwrap(), ids[19]);
-    assert_eq!(log.resolve("@-").unwrap(), ids[18]);
-    assert_eq!(log.resolve("@-3").unwrap(), ids[16]);
-    let err = log.resolve("@-999").unwrap_err();
+    assert_eq!(log.resolve("@^").unwrap(), ids[18]);
+    assert_eq!(log.resolve("@~3").unwrap(), ids[16]);
+    // Git's two spellings for the same walk, and a chain of them, because an
+    // op's first parent is the op before it and nothing here says otherwise.
+    assert_eq!(log.resolve("@^^^").unwrap(), ids[16]);
+    assert_eq!(log.resolve("@~2^").unwrap(), ids[16]);
+    // Suffixes ride a letters id as readily as they ride `@`.
+    assert_eq!(log.resolve(&format!("{}^", ids[19])).unwrap(), ids[18]);
+
+    let err = log.resolve("@~999").unwrap_err();
     assert_eq!(err.id(), "op/floor", "{}", err);
+
+    // The spelling this replaces, refused by the front end in both spaces.
+    let err = log.resolve("@-").unwrap_err();
+    assert_eq!(err.id(), "op/not-found", "{}", err);
+
+    // Parent 2 is the base commit — the other address space, and the one
+    // crossing that has a name.
+    let err = log.resolve("@^2").unwrap_err();
+    assert_eq!(err.id(), "usage/rev-in-op-position", "{}", err);
+    assert!(err.to_string().contains("base()"), "{err}");
 }
 
 #[test]

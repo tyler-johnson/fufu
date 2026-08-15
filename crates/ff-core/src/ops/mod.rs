@@ -188,44 +188,46 @@ impl<'r> OpLog<'r> {
         walk::OpWalk::new(self.repo, self.branch_tip(branch), walk::Follow::Branch)
     }
 
-    /// Resolve an operation address: a letters-spelled id or prefix, `@`,
-    /// `@-`, or `@-<n>`. Hex is refused here rather than accepted quietly —
-    /// `ff log` prints op ids beside commit shas, and a hex spelling that
-    /// worked would teach the wrong model on the first try.
+    /// Resolve an operation address: `@` for the newest, a letters-spelled id
+    /// or prefix, either of them wearing git's own first-parent suffixes.
+    ///
+    /// The suffixes are git's because an operation's first parent *is* the
+    /// operation before it, so `@^` and `@~3` already say what a bespoke
+    /// `@-` and `@-3` would have said — which is why those are gone from
+    /// this space as well as from revisions. Hex is refused rather than
+    /// accepted quietly: `ff log` prints op ids beside commit shas, and a hex
+    /// spelling that worked would teach the wrong model on the first try.
     pub fn resolve(&self, spec: &str) -> Result<OpId> {
         let spec = spec.trim();
-        if let Some(back) = spec.strip_prefix('@') {
-            let steps: usize = match back {
-                "" => 0,
-                "-" => 1,
-                _ => match back.strip_prefix('-').map(str::parse::<usize>) {
-                    Some(Ok(n)) => n,
-                    _ => return Err(no_such_op(spec)),
-                },
-            };
-            let mut cur = self.tip()?.ok_or_else(|| {
+        let (base, suffixes) = split_suffixes(spec);
+        let mut cur = self.resolve_base(base)?;
+        for step in 0..steps_back(spec, suffixes)? {
+            cur = self.get(cur)?.prev().ok_or_else(|| {
+                Error::coded(
+                    "op/floor",
+                    format!(
+                        "the log goes back {step} operation(s), and `{spec}` asks for more: \
+                         everything earlier is past the undo floor"
+                    ),
+                    vec!["ff op log".into()],
+                )
+            })?;
+        }
+        Ok(cur)
+    }
+
+    /// The base of an address, before any suffix walks back from it.
+    fn resolve_base(&self, base: &str) -> Result<OpId> {
+        if base == "@" {
+            return self.tip()?.ok_or_else(|| {
                 Error::coded(
                     "op/not-found",
                     "no operations have been recorded in this repository",
                     vec![],
                 )
-            })?;
-            for step in 0..steps {
-                cur = self.get(cur)?.prev().ok_or_else(|| {
-                    Error::coded(
-                        "op/floor",
-                        format!(
-                            "the log goes back {step} operation(s), not {steps}: \
-                             everything earlier is past the undo floor"
-                        ),
-                        vec!["ff op log".into()],
-                    )
-                })?;
-            }
-            return Ok(cur);
+            });
         }
-
-        let hex = crate::snapid::decode(spec).ok_or_else(|| no_such_op(spec))?;
+        let hex = crate::snapid::decode(base).ok_or_else(|| no_such_op(base))?;
         let mut matches = Vec::new();
         for candidate in index::prefix_matches(self.repo, &hex)? {
             // The index is a cache, so every candidate it offers is checked
@@ -238,14 +240,14 @@ impl<'r> OpLog<'r> {
         matches.sort_unstable();
         matches.dedup();
         match matches.as_slice() {
-            [] => Err(no_such_op(spec)),
+            [] => Err(no_such_op(base)),
             [one] => Ok(*one),
             many => {
                 let list: Vec<String> = many.iter().map(|id| id.short(12)).collect();
                 Err(Error::coded(
                     "op/ambiguous",
                     format!(
-                        "{spec} matches {} operations: {}",
+                        "{base} matches {} operations: {}",
                         many.len(),
                         list.join(", ")
                     ),
@@ -266,6 +268,75 @@ fn no_such_op(spec: &str) -> Error {
         "op/not-found",
         format!("no operation matches {spec}"),
         vec!["ff op log".into()],
+    )
+}
+
+/// Split an address at the first `^` or `~`. An op id is letters and an
+/// address has no braces, so there is nothing else a seam could hide behind.
+fn split_suffixes(spec: &str) -> (&str, &str) {
+    match spec.find(['^', '~']) {
+        Some(i) => spec.split_at(i),
+        None => (spec, ""),
+    }
+}
+
+/// How many operations back a suffix chain walks.
+///
+/// `^` and `~n` mean the same thing here and that is not a redundancy in the
+/// grammar but a fact about the shape: an operation's first parent is the
+/// operation before it, so first-parent ancestry and log order are one
+/// sequence. `^2` is the only spelling that means something else, and what it
+/// means is the op's *base* — a commit, in the other address space — so it is
+/// refused by name rather than followed across.
+fn steps_back(spec: &str, suffixes: &str) -> Result<usize> {
+    let mut steps = 0usize;
+    let mut rest = suffixes;
+    while let Some(first) = rest.chars().next() {
+        rest = &rest[1..];
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        rest = &rest[digits.len()..];
+        let n: usize = if digits.is_empty() {
+            1
+        } else {
+            digits.parse().map_err(|_| bad_address(spec))?
+        };
+        match first {
+            '~' => steps += n,
+            '^' if n == 1 => steps += 1,
+            '^' => return Err(cross_space_parent(spec, n)),
+            _ => return Err(bad_address(spec)),
+        }
+    }
+    Ok(steps)
+}
+
+fn bad_address(spec: &str) -> Error {
+    Error::coded(
+        "op/not-found",
+        format!("`{spec}` is not an operation address"),
+        vec!["ff op log".into(), "ff op show @".into()],
+    )
+}
+
+/// An operation's parents past the first leave the log: slot 2 is the base
+/// commit, and the rest are pins. Following one would hand a commit to a verb
+/// that takes an operation, so the refusal names the crossing that is spelled
+/// on purpose.
+fn cross_space_parent(spec: &str, slot: usize) -> Error {
+    Error::coded(
+        "usage/rev-in-op-position",
+        format!(
+            "`{spec}` asks for parent {slot} of an operation, which is not an operation: \
+             slot 2 is the commit the op ran on and the rest are pins. The crossing has a \
+             name, and it is `base()`"
+        ),
+        vec![
+            format!(
+                "ff op show {}",
+                spec.split(['^', '~']).next().unwrap_or("@")
+            ),
+            "ff log -r 'base(@)'".into(),
+        ],
     )
 }
 

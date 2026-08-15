@@ -292,6 +292,17 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff op show <op>", "ff op log"],
     },
     Entry {
+        id: "usage/rev-in-op-position",
+        summary: "that names a commit, and this position takes an operation",
+        detail: "The mirror of usage/op-in-rev-position, and it usually turns up on `@^2`. An \
+                 operation's first parent is the operation before it, which is why git's own \
+                 suffixes work here at all — but every parent past the first leaves the log: slot \
+                 2 is the commit the operation ran on, and the rest are the shas it pinned. \
+                 Crossing from an operation to its commit is spelled base(), so that it is \
+                 something you asked for rather than something a suffix did quietly.",
+        exits: &["ff op show @", "ff log -r 'base(@)'"],
+    },
+    Entry {
         id: "usage/revset-unknown-function",
         summary: "no revset function goes by that name",
         detail: "The registry holds every function the language has, and the error lists the ones \

@@ -76,7 +76,7 @@ fn the_public_reader_walks_tags_and_resolves() {
     );
 
     assert_eq!(log.resolve("@").unwrap().to_string(), spelled[4]);
-    assert_eq!(log.resolve("@-4").unwrap().to_string(), spelled[0]);
+    assert_eq!(log.resolve("@~4").unwrap().to_string(), spelled[0]);
     assert_eq!(log.resolve(&spelled[2]).unwrap().to_string(), spelled[2]);
     let on_main: Vec<String> = log
         .iter_branch("main")
@@ -98,7 +98,9 @@ fn every_stop_names_a_coded_id() {
     for (spec, id) in [
         ("zzzzzzzzzzzz", "op/not-found"),
         ("deadbeef", "op/not-found"),
-        ("@-9", "op/floor"),
+        ("@~9", "op/floor"),
+        ("@-", "op/not-found"),
+        ("@^2", "usage/rev-in-op-position"),
     ] {
         let err = log.resolve(spec).unwrap_err();
         assert_eq!(err.id(), id, "{spec} reported {}: {err}", err.id());
