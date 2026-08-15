@@ -136,9 +136,27 @@ nothing         —              no daemon, no cron, no spawns
 
 The board is an inbox, in four sections matching four states of mind: **waiting on you** (agent questions, review requests, changes requested), **in the air** (bays, with live conflict verdicts), **holding** (CI, merge queue, blocked on a person), **open**.
 
-Triage is the whole product. `tower next` beats an assigned-to-me list because it knows the cost *right now* — which bay is warm, what collides with what is flying, which files were touched this week, whether the blocker is a person or a build. A P1 that conflicts with an occupied bay is worse work this minute than a P3 that is clear.
+The review loop deserves modeling directly, because it is mostly waiting and mostly agent-shaped: an incoming review is work arriving, and sorting its comments into what a machine can carry out and what needs a decision is where the ergonomic win lives. Answer the one design question, let the other three land.
 
-The review loop deserves modeling directly, because it is mostly waiting and mostly agent-shaped: an incoming review is work arriving, and triaging its comments into mechanically-fixable versus needs-a-decision is where the ergonomic win lives. Answer the one design question, let the other three land.
+## Triage
+
+Triage splits on the same line everything else does. Blocked or not — by a declared dependency, a discovered conflict, or a person who has not replied — is a graph query, a merge-tree call, and an upstream read. Cost to start is a warm bay, an existing branch, and which files this week's capture chain touched. What changed since you last looked is a log diff. All of it is computation; none of it is judgment.
+
+The algorithmic half is most of the value, because the hard part was never ranking. Filtering out everything that cannot be started right now routinely takes thirty items to four, and at four the ordering barely matters. The good-enough algorithm is good enough precisely because it declines to judge importance: filter on readiness, partition into the four sections, sort by upstream priority then readiness then age, and leave importance to whoever set the priority field. A tracker that does not invent its own opinion about what matters is more trustworthy, not less.
+
+Then **explain the pick and what it beat**. That line is load-bearing: an explained ranking is correctable in one glance, an unexplained one is a black box you stop trusting after two bad calls — which is the failure mode that would sink the whole product.
+
+Genuine judgment stays out. Whether a review comment is mechanical or a decision, whether two flights are the same, whether a body is too vague to hand off, how to decompose a goal — none of it is tower's. tower attaches *facts* to a comment: resolved, still on a live line, carries a candidate patch. It never attaches a verdict. A suggestion block being syntactically applicable says nothing about whether it should be applied — the reviewer can be wrong, and reviewing the review is an agent's job or a person's.
+
+Which forces one rule, or the board stops being trustworthy:
+
+> **An agent's triage output is stored as intent, never recomputed as state.**
+
+A model call at render time makes the board flicker: same data, different call, different answer. Judgments are frozen into the log, attributed to the agent that made them, overridable, and never re-run behind your back, so the board stays a pure function of (repository, log). That is not a compromise of derived-not-entered — agent judgment *is* entered, merely entered by an agent.
+
+Errors are asymmetric, so defaults lean conservative. Filing a decision as mechanical is expensive: something quietly makes a design call nobody reviewed. Filing mechanical as needs-you costs one extra line of reading. Everything ambiguous goes to needs-you.
+
+Three things tower should not build: **estimates** (measurable for started work, fiction for unstarted — report what is known and invent nothing), **learned ranking** (no data on day one and not enough for a long time; weights live in config and are tuned by hand), and **automatic deduplication** (semantic, rarely urgent, expensive when wrong).
 
 ## Skills
 
@@ -176,21 +194,23 @@ Three layers of memory stay apart: a **skill** knows how to drive tower, the **a
 8. **Deferred requires loud.** Inherited whole from fufu: a held flight is announced, pinned, and blocks its exits.
 9. **One model, every surface.** CLI, MCP, and anything later consume one contract.
 10. **Facts, not consensus.** tower is authoritative over what the repository shows and what you alone authored. It holds no negotiated state, because it has no way to negotiate.
+11. **Judgment is stored, never recomputed.** A model's verdict is written to the log as authored intent. The board stays a pure function of repository and log, or it flickers and is not believed.
 
 ## What it waits on
 
 Load-bearing and absent from fufu today:
 
-- **`ff session`** — no `session.rs` in the tree. Briefs, work logs, handoff, and per-flight capture chains all sit on it.
 - **Futures (Phase 3)** — every discovered conflict, land order, and assignment-time holdback.
 - **`ff watch` (Phase 2 journal follow)** — the live board and continuous conflict re-checking.
 - **`ff push` (Phase 5)** — `review` and `landed` are the two states tower cannot honestly derive without it.
 
-What works on today's primitives: the board through `active`, flight-to-branch linkage, the event log store, `ff start <flight>`, briefs, and holds. That is a real v0 and it is already more automatic than a normal tracker — it just cannot do the deconfliction that is the reason to build it.
+`ff session` has since shipped, which is the piece briefs, work logs, handoff, and per-flight capture chains all sit on.
+
+What works on today's primitives: the board through `active`, flight-to-branch linkage, the event log store, `ff start <flight>`, sessions, briefs, and holds. That is a real v0 and it is already more automatic than a normal tracker — it just cannot do the deconfliction that is the reason to build it.
 
 ## Open questions
 
-- **Triage quality is the product.** If *waiting on you* cries wolf twice a week, everything above is decoration. Argues for shipping a read-only board against real upstream data long before anything is allowed to claim work.
+- **Triage quality is the product.** The deterministic half is settled above, and it covers *waiting on you* — the section that has to be right. What stays open is the weighting inside `open`, which has no data behind it on day one. Argues for shipping a read-only board against real upstream data long before anything is allowed to claim work.
 - **Does the flight own the branch, or the branch own the flight?** If `ff branch <name>` claims a placeholder, does claiming mint a flight? The everything-is-a-flight version is seductive and probably wrong.
 - **PR state is forge truth, not repository truth.** Pulling it in punctures the derived-from-the-repo purity; the alternative is a board that cannot say `review`.
 - **What a flight means after a rewrite** folds its snapshots into a commit — fufu's open session-boundary question, made urgent rather than theoretical.
