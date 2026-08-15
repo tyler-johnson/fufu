@@ -234,6 +234,121 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff log -r '::@'"],
     },
     Entry {
+        id: "usage/revset-open-suffix",
+        summary: "`@` is the open change, and it takes no suffixes",
+        detail: "git's `@` means HEAD; fufu's means the open change sitting on top of it. Since \
+                 the two differ by exactly one commit, a suffix on `@` would be off by one against \
+                 every reader's expectation, so fufu refuses it instead of quietly translating. \
+                 The commit under the open change is `HEAD`, and git's suffixes attach there: `@^` \
+                 is `HEAD`, and `@~2` is `HEAD~`.",
+        exits: &["ff log -r HEAD", "ff log -r 'HEAD~'"],
+    },
+    Entry {
+        id: "usage/revset-range-suffix",
+        summary: "`x^!` and `x^@` are rev-list ranges, not revisions",
+        detail: "Both are git shorthands that expand to more than one revision — `x^!` is x \
+                 without its parents, `x^@` is x's parents without x — so neither names a single \
+                 revision the way every other suffix does. fufu has its own set algebra for \
+                 ranges, which says the same things without borrowing a spelling that only reads \
+                 as a suffix.",
+        exits: &["ff log -r '<x>^..<x>'", "ff log -r '<x>^ | <x>^2'"],
+    },
+    Entry {
+        id: "usage/revset-ambiguous",
+        summary: "that name is both a ref and an object, and fufu will not pick one",
+        detail: "Both lookups run for every name, and neither wins by precedence. Tools that rank \
+                 them resolve a name to a branch even when a commit of the same spelling exists, \
+                 and say nothing about the one they dropped — which is the failure this refusal \
+                 exists to prevent. Spell the full ref path or the full sha; the error names both \
+                 candidates so you can pick.",
+        exits: &["ff log -r refs/heads/<name>", "ff log -r <full-sha>"],
+    },
+    Entry {
+        id: "usage/revset-unknown-revision",
+        summary: "nothing in revision space answers to that name",
+        detail: "The name is not a ref, not an object prefix long enough for git to accept, and \
+                 not one of fufu's own symbols. Object prefixes have to be at least four \
+                 characters — git's own minimum, borrowed rather than restated — so a shorter one \
+                 reads as an ordinary name and finds nothing.",
+        exits: &["ff log", "ff branch"],
+    },
+    Entry {
+        id: "usage/revset-not-a-commit",
+        summary: "that names an object, but not a commit",
+        detail: "A revset denotes a set of commits, so a spelling that peels to a tree or a blob \
+                 has nothing to contribute to one. This is usually `^{tree}` or a `<rev>:<path>` \
+                 spelling, both of which are legal gitrevisions naming a legal object — just not \
+                 the kind a set of commits can hold.",
+        exits: &["ff log"],
+    },
+    Entry {
+        id: "usage/op-in-rev-position",
+        summary: "that is an operation, and this position takes a revision",
+        detail: "History has revisions; the log of what fufu did has operations. They never mix in \
+                 one argument, which is what lets hex mean commit everywhere and letters mean \
+                 operation everywhere with no rule to remember. An operation id typed here is \
+                 usually the right id and the wrong verb: `ff op show` reads one, and `--at-op` \
+                 runs a read-only command as of one.",
+        exits: &["ff op show <op>", "ff op log"],
+    },
+    Entry {
+        id: "usage/revset-unknown-function",
+        summary: "no revset function goes by that name",
+        detail: "The registry holds every function the language has, and the error lists the ones \
+                 that exist. Revision space has latest, heads, roots, description, and author; the \
+                 functions that read operations live in the other address space and say so \
+                 separately.",
+        exits: &["ff log -r 'latest(main)'"],
+    },
+    Entry {
+        id: "usage/revset-arity",
+        summary: "that function was called with the wrong arguments",
+        detail: "Every function declares how many arguments it takes and what kind each one is: a \
+                 set, or a pattern. A set where a pattern belongs is refused rather than coerced, \
+                 because guessing would make description(main) mean the branch on one day and the \
+                 word on another. The error names the signature.",
+        exits: &["ff log -r 'description(substring:\"<text>\")'"],
+    },
+    Entry {
+        id: "usage/revset-wrong-space",
+        summary: "that function reads operations, and this position takes revisions",
+        detail: "One grammar spans both address spaces — the same operators and the same functions \
+                 over operations instead of over history — but the vocabularies differ, because \
+                 each space can only name what it has. base(), on_branch(), session(), and kind() \
+                 are questions about operations, so they belong after `ff op log -r`.",
+        exits: &["ff op log -r '<expr>'"],
+    },
+    Entry {
+        id: "usage/revset-empty-set",
+        summary: "the expression is valid and matches nothing",
+        detail: "Every name in it resolved, so this is not a typo in the usual sense — it is a set \
+                 that came out empty. The common causes are a range whose endpoints are the wrong \
+                 way round, an intersection of two sets that never overlap, and a predicate no \
+                 commit satisfies.",
+        exits: &["ff log", "ff branch"],
+    },
+    Entry {
+        id: "usage/revset-not-a-point",
+        summary: "the expression matches more than one revision, and this takes exactly one",
+        detail: "Verbs that act on a revision need exactly one, and fufu will not pick for you — \
+                 which of several commits you meant is not something a tool can know. Narrowing is \
+                 a spelling you choose: latest() takes the newest member, and heads() takes the \
+                 members nothing else in the set descends from.",
+        exits: &["ff log -r 'latest(<expr>)'", "ff log -r 'heads(<expr>)'"],
+    },
+    Entry {
+        id: "revset/regex-unavailable",
+        summary: "regex patterns are recognized but not available yet",
+        detail: "A regex engine is a megabyte and a half of dependency, and fufu will not carry it \
+                 before a caller needs it. The prefix is recognized anyway so that typing it is \
+                 answered rather than mistaken for a ref name — glob: and substring: cover most of \
+                 what regex: gets reached for.",
+        exits: &[
+            "ff log -r 'description(glob:\"fix*\")'",
+            "ff log -r 'description(substring:\"fix\")'",
+        ],
+    },
+    Entry {
         id: "usage/unknown-key",
         summary: "no fufu setting goes by that name",
         detail: "Settings live in a typed registry, so a name that is not in it would silently do \
