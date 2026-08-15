@@ -16,7 +16,7 @@ pub mod ops;
 pub mod petname;
 mod refs;
 mod restore;
-
+pub mod revset;
 mod session;
 pub mod snapid;
 pub mod snapshot;

@@ -154,6 +154,86 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff log", "ff evolog"],
     },
     Entry {
+        id: "usage/revset-adjacent-operands",
+        summary: "two revisions stand side by side with no operator between them",
+        detail: "Most often this is jj's infix difference: fufu does not have one, because `a & ~b` \
+                 already says it and a second spelling would be a second thing to learn. Git \
+                 requires ~ to be followed by digits or nothing, so `a ~ b` lexes as two operands \
+                 rather than an operator. The same error covers plain juxtaposition, where an \
+                 operator was simply left out.",
+        exits: &["ff log -r '<a> & ~<b>'"],
+    },
+    Entry {
+        id: "usage/revset-parent-shorthand",
+        summary: "there is no `x-` suffix; git already spells it `x^`",
+        detail: "fufu takes gitrevisions whole, so the parent of a revision is `x^` and jj's `x-` \
+                 would be a second way to say it. `@-` goes the same way, and the rule catches it \
+                 twice over: naming a commit it is `HEAD`, since the open change sits on HEAD's \
+                 commit, and naming an operation it is `@^`, since an operation's first parent is \
+                 the operation before it — which makes `@-3` exactly `@~3`. None of this touches \
+                 ordinary names: a branch called my-branch is just a branch.",
+        exits: &["ff log -r '<x>^'", "ff log -r HEAD", "ff op show @^"],
+    },
+    Entry {
+        id: "revset/deferred-descendants",
+        summary: "descendants are not available yet",
+        detail: "Walking forward needs a child index, which git does not keep — every walk it \
+                 offers runs from a tip backwards. Rather than scan all of history and call it a \
+                 query, `x+` and descendants() are left out until they can be answered within the \
+                 cost fufu promises. `x::` is the unbounded descendant form that does exist today.",
+        exits: &["ff log -r '<x>::'"],
+    },
+    Entry {
+        id: "usage/revset-no-symmetric-difference",
+        summary: "there is no `a...b`; the set language already says it",
+        detail: "What fufu inherits whole is gitrevisions' revision grammar — its symbols and \
+                 suffixes. Ranges are its own set algebra, and in a set language `a...b` is exactly \
+                 `(a..b) | (b..a)`, so it stays out for the same reason `x-` does. Inheriting a \
+                 spelling is not the same as inheriting a meaning.",
+        exits: &["ff log -r '(<a>..<b>) | (<b>..<a>)'"],
+    },
+    Entry {
+        id: "usage/revset-expected-expression",
+        summary: "an operator or a call is missing the expression it needs",
+        detail: "Something that takes an operand did not get one — a trailing & or |, a ~ with \
+                 nothing after it, or a dangling comma in a call. Note that complement is `~x`; \
+                 `^x` is not a prefix operator in this grammar, since ^ belongs to git's suffixes.",
+        exits: &["ff log -r '~<x>'"],
+    },
+    Entry {
+        id: "usage/revset-unbalanced-parens",
+        summary: "the parentheses in that expression do not pair up",
+        detail: "An opening paren with no closer, a closer with nothing open, or a comma outside \
+                 any call. Quoting the whole expression keeps a shell from eating parens before \
+                 fufu sees them, which is the usual cause when the text looked balanced as typed.",
+        exits: &["ff log -r '(<a> | <b>) & <c>'"],
+    },
+    Entry {
+        id: "usage/revset-unterminated-brace",
+        summary: "a git suffix opened a brace and never closed it",
+        detail: "Forms like `@{2 days ago}`, `^{tree}`, and `^{/regex}` run to their closing brace, \
+                 and braces nest, so an unclosed one swallows the rest of the expression. The error \
+                 quotes the run that never ended.",
+        exits: &["ff log -r '<branch>@{1}'"],
+    },
+    Entry {
+        id: "usage/revset-unterminated-quote",
+        summary: "a pattern value opened a quote and never closed it",
+        detail: "Pattern values may be quoted so they can carry characters the grammar otherwise \
+                 reads as operators — `regex:\"^fix\"`, `substring:\"fix bug\"`. Inside the quotes \
+                 only \\\" and \\\\ are escapes; everything else is literal, which is what keeps a \
+                 regex's own backslashes intact.",
+        exits: &["ff log -r 'description(substring:\"<text>\")'"],
+    },
+    Entry {
+        id: "usage/revset-empty",
+        summary: "the revset is empty",
+        detail: "-r was given nothing, or only whitespace. An empty expression has no obvious \
+                 reading — the whole history and no commits are both defensible — so fufu asks \
+                 rather than picking one. `::@` is every ancestor of the open change.",
+        exits: &["ff log -r '::@'"],
+    },
+    Entry {
         id: "usage/unknown-key",
         summary: "no fufu setting goes by that name",
         detail: "Settings live in a typed registry, so a name that is not in it would silently do \
