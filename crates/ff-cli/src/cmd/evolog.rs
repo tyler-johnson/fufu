@@ -20,9 +20,8 @@ pub fn run(json: bool, count: usize) -> Result<()> {
         },
     )?;
     if json {
-        let body = serde_json::to_string(&serde_json::json!({ "snapshots": rows }))
-            .map_err(Error::repo)?;
-        println!("{body}");
+        let payload = serde_json::json!({ "snapshots": rows });
+        crate::machine::emit("evolog", &payload)?;
         return Ok(());
     }
     if rows.is_empty() {

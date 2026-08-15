@@ -20,12 +20,11 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
         crate::render::reconcile_notice(&ctx.reconcile);
         let colored = crate::pager::color_enabled();
         if json {
-            let body = serde_json::to_string(&serde_json::json!({
+            let payload = serde_json::json!({
                 "renamed": report,
                 "undo": "ff undo",
-            }))
-            .map_err(Error::repo)?;
-            println!("{body}");
+            });
+            crate::machine::emit("describe", &payload)?;
             return Ok(());
         }
         println!("renamed {} to {}", report.from, report.to);
@@ -49,12 +48,11 @@ pub fn run(message: Option<String>, branch: Option<String>, json: bool) -> Resul
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "describe": report,
             "undo": "ff undo",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("describe", &payload)?;
         return Ok(());
     }
     match (&report.old, &report.new) {

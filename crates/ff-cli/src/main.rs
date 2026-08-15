@@ -4,6 +4,7 @@ mod capture;
 mod cli;
 mod cmd;
 mod help;
+mod machine;
 mod pager;
 mod provenance;
 mod render;

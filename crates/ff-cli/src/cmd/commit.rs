@@ -1,7 +1,7 @@
 //! `ff commit` — close the open change. The pre-verb snapshot is mandatory
 //! and owned by core; contention aborts before anything is written.
 
-use ff_core::{CloseOptions, CommitOutcome, Error, Result};
+use ff_core::{CloseOptions, CommitOutcome, Result};
 
 pub fn run(
     message: Option<String>,
@@ -26,13 +26,12 @@ pub fn run(
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "commit": outcome,
             "reconcile": ctx.reconcile,
             "undo": "ff undo",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("commit", &payload)?;
         return Ok(());
     }
 

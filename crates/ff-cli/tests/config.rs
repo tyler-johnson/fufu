@@ -254,11 +254,11 @@ fn json_shapes() {
         "one line + one newline"
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["key"], "keep");
-    assert_eq!(v["git_key"], "fufu.keep");
-    assert_eq!(v["value"], "90d");
-    assert_eq!(v["source"], serde_json::Value::Null);
-    assert_eq!(v["default"], true);
+    assert_eq!(v["data"]["key"], "keep");
+    assert_eq!(v["data"]["git_key"], "fufu.keep");
+    assert_eq!(v["data"]["value"], "90d");
+    assert_eq!(v["data"]["source"], serde_json::Value::Null);
+    assert_eq!(v["data"]["default"], true);
 
     // Set keep, then get again
     let out = ff_cfg(&fx.path(), &["config", "keep", "30d"], &global);
@@ -266,9 +266,9 @@ fn json_shapes() {
     let out = ff_cfg(&fx.path(), &["config", "--json", "keep"], &global);
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["value"], "30d");
-    assert_eq!(v["source"], "local");
-    assert_eq!(v["default"], false);
+    assert_eq!(v["data"]["value"], "30d");
+    assert_eq!(v["data"]["source"], "local");
+    assert_eq!(v["data"]["default"], false);
 
     // List all as JSON
     let out = ff_cfg(&fx.path(), &["config", "--json"], &global);
@@ -279,17 +279,17 @@ fn json_shapes() {
         "one line + one newline"
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert!(v["settings"].is_array());
-    assert_eq!(v["settings"].as_array().unwrap().len(), 8);
-    assert_eq!(v["settings"][0]["key"], "maxFileSize");
+    assert!(v["data"]["settings"].is_array());
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 8);
+    assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
     let out = ff_cfg(&fx.path(), &["config", "--json", "keep", "45d"], &global);
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert!(v.get("key").is_some());
-    assert!(v.get("value").is_some());
-    assert!(v.get("global").is_some());
+    assert!(v["data"].get("key").is_some());
+    assert!(v["data"].get("value").is_some());
+    assert!(v["data"].get("global").is_some());
 
     // Byte stability
     let a = ff_cfg(&fx.path(), &["config", "--json"], &global);

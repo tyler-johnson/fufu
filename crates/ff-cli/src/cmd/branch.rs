@@ -1,6 +1,6 @@
 //! `ff branch` — list (named and anonymous segregated), claim, delete.
 
-use ff_core::{BranchInfo, Error, Result};
+use ff_core::{BranchInfo, Result};
 
 pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -16,12 +16,11 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
         crate::render::reconcile_notice(&ctx.reconcile);
         let colored = crate::pager::color_enabled();
         if json {
-            let body = serde_json::to_string(&serde_json::json!({
+            let payload = serde_json::json!({
                 "deleted": report,
                 "undo": "ff undo",
-            }))
-            .map_err(Error::repo)?;
-            println!("{body}");
+            });
+            crate::machine::emit("branch", &payload)?;
             return Ok(());
         }
         println!(
@@ -50,12 +49,11 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
         crate::render::reconcile_notice(&ctx.reconcile);
         let colored = crate::pager::color_enabled();
         if json {
-            let body = serde_json::to_string(&serde_json::json!({
+            let payload = serde_json::json!({
                 "claimed": report,
                 "undo": "ff undo",
-            }))
-            .map_err(Error::repo)?;
-            println!("{body}");
+            });
+            crate::machine::emit("branch", &payload)?;
             return Ok(());
         }
         println!("claimed {} as {}", report.from, report.to);
@@ -66,8 +64,7 @@ pub fn run(name: Option<String>, delete: Option<String>, json: bool) -> Result<(
     // List. Reads don't reconcile-journal here; `ff status` owns loudness.
     let list = ff_core::branch::list(&repo)?;
     if json {
-        let body = serde_json::to_string(&list).map_err(Error::repo)?;
-        println!("{body}");
+        crate::machine::emit("branch", &list)?;
         return Ok(());
     }
     for info in &list.named {

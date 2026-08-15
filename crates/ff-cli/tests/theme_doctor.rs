@@ -78,8 +78,9 @@ fn doctor_exit_code_tracks_findings() {
     let out = ff(&fx, &["doctor", "--json"]);
     let body: serde_json::Value =
         serde_json::from_str(&stdout(&out)).expect("doctor --json is valid json");
-    let findings = body["findings"].as_u64().expect("findings count");
-    let warns = body["checks"]
+    let d = &body["data"];
+    let findings = d["findings"].as_u64().expect("findings count");
+    let warns = d["checks"]
         .as_array()
         .expect("checks array")
         .iter()

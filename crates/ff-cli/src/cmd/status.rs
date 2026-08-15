@@ -1,5 +1,5 @@
 use crate::render::ForeignChanges;
-use ff_core::{Error, LogEntry, Result};
+use ff_core::{LogEntry, Result};
 
 pub fn run(json: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
@@ -63,7 +63,7 @@ fn render_json(
     parent: &Option<LogEntry>,
     _colored: bool,
 ) -> Result<()> {
-    let body = serde_json::to_string(&serde_json::json!({
+    let payload = serde_json::json!({
         "head": status.head,
         "operation": status.operation,
         "upstream": status.upstream,
@@ -82,10 +82,8 @@ fn render_json(
             "subject": p.subject,
         })),
         "conflicts": status.conflicts,
-    }))
-    .map_err(Error::repo)?;
-    println!("{body}");
-    Ok(())
+    });
+    crate::machine::emit("status", &payload)
 }
 
 /// Reconcile (best-effort — status must never fail because the journal

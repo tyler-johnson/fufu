@@ -2,7 +2,7 @@
 //! part of the verb's voice: the user should always know where their work
 //! went and where it came back from.
 
-use ff_core::{ArrivalReport, Error, Result, SwitchOptions};
+use ff_core::{ArrivalReport, Result, SwitchOptions};
 
 pub fn run(target: String, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -20,13 +20,12 @@ pub fn run(target: String, json: bool) -> Result<()> {
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "switch": report,
             "reconcile": ctx.reconcile,
             "undo": "ff undo",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("switch", &payload)?;
         return Ok(());
     }
 

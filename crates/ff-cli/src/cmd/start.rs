@@ -1,7 +1,7 @@
 //! `ff start` — always begins a new line of work on a fresh branch. No
 //! invocation produces a commit.
 
-use ff_core::{Error, Result, StartOptions};
+use ff_core::{Result, StartOptions};
 
 pub fn run(
     target: Option<String>,
@@ -26,13 +26,12 @@ pub fn run(
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "start": report,
             "reconcile": ctx.reconcile,
             "undo": "ff undo",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("start", &payload)?;
         return Ok(());
     }
 

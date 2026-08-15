@@ -740,11 +740,11 @@ fn render(rows: &[Row], fix: bool, json: bool, colored: bool) {
         .count();
 
     if json {
-        let body = serde_json::to_string(&json_body(rows)).map_err(|e| {
+        let payload = json_body(rows);
+        if let Err(e) = crate::machine::emit("doctor", &payload) {
             eprintln!("ff: {e}");
             std::process::exit(1);
-        });
-        println!("{}", body.unwrap());
+        }
     } else {
         for row in rows {
             println!("{}", format_row(row, colored));

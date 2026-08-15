@@ -95,11 +95,11 @@ fn status_and_log_never_spawn() {
     // JSON output still correct under the trap PATH.
     let out = ff_trapped(&trap, &fx.path(), &["status", "--json"]);
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid status json");
-    assert_eq!(v["head"]["name"], "main");
-    assert_eq!(v["changes"][0]["path"], "a.txt");
-    assert_eq!(v["changes"][0]["kind"], "modified");
-    assert_eq!(v["changes"][1]["path"], "new.txt");
-    assert_eq!(v["changes"][1]["kind"], "added");
+    assert_eq!(v["data"]["head"]["name"], "main");
+    assert_eq!(v["data"]["changes"][0]["path"], "a.txt");
+    assert_eq!(v["data"]["changes"][0]["kind"], "modified");
+    assert_eq!(v["data"]["changes"][1]["path"], "new.txt");
+    assert_eq!(v["data"]["changes"][1]["kind"], "added");
 
     assert!(
         !trap.log.exists(),

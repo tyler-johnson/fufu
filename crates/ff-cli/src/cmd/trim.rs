@@ -4,7 +4,7 @@
 //! not just the objects a trim orphaned). `gc --auto` is self-limiting: below
 //! git's own threshold it returns having done nothing.
 
-use ff_core::{Error, Result, TrimOptions};
+use ff_core::{Result, TrimOptions};
 
 pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff());
@@ -25,8 +25,7 @@ pub fn run(dry_run: bool, gone: bool, json: bool) -> Result<()> {
     let anything_dropped = report.chains.iter().any(|c| c.dropped > 0);
 
     if json {
-        let body = serde_json::to_string(&report).map_err(Error::repo)?;
-        println!("{body}");
+        crate::machine::emit("trim", &report)?;
     } else {
         if report.chains.is_empty() {
             println!("no snapshot chains yet");

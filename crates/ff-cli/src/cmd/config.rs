@@ -346,11 +346,8 @@ pub fn run(
         }
 
         if json {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({"settings": entries}))
-                    .map_err(Error::repo)?
-            );
+            let payload = serde_json::json!({"settings": entries});
+            crate::machine::emit("config", &payload)?;
         }
 
         if !json {
@@ -430,14 +427,13 @@ pub fn run(
                         "source": still_source,
                     })
                 });
-                let body = serde_json::to_string(&serde_json::json!({
+                let payload = serde_json::json!({
                     "key": setting.name,
                     "global": global,
                     "removed": false,
                     "still_applies": still_json,
-                }))
-                .map_err(Error::repo)?;
-                println!("{body}");
+                });
+                crate::machine::emit("config", &payload)?;
             } else if still_val.is_some() {
                 let suffix = if !global && still_source == "global" {
                     " — try --global"
@@ -487,14 +483,13 @@ pub fn run(
                     "source": still_source,
                 })
             });
-            let body = serde_json::to_string(&serde_json::json!({
+            let payload = serde_json::json!({
                 "key": setting.name,
                 "global": global,
                 "removed": true,
                 "still_applies": still_json,
-            }))
-            .map_err(Error::repo)?;
-            println!("{body}");
+            });
+            crate::machine::emit("config", &payload)?;
         } else if still_val.is_some() {
             println!(
                 "{} unset here — {} still applies from {}",
@@ -531,15 +526,14 @@ pub fn run(
             } else {
                 serde_json::json!(source)
             };
-            let body = serde_json::to_string(&serde_json::json!({
+            let payload = serde_json::json!({
                 "key": setting.name,
                 "git_key": setting.key,
                 "value": display,
                 "source": source_json,
                 "default": is_default,
-            }))
-            .map_err(Error::repo)?;
-            println!("{body}");
+            });
+            crate::machine::emit("config", &payload)?;
         } else {
             println!("{display}");
         }
@@ -590,13 +584,12 @@ pub fn run(
     }
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "key": setting.name,
             "value": new_value,
             "global": global,
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("config", &payload)?;
     } else {
         let scope = if global { "every repo" } else { "this repo" };
         println!("{} = {} ({})", setting.name, new_value, scope);

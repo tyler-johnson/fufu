@@ -16,9 +16,8 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
     let mut out = crate::pager::LogOut::new(&repo, json);
     let result = (|| -> std::io::Result<()> {
         if json {
-            let body = serde_json::to_string(&serde_json::json!({ "ops": entries }))
-                .map_err(std::io::Error::other)?;
-            writeln!(out, "{body}")?;
+            let payload = serde_json::json!({ "ops": entries });
+            crate::machine::write(&mut out, "log", &payload).map_err(std::io::Error::other)?;
             return Ok(());
         }
         if entries.is_empty() {
@@ -66,7 +65,7 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
     if json {
         // `commits` key contract preserved; `id_letters` is composed at this
         // edge — the model stays hex.
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "commits": commits,
             "open": {
                 "branch": open.branch,
@@ -79,9 +78,8 @@ pub fn run_inner(json: bool, count: usize, commits_only: bool) -> Result<()> {
                 "pending": open.pending,
                 "pending_short": open.pending.as_deref().map(|p| &p[..7]),
             },
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("log", &payload)?;
         return Ok(());
     }
 
@@ -123,9 +121,8 @@ fn commits_view(
     if json {
         let commits: Vec<_> = entries.collect::<Result<_>>()?;
         // Envelope object so future fields can be added without breaking consumers.
-        let body = serde_json::to_string(&serde_json::json!({ "commits": commits }))
-            .map_err(Error::repo)?;
-        println!("{body}");
+        let payload = serde_json::json!({ "commits": commits });
+        crate::machine::emit("log", &payload)?;
     } else {
         let now = now_secs();
         for entry in entries {

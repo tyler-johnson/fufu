@@ -64,18 +64,19 @@ fn status_json_shape() {
         "one line + one newline"
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["head"]["state"], "branch");
-    assert_eq!(v["head"]["name"], "main");
-    assert_eq!(v["head"]["ref"], "refs/heads/main");
-    assert_eq!(v["operation"], serde_json::Value::Null);
-    assert_eq!(v["upstream"], serde_json::Value::Null);
+    let d = &v["data"];
+    assert_eq!(d["head"]["state"], "branch");
+    assert_eq!(d["head"]["name"], "main");
+    assert_eq!(d["head"]["ref"], "refs/heads/main");
+    assert_eq!(d["operation"], serde_json::Value::Null);
+    assert_eq!(d["upstream"], serde_json::Value::Null);
     // Old keys are gone
-    assert_eq!(v["staged"], serde_json::Value::Null);
-    assert_eq!(v["unstaged"], serde_json::Value::Null);
-    assert_eq!(v["untracked"], serde_json::Value::Null);
+    assert_eq!(d["staged"], serde_json::Value::Null);
+    assert_eq!(d["unstaged"], serde_json::Value::Null);
+    assert_eq!(d["untracked"], serde_json::Value::Null);
     // New shape: changes array with modified + added (untracked = ordinary addition)
-    assert!(v["changes"].is_array(), "changes is array");
-    let changes = v["changes"].as_array().unwrap();
+    assert!(d["changes"].is_array(), "changes is array");
+    let changes = d["changes"].as_array().unwrap();
     assert!(changes.len() >= 2, "at least modified and added entries");
     let kinds: std::collections::HashSet<_> = changes
         .iter()
@@ -83,7 +84,7 @@ fn status_json_shape() {
         .collect();
     assert!(kinds.contains("modified"), "modified entry present");
     assert!(kinds.contains("added"), "added entry present");
-    assert_eq!(v["conflicts"].as_array().unwrap().len(), 0);
+    assert_eq!(d["conflicts"].as_array().unwrap().len(), 0);
 }
 
 #[test]
@@ -173,7 +174,7 @@ fn status_json_parent_null_when_unborn() {
     assert!(out.status.success());
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["parent"], serde_json::Value::Null);
+    assert_eq!(v["data"]["parent"], serde_json::Value::Null);
 }
 
 #[test]
@@ -186,7 +187,7 @@ fn log_json_envelope_and_limit() {
     let out = ff(&fx, &["log", "--json", "-n", "2"]);
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    let commits = v["commits"].as_array().unwrap();
+    let commits = v["data"]["commits"].as_array().unwrap();
     assert_eq!(commits.len(), 2);
     assert_eq!(commits[0]["subject"], "c3");
     for key in [
@@ -210,11 +211,11 @@ fn log_defaults_to_25() {
     }
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert_eq!(v["commits"].as_array().unwrap().len(), 25);
+    assert_eq!(v["data"]["commits"].as_array().unwrap().len(), 25);
     let out = ff(&fx, &["log", "--json", "-n", "0"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(
-        v["commits"].as_array().unwrap().len(),
+        v["data"]["commits"].as_array().unwrap().len(),
         30,
         "-n 0 is unlimited"
     );
@@ -225,14 +226,16 @@ fn log_unborn_is_empty_success() {
     let fx = Fixture::new();
     let out = ff(&fx, &["log", "--commits", "--json"]);
     assert!(out.status.success(), "unborn log exits 0");
-    assert_eq!(stdout(&out), "{\"commits\":[]}\n");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert!(v["data"]["commits"].as_array().unwrap().is_empty());
     // The default view still carries the open change, with null fields.
     let out = ff(&fx, &["log", "--json"]);
-    assert_eq!(
-        stdout(&out),
-        "{\"commits\":[],\"open\":{\"branch\":\"main\",\"id\":null,\"id_letters\":null,\
-         \"base\":null,\"subject\":null,\"time\":null,\"clean\":true,\"pending\":null,\"pending_short\":null}}\n"
-    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let d = &v["data"];
+    assert!(d["commits"].as_array().unwrap().is_empty());
+    assert_eq!(d["open"]["branch"], "main");
+    assert!(d["open"]["id"].is_null());
+    assert!(d["open"]["clean"].is_boolean());
     let human = ff(&fx, &["log", "--commits"]);
     assert!(human.status.success());
     assert_eq!(stdout(&human), "", "unborn --commits human prints nothing");
@@ -346,19 +349,19 @@ fn bare_ff_json_shapes() {
 
     let out = ff(&fx, &["--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert_eq!(v["outcome"], "created");
-    assert_eq!(v["branch"], "main");
+    assert_eq!(v["data"]["outcome"], "created");
+    assert_eq!(v["data"]["branch"], "main");
     assert!(
-        v["id"]
+        v["data"]["id"]
             .as_str()
             .unwrap()
-            .starts_with(v["short_id"].as_str().unwrap())
+            .starts_with(v["data"]["short_id"].as_str().unwrap())
     );
 
     let again = ff(&fx, &["--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&again)).unwrap();
-    assert_eq!(v["outcome"], "noop");
-    assert_eq!(v["branch"], "main");
+    assert_eq!(v["data"]["outcome"], "noop");
+    assert_eq!(v["data"]["branch"], "main");
 }
 
 #[test]
@@ -421,28 +424,30 @@ fn log_default_is_change_centric() {
     // JSON: commits key preserved, open object present, timeline gone.
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert!(v["commits"].is_array());
-    assert!(v.get("timeline").is_none(), "timeline key retired");
-    assert_eq!(v["open"]["branch"], "main");
-    assert!(v["open"]["id"].is_string(), "chain tip present");
-    let letters = v["open"]["id_letters"].as_str().unwrap();
+    let d = &v["data"];
+    assert!(d["commits"].is_array());
+    assert!(d.get("timeline").is_none(), "timeline key retired");
+    assert_eq!(d["open"]["branch"], "main");
+    assert!(d["open"]["id"].is_string(), "chain tip present");
+    let letters = d["open"]["id_letters"].as_str().unwrap();
     assert!(
         letters.chars().all(|c| ('k'..='z').contains(&c)),
         "letters spelling at the JSON edge: {letters:?}"
     );
-    assert_eq!(v["open"]["clean"], false, "uncaptured-free but dirty tree");
+    assert_eq!(d["open"]["clean"], false, "uncaptured-free but dirty tree");
     assert!(
-        v["open"]["pending"].is_null(),
+        d["open"]["pending"].is_null(),
         "no identity configured in the fixture"
     );
 
     // --commits --json keeps the exact Phase 0 envelope.
     let out = ff(&fx, &["log", "--commits", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert!(v["commits"].is_array());
-    assert!(v.get("open").is_none(), "no open key in commits view");
+    let d = &v["data"];
+    assert!(d["commits"].is_array());
+    assert!(d.get("open").is_none(), "no open key in commits view");
     assert!(
-        v.get("timeline").is_none(),
+        d.get("timeline").is_none(),
         "no timeline key in commits view"
     );
 }
@@ -567,7 +572,7 @@ fn log_segment_tips_fill_and_blank() {
     // Verify against evolog: find the snapshot with base == bare.
     let evolog_out = ff(&fx, &["evolog", "--json"]);
     let evolog: serde_json::Value = serde_json::from_str(&stdout(&evolog_out)).unwrap();
-    let pre_snap = evolog["snapshots"]
+    let pre_snap = evolog["data"]["snapshots"]
         .as_array()
         .unwrap()
         .iter()
@@ -691,7 +696,7 @@ fn evolog_lists_snapshots_and_json() {
 
     let out = ff(&fx, &["evolog", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    let snaps = v["snapshots"].as_array().unwrap();
+    let snaps = v["data"]["snapshots"].as_array().unwrap();
     assert_eq!(snaps.len(), 2);
     assert!(
         snaps[0]["id"]
@@ -805,11 +810,12 @@ fn restore_json_shape() {
 
     let out = ff(&fx, &["restore", "--all", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert!(v["target"]["id"].is_string());
-    assert_eq!(v["restored"][0], "a.txt");
-    assert_eq!(v["undo"], "ff restore --all");
+    let d = &v["data"];
+    assert!(d["target"]["id"].is_string());
+    assert_eq!(d["restored"][0], "a.txt");
+    assert_eq!(d["undo"], "ff restore --all");
     assert!(
-        v["pre_snapshot"].is_string(),
+        d["pre_snapshot"].is_string(),
         "pre-restore snapshot recorded"
     );
 }
@@ -832,9 +838,10 @@ fn trim_reports_and_dry_runs() {
 
     let out = ff(&fx, &["trim", "--dry-run", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert_eq!(v["dry_run"], true);
-    assert_eq!(v["chains"][0]["branch"], "main");
-    assert_eq!(v["chains"][0]["dropped"], 0);
+    let d = &v["data"];
+    assert_eq!(d["dry_run"], true);
+    assert_eq!(d["chains"][0]["branch"], "main");
+    assert_eq!(d["chains"][0]["dropped"], 0);
 }
 
 #[test]
@@ -875,11 +882,11 @@ fn log_pending_hash_stability() {
     // Two runs on the same dirty tree → same pending hash.
     let out1 = ff(&fx, &["log", "--json"]);
     let v1: serde_json::Value = serde_json::from_str(&stdout(&out1)).unwrap();
-    let open1 = &v1["open"];
+    let open1 = &v1["data"]["open"];
 
     let out2 = ff(&fx, &["log", "--json"]);
     let v2: serde_json::Value = serde_json::from_str(&stdout(&out2)).unwrap();
-    let open2 = &v2["open"];
+    let open2 = &v2["data"]["open"];
 
     let pending1 = open1["pending"].as_str().expect("pending is a string");
     assert_eq!(pending1.len(), 40, "40-char hex");
@@ -901,7 +908,7 @@ fn log_pending_hash_stability() {
     let out3 = ff(&fx, &["log", "--json"]);
     let v3: serde_json::Value = serde_json::from_str(&stdout(&out3)).unwrap();
     assert_ne!(
-        v3["open"]["pending"].as_str().unwrap(),
+        v3["data"]["open"]["pending"].as_str().unwrap(),
         pending1,
         "pending hash differs after tree change"
     );
@@ -913,11 +920,11 @@ fn log_pending_hash_stability() {
     assert!(out4.status.success());
     let v4: serde_json::Value = serde_json::from_str(&stdout(&out4)).unwrap();
     assert!(
-        v4["open"]["pending"].is_null(),
+        v4["data"]["open"]["pending"].is_null(),
         "pending null without identity"
     );
     assert!(
-        v4["open"]["pending_short"].is_null(),
+        v4["data"]["open"]["pending_short"].is_null(),
         "pending_short null without identity"
     );
 }
@@ -967,7 +974,10 @@ fn commit_closes_described_empty_change() {
     // Description consumed.
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert!(v["open"]["subject"].is_null(), "subject null after consume");
+    assert!(
+        v["data"]["open"]["subject"].is_null(),
+        "subject null after consume"
+    );
 }
 
 /// `ff commit -m` on a clean tree with no pending description still lands an
@@ -1089,12 +1099,12 @@ fn start_always_mints() {
     let out1 = ff(&fx, &["start", "--json"]);
     assert!(out1.status.success());
     let v1: serde_json::Value = serde_json::from_str(&stdout(&out1)).unwrap();
-    let branch1 = v1["start"]["minted"].as_str().unwrap();
+    let branch1 = v1["data"]["start"]["minted"].as_str().unwrap();
 
     let out2 = ff(&fx, &["start", "--json"]);
     assert!(out2.status.success());
     let v2: serde_json::Value = serde_json::from_str(&stdout(&out2)).unwrap();
-    let branch2 = v2["start"]["minted"].as_str().unwrap();
+    let branch2 = v2["data"]["start"]["minted"].as_str().unwrap();
 
     assert_ne!(branch1, branch2, "two starts produce two distinct branches");
 }
@@ -1292,4 +1302,82 @@ fn config_theme_default_is_muted() {
         "muted",
         "unset theme reports muted default"
     );
+}
+
+/// Every ``--json`` output carries the versioned envelope.
+#[test]
+fn json_output_carries_the_envelope() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1, "contract version");
+    assert_eq!(v["cmd"], "status", "command name");
+    assert!(v["data"].is_object(), "data is an object");
+    assert!(
+        v["data"].get("changes").is_some(),
+        "data contains the changes key"
+    );
+}
+
+/// The ``cmd`` field matches the verb for every JSON-emitting command.
+#[test]
+fn json_envelope_names_each_command() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    for (args, expected_cmd) in [
+        (["status", "--json"], "status"),
+        (["log", "--json"], "log"),
+        (["evolog", "--json"], "evolog"),
+        (["doctor", "--json"], "doctor"),
+    ] {
+        let out = ff(&fx, &args);
+        let text = stdout(&out);
+        // doctor may exit 1 with findings; it still emits an envelope.
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|err| panic!("valid json from {args:?}: {err}: {text}"));
+        assert_eq!(v["cmd"], expected_cmd, "cmd mismatch for {:?}", args);
+    }
+}
+
+/// ``--json`` output is exactly one line terminated by a single newline.
+#[test]
+fn json_output_is_one_line() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.ends_with('\n') && !text[..text.len() - 1].contains('\n'),
+        "one line + one newline: {:?}",
+        text
+    );
+}
+
+/// ``ff log --ops --json`` and ``ff log --commits --json`` both report
+/// ``cmd == "log"`` (sub-modes share the parent verb name).
+#[test]
+fn log_ops_and_commits_share_the_log_name() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    for args in [["log", "--ops", "--json"], ["log", "--commits", "--json"]] {
+        let out = ff(&fx, &args);
+        assert!(
+            out.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+        assert_eq!(v["cmd"], "log", "cmd is log for {:?}", args);
+    }
 }

@@ -1,6 +1,6 @@
 //! Bare `ff` — the snapshot verb. `ff [-m <msg>]` takes a manual snapshot.
 
-use ff_core::{Error, EvologOptions, Provenance, Result, SnapOutcome};
+use ff_core::{EvologOptions, Provenance, Result, SnapOutcome};
 
 fn branch_of(r#ref: &str) -> &str {
     r#ref.strip_prefix("refs/fufu/snap/").unwrap_or(r#ref)
@@ -18,14 +18,13 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
         } => {
             let branch = branch_of(r#ref);
             if json {
-                let body = serde_json::to_string(&serde_json::json!({
+                let payload = serde_json::json!({
                     "outcome": "created",
                     "id": id,
                     "short_id": short_id,
                     "branch": branch,
-                }))
-                .map_err(Error::repo)?;
-                println!("{body}");
+                });
+                crate::machine::emit("snap", &payload)?;
             } else {
                 println!("snapshot {short_id} on {branch}");
                 println!();
@@ -55,19 +54,19 @@ pub fn run(message: Option<String>, json: bool) -> Result<()> {
         SnapOutcome::NoOp { r#ref, .. } => {
             let branch = branch_of(r#ref);
             if json {
-                let body = serde_json::to_string(&serde_json::json!({
+                let payload = serde_json::json!({
                     "outcome": "noop",
                     "branch": branch,
-                }))
-                .map_err(Error::repo)?;
-                println!("{body}");
+                });
+                crate::machine::emit("snap", &payload)?;
             } else {
                 println!("no changes since the last snapshot on {branch}");
             }
         }
         SnapOutcome::Contended { .. } => {
             if json {
-                println!(r#"{{"outcome":"contended"}}"#);
+                let payload = serde_json::json!({ "outcome": "contended" });
+                crate::machine::emit("snap", &payload)?;
             } else {
                 println!("snapshot skipped: a concurrent ff snapshot is in progress");
             }

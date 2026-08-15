@@ -473,10 +473,11 @@ fn json_shape_and_exit() {
 
     // Parse as JSON
     let body: serde_json::Value = serde_json::from_str(trimmed).expect("stdout is valid JSON");
+    let d = &body["data"];
 
-    let findings = body["findings"].as_u64().expect("findings is a number");
-    let fixable = body["fixable"].as_u64().expect("fixable is a number");
-    let checks = body["checks"].as_array().expect("checks is an array");
+    let findings = d["findings"].as_u64().expect("findings is a number");
+    let fixable = d["fixable"].as_u64().expect("fixable is a number");
+    let checks = d["checks"].as_array().expect("checks is an array");
 
     // findings >= 2 (chains + triggers at minimum)
     assert!(

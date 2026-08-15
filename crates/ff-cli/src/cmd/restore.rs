@@ -2,7 +2,7 @@
 //! pre-capture here: restore's own pre-snapshot is mandatory, and its
 //! failure aborts the restore.
 
-use ff_core::{Error, RestoreOptions, Result};
+use ff_core::{RestoreOptions, Result};
 
 pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -19,16 +19,15 @@ pub fn run(at: Option<String>, all: bool, paths: Vec<String>, json: bool) -> Res
     )?;
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "target": report.target,
             "restored": report.restored,
             "deleted": report.deleted,
             "skipped_gitlinks": report.skipped_gitlinks,
             "pre_snapshot": report.pre_snapshot,
             "undo": "ff restore --all",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("restore", &payload)?;
         return Ok(());
     }
 

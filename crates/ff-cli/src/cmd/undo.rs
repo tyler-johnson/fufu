@@ -2,7 +2,7 @@
 //! by decree: no confirmation prompt (undo is itself one undo away), op ids
 //! come from `ff log --ops`, redo = undo the undo.
 
-use ff_core::{Error, Result, UndoOptions};
+use ff_core::{Result, UndoOptions};
 
 pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -21,12 +21,11 @@ pub fn run(op: Option<String>, force: bool, json: bool) -> Result<()> {
     crate::render::reconcile_notice(&ctx.reconcile);
 
     if json {
-        let body = serde_json::to_string(&serde_json::json!({
+        let payload = serde_json::json!({
             "undo": report,
             "redo": "ff undo",
-        }))
-        .map_err(Error::repo)?;
-        println!("{body}");
+        });
+        crate::machine::emit("undo", &payload)?;
         return Ok(());
     }
 
