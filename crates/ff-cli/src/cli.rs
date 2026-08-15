@@ -24,6 +24,9 @@ pub struct Cli {
     /// Message for the manual snapshot
     #[arg(short = 'm', value_name = "msg")]
     pub message: Option<String>,
+    /// Session name for the manual snapshot
+    #[arg(long, value_name = "name")]
+    pub session: Option<String>,
     /// Emit machine-readable JSON
     #[arg(long)]
     pub json: bool,
@@ -256,7 +259,7 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
-    /// Open, close, and inspect capture sessions
+    /// Inspect capture sessions
     #[command(long_about = help::SESSION)]
     Session {
         #[command(subcommand)]
@@ -273,18 +276,11 @@ pub enum Command {
 
 #[derive(clap::Subcommand)]
 pub enum SessionAction {
-    /// Begin a named capture session
-    Start {
-        /// Session name (defaults to a generated name)
-        name: Option<String>,
-    },
-    /// Close the open capture session
-    End,
     /// List the session spans on the current chain
     List,
     /// Show what a session's span changed
     Diff {
-        /// Session name; defaults to the currently open session
+        /// Session name; defaults to the session from FF_SESSION
         name: Option<String>,
     },
 }

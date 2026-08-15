@@ -50,7 +50,18 @@ fn main() {
     };
 
     let result = match args.command {
-        None => cmd::snap::run(args.message, args.json),
+        None => {
+            // Validate --session early: an explicit flag is a hard error.
+            let session = args
+                .session
+                .as_ref()
+                .map(|s| crate::session::parse(s))
+                .transpose();
+            match session {
+                Ok(session) => cmd::snap::run(args.message, session, args.json),
+                Err(e) => Err(e),
+            }
+        }
         Some(cli::Command::Status { json }) => cmd::status::run(json),
         Some(cli::Command::Log {
             json,
@@ -109,8 +120,6 @@ fn main() {
         Some(cli::Command::Update { check }) => cmd::update::run(check),
         Some(cli::Command::Session { action, json }) => {
             let (action_str, name) = match action {
-                Some(cli::SessionAction::Start { name }) => (Some("start"), name),
-                Some(cli::SessionAction::End) => (Some("end"), None),
                 Some(cli::SessionAction::List) => (Some("list"), None),
                 Some(cli::SessionAction::Diff { name }) => (Some("diff"), name),
                 None => (None, None),

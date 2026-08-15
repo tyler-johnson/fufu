@@ -396,13 +396,12 @@ Examples:
 
 pub const SESSION: &str = "\
 A session is a named span of the capture chain: snapshots taken while one
-is open carry its name in the commit trailer, grouping them for later
-review. Anything that takes a snapshot can open one — a person before a
+is set carry its name in the commit trailer, grouping them for later
+review. Anything that takes a snapshot can set one — a person before a
 long afternoon, a script through the environment, an agent hook per run.
 
-Bare `ff session` shows what is open. `ff session start` writes the marker;
-give a name or get one. `ff session end` clears it. Starting while one is
-already open replaces the old name and reports the replacement.
+Sessions are set by `FF_SESSION` in the environment or `--session` on bare
+`ff`. Agent hooks set their own. There is nothing to open or close.
 
-The marker file lives under the repository's common dir and is not
-repository state: it is not journaled, not undoable, and not trimmed.";
+Bare `ff session` reports what is set. `ff session list` shows the spans
+on the current chain. `ff session diff` shows what a span changed.";

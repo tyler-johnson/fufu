@@ -14,7 +14,8 @@ pub fn pre_ff() -> Provenance {
         summary.push(' ');
         summary.push_str(arg);
     }
-    Provenance::new("pre", Some(summary))
+    let prov = Provenance::new("pre", Some(summary));
+    prov.with_session(crate::session::current())
 }
 
 /// `pre: git <args>` for the passthrough.
@@ -24,7 +25,8 @@ pub fn pre_git(args: &[OsString]) -> Provenance {
         summary.push(' ');
         summary.push_str(&arg.to_string_lossy());
     }
-    Provenance::new("pre", Some(summary))
+    let prov = Provenance::new("pre", Some(summary));
+    prov.with_session(crate::session::current())
 }
 
 /// Truncate to at most `max` characters, appending `…` when cut.
@@ -39,6 +41,10 @@ pub fn truncate(text: &str, max: usize) -> String {
 
 /// `claude[<sess8>]: <detail>` — the agent-hook provenance. Unknown tools and
 /// events are labeled honestly; the snapshot happens regardless.
+///
+/// The session id from the hook payload is used verbatim as the session
+/// trailer (it says *which run*). The subject prefix stays unchanged — it
+/// says *who*.
 pub fn claude(session_id: &str, detail: String) -> Provenance {
     let sess: String = session_id.chars().take(8).collect();
     let source = if sess.is_empty() {
@@ -46,7 +52,17 @@ pub fn claude(session_id: &str, detail: String) -> Provenance {
     } else {
         format!("claude[{sess}]")
     };
-    Provenance::new(source, Some(detail))
+    let prov = Provenance::new(source, Some(detail));
+
+    // Attach the agent's own session id as the session trailer.
+    let session = if !session_id.is_empty() {
+        crate::session::parse(session_id).ok()
+    } else {
+        None
+    };
+    // If the agent's id is unusable or empty, fall back to the environment.
+    let session = session.or_else(crate::session::current);
+    prov.with_session(session)
 }
 
 #[cfg(test)]

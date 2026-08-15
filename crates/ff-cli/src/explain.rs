@@ -151,6 +151,15 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff session list", "ff session diff <name>"],
     },
     Entry {
+        id: "usage/bad-session",
+        summary: "that is not a usable session name",
+        detail: "A session name can be any text — spaces, punctuation, and unicode are all fine. \
+                 The only limits are the ones storing it as a commit-message trailer imposes: no \
+                 control characters or line breaks, and 128 bytes at most. Names are compared \
+                 exactly as given, so nothing is silently rewritten to fit.",
+        exits: &[],
+    },
+    Entry {
         id: "usage/unknown-error-id",
         summary: "no error goes by that id",
         detail: "Error ids are stable and namespaced — usage/ for a command line that was wrong, \

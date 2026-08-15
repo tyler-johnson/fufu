@@ -1,5 +1,6 @@
-//! Session command integration tests: marker lifecycle, trailer attachment,
-//! and environment override. Runs the real `ff` binary against hermetic fixtures.
+//! Session integration tests: name validation, trailer attachment,
+//! environment override, and the read-only session command.
+//! Runs the real `ff` binary against hermetic fixtures.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -58,45 +59,17 @@ fn stderr(out: &Output) -> String {
     String::from_utf8(out.stderr.clone()).expect("utf-8 stderr")
 }
 
-// --- normalize rules (unit-style, via the binary) ---
+// --- names keep their shape ---
 
 #[test]
-fn normalize_rules() {
-    // The normalize function is tested via the session module's own unit
-    // tests; here we verify that a name flows through the full CLI path.
+fn names_keep_their_shape() {
     let fx = Fixture::new();
     fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    // Starting a session with a name that needs normalization.
-    let out = ff(&fx, &["session", "start", "Refactor Parser!"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let text = stdout(&out);
-    assert!(
-        text.contains("refactor-parser"),
-        "normalized name in output: {text}"
-    );
-
-    // A name of only invalid chars becomes a generated name (not an error).
-    let out = ff(&fx, &["session", "start", "--", "---"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-}
-
-// --- start then snapshot carries the name ---
-
-#[test]
-fn start_then_snapshot_carries_the_name() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "initial\n");
-    fx.commit("init");
-
-    // Open a session.
-    let out = ff(&fx, &["session", "start", "work"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-
-    // Make a change and take a snapshot.
+    // Snapshot with an uppercase name containing spaces and punctuation.
     fx.write("a.txt", "changed\n");
-    let out = ff(&fx, &[]);
+    let out = ff_with_session(&fx, "Refactor Parser!", &[]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
 
     // Read the snapshot commit message and check the trailer.
@@ -104,174 +77,313 @@ fn start_then_snapshot_carries_the_name() {
     let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
     let msg = git_cat_file_commit(&repo, &snap_ref);
     assert!(
-        msg.contains("fufu-session: work"),
-        "snapshot message carries session trailer: {msg}"
+        msg.contains("fufu-session: Refactor Parser!"),
+        "snapshot message carries exact session trailer: {msg}"
     );
 }
 
-// --- env overrides the marker ---
+// --- unicode and punctuation survive ---
 
 #[test]
-fn env_overrides_the_marker() {
+fn unicode_and_punctuation_survive() {
     let fx = Fixture::new();
     fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    // Open a session named "a" via the marker.
-    let out = ff(&fx, &["session", "start", "a"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-
-    // Make a change and snapshot with FF_SESSION=b.
     fx.write("a.txt", "changed\n");
-    let out = ff_with_session(&fx, "b", &[]);
+    let out = ff_with_session(&fx, "hello 🌍/world", &[]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
 
-    // The trailer should say "b", not "a".
     let repo = fx.path();
     let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
     let msg = git_cat_file_commit(&repo, &snap_ref);
     assert!(
-        msg.contains("fufu-session: b"),
-        "env overrides marker: {msg}"
-    );
-    assert!(
-        !msg.contains("fufu-session: a"),
-        "marker name should not appear: {msg}"
+        msg.contains("fufu-session: hello 🌍/world"),
+        "unicode and slashes survive: {msg}"
     );
 }
 
-// --- end clears the marker ---
+// --- control characters are refused ---
 
 #[test]
-fn end_clears_it() {
+fn control_characters_are_refused() {
     let fx = Fixture::new();
     fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    // Open a session.
-    let out = ff(&fx, &["session", "start", "work"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["-m", "x", "--session", "a\nb"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env_remove("FF_SESSION")
+        .output()
+        .expect("spawn ff");
 
-    // End it.
-    let out = ff(&fx, &["session", "end"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "exit code 2 for bad session: stderr={}",
+        stderr(&out)
+    );
+}
 
-    // Make a change and snapshot — no session trailer.
+// --- over length is refused ---
+
+#[test]
+fn over_length_is_refused() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // 129 bytes — too long.
+    let long = "a".repeat(129);
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["-m", "x", "--session", &long])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env_remove("FF_SESSION")
+        .output()
+        .expect("spawn ff");
+
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "exit code 2 for over-length: stderr={}",
+        stderr(&out)
+    );
+
+    // 128 bytes — just fine.
+    let ok = "a".repeat(128);
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["-m", "x", "--session", &ok])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env_remove("FF_SESSION")
+        .output()
+        .expect("spawn ff");
+
+    assert!(
+        out.status.success(),
+        "128 bytes should succeed: stderr={}",
+        stderr(&out)
+    );
+}
+
+// --- bad env is ignored, not fatal ---
+
+#[test]
+fn bad_env_is_ignored_not_fatal() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // FF_SESSION contains a control character — should be ignored, not fatal.
     fx.write("a.txt", "changed\n");
-    let out = ff(&fx, &[]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let out = ff_with_session(&fx, "a\nb", &[]);
+    assert!(
+        out.status.success(),
+        "command still exits 0: stderr={}",
+        stderr(&out)
+    );
 
+    // The snapshot should have no session trailer.
     let repo = fx.path();
     let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
     let msg = git_cat_file_commit(&repo, &snap_ref);
     assert!(
         !msg.contains("fufu-session:"),
-        "no session trailer after end: {msg}"
+        "no session trailer when env is bad: {msg}"
     );
 }
 
-// --- start replaces and reports ---
+// --- flag beats env ---
 
 #[test]
-fn start_replaces_and_reports() {
+fn flag_beats_env() {
     let fx = Fixture::new();
     fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    // Open first session.
-    let out = ff(&fx, &["session", "start", "first"]);
+    fx.write("a.txt", "changed\n");
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["-m", "x", "--session", "b"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_AUTHOR_DATE")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("GIT_COMMITTER_DATE")
+        .env_remove("EMAIL")
+        .env("FF_SESSION", "a")
+        .output()
+        .expect("spawn ff");
+
     assert!(out.status.success(), "stderr: {}", stderr(&out));
 
-    // Start a second — should replace and mention the old name.
-    let out = ff(&fx, &["session", "start", "second"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let text = stdout(&out);
-    assert!(text.contains("replaced"), "replacement reported: {text}");
-    assert!(text.contains("first"), "old name mentioned: {text}");
-}
-
-// --- session survives no repo gracefully ---
-
-#[test]
-fn session_survives_no_repo_gracefully() {
-    // Run outside any repository — should fail like other repo verbs,
-    // not panic.
-    let tmp = tempfile::TempDir::new().expect("tempdir");
-    let out = ff_at(tmp.path(), &["session"]);
-    assert!(!out.status.success(), "should fail outside a repo");
-    let err = stderr(&out);
-    assert!(!err.contains("panic"), "no panic in error: {err}");
-}
-
-// --- spans: contiguous by name, not merged across a gap ---
-
-#[test]
-fn spans_are_contiguous_by_name() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    // Oldest span of "work": two snapshots.
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "1\n");
-    ff(&fx, &[]);
-    fx.write("a.txt", "2\n");
-    ff(&fx, &[]);
-    ff(&fx, &["session", "end"]);
-
-    // A gap: a snapshot with no session.
-    fx.write("a.txt", "3\n");
-    ff(&fx, &[]);
-
-    // Newest span of "work": one snapshot. Same name, but not contiguous
-    // with the older span, so it must report separately.
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "4\n");
-    ff(&fx, &[]);
-
-    let out = ff(&fx, &["session", "list", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let spans = v["data"]["spans"].as_array().expect("spans array");
-    assert_eq!(spans.len(), 2, "two spans, not one merged: {spans:#?}");
-    assert_eq!(spans[0]["name"], "work");
-    assert_eq!(spans[0]["snapshots"], 1, "newest span: {spans:#?}");
-    assert_eq!(spans[1]["name"], "work");
-    assert_eq!(spans[1]["snapshots"], 2, "oldest span: {spans:#?}");
-    assert_ne!(
-        spans[0]["oldest"], spans[1]["newest"],
-        "the gap snapshot must not bridge the two spans"
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(msg.contains("fufu-session: b"), "flag value stamped: {msg}");
+    assert!(
+        !msg.contains("fufu-session: a"),
+        "env value should not appear: {msg}"
     );
 }
 
-// --- list: newest first, correct counts ---
+// --- commit carries the session ---
 
 #[test]
-fn list_reports_newest_first() {
+fn commit_carries_the_session() {
     let fx = Fixture::new();
-    fx.write("a.txt", "0\n");
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    ff(&fx, &["session", "start", "alpha"]);
-    fx.write("a.txt", "1\n");
-    ff(&fx, &[]);
-    ff(&fx, &["session", "end"]);
+    fx.write("a.txt", "changed\n");
+    let out = ff_with_session(&fx, "work", &["commit", "-m", "under session"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 
-    ff(&fx, &["session", "start", "beta"]);
-    fx.write("a.txt", "2\n");
-    ff(&fx, &[]);
-    fx.write("a.txt", "3\n");
-    ff(&fx, &[]);
+    // The pre-commit snapshot should carry the session trailer.
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(
+        msg.contains("fufu-session: work"),
+        "commit pre-snapshot carries session: {msg}"
+    );
+}
 
-    let out = ff(&fx, &["session", "list", "--json"]);
+// --- switch carries the session ---
+
+#[test]
+fn switch_carries_the_session() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Test User");
+    fx.set_config("user.email", "test@user.test");
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // Create another branch to switch to.
+    fx.git(&["branch", "other"]);
+
+    fx.write("a.txt", "changed\n");
+    let out = ff_with_session(&fx, "work", &["switch", "other"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    // The pre-switch snapshot should carry the session trailer.
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(
+        msg.contains("fufu-session: work"),
+        "switch pre-snapshot carries session: {msg}"
+    );
+}
+
+// --- bare session reports the env ---
+
+#[test]
+fn bare_session_reports_the_env() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    // With FF_SESSION set.
+    let out = ff_with_session(&fx, "my-session", &["session", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let spans = v["data"]["spans"].as_array().expect("spans array");
-    assert_eq!(spans.len(), 2);
-    assert_eq!(spans[0]["name"], "beta", "newest session first: {spans:#?}");
-    assert_eq!(spans[0]["snapshots"], 2);
-    assert_eq!(spans[1]["name"], "alpha");
-    assert_eq!(spans[1]["snapshots"], 1);
+    assert_eq!(v["data"]["name"], "my-session");
+
+    // Without FF_SESSION.
+    let out = ff(&fx, &["session", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["data"]["name"], serde_json::Value::Null);
+
+    // Human output.
+    let out = ff(&fx, &["session"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("no session set"),
+        "human message: {}",
+        stdout(&out)
+    );
+}
+
+// --- start and end are gone ---
+
+#[test]
+fn start_and_end_are_gone() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    let out = ff(&fx, &["session", "start", "x"]);
+    assert!(
+        !out.status.success(),
+        "start should be rejected: stderr={}",
+        stderr(&out)
+    );
+
+    let out = ff(&fx, &["session", "end"]);
+    assert!(
+        !out.status.success(),
+        "end should be rejected: stderr={}",
+        stderr(&out)
+    );
+}
+
+// --- env overrides no session ---
+
+#[test]
+fn env_provides_session_for_snapshot() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    fx.write("a.txt", "changed\n");
+    let out = ff_with_session(&fx, "env-session", &[]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(
+        msg.contains("fufu-session: env-session"),
+        "env session stamped on snapshot: {msg}"
+    );
 }
 
 // --- list: empty is a yes, not a no ---
@@ -296,138 +408,6 @@ fn list_is_empty_without_sessions() {
     );
 }
 
-// --- log --session: named form narrows ---
-
-#[test]
-fn log_session_filter_narrows() {
-    let fx = Fixture::new();
-    fx.set_config("user.name", "Test User");
-    fx.set_config("user.email", "test@user.test");
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "1\n");
-    let out = ff(&fx, &["commit", "-m", "commit under work"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    ff(&fx, &["session", "end"]);
-
-    fx.write("a.txt", "2\n");
-    let out = ff(&fx, &["commit", "-m", "commit without session"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-
-    let out = ff(&fx, &["log", "--session", "work", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let commits = v["data"]["commits"].as_array().expect("commits array");
-    assert_eq!(commits.len(), 1, "only the row from work: {commits:#?}");
-    assert_eq!(commits[0]["session"], "work");
-    assert_eq!(commits[0]["subject"], "commit under work");
-}
-
-// --- log --json: session field always present, null where absent ---
-
-#[test]
-fn log_rows_carry_the_session_field() {
-    let fx = Fixture::new();
-    fx.set_config("user.name", "Test User");
-    fx.set_config("user.email", "test@user.test");
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "1\n");
-    let out = ff(&fx, &["commit", "-m", "commit under work"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    ff(&fx, &["session", "end"]);
-
-    // No --session flag at all — the field must still be there.
-    let out = ff(&fx, &["log", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let commits = v["data"]["commits"].as_array().expect("commits array");
-    assert_eq!(commits.len(), 2);
-    for c in commits {
-        assert!(
-            c.as_object()
-                .expect("row is an object")
-                .contains_key("session"),
-            "row missing session key: {c}"
-        );
-    }
-    let under_work = commits
-        .iter()
-        .find(|c| c["subject"] == "commit under work")
-        .expect("work commit present");
-    assert_eq!(under_work["session"], "work");
-    let init = commits
-        .iter()
-        .find(|c| c["subject"] == "init")
-        .expect("init commit present");
-    assert_eq!(init["session"], serde_json::Value::Null);
-}
-
-// --- log --session rejects --ops and --commits ---
-
-#[test]
-fn log_session_rejects_ops_and_commits() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    let out = ff(&fx, &["log", "--ops", "--session", "--json"]);
-    assert!(!out.status.success(), "--ops --session must fail");
-    assert_eq!(out.status.code(), Some(2));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["error"]["id"], "usage/bad-flags");
-
-    let out = ff(&fx, &["log", "--commits", "--session", "--json"]);
-    assert!(!out.status.success(), "--commits --session must fail");
-    assert_eq!(out.status.code(), Some(2));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["error"]["id"], "usage/bad-flags");
-}
-
-// --- session diff: reports exactly the span's change ---
-
-#[test]
-fn session_diff_reports_the_span_change() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "line1\n");
-    fx.write("b.txt", "before\n");
-    fx.commit("init");
-
-    // A change before the session opens — must not appear in the diff.
-    fx.write("b.txt", "before-changed\n");
-    ff(&fx, &[]);
-
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "line1\nline2\n");
-    ff(&fx, &[]);
-    fx.write("a.txt", "line1\nline2\nline3\n");
-    ff(&fx, &[]);
-    ff(&fx, &["session", "end"]);
-
-    let out = ff(&fx, &["session", "diff", "work", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let changes = v["data"]["changes"].as_array().expect("changes array");
-    assert_eq!(
-        changes.len(),
-        1,
-        "only a.txt changed in the span: {changes:#?}"
-    );
-    assert_eq!(changes[0]["path"], "a.txt");
-    assert_eq!(
-        changes[0]["insertions"], 2,
-        "two lines added across the span"
-    );
-    assert!(
-        !changes.iter().any(|c| c["path"] == "b.txt"),
-        "pre-session edit must not appear: {changes:#?}"
-    );
-}
-
 // --- session diff: no session open, none named ---
 
 #[test]
@@ -444,53 +424,6 @@ fn session_diff_without_a_session_errors() {
     assert_eq!(out.status.code(), Some(2));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
     assert_eq!(v["error"]["id"], "usage/needs-session");
-}
-
-// --- session diff: several spans, picks and names the newest ---
-
-#[test]
-fn session_diff_picks_the_newest_span() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    // Older span of "work".
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("a.txt", "1\n");
-    ff(&fx, &[]);
-    ff(&fx, &["session", "end"]);
-
-    // A gap.
-    fx.write("b.txt", "gap\n");
-    ff(&fx, &[]);
-
-    // Newer span of "work" — a different file changes.
-    ff(&fx, &["session", "start", "work"]);
-    fx.write("c.txt", "new\n");
-    ff(&fx, &[]);
-    ff(&fx, &["session", "end"]);
-
-    let out = ff(&fx, &["session", "diff", "work", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    let changes = v["data"]["changes"].as_array().expect("changes array");
-    let paths: Vec<&str> = changes
-        .iter()
-        .map(|c| c["path"].as_str().expect("path is a string"))
-        .collect();
-    assert!(paths.contains(&"c.txt"), "newest span's change: {paths:?}");
-    assert!(
-        !paths.contains(&"a.txt"),
-        "older span's change must not appear: {paths:?}"
-    );
-
-    let out = ff(&fx, &["session", "diff", "work"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    assert!(
-        stdout(&out).contains("newest span"),
-        "output names which span it used: {}",
-        stdout(&out)
-    );
 }
 
 // --- helpers ---
