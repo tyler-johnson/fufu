@@ -9,6 +9,7 @@ mod machine;
 mod pager;
 mod provenance;
 mod render;
+mod session;
 
 mod selfupdate;
 
@@ -45,6 +46,7 @@ fn main() {
         Some(cli::Command::Doctor { json, .. }) => (*json, "doctor"),
         Some(cli::Command::Explain { json, .. }) => (*json, "explain"),
         Some(cli::Command::Update { .. }) => (false, "update"),
+        Some(cli::Command::Session { json, .. }) => (*json, "session"),
     };
 
     let result = match args.command {
@@ -100,6 +102,14 @@ fn main() {
         Some(cli::Command::Doctor { fix, json }) => cmd::doctor::run(fix, json),
         Some(cli::Command::Explain { id, list, json }) => cmd::explain::run(id, list, json),
         Some(cli::Command::Update { check }) => cmd::update::run(check),
+        Some(cli::Command::Session { action, json }) => {
+            let (action_str, name) = match action {
+                Some(cli::SessionAction::Start { name }) => (Some("start"), name),
+                Some(cli::SessionAction::End) => (Some("end"), None),
+                None => (None, None),
+            };
+            cmd::session::run(action_str, name, json)
+        }
     };
 
     if let Err(err) = result {

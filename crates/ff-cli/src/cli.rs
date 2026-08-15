@@ -250,6 +250,26 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Open, close, and inspect capture sessions
+    #[command(long_about = help::SESSION)]
+    Session {
+        #[command(subcommand)]
+        action: Option<SessionAction>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum SessionAction {
+    /// Begin a named capture session
+    Start {
+        /// Session name (defaults to a generated name)
+        name: Option<String>,
+    },
+    /// Close the open capture session
+    End,
 }
 
 /// Everything that feeds the capture floor is a hook. One grammar:

@@ -12,6 +12,11 @@
 /// Subjects are capped so `log --oneline`-style rendering stays sane.
 pub const MAX_SUBJECT: usize = 120;
 
+/// The message-body trailer key for the session name: a named span of the
+/// capture chain. Snapshot commits taken while a session is open carry this
+/// trailer so the reading half can group them.
+const SESSION_KEY: &str = "fufu-session";
+
 /// The message-body trailer key for the segment skip-link: the newest
 /// snapshot of the previous segment (see `evolog::segment_anchors`). A
 /// trailer rather than a third parent — parent order is already load-bearing
@@ -58,10 +63,16 @@ pub fn clean_subject(raw: &str, max: usize) -> String {
 }
 
 /// Build the full commit message: subject, plus a body listing skipped files
-/// and/or the segment skip-link trailer. Either section, both, or neither may
-/// be present; the trailer is always last, so `rewrite_segment_prev` can find
-/// and replace it without knowing whether a skip block precedes it.
-pub fn build(subject: &str, skipped: &[String], segment_prev: Option<SegmentPrev>) -> String {
+/// and/or trailers. Either section, both, or neither may be present. The
+/// `fufu-segment-prev` trailer is always last, so `rewrite_segment_prev` can
+/// find and replace it without knowing whether a skip block or a
+/// `fufu-session` trailer precedes it.
+pub fn build(
+    subject: &str,
+    skipped: &[String],
+    session: Option<&str>,
+    segment_prev: Option<SegmentPrev>,
+) -> String {
     let subject = clean_subject(subject, MAX_SUBJECT);
     let mut msg = subject;
     if !skipped.is_empty() {
@@ -71,10 +82,40 @@ pub fn build(subject: &str, skipped: &[String], segment_prev: Option<SegmentPrev
             msg.push('\n');
         }
     }
-    match segment_prev {
-        Some(prev) => append_segment_prev(msg, prev),
-        None => msg,
+    // Session trailer comes before segment-prev. When both are present,
+    // session gets its own paragraph so that rewrite_segment_prev (which
+    // strips from "\n\nfufu-segment-prev: ") keeps working untouched.
+    if let Some(sess) = session {
+        msg.push_str("\n\n");
+        msg.push_str(SESSION_KEY);
+        msg.push_str(": ");
+        msg.push_str(sess);
+        msg.push('\n');
     }
+    if let Some(prev) = segment_prev {
+        // append_segment_prev always adds "\n\n" before the key. If the
+        // message already ends with "\n" (skip block or session trailer),
+        // drop one to avoid a triple-newline while keeping the exact "\n\n"
+        // separator that rewrite_segment_prev relies on.
+        if msg.ends_with('\n') {
+            msg.pop();
+        }
+        append_segment_prev(msg, prev)
+    } else {
+        msg
+    }
+}
+
+/// Append just the segment-prev trailer line (no blank-line separator).
+/// Used internally by `append_segment_prev`.
+fn append_segment_prev_line(msg: &mut String, prev: SegmentPrev) {
+    msg.push_str(SEGMENT_PREV_KEY);
+    msg.push_str(": ");
+    match prev {
+        SegmentPrev::ChainStart => msg.push_str("none"),
+        SegmentPrev::At(oid) => msg.push_str(&oid.to_string()),
+    }
+    msg.push('\n');
 }
 
 /// Append the trailer paragraph, always separated by a literal `"\n\n"` —
@@ -83,15 +124,13 @@ pub fn build(subject: &str, skipped: &[String], segment_prev: Option<SegmentPrev
 /// later in `rewrite_segment_prev`: the two newlines immediately before the
 /// key are always exactly the ones this function added, so finding them
 /// finds exactly the boundary this function drew.
+///
+/// Called only by `rewrite_segment_prev` — `build` uses
+/// `append_segment_prev_line` instead so the session trailer can share
+/// the same paragraph.
 fn append_segment_prev(mut msg: String, prev: SegmentPrev) -> String {
     msg.push_str("\n\n");
-    msg.push_str(SEGMENT_PREV_KEY);
-    msg.push_str(": ");
-    match prev {
-        SegmentPrev::ChainStart => msg.push_str("none"),
-        SegmentPrev::At(oid) => msg.push_str(&oid.to_string()),
-    }
-    msg.push('\n');
+    append_segment_prev_line(&mut msg, prev);
     msg
 }
 
@@ -130,8 +169,27 @@ pub fn rewrite_segment_prev(message: &str, new: Option<SegmentPrev>) -> String {
     };
     match new {
         Some(prev) => append_segment_prev(stripped, prev),
-        None => stripped,
+        None => {
+            // The "\n\n" separator consumed the trailing newline from any body
+            // content (skip block or session trailer). Restore it so the
+            // result matches what build() would produce without a trailer.
+            if !stripped.ends_with('\n') {
+                let mut s = stripped;
+                s.push('\n');
+                s
+            } else {
+                stripped
+            }
+        }
     }
+}
+
+/// The session name a snapshot commit message carries, if any.
+pub fn session_of(message: &str) -> Option<&str> {
+    message.lines().find_map(|line| {
+        let rest = line.strip_prefix(SESSION_KEY)?;
+        rest.strip_prefix(": ")
+    })
 }
 
 #[cfg(test)]
@@ -149,7 +207,7 @@ mod tests {
 
     #[test]
     fn body_lists_skips() {
-        let msg = build("manual", &["big.bin".into()], None);
+        let msg = build("manual", &["big.bin".into()], None, None);
         assert_eq!(msg, "manual\n\nSkipped (fufu.maxFileSize):\nbig.bin\n");
     }
 
@@ -159,7 +217,7 @@ mod tests {
 
     #[test]
     fn trailer_alone_round_trips() {
-        let msg = build("manual", &[], Some(SegmentPrev::At(oid(0xab))));
+        let msg = build("manual", &[], None, Some(SegmentPrev::At(oid(0xab))));
         assert_eq!(
             msg,
             format!("manual\n\nfufu-segment-prev: {}\n", "ab".repeat(20))
@@ -172,12 +230,13 @@ mod tests {
         let msg = build(
             "manual",
             &["big.bin".into()],
+            None,
             Some(SegmentPrev::At(oid(0xcd))),
         );
         assert_eq!(
             msg,
             format!(
-                "manual\n\nSkipped (fufu.maxFileSize):\nbig.bin\n\n\nfufu-segment-prev: {}\n",
+                "manual\n\nSkipped (fufu.maxFileSize):\nbig.bin\n\nfufu-segment-prev: {}\n",
                 "cd".repeat(20)
             )
         );
@@ -186,17 +245,22 @@ mod tests {
 
     #[test]
     fn chain_start_round_trips() {
-        let msg = build("manual", &[], Some(SegmentPrev::ChainStart));
+        let msg = build("manual", &[], None, Some(SegmentPrev::ChainStart));
         assert_eq!(msg, "manual\n\nfufu-segment-prev: none\n");
         assert_eq!(parse_segment_prev(&msg), Some(SegmentPrev::ChainStart));
     }
 
     #[test]
     fn chain_start_with_skip_block() {
-        let msg = build("manual", &["big.bin".into()], Some(SegmentPrev::ChainStart));
+        let msg = build(
+            "manual",
+            &["big.bin".into()],
+            None,
+            Some(SegmentPrev::ChainStart),
+        );
         assert_eq!(
             msg,
-            "manual\n\nSkipped (fufu.maxFileSize):\nbig.bin\n\n\nfufu-segment-prev: none\n"
+            "manual\n\nSkipped (fufu.maxFileSize):\nbig.bin\n\nfufu-segment-prev: none\n"
         );
         assert_eq!(parse_segment_prev(&msg), Some(SegmentPrev::ChainStart));
     }
@@ -223,6 +287,7 @@ mod tests {
         let with_trailer = build(
             "manual",
             &["big.bin".into()],
+            None,
             Some(SegmentPrev::At(oid(0x11))),
         );
 
@@ -233,17 +298,87 @@ mod tests {
             build(
                 "manual",
                 &["big.bin".into()],
+                None,
                 Some(SegmentPrev::At(oid(0x22)))
             )
         );
 
         // Drop entirely.
         let dropped = rewrite_segment_prev(&with_trailer, None);
-        assert_eq!(dropped, build("manual", &["big.bin".into()], None));
+        assert_eq!(dropped, build("manual", &["big.bin".into()], None, None));
 
         // A message with no trailer at all round-trips byte for byte —
         // trim's byte-preservation promise for ordinary survivors.
-        let plain = build("manual", &["big.bin".into()], None);
+        let plain = build("manual", &["big.bin".into()], None, None);
         assert_eq!(rewrite_segment_prev(&plain, None), plain);
+    }
+
+    // --- session trailer tests ---
+
+    #[test]
+    fn session_trailer_precedes_segment_prev() {
+        let msg = build(
+            "manual",
+            &[],
+            Some("refactor-parser"),
+            Some(SegmentPrev::ChainStart),
+        );
+        // fufu-session appears before fufu-segment-prev in the message.
+        let session_pos = msg.find("fufu-session:").expect("session trailer present");
+        let segment_pos = msg
+            .find("fufu-segment-prev:")
+            .expect("segment-prev trailer present");
+        assert!(
+            session_pos < segment_pos,
+            "session trailer must precede segment-prev"
+        );
+        // segment-prev is still the last trailer line.
+        assert!(msg.ends_with("fufu-segment-prev: none\n"));
+    }
+
+    #[test]
+    fn segment_prev_rewrite_survives_a_session_trailer() {
+        let msg = build(
+            "manual",
+            &[],
+            Some("refactor-parser"),
+            Some(SegmentPrev::At(oid(0x11))),
+        );
+        // Rewrite the segment-prev to a new sha.
+        let rewritten = rewrite_segment_prev(&msg, Some(SegmentPrev::At(oid(0x22))));
+        // The session trailer is still present.
+        assert_eq!(session_of(&rewritten), Some("refactor-parser"));
+        // The new sha landed.
+        assert_eq!(
+            parse_segment_prev(&rewritten),
+            Some(SegmentPrev::At(oid(0x22)))
+        );
+    }
+
+    #[test]
+    fn session_of_reads_the_trailer() {
+        // Round-trip: build then read.
+        let msg = build(
+            "manual",
+            &[],
+            Some("refactor-parser"),
+            Some(SegmentPrev::ChainStart),
+        );
+        assert_eq!(session_of(&msg), Some("refactor-parser"));
+
+        // No session trailer returns None.
+        let no_session = build("manual", &[], None, Some(SegmentPrev::ChainStart));
+        assert_eq!(session_of(&no_session), None);
+
+        // Message with no trailer at all returns None.
+        assert_eq!(session_of("manual"), None);
+    }
+
+    #[test]
+    fn session_only_no_segment_prev() {
+        // Session trailer alone (no segment-prev) works.
+        let msg = build("manual", &[], Some("refactor-parser"), None);
+        assert_eq!(session_of(&msg), Some("refactor-parser"));
+        assert_eq!(parse_segment_prev(&msg), None);
     }
 }

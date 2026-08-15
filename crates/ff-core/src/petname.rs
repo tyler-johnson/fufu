@@ -98,6 +98,16 @@ pub fn mint(repo: &gix::Repository) -> Result<String> {
     ))
 }
 
+/// Generate a plain petname (adjective-noun) without the `ff/` prefix.
+/// Used by session name generation; collisions are not retried because
+/// session names are not refs and need no uniqueness guarantee.
+pub fn generate_name() -> String {
+    let bits = entropy(0);
+    let adjective = ADJECTIVES[(bits % ADJECTIVES.len() as u64) as usize];
+    let noun = NOUNS[((bits >> 16) % NOUNS.len() as u64) as usize];
+    format!("{adjective}-{noun}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

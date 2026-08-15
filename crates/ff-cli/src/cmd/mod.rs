@@ -10,6 +10,7 @@ pub mod git_exec;
 pub mod hook;
 pub mod log;
 pub mod restore;
+pub mod session;
 pub mod shell;
 pub mod snap;
 pub mod start;

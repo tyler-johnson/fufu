@@ -8,7 +8,10 @@ fn branch_of(r#ref: &str) -> &str {
 
 pub fn run(message: Option<String>, json: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
-    let outcome = ff_core::take(&repo, &Provenance::new("manual", message))?;
+    // Resolve the current session and attach it to the provenance.
+    let session = crate::session::current(&repo).map(|m| m.name);
+    let prov = Provenance::new("manual", message).with_session(session);
+    let outcome = ff_core::take(&repo, &prov)?;
     match &outcome {
         SnapOutcome::Created {
             id,

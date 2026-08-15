@@ -3,6 +3,7 @@
 //! must behave byte-identically to one without a capture layer at all.
 
 use ff_core::Provenance;
+use ff_core::gix;
 
 /// Take the pre-command snapshot, swallowing every failure (diagnostics only
 /// under `FF_DEBUG=1`). Outside a repository or in a bare one this is a
@@ -37,7 +38,16 @@ fn pre(prov: &Provenance) -> ff_core::Result<()> {
     if repo.workdir().is_none() {
         return Ok(());
     }
+    // Resolve the current session and attach it to the provenance.
+    let prov = attach_session(&repo, prov);
     // Contended is a fact, not a failure: someone else is capturing right now.
-    ff_core::take(&repo, prov)?;
+    ff_core::take(&repo, &prov)?;
     Ok(())
+}
+
+/// Resolve the current session and attach it to the provenance. Core must
+/// not read `FF_SESSION` itself — resolution is the CLI's job.
+fn attach_session(repo: &gix::Repository, prov: &Provenance) -> Provenance {
+    let session = crate::session::current(repo).map(|m| m.name);
+    prov.clone().with_session(session)
 }

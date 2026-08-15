@@ -21,6 +21,8 @@ pub struct Provenance {
     pub source: String,
     /// The command, message, or tool detail, if any.
     pub detail: Option<String>,
+    /// The session this snapshot belongs to, if any.
+    pub session: Option<String>,
 }
 
 impl Provenance {
@@ -28,7 +30,13 @@ impl Provenance {
         Provenance {
             source: source.into(),
             detail,
+            session: None,
         }
+    }
+
+    /// Attach a session name; the session lives in the trailer, never the subject.
+    pub fn with_session(self, session: Option<String>) -> Self {
+        Provenance { session, ..self }
     }
 
     /// The raw subject line (before whitespace collapsing / capping).
@@ -161,7 +169,12 @@ pub fn take_with(
             }
         }
     };
-    let msg = message::build(&prov.subject(), &skipped, segment_prev);
+    let msg = message::build(
+        &prov.subject(),
+        &skipped,
+        prov.session.as_deref(),
+        segment_prev,
+    );
     let changed_files = count_file_changes(repo, prev_tree.unwrap_or(head_tree), tree_id)?;
 
     // Parent order is load-bearing: parent 1 = previous snapshot (first-parent

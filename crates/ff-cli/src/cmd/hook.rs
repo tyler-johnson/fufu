@@ -135,6 +135,9 @@ fn runtime_claude() -> Result<()> {
     }
 
     let prov = provenance_for(&payload, &repo);
+    // Resolve the current session and attach it to the provenance.
+    let session = crate::session::current(&repo).map(|m| m.name);
+    let prov = prov.with_session(session);
     // Contended and NoOp are fine; only real errors matter (and only under
     // FF_DEBUG at that).
     ff_core::take(&repo, &prov)?;

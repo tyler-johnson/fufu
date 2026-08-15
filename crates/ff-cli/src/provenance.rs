@@ -67,4 +67,14 @@ mod tests {
         let p = claude("", "prompt \"hi\"".into());
         assert_eq!(p.subject(), "claude: prompt \"hi\"");
     }
+
+    #[test]
+    fn provenance_subject_ignores_the_session() {
+        let p = Provenance::new("manual", Some("hello".into()))
+            .with_session(Some("refactor-parser".into()));
+        assert_eq!(p.subject(), "manual: hello");
+        // Session-only provenance also unaffected.
+        let p2 = Provenance::new("pre", None).with_session(Some("x".into()));
+        assert_eq!(p2.subject(), "pre");
+    }
 }

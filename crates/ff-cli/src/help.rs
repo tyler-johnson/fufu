@@ -393,3 +393,16 @@ Examples:
   ff update                      update now
   ff config autoUpdate false     keep checking, but only notice
   ff config updateCheck false    turn the whole lane off";
+
+pub const SESSION: &str = "\
+A session is a named span of the capture chain: snapshots taken while one
+is open carry its name in the commit trailer, grouping them for later
+review. Anything that takes a snapshot can open one — a person before a
+long afternoon, a script through the environment, an agent hook per run.
+
+Bare `ff session` shows what is open. `ff session start` writes the marker;
+give a name or get one. `ff session end` clears it. Starting while one is
+already open replaces the old name and reports the replacement.
+
+The marker file lives under the repository's common dir and is not
+repository state: it is not journaled, not undoable, and not trimmed.";
