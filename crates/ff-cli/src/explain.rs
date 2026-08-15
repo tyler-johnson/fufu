@@ -76,6 +76,50 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff log --ops"],
     },
     Entry {
+        id: "op/not-found",
+        summary: "no operation goes by that id",
+        detail: "Operation ids are spelled in letters (k through z) and never in hex, which is what \
+                 keeps hex meaning \"commit\" everywhere in fufu. A hex-shaped id in an \
+                 operation-typed position is refused for that reason rather than resolved. \
+                 ff op log prints ids in exactly the form these verbs accept.",
+        exits: &["ff op log"],
+    },
+    Entry {
+        id: "op/ambiguous",
+        summary: "that id prefix matches more than one operation",
+        detail: "A prefix has to name one operation, and this one names several. Every candidate is \
+                 listed so you can pick; typing one more letter is usually enough. ff op log bolds \
+                 the shortest prefix that is unique, so an id copied from there never lands here.",
+        exits: &["ff op log"],
+    },
+    Entry {
+        id: "op/trimmed",
+        summary: "that operation is no longer on the log",
+        detail: "Trim drops operations past the keep window (fufu.keep, 90 days by default), so an \
+                 id from an old transcript can name something real that is simply gone. The \
+                 operation may still be readable as an object even when moving to it is not — \
+                 restoring to something trim dropped is a different answer from restoring to \
+                 something merely old. A longer keep window prevents the next one.",
+        exits: &["ff op log", "ff config keep <duration>"],
+    },
+    Entry {
+        id: "op/floor",
+        summary: "there is nothing recorded before that operation",
+        detail: "Undo rolls back to the state an operation's predecessor recorded, and the oldest \
+                 operation on the log has none — it is the floor. That happens at a fresh \
+                 repository, or after trim removed everything earlier. Nothing was changed.",
+        exits: &["ff op log"],
+    },
+    Entry {
+        id: "op/unreadable",
+        summary: "an operation on the log could not be decoded",
+        detail: "Operations are ordinary git commits carrying a small record, and this one does not \
+                 parse — a truncated write, a partial transfer, or a hand-edited ref. fufu refuses \
+                 to guess at damaged state rather than acting on half of it. ff doctor checks the \
+                 log's structure; the objects themselves are readable with plain git.",
+        exits: &["ff doctor", "ff op log"],
+    },
+    Entry {
         id: "ref/contended",
         summary: "another process is holding that ref",
         detail: "Two things tried to move the same ref at once — often a second fufu command, an \
