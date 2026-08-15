@@ -1,4 +1,4 @@
-use ff_core::{Error, LogOptions, Result};
+use ff_core::{Error, LogOptions, Result, revset::Revset};
 
 use crate::ctx::Ctx;
 
@@ -7,9 +7,14 @@ use crate::ctx::Ctx;
 /// spans. Meaningless for `--ops` and `--commits`, which walk operations and
 /// commits rather than the snapshot chain a session lives on — reject
 /// rather than silently ignore.
+///
+/// `revisions` is `-r`: the set the rows come from. It replaces the source of
+/// the rows and nothing else, so it composes with `--commits` and refuses the
+/// two flags that answer a different question entirely.
 pub fn run(
     ctx: &Ctx,
     count: usize,
+    revisions: Option<String>,
     commits: bool,
     ops: bool,
     session: Option<String>,
@@ -19,12 +24,18 @@ pub fn run(
         if session.is_some() {
             return Err(session_bad_flags("--ops"));
         }
+        if revisions.is_some() {
+            return Err(revisions_with_ops());
+        }
         return ops_view(ctx.json, count);
     }
     if commits && session.is_some() {
         return Err(session_bad_flags("--commits"));
     }
-    run_inner(ctx, count, commits, session)
+    if revisions.is_some() && session.is_some() {
+        return Err(revisions_with_session());
+    }
+    run_inner(ctx, count, revisions, commits, session)
 }
 
 fn session_bad_flags(flag: &str) -> Error {
@@ -35,6 +46,28 @@ fn session_bad_flags(flag: &str) -> Error {
              snapshot chain a session lives on"
         ),
         vec!["ff log --session".into()],
+    )
+}
+
+/// Two address spaces, one letter. `-r` here takes revisions, `--ops` walks
+/// operations, and quietly picking one would have shipped an `-r` whose
+/// meaning depended on a flag somewhere else on the line. The op-space `-r`
+/// arrives on `ff op log`, where it is the only `-r` there is.
+fn revisions_with_ops() -> Error {
+    Error::coded(
+        "usage/bad-flags",
+        "-r does not work with --ops: -r takes revisions and --ops walks operations, \
+         which are separate address spaces",
+        vec!["ff log --ops".into(), "ff log -r <revset>".into()],
+    )
+}
+
+fn revisions_with_session() -> Error {
+    Error::coded(
+        "usage/bad-flags",
+        "--session does not work with -r: a revset names a set of revisions, not the \
+         snapshot chain a session lives on",
+        vec!["ff log --session".into(), "ff log -r <revset>".into()],
     )
 }
 
@@ -81,19 +114,31 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
 pub fn run_inner(
     ctx: &Ctx,
     count: usize,
+    revisions: Option<String>,
     commits_only: bool,
     session: Option<String>,
 ) -> Result<()> {
+    // Parsed before the repository is even opened: the grammar is pure, so a
+    // misspelled revset fails the same way in a repo and out of one.
+    let revs = match &revisions {
+        Some(src) => Some(Revset::parse(src)?),
+        None => None,
+    };
     let mut repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
 
     if commits_only {
-        return commits_view(&mut repo, ctx.json, limit);
+        return commits_view(&mut repo, ctx.json, limit, revs);
     }
 
     let open = ff_core::open_change(&repo)?;
-    let commits: Vec<ff_core::LogEntry> =
-        ff_core::log(&mut repo, &LogOptions { limit })?.collect::<Result<_>>()?;
+    // Destructured rather than held: the `Log` borrows the repository, and
+    // `segment_anchors` below needs it back.
+    let ff_core::Log {
+        open: open_in_set,
+        entries,
+    } = ff_core::log(&mut repo, &LogOptions { limit, revs })?;
+    let commits: Vec<ff_core::LogEntry> = entries.collect::<Result<_>>()?;
     let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
     let segments = ff_core::segment_anchors(&repo, &ids)?;
 
@@ -138,9 +183,12 @@ pub fn run_inner(
             }
             commit_values.push(value);
         }
-        let payload = serde_json::json!({
-            "commits": commit_values,
-            "open": {
+        // The `open` key is always present; under `-r` it is null when the
+        // set does not contain the open change. Dropping the key instead
+        // would make a consumer's `data.open` mean "old fufu" one moment and
+        // "@ is not in this set" the next.
+        let open_value = if open_in_set {
+            serde_json::json!({
                 "branch": open.branch,
                 "id": open.id,
                 "id_letters": open.id.as_deref().map(ff_core::snapid::encode),
@@ -150,7 +198,13 @@ pub fn run_inner(
                 "clean": open.clean,
                 "pending": open.pending,
                 "pending_short": open.pending.as_deref().map(|p| &p[..7]),
-            },
+            })
+        } else {
+            serde_json::Value::Null
+        };
+        let payload = serde_json::json!({
+            "commits": commit_values,
+            "open": open_value,
         });
         crate::machine::emit("log", &payload)?;
         return Ok(());
@@ -165,19 +219,25 @@ pub fn run_inner(
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
-        let change_display = crate::render::ChangeRowDisplay {
-            subject: open.subject.as_deref(),
-            born: open.base.is_some(),
-            clean: open.clean,
-            id: open.id.as_deref(),
-            pending: open.pending.as_deref(),
-            time: open.time,
-        };
-        writeln!(
-            out,
-            "{}",
-            crate::render::change_row(&change_display, &lens, now, colored)
-        )?;
+        // The `@` row is printed iff the open change is a member of the set.
+        // Without `-r` that is always, exactly as before; with `-r` it is the
+        // honest reading — `ff log -r main` is a question about `main`, and
+        // an `@` row on the answer would be a row nobody asked for.
+        if open_in_set {
+            let change_display = crate::render::ChangeRowDisplay {
+                subject: open.subject.as_deref(),
+                born: open.base.is_some(),
+                clean: open.clean,
+                id: open.id.as_deref(),
+                pending: open.pending.as_deref(),
+                time: open.time,
+            };
+            writeln!(
+                out,
+                "{}",
+                crate::render::change_row(&change_display, &lens, now, colored)
+            )?;
+        }
 
         let write_commit_row = |out: &mut crate::pager::LogOut, entry: &ff_core::LogEntry| {
             let segment = segments.get(&entry.id).map(String::as_str);
@@ -239,8 +299,12 @@ fn commits_view(
     repo: &mut ff_core::gix::Repository,
     json: bool,
     limit: Option<usize>,
+    revs: Option<Revset>,
 ) -> Result<()> {
-    let entries = ff_core::log(repo, &LogOptions { limit })?;
+    // Commits only, so the set's `open` membership has nothing to render
+    // here — `--commits` is the plain history view of whatever set it is
+    // given, and the open change has no commit to put in it.
+    let entries = ff_core::log(repo, &LogOptions { limit, revs })?.entries;
     if json {
         let commits: Vec<_> = entries.collect::<Result<_>>()?;
         // Envelope object so future fields can be added without breaking consumers.

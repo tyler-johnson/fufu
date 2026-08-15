@@ -295,10 +295,12 @@ pub fn git_log(fx: &Fixture, limit: Option<usize>) -> Vec<GitCommit> {
 /// required to have git's exact length — abbreviation floors differ legitimately.
 pub fn assert_log_matches(fx: &Fixture, limit: Option<usize>) {
     let mut repo = fx.repo();
-    let native: Vec<ff_core::LogEntry> = ff_core::log(&mut repo, &ff_core::LogOptions { limit })
-        .expect("ff-core log")
-        .collect::<ff_core::Result<_>>()
-        .expect("ff-core log entries");
+    let native: Vec<ff_core::LogEntry> =
+        ff_core::log(&mut repo, &ff_core::LogOptions { limit, revs: None })
+            .expect("ff-core log")
+            .entries
+            .collect::<ff_core::Result<_>>()
+            .expect("ff-core log entries");
     let expected = git_log(fx, limit);
 
     assert_eq!(

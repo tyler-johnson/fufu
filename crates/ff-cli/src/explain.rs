@@ -146,12 +146,14 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "target/unresolvable",
-        summary: "that target is neither a branch nor a revision",
-        detail: "Targets resolve through one grammar — branch names, commit shas, snapshot ids, \
-                 @ and @-, trunk, and git's own suffixes — and nothing in it matched. ff log \
-                 prints ids in exactly the form the resolver accepts, which is the fastest way \
-                 to check a spelling.",
-        exits: &["ff log", "ff evolog"],
+        summary: "that target resolves, but not to something this verb can use",
+        detail: "The spelling was understood — a target that denotes nothing raises a \
+                 usage/revset- refusal naming the spelling instead. What it resolved to is the \
+                 problem. On ff start that is the open change: start always opens a clean \
+                 branch, so @ is the one revision it cannot fork at, however it is spelled. To \
+                 move the open change onto a branch of its own, close it there with \
+                 ff commit -b <name>.",
+        exits: &["ff commit -b <name>", "ff log"],
     },
     Entry {
         id: "usage/revset-adjacent-operands",

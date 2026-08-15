@@ -68,10 +68,16 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     let change_stat = ff_core::change_stat(&repo)?;
 
     // Parent commit: fetch at most 1 log entry
-    let parent: Option<LogEntry> =
-        ff_core::log(&mut repo, &ff_core::LogOptions { limit: Some(1) })?
-            .next()
-            .transpose()?;
+    let parent: Option<LogEntry> = ff_core::log(
+        &mut repo,
+        &ff_core::LogOptions {
+            limit: Some(1),
+            revs: None,
+        },
+    )?
+    .entries
+    .next()
+    .transpose()?;
 
     // Lens map: open change id + parent id for display
     let mut ids: Vec<String> = Vec::new();

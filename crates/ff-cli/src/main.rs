@@ -82,10 +82,11 @@ fn main() {
         Some(cli::Command::Status) => cmd::status::run(&ctx),
         Some(cli::Command::Log {
             count,
+            revisions,
             commits,
             ops,
             session,
-        }) => cmd::log::run(&ctx, count, commits, ops, session),
+        }) => cmd::log::run(&ctx, count, revisions, commits, ops, session),
         Some(cli::Command::Evolog { count, session }) => cmd::evolog::run(&ctx, count, session),
         Some(cli::Command::Git { args: git_args }) => cmd::git::run(&ctx, git_args),
         Some(cli::Command::Restore { at, all, paths }) => cmd::restore::run(&ctx, at, all, paths),

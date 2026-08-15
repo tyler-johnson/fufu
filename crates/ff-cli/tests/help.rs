@@ -103,6 +103,20 @@ fn restore_page_shows_reflog_syntax() {
     assert!(!body.contains("@{n}"), "should not contain @{{n}}");
 }
 
+/// The command list above is of commands, so a new flag adds no page. `-r`
+/// still has to be taught somewhere, and the log page is that somewhere.
+#[test]
+fn log_page_teaches_the_revset_flag() {
+    let out = ff(&["help", "log"]);
+    let body = stdout(&out);
+    assert!(body.contains("--revisions"), "missing the long spelling");
+    assert!(body.contains("revset"), "missing the word revset");
+    assert!(
+        body.contains("ff log -r main"),
+        "missing a -r example: {body}"
+    );
+}
+
 #[test]
 fn unknown_help_target_fails() {
     let out = ff(&["help", "bogus"]);

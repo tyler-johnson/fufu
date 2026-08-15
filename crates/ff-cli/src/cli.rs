@@ -47,6 +47,9 @@ pub enum Command {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
+        /// Revisions to show, as a revset; without it, the walk from HEAD
+        #[arg(short = 'r', long = "revisions", value_name = "revset")]
+        revisions: Option<String>,
         /// Commits only — the plain history view
         #[arg(long)]
         commits: bool,

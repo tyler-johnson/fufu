@@ -62,6 +62,7 @@ fn unborn_yields_empty_not_error() {
     let mut repo = fx.repo();
     let entries: Vec<_> = ff_core::log(&mut repo, &ff_core::LogOptions::default())
         .expect("unborn log is not an error")
+        .entries
         .collect();
     assert!(entries.is_empty());
     // Contrast: git itself exits non-zero here.
@@ -99,6 +100,7 @@ fn bare_repository_log_works() {
     let mut repo = ff_core::discover_isolated(&bare).unwrap();
     let entries: Vec<_> = ff_core::log(&mut repo, &ff_core::LogOptions::default())
         .unwrap()
+        .entries
         .collect::<ff_core::Result<_>>()
         .unwrap();
     assert_eq!(entries.len(), 2);

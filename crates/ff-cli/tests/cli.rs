@@ -754,6 +754,185 @@ fn log_segment_tips_ignore_how_far_the_walk_went() {
     );
 }
 
+/// Three commits on main, clean tree, identity configured — the shape every
+/// `-r` test below reads.
+fn three_commits() -> Fixture {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Revset User");
+    fx.set_config("user.email", "revset@test");
+    for n in ["one", "two", "three"] {
+        fx.write("a.txt", &format!("{n}\n"));
+        fx.commit(n);
+    }
+    fx
+}
+
+fn bullet_rows(text: &str) -> Vec<&str> {
+    text.lines().filter(|l| l.starts_with('●')).collect()
+}
+
+/// The subject of each ● row, which the renderer puts on the continuation
+/// line beneath it.
+fn bullet_subjects(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with('●'))
+        .map(|(i, _)| lines[i + 1].trim_start_matches('│').trim().to_string())
+        .collect()
+}
+
+/// `-r` replaces where the rows come from and nothing else: the same renderer,
+/// the same columns, a different set.
+#[test]
+fn log_revisions_narrow_the_rows() {
+    let fx = three_commits();
+
+    let all = stdout(&ff(&fx, &["log"]));
+    assert_eq!(bullet_rows(&all).len(), 3, "{all:?}");
+
+    let narrowed = stdout(&ff(&fx, &["log", "-r", "main"]));
+    assert_eq!(
+        bullet_subjects(&narrowed),
+        vec!["three".to_string()],
+        "one revision, one row — main's tip: {narrowed:?}"
+    );
+
+    // The long spelling is the same flag.
+    assert_eq!(
+        stdout(&ff(&fx, &["log", "--revisions", "main"])),
+        narrowed,
+        "-r and --revisions are one flag"
+    );
+}
+
+/// The whole point of the membership rule: `ff log -r main` is a question
+/// about main, and main does not contain the open change.
+#[test]
+fn log_revisions_without_the_open_change_print_no_at_row() {
+    let fx = three_commits();
+
+    let narrowed = stdout(&ff(&fx, &["log", "-r", "main"]));
+    assert!(
+        !narrowed.lines().any(|l| l.starts_with('@')),
+        "no @ row when the set excludes it: {narrowed:?}"
+    );
+
+    // And it comes back when the set does contain it.
+    let with_open = stdout(&ff(&fx, &["log", "-r", "::@"]));
+    assert!(
+        with_open.lines().next().unwrap().starts_with('@'),
+        "@ heads the rows when it is a member: {with_open:?}"
+    );
+}
+
+/// `--commits` is the plain history view of whatever set it is given, so the
+/// two flags compose rather than conflict.
+#[test]
+fn log_revisions_compose_with_the_commits_view() {
+    let fx = three_commits();
+
+    let text = stdout(&ff(&fx, &["log", "--commits", "-r", "main"]));
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 1, "one revision, one row: {text:?}");
+    assert!(lines[0].contains("three"), "{text:?}");
+
+    let out = ff(&fx, &["log", "--commits", "-r", "main", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let d = &v["data"];
+    assert_eq!(d["commits"].as_array().unwrap().len(), 1);
+    assert!(d.get("open").is_none(), "no open key in commits view");
+}
+
+/// `-n` bounds the commit rows, exactly as it does without `-r`. The `@` row
+/// is not one of them, so a set containing the open change still shows it.
+#[test]
+fn log_revisions_respect_the_row_limit() {
+    let fx = three_commits();
+
+    let text = stdout(&ff(&fx, &["log", "-r", "::@", "-n", "2"]));
+    assert!(text.lines().next().unwrap().starts_with('@'), "{text:?}");
+    assert_eq!(
+        bullet_subjects(&text),
+        vec!["three".to_string(), "two".to_string()],
+        "-n 2 bounds the commit rows and the @ row is not one of them: {text:?}"
+    );
+}
+
+/// Two address spaces, one letter: `-r` takes revisions and `--ops` walks
+/// operations, so the combination is refused rather than ranked.
+#[test]
+fn log_revisions_and_ops_are_refused() {
+    let fx = three_commits();
+    let out = ff(&fx, &["log", "-r", "main", "--ops", "--json"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["error"]["id"], "usage/bad-flags");
+    assert!(
+        v["error"]["message"].as_str().unwrap().contains("--ops"),
+        "the message names the combination: {v}"
+    );
+
+    // Same rule for --session, for the same reason --commits refuses it.
+    let out = ff(&fx, &["log", "-r", "main", "--session", "work", "--json"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["error"]["id"], "usage/bad-flags");
+}
+
+/// A bad revset surfaces as its own coded refusal, not as an empty log.
+#[test]
+fn log_revisions_surface_revset_errors() {
+    let fx = three_commits();
+    for (src, id) in [
+        ("nosuchbranch", "usage/revset-unknown-revision"),
+        ("@^", "usage/revset-open-suffix"),
+        ("main...trunk", "usage/revset-no-symmetric-difference"),
+    ] {
+        let out = ff(&fx, &["log", "-r", src, "--json"]);
+        assert!(!out.status.success(), "{src} must fail");
+        let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+        assert_eq!(v["error"]["id"], id, "{src}");
+    }
+
+    // And without --json it is prose on stderr, stdout untouched.
+    let out = ff(&fx, &["log", "-r", "nosuchbranch"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(stdout(&out), "");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.starts_with("ff: "), "{stderr:?}");
+}
+
+/// The JSON contract under `-r`: `commits` unchanged, `open` still always
+/// present, and null exactly when the set excludes the open change.
+#[test]
+fn log_revisions_json_shape() {
+    let fx = three_commits();
+
+    let out = ff(&fx, &["log", "-r", "main", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let d = &v["data"];
+    let commits = d["commits"].as_array().unwrap();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(commits[0]["subject"], "three");
+    assert!(commits[0]["short_id"].is_string(), "row shape unchanged");
+    assert!(commits[0].get("session").is_some(), "per-row session kept");
+    assert!(
+        d.get("open").is_some() && d["open"].is_null(),
+        "open present and null when @ is not a member: {d}"
+    );
+
+    // A set that does contain it gets the same object as ever.
+    let out = ff(&fx, &["log", "-r", "::@", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let d = &v["data"];
+    assert_eq!(d["commits"].as_array().unwrap().len(), 3);
+    assert_eq!(d["open"]["branch"], "main");
+    assert!(d["open"]["clean"].is_boolean());
+}
+
 #[test]
 fn evolog_lists_snapshots_and_json() {
     let fx = Fixture::new();

@@ -40,7 +40,7 @@ pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
-pub use log::{LogOptions, log};
+pub use log::{Log, LogOptions, log};
 pub use model::*;
 pub use restore::{RestoreOptions, RestoreTarget, parse_target, restore};
 pub use session::{SessionSpan, snapshot_session, span_start_tree, spans};

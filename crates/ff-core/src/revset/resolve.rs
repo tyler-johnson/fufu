@@ -526,15 +526,13 @@ mod tests {
     /// Rule one, made mechanical. `rev_parse` is the door between fufu's
     /// grammar and git's, and a second caller would be a second door with no
     /// lock on it — which is exactly the shape the silent precedence in
-    /// `start.rs` had. That caller is exempted by name below because a later
-    /// pass routes it through here and deletes it; nothing else may join it.
+    /// `start.rs` had before it was routed through here. Nothing is exempt
+    /// now but this file, so the door has one caller and the test proves it.
     #[test]
     fn rev_parse_has_exactly_one_caller() {
-        const EXEMPT: [&str; 2] = [
+        const EXEMPT: [&str; 1] = [
             // This file: the door itself, plus this test naming it.
             "revset/resolve.rs",
-            // Scheduled for deletion when `start` routes through the revset.
-            "ff-core/src/start.rs",
         ];
         let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

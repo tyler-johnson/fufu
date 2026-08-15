@@ -46,6 +46,7 @@ pub enum Rev {
 }
 
 /// A parsed revision expression, ready to evaluate against any repository.
+#[derive(Debug, Clone)]
 pub struct Revset {
     src: String,
     expr: Expr,

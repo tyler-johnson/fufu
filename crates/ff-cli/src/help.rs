@@ -60,6 +60,11 @@ column `ff evolog` drills into.
 operation journal instead: every mutation fufu has made, newest first,
 carrying the op ids `ff undo` takes.
 
+-r takes a revset and replaces where the rows come from: gitrevisions'
+whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @
+row appears only when the open change is a member of the set, because
+`ff log -r main` is a question about main.
+
 The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER,
 then PAGER, then less. Piped output and --json never page.";
 
@@ -68,6 +73,8 @@ Examples:
   ff log                         the last 25 rows
   ff log -n 0                    all of it
   ff log --commits               history only, no snapshot rows
+  ff log -r main                 just main's tip — no @ row, it is not in it
+  ff log -r 'trunk..@'           what this branch has that trunk does not
   ff log --ops                   the operation journal, with ids for ff undo";
 
 pub const EVOLOG: &str = "\

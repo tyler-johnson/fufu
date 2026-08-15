@@ -12,6 +12,7 @@ use crate::error::{Error, Result};
 use crate::journal::{self, OpKind, OpRecord, RefTransition};
 use crate::model::StartReport;
 use crate::refs;
+use crate::revset::{Rev, Revset};
 use crate::snapshot::Provenance;
 
 #[derive(Debug, Clone, Default)]
@@ -28,14 +29,24 @@ pub struct StartOptions {
 }
 
 /// Where the new branch forks from.
+#[derive(Debug)]
 struct ForkPoint {
     at: gix::ObjectId,
     /// A branch name when the fork point came from one, else a short sha.
     forked_from: String,
 }
 
-/// Resolve the fork point, never guessing: a branch name forks at its tip;
-/// anything else is a revision. `@` is rejected before either is tried.
+/// Resolve the fork point, never guessing: the target is a revset that has to
+/// name exactly one revision, and the revset resolver is the only thing here
+/// that reads it.
+///
+/// It used to try branch names first and hand anything else to git's own
+/// parser, which meant a name that was both a branch and a commit forked at
+/// the branch and said nothing about the commit it ignored. That precedence
+/// is the bug the revset resolver exists to refuse: it looks a base up in
+/// both address spaces unconditionally and names both candidates rather than
+/// ranking them. (This file mentions git's parser by description rather than
+/// by name on purpose — the guard test in `revset::resolve` greps for it.)
 fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<ForkPoint> {
     match target {
         None => {
@@ -47,53 +58,38 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
                 forked_from: t.name,
             })
         }
-        Some("@") => Err(Error::coded(
-            "target/unresolvable",
-            "@ is not a start target — ff start always opens a clean branch; \
-             to move the open change onto its own branch, use ff commit -b <name>",
-            vec!["ff commit -b <name>".into()],
-        )),
         Some(raw) => {
-            let names = crate::switch::branch_names(repo)?;
-            if names.iter().any(|n| n == raw) {
-                let at =
-                    refs::ref_target(repo, &format!("refs/heads/{raw}"))?.ok_or_else(|| {
-                        Error::coded("branch/not-found", format!("no branch named {raw}"), vec![])
-                    })?;
-                return Ok(ForkPoint {
-                    at,
-                    forked_from: raw.to_string(),
-                });
-            }
-            // Not a branch name: try a revision.
-            let commit = repo
-                .rev_parse_single(raw)
-                .map_err(|_| {
-                    Error::coded(
-                        "target/unresolvable",
-                        format!("{raw} is neither a branch nor a revision"),
-                        vec!["ff log".into(), "ff evolog".into()],
-                    )
-                })?
-                .object()
-                .map_err(Error::repo)?
-                .peel_to_kind(gix::objs::Kind::Commit)
-                .map_err(|_| Error::msg(format!("{raw} does not point at a commit")))?
-                .id;
-            let forked_from = {
-                use gix::prelude::ObjectIdExt;
-                commit
-                    .attach(repo)
-                    .shorten()
-                    .map_err(Error::repo)?
-                    .to_string()
+            let point = Revset::parse(raw)?.point(repo)?;
+            // Refused on the *resolved* revision rather than on the literal
+            // "@": `latest(@)` and `heads(@)` were never a different request,
+            // and a check on the spelling would have let them through.
+            let at = match point.rev {
+                Rev::Open => return Err(open_is_not_a_start_target()),
+                Rev::Commit(id) => id.object_id(),
             };
-            Ok(ForkPoint {
-                at: commit,
-                forked_from,
-            })
+            // A branch name reports the branch; anything else reports the
+            // commit it landed on, in the spelling `ff log` prints. The
+            // resolver decides which — it already knows whether the whole
+            // expression was one branch's tip.
+            let forked_from = match point.name {
+                Some(name) => name,
+                None => {
+                    use gix::prelude::ObjectIdExt;
+                    at.attach(repo).shorten().map_err(Error::repo)?.to_string()
+                }
+            };
+            Ok(ForkPoint { at, forked_from })
         }
     }
+}
+
+fn open_is_not_a_start_target() -> Error {
+    Error::coded(
+        "target/unresolvable",
+        "@ is not a start target — ff start always opens a clean branch; \
+         to move the open change onto its own branch, use ff commit -b <name>",
+        vec!["ff commit -b <name>".into()],
+    )
 }
 
 /// Open a new change on a fresh branch. See the module docs.
@@ -223,4 +219,104 @@ fn resolve_now(now: Option<i64>) -> i64 {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use ff_testsupport::Fixture;
+
+    use super::*;
+
+    fn one_commit() -> (Fixture, String) {
+        let fx = Fixture::new();
+        fx.write("a.txt", "a\n");
+        let sha = fx.commit("init");
+        (fx, sha)
+    }
+
+    #[test]
+    fn a_branch_name_reports_the_branch_name() {
+        let (fx, sha) = one_commit();
+        let repo = fx.repo();
+        let fork = resolve_fork_point(&repo, Some("main")).expect("main resolves");
+        assert_eq!(fork.forked_from, "main");
+        assert_eq!(fork.at.to_string(), sha);
+    }
+
+    /// Anything that is not one branch's tip reports the commit it landed on,
+    /// in the spelling `ff log` prints — which is what it reported before the
+    /// revset, and what `branchmeta` has been storing all along.
+    #[test]
+    fn anything_else_reports_a_short_sha() {
+        let (fx, sha) = one_commit();
+        let repo = fx.repo();
+        for target in [sha.as_str(), "main^{commit}", "HEAD"] {
+            let fork = resolve_fork_point(&repo, Some(target)).expect("resolves");
+            assert_eq!(fork.at.to_string(), sha);
+            assert!(
+                sha.starts_with(&fork.forked_from) && fork.forked_from.len() < sha.len(),
+                "{target} reported {:?}, not a short sha of {sha}",
+                fork.forked_from
+            );
+        }
+    }
+
+    /// The precedence this routing exists to delete: a name that is both a
+    /// branch and an object used to fork at the branch and say nothing.
+    #[test]
+    fn a_name_that_is_both_refuses_and_names_both() {
+        let (fx, sha) = one_commit();
+        let both = &sha[..8];
+        fx.git(&["branch", both]);
+        let repo = fx.repo();
+
+        let err = resolve_fork_point(&repo, Some(both)).expect_err("must refuse");
+        assert_eq!(err.id(), "usage/revset-ambiguous");
+        let text = err.to_string();
+        assert!(
+            text.contains(&format!("refs/heads/{both}")),
+            "must name the branch: {text}"
+        );
+        assert!(text.contains(&sha), "must name the object: {text}");
+    }
+
+    /// However the open change is spelled. The refusal is about the resolved
+    /// revision, so a function wrapper does not smuggle it past.
+    #[test]
+    fn the_open_change_is_never_a_start_target() {
+        let (fx, _) = one_commit();
+        let repo = fx.repo();
+        for target in ["@", "latest(@)", "heads(@)"] {
+            let err = resolve_fork_point(&repo, Some(target)).expect_err("must refuse");
+            assert_eq!(err.id(), "target/unresolvable", "{target}");
+            assert!(
+                err.to_string().contains("ff commit -b"),
+                "{target} must teach the exit"
+            );
+        }
+    }
+
+    /// A target that denotes nothing is the revset's refusal now, which names
+    /// the exits; `target/unresolvable` used to swallow it and name none.
+    #[test]
+    fn an_unresolvable_target_is_the_revsets_refusal() {
+        let (fx, _) = one_commit();
+        let repo = fx.repo();
+        let err = resolve_fork_point(&repo, Some("nosuchthing")).expect_err("must refuse");
+        assert_eq!(err.id(), "usage/revset-unknown-revision");
+    }
+
+    /// A set with more than one member is not a fork point, and picking one
+    /// would be the same guess the branch-first ladder used to make.
+    #[test]
+    fn a_target_naming_many_revisions_is_refused() {
+        let fx = Fixture::new();
+        fx.write("a.txt", "a\n");
+        fx.commit("one");
+        fx.write("a.txt", "b\n");
+        fx.commit("two");
+        let repo = fx.repo();
+        let err = resolve_fork_point(&repo, Some("::main")).expect_err("must refuse");
+        assert_eq!(err.id(), "usage/revset-not-a-point");
+    }
 }
