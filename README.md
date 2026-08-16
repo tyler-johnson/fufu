@@ -63,7 +63,7 @@ The busywork between commits — fixup commits, autosquash dances, rebasing onto
 
 ```console
 $ ff status                       # futures, not just facts: fufu already knows the rebase is safe
-on unicode-cleanup · behind 4 of origin/main
+on unicode-cleanup · main moved — rebases cleanly (2 commits replayed) · behind 4 of origin/main
 @  qzrtmvwk a3c7e91   2m ago
 │  (no description)
 │  M src/parser/escape.rs  +5  -2  ++++--
@@ -71,7 +71,6 @@ on unicode-cleanup · behind 4 of origin/main
 │    2 files              +23  -6
 ●           2c9ea49   3d ago
 │  parser: handle unicode escapes
-main moved — this branch rebases cleanly
 
 $ ff absorb                       # review fixes fold into the commits they belong to
 absorbed 3 hunks into 2 commits:

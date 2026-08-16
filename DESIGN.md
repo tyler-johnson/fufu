@@ -449,7 +449,7 @@ Operation ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps
 
 Op id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff op` resolves against — the operation log, live and trashed — so the bold prefix is precisely what those verbs accept unambiguously. That domain is materialized under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the log tip moves out from under it, so highlighting and resolution read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the op column is where the highlighting pays. One palette serves the whole tool, and it colors **roles, not commands**: op ids magenta, commit shas blue, ages cyan, the working-copy `@` green, insertions green and deletions red, rails and asides dim, plus three verdict colors — green for clear, orange for trouble, blue for ahead-of-upstream. Prose stays plain; color marks the tokens you scan for (hex, ids, times) and the verdicts you act on. That is why `ff doctor`'s WARN, a rebase that would conflict, and a check that failed are all the same orange: one color per meaning, wherever the meaning turns up. Color is redundant encoding and never the only encoding: every verdict carries a word or a glyph saying the same thing, so `NO_COLOR`, a monochrome terminal, and a screen reader cost the reader decoration and never information.
 
-`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction — and the futures line closes the block. The futures line spends the three verdict colors exactly as the shared rule defines them — dim when there is nothing to say, blue when the branch is only ahead, green when upstream moved and the rebase is clean, orange when it conflicts — and the verdict outranks ahead-ness when both are true, because it is the half that needs a decision. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the two-row view compresses into one line.
+`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction. The futures line rides the header, in the slot the upstream phrase used to hold: that is what "the verdict outranks ahead-ness" means once both exist, because ahead-ness is a fact you already knew and the verdict is the half that needs a decision. The upstream keeps its say only when it names a *different* ref than the base — a pushed branch stacked on another has two independent facts — and is dropped when the two would describe the same relationship twice. The line spends the three verdict colors exactly as the shared rule defines them: dim when there is nothing to say, blue when the branch is only ahead, green when the base moved and the rebase is clean, orange when it conflicts. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the header compresses into one line.
 
 The log family (`ff log`, `ff evolog`, `ff op log`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
@@ -755,6 +755,38 @@ recorded on every change so `ff undo` restores the text.
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
 reporting futures, not just facts; the ambient shell channel speaks at pause
 points. Pure reads — no automation yet, just foreknowledge.
+
+*Phase 3 implementation notes (shipped Aug 2026).* The verdict is a
+commit-by-commit replay, not a single endpoint probe: it costs N in-memory
+merges instead of one, but it matches what `ff sync` will really do and it can
+name the commit that breaks. The whole replay runs inside one
+`with_object_memory` clone — intermediate trees are written there and read back
+by the next step — so a probe writes nothing, which is asserted by counting
+loose objects around one. One merge per commit with plain options, the conflict
+list deciding; `stash.rs` probes and then re-merges only because it needs the
+tree to persist, and futures never do. Bases come from a ladder: an explicitly
+recorded parent branch, else trunk, else — when trunk *is* the branch underfoot
+— its upstream. **Trunk ambiguity is swallowed to "no base", never propagated:**
+a repository that cannot name its trunk still gets a working `ff status`. For
+the same reason `BranchMeta.parent` records only an explicit fork target; a bare
+`ff start` records none, so trunk stays live rather than frozen at mint time.
+Up-to-date is tested before fast-forward, because equal tips satisfy both and
+announcing a fast-forward of nothing is a lie. A branch that has already merged
+its base reads up-to-date rather than unknown — nothing of the base's is left to
+integrate, and while a real rebase would still linearize it, that is the branch
+rewriting itself and not a cost the base imposes. Merge commits inside the range
+and depths past `fufu.futuresDepth` are honest `Unknown`s, because a wrong
+verdict is worse than an admitted silence. The cache under
+`<common-dir>/fufu/futures/<branch>` is keyed by its own four inputs (base ref,
+base tip, branch tip, open tree), so it is self-invalidating: no eviction
+policy, no staleness clock, and deleting it changes no answer, only the cost of
+getting one. The ambient channel is the `ff hook shell trigger` runtime the verb
+grammar already had room for — read-only by construction (no capture, no
+reconcile, no journal append), gated on a TTY first because it runs at every
+prompt, and fingerprinted on the verdict's *kind* alone, so a branch gaining one
+more cleanly-replaying commit is not news. `ff status` and that channel share
+one renderer, since a channel that worded a verdict differently from the command
+would be worse than one that stayed quiet.
 
 **Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff describe`,
 `ff edit` sessions with `ff done`, `ff sync` with land-if-clean, held rewrites

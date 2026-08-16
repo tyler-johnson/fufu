@@ -245,6 +245,51 @@ fn alias_row(states: &[crate::cmd::shell::ShellAlias]) -> Row {
     }
 }
 
+fn ambient_row(
+    states: &[crate::cmd::shell::ShellAlias],
+    repo: Option<&ff_core::gix::Repository>,
+) -> Row {
+    if let Some(repo) = repo
+        && !repo
+            .config_snapshot()
+            .boolean("fufu.ambient")
+            .unwrap_or(true)
+    {
+        return Row::info(
+            "ambient",
+            "off (the ambient setting) — the prompt channel is silent".into(),
+        );
+    }
+    if let Some(entry) = states
+        .iter()
+        .find(|e| e.ambient == crate::cmd::shell::AliasState::Installed)
+    {
+        return Row::ok(
+            "ambient",
+            format!(
+                "prompt hook installed in {} (`ff hook shell` manages it)",
+                entry.rc.as_ref().unwrap().display()
+            ),
+        );
+    }
+    if let Some(entry) = states
+        .iter()
+        .find(|e| e.ambient == crate::cmd::shell::AliasState::HandWritten)
+    {
+        return Row::info(
+            "ambient",
+            format!(
+                "found in {} (heuristic — check your prompt)",
+                entry.rc.as_ref().unwrap().display()
+            ),
+        );
+    }
+    Row::info(
+        "ambient",
+        "no prompt hook found in shell rc files (heuristic)".into(),
+    )
+}
+
 fn triggers_row(
     wiring: &crate::cmd::hook::AgentWiring,
     states: &[crate::cmd::shell::ShellAlias],
@@ -749,6 +794,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
 
     rows.push(hooks_row(&wiring));
     rows.push(alias_row(&aliases));
+    rows.push(ambient_row(&aliases, repo.as_ref()));
     if let Some(row) = triggers_row(&wiring, &aliases) {
         rows.push(row);
     }
@@ -966,11 +1012,13 @@ mod tests {
             crate::cmd::shell::ShellAlias {
                 shell: "bash",
                 state: crate::cmd::shell::AliasState::HandWritten,
+                ambient: crate::cmd::shell::AliasState::Absent,
                 rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
             },
             crate::cmd::shell::ShellAlias {
                 shell: "zsh",
                 state: crate::cmd::shell::AliasState::Installed,
+                ambient: crate::cmd::shell::AliasState::Absent,
                 rc: Some(std::path::PathBuf::from("/home/u/.zshrc")),
             },
         ];
@@ -985,11 +1033,13 @@ mod tests {
             crate::cmd::shell::ShellAlias {
                 shell: "bash",
                 state: crate::cmd::shell::AliasState::Absent,
+                ambient: crate::cmd::shell::AliasState::Absent,
                 rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
             },
             crate::cmd::shell::ShellAlias {
                 shell: "zsh",
                 state: crate::cmd::shell::AliasState::HandWritten,
+                ambient: crate::cmd::shell::AliasState::Absent,
                 rc: Some(std::path::PathBuf::from("/home/u/.zshrc")),
             },
         ];
@@ -1003,6 +1053,7 @@ mod tests {
         let states = vec![crate::cmd::shell::ShellAlias {
             shell: "bash",
             state: crate::cmd::shell::AliasState::Absent,
+            ambient: crate::cmd::shell::AliasState::Absent,
             rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
         }];
         let row = alias_row(&states);
@@ -1024,6 +1075,7 @@ mod tests {
         let states = vec![crate::cmd::shell::ShellAlias {
             shell: "bash",
             state: crate::cmd::shell::AliasState::Absent,
+            ambient: crate::cmd::shell::AliasState::Absent,
             rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
         }];
         let row = triggers_row(&wiring, &states);
@@ -1046,6 +1098,7 @@ mod tests {
         let states = vec![crate::cmd::shell::ShellAlias {
             shell: "bash",
             state: crate::cmd::shell::AliasState::Absent,
+            ambient: crate::cmd::shell::AliasState::Absent,
             rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
         }];
         assert!(triggers_row(&wiring, &states).is_none());
@@ -1061,6 +1114,7 @@ mod tests {
         let states = vec![crate::cmd::shell::ShellAlias {
             shell: "bash",
             state: crate::cmd::shell::AliasState::HandWritten,
+            ambient: crate::cmd::shell::AliasState::Absent,
             rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
         }];
         assert!(triggers_row(&wiring, &states).is_none());
@@ -1076,6 +1130,7 @@ mod tests {
         let states = vec![crate::cmd::shell::ShellAlias {
             shell: "bash",
             state: crate::cmd::shell::AliasState::Installed,
+            ambient: crate::cmd::shell::AliasState::Absent,
             rc: Some(std::path::PathBuf::from("/home/u/.bashrc")),
         }];
         assert!(triggers_row(&wiring, &states).is_none());

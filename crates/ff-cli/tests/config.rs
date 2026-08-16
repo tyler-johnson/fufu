@@ -280,7 +280,7 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 8);
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 10);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -428,6 +428,95 @@ fn trunk_accepts_remote_qualified() {
     // Read back via git config
     let git_val = fx.git(&["config", "fufu.trunk"]);
     assert_eq!(git_val.trim(), "origin/main");
+}
+
+#[test]
+fn ambient_setting_round_trips() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    // Default: get prints true; the list marks it (default)
+    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "true\n");
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let ambient_line = text
+        .lines()
+        .find(|l| l.starts_with("ambient  "))
+        .expect("ambient line in list output");
+    assert!(
+        ambient_line.contains("(default)"),
+        "ambient marked (default) before set: {ambient_line}"
+    );
+
+    // Set false
+    let out = ff_cfg(&fx.path(), &["config", "ambient", "false"], &global);
+    assert!(out.status.success());
+
+    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "false\n");
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let ambient_line = text
+        .lines()
+        .find(|l| l.starts_with("ambient  "))
+        .expect("ambient line in list output");
+    assert!(
+        !ambient_line.contains("(default)"),
+        "ambient not marked (default) after set: {ambient_line}"
+    );
+
+    // Unset — back to the default
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "ambient"], &global);
+    assert!(out.status.success());
+    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "true\n");
+}
+
+#[test]
+fn ambient_rejects_a_non_boolean() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    // Exit 2 and a non-empty stderr; the message itself is the shared
+    // hardcoded per-kind string, so no exact-text assertion here.
+    let out = ff_cfg(&fx.path(), &["config", "ambient", "maybe"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(!stderr(&out).is_empty(), "stderr must name the failure");
+}
+
+#[test]
+fn futures_depth_round_trips_with_a_suffix() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "futuresDepth", "1k"], &global);
+    assert!(out.status.success(), "set 1k failed: {}", stderr(&out));
+
+    // Read back: whatever git stored is what the command shows.
+    let out = ff_cfg(&fx.path(), &["config", "futuresDepth"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.trim() == "1k",
+        "stored value shown verbatim, got: {text}"
+    );
+}
+
+#[test]
+fn futures_depth_rejects_a_negative() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "futuresDepth", "--", "-5"], &global);
+    assert_eq!(out.status.code(), Some(2));
 }
 
 #[test]

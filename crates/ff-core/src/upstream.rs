@@ -89,7 +89,7 @@ pub(crate) fn upstream_for(
 }
 
 /// Count commits reachable from `tip` without crossing any of `bases`.
-fn count_exclusive(
+pub(crate) fn count_exclusive(
     repo: &gix::Repository,
     tip: gix::ObjectId,
     bases: &[gix::ObjectId],

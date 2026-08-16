@@ -105,7 +105,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     let mut out = String::new();
 
     // Header line
-    out.push_str(&status_header(&status, colored));
+    out.push_str(&status_header(&status, &model.futures, colored));
     out.push('\n');
 
     // Open change row
@@ -169,9 +169,81 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     out
 }
 
+/// One line saying what syncing this branch would cost. The ambient shell
+/// channel prints the same line, so the two can never disagree.
+pub fn futures_line(future: &ff_core::futures::Future, colored: bool) -> String {
+    use ff_core::futures::{At, Verdict};
+
+    let base = &future.base.name;
+    match &future.verdict {
+        Verdict::Clean { replayed } => paint_ok(
+            &format!(
+                "{base} moved — rebases cleanly ({replayed} {} replayed)",
+                noun(*replayed, "commit", "commits")
+            ),
+            colored,
+        ),
+        Verdict::Conflict {
+            at: At::Commit { subject, .. },
+            paths,
+        } => paint_warn(
+            &format!(
+                "{base} moved — conflicts at \"{}\" in {} {}",
+                truncate_subject(subject),
+                paths.len(),
+                noun(paths.len(), "file", "files")
+            ),
+            colored,
+        ),
+        Verdict::Conflict {
+            at: At::OpenChange,
+            paths,
+        } => paint_warn(
+            &format!(
+                "{base} moved — conflicts with your open change in {} {}",
+                paths.len(),
+                noun(paths.len(), "file", "files")
+            ),
+            colored,
+        ),
+        Verdict::FastForward { .. } => paint_ok(&format!("{base} moved — fast-forwards"), colored),
+        Verdict::UpToDate { ahead: 0 } => paint_dim(&format!("up to date with {base}"), colored),
+        Verdict::UpToDate { ahead } => paint_ahead(&format!("ahead {ahead} of {base}"), colored),
+        Verdict::Unknown { reason } => paint_dim(
+            &format!("can't simulate against {base} ({})", reason.text()),
+            colored,
+        ),
+    }
+}
+
+/// Pick the singular or plural noun for a count: `1 commit`, `3 commits`.
+fn noun(n: usize, singular: &'static str, plural: &'static str) -> &'static str {
+    if n == 1 { singular } else { plural }
+}
+
+/// Truncate a long subject so the futures line stays one line: cut to 40
+/// characters and append an ellipsis, trimming trailing whitespace first so
+/// the ellipsis never floats after a stray space.
+fn truncate_subject(subject: &str) -> String {
+    let chars: Vec<char> = subject.chars().collect();
+    if chars.len() <= 40 {
+        return subject.to_string();
+    }
+    let mut truncated: String = chars[..40].iter().collect();
+    while truncated.ends_with(char::is_whitespace) {
+        truncated.pop();
+    }
+    truncated.push('\u{2026}');
+    truncated
+}
+
 /// Build the header line: branch + upstream phrase + operation.
 /// The upstream phrase is colored by state.
-fn status_header(status: &Status, colored: bool) -> String {
+fn status_header(
+    status: &Status,
+    future: &Option<ff_core::futures::Future>,
+    colored: bool,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(match &status.head {
         HeadState::Unborn { r#ref } => {
@@ -183,13 +255,41 @@ fn status_header(status: &Status, colored: bool) -> String {
             format!("detached at {}", &commit[..commit.len().min(8)])
         }
     });
-    if let Some(upstream) = &status.upstream {
-        parts.push(colored_upstream_phrase(upstream, colored));
+    // The verdict outranks ahead-ness: when fufu can say what syncing would
+    // cost, that is the half needing a decision, so it takes the header slot
+    // the upstream phrase used to hold. The upstream still speaks when it is
+    // a *different* ref than the base — a pushed branch stacked on another
+    // has two independent facts, and only one of them is the verdict.
+    match &future {
+        Some(f) => {
+            parts.push(futures_line(f, colored));
+            if let Some(upstream) = &status.upstream
+                && !base_is_upstream(&f.base, upstream)
+            {
+                parts.push(colored_upstream_phrase(upstream, colored));
+            }
+        }
+        None => {
+            if let Some(upstream) = &status.upstream {
+                parts.push(colored_upstream_phrase(upstream, colored));
+            }
+        }
     }
     if let Some(op) = &status.operation {
         parts.push(operation_phrase(*op).to_string());
     }
     parts.join(" · ")
+}
+
+/// Whether the futures base and the upstream name the same ref — in which
+/// case they would say the same thing twice.
+fn base_is_upstream(base: &ff_core::futures::BaseRef, upstream: &Upstream) -> bool {
+    let short = base
+        .r#ref
+        .strip_prefix("refs/remotes/")
+        .or_else(|| base.r#ref.strip_prefix("refs/heads/"))
+        .unwrap_or(&base.r#ref);
+    short == upstream.r#ref
 }
 
 /// Build the upstream phrase, colored by state.
@@ -756,6 +856,10 @@ pub fn paint_ok(text: &str, colored: bool) -> String {
 
 pub fn paint_warn(text: &str, colored: bool) -> String {
     paint(text, palette().warn, colored)
+}
+
+pub fn paint_ahead(text: &str, colored: bool) -> String {
+    paint(text, palette().ahead, colored)
 }
 
 pub fn paint_dim(text: &str, colored: bool) -> String {

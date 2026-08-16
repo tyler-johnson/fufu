@@ -342,19 +342,21 @@ Examples:
   ff hook agent uninstall        remove exactly what install added";
 
 pub const HOOK_SHELL: &str = "\
-Adds one line to your shell's rc file — alias git='ff git' — so every git
-command you type snapshots before it runs. Scripts, IDEs, and GUIs resolve
-the real git on PATH and are untouched: the alias scopes fufu to what a
-human types, deliberately.
+Wires two independent pieces into your shell's rc file. The alias —
+alias git='ff git' — so every git command you type snapshots first;
+scripts, IDEs, and GUIs resolve the real git on PATH and are untouched, on
+purpose. The ambient prompt hook — ff hook shell trigger — so the shell can
+tell you what syncing would cost before you ask, speaking only when that
+changes.
 
 The shell defaults to $SHELL; name one to wire a different one.";
 
 pub const HOOK_SHELL_EXAMPLES: &str = "\
 Examples:
-  ff hook shell install          wire $SHELL
+  ff hook shell install          wire $SHELL: the alias and the prompt hook
   ff hook shell install fish     wire a specific one
-  ff hook shell list             which shells are wired
-  ff hook shell uninstall        take the line back out";
+  ff hook shell list             which shells are wired, and how
+  ff hook shell uninstall        take both lines back out";
 
 pub const HOOK_EDITOR: &str = "\
 Reserved. The slot exists so the grammar is complete; nothing installs

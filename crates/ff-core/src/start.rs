@@ -35,6 +35,10 @@ struct ForkPoint {
     at: gix::ObjectId,
     /// A branch name when the fork point came from one, else a short sha.
     forked_from: String,
+    /// The local branch the user explicitly forked from, when the target
+    /// named one. `None` for a bare (trunk) start and for a target that
+    /// resolved to a bare commit.
+    parent: Option<String>,
 }
 
 /// Resolve the fork point, never guessing: the target is a revset that has to
@@ -62,6 +66,7 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             Ok(ForkPoint {
                 at,
                 forked_from: t.name,
+                parent: None,
             })
         }
         Some(raw) => {
@@ -77,6 +82,10 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             // commit it landed on, in the spelling `ff log` prints. The
             // resolver decides which — it already knows whether the whole
             // expression was one branch's tip.
+            // `point.name` is already exactly a local branch name (None for
+            // a sha, tag, or compound expression); clone it before the match
+            // below consumes it.
+            let parent = point.name.clone();
             let forked_from = match point.name {
                 Some(name) => name,
                 None => {
@@ -84,7 +93,11 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
                     at.attach(repo).shorten().map_err(Error::repo)?.to_string()
                 }
             };
-            Ok(ForkPoint { at, forked_from })
+            Ok(ForkPoint {
+                at,
+                forked_from,
+                parent,
+            })
         }
     }
 }
@@ -126,6 +139,7 @@ pub fn start(
         &name,
         fork.at,
         &fork.forked_from,
+        fork.parent.as_deref(),
         resolve_now(opts.now),
         &opts.argv,
         prov,
@@ -168,6 +182,7 @@ fn mint_branch(
     name: &str,
     at: gix::ObjectId,
     forked_from: &str,
+    parent: Option<&str>,
     now: i64,
     argv: &[String],
     prov: &Provenance,
@@ -223,6 +238,7 @@ fn mint_branch(
         &branchmeta::BranchMeta {
             pending_description: None,
             forked_from: Some(forked_from.to_string()),
+            parent: parent.map(str::to_string),
         },
     )?;
     Ok(())

@@ -113,6 +113,28 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "terminal theme decides the actual hues.",
             ],
         },
+        Setting {
+            name: "ambient",
+            key: "fufu.ambient",
+            def: "true",
+            kind: SettingKind::Bool,
+            desc: &[
+                "Let the shell prompt speak: with the prompt hook installed, ff says",
+                "one line when what a sync would cost changes, and stays quiet",
+                "otherwise. false silences the channel without touching the alias.",
+            ],
+        },
+        Setting {
+            name: "futuresDepth",
+            key: "fufu.futuresDepth",
+            def: "200",
+            kind: SettingKind::Size,
+            desc: &[
+                "How many commits ff will replay when simulating a rebase. Past this",
+                "many, the verdict is an honest \"can't simulate\" rather than a slow",
+                "one. Suffixes work: 1k.",
+            ],
+        },
     ]
 }
 

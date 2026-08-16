@@ -246,6 +246,16 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
             }
             None => None,
         };
+        // Only the row we are standing on carries the open change into the
+        // simulation: another branch's row must not react to work sitting in
+        // this one's tree. Errors degrade to None — one row's failed
+        // simulation must never fail the whole listing.
+        let open = if name == current {
+            crate::futures::open_tree(repo, &name).unwrap_or(None)
+        } else {
+            None
+        };
+        let future = crate::futures::future_for(repo, &name, tip, open).unwrap_or(None);
         let info = BranchInfo {
             name: name.clone(),
             current: name == current,
@@ -255,6 +265,7 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
             parked: crate::stash::parked_entry(repo, &name)?.is_some(),
             pending_description: meta.pending_description,
             upstream,
+            future,
         };
         if info.anonymous {
             anonymous.push(info);
@@ -477,6 +488,8 @@ pub fn delete(
     refs::delete_ref(repo, &full, tip, now)?;
     // The metadata file goes too.
     crate::branchmeta::write(repo, name, &crate::branchmeta::BranchMeta::default())?;
+    // And its cached future — a cache, so losing it costs recomputation only.
+    crate::futures::cache::remove(repo, name)?;
 
     Ok((
         crate::model::BranchDeleteReport {

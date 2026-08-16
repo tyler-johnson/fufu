@@ -334,6 +334,8 @@ pub struct BranchInfo {
     pub parked: bool,
     pub pending_description: Option<String>,
     pub upstream: Option<Upstream>,
+    /// What rebasing this branch onto its base would do.
+    pub future: Option<crate::futures::Future>,
 }
 
 /// `ff branch` listing: named branches and anonymous ones, segregated.

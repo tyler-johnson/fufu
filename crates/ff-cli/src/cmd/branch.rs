@@ -128,6 +128,24 @@ fn row(info: &BranchInfo) -> String {
             notes.push(format!("{}: +{} -{}", up.r#ref, up.ahead, up.behind));
         }
     }
+    if let Some(future) = &info.future {
+        let base = &future.base.name;
+        match &future.verdict {
+            ff_core::futures::Verdict::Clean { .. } => {
+                notes.push(format!("{base}: rebases cleanly"));
+            }
+            ff_core::futures::Verdict::Conflict { .. } => {
+                notes.push(format!("{base}: conflicts"));
+            }
+            ff_core::futures::Verdict::FastForward { .. } => {
+                notes.push(format!("{base}: fast-forwards"));
+            }
+            // Terse on purpose: a row that says "nothing to report" is
+            // noise, and the detail belongs to `ff status` and `--json`.
+            ff_core::futures::Verdict::UpToDate { .. }
+            | ff_core::futures::Verdict::Unknown { .. } => {}
+        }
+    }
     if !notes.is_empty() {
         line.push_str(&format!("  [{}]", notes.join(", ")));
     }

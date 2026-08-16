@@ -92,6 +92,7 @@ fn claim_carries_chain_parked_entry_and_metadata() {
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("the plan".into()),
             forked_from: None,
+            parent: None,
         },
     )
     .unwrap();
@@ -289,6 +290,7 @@ fn list_segregates_and_annotates() {
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("todo".into()),
             forked_from: None,
+            parent: None,
         },
     )
     .unwrap();

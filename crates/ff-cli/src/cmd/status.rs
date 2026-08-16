@@ -19,6 +19,8 @@ pub struct StatusModel {
     pub parent: Option<ParentStatus>,
     pub conflicts: Vec<String>,
     pub foreign: Option<Vec<ForeignEntry>>,
+    /// What syncing would cost, when fufu can name a base to measure against.
+    pub futures: Option<ff_core::futures::Future>,
 }
 
 /// The open change as serialized by `ff status --json`. `base` and `time`
@@ -96,6 +98,24 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     // Reconcile pinned (foreign changes)
     let foreign = reconcile_foreign(&repo);
 
+    // Futures: what syncing this branch would cost. Detached HEAD and unborn
+    // branches have no branch tip to simulate from, so they short-circuit to
+    // None without calling into futures at all.
+    let futures = match &status.head {
+        ff_core::HeadState::Branch { commit, .. } => {
+            let compute = || -> ff_core::Result<Option<ff_core::futures::Future>> {
+                let branch = ff_core::snapshot::chain::chain_name(&status.head);
+                let tip = ff_core::gix::ObjectId::from_hex(commit.as_bytes()).ok();
+                let open = ff_core::futures::open_tree(&repo, &branch)?;
+                ff_core::futures::future_for(&repo, &branch, tip, open)
+            };
+            // Futures never fail a command: a simulation that cannot run is a
+            // missing line, never a failed `ff status`.
+            compute().unwrap_or(None)
+        }
+        _ => None,
+    };
+
     // Build the single data model both renderers consume
     let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
     let model = StatusModel {
@@ -130,6 +150,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
                 })
                 .collect()
         }),
+        futures,
     };
 
     let now = now_secs();

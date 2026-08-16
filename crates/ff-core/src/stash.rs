@@ -427,13 +427,23 @@ pub fn plan_arrival(
         let Some(wip) = probe_merge(repo, stash.base_tree, target_tree, stash.wip_tree)? else {
             return Ok(ArrivePlan::Conflict {
                 stash: parked,
-                paths: conflict_paths(repo, stash.base_tree, target_tree, stash.wip_tree)?,
+                paths: crate::futures::conflict_paths(
+                    repo,
+                    stash.base_tree,
+                    target_tree,
+                    stash.wip_tree,
+                )?,
             });
         };
         let Some(index) = probe_merge(repo, stash.base_tree, target_tree, stash.index_tree)? else {
             return Ok(ArrivePlan::Conflict {
                 stash: parked,
-                paths: conflict_paths(repo, stash.base_tree, target_tree, stash.index_tree)?,
+                paths: crate::futures::conflict_paths(
+                    repo,
+                    stash.base_tree,
+                    target_tree,
+                    stash.index_tree,
+                )?,
             });
         };
         (wip, index)
@@ -581,30 +591,6 @@ fn probe_merge(
         .map_err(Error::repo)?;
     let tree = outcome.tree.write().map_err(Error::repo)?.detach();
     Ok(Some(tree))
-}
-
-/// The conflicting paths of a merge, probed entirely in memory.
-fn conflict_paths(
-    repo: &gix::Repository,
-    base: gix::ObjectId,
-    ours: gix::ObjectId,
-    theirs: gix::ObjectId,
-) -> Result<Vec<String>> {
-    let memory = repo.clone().with_object_memory();
-    let options = memory.tree_merge_options().map_err(Error::repo)?;
-    let outcome = memory
-        .merge_trees(base, ours, theirs, Default::default(), options)
-        .map_err(Error::repo)?;
-    let how = gix::merge::tree::TreatAsUnresolved::git();
-    let mut paths: Vec<String> = outcome
-        .conflicts
-        .iter()
-        .filter(|c| c.is_unresolved(how))
-        .map(|c| c.changes_in_resolution().1.location().to_string())
-        .collect();
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
 }
 
 /// All file entries of a tree, recursively: (path, kind, id).
