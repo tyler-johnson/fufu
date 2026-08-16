@@ -87,7 +87,7 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
                     crate::cmd::log::run_inner(ctx, limit.unwrap_or(0), None, false, None)
                 }
                 // The mutating verbs own their pre-snapshot (a no-op after
-                // the capture above) and their journal entry.
+                // the capture above) and their operation.
                 Translated::Switch { target } => crate::cmd::switch::run(ctx, target),
                 Translated::Commit { message } => {
                     crate::cmd::commit::run(ctx, message, false, None)

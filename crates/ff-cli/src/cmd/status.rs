@@ -151,7 +151,7 @@ fn render_json(model: &StatusModel) -> Result<()> {
     crate::machine::emit("status", model)
 }
 
-/// Reconcile (best-effort — status must never fail because the journal
+/// Reconcile (best-effort — status must never fail because the operation log
 /// can't be written) and return foreign ref changes while the tip is foreign.
 fn reconcile_foreign(repo: &ff_core::gix::Repository) -> Option<Vec<ForeignRefTuple>> {
     repo.workdir()?;
@@ -159,7 +159,7 @@ fn reconcile_foreign(repo: &ff_core::gix::Repository) -> Option<Vec<ForeignRefTu
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    match ff_core::journal::reconcile(repo, now) {
+    match ff_core::ops::reconcile(repo, now) {
         Ok(report) => {
             for warning in &report.warnings {
                 eprintln!("ff: {warning}");
@@ -172,16 +172,20 @@ fn reconcile_foreign(repo: &ff_core::gix::Repository) -> Option<Vec<ForeignRefTu
             return None;
         }
     }
-    let tip = ff_core::journal::tip(repo).ok().flatten()?;
-    let entry = ff_core::journal::read_entry(repo, tip).ok()?;
-    (entry.record.kind == ff_core::journal::OpKind::Foreign).then(|| {
-        entry
-            .record
+    let log = ff_core::ops::OpLog::open(repo).ok()?;
+    let op = log.get(log.tip().ok().flatten()?).ok()?;
+    if op.kind() != ff_core::ops::OpKind::Foreign {
+        return None;
+    }
+    Some(
+        op.record()
+            .ok()
+            .flatten()?
             .refs
-            .into_iter()
-            .map(|t| (t.name, t.old, t.new))
-            .collect()
-    })
+            .iter()
+            .map(|t| (t.name.clone(), t.old.clone(), t.new.clone()))
+            .collect(),
+    )
 }
 
 fn now_secs() -> i64 {

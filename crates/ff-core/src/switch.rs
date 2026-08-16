@@ -7,8 +7,9 @@
 
 use crate::branch;
 use crate::error::{Error, Result};
-use crate::journal::{self, OpKind, OpRecord, RefTransition, StashEffect};
 use crate::model::{ArrivalReport, HeadState, SwitchReport};
+use crate::ops::record::observe_refs;
+use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
 use crate::snapshot::Provenance;
 use crate::stash::{self, ArrivePlan};
 use crate::worktree;
@@ -19,7 +20,7 @@ pub struct SwitchOptions {
     pub target: String,
     /// Clock injection for tests.
     pub now: Option<i64>,
-    /// The invoking argv, journaled verbatim.
+    /// The invoking argv, recorded verbatim.
     pub argv: Vec<String>,
 }
 
@@ -39,10 +40,11 @@ pub fn resolve_branch(repo: &gix::Repository, raw: &str) -> Result<String> {
         [one] => Ok((*one).clone()),
         many => {
             let list: Vec<&str> = many.iter().map(|n| n.as_str()).collect();
-            Err(Error::msg(format!(
-                "ambiguous branch prefix {raw}: {}",
-                list.join(", ")
-            )))
+            Err(Error::coded(
+                "branch/ambiguous",
+                format!("ambiguous branch prefix {raw}: {}", list.join(", ")),
+                vec!["ff branch".into()],
+            ))
         }
     }
 }
@@ -52,8 +54,13 @@ pub(crate) fn branch_names(repo: &gix::Repository) -> Result<Vec<String>> {
     let platform = repo.references().map_err(Error::repo)?;
     let iter = platform.prefixed("refs/heads/").map_err(Error::repo)?;
     for reference in iter {
-        let reference =
-            reference.map_err(|err| Error::msg(format!("ref iteration failed: {err}")))?;
+        let reference = reference.map_err(|err| {
+            Error::coded(
+                "op/unreadable",
+                format!("ref iteration failed: {err}"),
+                vec![],
+            )
+        })?;
         let name = reference.name().as_bstr().to_string();
         if let Some(short) = name.strip_prefix("refs/heads/") {
             out.push(short.to_string());
@@ -68,7 +75,7 @@ pub fn switch(
     repo: &gix::Repository,
     opts: &SwitchOptions,
     prov: &Provenance,
-) -> Result<(SwitchReport, journal::VerbContext)> {
+) -> Result<(SwitchReport, verb::VerbContext)> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -77,12 +84,14 @@ pub fn switch(
         ));
     }
     if let Some(op) = crate::head::operation(repo) {
-        return Err(Error::msg(format!(
-            "a {op:?} is in progress: finish or abort it with git before switching"
-        )));
+        return Err(Error::coded(
+            "repo/mid-operation",
+            format!("a {op:?} is in progress: finish or abort it with git before switching"),
+            vec![],
+        ));
     }
 
-    let ctx = journal::begin_verb(repo, prov, opts.now)?;
+    let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
 
     let head = crate::head::head_state(repo)?;
@@ -95,7 +104,7 @@ pub fn switch(
                 to: target,
                 parked: None,
                 arrival: ArrivalReport::None,
-                pre_snapshot: ctx.pre_snapshot.clone(),
+                pre_op: ctx.pre_op.map(|id| id.to_string()),
             },
             ctx,
         ));
@@ -116,12 +125,12 @@ pub fn switch(
         .detach();
 
     // Plan phase: park (object writes only) and arrival, before anything
-    // moves — the journal entry describes the whole switch up front.
+    // moves — the operation describes the whole switch up front.
     let park_plan = stash::plan_park(repo, &head, now)?;
     let arrive_plan = stash::plan_arrival(repo, &target, target_commit, target_tree)?;
 
     // The planned post-switch world.
-    let mut planned = journal::observe_refs(repo)?;
+    let mut planned = observe_refs(repo)?;
     let mut transitions: Vec<RefTransition> = Vec::new();
     let mut effects: Vec<StashEffect> = Vec::new();
     let head_old = planned.head.clone();
@@ -181,28 +190,45 @@ pub fn switch(
         }
     }
 
-    let mut record = OpRecord::new(
-        OpKind::Op,
-        "switch",
-        format!("switch from {current} to {target}"),
-        now,
-    );
+    let mut record = OpRecord::new("switch", format!("switch from {current} to {target}"), now);
     record.argv = opts.argv.clone();
-    record.branch = Some(target.clone());
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.head = Some((head_old, format!("ref:{target_ref}")));
     record.refs = transitions;
     record.stash = effects;
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
     let mut pins = vec![target_commit];
     if let Some(plan) = &park_plan {
         pins.push(plan.wip_commit);
     }
-    if let Some(pre) = &ctx.pre_snapshot {
-        pins.push(gix::ObjectId::from_hex(pre.as_bytes()).map_err(Error::repo)?);
-    }
-    journal::append(repo, &record, &planned, index_tree, &pins, now)?;
+    pins.extend(ctx.pre_op.map(|id| id.object_id()));
+    // The planned end state: the destination's tree, unless a parked change is
+    // about to be laid back over it — in which case that is what the working
+    // tree will hold, and saying "target tree" would make an undo of the next
+    // operation throw the resumed change away.
+    let (end_tree, end_index) = match &arrive_plan {
+        ArrivePlan::Restore {
+            target_wip,
+            target_index,
+            ..
+        } => (*target_wip, *target_index),
+        _ => (target_tree, target_tree),
+    };
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            tree: end_tree,
+            index_tree: end_index,
+            // The destination, not the origin: the pointer that moves is the
+            // one the next capture on this worktree will read.
+            branch: target.clone(),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
 
     // Mutate: park, retarget, index, worktree, arrive — in that order.
     let parked_sha = match &park_plan {
@@ -235,7 +261,7 @@ pub fn switch(
             to: target,
             parked: parked_sha,
             arrival: arrival_report,
-            pre_snapshot: ctx.pre_snapshot.clone(),
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
     ))

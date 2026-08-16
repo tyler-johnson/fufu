@@ -1,7 +1,12 @@
 //! Trim contract: trash-first, byte-preserved survivors, honest relinking,
 //! truthful reflog replay, and gc-proofness of everything still referenced.
+//!
+//! Every fixture here carries one operation the old chain tests did not have:
+//! the log's floor, laid by the first capture in the repository and dated with
+//! it. It ages out on the same cutoff as everything else, which is why the
+//! drop counts below are one higher than the number of captures taken.
 
-use ff_core::{Provenance, SnapOutcome, TakeOptions, TrimOptions};
+use ff_core::{CaptureOutcome, Provenance, TakeOptions, TrimOptions};
 use ff_testsupport::Fixture;
 
 /// A synthetic "now" all trim tests share; snapshot times hang off it.
@@ -9,7 +14,7 @@ const NOW: i64 = 1_700_000_000;
 
 fn snap_at(fx: &Fixture, days_ago: i64) -> String {
     let repo = fx.repo();
-    match ff_core::take_with(
+    match ff_core::capture_with(
         &repo,
         &Provenance::new("manual", Some(format!("{days_ago}d ago"))),
         &TakeOptions {
@@ -19,7 +24,7 @@ fn snap_at(fx: &Fixture, days_ago: i64) -> String {
     )
     .expect("take")
     {
-        SnapOutcome::Created { id, .. } => id,
+        CaptureOutcome::Created { id, .. } => id.hex(),
         other => panic!("expected Created, got {other:?}"),
     }
 }
@@ -73,8 +78,8 @@ fn cat(fx: &Fixture, id: &str) -> Raw {
     }
 }
 
-/// Standard fixture: 4 snapshots at 100/95/10/5 days old — the 90d default
-/// cutoff drops the two oldest.
+/// Standard fixture: 4 captures at 100/95/10/5 days old — the 90d default
+/// cutoff drops the two oldest, and the floor underneath them.
 fn aged_chain(fx: &Fixture) -> Vec<String> {
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -93,11 +98,14 @@ fn dry_run_writes_nothing() {
     let report = trim(&fx, true, false);
     assert!(report.dry_run);
     assert_eq!(report.chains.len(), 1);
-    assert_eq!(report.chains[0].dropped, 2);
+    assert_eq!(report.chains[0].dropped, 3, "two captures and the floor");
     assert_eq!(report.chains[0].kept, 2);
+    let log = report.log.expect("the log is reported too");
+    assert_eq!(log.dropped, 3);
+    assert_eq!(log.trash_ref, None, "a dry run parks nothing");
     let tip = fx.git(&["rev-parse", "refs/fufu/snap/main"]);
-    assert_eq!(tip.trim(), snaps[3], "chain untouched");
-    let trash = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/trash/main"]);
+    assert_eq!(tip.trim(), snaps[3], "the log is untouched");
+    let trash = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/trash/@ops"]);
     assert!(!trash.status.success(), "no trash written on dry run");
 }
 
@@ -108,39 +116,68 @@ fn trim_drops_suffix_preserving_survivors() {
     let originals: Vec<Raw> = snaps.iter().map(|id| cat(&fx, id)).collect();
 
     let report = trim(&fx, false, false);
-    assert_eq!(report.chains[0].dropped, 2);
+    assert_eq!(report.chains[0].dropped, 3);
     assert_eq!(report.chains[0].kept, 2);
     assert!(!report.chains[0].deleted);
 
-    // Trash = the pre-trim tip, written before anything moved.
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/main"]);
+    // Trash = the pre-trim log tip, written before anything moved.
+    let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
     assert_eq!(trash.trim(), snaps[3]);
 
-    // The rebuilt chain: two survivors, oldest relinked to its base edge.
-    let new_tip = fx
+    // The rebuilt log: two survivors under the trim's own note.
+    let note = fx
         .git(&["rev-parse", "refs/fufu/snap/main"])
         .trim()
         .to_string();
+    let new_tip = cat(&fx, &note).parents[0].clone();
     let new_top = cat(&fx, &new_tip);
     let new_oldest_id = new_top.parents[0].clone();
     let new_oldest = cat(&fx, &new_oldest_id);
 
-    // Survivor content is byte-preserved: tree, message, identities, dates.
+    // Survivor content is byte-preserved: tree, subject, identities, dates.
+    // What may differ is exactly what describes the log's SHAPE — the three
+    // stated links — because the shape is the thing the trim changed.
+    let shape_keys = ["fufu-prev:", "fufu-prev-branch:", "fufu-prev-segment:"];
+    let without_links = |msg: &str| -> Vec<String> {
+        msg.lines()
+            .filter(|l| !shape_keys.iter().any(|k| l.starts_with(k)))
+            .map(str::to_string)
+            .collect()
+    };
     for (rebuilt, original) in [(&new_top, &originals[3]), (&new_oldest, &originals[2])] {
         assert_eq!(rebuilt.tree, original.tree, "tree byte-preserved");
-        assert_eq!(rebuilt.message, original.message, "message byte-preserved");
+        assert_eq!(
+            without_links(&rebuilt.message),
+            without_links(&original.message),
+            "everything but the shape links is byte-preserved"
+        );
         assert_eq!(
             rebuilt.author, original.author,
             "author + date byte-preserved"
         );
         assert_eq!(rebuilt.committer, original.committer);
     }
-    // Relink rules: the oldest survivor's parents are its base edge verbatim
-    // (prev slot dropped); the newer survivor keeps its base in slot 2.
-    assert_eq!(new_oldest.parents, originals[2].parents[1..].to_vec());
+    // And the links really did relink rather than being left dangling.
+    assert!(
+        new_oldest.message.contains("fufu-prev: none"),
+        "the new root states that nothing precedes it: {:?}",
+        new_oldest.message
+    );
+    // Relink rules. The oldest survivor becomes the log's new root, so it
+    // loses both leading slots: the prev it no longer has, and the base that
+    // would otherwise slide up into slot 1 and send `git log --first-parent`
+    // out through the user's own history. A capture has nothing after slot 2,
+    // so what remains is nothing at all.
+    assert!(
+        new_oldest.parents.is_empty(),
+        "the new root keeps no leading slots: {:?}",
+        new_oldest.parents
+    );
+    assert_eq!(originals[2].parents.len(), 2, "it had both before the trim");
+    // The newer survivor keeps its base in slot 2, verbatim.
     assert_eq!(new_top.parents[1..], originals[3].parents[1..]);
 
-    // Dropped snapshots remain reachable through trash (one-deep undo).
+    // Dropped operations remain reachable through trash (one-deep undo).
     for dropped in &snaps[..2] {
         let out = fx.git(&["cat-file", "-e", dropped]);
         drop(out);
@@ -167,38 +204,47 @@ fn reflog_replay_keeps_time_queries_truthful() {
     let spec = format!("refs/fufu/snap/main@{{{ago} seconds ago}}");
     let resolved = fx.git(&["rev-parse", &spec]).trim().to_string();
 
-    // At that moment the tip was the (rebuilt) 10d-old snapshot: the new
-    // tip's first parent.
-    let new_tip = fx
+    // At that moment the pointer was on the (rebuilt) 10d-old capture. The
+    // pointer's tip is now the trim's own note; step past it and past the 5d
+    // survivor to reach it.
+    let note = fx
         .git(&["rev-parse", "refs/fufu/snap/main"])
         .trim()
         .to_string();
-    let expected = cat(&fx, &new_tip).parents[0].clone();
+    let newest_survivor = cat(&fx, &note).parents[0].clone();
+    let expected = cat(&fx, &newest_survivor).parents[0].clone();
     assert_eq!(resolved, expected, "@{{time}} truthful after replay");
 
     let entries = fx.git(&["reflog", "show", "refs/fufu/snap/main"]);
-    assert_eq!(entries.lines().count(), 2, "one reflog line per survivor");
+    assert_eq!(
+        entries.lines().count(),
+        3,
+        "one line per survivor, plus the trim note that landed on top"
+    );
 }
 
 #[test]
-fn all_dropped_moves_chain_to_trash_and_deletes_ref() {
+fn all_dropped_moves_the_log_to_trash_and_deletes_every_ref() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
     fx.write("a.txt", "old\n");
     let old_snap = snap_at(&fx, 200);
     let report = trim(&fx, false, false);
-    assert_eq!(report.chains[0].dropped, 1);
+    assert_eq!(report.chains[0].dropped, 2, "the capture and the floor");
     assert!(report.chains[0].deleted);
+    assert!(report.log.as_ref().unwrap().deleted);
 
-    let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/main"]);
-    assert!(!gone.status.success(), "chain ref deleted");
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/main"]);
-    assert_eq!(trash.trim(), old_snap, "trash holds the whole chain");
+    for r in ["refs/fufu/snap/main", "refs/fufu/ops"] {
+        let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
+        assert!(!gone.status.success(), "{r} deleted");
+    }
+    let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
+    assert_eq!(trash.trim(), old_snap, "trash holds the whole log");
 }
 
 #[test]
-fn gone_branches_drop_entire_chains() {
+fn gone_branches_lose_their_pointer_and_age_out_on_time() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -213,17 +259,32 @@ fn gone_branches_drop_entire_chains() {
     let doomed = report.chains.iter().find(|c| c.branch == "doomed").unwrap();
     assert_eq!(doomed.dropped, 0);
 
+    // With --gone the POINTER goes, and only the pointer. You cannot excise
+    // one branch's operations from the middle of a global chain without
+    // rewriting every operation after them, so the operations behind the name
+    // stay on the log and age out on the same cutoff as everything else.
     let report = trim(&fx, false, true);
     let doomed = report.chains.iter().find(|c| c.branch == "doomed").unwrap();
     assert!(doomed.deleted);
+    assert_eq!(doomed.dropped, 0, "--gone drops no operations, and says so");
     let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/doomed"]);
-    assert!(!gone.status.success());
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/doomed"]);
-    assert_eq!(trash.trim(), doomed_snap);
+    assert!(!gone.status.success(), "the pointer is deleted");
+    assert!(
+        fx.git(&["rev-list", "refs/fufu/ops"])
+            .lines()
+            .any(|l| l == doomed_snap),
+        "the operation itself stays on the log"
+    );
+    // And nothing was rewritten: the log's tip is exactly where it was.
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/ops"]).trim(),
+        doomed_snap,
+        "--gone rebuilds nothing, so no operation changes its sha"
+    );
 }
 
 /// The gc proof: aggressive reflog expiry plus gc --prune=now must not
-/// collect anything the chain or trash still references.
+/// collect anything the log or its trash still references.
 #[test]
 fn gc_cannot_collect_the_chain() {
     let fx = Fixture::new();
@@ -241,7 +302,7 @@ fn gc_cannot_collect_the_chain() {
         let out = fx.try_git(&["cat-file", "-e", id]);
         assert!(
             out.status.success(),
-            "{id} was collected — the chain is not gc-proof"
+            "{id} was collected — the log is not gc-proof"
         );
     }
     // And the snapshot content is still restorable.
@@ -250,7 +311,7 @@ fn gc_cannot_collect_the_chain() {
 }
 
 #[test]
-fn nothing_to_drop_reports_and_leaves_chain_alone() {
+fn nothing_to_drop_reports_and_leaves_the_log_alone() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -258,9 +319,9 @@ fn nothing_to_drop_reports_and_leaves_chain_alone() {
     let snap = snap_at(&fx, 1);
     let report = trim(&fx, false, false);
     assert_eq!(report.chains[0].dropped, 0);
-    assert_eq!(report.chains[0].kept, 1);
+    assert_eq!(report.chains[0].kept, 2, "the capture and the floor");
     let tip = fx.git(&["rev-parse", "refs/fufu/snap/main"]);
-    assert_eq!(tip.trim(), snap, "untouched chains keep their exact shas");
+    assert_eq!(tip.trim(), snap, "an untouched log keeps its exact shas");
 }
 
 /// fufu.keep is honored when set.
@@ -274,7 +335,7 @@ fn keep_config_overrides_default() {
     fx.set_config("fufu.keep", "7d");
     let report = trim(&fx, false, false);
     assert_eq!(
-        report.chains[0].dropped, 1,
-        "7d cutoff drops a 10d snapshot"
+        report.chains[0].dropped, 2,
+        "a 7d cutoff drops a 10d capture and the floor beneath it"
     );
 }

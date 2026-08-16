@@ -11,10 +11,10 @@
 //! replayed line's previous-value column is null.
 
 use crate::error::{Error, Result};
-use crate::journal::RefTransition;
 use crate::model::HeadState;
+use crate::ops::record::observe_refs;
+use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, RefTransition, verb};
 use crate::refs;
-use crate::snapshot::chain;
 use crate::stash;
 
 /// The namespace prefix for anonymous branches.
@@ -32,10 +32,13 @@ fn heads_ref(branch: &str) -> String {
 /// name validation.
 pub fn validate_name(branch: &str) -> Result<()> {
     let full = heads_ref(branch);
-    let _: gix::refs::FullName = full
-        .as_str()
-        .try_into()
-        .map_err(|err| Error::msg(format!("invalid branch name {branch:?}: {err}")))?;
+    let _: gix::refs::FullName = full.as_str().try_into().map_err(|err| {
+        Error::coded(
+            "branch/invalid-name",
+            format!("invalid branch name {branch:?}: {err}"),
+            vec![],
+        )
+    })?;
     Ok(())
 }
 
@@ -59,15 +62,17 @@ pub fn guard_other_worktrees(repo: &gix::Repository, branch: &str) -> Result<()>
                 .base()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| proxy.id().to_string());
-            return Err(Error::msg(format!(
-                "{branch} is checked out in another worktree ({place}); refusing"
-            )));
+            return Err(Error::coded(
+                "branch/checked-out-elsewhere",
+                format!("{branch} is checked out in another worktree ({place}); refusing"),
+                vec![],
+            ));
         }
     }
     Ok(())
 }
 
-/// What a rename moved, for the journal.
+/// What a rename moved, for the operation record.
 #[derive(Debug, Default)]
 pub struct RenameEffects {
     pub transitions: Vec<RefTransition>,
@@ -128,9 +133,10 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         effects.head_moved = Some((format!("ref:{old_ref}"), format!("ref:{new_ref}")));
     }
 
-    // 3. Snap chain replay (the timeline follows the change).
-    let old_snap = format!("{}{old}", chain::SNAP_PREFIX);
-    let new_snap = format!("{}{new}", chain::SNAP_PREFIX);
+    // 3. The branch's pointer into the log follows the change, reflog and
+    //    all — `ff restore --at @{n}` reads exactly those lines.
+    let old_snap = format!("{BRANCH_PREFIX}{old}");
+    let new_snap = format!("{BRANCH_PREFIX}{new}");
     if let Some(snap_tip) = refs::ref_target(repo, &old_snap)? {
         let lines = refs::read_ref_log(repo, &old_snap)?;
         refs::create_ref_with_log(
@@ -259,18 +265,18 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
     Ok(crate::model::BranchList { named, anonymous })
 }
 
-/// `ff branch <name>` — claim the current anonymous branch, journaled.
+/// `ff branch <name>` — claim the current anonymous branch, recorded.
 pub fn claim_current(
     repo: &gix::Repository,
     new_name: &str,
     prov: &crate::snapshot::Provenance,
     now: Option<i64>,
     argv: Vec<String>,
-) -> Result<(crate::model::ClaimReport, crate::journal::VerbContext)> {
+) -> Result<(crate::model::ClaimReport, verb::VerbContext)> {
     rename_current(repo, new_name, true, prov, now, argv)
 }
 
-/// Rename the current branch, journaled. `require_anonymous` is the claim
+/// Rename the current branch, recorded. `require_anonymous` is the claim
 /// discipline (`ff branch <name>`); `ff describe -b` lifts it — the one
 /// rename that may touch proper names.
 pub fn rename_current(
@@ -280,8 +286,8 @@ pub fn rename_current(
     prov: &crate::snapshot::Provenance,
     now: Option<i64>,
     argv: Vec<String>,
-) -> Result<(crate::model::ClaimReport, crate::journal::VerbContext)> {
-    let ctx = crate::journal::begin_verb(repo, prov, now)?;
+) -> Result<(crate::model::ClaimReport, verb::VerbContext)> {
+    let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
     let head = crate::head::head_state(repo)?;
     let (current, tip) = match &head {
@@ -289,12 +295,22 @@ pub fn rename_current(
             name.clone(),
             gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?,
         ),
-        _ => return Err(Error::msg("not on a branch: nothing to claim")),
+        _ => {
+            return Err(Error::coded(
+                "repo/detached",
+                "not on a branch: nothing to claim",
+                vec!["ff switch <branch>".into()],
+            ));
+        }
     };
     if require_anonymous && !is_anonymous(&current) {
-        return Err(Error::msg(format!(
-            "{current} already has a proper name; use ff describe -b {new_name} to rename it"
-        )));
+        return Err(Error::coded(
+            "branch/already-named",
+            format!(
+                "{current} already has a proper name; use ff describe -b {new_name} to rename it"
+            ),
+            vec![format!("ff describe -b {new_name}")],
+        ));
     }
     validate_name(new_name)?;
     if refs::ref_target(repo, &heads_ref(new_name))?.is_some() {
@@ -307,7 +323,7 @@ pub fn rename_current(
     guard_other_worktrees(repo, &current)?;
 
     // Write-ahead: the rename's effects are fully known before it runs.
-    let mut planned = crate::journal::observe_refs(repo)?;
+    let mut planned = observe_refs(repo)?;
     planned.refs.remove(&heads_ref(&current));
     planned.refs.insert(heads_ref(new_name), tip.to_string());
     planned.head = format!("ref:{}", heads_ref(new_name));
@@ -344,54 +360,70 @@ pub fn rename_current(
     } else {
         format!("rename {current} to {new_name}")
     };
-    let mut record =
-        crate::journal::OpRecord::new(crate::journal::OpKind::Op, "branch", summary, now);
+    let mut record = OpRecord::new("branch", summary, now);
     record.argv = argv;
-    record.branch = Some(new_name.to_string());
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.refs = transitions;
     record.head = Some((
         format!("ref:{}", heads_ref(&current)),
         format!("ref:{}", heads_ref(new_name)),
     ));
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
-    crate::journal::append(repo, &record, &planned, index_tree, &[tip], now)?;
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // A rename moves names, never content: the working tree and the
+            // index are exactly where the preamble found them.
+            tree: ctx.pre_tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            // Recorded against the branch it RAN on, not the one it creates.
+            // The rename below carries this branch's pointer into the log —
+            // reflog and all — over to the new name, and an op recorded under
+            // the new name would create that pointer here and leave the
+            // rename with a name already taken.
+            branch: current.clone(),
+            base: Some(tip),
+            session: prov.session.clone(),
+            pins: &[tip],
+        },
+        now,
+    )?;
 
     rename(repo, &current, new_name, now)?;
     Ok((
         crate::model::ClaimReport {
             from: current,
             to: new_name.to_string(),
-            pre_snapshot: ctx.pre_snapshot.clone(),
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
     ))
 }
 
-/// `ff branch -d <name>` — delete a branch, journaled. The snap chain moves
-/// to trash (trim's one-deep pattern), the parked entry is demoted (its
-/// stash entry survives), and the tip stays pinned by the journal — so the
-/// deletion is undoable, which is why there is no merged-check: nothing is
-/// lost.
+/// `ff branch -d <name>` — delete a branch, recorded. The branch's pointer
+/// into the log moves to trash (trim's one-deep pattern) rather than being
+/// dropped, the parked entry is demoted (its stash entry survives), and the
+/// tip stays pinned by the operation — so the deletion is undoable, which is
+/// why there is no merged-check: nothing is lost. The branch's operations
+/// themselves stay on the log; only the way in through this name goes.
 pub fn delete(
     repo: &gix::Repository,
     name: &str,
     prov: &crate::snapshot::Provenance,
     now: Option<i64>,
     argv: Vec<String>,
-) -> Result<(
-    crate::model::BranchDeleteReport,
-    crate::journal::VerbContext,
-)> {
-    let ctx = crate::journal::begin_verb(repo, prov, now)?;
+) -> Result<(crate::model::BranchDeleteReport, verb::VerbContext)> {
+    let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
     let head = crate::head::head_state(repo)?;
     let current = crate::snapshot::chain::chain_name(&head);
     if name == current {
-        return Err(Error::msg(format!(
-            "{name} is the current branch; switch away before deleting it"
-        )));
+        return Err(Error::coded(
+            "branch/is-current",
+            format!("{name} is the current branch; switch away before deleting it"),
+            vec!["ff switch <branch>".into()],
+        ));
     }
     let full = heads_ref(name);
     let tip = refs::ref_target(repo, &full)?.ok_or_else(|| {
@@ -404,7 +436,7 @@ pub fn delete(
     guard_other_worktrees(repo, name)?;
 
     let parked = crate::stash::parked_entry(repo, name)?;
-    let mut planned = crate::journal::observe_refs(repo)?;
+    let mut planned = observe_refs(repo)?;
     planned.refs.remove(&full);
     let mut transitions = vec![RefTransition {
         name: full.clone(),
@@ -420,34 +452,40 @@ pub fn delete(
             new: None,
         });
     }
-    let mut record = crate::journal::OpRecord::new(
-        crate::journal::OpKind::Op,
-        "branch",
-        format!("delete branch {name}"),
-        now,
-    );
+    let mut record = OpRecord::new("branch", format!("delete branch {name}"), now);
     record.argv = argv;
-    record.branch = Some(current);
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.refs = transitions;
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
     let mut pins = vec![tip];
     pins.extend(parked);
-    crate::journal::append(repo, &record, &planned, index_tree, &pins, now)?;
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // Deleting some other branch leaves this worktree untouched.
+            tree: ctx.pre_tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            branch: current.clone(),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
 
-    // Snap chain to trash first (never lose the timeline), then the refs.
-    let snap_ref = format!("{}{name}", chain::SNAP_PREFIX);
+    // The pointer to trash first (never lose the way back), then the refs.
+    let snap_ref = format!("{BRANCH_PREFIX}{name}");
     let mut trash: Option<String> = None;
     if let Some(snap_tip) = refs::ref_target(repo, &snap_ref)? {
-        let trash_ref = chain::trash_ref(name);
+        let trash_ref = format!("refs/fufu/trash/{name}");
         refs::write_ref(
             repo,
             &trash_ref,
             snap_tip,
             gix::refs::transaction::PreviousValue::Any,
             now,
-            &format!("branch: pre-delete chain of {name}"),
+            &format!("branch: pre-delete pointer of {name}"),
         )?;
         refs::delete_ref(repo, &snap_ref, snap_tip, now)?;
         trash = Some(trash_ref);
@@ -465,7 +503,7 @@ pub fn delete(
             tip: tip.to_string(),
             trash_ref: trash,
             parked_demoted: parked.map(|p| p.to_string()),
-            pre_snapshot: ctx.pre_snapshot.clone(),
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
     ))

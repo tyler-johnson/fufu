@@ -1,13 +1,13 @@
-//! Restore contract: worktree-only writes, mandatory pre-snapshot, target
-//! grammar, round-trips, and refusals.
+//! Restore contract: worktree-only writes, a mandatory pre-restore capture,
+//! the target grammar, round-trips, and refusals.
 
-use ff_core::{Provenance, RestoreOptions, SnapOutcome, TakeOptions, TrimOptions};
+use ff_core::{CaptureOutcome, Provenance, RestoreOptions, TakeOptions, TrimOptions};
 use ff_testsupport::Fixture;
 
 fn take_created(fx: &Fixture) -> String {
     let repo = fx.repo();
-    match ff_core::take(&repo, &Provenance::new("manual", None)).expect("take") {
-        SnapOutcome::Created { id, .. } => id,
+    match ff_core::capture(&repo, &Provenance::new("manual", None)).expect("take") {
+        CaptureOutcome::Created { id, .. } => id.hex(),
         other => panic!("expected Created, got {other:?}"),
     }
 }
@@ -46,10 +46,7 @@ fn round_trip_restore_then_take_is_target_tree() {
 
     let report = restore_all(&fx, Some(&snap[..7]));
     assert_eq!(report.target.id, snap);
-    assert!(
-        report.pre_snapshot.is_some(),
-        "pre-restore snapshot happened"
-    );
+    assert!(report.pre_op.is_some(), "pre-restore snapshot happened");
 
     // Worktree content matches the snapshot.
     let a = std::fs::read_to_string(fx.path().join("a.txt")).unwrap();
@@ -60,15 +57,17 @@ fn round_trip_restore_then_take_is_target_tree() {
 
     // A fresh take now equals the target's tree.
     let repo = fx.repo();
-    let outcome = ff_core::take(&repo, &Provenance::new("manual", None)).expect("take");
+    let outcome = ff_core::capture(&repo, &Provenance::new("manual", None)).expect("take");
     let tree_of = |id: &str| {
         fx.git(&["rev-parse", &format!("{id}^{{tree}}")])
             .trim()
             .to_string()
     };
     match outcome {
-        SnapOutcome::Created { id, .. } => assert_eq!(tree_of(&id), tree_of(&snap)),
-        SnapOutcome::NoOp { tip: Some(tip), .. } => assert_eq!(tree_of(&tip), tree_of(&snap)),
+        CaptureOutcome::Created { id, .. } => assert_eq!(tree_of(&id.hex()), tree_of(&snap)),
+        CaptureOutcome::NoOp { tip: Some(tip), .. } => {
+            assert_eq!(tree_of(&tip.hex()), tree_of(&snap))
+        }
         other => panic!("unexpected outcome {other:?}"),
     }
 }
@@ -320,15 +319,19 @@ fn refuses_non_fufu_targets() {
         &Provenance::new("pre", Some("ff restore".into())),
     )
     .unwrap_err();
+    // The guard is `is_op_commit`, not "does it bear the fufu identity" — a
+    // record commit bears the identity too, and restoring from one would wipe
+    // the working tree and write three metadata files in its place.
+    assert_eq!(err.id(), "op/not-found", "{err}");
     assert!(
-        err.to_string().contains("not a fufu snapshot")
-            || err.to_string().contains("no snapshot matching"),
+        err.to_string().contains("not a fufu operation")
+            || err.to_string().contains("no operation matches"),
         "refusal names the problem: {err}"
     );
 }
 
 #[test]
-fn contended_pre_snapshot_aborts_before_writing() {
+fn contended_pre_capture_aborts_before_writing() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -381,7 +384,8 @@ fn no_chain_means_nothing_to_restore() {
         &Provenance::new("pre", Some("ff restore --all".into())),
     )
     .unwrap_err();
-    assert!(err.to_string().contains("no snapshots"), "{err}");
+    assert_eq!(err.id(), "op/not-found", "{err}");
+    assert!(err.to_string().contains("no operations on main"), "{err}");
 }
 
 #[test]
@@ -472,15 +476,21 @@ fn ambiguous_prefix_errors_with_both_ids() {
     // Two ids sharing four hex characters is a birthday event: at this cap it
     // turns up most runs but not every run, and forcing it would cost thousands
     // of captures. When it does not, assert the other half of the same code
-    // path instead — that a 4-character prefix resolves to exactly one id — so
-    // this test always exercises index-backed resolution rather than passing
-    // vacuously.
+    // path instead — that the shortest prefix the index calls unique really
+    // does resolve to exactly one id — so this test always exercises
+    // index-backed resolution rather than passing vacuously.
     let Some((a, b, prefix)) = collision else {
-        let newest = ids.last().expect("at least one snapshot").clone();
-        let report = restore_all(&fx, Some(&newest[..4]));
+        let newest = ids.last().expect("at least one capture").clone();
+        let repo = fx.repo();
+        let lens = ff_core::ops::index::prefix_lens(&repo, std::slice::from_ref(&newest))
+            .expect("prefix_lens");
+        // Never below git's four-character minimum: shorter than that is a
+        // duration to the target grammar, deliberately (`3d` is three days).
+        let len = lens[&newest].max(4);
+        let report = restore_all(&fx, Some(&newest[..len]));
         assert_eq!(
             report.target.id, newest,
-            "an unambiguous 4-character prefix must resolve to its own id"
+            "the index's own unique prefix must resolve to its own id"
         );
         return;
     };
@@ -499,12 +509,17 @@ fn ambiguous_prefix_errors_with_both_ids() {
     )
     .unwrap_err();
     let msg = err.to_string();
+    assert_eq!(err.id(), "op/ambiguous", "{msg}");
     assert!(
-        msg.starts_with(&format!("ambiguous snapshot prefix {prefix}: ")),
+        msg.starts_with(&format!("{prefix} matches ")),
         "unexpected message: {msg}"
     );
-    assert!(msg.contains(&a), "missing {a} in {msg}");
-    assert!(msg.contains(&b), "missing {b} in {msg}");
+    // Candidates are listed in the letters alphabet, because that is the
+    // spelling the user has to type back.
+    for hex in [&a, &b] {
+        let letters = ff_core::snapid::encode(hex);
+        assert!(msg.contains(&letters[..12]), "missing {letters} in {msg}");
+    }
 }
 
 /// Trim moves the pre-cutoff suffix of the chain to `refs/fufu/trash/<name>`
@@ -516,7 +531,7 @@ fn trash_ids_still_resolve() {
 
     fn snap_at(fx: &Fixture, days_ago: i64) -> String {
         let repo = fx.repo();
-        match ff_core::take_with(
+        match ff_core::capture_with(
             &repo,
             &Provenance::new("manual", Some(format!("{days_ago}d ago"))),
             &TakeOptions {
@@ -526,7 +541,7 @@ fn trash_ids_still_resolve() {
         )
         .expect("take")
         {
-            SnapOutcome::Created { id, .. } => id,
+            CaptureOutcome::Created { id, .. } => id.hex(),
             other => panic!("expected Created, got {other:?}"),
         }
     }

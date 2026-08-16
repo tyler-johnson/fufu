@@ -5,10 +5,10 @@
 //! nothing; a message (`-m` or pending description) closes as an empty
 //! commit — no totally-empty commits.
 //!
-//! Ordering is write-ahead: capture-first snapshot → reconcile → hooks →
-//! tree + message + plan → journal append → mutate (branch axis, ref CAS,
-//! index, pending description). A crash after the append is labeled loudly
-//! by the next reconcile.
+//! Ordering is write-ahead: reconcile → capture → hooks → tree + message +
+//! plan → append the operation → mutate (branch axis, ref CAS, index, pending
+//! description). A crash after the append is labeled loudly by the next
+//! reconcile.
 
 use gix::prelude::ObjectIdExt;
 
@@ -16,8 +16,9 @@ use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::hooks;
-use crate::journal::{self, DescriptionTransition, OpKind, OpRecord, RefTransition};
 use crate::model::{CommitOutcome, HeadState};
+use crate::ops::record::observe_refs;
+use crate::ops::{DescriptionTransition, OpKind, OpRecord, RefTransition, verb};
 use crate::refs;
 use crate::snapshot::tree as snaptree;
 use crate::snapshot::{Provenance, config};
@@ -33,16 +34,16 @@ pub struct CloseOptions {
     pub branch: Option<String>,
     /// Clock injection for tests.
     pub now: Option<i64>,
-    /// The invoking argv, journaled verbatim.
+    /// The invoking argv, recorded verbatim.
     pub argv: Vec<String>,
 }
 
-/// Close the open change. `prov` names the mandatory pre-verb snapshot.
+/// Close the open change. `prov` names the mandatory pre-verb capture.
 pub fn close(
     repo: &gix::Repository,
     opts: &CloseOptions,
     prov: &Provenance,
-) -> Result<(CommitOutcome, journal::VerbContext)> {
+) -> Result<(CommitOutcome, verb::VerbContext)> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -51,12 +52,17 @@ pub fn close(
         ));
     }
     if let Some(op) = crate::head::operation(repo) {
-        return Err(Error::msg(format!(
-            "a {op:?} is in progress: finish it with git (git commit / git merge --abort); fufu owns merges in a later phase"
-        )));
+        return Err(Error::coded(
+            "repo/mid-operation",
+            format!(
+                "a {op:?} is in progress: finish it with git (git commit / git merge --abort); \
+                 fufu owns merges in a later phase"
+            ),
+            vec![],
+        ));
     }
 
-    let ctx = journal::begin_verb(repo, prov, opts.now)?;
+    let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
 
     let head = crate::head::head_state(repo)?;
@@ -190,9 +196,9 @@ pub fn close(
     };
     let commit_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
 
-    // Journal, write-ahead: the planned table is the post-close world.
+    // Write-ahead: the planned table is the post-close world.
     let target_ref = format!("refs/heads/{target_branch}");
-    let mut planned = journal::observe_refs(repo)?;
+    let mut planned = observe_refs(repo)?;
     let mut transitions: Vec<RefTransition> = Vec::new();
     if let Some(old_name) = &claim_from {
         let old_ref = format!("refs/heads/{old_name}");
@@ -232,14 +238,11 @@ pub fn close(
     }
 
     let mut record = OpRecord::new(
-        OpKind::Op,
         "commit",
         format!("commit on {target_branch}: {subject}"),
         now,
     );
     record.argv = opts.argv.clone();
-    record.branch = Some(target_branch.clone());
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.refs = transitions;
     record.head = head_transition;
     record.description = pending.as_ref().map(|text| DescriptionTransition {
@@ -247,14 +250,34 @@ pub fn close(
         old: Some(text.clone()),
         new: None,
     });
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
     let mut pins = vec![commit_id];
     pins.extend(head_commit);
-    if let Some(pre) = &ctx.pre_snapshot {
-        pins.push(gix::ObjectId::from_hex(pre.as_bytes()).map_err(Error::repo)?);
-    }
-    journal::append(repo, &record, &planned, index_tree, &pins, now)?;
+    pins.extend(ctx.pre_op.map(|id| id.object_id()));
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // The close writes the tree it just built into a commit and leaves
+            // the working tree holding exactly that content, and rewrites the
+            // index to match: one tree, all three roles.
+            tree: tree_id,
+            index_tree: tree_id,
+            // A claim renames the branch, and the rename carries its pointer
+            // into the log over to the new name; recording under the new name
+            // would create that pointer first and collide. A fresh `-b` name
+            // forks instead of renaming, so it opens its own pointer here.
+            branch: match &claim_from {
+                Some(old) => old.clone(),
+                None => target_branch.clone(),
+            },
+            base: head_commit,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
 
     // Mutate. Branch axis first, then the CAS advance, then the index.
     if let Some(old_name) = &claim_from {
@@ -325,8 +348,8 @@ pub fn close(
         }
     }
 
-    // First close on a chainless repo: make sure gc guards exist (the
-    // journal now pins history through refs/fufu/*).
+    // First close on a logless repo: make sure gc guards exist (the log pins
+    // history through refs/fufu/*).
     let _ = config::ensure_gc_config(repo);
 
     let files_changed = crate::snapshot::count_file_changes(repo, head_tree, tree_id)?;
@@ -343,7 +366,7 @@ pub fn close(
             subject,
             files_changed,
             claimed_from: claim_from,
-            pre_snapshot: ctx.pre_snapshot.clone(),
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
     ))

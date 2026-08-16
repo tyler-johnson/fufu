@@ -6,20 +6,21 @@
 
 use crate::branchmeta;
 use crate::error::{Error, Result};
-use crate::journal::{self, DescriptionTransition, OpKind, OpRecord};
 use crate::model::DescribeReport;
+use crate::ops::record::observe_refs;
+use crate::ops::{DescriptionTransition, OpKind, OpRecord, verb};
 use crate::snapshot::Provenance;
 
-/// Set (or clear) the pending description of the current branch, journaled
-/// as a slim entry so the change is undoable.
+/// Set (or clear) the pending description of the current branch, recorded as
+/// a slim operation so the change is undoable.
 pub fn set_pending(
     repo: &gix::Repository,
     text: Option<String>,
     prov: &Provenance,
     now: Option<i64>,
     argv: Vec<String>,
-) -> Result<(DescribeReport, journal::VerbContext)> {
-    let ctx = journal::begin_verb(repo, prov, now)?;
+) -> Result<(DescribeReport, verb::VerbContext)> {
+    let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
     let head = crate::head::head_state(repo)?;
     let branch = match &head {
@@ -53,10 +54,11 @@ pub fn set_pending(
         ));
     }
 
-    // Slim journal entry: no ref motion, just the description transition.
-    let table = journal::observe_refs(repo)?;
+    // A slim operation: no ref motion, just the description transition. Its
+    // planned end state is the present on every axis but that one — describe
+    // touches neither the working tree nor the index.
+    let table = observe_refs(repo)?;
     let mut record = OpRecord::new(
-        OpKind::Op,
         "describe",
         match &text {
             Some(_) => format!("describe pending change on {branch}"),
@@ -65,16 +67,26 @@ pub fn set_pending(
         now,
     );
     record.argv = argv;
-    record.branch = Some(branch.clone());
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.description = Some(DescriptionTransition {
         branch: branch.clone(),
         old: old.clone(),
         new: text.clone(),
     });
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
-    journal::append(repo, &record, &table, index_tree, &[], now)?;
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned: table,
+            tree: ctx.pre_tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            branch: branch.clone(),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &[],
+        },
+        now,
+    )?;
 
     meta.pending_description = text.clone();
     branchmeta::write(repo, &branch, &meta)?;

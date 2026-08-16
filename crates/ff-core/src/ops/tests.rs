@@ -8,13 +8,13 @@ use ff_testsupport::Fixture;
 
 use super::*;
 use crate::ops::append::{Append, OpDraft, commit_op};
-use crate::ops::record::{OpRecord, observe_refs};
+use crate::ops::record::{OpRecord, RefTransition, observe_refs};
 use crate::snapshot::{Provenance, TakeOptions};
 
 const NOW: i64 = 1_700_000_000;
 
 fn snap(fx: &Fixture, repo: &gix::Repository, now: i64) -> OpId {
-    match capture(
+    match capture_with(
         repo,
         &Provenance::new("manual", None),
         &TakeOptions {
@@ -86,9 +86,14 @@ fn a_capture_is_one_commit_with_no_record() {
     let base = fx.commit("init");
     fx.write("a.txt", "one\n");
 
+    // The first capture in a repository also lays the log's floor, so the
+    // measurement starts after it: what is under test is the marginal cost of
+    // a capture, which is the number the whole storage argument turns on.
     let repo = fx.repo();
+    let first = snap(&fx, &repo, NOW);
+    fx.write("a.txt", "two\n");
     let before = commit_objects(&fx);
-    let id = snap(&fx, &repo, NOW);
+    let id = snap(&fx, &repo, NOW + 1);
     let after = commit_objects(&fx);
     assert_eq!(
         after,
@@ -103,8 +108,8 @@ fn a_capture_is_one_commit_with_no_record() {
     assert!(op.index_tree().unwrap().is_none());
     assert_eq!(
         parents(&repo, id),
-        vec![oid(&base)],
-        "no previous op, so base moves up into slot 1"
+        vec![first.object_id(), oid(&base)],
+        "prev at slot 1, base at slot 2"
     );
 }
 
@@ -174,7 +179,7 @@ fn the_two_refs_move_together_and_neither_moves_alone() {
     .unwrap();
 
     fx.write("a.txt", "two\n");
-    let outcome = capture(
+    let outcome = capture_with(
         &repo,
         &Provenance::new("manual", None),
         &TakeOptions {
@@ -289,8 +294,11 @@ fn the_walk_ends_at_the_root_and_never_enters_user_history() {
     written.push(verb(&repo, "commit: land it", NOW + 1));
     fx.write("a.txt", "two\n");
     written.push(snap(&fx, &repo, NOW + 2));
-
+    // The floor the first capture laid down is part of the log too, and it is
+    // the row this walk has to stop on.
     let log = OpLog::open(&repo).unwrap();
+    let floor = log.iter().last().unwrap().unwrap().id();
+    written.insert(0, floor);
     let walked: Vec<OpId> = log.iter().map(|op| op.unwrap().id()).collect();
     written.reverse();
     assert_eq!(walked, written, "newest first, every op, nothing else");
@@ -311,6 +319,13 @@ fn a_branch_walk_follows_its_own_pointer() {
 
     let repo = fx.repo();
     let main_one = snap(&fx, &repo, NOW);
+    let floor = OpLog::open(&repo)
+        .unwrap()
+        .iter()
+        .last()
+        .unwrap()
+        .unwrap()
+        .id();
 
     fx.git(&["switch", "-q", "-c", "feat"]);
     fx.write("a.txt", "two\n");
@@ -320,7 +335,7 @@ fn a_branch_walk_follows_its_own_pointer() {
     let log = OpLog::open(&repo).unwrap();
     let on_main: Vec<OpId> = log.iter_branch("main").map(|op| op.unwrap().id()).collect();
     let on_feat: Vec<OpId> = log.iter_branch("feat").map(|op| op.unwrap().id()).collect();
-    assert_eq!(on_main, vec![main_one]);
+    assert_eq!(on_main, vec![main_one, floor]);
     assert_eq!(on_feat, vec![feat_one], "the branch link skips main's op");
     assert_eq!(
         log.get(feat_one).unwrap().prev(),
@@ -344,7 +359,7 @@ fn capture_dedups_against_the_branch_pointer_not_the_log_tip() {
     // this capture whole and leave the new branch with no floor at all.
     fx.git(&["switch", "-q", "-c", "feat"]);
     let repo = fx.repo();
-    let outcome = capture(
+    let outcome = capture_with(
         &repo,
         &Provenance::new("manual", None),
         &TakeOptions {
@@ -361,7 +376,7 @@ fn capture_dedups_against_the_branch_pointer_not_the_log_tip() {
     assert_eq!(log.get(id).unwrap().prev_on_branch(), None);
 
     // Second time round, with its own pointer in place, it dedups.
-    let again = capture(
+    let again = capture_with(
         &repo,
         &Provenance::new("manual", None),
         &TakeOptions {
@@ -370,7 +385,13 @@ fn capture_dedups_against_the_branch_pointer_not_the_log_tip() {
         },
     )
     .unwrap();
-    assert_eq!(again, CaptureOutcome::NoOp { tip: Some(id) });
+    assert_eq!(
+        again,
+        CaptureOutcome::NoOp {
+            tip: Some(id),
+            warnings: Vec::new()
+        }
+    );
 }
 
 // --- contention ------------------------------------------------------------
@@ -519,10 +540,11 @@ fn the_index_catches_up_rather_than_rebuilding() {
     let ids = many_ops(&fx);
     let repo = fx.repo();
 
-    // The file is written by every append, so it is in sync here.
+    // The file is written by every append, so it is in sync here — over the
+    // ops the helper made plus the floor underneath them.
     assert_eq!(
         index::status(&repo).unwrap(),
-        index::Status::InSync { ids: ids.len() }
+        index::Status::InSync { ids: ids.len() + 1 }
     );
 
     // Simulate an append this process never saw: rewind the header to an
@@ -539,5 +561,68 @@ fn the_index_catches_up_rather_than_rebuilding() {
         std::fs::read(&path).unwrap(),
         bytes,
         "the read path never writes: catching up stays in memory"
+    );
+}
+
+/// A verb that recorded its plan and died before mutating: the planned table
+/// says main moved, reality still holds the old value. The next reconcile has
+/// to absorb the difference *and* say out loud that an operation may not have
+/// completed — a silent absorption would look identical to the user having run
+/// git themselves.
+///
+/// This lives in-crate because staging the crash means writing a plan that no
+/// mutation follows, and that is the `pub(crate)` write half.
+#[test]
+fn write_ahead_crash_is_labeled_incomplete() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let head = fx.commit("init");
+    let repo = fx.repo();
+    crate::ops::reconcile(&repo, NOW).unwrap();
+
+    fx.write("a.txt", "planned\n");
+    fx.git(&["add", "-A"]);
+    let planned_tree = fx.git(&["write-tree"]).trim().to_string();
+    let planned = fx
+        .git(&["commit-tree", &planned_tree, "-p", &head, "-m", "planned"])
+        .trim()
+        .to_string();
+    fx.git(&["reset", "-q", "--mixed", &head]); // leave reality at `head`
+
+    let repo = fx.repo();
+    let mut table = observe_refs(&repo).unwrap();
+    table.refs.insert("refs/heads/main".into(), planned.clone());
+    let mut record = OpRecord::new("commit", "close on main (test)", NOW + 1);
+    record.refs = vec![RefTransition {
+        name: "refs/heads/main".into(),
+        old: Some(head.clone()),
+        new: Some(planned.clone()),
+    }];
+    let head_state = crate::head::head_state(&repo).unwrap();
+    crate::ops::verb::append_op(
+        &repo,
+        OpKind::Op,
+        crate::ops::verb::VerbOp {
+            record,
+            planned: table,
+            tree: repo.head_tree_id_or_empty().unwrap().detach(),
+            index_tree: crate::index::tree_from_index(&repo).unwrap(),
+            branch: crate::snapshot::chain::chain_name(&head_state),
+            base: crate::snapshot::chain::base_commit(&head_state).unwrap(),
+            session: None,
+            pins: &[oid(&planned)],
+        },
+        NOW + 1,
+    )
+    .unwrap();
+
+    let report = crate::ops::reconcile(&repo, NOW + 2).unwrap();
+    assert_eq!(report.foreign.len(), 1);
+    let log = OpLog::open(&repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    assert!(
+        op.summary().contains("may not have completed"),
+        "a crash between append and mutation is loud: {}",
+        op.summary()
     );
 }

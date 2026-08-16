@@ -71,11 +71,13 @@ fn revisions_with_session() -> Error {
     )
 }
 
-/// `ff log --ops` — the operation journal, newest first, with op ids.
+/// `ff log --ops` — the operation log, newest first, with op ids. Captures
+/// are left out: they are the overwhelming majority of the log and `ff evolog`
+/// is the view that shows them.
 fn ops_view(json: bool, count: usize) -> Result<()> {
     use std::io::Write as _;
     let repo = ff_core::discover(".")?;
-    let entries = ff_core::journal::read_ops(&repo, count)?;
+    let entries = ff_core::ops::read_ops(&repo, count)?;
     let mut out = crate::pager::LogOut::new(&repo, json);
     let result = (|| -> std::io::Result<()> {
         if json {
@@ -84,7 +86,7 @@ fn ops_view(json: bool, count: usize) -> Result<()> {
             return Ok(());
         }
         if entries.is_empty() {
-            writeln!(out, "no operations journaled yet")?;
+            writeln!(out, "no operations recorded yet")?;
             return Ok(());
         }
         let now = now_secs();

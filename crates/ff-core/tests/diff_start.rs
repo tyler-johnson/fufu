@@ -3,8 +3,19 @@
 //! fork. Plus `ff describe` pending-description round trips, unrelated to
 //! start but hosted here alongside the rest of the composition tests.
 
+use ff_core::gix;
 use ff_core::{StartOptions, SwitchOptions};
 use ff_testsupport::Fixture;
+
+/// The newest operation's record, read through the public reader.
+fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    op.record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record")
+}
 
 const NOW: i64 = 1_700_000_000;
 
@@ -456,10 +467,9 @@ fn describe_round_trips_and_journals() {
     assert_eq!(report.new.as_deref(), Some("the plan"));
     assert_eq!(report.old, None);
 
-    let tip = ff_core::journal::tip(&repo).unwrap().unwrap();
-    let entry = ff_core::journal::read_entry(&repo, tip).unwrap();
-    assert_eq!(entry.record.verb, "describe");
-    let transition = entry.record.description.as_ref().unwrap();
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "describe");
+    let transition = record.description.as_ref().unwrap();
     assert_eq!(transition.new.as_deref(), Some("the plan"));
 
     // Clearing round-trips; indexes untouched throughout.

@@ -7,6 +7,16 @@
 use ff_core::{ArrivalReport, SwitchOptions};
 use ff_testsupport::{Fixture, scenarios};
 
+/// The newest operation's record, read through the public reader.
+fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    op.record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record")
+}
+
 const NOW: i64 = 1_700_000_000;
 
 fn ident(fx: &Fixture) {
@@ -233,19 +243,12 @@ fn switch_journals_one_entry_and_reconciles_clean() {
     assert!(report.parked.is_some());
 
     let repo = fx.repo();
-    let tip = ff_core::journal::tip(&repo).unwrap().unwrap();
-    let entry = ff_core::journal::read_entry(&repo, tip).unwrap();
-    assert_eq!(entry.record.verb, "switch");
-    assert!(
-        !entry.record.stash.is_empty(),
-        "park journaled as stash effect"
-    );
-    assert_eq!(
-        entry.record.head.as_ref().unwrap().1,
-        "ref:refs/heads/feature"
-    );
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "switch");
+    assert!(!record.stash.is_empty(), "park journaled as stash effect");
+    assert_eq!(record.head.as_ref().unwrap().1, "ref:refs/heads/feature");
 
-    let after = ff_core::journal::reconcile(&repo, NOW + 5).unwrap();
+    let after = ff_core::ops::reconcile(&repo, NOW + 5).unwrap();
     assert!(after.is_quiet(), "plan matched reality: {after:?}");
 }
 

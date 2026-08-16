@@ -107,7 +107,7 @@ fn all_green_after_snapshot_and_wiring() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    // Initialize snapshots + journal + gc guard
+    // Initialize captures + the operation log + the gc guard
     ff_init(&fx);
 
     // Wire bash alias
@@ -169,8 +169,8 @@ fn all_green_after_snapshot_and_wiring() {
     assert!(loose > 0, "a snapshotted repo has loose objects: {objects}");
     assert!(objects.contains("pack"), "pack count named: {objects}");
     assert!(
-        out_text.contains("info  journal"),
-        "journal info:\n{out_text}"
+        out_text.contains("info  op log"),
+        "op log info:\n{out_text}"
     );
     assert!(
         out_text.contains("info  settings"),
@@ -353,7 +353,9 @@ fn moved_chain_tip_warns_identity() {
         "identity warn:\n{out_text}"
     );
     assert!(
-        out_text.contains("main tip is not a fufu snapshot commit — the chain was moved by something other than fufu"),
+        out_text.contains(
+            "main tip is not a fufu operation — the pointer was moved by something other than fufu"
+        ),
         "identity detail:\n{out_text}"
     );
 }

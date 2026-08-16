@@ -3,7 +3,7 @@
 //! completion source, or `ff watch` gets — capture drives the floor, and the
 //! rest is reads.
 
-use ff_core::ops::{CaptureOutcome, OpKind, OpLog, capture};
+use ff_core::ops::{CaptureOutcome, OpKind, OpLog, capture_with};
 use ff_core::{Provenance, TakeOptions};
 use ff_testsupport::Fixture;
 
@@ -11,7 +11,7 @@ const NOW: i64 = 1_700_000_000;
 
 fn snap(fx: &Fixture, now: i64) -> String {
     let repo = fx.repo();
-    match capture(
+    match capture_with(
         &repo,
         &Provenance::new("manual", None).with_session(Some("agent-7".into())),
         &TakeOptions {
@@ -57,10 +57,15 @@ fn the_public_reader_walks_tags_and_resolves() {
         .collect();
     assert_eq!(newest, [spelled[4].clone(), spelled[3].clone()]);
 
-    // Every row carries its kind, its session tag and its base without
-    // anyone fetching a record — captures have none.
+    // Every capture carries its kind, its session tag and its base without
+    // anyone fetching a record — captures have none. The log's floor sits
+    // underneath them and is a note, which is why the filter below is the
+    // caller's business rather than a parameter on the walk.
     for op in log.iter() {
         let op = op.expect("decode");
+        if !op.is_capture() {
+            continue;
+        }
         assert_eq!(op.kind(), OpKind::Capture);
         assert_eq!(op.session(), Some("agent-7"));
         assert!(op.base().is_some());
@@ -72,7 +77,8 @@ fn the_public_reader_walks_tags_and_resolves() {
         log.iter()
             .filter(|op| op.as_ref().is_ok_and(|op| !op.is_capture()))
             .count(),
-        0
+        1,
+        "only the floor"
     );
 
     assert_eq!(log.resolve("@").unwrap().to_string(), spelled[4]);
@@ -82,7 +88,11 @@ fn the_public_reader_walks_tags_and_resolves() {
         .iter_branch("main")
         .map(|op| op.expect("decode").id().to_string())
         .collect();
-    assert_eq!(on_main.len(), 5, "the branch pointer reaches all five");
+    assert_eq!(
+        on_main.len(),
+        6,
+        "the branch pointer reaches all five and the floor"
+    );
 }
 
 #[test]

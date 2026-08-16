@@ -1,7 +1,10 @@
 //! Per-file insertions and deletions for the open change.
 //!
-//! The capture chain tip's tree is the worktree as a git tree object, so the
-//! diffstat is a plain tree-to-tree diff: HEAD's tree against the tip's tree.
+//! The branch's newest operation carries the worktree as a git tree object, so
+//! the diffstat is a plain tree-to-tree diff: HEAD's tree against that tree.
+//! Any operation answers, not only a capture — every one of them records the
+//! working tree it leaves behind, and asking only captures would report a
+//! clean change in a repository whose newest operation happens to be a verb.
 
 use gix::object::tree::diff::{Action, Change};
 
@@ -47,9 +50,9 @@ fn classify(change: &Change) -> ChangeKind {
     }
 }
 
-/// Compute the diffstat of the open change: HEAD's tree against the capture
-/// chain tip's tree. Returns an empty result when there is no chain tip, the
-/// trees are identical, or the repository is bare.
+/// Compute the diffstat of the open change: HEAD's tree against the branch's
+/// newest operation's tree. Returns an empty result when the branch has no
+/// operations, the trees are identical, or the repository is bare.
 pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
     // Bare repos: no workdir means no open change to measure.
     if repo.workdir().is_none() {
@@ -64,12 +67,8 @@ pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
     let branch = crate::snapshot::chain::chain_name(&head);
     let head_tree_id = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
 
-    let tip_id = crate::snapshot::chain::tip(
-        repo,
-        &format!("{}{branch}", crate::snapshot::chain::SNAP_PREFIX),
-    )?;
-
-    let Some(tip_id) = tip_id else {
+    let log = crate::ops::OpLog::open(repo)?;
+    let Some(tip_id) = log.branch_tip(&branch)? else {
         return Ok(ChangeStat {
             files: Vec::new(),
             insertions: 0,
@@ -77,19 +76,12 @@ pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
         });
     };
 
-    let tip_tree_id = repo
-        .find_commit(tip_id)
-        .map_err(Error::repo)?
-        .tree_id()
-        .map_err(Error::repo)?
-        .detach();
-
-    tree_diff_stat(repo, head_tree_id, tip_tree_id)
+    tree_diff_stat(repo, head_tree_id, log.get(tip_id)?.tree())
 }
 
 /// The diffstat between two arbitrary trees. `change_stat` drives this with
-/// (HEAD tree, chain tip tree); `session::span_start_tree` and a span's
-/// newest snapshot's tree are the other caller, so the tree-diff engine
+/// (HEAD tree, newest operation's tree); `session::span_start_tree` and a
+/// span's newest capture's tree are the other caller, so the tree-diff engine
 /// lives in exactly one place regardless of which two trees are in question.
 pub fn tree_diff_stat(
     repo: &gix::Repository,

@@ -5,13 +5,13 @@
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 
 use crate::error::{Error, Result};
-use crate::snapshot::chain;
+use crate::ops::{FUFU_EMAIL, FUFU_NAME};
 
 /// The reflog committer for fufu's own ref writes.
 pub(crate) fn committer_ref(time_str: &str) -> gix::actor::SignatureRef<'_> {
     gix::actor::SignatureRef {
-        name: chain::FUFU_NAME.into(),
-        email: chain::FUFU_EMAIL.into(),
+        name: FUFU_NAME.into(),
+        email: FUFU_EMAIL.into(),
         time: time_str,
     }
 }

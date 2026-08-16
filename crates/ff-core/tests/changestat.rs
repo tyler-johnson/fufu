@@ -4,7 +4,7 @@
 use ff_testsupport::Fixture;
 
 fn take(fx: &Fixture) {
-    ff_core::take(&fx.repo(), &ff_core::Provenance::new("manual", None)).expect("take");
+    ff_core::capture(&fx.repo(), &ff_core::Provenance::new("manual", None)).expect("take");
 }
 
 /// A clean working tree produces an empty diffstat.

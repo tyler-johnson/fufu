@@ -54,8 +54,10 @@ fn write_due_stamp(fx: &Fixture) {
 }
 
 /// Check whether `refs/fufu/trash/main` exists.
+/// One log, one trash ref: trim parks the pre-trim tip of `refs/fufu/ops`,
+/// not one chain per branch.
 fn trash_exists(fx: &Fixture) -> bool {
-    fx.try_git(&["rev-parse", "--verify", "refs/fufu/trash/main"])
+    fx.try_git(&["rev-parse", "--verify", "refs/fufu/trash/@ops"])
         .status
         .success()
 }

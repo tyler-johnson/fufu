@@ -1,8 +1,7 @@
 //! Session spans: the reading half of the capture-side session stamping
-//! (`crate::snapshot::message::session_of`). A span is a contiguous run of
-//! same-named snapshots on the live chain, newest to oldest; the same name
-//! reappearing after a gap is a second, separate span — the work in between
-//! was not part of it.
+//! (the `fufu-session` trailer). A span is a contiguous run of same-named
+//! captures on the branch, newest to oldest; the same name reappearing after
+//! a gap is a second, separate span — the work in between was not part of it.
 //!
 //! `spans` reuses `evolog::evolog` for the chain walk itself (order, ids,
 //! times, base/prev linkage) and adds only bounded, per-row message reads to
@@ -27,17 +26,14 @@ pub struct SessionSpan {
     pub ended: i64,
 }
 
-/// The session a snapshot commit's message carries, if any. One targeted
-/// object read — the id is already known (from a walk or a caller's own
-/// resolution), so this never re-walks anything.
+/// The session an operation's message carries, if any. One targeted object
+/// read — the id is already known (from a walk or a caller's own resolution),
+/// so this never re-walks anything.
 pub fn snapshot_session(repo: &gix::Repository, id: &str) -> Result<Option<String>> {
     let oid = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::repo)?;
-    let obj = repo.find_object(oid).map_err(Error::repo)?;
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-    Ok(commit.message().body.and_then(|body| {
-        crate::snapshot::message::session_of(&String::from_utf8_lossy(body.as_ref()))
-            .map(str::to_string)
-    }))
+    Ok(crate::ops::walk::decode(repo, oid)?
+        .session()
+        .map(str::to_string))
 }
 
 /// Spans on the current branch's live chain, newest first. `limit` bounds
@@ -93,17 +89,26 @@ pub fn spans(repo: &gix::Repository, limit: Option<usize>) -> Result<Vec<Session
     Ok(result)
 }
 
-/// The tree to diff a span's start against: the tree of the snapshot
-/// immediately before the span's oldest snapshot (one step further down the
-/// chain), or — when the span opens the chain — that snapshot's base
-/// commit's tree. A snapshot with neither (an unborn chain's very first
+/// The tree to diff a span's start against: the tree of the capture
+/// immediately before the span's oldest one (one step further down the
+/// branch), or — when the span opens the branch — that capture's base
+/// commit's tree. A capture with neither (an unborn branch's very first
 /// capture) diffs against the empty tree.
 pub fn span_start_tree(repo: &gix::Repository, span: &SessionSpan) -> Result<gix::ObjectId> {
     let oldest_oid = gix::ObjectId::from_hex(span.oldest.as_bytes()).map_err(Error::repo)?;
-    let decoded = evolog::snap_entry(repo, oldest_oid)?
-        .ok_or_else(|| Error::msg("session span's oldest snapshot is not a snapshot commit"))?;
+    let decoded = evolog::snap_entry(repo, oldest_oid)?.ok_or_else(|| {
+        Error::coded(
+            "op/not-found",
+            "the session span's oldest row is not an operation",
+            vec!["ff evolog".into()],
+        )
+    })?;
 
-    if let Some(prev_oid) = decoded.next {
+    // The previous *capture*, not merely the previous operation: a span is a
+    // run of captures, and its start is where the working tree stood before
+    // the first of them.
+    if let Some(prev_hex) = &decoded.entry.prev {
+        let prev_oid = gix::ObjectId::from_hex(prev_hex.as_bytes()).map_err(Error::repo)?;
         return repo
             .find_commit(prev_oid)
             .map_err(Error::repo)?

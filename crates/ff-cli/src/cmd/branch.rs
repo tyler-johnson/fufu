@@ -63,7 +63,7 @@ pub fn run(ctx: &Ctx, name: Option<String>, delete: Option<String>) -> Result<()
         return Ok(());
     }
 
-    // List. Reads don't reconcile-journal here; `ff status` owns loudness.
+    // List. Reads don't reconcile here; `ff status` owns loudness.
     let list = ff_core::branch::list(&repo)?;
     if ctx.json {
         crate::machine::emit("branch", &list)?;

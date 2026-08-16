@@ -134,7 +134,7 @@ fn recovery_output_bytes_unchanged() {
         "restore undo hint"
     );
 
-    // --- trim reports (no chains yet) ---
+    // --- trim reports (nothing recorded yet) ---
     let fx2 = Fixture::new();
     fx2.write("a.txt", "a\n");
     fx2.commit("init");
@@ -142,7 +142,7 @@ fn recovery_output_bytes_unchanged() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
-        text.contains("nothing to drop") || text.contains("no snapshot chains"),
+        text.contains("nothing to drop") || text.contains("no operations yet"),
         "trim output: {text:?}"
     );
 }

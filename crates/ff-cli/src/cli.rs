@@ -53,7 +53,7 @@ pub enum Command {
         /// Commits only — the plain history view
         #[arg(long)]
         commits: bool,
-        /// The operation journal — every fufu mutation, with op ids
+        /// The operation log — every fufu mutation, with op ids
         #[arg(long, conflicts_with = "commits")]
         ops: bool,
         /// Group by session span; a name narrows to that session's spans
@@ -127,7 +127,7 @@ pub enum Command {
     /// Roll the repository back to the state before an operation
     #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
     Undo {
-        /// Op id (journal-sha prefix, see ff log --ops); newest if omitted
+        /// Op id or a unique prefix (see ff log --ops); newest if omitted
         #[arg(value_name = "op")]
         op: Option<String>,
         /// Roll back what remains even if parts were trimmed

@@ -243,7 +243,7 @@ fn oversize_excluded() {
     fx.write("also-small.txt", "fine\n");
 
     let repo = fx.repo();
-    let outcome = ff_core::take_with(
+    let outcome = ff_core::capture_with(
         &repo,
         &ff_core::Provenance::new("manual", None),
         &ff_core::TakeOptions {
@@ -252,7 +252,7 @@ fn oversize_excluded() {
         },
     )
     .expect("take");
-    let ff_core::SnapOutcome::Created {
+    let ff_core::CaptureOutcome::Created {
         id, skipped_files, ..
     } = outcome
     else {
@@ -262,12 +262,12 @@ fn oversize_excluded() {
 
     let reference = git_capture_tree(&fx, &fx.path(), &["big.bin"]);
     let native_tree = fx
-        .git(&["rev-parse", &format!("{id}^{{tree}}")])
+        .git(&["rev-parse", &format!("{}^{{tree}}", id.hex())])
         .trim()
         .to_string();
     assert_eq!(native_tree, reference, "tree must match git-with-excludes");
 
-    let body = fx.git(&["log", "-1", "--format=%b", &id]);
+    let body = fx.git(&["log", "-1", "--format=%b", &id.hex()]);
     assert!(
         body.contains("Skipped (fufu.maxFileSize):") && body.contains("big.bin"),
         "commit body must list the skip: {body:?}"
@@ -275,7 +275,7 @@ fn oversize_excluded() {
 
     // A user-staged big blob is captured as-is — excluding it would be forgery.
     fx.git(&["add", "big.bin"]);
-    let outcome = ff_core::take_with(
+    let outcome = ff_core::capture_with(
         &repo,
         &ff_core::Provenance::new("manual", None),
         &ff_core::TakeOptions {
@@ -284,14 +284,19 @@ fn oversize_excluded() {
         },
     )
     .expect("take");
-    let ff_core::SnapOutcome::Created {
+    let ff_core::CaptureOutcome::Created {
         id, skipped_files, ..
     } = outcome
     else {
         panic!("expected Created, got {outcome:?}");
     };
     assert!(skipped_files.is_empty(), "staged blobs are never skipped");
-    let listed = fx.git(&["ls-tree", "-r", "--name-only", &format!("{id}^{{tree}}")]);
+    let listed = fx.git(&[
+        "ls-tree",
+        "-r",
+        "--name-only",
+        &format!("{}^{{tree}}", id.hex()),
+    ]);
     assert!(listed.lines().any(|l| l == "big.bin"));
 }
 
@@ -314,18 +319,23 @@ fn sparse_checkout_preserves_excluded_paths() {
 
     let index = fx.index_bytes();
     let repo = fx.repo();
-    let outcome = ff_core::take(&repo, &ff_core::Provenance::new("manual", None)).expect("take");
+    let outcome = ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).expect("take");
     assert_eq!(index, fx.index_bytes(), "index stays untouched");
-    let ff_core::SnapOutcome::Created { id, .. } = outcome else {
+    let ff_core::CaptureOutcome::Created { id, .. } = outcome else {
         panic!("expected Created, got {outcome:?}");
     };
-    let listed = fx.git(&["ls-tree", "-r", "--name-only", &format!("{id}^{{tree}}")]);
+    let listed = fx.git(&[
+        "ls-tree",
+        "-r",
+        "--name-only",
+        &format!("{}^{{tree}}", id.hex()),
+    ]);
     let names: Vec<&str> = listed.lines().collect();
     assert!(
         names.contains(&"drop/b.txt"),
         "sparse-excluded path preserved"
     );
-    let blob = fx.git(&["show", &format!("{id}:keep/a.txt")]);
+    let blob = fx.git(&["show", &format!("{}:keep/a.txt", id.hex())]);
     assert_eq!(blob, "sparse dirty\n", "dirty file captured");
 }
 
@@ -341,7 +351,7 @@ fn sparse_index_declines() {
     fx.write("keep/a.txt", "dirty\n");
     let index = fx.index_bytes();
     let repo = fx.repo();
-    let err = ff_core::take(&repo, &ff_core::Provenance::new("manual", None));
+    let err = ff_core::capture(&repo, &ff_core::Provenance::new("manual", None));
     match err {
         Err(err) => assert!(
             err.to_string().contains("sparse"),

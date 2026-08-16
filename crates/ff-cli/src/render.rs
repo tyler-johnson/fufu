@@ -22,7 +22,7 @@ pub fn reconcile_notice(report: &ReconcileReport) {
         eprintln!("{}", paint_warn(&format!("ff: {warning}"), colored));
     }
     if report.bootstrapped && !report.reinitialized {
-        eprintln!("ff: journal initialized; operations from here on are undoable");
+        eprintln!("ff: operation log initialized; operations from here on are undoable");
     }
     if !report.foreign.is_empty() {
         eprintln!("ff: absorbed changes made outside fufu:");

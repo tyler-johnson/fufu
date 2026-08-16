@@ -478,7 +478,7 @@ fn an_operation_in_a_revision_position_is_taught_not_mystified() {
     // An operation only exists once there is something to capture.
     fx.write("a.txt", "1 and more\n");
     let repo = fx.repo();
-    let op = ff_core::ops::capture(
+    let op = ff_core::ops::capture_with(
         &repo,
         &ff_core::Provenance::new("manual", None),
         &ff_core::TakeOptions {

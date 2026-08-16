@@ -31,6 +31,48 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff branch", "ff switch <branch>@origin"],
     },
     Entry {
+        id: "branch/ambiguous",
+        summary: "that branch prefix matches more than one branch",
+        detail: "A prefix has to name one branch, and this one names several. Every candidate is \
+                 listed so you can pick; typing one more character is usually enough. Bare ff \
+                 branch lists what is local.",
+        exits: &["ff branch"],
+    },
+    Entry {
+        id: "branch/already-named",
+        summary: "that branch already has a proper name",
+        detail: "Claiming is for anonymous branches — the ones fufu minted a petname for — and \
+                 renaming a branch someone chose a name for is a different, louder act. \
+                 ff describe -b does it, and is the one rename that may touch proper names.",
+        exits: &["ff describe -b <name>"],
+    },
+    Entry {
+        id: "branch/invalid-name",
+        summary: "git would not accept that branch name",
+        detail: "Branch names are validated by round-tripping them through git's own ref name \
+                 rules rather than by a list fufu keeps, so anything git refuses is refused here \
+                 in the same words. Spaces, a leading dash, `..`, and a trailing `.lock` are the \
+                 usual causes.",
+        exits: &[],
+    },
+    Entry {
+        id: "branch/is-current",
+        summary: "that is the branch you are on",
+        detail: "Deleting the branch you are standing on would leave HEAD pointing at nothing, so \
+                 fufu asks you to move first. Switching away takes the open change with it — the \
+                 tree belongs to its branch, and it will be here when you come back.",
+        exits: &["ff switch <branch>"],
+    },
+    Entry {
+        id: "branch/checked-out-elsewhere",
+        summary: "another worktree has that branch checked out",
+        detail: "git refuses to rename or delete a branch that a linked worktree is sitting on, \
+                 because that worktree's HEAD would stop resolving. gix has no such check, so \
+                 fufu carries its own and reports which worktree holds it. Switch that worktree \
+                 away, or remove it, and try again.",
+        exits: &["git worktree list"],
+    },
+    Entry {
         id: "repo/bare",
         summary: "this is a bare repository, and the verb needs a working tree",
         detail: "A bare repository has no working tree, so there is nothing to snapshot, commit, \
@@ -60,6 +102,24 @@ pub static ENTRIES: &[Entry] = &[
         ],
     },
     Entry {
+        id: "repo/mid-operation",
+        summary: "git is in the middle of something",
+        detail: "A rebase, a merge, a cherry-pick or a bisect leaves the repository in a state \
+                 only that operation knows how to finish, and a verb that moved refs or the \
+                 working tree underneath it would strand it. Finish or abort it with git — fufu \
+                 owns merges in a later phase — and the verb will run.",
+        exits: &["git rebase --abort", "git merge --abort"],
+    },
+    Entry {
+        id: "usage/bad-restore-target",
+        summary: "--at was given something that is neither an id, an age, nor a date",
+        detail: "The target grammar is small on purpose: an operation id (or a unique prefix of \
+                 one), @{n} for n operations back, a compact age like 90s/15m/2h/3d/1w, or a date \
+                 git itself can parse. Ids win over ages where the two could overlap, which is \
+                 why 3d reads as three days and 123d reads as an id prefix.",
+        exits: &["ff evolog", "ff restore --at 2h"],
+    },
+    Entry {
         id: "restore/nothing-selected",
         summary: "restore was given nothing to restore",
         detail: "Restore is deliberately explicit: it takes the paths you name, or --all for the \
@@ -69,11 +129,30 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "undo/nothing",
-        summary: "the journal has nothing left to undo",
-        detail: "Undo walks fufu's operation journal. Either nothing has been recorded yet, or \
+        summary: "the operation log has nothing left to undo",
+        detail: "Undo walks fufu's operation log. Either nothing has been recorded yet, or \
                  everything recorded has already been rolled back or trimmed past the keep window. \
-                 ff log --ops shows what the journal still holds.",
+                 ff log --ops shows what the log still holds.",
         exits: &["ff log --ops"],
+    },
+    Entry {
+        id: "undo/not-undoable",
+        summary: "that operation is not the kind undo can roll back",
+        detail: "Undo puts back the state an operation changed, so it has nothing to do with the \
+                 two kinds that changed nothing. A capture only records the working tree — that \
+                 invariant is what keeps the log small — and a note marks something that happened \
+                 rather than something that was done. To go back to what a capture holds, restore \
+                 to it: that is a worktree question, not a rollback.",
+        exits: &["ff log --ops", "ff restore --at <id>"],
+    },
+    Entry {
+        id: "undo/trimmed",
+        summary: "the state that undo would put back has been trimmed away",
+        detail: "Undo restores the complete state an operation's predecessor recorded, and trim \
+                 has dropped part of it past the keep window (fufu.keep, 90 days by default). \
+                 --force rolls back whatever remains and names each missing piece instead of \
+                 refusing; a longer keep window prevents the next one. Nothing was changed.",
+        exits: &["ff undo --force", "ff config keep <duration>"],
     },
     Entry {
         id: "op/not-found",

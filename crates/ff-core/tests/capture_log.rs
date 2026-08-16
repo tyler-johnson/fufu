@@ -1,19 +1,35 @@
-//! Chain mechanics: parent order, identity, one chain per branch, no-op
-//! tiers, reflogs, the gc config guard, and contention behavior.
+//! Capture mechanics against the one log: parent order, identity, one pointer
+//! per branch, no-op tiers, reflogs, the gc config guard, and contention.
 
-use ff_core::{Provenance, SnapOutcome, TakeOptions};
+use ff_core::{CaptureOutcome, Provenance, TakeOptions};
 use ff_testsupport::Fixture;
-use ff_testsupport::capture::chain_via_git;
+use ff_testsupport::capture::{captures_via_git, chain_via_git};
 
-fn take(fx: &Fixture) -> SnapOutcome {
+fn take(fx: &Fixture) -> CaptureOutcome {
     let repo = fx.repo();
-    ff_core::take(&repo, &Provenance::new("manual", None)).expect("take")
+    ff_core::capture(&repo, &Provenance::new("manual", None)).expect("take")
 }
 
 fn take_created(fx: &Fixture) -> String {
     match take(fx) {
-        SnapOutcome::Created { id, .. } => id,
+        CaptureOutcome::Created { id, .. } => id.hex(),
         other => panic!("expected Created, got {other:?}"),
+    }
+}
+
+/// The log's floor — the `init` note reconciliation lays down before the first
+/// capture. Every capture below sits on top of it, which is what keeps its
+/// parents `[prev, base]` rather than `[base]`.
+fn floor(fx: &Fixture) -> String {
+    chain_via_git(fx, &fx.path())
+        .pop()
+        .expect("the log has a floor")
+}
+
+fn noop_tip(outcome: CaptureOutcome) -> Option<String> {
+    match outcome {
+        CaptureOutcome::NoOp { tip, .. } => tip.map(|id| id.hex()),
+        other => panic!("expected NoOp, got {other:?}"),
     }
 }
 
@@ -28,12 +44,15 @@ fn parent_order_across_takes() {
     fx.write("a.txt", "a\n");
     let base1 = fx.commit("init");
 
-    // First snapshot: parent = HEAD only.
+    // First capture: [the log's floor, HEAD]. The floor is what stops slot 1
+    // from being the base commit, which is what would send `git log
+    // --first-parent` out through the user's history.
     fx.write("a.txt", "one\n");
     let snap1 = take_created(&fx);
-    assert_eq!(parents_of(&fx, &snap1), vec![base1.clone()]);
+    let floor = floor(&fx);
+    assert_eq!(parents_of(&fx, &snap1), vec![floor.clone(), base1.clone()]);
 
-    // Second: [prev snapshot, HEAD] — order load-bearing.
+    // Second: [prev operation, HEAD] — order load-bearing.
     fx.write("a.txt", "two\n");
     let snap2 = take_created(&fx);
     assert_eq!(parents_of(&fx, &snap2), vec![snap1.clone(), base1.clone()]);
@@ -41,10 +60,11 @@ fn parent_order_across_takes() {
     // Committing exactly the captured state is a no-op: the head tree now
     // equals the last snapshot's tree, so there is nothing new to record.
     let base2 = fx.commit("landed");
-    match take(&fx) {
-        SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, Some(snap2.clone())),
-        other => panic!("expected NoOp after landing the captured state, got {other:?}"),
-    }
+    assert_eq!(
+        noop_tip(take(&fx)),
+        Some(snap2.clone()),
+        "landing the captured state records nothing new"
+    );
     fx.write("a.txt", "three\n");
     let snap3 = take_created(&fx);
     assert_eq!(parents_of(&fx, &snap3), vec![snap2.clone(), base2.clone()]);
@@ -59,27 +79,39 @@ fn parent_order_across_takes() {
     let head_tree = fx.git(&["rev-parse", "HEAD^{tree}"]);
     assert_eq!(snap4_tree, head_tree, "records the post-commit tree");
 
-    // The whole chain bears the fufu identity, and the walk stops at base1.
+    // The whole log bears the fufu identity, and the walk stops at the floor.
     assert_eq!(
-        chain_via_git(&fx, &fx.path()),
+        captures_via_git(&fx, &fx.path()),
         vec![snap4, snap3, snap2, snap1]
+    );
+    assert_eq!(
+        chain_via_git(&fx, &fx.path()).pop(),
+        Some(floor),
+        "and the last row is the floor, not a commit of the user's"
     );
 }
 
 #[test]
-fn unborn_chain_has_zero_then_one_parent() {
+fn an_unborn_branch_captures_with_no_base_edge() {
     let fx = Fixture::new();
     fx.write("first.txt", "1\n");
     let snap1 = take_created(&fx);
-    assert!(parents_of(&fx, &snap1).is_empty(), "unborn first snapshot");
+    let floor = floor(&fx);
+    // Unborn: there is no base, so slot 2 is simply absent — and the floor
+    // itself is parentless, since an unborn HEAD gives it no base either.
+    assert_eq!(parents_of(&fx, &snap1), vec![floor.clone()]);
+    assert!(
+        parents_of(&fx, &floor).len() == 1,
+        "the floor's only parent is its own record"
+    );
     fx.write("second.txt", "2\n");
     let snap2 = take_created(&fx);
     assert_eq!(parents_of(&fx, &snap2), vec![snap1.clone()]);
-    assert_eq!(chain_via_git(&fx, &fx.path()), vec![snap2, snap1]);
+    assert_eq!(captures_via_git(&fx, &fx.path()), vec![snap2, snap1]);
 }
 
 #[test]
-fn one_chain_per_branch_and_detached() {
+fn one_pointer_per_branch_and_detached() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     let first = fx.commit("init");
@@ -99,8 +131,15 @@ fn one_chain_per_branch_and_detached() {
         "refs/fufu/snap/@detached",
     ] {
         let out = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
-        assert!(out.status.success(), "missing chain ref {r}");
+        assert!(out.status.success(), "missing branch pointer {r}");
     }
+    // And all three point into one log.
+    let log = fx.git(&["rev-list", "--count", "--first-parent", "refs/fufu/ops"]);
+    assert_eq!(
+        log.trim(),
+        "5",
+        "three captures, the floor, and the floor's record"
+    );
 }
 
 fn object_file_count(fx: &Fixture) -> usize {
@@ -140,10 +179,7 @@ fn tier1_noop_writes_no_objects() {
     // Now truly clean AND captured: tier-1, zero object writes.
     let before = object_file_count(&fx);
     for _ in 0..2 {
-        match take(&fx) {
-            SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, Some(snap2.clone())),
-            other => panic!("expected NoOp, got {other:?}"),
-        }
+        assert_eq!(noop_tip(take(&fx)), Some(snap2.clone()));
     }
     assert_eq!(
         object_file_count(&fx),
@@ -153,16 +189,18 @@ fn tier1_noop_writes_no_objects() {
 }
 
 #[test]
-fn noop_without_chain_creates_nothing() {
+fn noop_without_a_log_creates_nothing() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
-    match take(&fx) {
-        SnapOutcome::NoOp { tip, .. } => assert_eq!(tip, None),
-        other => panic!("expected NoOp, got {other:?}"),
+    assert_eq!(noop_tip(take(&fx)), None);
+    // The floor is laid only when a capture is actually going to write. A
+    // clean tree writes nothing at all, refs included — which is what lets a
+    // read command behave like one.
+    for r in ["refs/fufu/snap/main", "refs/fufu/ops"] {
+        let out = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
+        assert!(!out.status.success(), "clean tree must not create {r}");
     }
-    let out = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/main"]);
-    assert!(!out.status.success(), "clean tree must not create a chain");
 }
 
 #[test]
@@ -175,7 +213,11 @@ fn reflog_visible_to_git() {
     fx.write("a.txt", "two\n");
     take_created(&fx);
     let log = fx.git(&["reflog", "show", "refs/fufu/snap/main"]);
-    assert_eq!(log.lines().count(), 2, "two reflog entries: {log:?}");
+    assert_eq!(
+        log.lines().count(),
+        3,
+        "two captures and the floor: {log:?}"
+    );
     assert!(
         log.contains("manual"),
         "reflog message is the subject: {log:?}"
@@ -261,7 +303,7 @@ fn held_lock_reports_contended() {
     fx.write("a.txt", "two\n");
     let start = std::time::Instant::now();
     match take(&fx) {
-        SnapOutcome::Contended { r#ref } => assert_eq!(r#ref, "refs/fufu/snap/main"),
+        CaptureOutcome::Contended => {}
         other => panic!("expected Contended, got {other:?}"),
     }
     assert!(
@@ -270,9 +312,9 @@ fn held_lock_reports_contended() {
     );
     std::fs::remove_file(&lock).unwrap();
 
-    // After the lock clears, capture resumes and the chain is intact.
+    // After the lock clears, capture resumes and the log is intact.
     take_created(&fx);
-    assert_eq!(chain_via_git(&fx, &fx.path()).len(), 2);
+    assert_eq!(captures_via_git(&fx, &fx.path()).len(), 2);
 }
 
 /// Two racing captures: losers must report Contended (never error, never
@@ -286,13 +328,13 @@ fn concurrent_takes_never_error() {
     for round in 0..4 {
         fx.write("a.txt", &format!("round {round}\n"));
         let dir = fx.path();
-        let results: Vec<SnapOutcome> = std::thread::scope(|scope| {
+        let results: Vec<CaptureOutcome> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..2)
                 .map(|_| {
                     let dir = dir.clone();
                     scope.spawn(move || {
                         let repo = ff_core::discover_isolated(&dir).expect("discover");
-                        ff_core::take_with(
+                        ff_core::capture_with(
                             &repo,
                             &Provenance::new("manual", None),
                             &TakeOptions::default(),
@@ -304,14 +346,15 @@ fn concurrent_takes_never_error() {
             handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
         assert!(
-            results
-                .iter()
-                .any(|r| matches!(r, SnapOutcome::Created { .. } | SnapOutcome::NoOp { .. })),
+            results.iter().any(|r| matches!(
+                r,
+                CaptureOutcome::Created { .. } | CaptureOutcome::NoOp { .. }
+            )),
             "at least one racer must make progress: {results:?}"
         );
     }
 
-    // The chain survived the races as a valid fufu chain.
+    // The log survived the races as a valid fufu log.
     let chain = chain_via_git(&fx, &fx.path());
     assert!(!chain.is_empty());
 }
@@ -608,14 +651,14 @@ fn snapshot_subject_records_provenance() {
     fx.commit("init");
     fx.write("a.txt", "dirty\n");
     let repo = fx.repo();
-    let outcome = ff_core::take(
+    let outcome = ff_core::capture(
         &repo,
         &Provenance::new("manual", Some("checkpoint   before\nrefactor".into())),
     )
     .expect("take");
-    let SnapOutcome::Created { id, .. } = outcome else {
+    let CaptureOutcome::Created { id, .. } = outcome else {
         panic!("expected Created");
     };
-    let subject = fx.git(&["log", "-1", "--format=%s", &id]);
+    let subject = fx.git(&["log", "-1", "--format=%s", &id.hex()]);
     assert_eq!(subject.trim(), "manual: checkpoint before refactor");
 }

@@ -44,9 +44,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "90d",
             kind: SettingKind::Duration,
             desc: &[
-                "How long snapshots live: ff trim drops older ones, and the op journal",
-                "rides the same cutoff. Compact durations (30d, 36h, 2w, 45s); a bare",
-                "number means days.",
+                "How long operations live: ff trim drops everything past the",
+                "cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w,",
+                "45s); a bare number means days.",
             ],
         },
         Setting {

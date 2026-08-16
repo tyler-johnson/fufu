@@ -1,14 +1,24 @@
-//! `ff undo` — whole-repo rollback to the state before a journaled op.
-//! Declarative, not selective: the target is the target op's PRE-state
-//! (its predecessor entry's ref table, its pre-op index tree, its pre-verb
-//! snapshot's worktree), and everything after the target rolls back with
-//! it. Undo journals itself first, so undo-of-undo is redo, and re-running
-//! after any crash converges — the plan is a state, not a script.
+//! `ff undo` — whole-repo rollback to the state before an operation.
+//!
+//! One rule: **undoing operation T restores the complete state recorded by
+//! T's parent 1** — its ref table, its tree, its index tree, its HEAD. That is
+//! the whole of it, and it is only one rule because every operation records
+//! its planned END state on all four axes. The journal recorded a post-op ref
+//! table beside a *pre*-op index tree and a pointer to a separate pre-verb
+//! snapshot, so undo needed three different lookups and a special case for
+//! foreign entries whose index had been observed after the damage. There is
+//! one lookup now, and the foreign case is gone with it.
+//!
+//! Declarative, not selective: everything after the target rolls back with it.
+//! Undo records itself first, so undo-of-undo is redo, and re-running after
+//! any crash converges — the plan is a state, not a script.
 
 use crate::branchmeta;
 use crate::error::{Error, Result};
-use crate::journal::{self, Entry, OpKind, OpRecord, RefTransition, StashEffect};
 use crate::model::UndoReport;
+use crate::ops::{
+    OpId, OpKind, OpLog, OpRecord, Operation, RefTransition, RefsTable, StashEffect, verb,
+};
 use crate::refs;
 use crate::snapshot::Provenance;
 use crate::stash;
@@ -16,9 +26,10 @@ use crate::worktree;
 
 #[derive(Debug, Clone, Default)]
 pub struct UndoOptions {
-    /// Journal-sha prefix of the op to undo; `None` = newest undoable.
+    /// The operation to undo, as a letters-spelled id or prefix; `None` =
+    /// newest undoable.
     pub op: Option<String>,
-    /// Proceed even when some pre-state objects are gone (trimmed): the
+    /// Proceed even when some of the recorded state is gone (trimmed): the
     /// missing pieces are skipped with warnings instead of refusing.
     pub force: bool,
     /// Clock injection for tests.
@@ -30,7 +41,7 @@ pub fn undo(
     repo: &gix::Repository,
     opts: &UndoOptions,
     prov: &Provenance,
-) -> Result<(UndoReport, journal::VerbContext)> {
+) -> Result<(UndoReport, verb::VerbContext)> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -39,68 +50,77 @@ pub fn undo(
         ));
     }
     if let Some(op) = crate::head::operation(repo) {
-        return Err(Error::msg(format!(
-            "a {op:?} is in progress: finish or abort it with git before undoing"
-        )));
+        return Err(Error::coded(
+            "repo/mid-operation",
+            format!("a {op:?} is in progress: finish or abort it with git before undoing"),
+            vec![],
+        ));
     }
 
-    let ctx = journal::begin_verb(repo, prov, opts.now)?;
+    let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
+    let log = OpLog::open(repo)?;
 
     // Resolve the target AFTER reconciliation: bare undo then sees (and can
     // undo) freshly absorbed foreign motion.
-    let tip = journal::tip(repo)?.ok_or_else(|| {
+    let tip = log.tip()?.ok_or_else(|| {
         Error::coded(
             "undo/nothing",
-            "no journal yet: nothing to undo",
+            "no operations recorded yet: nothing to undo",
             vec!["ff log --ops".into()],
         )
     })?;
     let target_id = match &opts.op {
-        Some(prefix) => journal::resolve_op_prefix(repo, prefix)?,
-        None => newest_undoable(repo, tip)?,
+        Some(spec) => log.resolve(spec)?,
+        None => newest_undoable(&log, tip)?,
     };
-    let target = journal::read_entry(repo, target_id)?;
-    if target.record.kind == OpKind::Note {
-        return Err(Error::msg(format!(
-            "{} is a {} note, not an operation; nothing to undo",
-            &target_id.to_string()[..8],
-            target.record.verb
-        )));
+    let target = log.live(target_id)?;
+    if !undoable(target.kind()) {
+        return Err(not_undoable(target_id, &target));
     }
-    let prev_id = target.prev.ok_or_else(|| {
-        Error::msg("that operation is the journal floor; nothing before it to roll back to")
+    let prev_id = target.prev().ok_or_else(|| {
+        Error::coded(
+            "op/floor",
+            format!("{target_id} is the oldest operation on the log; there is nothing before it to roll back to"),
+            vec!["ff log --ops".into()],
+        )
     })?;
-    let prev = journal::read_entry(repo, prev_id)?;
+    let prev = log.get(prev_id)?;
 
-    // Entries being rolled back: tip..=target along the prev chain.
-    let mut rolled: Vec<Entry> = Vec::new();
-    let mut cursor = tip;
+    // Operations being rolled back: tip..=target along the log link.
+    let mut rolled: Vec<Operation<'_>> = Vec::new();
+    let mut cursor = Some(tip);
     loop {
-        let entry = journal::read_entry(repo, cursor)?;
-        let entry_prev = entry.prev;
-        let is_target = entry.id == target_id;
-        rolled.push(entry);
+        let Some(id) = cursor else {
+            return Err(Error::coded(
+                "op/not-found",
+                format!("{target_id} is not on the log's chain from the current tip"),
+                vec!["ff log --ops".into()],
+            ));
+        };
+        let op = log.get(id)?;
+        cursor = op.prev();
+        let is_target = op.id() == target_id;
+        rolled.push(op);
         if is_target {
             break;
         }
-        match entry_prev {
-            Some(p) => cursor = p,
-            None => {
-                return Err(Error::msg(format!(
-                    "{} is not on the journal's first-parent chain",
-                    &target_id.to_string()[..8]
-                )));
-            }
-        }
     }
 
-    let observed = journal::observe_refs(repo)?;
-    let to_table = prev.refs.clone();
+    // The one lookup: everything the predecessor recorded.
+    let to_table = prev.refs()?.cloned().ok_or_else(|| {
+        Error::coded(
+            "op/unreadable",
+            format!("{prev_id} records no ref table; there is no state to roll back to"),
+            vec!["ff log --ops".into()],
+        )
+    })?;
+    let target_wt_tree = prev.tree();
     let mut warnings: Vec<String> = Vec::new();
 
-    // The declarative diff: what has to move, with CAS expectations from
-    // the observed present.
+    // The declarative diff: what has to move, with CAS expectations from the
+    // observed present.
+    let observed = crate::ops::record::observe_refs(repo)?;
     let mut transitions: Vec<RefTransition> = Vec::new();
     let names: std::collections::BTreeSet<&String> =
         observed.refs.keys().chain(to_table.refs.keys()).collect();
@@ -117,90 +137,75 @@ pub fn undo(
     }
     let head_moves = observed.head != to_table.head;
 
-    // Trimmed pre-state refusal: every sha we are about to write must exist.
+    // A capture carries no record, and therefore no index tree. Undoing *to*
+    // one writes a clean index at its HEAD tree, which is more defensible here
+    // than the assumption it replaced: fufu does not model the index as
+    // user-facing state and writes it only so a foreign `git status` stays
+    // honest, and a capture's invariant is that it changed no ref — so the
+    // index at that moment is whatever HEAD's tree says it is.
+    let index_target = match prev.index_tree()? {
+        Some(tree) => tree,
+        None => head_tree_of_table(repo, &to_table)?,
+    };
+
+    // Trimmed state refusal: every object we are about to write must exist.
     let mut missing: Vec<String> = Vec::new();
-    let check = |sha: &str, what: &str, missing: &mut Vec<String>| {
-        if let Ok(id) = gix::ObjectId::from_hex(sha.as_bytes())
-            && !matches!(repo.try_find_object(id), Ok(Some(_)))
-        {
-            missing.push(format!("{what}: {sha}"));
+    let mut check = |id: gix::ObjectId, what: &str| {
+        if !matches!(repo.try_find_object(id), Ok(Some(_))) {
+            missing.push(format!("{what}: {id}"));
         }
     };
     for t in &transitions {
-        if let Some(new) = &t.new {
-            check(new, &t.name, &mut missing);
+        if let Some(new) = &t.new
+            && let Ok(id) = gix::ObjectId::from_hex(new.as_bytes())
+        {
+            check(id, &t.name);
         }
     }
-    let wt_tree_source: Option<gix::ObjectId> = match &target.record.pre_snapshot {
-        Some(snap) => {
-            let id = gix::ObjectId::from_hex(snap.as_bytes()).map_err(Error::repo)?;
-            match repo.try_find_object(id) {
-                Ok(Some(_)) => Some(
-                    repo.find_commit(id)
-                        .map_err(Error::repo)?
-                        .tree_id()
-                        .map_err(Error::repo)?
-                        .detach(),
-                ),
-                _ => {
-                    missing.push(format!("pre-op snapshot: {snap}"));
-                    None
-                }
-            }
-        }
-        None => None,
-    };
-    // A foreign entry's index tree was captured AFTER the foreign motion —
-    // there is no pre-state index on record, so the pre-state HEAD tree
-    // stands in (clean-index assumption). Op entries recorded theirs before
-    // mutating.
-    let index_target = match target.record.kind {
-        OpKind::Foreign => head_tree_of_table(repo, &to_table)?,
-        _ => target.index_tree,
-    };
-    if !matches!(repo.try_find_object(index_target), Ok(Some(_))) {
-        missing.push(format!("pre-op index tree: {index_target}"));
-    }
+    check(target_wt_tree, "recorded worktree");
+    check(index_target, "recorded index");
     if !missing.is_empty() {
         if !opts.force {
-            return Err(Error::msg(format!(
-                "the pre-op state has been trimmed; cannot restore: {} (ff undo --force rolls back what remains)",
-                missing.join(", ")
-            )));
+            return Err(Error::coded(
+                "undo/trimmed",
+                format!(
+                    "the recorded state has been trimmed; cannot restore: {}",
+                    missing.join(", ")
+                ),
+                vec!["ff undo --force".into(), "ff config keep <duration>".into()],
+            ));
         }
         for m in &missing {
             warnings.push(format!("trimmed, skipped: {m}"));
         }
     }
 
-    // Where the worktree lands: the target op's pre-verb snapshot when one
-    // exists (fresh or the chain tip that already held the state), else the
-    // pre-state HEAD tree — no snapshot means the tree matched HEAD.
-    let to_head_tree = head_tree_of_table(repo, &to_table)?;
-    let target_wt_tree = wt_tree_source.unwrap_or(to_head_tree);
-    // Where it starts: this undo's own pre-verb snapshot (= the tree now),
-    // else the current HEAD tree — resolved before any ref moves.
-    let from_tree = match &ctx.pre_snapshot {
-        Some(snap) => {
-            let id = gix::ObjectId::from_hex(snap.as_bytes()).map_err(Error::repo)?;
-            repo.find_commit(id)
-                .map_err(Error::repo)?
-                .tree_id()
-                .map_err(Error::repo)?
-                .detach()
-        }
-        None => repo.head_tree_id_or_empty().map_err(Error::repo)?.detach(),
+    // Where the worktree starts: the state this undo's own preamble recorded
+    // a moment ago, resolved before any ref moves.
+    let from_tree = ctx.pre_tree;
+    let target_wt_tree = if missing.iter().any(|m| m.starts_with("recorded worktree")) {
+        from_tree // force path: leave the tree alone rather than fail
+    } else {
+        target_wt_tree
     };
 
-    // Write-ahead: the undo journals its plan before touching anything.
-    let rolled_count = rolled.len();
+    // Write-ahead: the undo records its plan — which IS the state it is
+    // restoring — before touching anything.
+    //
+    // The count reported is of operations that *did* something. Captures in
+    // the range roll back with everything else, but a capture changed no ref
+    // by invariant, so counting them would tell the user that undoing one
+    // close also undid two other things when it undid one — and the range
+    // always contains at least the capture this undo's own preamble took.
+    let rolled_count = rolled.iter().filter(|op| !op.is_capture()).count();
     let mut record = OpRecord::new(
-        OpKind::Op,
         "undo",
         format!(
             "undo {} ({}){}",
-            &target_id.to_string()[..8],
-            target.record.summary,
+            // The short spelling in the subject; `undo_of` below keeps the
+            // whole id, which is what a machine reads.
+            target_id.short(8),
+            target.summary(),
             if rolled_count > 1 {
                 format!(" and {} later op(s)", rolled_count - 1)
             } else {
@@ -210,13 +215,9 @@ pub fn undo(
         now,
     );
     record.argv = opts.argv.clone();
-    record.branch = branch_of_table(&to_table);
-    record.pre_snapshot = ctx.pre_snapshot.clone();
     record.refs = transitions.clone();
     record.head = head_moves.then(|| (observed.head.clone(), to_table.head.clone()));
     record.undo_of = Some(target_id.to_string());
-    let index_tree_now = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree_now.to_string());
     let mut pins: Vec<gix::ObjectId> = Vec::new();
     for t in &transitions {
         for sha in [&t.old, &t.new].into_iter().flatten() {
@@ -225,12 +226,31 @@ pub fn undo(
             }
         }
     }
-    journal::append(repo, &record, &to_table, index_tree_now, &pins, now)?;
+    let head = crate::head::head_state(repo)?;
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned: to_table.clone(),
+            tree: target_wt_tree,
+            index_tree: index_target,
+            branch: branch_of_table(&to_table)
+                .unwrap_or_else(|| crate::snapshot::chain::chain_name(&head)),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
 
-    // 1. Stash effects, inverted, newest-first: a rolled-back push drops,
-    //    a rolled-back drop re-pushes.
-    for entry in &rolled {
-        for effect in entry.record.stash.iter().rev() {
+    // 1. Stash effects, inverted, newest-first: a rolled-back push drops, a
+    //    rolled-back drop re-pushes.
+    for op in &rolled {
+        let Some(op_record) = op.record()? else {
+            continue; // a capture performs no stash effect, by invariant
+        };
+        for effect in op_record.stash.iter().rev() {
             match effect {
                 StashEffect::Push { stash: sha, .. } => {
                     let id = gix::ObjectId::from_hex(sha.as_bytes()).map_err(Error::repo)?;
@@ -292,7 +312,7 @@ pub fn undo(
                     &t.name,
                     new_id,
                     expected,
-                    &format!("undo: rollback to pre-{}", &target_id.to_string()[..8]),
+                    &format!("undo: rollback to before {target_id}"),
                 )?);
             }
             (Some(old), None) => {
@@ -306,8 +326,10 @@ pub fn undo(
         match refs::commit_edits(repo, edits, now)? {
             refs::EditOutcome::Applied => {}
             refs::EditOutcome::Contended => {
-                return Err(Error::msg(
+                return Err(Error::coded(
+                    "ref/contended",
                     "refs moved while undoing; nothing further was changed — re-run ff undo",
+                    vec![],
                 ));
             }
         }
@@ -324,7 +346,7 @@ pub fn undo(
         }
     }
 
-    // 4. Worktree, from the state captured a moment ago to the pre-op tree.
+    // 4. Worktree, from the state the preamble recorded to the recorded one.
     let everything = |_: &str| true;
     let transition = worktree::apply_tree_transition(repo, from_tree, target_wt_tree, &everything)?;
 
@@ -334,8 +356,10 @@ pub fn undo(
     }
 
     // 6. Pending descriptions, inverted newest-first.
-    for entry in &rolled {
-        if let Some(d) = &entry.record.description {
+    for op in &rolled {
+        if let Some(op_record) = op.record()?
+            && let Some(d) = &op_record.description
+        {
             let mut meta = branchmeta::read(repo, &d.branch)?;
             meta.pending_description = d.old.clone();
             branchmeta::write(repo, &d.branch, &meta)?;
@@ -349,41 +373,57 @@ pub fn undo(
     Ok((
         UndoReport {
             target: target_id.to_string(),
-            target_summary: target.record.summary.clone(),
-            target_kind: match target.record.kind {
-                OpKind::Op => "op".into(),
-                OpKind::Foreign => "foreign".into(),
-                OpKind::Note => "note".into(),
-            },
+            target_summary: target.summary().to_string(),
+            target_kind: target.kind().as_str().to_string(),
             rolled_back: rolled_count,
             refs: transitions,
             head_moved: head_moves.then(|| to_table.head.clone()),
             files,
             warnings,
-            pre_snapshot: ctx.pre_snapshot.clone(),
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
     ))
 }
 
-/// The newest entry worth undoing: ops and foreign absorptions, not notes.
-fn newest_undoable(repo: &gix::Repository, tip: gix::ObjectId) -> Result<gix::ObjectId> {
+/// Ops and foreign absorptions are undoable; notes and captures are not.
+fn undoable(kind: OpKind) -> bool {
+    matches!(kind, OpKind::Op | OpKind::Foreign)
+}
+
+fn not_undoable(id: OpId, op: &Operation<'_>) -> Error {
+    let why = match op.kind() {
+        // The whole storage argument rests on a capture changing no ref, and
+        // that invariant is exactly what makes undoing one a no-op: there is
+        // nothing to put back. Restoring its *tree* is a different verb.
+        OpKind::Capture => "a capture changes no ref, so undoing it would change nothing",
+        _ => "a note marks something that happened rather than something that was done",
+    };
+    Error::coded(
+        "undo/not-undoable",
+        format!("{id} is a {}: {why}", op.kind().as_str()),
+        vec!["ff log --ops".into(), "ff restore --at <id>".into()],
+    )
+}
+
+/// The newest operation worth undoing.
+fn newest_undoable(log: &OpLog<'_>, tip: OpId) -> Result<OpId> {
     let mut cursor = Some(tip);
     while let Some(id) = cursor {
-        let entry = journal::read_entry(repo, id)?;
-        if entry.record.kind != OpKind::Note {
+        let op = log.get(id)?;
+        if undoable(op.kind()) {
             return Ok(id);
         }
-        cursor = entry.prev;
+        cursor = op.prev();
     }
     Err(Error::coded(
         "undo/nothing",
-        "nothing undoable in the journal yet",
+        "nothing undoable on the log yet",
         vec!["ff log --ops".into()],
     ))
 }
 
-fn branch_of_table(table: &journal::RefsTable) -> Option<String> {
+fn branch_of_table(table: &RefsTable) -> Option<String> {
     table
         .head
         .strip_prefix("ref:refs/heads/")
@@ -392,7 +432,7 @@ fn branch_of_table(table: &journal::RefsTable) -> Option<String> {
 
 /// The tree of the table's HEAD: branch tip's tree, detached sha's tree, or
 /// the empty tree for an unborn branch.
-fn head_tree_of_table(repo: &gix::Repository, table: &journal::RefsTable) -> Result<gix::ObjectId> {
+fn head_tree_of_table(repo: &gix::Repository, table: &RefsTable) -> Result<gix::ObjectId> {
     let commit = match table.head.strip_prefix("ref:") {
         Some(name) => match table.refs.get(name) {
             Some(sha) => Some(gix::ObjectId::from_hex(sha.as_bytes()).map_err(Error::repo)?),

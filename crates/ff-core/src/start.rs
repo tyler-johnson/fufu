@@ -9,8 +9,9 @@
 use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
-use crate::journal::{self, OpKind, OpRecord, RefTransition};
 use crate::model::StartReport;
+use crate::ops::record::observe_refs;
+use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 use crate::refs;
 use crate::revset::{Rev, Revset};
 use crate::snapshot::Provenance;
@@ -51,8 +52,13 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
     match target {
         None => {
             let t = crate::trunk::trunk(repo)?;
-            let at = refs::ref_target(repo, &t.full_ref)?
-                .ok_or_else(|| Error::msg(format!("trunk ref {} has no target", t.full_ref)))?;
+            let at = refs::ref_target(repo, &t.full_ref)?.ok_or_else(|| {
+                Error::coded(
+                    "target/unresolvable",
+                    format!("trunk ref {} has no target", t.full_ref),
+                    vec!["ff branch".into()],
+                )
+            })?;
             Ok(ForkPoint {
                 at,
                 forked_from: t.name,
@@ -97,7 +103,7 @@ pub fn start(
     repo: &gix::Repository,
     opts: &StartOptions,
     prov: &Provenance,
-) -> Result<(StartReport, journal::VerbContext)> {
+) -> Result<(StartReport, verb::VerbContext)> {
     let fork = resolve_fork_point(repo, opts.target.as_deref())?;
 
     let name = match &opts.branch {
@@ -122,6 +128,7 @@ pub fn start(
         &fork.forked_from,
         resolve_now(opts.now),
         &opts.argv,
+        prov,
     )?;
 
     // Park the open change on the branch it was open on, and materialize
@@ -148,7 +155,14 @@ pub fn start(
     ))
 }
 
-/// Mint a branch at a commit, journaled, with its fork base recorded once.
+/// Mint a branch at a commit, recorded, with its fork base written once.
+///
+/// This runs BEFORE the switch that follows it, and therefore before any
+/// preamble — so it reconciles nothing and captures nothing itself. That is
+/// safe precisely because it is write-ahead: the planned table it records
+/// already contains the branch it is about to create, so the switch's own
+/// reconcile finds the world exactly where this operation said it would be.
+#[allow(clippy::too_many_arguments)]
 fn mint_branch(
     repo: &gix::Repository,
     name: &str,
@@ -156,27 +170,45 @@ fn mint_branch(
     forked_from: &str,
     now: i64,
     argv: &[String],
+    prov: &Provenance,
 ) -> Result<()> {
-    let mut planned = journal::observe_refs(repo)?;
+    let head = crate::head::head_state(repo)?;
+    let mut planned = observe_refs(repo)?;
     planned
         .refs
         .insert(format!("refs/heads/{name}"), at.to_string());
     let mut record = OpRecord::new(
-        OpKind::Op,
         "start",
         format!("mint branch {name} at {}", &at.to_string()[..8]),
         now,
     );
     record.argv = argv.to_vec();
-    record.branch = Some(name.to_string());
     record.refs = vec![RefTransition {
         name: format!("refs/heads/{name}"),
         old: None,
         new: Some(at.to_string()),
     }];
-    let index_tree = crate::index::tree_from_index(repo)?;
-    record.index_tree = Some(index_tree.to_string());
-    journal::append(repo, &record, &planned, index_tree, &[at], now)?;
+    let tree = crate::ops::verb::worktree_or_head(repo)?;
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // Minting a name touches neither the working tree nor the index;
+            // the switch that follows is what moves them.
+            tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            // Recorded against the branch it runs ON, not the one it creates:
+            // the new branch has no pointer yet, and the switch is what will
+            // open one.
+            branch: crate::snapshot::chain::chain_name(&head),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &[at],
+        },
+        now,
+    )?;
 
     branch::create_at(
         repo,

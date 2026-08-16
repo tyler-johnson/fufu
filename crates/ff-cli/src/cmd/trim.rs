@@ -1,4 +1,4 @@
-//! `ff trim` — manual retention. Reports per chain; after any real run,
+//! `ff trim` — manual retention. Reports per branch; after any real run,
 //! nudges git's own gc (the one pragmatic spawn in fufu: native writes never
 //! trigger auto-gc, so without this nothing ever packs the object store —
 //! not just the objects a trim orphaned). `gc --auto` is self-limiting: below
@@ -30,20 +30,29 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
         crate::machine::emit("trim", &report)?;
     } else {
         if report.chains.is_empty() {
-            println!("no snapshot chains yet");
+            println!("no operations yet");
         }
         for chain in &report.chains {
             let total = chain.dropped + chain.kept;
-            if chain.dropped == 0 {
+            if chain.deleted && chain.dropped == 0 {
+                // `--gone`: the branch is gone, so its way into the log goes
+                // too. The operations themselves stay — one branch's cannot be
+                // excised from the middle of a global chain — and age out on
+                // the same cutoff as everything else.
                 println!(
-                    "{}: nothing to drop ({} snapshot{} kept)",
+                    "{}: branch is gone — pointer removed; its operations age out on the keep window",
+                    chain.branch
+                );
+            } else if chain.dropped == 0 {
+                println!(
+                    "{}: nothing to drop ({} operation{} kept)",
                     chain.branch,
                     chain.kept,
                     if chain.kept == 1 { "" } else { "s" }
                 );
             } else if dry_run {
                 println!(
-                    "{}: would drop {} of {} snapshots",
+                    "{}: would drop {} of {} operations",
                     chain.branch, chain.dropped, total
                 );
             } else {
@@ -55,12 +64,12 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
                 };
                 if chain.deleted {
                     println!(
-                        "{}: dropped all {} snapshots, chain removed{}",
+                        "{}: dropped all {} operations, pointer removed{}",
                         chain.branch, chain.dropped, tail
                     );
                 } else {
                     println!(
-                        "{}: dropped {} of {} snapshots{}",
+                        "{}: dropped {} of {} operations{}",
                         chain.branch, chain.dropped, total, tail
                     );
                 }

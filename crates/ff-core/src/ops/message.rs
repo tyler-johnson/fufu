@@ -152,6 +152,19 @@ pub fn build(subject: &str, skipped: &[String], skeleton: &Skeleton) -> String {
     msg
 }
 
+/// Rewrite one operation's message around a new skeleton, keeping the subject
+/// and the skipped block exactly as they were.
+///
+/// This is [`trim`](crate::trim)'s relinker. It regenerates rather than
+/// patching lines in place, which is what makes it total: every trailer is
+/// written from the skeleton, so a relink cannot leave one stale key behind
+/// while updating its neighbor. [`build`] and [`parse`] are inverses over
+/// messages `build` produced, so a rebuild that changes nothing reproduces the
+/// original bytes — and therefore the original sha.
+pub fn rebuild(message: &str, skeleton: &Skeleton) -> String {
+    build(subject_of(message), &skipped_of(message), skeleton)
+}
+
 fn trailer(msg: &mut String, key: &str, value: &str) {
     msg.push_str(key);
     msg.push_str(": ");
@@ -294,6 +307,46 @@ mod tests {
         );
         assert!(parse("manual\n\nfufu-base: none\n").is_none());
         assert!(parse("manual\n\nfufu-kind: nonsense\n").is_none());
+    }
+
+    /// [`rebuild`] is `trim`'s relinker, and it has two jobs that pull against
+    /// each other: change every link that moved, and change nothing else. The
+    /// second is the sharper one — a survivor whose links did not move must
+    /// reproduce its original bytes, or content addressing gives it a new sha
+    /// for saying the same thing, and every id anybody wrote down goes stale
+    /// for nothing.
+    #[test]
+    fn rebuild_relinks_the_shape_and_touches_nothing_else() {
+        let skipped = vec!["big.bin".to_string()];
+        let original = build("commit: land the parser", &skipped, &full());
+
+        assert_eq!(
+            rebuild(&original, &full()),
+            original,
+            "an unchanged skeleton must reproduce the original bytes"
+        );
+
+        let mut moved = full();
+        moved.prev = Some(oid(0x99));
+        moved.prev_on_branch = Some(oid(0x99));
+        moved.prev_segment = Some(SegmentLink::ChainStart);
+        let relinked = rebuild(&original, &moved);
+        assert_eq!(parse(&relinked).as_ref(), Some(&moved), "the links moved");
+        assert_eq!(
+            subject_of(&relinked),
+            subject_of(&original),
+            "the subject is not the shape"
+        );
+        assert_eq!(
+            skipped_of(&relinked),
+            skipped,
+            "neither is the skipped block"
+        );
+
+        // A survivor whose segment target aged out states ChainStart rather
+        // than dropping the key: absent means "written before this link
+        // existed" and would send the anchor walk down the slow path forever.
+        assert!(relinked.contains("fufu-prev-segment: none"), "{relinked:?}");
     }
 
     #[test]

@@ -129,44 +129,24 @@ pub struct LogEntry {
     pub time: i64,
 }
 
-/// The result of one capture attempt.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-pub enum SnapOutcome {
-    /// A new snapshot commit was written to the chain ref.
-    Created {
-        id: String,
-        short_id: String,
-        /// The chain ref the snapshot went to, e.g. `refs/fufu/snap/main`.
-        r#ref: String,
-        /// Files changed relative to the previous snapshot (or the base).
-        changed_files: usize,
-        /// Worktree files skipped for exceeding `fufu.maxFileSize`.
-        skipped_files: Vec<String>,
-        /// Non-fatal problems (e.g. the gc-config write failing).
-        warnings: Vec<String>,
-    },
-    /// The tree is already captured: nothing to record.
-    NoOp {
-        r#ref: String,
-        /// Current chain tip, or `None` when the chain doesn't exist yet.
-        tip: Option<String>,
-    },
-    /// Another capture holds the ref lock or won the CAS race; this one skips.
-    Contended { r#ref: String },
-}
-
-/// One snapshot commit on a capture chain.
+/// One capture operation, as the timeline views render it.
+///
+/// Still called a snapshot on this surface because that is what it is: a
+/// snapshot is what an operation carries, and `ff evolog` shows exactly the
+/// operations that carry nothing else.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SnapEntry {
+    /// Raw hex — this row names a commit for `git show` as much as an
+    /// operation for `ff restore --at`, and the letters spelling is minted
+    /// from it at the display edge.
     pub id: String,
     pub short_id: String,
     pub subject: String,
     /// Committer time, seconds since the unix epoch.
     pub time: i64,
-    /// The HEAD commit the snapshot was taken on (base edge), if any.
+    /// The HEAD commit the capture was taken on (base edge), if any.
     pub base: Option<String>,
-    /// The previous snapshot on the chain, if any.
+    /// The previous capture on this branch, if any.
     pub prev: Option<String>,
 }
 
@@ -204,42 +184,43 @@ pub struct RestoreReport {
     pub deleted: Vec<String>,
     /// Gitlinks (embedded repositories) present in the diff but not touched.
     pub skipped_gitlinks: Vec<String>,
-    /// The mandatory pre-restore snapshot, when one was created.
-    pub pre_snapshot: Option<String>,
+    /// The mandatory pre-restore capture, spelled as an operation id.
+    pub pre_op: Option<String>,
 }
 
-/// Per-chain result of a trim pass.
+/// Per-branch view of one trim pass. The counts are that branch's share of
+/// the one log — there is no per-branch chain to drop a suffix of any more.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrimChain {
-    /// The chain ref, e.g. `refs/fufu/snap/main`.
+    /// The branch pointer, e.g. `refs/fufu/snap/main`.
     pub r#ref: String,
-    /// The chain's branch name (or `@detached`).
+    /// The branch name (or `@detached`).
     pub branch: String,
     pub dropped: usize,
     pub kept: usize,
-    /// Where the pre-trim tip was saved, when anything was dropped.
+    /// Where the pre-trim log tip was saved, when anything was dropped.
     pub trash_ref: Option<String>,
-    /// True when the whole chain was dropped and the ref deleted.
+    /// True when nothing of this branch survived and its pointer was deleted.
     pub deleted: bool,
 }
 
-/// Journal retention within a trim pass.
+/// The one log's retention within a trim pass.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TrimJournal {
+pub struct TrimLog {
     pub dropped: usize,
     pub kept: usize,
-    /// Where the pre-trim journal tip was saved, when anything was dropped.
+    /// Where the pre-trim log tip was saved, when anything was dropped.
     pub trash_ref: Option<String>,
-    /// True when the whole journal expired and the ref was deleted (the
-    /// next invocation bootstraps a fresh floor).
+    /// True when the whole log expired and the ref was deleted (the next
+    /// invocation bootstraps a fresh floor).
     pub deleted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrimReport {
     pub chains: Vec<TrimChain>,
-    /// Journal retention on the same cutoff; `None` when no journal exists.
-    pub journal: Option<TrimJournal>,
+    /// The one log's retention; `None` when no log exists yet.
+    pub log: Option<TrimLog>,
     /// True when nothing was written (dry run).
     pub dry_run: bool,
 }
@@ -247,21 +228,21 @@ pub struct TrimReport {
 /// The result of `ff undo`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UndoReport {
-    /// The journal entry that was undone (full sha).
+    /// The operation that was undone, in the letters alphabet.
     pub target: String,
     pub target_summary: String,
     /// `op` or `foreign` — foreign undos are labeled.
     pub target_kind: String,
-    /// How many journal entries rolled back (later ops roll back too).
+    /// How many operations rolled back (later ops roll back too).
     pub rolled_back: usize,
     /// Every ref moved, with old and new values.
-    pub refs: Vec<crate::journal::RefTransition>,
+    pub refs: Vec<crate::ops::RefTransition>,
     /// Where HEAD went, when it moved.
     pub head_moved: Option<String>,
     /// Worktree files written or deleted.
     pub files: Vec<String>,
     pub warnings: Vec<String>,
-    pub pre_snapshot: Option<String>,
+    pub pre_op: Option<String>,
 }
 
 /// The result of `ff describe` (pending-description edit).
@@ -311,7 +292,7 @@ pub struct BranchList {
 pub struct ClaimReport {
     pub from: String,
     pub to: String,
-    pub pre_snapshot: Option<String>,
+    pub pre_op: Option<String>,
 }
 
 /// The result of deleting a branch.
@@ -319,11 +300,11 @@ pub struct ClaimReport {
 pub struct BranchDeleteReport {
     pub name: String,
     pub tip: String,
-    /// Where the snap chain went, when one existed.
+    /// Where the branch's pointer into the log was parked.
     pub trash_ref: Option<String>,
     /// The parked stash entry left behind in the stash stack, if any.
     pub parked_demoted: Option<String>,
-    pub pre_snapshot: Option<String>,
+    pub pre_op: Option<String>,
 }
 
 /// How an arrival (resuming a parked change) went.
@@ -348,8 +329,8 @@ pub struct SwitchReport {
     /// The stash sha the open change was parked under, if the tree was dirty.
     pub parked: Option<String>,
     pub arrival: ArrivalReport,
-    /// The mandatory pre-verb snapshot, when one was created.
-    pub pre_snapshot: Option<String>,
+    /// The mandatory pre-verb capture, spelled as an operation id.
+    pub pre_op: Option<String>,
 }
 
 /// The result of `ff commit` — the close.
@@ -366,8 +347,8 @@ pub enum CommitOutcome {
         files_changed: usize,
         /// The anonymous branch this close claimed, if any.
         claimed_from: Option<String>,
-        /// The mandatory pre-verb snapshot, when one was created.
-        pre_snapshot: Option<String>,
+        /// The mandatory pre-verb capture, spelled as an operation id.
+        pre_op: Option<String>,
     },
     /// Clean tree: nothing to close, nothing was written.
     NothingToClose { branch: String },
@@ -387,13 +368,13 @@ pub struct ForeignChange {
 /// What one reconciliation pass found and did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReconcileReport {
-    /// The journal did not exist and was initialized.
+    /// The operation log did not exist and was initialized.
     pub bootstrapped: bool,
-    /// The journal tip was unreadable; the chain was parked and re-initialized.
+    /// The log tip was unreadable; the log was parked and re-initialized.
     pub reinitialized: bool,
     /// Foreign motion absorbed by this pass (empty = clean).
     pub foreign: Vec<ForeignChange>,
-    /// The journal entry this pass appended, if any.
+    /// The operation this pass appended, in the letters alphabet, if any.
     pub entry: Option<String>,
     pub warnings: Vec<String>,
 }
@@ -408,9 +389,10 @@ impl ReconcileReport {
     }
 }
 
-/// One journal entry, for the ops view (`ff log --ops`).
+/// One non-capture operation, for the ops view (`ff log --ops`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpEntry {
+    /// The letters spelling — an operation is addressed in letters, never hex.
     pub id: String,
     pub short_id: String,
     /// `op`, `foreign`, or `note`.
@@ -419,6 +401,6 @@ pub struct OpEntry {
     pub summary: String,
     pub time: i64,
     pub branch: Option<String>,
-    /// The journal entry this one undid, when the verb is `undo`.
+    /// The operation this one undid, when the verb is `undo`.
     pub undo_of: Option<String>,
 }

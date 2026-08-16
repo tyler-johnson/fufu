@@ -6,6 +6,16 @@
 use ff_core::gix;
 use ff_testsupport::Fixture;
 
+/// The newest operation's record, read through the public reader.
+fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    op.record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record")
+}
+
 const NOW: i64 = 1_700_000_000;
 
 fn ident(fx: &Fixture) {
@@ -73,7 +83,7 @@ fn claim_carries_chain_parked_entry_and_metadata() {
     // A snap chain, a parked change, and a pending description.
     fx.write("a.txt", "wip\n");
     let repo = fx.repo();
-    ff_core::take(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
+    ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
     let head = ff_core::head_state(&repo).unwrap();
     ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
     ff_core::branchmeta::write(
@@ -85,7 +95,16 @@ fn claim_carries_chain_parked_entry_and_metadata() {
         },
     )
     .unwrap();
-    let timeline_before = fx.git(&["log", "--format=%H %s", "refs/fufu/snap/ff/misty-owl"]);
+    // First-parent only: that walk IS the timeline. A full `git log` also
+    // surfaces every commit the log pins (the stash entries this test just
+    // made, among others), which says nothing about whether the rename
+    // carried the pointer.
+    let timeline_before = fx.git(&[
+        "log",
+        "--first-parent",
+        "--format=%H %s",
+        "refs/fufu/snap/ff/misty-owl",
+    ]);
     let parked_before = fx.git(&["rev-parse", "refs/fufu/parked/ff/misty-owl"]);
 
     let repo = fx.repo();
@@ -101,9 +120,14 @@ fn claim_carries_chain_parked_entry_and_metadata() {
     assert_eq!(report.to, "real-work");
 
     // Timeline byte-equal modulo the name; parked ref and metadata carried.
-    // (The claim's own pre-verb snapshot may have grown the chain — compare
-    // the suffix that existed before the claim.)
-    let timeline_after = fx.git(&["log", "--format=%H %s", "refs/fufu/snap/real-work"]);
+    // (The claim's own preamble may have grown the log — compare the suffix
+    // that existed before the claim.)
+    let timeline_after = fx.git(&[
+        "log",
+        "--first-parent",
+        "--format=%H %s",
+        "refs/fufu/snap/real-work",
+    ]);
     assert!(
         timeline_after.ends_with(&timeline_before),
         "timeline preserved:\nbefore:\n{timeline_before}\nafter:\n{timeline_after}"
@@ -123,11 +147,10 @@ fn claim_carries_chain_parked_entry_and_metadata() {
         fx.git(&["symbolic-ref", "HEAD"]).trim(),
         "refs/heads/real-work"
     );
-    // Journaled and clean after.
-    let tip = ff_core::journal::tip(&fx.repo()).unwrap().unwrap();
-    let entry = ff_core::journal::read_entry(&fx.repo(), tip).unwrap();
-    assert_eq!(entry.record.verb, "branch");
-    let after = ff_core::journal::reconcile(&fx.repo(), NOW + 5).unwrap();
+    // Recorded, and clean after.
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "branch");
+    let after = ff_core::ops::reconcile(&fx.repo(), NOW + 5).unwrap();
     assert!(after.is_quiet(), "{after:?}");
 }
 
@@ -177,7 +200,7 @@ fn delete_trashes_chain_demotes_parked_and_journals() {
     fx.git(&["checkout", "-q", "-b", "doomed"]);
     fx.write("a.txt", "doomed wip\n");
     let repo = fx.repo();
-    ff_core::take(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
+    ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
     let head = ff_core::head_state(&repo).unwrap();
     let parked = ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
     fx.git(&["checkout", "-q", "main"]);
@@ -227,7 +250,7 @@ fn delete_trashes_chain_demotes_parked_and_journals() {
         "tip pinned"
     );
 
-    let after = ff_core::journal::reconcile(&repo, NOW + 5).unwrap();
+    let after = ff_core::ops::reconcile(&repo, NOW + 5).unwrap();
     assert!(after.is_quiet(), "{after:?}");
 }
 

@@ -1,5 +1,5 @@
 //! `ff restore` — pull worktree state back from the timeline. No best-effort
-//! pre-capture here: restore's own pre-snapshot is mandatory, and its
+//! pre-capture here: restore's own pre-restore capture is mandatory, and its
 //! failure aborts the restore.
 
 use ff_core::{RestoreOptions, Result};
@@ -26,7 +26,7 @@ pub fn run(ctx: &Ctx, at: Option<String>, all: bool, paths: Vec<String>) -> Resu
             "restored": report.restored,
             "deleted": report.deleted,
             "skipped_gitlinks": report.skipped_gitlinks,
-            "pre_snapshot": report.pre_snapshot,
+            "pre_op": report.pre_op,
             "undo": "ff restore --all",
         });
         crate::machine::emit("restore", &payload)?;

@@ -43,7 +43,7 @@ change, and the files that differ from the commit underneath it.
 
 Status is also where drift is loud. Work done behind fufu's back — a plain
 `git commit`, a rebase run by a tool that never heard of fufu — is absorbed
-into the operation journal lazily, and status keeps reporting it until the
+into the operation log lazily, and status keeps reporting it until the
 next fufu operation, so foreign motion is never silent.";
 
 pub const STATUS_EXAMPLES: &str = "\
@@ -57,8 +57,8 @@ The changes view, jj-style: the open change (@) sits atop the commit walk
 column `ff evolog` drills into.
 
 --commits drops to plain history, no snapshot identity. --ops shows the
-operation journal instead: every mutation fufu has made, newest first,
-carrying the op ids `ff undo` takes.
+operation log instead: every mutation fufu has made, newest first, carrying
+the op ids `ff undo` takes.
 
 -r takes a revset and replaces where the rows come from: gitrevisions'
 whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @
@@ -75,7 +75,7 @@ Examples:
   ff log --commits               history only, no snapshot rows
   ff log -r main                 just main's tip — no @ row, it is not in it
   ff log -r 'trunk..@'           what this branch has that trunk does not
-  ff log --ops                   the operation journal, with ids for ff undo";
+  ff log --ops                   the operation log, with ids for ff undo";
 
 pub const EVOLOG: &str = "\
 Every snapshot of the change you have open, newest first — the drill-in
@@ -170,7 +170,7 @@ here, leaving the branch you were on where it was.
 
 A described change with no file changes closes as an empty commit, on
 purpose; an undescribed clean tree is simply nothing to do. Every close is
-journaled, so `ff undo` takes it back — tree and refs together.";
+recorded, so `ff undo` takes it back — tree and refs together.";
 
 pub const COMMIT_EXAMPLES: &str = "\
 Examples:
@@ -198,7 +198,7 @@ Examples:
 
 pub const UNDO: &str = "\
 Whole-repo undo: refs and the working tree together, not one without the
-other. Operations come from the journal — `ff log --ops` prints them with
+other. Operations come from the log — `ff log --ops` prints them with
 the ids this command takes — and the newest undoable one is the default.
 
 There is no confirmation prompt, deliberately: an undo is itself one undo
@@ -259,7 +259,7 @@ the capture chain and any parked change come along, so claiming a name
 costs nothing and loses nothing.
 
 -d deletes. The branch's timeline moves to trash rather than evaporating,
-and the whole delete is journaled, so `ff undo` brings the branch and its
+and the whole delete is recorded, so `ff undo` brings the branch and its
 snapshots back.";
 
 pub const BRANCH_EXAMPLES: &str = "\
@@ -359,7 +359,7 @@ this one can degrade quietly: a chain moved by something that is not fufu,
 a reflog that never got created, the gc guard deleted out of local config,
 hooks never installed, a stale binary. Doctor reads the whole net in one
 pass — the engine (chains and their ages, the snapshot identity on every
-tip, reflogs, the gc guard, journal health and pending foreign drift,
+tip, reflogs, the gc guard, log health and pending foreign drift,
 settings validated through the readers' own parsers, a trim preview and
 the auto-trim clock), the wiring (agent hooks, the shell alias, and a
 warning when nothing at all feeds capture), and the update lane.
@@ -369,7 +369,7 @@ problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1
 findings — so CI can gate on it, and --json emits the same rows for
 machines.
 
-Read-only by design: doctor reports the drift the journal will absorb and
+Read-only by design: doctor reports the drift the log will absorb and
 never absorbs it, takes no snapshot, reconciles nothing. --fix is the one
 consented write, and it repairs exactly the two gc reflog-expiry keys.";
 

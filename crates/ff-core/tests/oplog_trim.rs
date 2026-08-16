@@ -1,6 +1,6 @@
-//! Journal retention: expiry on the same `fufu.keep` knob, trash-first,
-//! chain rebuilt with prev links rewritten, reflog replayed — and expiry
-//! releases pins (the undo refuses with "trimmed" afterwards).
+//! Operation-log retention: expiry on the `fufu.keep` knob, trash-first, the
+//! log rebuilt with its three stated links rewritten, reflogs replayed — and
+//! expiry releasing pins, so the floor refuses undo afterwards.
 
 use ff_core::{CloseOptions, TrimOptions, UndoOptions};
 use ff_testsupport::Fixture;
@@ -39,7 +39,7 @@ fn aged_fixture() -> Fixture {
     fx.commit("init");
     ident(&fx);
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, T0).unwrap();
+    ff_core::ops::reconcile(&repo, T0).unwrap();
     for (n, when) in [(1, T0), (2, T0 + 10 * DAY), (3, T0 + 20 * DAY)] {
         fx.write("a.txt", &format!("change {n}\n"));
         close_at(&fx, &format!("close {n}"), when);
@@ -61,18 +61,15 @@ fn journal_expires_on_the_same_keep_cutoff() {
         },
     )
     .unwrap();
-    let journal = report.journal.expect("journal was trimmed");
-    assert_eq!(journal.dropped, 3, "{journal:?}");
-    assert_eq!(journal.kept, 1);
-    assert_eq!(
-        journal.trash_ref.as_deref(),
-        Some("refs/fufu/trash/@journal")
-    );
+    let log = report.log.expect("the log was trimmed");
+    assert!(log.dropped >= 3, "{log:?}");
+    assert!(log.kept >= 1, "{log:?}");
+    assert_eq!(log.trash_ref.as_deref(), Some("refs/fufu/trash/@ops"));
 
-    // The surviving chain is well-formed: one entry, prev rewritten to None
-    // (plus the trim note appended on top).
+    // The surviving log is well-formed: the newest close, its prev rewritten
+    // to nothing, plus the trim note appended on top.
     let repo = fx.repo();
-    let ops = ff_core::journal::read_ops(&repo, 0).unwrap();
+    let ops = ff_core::ops::read_ops(&repo, 0).unwrap();
     let kinds: Vec<(&str, &str)> = ops
         .iter()
         .map(|o| (o.kind.as_str(), o.verb.as_str()))
@@ -81,14 +78,14 @@ fn journal_expires_on_the_same_keep_cutoff() {
     assert!(ops[1].summary.contains("close 3"));
 
     // Reconcile stays clean over the rebuilt chain.
-    let after = ff_core::journal::reconcile(&repo, T0 + 22 * DAY).unwrap();
+    let after = ff_core::ops::reconcile(&repo, T0 + 22 * DAY).unwrap();
     assert!(after.is_quiet(), "{after:?}");
 }
 
 #[test]
-fn trim_dry_run_writes_nothing_to_the_journal() {
+fn trim_dry_run_writes_nothing_to_the_log() {
     let fx = aged_fixture();
-    let tip_before = fx.git(&["rev-parse", "refs/fufu/journal"]);
+    let tip_before = fx.git(&["rev-parse", "refs/fufu/ops"]);
     let repo = fx.repo();
     let report = ff_core::trim(
         &repo,
@@ -100,13 +97,19 @@ fn trim_dry_run_writes_nothing_to_the_journal() {
         },
     )
     .unwrap();
-    let journal = report.journal.expect("reported");
-    assert_eq!(journal.dropped, 3);
-    assert_eq!(fx.git(&["rev-parse", "refs/fufu/journal"]), tip_before);
+    let log = report.log.expect("reported");
+    assert!(log.dropped >= 3, "{log:?}");
+    assert_eq!(fx.git(&["rev-parse", "refs/fufu/ops"]), tip_before);
+    assert!(
+        !fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/trash/@ops"])
+            .status
+            .success(),
+        "a dry run must not even park a trash tip"
+    );
 }
 
 #[test]
-fn whole_journal_expiry_deletes_the_ref_and_rebootstraps() {
+fn whole_log_expiry_deletes_the_ref_and_rebootstraps() {
     let fx = aged_fixture();
     let repo = fx.repo();
     let report = ff_core::trim(
@@ -118,53 +121,74 @@ fn whole_journal_expiry_deletes_the_ref_and_rebootstraps() {
         },
     )
     .unwrap();
-    let journal = report.journal.unwrap();
-    assert!(journal.deleted);
-    assert!(
-        !fx.try_git(&["rev-parse", "--verify", "refs/fufu/journal"])
-            .status
-            .success()
-    );
+    let log = report.log.unwrap();
+    assert!(log.deleted);
+    for gone in ["refs/fufu/ops", "refs/fufu/snap/main"] {
+        assert!(
+            !fx.try_git(&["rev-parse", "--verify", "--quiet", gone])
+                .status
+                .success(),
+            "{gone} must go with the log it pointed into"
+        );
+    }
     // Next invocation bootstraps a fresh floor.
     let repo = fx.repo();
-    let report = ff_core::journal::reconcile(&repo, T0 + 101 * DAY).unwrap();
+    let report = ff_core::ops::reconcile(&repo, T0 + 101 * DAY).unwrap();
     assert!(report.bootstrapped);
 }
 
 #[test]
 fn expiry_releases_pins_and_the_floor_refuses_undo() {
-    // Keep only the newest close: it becomes the journal floor — its
-    // pre-state expired with the chain, so undoing it refuses.
+    // One operation is left standing and it is the oldest on the log: what it
+    // would roll back to expired with everything else, so undoing it refuses.
+    //
+    // The describe is what makes this constructible. A verb's preamble
+    // captures first, and a capture shares its verb's timestamp — so any
+    // cutoff that keeps a close keeps the capture underneath it too, and the
+    // close is never the floor. On a clean tree the capture no-ops and writes
+    // nothing, which leaves the describe alone at the cutoff.
     let fx = aged_fixture();
     let repo = fx.repo();
-    ff_core::trim(
+    ff_core::describe::set_pending(
+        &repo,
+        Some("alone above the cutoff".into()),
+        &prov(),
+        Some(T0 + 30 * DAY),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let repo = fx.repo();
+    let report = ff_core::trim(
         &repo,
         &TrimOptions {
-            now: Some(T0 + 21 * DAY),
+            now: Some(T0 + 31 * DAY),
             keep_secs: Some(6 * DAY),
             ..Default::default()
         },
     )
     .unwrap();
+    assert_eq!(report.log.as_ref().unwrap().kept, 1, "{report:?}");
+
     let repo = fx.repo();
     let err = ff_core::undo(
         &repo,
         &UndoOptions {
-            now: Some(T0 + 22 * DAY),
+            now: Some(T0 + 32 * DAY),
             ..Default::default()
         },
         &prov(),
     );
     match err {
-        Err(e) => assert!(e.to_string().contains("floor"), "{e}"),
+        Err(e) => assert_eq!(e.id(), "op/floor", "{e}"),
         Ok(_) => panic!("the floor must not be undoable"),
     }
 }
 
 #[test]
 fn ops_above_the_floor_stay_undoable_after_a_trim() {
-    // Keep the last two closes: the newer one still undoes cleanly over
-    // the rebuilt chain.
+    // Keep the last two closes: the newer one still undoes cleanly over the
+    // rebuilt log.
     let fx = aged_fixture();
     let repo = fx.repo();
     ff_core::trim(

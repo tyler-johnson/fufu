@@ -1,25 +1,29 @@
 //! Worktree restore from the timeline. Load-bearing ordering: resolve the
-//! target FIRST (so `@{1}` and "newest" mean the timeline the user just
-//! looked at), then take the mandatory pre-restore snapshot, then write.
-//! Writes touch only the worktree — never the index, HEAD, or branches.
-
-use gix::prelude::ObjectIdExt;
+//! target FIRST (so `@{1}` and "newest" mean the timeline the user just looked
+//! at), then take the mandatory pre-restore capture, then write. Writes touch
+//! only the worktree — never the index, HEAD, or branches.
+//!
+//! Targets are operations now rather than snapshots, and that is a widening
+//! rather than a change of subject: a snapshot is what an operation carries,
+//! so every operation has a tree to restore, and the ids `ff evolog` prints
+//! are the same ids they always were.
 
 use crate::error::{Error, Result};
-use crate::model::{RestoreReport, SnapEntry, SnapOutcome};
+use crate::model::{RestoreReport, SnapEntry};
+use crate::ops::{self, BRANCH_PREFIX, CaptureOutcome, OpLog};
 use crate::snapshot::chain;
 use crate::snapshot::{Provenance, TakeOptions};
 use crate::worktree;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RestoreTarget {
-    /// The newest snapshot on the chain (the default).
+    /// The newest operation on the branch (the default).
     Newest,
-    /// A snapshot id prefix, resolved across the live and trash chains.
+    /// An operation id prefix, as raw hex.
     Id(String),
     /// `@{n}` — the reflog entry n steps back.
     Back(usize),
-    /// The chain as of a moment in time (`@{<date>}` semantics).
+    /// The branch pointer as of a moment in time (`@{<date>}` semantics).
     AtTime(i64),
 }
 
@@ -61,8 +65,13 @@ pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
     {
         return Ok(RestoreTarget::Id(hex));
     }
-    let time = gix::date::parse(raw, Some(std::time::SystemTime::now()))
-        .map_err(|err| Error::msg(format!("unrecognized restore target {raw:?}: {err}")))?;
+    let time = gix::date::parse(raw, Some(std::time::SystemTime::now())).map_err(|err| {
+        Error::coded(
+            "usage/bad-restore-target",
+            format!("unrecognized restore target {raw:?}: {err}"),
+            vec!["ff evolog".into(), "ff restore --at 2h".into()],
+        )
+    })?;
     Ok(RestoreTarget::AtTime(time.seconds))
 }
 
@@ -95,8 +104,8 @@ pub struct RestoreOptions {
     pub now: Option<i64>,
 }
 
-/// Resolve, snapshot, write. `prov` names the mandatory pre-restore snapshot
-/// (`pre: ff restore …`); if that snapshot is contended the restore aborts.
+/// Resolve, capture, write. `prov` names the mandatory pre-restore capture
+/// (`pre: ff restore …`); if that capture is contended the restore aborts.
 pub fn restore(
     repo: &gix::Repository,
     opts: &RestoreOptions,
@@ -120,24 +129,19 @@ pub fn restore(
         ));
     }
     let head = crate::head::head_state(repo)?;
-    let chain_name = chain::chain_name(&head);
+    let branch = chain::chain_name(&head);
 
-    let now = opts.now.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    });
+    let now = opts.now.unwrap_or_else(crate::ops::append::wall_clock);
 
     // 1. Resolve first: "newest" and @{n} refer to the timeline as the user
-    //    saw it, before the pre-restore snapshot moves the tip.
+    //    saw it, before the pre-restore capture moves the pointer.
     let target = parse_target(opts.target.as_deref(), now)?;
-    let target_id = resolve(repo, &target, &chain_name)?;
+    let target_id = resolve(repo, &target, &branch)?;
     let target_entry = entry_of(repo, target_id)?;
 
-    // 2. Mandatory pre-restore snapshot: the state being overwritten must be
-    //    on the timeline before a single byte moves.
-    let pre = crate::snapshot::take_with(
+    // 2. Mandatory pre-restore capture: the state being overwritten must be on
+    //    the log before a single byte moves.
+    let pre = ops::capture_with(
         repo,
         prov,
         &TakeOptions {
@@ -145,48 +149,26 @@ pub fn restore(
             max_file_size: None,
         },
     )?;
-    let (fresh_tree, pre_snapshot) = match &pre {
-        SnapOutcome::Created { id, .. } => {
-            let id = gix::ObjectId::from_hex(id.as_bytes()).map_err(Error::repo)?;
-            (
-                repo.find_commit(id)
-                    .map_err(Error::repo)?
-                    .tree_id()
-                    .map_err(Error::repo)?
-                    .detach(),
-                Some(id.to_string()),
-            )
-        }
-        SnapOutcome::NoOp { tip: Some(tip), .. } => {
-            let id = gix::ObjectId::from_hex(tip.as_bytes()).map_err(Error::repo)?;
-            (
-                repo.find_commit(id)
-                    .map_err(Error::repo)?
-                    .tree_id()
-                    .map_err(Error::repo)?
-                    .detach(),
-                None,
-            )
-        }
-        SnapOutcome::NoOp { tip: None, .. } => (
+    let log = OpLog::open(repo)?;
+    let (fresh_tree, pre_op) = match &pre {
+        CaptureOutcome::Created { id, .. } => (log.get(*id)?.tree(), Some(id.to_string())),
+        CaptureOutcome::NoOp { tip: Some(tip), .. } => (log.get(*tip)?.tree(), None),
+        CaptureOutcome::NoOp { tip: None, .. } => (
             repo.head_tree_id_or_empty().map_err(Error::repo)?.detach(),
             None,
         ),
-        SnapOutcome::Contended { .. } => {
-            return Err(Error::msg(
-                "a concurrent ff snapshot is in progress; restore aborted (nothing was written)",
+        CaptureOutcome::Contended => {
+            return Err(Error::coded(
+                "ref/contended",
+                "a concurrent fufu capture is in progress; restore aborted (nothing was written)",
+                vec![],
             ));
         }
     };
 
-    // 3. Diff fresh snapshot → target — never worktree → target, where
+    // 3. Diff fresh capture → target — never worktree → target, where
     //    untracked files would read as deletions.
-    let target_tree = repo
-        .find_commit(target_id)
-        .map_err(Error::repo)?
-        .tree_id()
-        .map_err(Error::repo)?
-        .detach();
+    let target_tree = log.get(ops::OpId::new(target_id))?.tree();
     let select = |path: &str| opts.all || path_selected(path, &opts.paths);
     let transition = worktree::apply_tree_transition(repo, fresh_tree, target_tree, &select)?;
 
@@ -195,7 +177,7 @@ pub fn restore(
         restored: transition.written,
         deleted: transition.deleted,
         skipped_gitlinks: transition.skipped_gitlinks,
-        pre_snapshot,
+        pre_op,
     })
 }
 
@@ -207,146 +189,113 @@ fn path_selected(path: &str, selectors: &[String]) -> bool {
 }
 
 fn entry_of(repo: &gix::Repository, id: gix::ObjectId) -> Result<SnapEntry> {
-    let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-    if !chain::is_snapshot_commit(&commit) {
-        return Err(Error::msg(format!(
-            "{id} is not a fufu snapshot; restore only restores from the timeline"
-        )));
-    }
-    let subject = commit.message().summary().to_string();
-    let time = commit.committer.time().map_err(Error::repo)?.seconds;
-    let parents: Vec<gix::ObjectId> = commit.parents().collect();
-    drop(commit);
-    drop(obj);
-    let (prev, base) = match parents.as_slice() {
-        [] => (None, None),
-        [p1, rest @ ..] => {
-            if chain::id_is_snapshot(repo, *p1)? {
-                (Some(*p1), rest.first().copied())
-            } else {
-                (None, Some(*p1))
-            }
-        }
-    };
-    let short_id = id
+    let mut entry = crate::evolog::snap_entry(repo, id)?
+        .ok_or_else(|| not_an_op(id))?
+        .entry;
+    use gix::prelude::ObjectIdExt;
+    entry.short_id = id
         .attach(repo)
         .shorten()
         .map(|p| p.to_string())
         .unwrap_or_else(|_| id.to_string());
-    Ok(SnapEntry {
-        id: id.to_string(),
-        short_id,
-        subject,
-        time,
-        base: base.map(|b| b.to_string()),
-        prev: prev.map(|p| p.to_string()),
-    })
+    Ok(entry)
 }
 
-/// Resolve a target against the chain. Every exit is identity-guarded: the
-/// resolved commit must bear the fufu identity or the restore refuses.
-fn resolve(
-    repo: &gix::Repository,
-    target: &RestoreTarget,
-    chain_name: &str,
-) -> Result<gix::ObjectId> {
-    let snap_ref = format!("{}{chain_name}", chain::SNAP_PREFIX);
+/// Resolve a target against the branch. Every exit is identity-guarded: the
+/// resolved commit must be a fufu *operation* or the restore refuses.
+///
+/// The guard is [`ops::is_op_commit`] and not "does it bear the fufu
+/// identity", which is what the old one asked. A record commit bears the
+/// identity too, and restoring from one would wipe the working tree and write
+/// three metadata files in its place.
+fn resolve(repo: &gix::Repository, target: &RestoreTarget, branch: &str) -> Result<gix::ObjectId> {
+    let pointer = format!("{BRANCH_PREFIX}{branch}");
     let id = match target {
-        RestoreTarget::Newest => chain::tip(repo, &snap_ref)?.ok_or_else(|| {
-            Error::msg(format!(
-                "no snapshots on {chain_name} yet — nothing to restore"
-            ))
+        RestoreTarget::Newest => crate::refs::ref_target(repo, &pointer)?.ok_or_else(|| {
+            Error::coded(
+                "op/not-found",
+                format!("no operations on {branch} yet — nothing to restore"),
+                vec!["ff evolog".into()],
+            )
         })?,
         RestoreTarget::Id(prefix) => {
-            // Try the materialized index first; fall back to the walk when
-            // the index can't be consulted. Either way the id below still
-            // passes through the identity guard at the end of this function,
-            // so a stale index can only ever offer a candidate that then
-            // fails the guard — never cause a wrong restore.
-            let mut candidates = match crate::idindex::prefix_matches(repo, chain_name, prefix)? {
-                Some(found) => found,
-                None => {
-                    let mut candidates = Vec::new();
-                    for r in [snap_ref.clone(), chain::trash_ref(chain_name)] {
-                        if let Some(tip) = chain::tip(repo, &r)? {
-                            collect_prefix_matches(repo, tip, prefix, &mut candidates)?;
-                        }
-                    }
-                    candidates
+            // The index is a cache, so every candidate it offers is checked
+            // against the object store below. A stale entry can only ever
+            // produce a candidate that then fails the guard — never a wrong
+            // restore.
+            let mut candidates = Vec::new();
+            for candidate in ops::index::prefix_matches(repo, prefix)? {
+                if ops::is_op_commit(repo, candidate)? {
+                    candidates.push(candidate);
                 }
-            };
-            // Index candidates come back in sorted hex order rather than
-            // newest-first walk order, so an ambiguous-prefix error may list
-            // ids in a different order than before. The message text is
-            // unchanged; only the order of the list it prints can differ.
+            }
+            candidates.sort_unstable();
             candidates.dedup();
             match candidates.as_slice() {
                 [] => {
-                    return Err(Error::msg(format!(
-                        "no snapshot matching {prefix} on {chain_name} (or its trash)"
-                    )));
+                    return Err(Error::coded(
+                        "op/not-found",
+                        format!("no operation matches {prefix}"),
+                        vec!["ff evolog".into(), "ff log --ops".into()],
+                    ));
                 }
                 [one] => *one,
                 many => {
-                    let list: Vec<String> = many.iter().map(|id| id.to_string()).collect();
-                    return Err(Error::msg(format!(
-                        "ambiguous snapshot prefix {prefix}: {}",
-                        list.join(", ")
-                    )));
+                    let list: Vec<String> = many
+                        .iter()
+                        .map(|id| ops::OpId::new(*id).short(12))
+                        .collect();
+                    return Err(Error::coded(
+                        "op/ambiguous",
+                        format!(
+                            "{prefix} matches {} operations: {}",
+                            many.len(),
+                            list.join(", ")
+                        ),
+                        vec!["ff evolog".into()],
+                    ));
                 }
             }
         }
-        RestoreTarget::Back(n) => reflog_entry(repo, &snap_ref, |lines| lines.nth(*n))?
-            .ok_or_else(|| {
-                Error::msg(format!("@{{{n}}}: not that many snapshots on {chain_name}"))
-            })?,
-        RestoreTarget::AtTime(t) => {
-            reflog_entry(repo, &snap_ref, |lines| {
-                // A manual find: `Iterator::find` needs `Self: Sized`.
-                loop {
-                    match lines.next() {
-                        Some(line) if line.1 <= *t => break Some(line),
-                        Some(_) => continue,
-                        None => break None,
-                    }
-                }
-            })?
-            .ok_or_else(|| {
-                Error::msg(format!(
-                    "no snapshot on {chain_name} at or before that time"
-                ))
+        RestoreTarget::Back(n) => {
+            reflog_entry(repo, &pointer, |lines| lines.nth(*n))?.ok_or_else(|| {
+                Error::coded(
+                    "op/not-found",
+                    format!("@{{{n}}}: not that many operations on {branch}"),
+                    vec!["ff evolog".into()],
+                )
             })?
         }
+        RestoreTarget::AtTime(t) => reflog_entry(repo, &pointer, |lines| {
+            // A manual find: `Iterator::find` needs `Self: Sized`.
+            loop {
+                match lines.next() {
+                    Some(line) if line.1 <= *t => break Some(line),
+                    Some(_) => continue,
+                    None => break None,
+                }
+            }
+        })?
+        .ok_or_else(|| {
+            Error::coded(
+                "op/not-found",
+                format!("no operation on {branch} at or before that time"),
+                vec!["ff evolog".into()],
+            )
+        })?,
     };
-    if !chain::id_is_snapshot(repo, id)? {
-        return Err(Error::msg(format!(
-            "{id} is not a fufu snapshot; refusing to restore from it"
-        )));
+    if !ops::is_op_commit(repo, id)? {
+        return Err(not_an_op(id));
     }
     Ok(id)
 }
 
-/// First-parent walk collecting snapshot ids that match a hex prefix.
-fn collect_prefix_matches(
-    repo: &gix::Repository,
-    tip: gix::ObjectId,
-    prefix: &str,
-    out: &mut Vec<gix::ObjectId>,
-) -> Result<()> {
-    let mut cur = Some(tip);
-    while let Some(id) = cur {
-        if !chain::id_is_snapshot(repo, id)? {
-            break;
-        }
-        if id.to_string().starts_with(prefix) && !out.contains(&id) {
-            out.push(id);
-        }
-        let obj = repo.find_object(id).map_err(Error::repo)?;
-        let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-        cur = commit.parents().next();
-    }
-    Ok(())
+fn not_an_op(id: gix::ObjectId) -> Error {
+    Error::coded(
+        "op/not-found",
+        format!("{id} is not a fufu operation; refusing to restore from it"),
+        vec!["ff evolog".into()],
+    )
 }
 
 /// Run a selector over reflog lines, newest first, as `(new_oid, time)`.

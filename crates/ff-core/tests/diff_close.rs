@@ -7,6 +7,16 @@
 use ff_core::{CloseOptions, CommitOutcome};
 use ff_testsupport::{Fixture, scenarios};
 
+/// The newest operation's record, read through the public reader.
+fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    op.record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record")
+}
+
 const NOW: i64 = 1_700_000_000;
 
 fn ident(fx: &Fixture) {
@@ -14,7 +24,7 @@ fn ident(fx: &Fixture) {
     fx.set_config("user.email", "close@test");
 }
 
-fn close_with(fx: &Fixture, opts: CloseOptions) -> (CommitOutcome, ff_core::journal::VerbContext) {
+fn close_with(fx: &Fixture, opts: CloseOptions) -> (CommitOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
     ff_core::close(
         &repo,
@@ -231,7 +241,7 @@ fn declining_pre_commit_hook_aborts_with_nothing_written() {
         "branch unmoved"
     );
     // No op entry was journaled for the aborted close.
-    let ops = ff_core::journal::read_ops(&fx.repo(), 0).unwrap();
+    let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
     assert!(ops.iter().all(|op| op.verb != "commit"), "{ops:?}");
 
     // --no-verify skips the hook entirely.
@@ -297,7 +307,7 @@ fn dash_b_claims_an_anonymous_branch_carrying_its_chain() {
     fx.git(&["checkout", "-q", "-b", "ff/quick-fox"]);
     fx.write("a.txt", "anon work\n");
     let repo = fx.repo();
-    ff_core::take(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
+    ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
     let chain_tip = fx
         .git(&["rev-parse", "refs/fufu/snap/ff/quick-fox"])
         .trim()
@@ -346,12 +356,10 @@ fn close_journals_one_op_entry_and_reconciles_clean_after() {
     };
 
     let repo = fx.repo();
-    let tip = ff_core::journal::tip(&repo).unwrap().unwrap();
-    let entry = ff_core::journal::read_entry(&repo, tip).unwrap();
-    assert_eq!(entry.record.verb, "commit");
-    assert_eq!(entry.record.kind, ff_core::journal::OpKind::Op);
-    let main = entry
-        .record
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "commit");
+
+    let main = record
         .refs
         .iter()
         .find(|t| t.name == "refs/heads/main")
@@ -359,7 +367,7 @@ fn close_journals_one_op_entry_and_reconciles_clean_after() {
     assert_eq!(main.new.as_deref(), Some(id.as_str()));
 
     // The mutation matched the plan: the next pass is clean.
-    let report = ff_core::journal::reconcile(&repo, NOW + 10).unwrap();
+    let report = ff_core::ops::reconcile(&repo, NOW + 10).unwrap();
     assert!(report.is_quiet(), "{report:?}");
 }
 

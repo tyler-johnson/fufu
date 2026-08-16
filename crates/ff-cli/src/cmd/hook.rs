@@ -141,7 +141,7 @@ fn runtime_claude(ctx: &Ctx) -> Result<()> {
     let prov = provenance_for(ctx, &payload, &repo);
     // Contended and NoOp are fine; only real errors matter (and only under
     // FF_DEBUG at that).
-    ff_core::take(&repo, &prov)?;
+    ff_core::capture(&repo, &prov)?;
 
     // The session notice rides UserPromptSubmit stdout, which Claude injects
     // into the agent's context. Marker first — written durably BEFORE the

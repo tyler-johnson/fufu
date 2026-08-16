@@ -1084,10 +1084,7 @@ fn restore_json_shape() {
     assert!(d["target"]["id"].is_string());
     assert_eq!(d["restored"][0], "a.txt");
     assert_eq!(d["undo"], "ff restore --all");
-    assert!(
-        d["pre_snapshot"].is_string(),
-        "pre-restore snapshot recorded"
-    );
+    assert!(d["pre_op"].is_string(), "pre-restore snapshot recorded");
 }
 
 #[test]
@@ -1404,8 +1401,8 @@ fn uncolored_views_do_not_build_the_id_index() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
-    // A chain deep enough that the append path needs an existing file, and
-    // then a clean tree so neither run below captures anything.
+    // A log deep enough that the append path needs an existing file, and then
+    // a clean tree so neither run below captures anything.
     for i in 0..4 {
         fx.write("a.txt", &format!("v{i}\n"));
         assert!(ff(&fx, &[]).status.success());
@@ -1413,7 +1410,8 @@ fn uncolored_views_do_not_build_the_id_index() {
     fx.commit("settle");
     assert!(ff(&fx, &[]).status.success());
 
-    let index = fx.path().join(".git/fufu/ids/live/main");
+    // One log means one index file, not one per branch.
+    let index = fx.path().join(".git/fufu/ops/live");
     std::fs::remove_file(&index).expect("remove index");
 
     // stdout here is a pipe, so anstream resolves color to never.

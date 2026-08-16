@@ -58,7 +58,7 @@ fn close_then_undo_is_identity_and_undo_undo_is_redo() {
     // Baseline BEFORE the close (with the journal bootstrapped so the undo
     // has a floor).
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
     let before = world_state(&fx);
 
     let (outcome, _) = ff_core::close(
@@ -102,7 +102,7 @@ fn close_then_undo_is_identity_and_undo_undo_is_redo() {
 
     // The journal reconciles clean after all of it.
     let repo = fx.repo();
-    let after = ff_core::journal::reconcile(&repo, NOW + 500).unwrap();
+    let after = ff_core::ops::reconcile(&repo, NOW + 500).unwrap();
     assert!(after.is_quiet(), "{after:?}");
 }
 
@@ -122,9 +122,9 @@ fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
     fx.write("new.txt", "untracked\n");
 
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
     // The hook's snapshot captures the dirty state onto the chain first.
-    let snap = ff_core::take_with(
+    let snap = ff_core::capture_with(
         &repo,
         &ff_core::Provenance::new("claude", Some("hook".into())),
         &ff_core::TakeOptions {
@@ -133,7 +133,7 @@ fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
         },
     )
     .unwrap();
-    assert!(matches!(snap, ff_core::SnapOutcome::Created { .. }));
+    assert!(matches!(snap, ff_core::CaptureOutcome::Created { .. }));
     let before = world_state(&fx);
 
     let (outcome, ctx) = ff_core::close(
@@ -151,7 +151,7 @@ fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
         panic!("expected close");
     };
     assert!(
-        ctx.pre_snapshot.is_some(),
+        ctx.pre_op.is_some(),
         "a no-op capture must still surface the chain tip as the pre-verb snapshot"
     );
 
@@ -180,7 +180,7 @@ fn switch_then_undo_returns_with_the_parked_change_reopened() {
     fx.write("shared.txt", "wip on main\n");
 
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
     let before = world_state(&fx);
 
     let (report, _) = ff_core::switch(
@@ -222,7 +222,7 @@ fn foreign_ops_undo_with_a_label() {
     let first = fx.commit("init");
     ident(&fx);
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
 
     // A commit made with real git...
     fx.write("a.txt", "user's commit\n");
@@ -253,7 +253,7 @@ fn undoing_an_older_op_rolls_back_everything_after_it() {
     fx.commit("init");
     ident(&fx);
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
     let before_all = world_state(&fx);
 
     // Two closes.
@@ -275,7 +275,7 @@ fn undoing_an_older_op_rolls_back_everything_after_it() {
 
     // Find the FIRST close's op id and undo it.
     let repo = fx.repo();
-    let ops = ff_core::journal::read_ops(&repo, 0).unwrap();
+    let ops = ff_core::ops::read_ops(&repo, 0).unwrap();
     let first_close = ops
         .iter()
         .find(|op| op.verb == "commit" && op.summary.contains("first close"))
@@ -301,7 +301,7 @@ fn partial_application_converges_on_rerun() {
     fx.git(&["branch", "other"]);
     ident(&fx);
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW - 10).unwrap();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
     let before = world_state(&fx);
 
     fx.write("a.txt", "work\n");
@@ -332,7 +332,7 @@ fn partial_application_converges_on_rerun() {
     // The next undo pass reconciles the divergence loudly and a re-issued
     // undo of the close converges to the same pre-close state.
     let repo = fx.repo();
-    let ops = ff_core::journal::read_ops(&repo, 0).unwrap();
+    let ops = ff_core::ops::read_ops(&repo, 0).unwrap();
     let close_op = ops
         .iter()
         .find(|op| op.verb == "commit" && op.summary.contains("landed"))
@@ -361,7 +361,7 @@ fn undo_refuses_notes_and_the_floor() {
     fx.commit("init");
     ident(&fx);
     let repo = fx.repo();
-    ff_core::journal::reconcile(&repo, NOW).unwrap();
+    ff_core::ops::reconcile(&repo, NOW).unwrap();
 
     // Only the init note exists: bare undo has nothing.
     let err = ff_core::undo(
@@ -375,7 +375,7 @@ fn undo_refuses_notes_and_the_floor() {
     assert!(err.is_err(), "nothing undoable yet");
 
     // Targeting the note by id also refuses.
-    let ops = ff_core::journal::read_ops(&repo, 0).unwrap();
+    let ops = ff_core::ops::read_ops(&repo, 0).unwrap();
     let note = ops.iter().find(|op| op.kind == "note").unwrap();
     let err = ff_core::undo(
         &repo,

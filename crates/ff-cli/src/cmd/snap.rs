@@ -1,35 +1,46 @@
-//! Bare `ff` — the snapshot verb. `ff [-m <msg>]` takes a manual snapshot.
+//! Bare `ff` — the capture verb. `ff [-m <msg>]` records the working tree as
+//! one operation.
+//!
+//! The outcome is mapped to text here rather than in core: `CaptureOutcome`
+//! names an operation and a branch, and the words "snapshot" and "chain" are
+//! this surface's vocabulary for them.
 
-use ff_core::{EvologOptions, Provenance, Result, SnapOutcome};
+use ff_core::{CaptureOutcome, EvologOptions, Provenance, Result};
 
 use crate::ctx::Ctx;
-
-fn branch_of(r#ref: &str) -> &str {
-    r#ref.strip_prefix("refs/fufu/snap/").unwrap_or(r#ref)
-}
 
 pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
     let repo = ff_core::discover(".")?;
     let prov = Provenance::new("manual", message).with_session(ctx.session.clone());
-    let outcome = ff_core::take(&repo, &prov)?;
+    let outcome = ff_core::capture(&repo, &prov)?;
+    let branch = ff_core::snapshot::chain::chain_name(&ff_core::head_state(&repo)?);
+    // Warnings go to stderr before anything else and regardless of --json,
+    // because the one that matters here reports that pre-cutover refs were
+    // parked rather than overwritten. A receipt nobody is shown is the same
+    // as no receipt, and this is the path the first run after an upgrade
+    // takes.
+    let warnings = match &outcome {
+        CaptureOutcome::Created { warnings, .. } | CaptureOutcome::NoOp { warnings, .. } => {
+            warnings.as_slice()
+        }
+        CaptureOutcome::Contended => &[],
+    };
+    for warning in warnings {
+        eprintln!("ff: {warning}");
+    }
     match &outcome {
-        SnapOutcome::Created {
-            id,
-            short_id,
-            r#ref,
-            ..
-        } => {
-            let branch = branch_of(r#ref);
+        CaptureOutcome::Created { id, .. } => {
+            let short = id.short(8);
             if ctx.json {
                 let payload = serde_json::json!({
                     "outcome": "created",
-                    "id": id,
-                    "short_id": short_id,
+                    "id": id.to_string(),
+                    "short_id": short,
                     "branch": branch,
                 });
                 crate::machine::emit("snap", &payload)?;
             } else {
-                println!("snapshot {short_id} on {branch}");
+                println!("snapshot {short} on {branch}");
                 println!();
                 let rows = ff_core::evolog(
                     &repo,
@@ -54,8 +65,7 @@ pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
                 out.finish();
             }
         }
-        SnapOutcome::NoOp { r#ref, .. } => {
-            let branch = branch_of(r#ref);
+        CaptureOutcome::NoOp { .. } => {
             if ctx.json {
                 let payload = serde_json::json!({
                     "outcome": "noop",
@@ -66,7 +76,7 @@ pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
                 println!("no changes since the last snapshot on {branch}");
             }
         }
-        SnapOutcome::Contended { .. } => {
+        CaptureOutcome::Contended => {
             if ctx.json {
                 let payload = serde_json::json!({ "outcome": "contended" });
                 crate::machine::emit("snap", &payload)?;

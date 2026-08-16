@@ -1,19 +1,20 @@
-//! Floor 1 — continuous capture. Every working-tree state becomes an
-//! ordinary git commit on a hidden per-branch ref (`refs/fufu/snap/<branch>`),
-//! written natively: zero spawns, and the index is never written.
+//! Floor 1 — continuous capture, reduced to the two things capture actually
+//! is: naming the chain a working tree belongs to, and turning that working
+//! tree into a git tree object.
+//!
+//! The commit that carries the tree is [`crate::ops`]'s business now. A
+//! snapshot is what an operation carries, so there is no second writer here,
+//! no second id space, and no second chain — only the tree assembly
+//! (`tree.rs`), the configuration that bounds it (`config.rs`), and the
+//! provenance a capture is labeled with.
 
 pub mod chain;
 pub mod config;
-pub mod message;
 pub(crate) mod tree;
 
-use gix::prelude::ObjectIdExt;
-use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
-
 use crate::error::{Error, Result};
-use crate::model::SnapOutcome;
 
-/// Where a snapshot came from; formatted as the commit subject
+/// Where a capture came from; formatted as the commit subject
 /// (`source` or `source: detail`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provenance {
@@ -21,7 +22,7 @@ pub struct Provenance {
     pub source: String,
     /// The command, message, or tool detail, if any.
     pub detail: Option<String>,
-    /// The session this snapshot belongs to, if any.
+    /// The session this capture belongs to, if any.
     pub session: Option<String>,
 }
 
@@ -55,217 +56,6 @@ pub struct TakeOptions {
     pub now: Option<i64>,
     /// Oversize cutoff in bytes; `None` = `fufu.maxFileSize` (default 50 MiB).
     pub max_file_size: Option<u64>,
-}
-
-/// Take a snapshot of the working tree. See [`take_with`].
-pub fn take(repo: &gix::Repository, prov: &Provenance) -> Result<SnapOutcome> {
-    take_with(repo, prov, &TakeOptions::default())
-}
-
-/// Take a snapshot: capture the working tree (staged + unstaged + untracked,
-/// exactly `add -A`'s selection) as a commit on the branch's chain ref.
-///
-/// Read-only until the single CAS ref edit; the index is never written, HEAD
-/// is never opened for writing. A lost CAS race or a held lock reports
-/// [`SnapOutcome::Contended`] — never blocks, never retries. A crash leaves at
-/// worst orphan objects for gc.
-pub fn take_with(
-    repo: &gix::Repository,
-    prov: &Provenance,
-    opts: &TakeOptions,
-) -> Result<SnapOutcome> {
-    if repo.workdir().is_none() {
-        return Err(Error::coded(
-            "repo/bare",
-            "bare repository: capture requires a working tree",
-            vec![],
-        ));
-    }
-    let head = crate::head::head_state(repo)?;
-    let chain_name = chain::chain_name(&head);
-    let chain_ref_name = format!("{}{chain_name}", chain::SNAP_PREFIX);
-    let base = chain::base_commit(&head)?;
-
-    // Previous tip — the exact value CAS must later see again.
-    let prev: Option<gix::ObjectId> = crate::refs::ref_target(repo, chain_ref_name.as_str())?;
-    let prev_tree: Option<gix::ObjectId> = prev
-        .map(|id| {
-            repo.find_commit(id)
-                .map_err(Error::repo)?
-                .tree_id()
-                .map_err(Error::repo)
-                .map(|t| t.detach())
-        })
-        .transpose()?;
-    let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-
-    let scan = tree::scan(repo)?;
-    let (tree_id, skipped) = if scan.is_empty() {
-        // Tier-1: the capture tree IS the head tree — zero object writes.
-        match (prev, prev_tree) {
-            (None, _) => {
-                return Ok(SnapOutcome::NoOp {
-                    r#ref: chain_ref_name,
-                    tip: None,
-                });
-            }
-            (Some(p), Some(pt)) if pt == head_tree => {
-                return Ok(SnapOutcome::NoOp {
-                    r#ref: chain_ref_name,
-                    tip: Some(p.to_string()),
-                });
-            }
-            // The user committed since the last snapshot: record the
-            // post-commit state so the timeline stays continuous.
-            _ => (head_tree, Vec::new()),
-        }
-    } else {
-        let max = opts
-            .max_file_size
-            .unwrap_or_else(|| config::max_file_size(repo));
-        tree::assemble(repo, head_tree, &scan, max)?
-    };
-
-    // Tier-2: built the tree, but it equals the previous snapshot's (or the
-    // head's, when no chain exists). Orphan blobs written above are gc-able.
-    let noop_against = prev_tree.unwrap_or(head_tree);
-    if tree_id == noop_against {
-        return Ok(SnapOutcome::NoOp {
-            r#ref: chain_ref_name,
-            tip: prev.map(|p| p.to_string()),
-        });
-    }
-
-    let now = opts.now.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    });
-    let subject = message::clean_subject(&prov.subject(), message::MAX_SUBJECT);
-
-    // The segment skip-link (see `evolog::segment_anchors`): `prev` sitting
-    // on the same base as this capture means we are still inside its
-    // segment, so its own pointer is copied verbatim — every snapshot in a
-    // segment ends up carrying the same pointer, which is what lets the
-    // anchor walk hop out of the segment from any member of it. A different
-    // base means this capture opens a fresh segment, whose pointer is `prev`
-    // itself. No `prev` at all means this is the first snapshot of the
-    // chain, so the pointer is `ChainStart` — the walk can stop immediately
-    // when it reaches a segment whose base nobody wants. One extra object
-    // decode, paid here so the display-side walk never has to pay it per
-    // snapshot.
-    let segment_prev: Option<message::SegmentPrev> = match prev {
-        None => Some(message::SegmentPrev::ChainStart),
-        Some(p) => {
-            let prev_decoded = crate::evolog::snap_entry(repo, p)?;
-            match prev_decoded {
-                Some(decoded) if decoded.entry.base == base.map(|b| b.to_string()) => {
-                    // Same segment: copy the predecessor's value verbatim,
-                    // including None (pointerless old chain).
-                    decoded.segment_prev
-                }
-                _ => Some(message::SegmentPrev::At(p)),
-            }
-        }
-    };
-    let msg = message::build(
-        &prov.subject(),
-        &skipped,
-        prov.session.as_deref(),
-        segment_prev,
-    );
-    let changed_files = count_file_changes(repo, prev_tree.unwrap_or(head_tree), tree_id)?;
-
-    // Parent order is load-bearing: parent 1 = previous snapshot (first-parent
-    // walk = timeline), parent 2 = HEAD commit (base edge).
-    let parents: Vec<gix::ObjectId> = match (prev, base) {
-        (Some(p), Some(b)) => vec![p, b],
-        (Some(p), None) => vec![p],
-        (None, Some(b)) => vec![b],
-        (None, None) => Vec::new(),
-    };
-    let sig = gix::actor::Signature {
-        name: chain::FUFU_NAME.into(),
-        email: chain::FUFU_EMAIL.into(),
-        time: gix::date::Time {
-            seconds: now,
-            offset: 0,
-        },
-    };
-    let commit = gix::objs::Commit {
-        tree: tree_id,
-        parents: parents.into(),
-        author: sig.clone(),
-        committer: sig,
-        encoding: None,
-        message: msg.into(),
-        extra_headers: Vec::new(),
-    };
-    let commit_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
-
-    // Single-ref CAS transaction. Custom namespaces get no reflog by default:
-    // force_create_reflog is mandatory, and silently absent otherwise.
-    let time_str = format!("{now} +0000");
-    let edit = RefEdit {
-        change: Change::Update {
-            log: LogChange {
-                mode: RefLog::AndReference,
-                force_create_reflog: true,
-                message: subject.clone().into(),
-            },
-            expected: match prev {
-                Some(p) => PreviousValue::MustExistAndMatch(gix::refs::Target::Object(p)),
-                None => PreviousValue::MustNotExist,
-            },
-            new: gix::refs::Target::Object(commit_id),
-        },
-        name: chain_ref_name.as_str().try_into().map_err(Error::repo)?,
-        deref: false,
-    };
-    let committer = gix::actor::SignatureRef {
-        name: chain::FUFU_NAME.into(),
-        email: chain::FUFU_EMAIL.into(),
-        time: &time_str,
-    };
-    match repo.edit_references_as(Some(edit), Some(committer)) {
-        Ok(_) => {}
-        Err(err) if crate::refs::is_contended(&err) => {
-            return Ok(SnapOutcome::Contended {
-                r#ref: chain_ref_name,
-            });
-        }
-        Err(err) => return Err(Error::repo(err)),
-    }
-
-    let mut warnings = Vec::new();
-    if prev.is_none() {
-        // First snapshot on this chain: guard the namespace against gc, once.
-        if let Err(err) = config::ensure_gc_config(repo) {
-            warnings.push(format!("could not write gc config guard: {err}"));
-        }
-    }
-
-    // The id index rides the capture — one 41-byte record and a 50-byte
-    // header rewrite, best effort and silent. A failed append leaves a
-    // stale header, which the next read rebuilds; `take` must not gain a
-    // failure mode from a derived cache. This runs after the CAS above, so
-    // an index record can never describe a snapshot that is not on the ref.
-    crate::idindex::record(repo, &chain_name, prev, commit_id);
-
-    let short_id = commit_id
-        .attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| commit_id.to_string()[..7].to_string());
-    Ok(SnapOutcome::Created {
-        id: commit_id.to_string(),
-        short_id,
-        r#ref: chain_ref_name,
-        changed_files,
-        skipped_files: skipped,
-        warnings,
-    })
 }
 
 /// Count file-level changes between two trees (subtree rows excluded).

@@ -334,17 +334,22 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         {
             let platform = repo.references().map_err(Error::repo)?;
             let iter = platform
-                .prefixed(ff_core::snapshot::chain::SNAP_PREFIX)
+                .prefixed(ff_core::ops::BRANCH_PREFIX)
                 .map_err(Error::repo)?;
             for reference in iter {
-                let reference =
-                    reference.map_err(|err| Error::msg(format!("ref iteration failed: {err}")))?;
+                let reference = reference.map_err(|err| {
+                    Error::coded(
+                        "op/unreadable",
+                        format!("ref iteration failed: {err}"),
+                        vec![],
+                    )
+                })?;
                 let name = reference.name().as_bstr().to_string();
                 let Some(tip) = reference.target().try_id().map(|id| id.to_owned()) else {
                     continue;
                 };
                 let short = name
-                    .strip_prefix(ff_core::snapshot::chain::SNAP_PREFIX)
+                    .strip_prefix(ff_core::ops::BRANCH_PREFIX)
                     .unwrap_or(&name)
                     .to_string();
                 chain_full_names.push(name);
@@ -368,7 +373,9 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
             // identity
             let mut offenders: Vec<String> = Vec::new();
             for (short, tip) in &chain_data {
-                if !ff_core::snapshot::chain::id_is_snapshot(repo, *tip)? {
+                // `is_op_commit` and not "does it bear the fufu identity":
+                // a record commit bears the identity too.
+                if !ff_core::ops::is_op_commit(repo, *tip)? {
                     offenders.push(short.clone());
                 }
             }
@@ -382,7 +389,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                     rows.push(Row::warn(
                     "identity",
                     format!(
-                        "{short} tip is not a fufu snapshot commit — the chain was moved by something other than fufu"
+                        "{short} tip is not a fufu operation — the pointer was moved by something other than fufu"
                     ),
                 ));
                 }
@@ -394,7 +401,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                 let Some(reference) = repo.try_find_reference(full_name).map_err(Error::repo)?
                 else {
                     let short = full_name
-                        .strip_prefix(ff_core::snapshot::chain::SNAP_PREFIX)
+                        .strip_prefix(ff_core::ops::BRANCH_PREFIX)
                         .unwrap_or(full_name);
                     missing_reflogs.push(short.to_string());
                     continue;
@@ -403,7 +410,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                 let has_log = platform.all().map_err(Error::repo)?.is_some();
                 if !has_log {
                     let short = full_name
-                        .strip_prefix(ff_core::snapshot::chain::SNAP_PREFIX)
+                        .strip_prefix(ff_core::ops::BRANCH_PREFIX)
                         .unwrap_or(full_name);
                     missing_reflogs.push(short.to_string());
                 }
@@ -462,19 +469,20 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         {
             let mut trash_parts: Vec<String> = Vec::new();
             let platform = repo.references().map_err(Error::repo)?;
-            let iter = platform
-                .prefixed(ff_core::snapshot::chain::TRASH_PREFIX)
-                .map_err(Error::repo)?;
+            let iter = platform.prefixed("refs/fufu/trash/").map_err(Error::repo)?;
             for reference in iter {
-                let reference =
-                    reference.map_err(|err| Error::msg(format!("ref iteration failed: {err}")))?;
+                let reference = reference.map_err(|err| {
+                    Error::coded(
+                        "op/unreadable",
+                        format!("ref iteration failed: {err}"),
+                        vec![],
+                    )
+                })?;
                 let name = reference.name().as_bstr().to_string();
                 let Some(tip) = reference.target().try_id().map(|id| id.to_owned()) else {
                     continue;
                 };
-                let short = name
-                    .strip_prefix(ff_core::snapshot::chain::TRASH_PREFIX)
-                    .unwrap_or(&name);
+                let short = name.strip_prefix("refs/fufu/trash/").unwrap_or(&name);
                 let age = crate::render::relative_age(now, tip_time(repo, tip)?);
                 trash_parts.push(format!("{short} {age}"));
             }
@@ -515,74 +523,95 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
 
         // id index — read-only: reports what's there, never rebuilds. An
         // absent or stale index is a fact, not a finding: both self-heal on
-        // the next `ff log`/`ff evolog`.
-        if has_chains {
-            let mut all_in_sync = true;
-            let multi = chain_data.len() > 1;
-            let mut parts: Vec<String> = Vec::with_capacity(chain_data.len());
-            for (short, _tip) in &chain_data {
-                let detail = match ff_core::idindex::status(repo, short)? {
-                    ff_core::idindex::Status::InSync { ids } => format!("{ids} ids, in sync"),
-                    ff_core::idindex::Status::Stale => {
-                        all_in_sync = false;
-                        "stale — rebuilds on the next read".to_string()
-                    }
-                    ff_core::idindex::Status::Absent => {
-                        all_in_sync = false;
-                        "absent — builds on the next log".to_string()
-                    }
-                };
-                if multi {
-                    parts.push(format!("{short} {detail}"));
-                } else {
-                    parts.push(detail);
+        // the next `ff log`/`ff evolog`. One log means one index, so this is
+        // one row rather than one per chain.
+        {
+            let detail = match ff_core::ops::index::status(repo)? {
+                ff_core::ops::index::Status::InSync { ids } => {
+                    Some(Row::ok("id index", format!("{ids} ids, in sync")))
                 }
-            }
-            let detail = parts.join("; ");
-            if all_in_sync {
-                rows.push(Row::ok("id index", detail));
-            } else {
-                rows.push(Row::info("id index", detail));
+                ff_core::ops::index::Status::Stale => Some(Row::info(
+                    "id index",
+                    "stale — rebuilds on the next read".into(),
+                )),
+                ff_core::ops::index::Status::Absent => Some(Row::info(
+                    "id index",
+                    "absent — builds on the next log".into(),
+                )),
+            };
+            rows.extend(detail);
+        }
+
+        // the operation log
+        {
+            let log = ff_core::ops::OpLog::open(repo)?;
+            match log.tip()? {
+                None => {
+                    rows.push(Row::info(
+                        "op log",
+                        "no operations yet — the log opens on the first fufu command".into(),
+                    ));
+                }
+                Some(tip) => match log.get(tip) {
+                    Err(err) => {
+                        rows.push(Row::warn(
+                            "op log",
+                            format!("the log tip does not parse — {err}"),
+                        ));
+                    }
+                    Ok(op) => {
+                        let age = crate::render::relative_age(now, op.time());
+                        let summary_trunc = crate::provenance::truncate(op.summary(), 60);
+                        rows.push(Row::info(
+                            "op log",
+                            format!("last op \"{summary_trunc}\" {age}"),
+                        ));
+
+                        // drift
+                        let drift = ff_core::ops::verb::pending_foreign(repo)?;
+                        if !drift.is_empty() {
+                            rows.push(Row::info(
+                                "drift",
+                                format!(
+                                    "{} ref(s) moved outside fufu — absorbed on the next fufu operation",
+                                    drift.len()
+                                ),
+                            ));
+                        }
+                    }
+                },
             }
         }
 
-        // journal
-        match ff_core::journal::tip(repo)? {
-            None => {
+        // the pre-cutover receipt
+        {
+            let mut parked: Vec<String> = Vec::new();
+            let platform = repo.references().map_err(Error::repo)?;
+            let iter = platform
+                .prefixed("refs/fufu/legacy/")
+                .map_err(Error::repo)?;
+            for reference in iter {
+                let reference = reference.map_err(|err| {
+                    Error::coded(
+                        "op/unreadable",
+                        format!("ref iteration failed: {err}"),
+                        vec![],
+                    )
+                })?;
+                parked.push(reference.name().as_bstr().to_string());
+            }
+            if !parked.is_empty() {
                 rows.push(Row::info(
-                    "journal",
-                    "no journal yet — initializes on the first fufu operation".into(),
+                    "legacy",
+                    format!(
+                        "{} ref(s) under refs/fufu/legacy/ hold snapshots and operations from \
+                         before the one-log cutover; this fufu cannot read them, and they are \
+                         kept only so nothing was destroyed silently. Delete them with git when \
+                         you no longer want them.",
+                        parked.len()
+                    ),
                 ));
             }
-            Some(tip) => match ff_core::journal::read_entry(repo, tip) {
-                Err(err) => {
-                    rows.push(Row::warn(
-                        "journal",
-                        format!("journal tip does not parse — {err}"),
-                    ));
-                }
-                Ok(entry) => {
-                    let age = crate::render::relative_age(now, entry.record.time);
-                    let summary_trunc = crate::provenance::truncate(&entry.record.summary, 60);
-                    rows.push(Row::info(
-                        "journal",
-                        format!("last op \"{}\" {age}", summary_trunc),
-                    ));
-
-                    // drift
-                    let current = ff_core::journal::observe_refs(repo)?;
-                    let drift = entry.refs.diff(&current);
-                    if !drift.is_empty() {
-                        rows.push(Row::info(
-                        "drift",
-                        format!(
-                            "{} ref(s) moved outside fufu — absorbed on the next fufu operation",
-                            drift.len()
-                        ),
-                    ));
-                    }
-                }
-            },
         }
 
         // parked
@@ -593,8 +622,13 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                 .prefixed(ff_core::stash::PARKED_PREFIX)
                 .map_err(Error::repo)?;
             for reference in iter {
-                let reference =
-                    reference.map_err(|err| Error::msg(format!("ref iteration failed: {err}")))?;
+                let reference = reference.map_err(|err| {
+                    Error::coded(
+                        "op/unreadable",
+                        format!("ref iteration failed: {err}"),
+                        vec![],
+                    )
+                })?;
                 let name = reference.name().as_bstr().to_string();
                 let short = name
                     .strip_prefix(ff_core::stash::PARKED_PREFIX)

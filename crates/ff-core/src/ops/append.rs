@@ -116,9 +116,20 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
             Some(record) => Some(write_record(repo, record, &skeleton, draft, now)?),
         };
 
+        // Slot 1 belongs to the chain, and the log's root has no chain behind
+        // it — so the root carries no base parent either, and `git log
+        // --first-parent refs/fufu/ops` stops at it instead of stepping onto
+        // the base commit and walking out through the user's own history.
+        // That last part is the bug the journal shipped with, and putting the
+        // base at slot 1 "only on the first entry" would have reproduced it
+        // exactly. The base is still stated in `fufu-base`, which is the
+        // authority for it in any case; what the root gives up is a gc pin on
+        // a commit HEAD was pointing at when fufu started.
         let mut parents: Vec<gix::ObjectId> = Vec::new();
-        parents.extend(prev);
-        parents.extend(draft.base);
+        if let Some(prev) = prev {
+            parents.push(prev);
+            parents.extend(draft.base);
+        }
         parents.extend(record_id);
         for pin in &draft.pins {
             if let Some(commit) = peel_to_commit(repo, *pin)
@@ -241,7 +252,13 @@ fn write_record(
     };
     record.skipped = draft.skipped.clone();
 
-    let op_json = serde_json::to_vec_pretty(&record).map_err(|err| Error::msg(err.to_string()))?;
+    let op_json = serde_json::to_vec_pretty(&record).map_err(|err| {
+        Error::coded(
+            "op/unreadable",
+            format!("could not serialize the operation record: {err}"),
+            vec![],
+        )
+    })?;
     let op_blob = repo.write_blob(&op_json).map_err(Error::repo)?.detach();
     let refs_blob = skeleton.refs_blob.ok_or_else(|| {
         Error::coded(
@@ -311,6 +328,13 @@ fn write_commit(
     Ok(repo.write_object(&commit).map_err(Error::repo)?.detach())
 }
 
+pub(crate) fn wall_clock() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Pin candidates must be commits: tags peel, everything else drops.
 fn peel_to_commit(repo: &gix::Repository, id: gix::ObjectId) -> Option<gix::ObjectId> {
     let obj = repo.find_object(id).ok()?;
@@ -335,9 +359,43 @@ pub enum CaptureOutcome {
         warnings: Vec<String>,
     },
     /// The tree is already recorded: nothing to write.
-    NoOp { tip: Option<OpId> },
+    ///
+    /// It still carries warnings, and that is not defensive tidiness: parking
+    /// the pre-cutover refs happens before the dedup checks, so the one
+    /// capture that owes a receipt is quite likely the one with nothing to
+    /// record — a clean tree is the normal state of a repository somebody
+    /// just upgraded in.
+    NoOp {
+        tip: Option<OpId>,
+        warnings: Vec<String>,
+    },
     /// Another capture holds the lock or won the race; this one skips.
     Contended,
+}
+
+/// Assemble the working tree as a git tree object — `add -A`'s selection,
+/// exactly. Shared by [`capture`] and by reconciliation, which needs the same
+/// answer for the end state it records; two spellings of "the worktree right
+/// now" would be one spelling too many.
+///
+/// Returns the tree and the paths dropped for exceeding `fufu.maxFileSize`.
+pub(crate) fn worktree_tree(
+    repo: &gix::Repository,
+    max_file_size: Option<u64>,
+) -> Result<(gix::ObjectId, Vec<String>)> {
+    let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
+    let scan = crate::snapshot::tree::scan(repo)?;
+    if scan.is_empty() {
+        // Tier-1: the tree IS the head tree — zero object writes.
+        return Ok((head_tree, Vec::new()));
+    }
+    let max = max_file_size.unwrap_or_else(|| crate::snapshot::config::max_file_size(repo));
+    crate::snapshot::tree::assemble(repo, head_tree, &scan, max)
+}
+
+/// Capture the working tree as an operation, with the defaults.
+pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutcome> {
+    capture_with(repo, prov, &TakeOptions::default())
 }
 
 /// Capture the working tree as an operation.
@@ -350,7 +408,7 @@ pub enum CaptureOutcome {
 ///
 /// Read-only until the two-ref CAS; the index is never written and HEAD is
 /// never opened for writing. A crash leaves at worst orphan objects for gc.
-pub fn capture(
+pub fn capture_with(
     repo: &gix::Repository,
     prov: &Provenance,
     opts: &TakeOptions,
@@ -361,6 +419,20 @@ pub fn capture(
             "bare repository: capture requires a working tree",
             vec![],
         ));
+    }
+    // The receipt, before a single ref is read: a pre-cutover repository still
+    // has the old chains sitting in this very namespace, and the CAS below
+    // would take one of them out. `ff` bare and `ff hook` reach capture
+    // without ever reconciling, so the park cannot live only in the preamble —
+    // and it has to precede the read of `prev_on_branch` below, which would
+    // otherwise fail to decode an old snapshot commit.
+    let mut warnings = Vec::new();
+    let virgin = crate::refs::ref_target(repo, OPS_REF)?.is_none();
+    if virgin {
+        warnings.extend(crate::ops::verb::park_legacy(
+            repo,
+            opts.now.unwrap_or_else(wall_clock),
+        )?);
     }
     let head = crate::head::head_state(repo)?;
     let branch = crate::snapshot::chain::chain_name(&head);
@@ -376,26 +448,27 @@ pub fn capture(
         .transpose()?;
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
 
-    let scan = crate::snapshot::tree::scan(repo)?;
-    let (tree_id, skipped) = if scan.is_empty() {
-        // Tier-1: the capture tree IS the head tree — zero object writes.
+    let (tree_id, skipped) = worktree_tree(repo, opts.max_file_size)?;
+    if tree_id == head_tree {
+        // Tier-1: nothing beyond HEAD is on disk.
         match (prev_on_branch, prev_tree) {
-            (None, _) => return Ok(CaptureOutcome::NoOp { tip: None }),
+            (None, _) => {
+                return Ok(CaptureOutcome::NoOp {
+                    tip: None,
+                    warnings,
+                });
+            }
             (Some(p), Some(pt)) if pt == head_tree => {
                 return Ok(CaptureOutcome::NoOp {
                     tip: Some(OpId::new(p)),
+                    warnings,
                 });
             }
             // The user committed since the last op: record the post-commit
             // state so the timeline stays continuous.
-            _ => (head_tree, Vec::new()),
+            _ => {}
         }
-    } else {
-        let max = opts
-            .max_file_size
-            .unwrap_or_else(|| crate::snapshot::config::max_file_size(repo));
-        crate::snapshot::tree::assemble(repo, head_tree, &scan, max)?
-    };
+    }
 
     // Tier-2: built the tree, but it equals the branch's previous op (or the
     // head's, when the branch has no ops). Orphan blobs above are gc-able.
@@ -403,16 +476,23 @@ pub fn capture(
     if tree_id == noop_against {
         return Ok(CaptureOutcome::NoOp {
             tip: prev_on_branch.map(OpId::new),
+            warnings,
         });
     }
 
-    let now = opts.now.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    });
+    let now = opts.now.unwrap_or_else(wall_clock);
     let changed_files = crate::snapshot::count_file_changes(repo, noop_against, tree_id)?;
+
+    // The floor, laid here rather than at the top so that the clean path still
+    // writes nothing at all: a capture that is about to no-op has no business
+    // creating refs. Reconciling first means the log's root is always the
+    // parentless `init` note, so every capture has a predecessor and its
+    // parents are always `[prev, base]` — the shape that keeps `git log
+    // --first-parent refs/fufu/ops` from stepping onto a base commit and
+    // walking out through the user's own history.
+    if virgin {
+        warnings.extend(crate::ops::verb::reconcile(repo, now)?.warnings);
+    }
 
     let draft = OpDraft {
         kind: OpKind::Capture,
@@ -432,7 +512,6 @@ pub fn capture(
         Append::Contended => return Ok(CaptureOutcome::Contended),
     };
 
-    let mut warnings = Vec::new();
     if prev_on_branch.is_none()
         && let Err(err) = crate::snapshot::config::ensure_gc_config(repo)
     {

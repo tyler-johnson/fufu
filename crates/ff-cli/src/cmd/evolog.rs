@@ -144,17 +144,15 @@ pub fn displayed_prefix_lens(
 }
 
 /// Unique-prefix lengths over the restore-resolution domain: the live AND
-/// trash chains — so the bold prefix is exactly what `ff restore --at`
-/// accepts unambiguously. The domain is still exactly the live and trash
-/// chains; what changed is that the domain is materialized per chain in the
-/// id index instead of re-walked, so the cost is now the number of ids on
-/// screen, not the length of the chain.
+/// trashed operation log — so the bold prefix is exactly what `ff restore
+/// --at` accepts unambiguously. The domain is one log rather than one chain
+/// per branch now, which is why unique prefixes run to about five letters
+/// instead of three; the cost is still the number of ids on screen.
 pub fn prefix_lens(
     repo: &ff_core::gix::Repository,
     ids: &[String],
 ) -> Result<HashMap<String, usize>> {
-    let chain = ff_core::snapshot::chain::chain_name(&ff_core::head_state(repo)?);
-    ff_core::idindex::prefix_lens(repo, &chain, ids)
+    ff_core::ops::index::prefix_lens(repo, ids)
 }
 
 fn now_secs() -> i64 {
