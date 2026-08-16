@@ -271,6 +271,10 @@ continuously. Status reports futures, not just facts: not "12 commits behind mai
 but "main moved; your branch rebases cleanly" or "a rebase would conflict in two
 files." The user never has to attempt an operation to learn its cost.
 
+**Branches stack, and a stack is a parent link.** A branch records the *branch* it sits on, not merely the commit it forked from — a commit cannot follow its parent as the parent moves, and following is the whole point. When a parent moves its children go stale, and the same free probe that answers "would rebasing onto main conflict?" answers it one level down: `ff branch` and `ff status` say *parent moved, replays clean* or *parent moved, conflicts in two files*, in the verdicts they already spend. Knowing changes nothing on its own. `ff sync` is what applies it, on the branch you are standing on, so a restack is always something a person asked for — which is also what keeps propagation from crossing the push boundary by accident, since published history is the one thing fufu will not rewrite behind you.
+
+The cascade is sequential, and saying so is part of the feature: syncing a branch moves it, which makes *its* children stale against a base that did not exist a moment earlier, so their verdicts are recomputed rather than promised. Only the next step's answer is trustworthy, and a whole-tree "all clean" would be a claim fufu cannot honestly make. `ff restack` is the primitive under all of it — replay these commits onto that base, in memory, hold on conflict — and the rest are aims for it: `ff sync` is restack with a fetch in front, `ff restack --onto <branch>` records a new parent before replaying, and `ff done` is restack pointed at an edit session's parent, a session being a branch temporarily inserted beneath one.
+
 ### Floor 3 — Rewrite
 
 **Stable change identity.** A rewrite map (old-sha → new-sha, maintained in refs)
@@ -411,7 +415,8 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff edit <rev>` | editing session on any commit: mints an anonymous branch there and switches to it. The branch you came from stays put and its commits wait ahead; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
 | `ff prev` / `ff next` | scrub one commit back or forward. `prev` opens a session — the first one from the tip is editing `HEAD` — and `next` replays the commit waiting ahead, which makes `ff done` exactly `ff next` until nothing is | `rebase -i` reword/edit dances |
 | `ff done` | finish the current session (`edit` or `resolve`): absorb the edits, restack in memory, land, return to tip | `rebase --continue` ceremony |
-| `ff sync` | fetch; speculatively rebase onto main; land if clean, hold if not | manual rebase-onto-main ceremony |
+| `ff restack [--onto <branch>]` | replay this branch's commits onto its parent; `--onto` records a new parent first, which is how a branch is re-aimed | `rebase --onto` arithmetic |
+| `ff sync` | fetch, then restack onto the parent (trunk by default): land if clean, hold if not | manual rebase-onto-main ceremony |
 | `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
 | `ff undo` | step the whole repository back one run — refs and tree together, and a run of captures is one step. Takes no argument, and repeats: each one goes further back | reflog archaeology, `reset --hard` fear |
 | `ff redo` | the complement, moving forward again after one or more undos | nothing |
@@ -732,7 +737,7 @@ knob through `ff trim` — trash-first at `refs/fufu/trash/@journal`, pin
 parents preserved verbatim, prev links rewritten — and the oldest survivor
 becomes the undo floor. Petnames are `ff/<adjective>-<noun>` from embedded
 wordlists. Two-phase descriptions live in plain JSON files under
-`<common-dir>/fufu/branch/<branch>` (pending description + fork base),
+`<common-dir>/fufu/branch/<branch>` (pending description, fork base, parent branch),
 journaled on every change so `ff undo` restores the text.
 
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
