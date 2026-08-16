@@ -15,13 +15,15 @@ use crate::ctx::{At, Ctx};
 pub fn run(ctx: &Ctx, action: OpAction) -> Result<()> {
     match action {
         OpAction::Log {
-            count, captures, ..
-        } => log(ctx, count, captures),
+            count,
+            revisions,
+            captures,
+            ..
+        } => log(ctx, count, revisions, captures),
         OpAction::Show { op, .. } => show(ctx, op),
         OpAction::Diff { a, b, .. } => diff(ctx, a, b),
         OpAction::Restore { op, force } => restore(ctx, op, force),
         OpAction::Revert { op } => revert(ctx, op),
-        OpAction::Abandon { op } => abandon(ctx, op),
     }
 }
 
@@ -72,13 +74,43 @@ fn resolve(
     }
 }
 
-fn log(ctx: &Ctx, count: usize, captures: bool) -> Result<()> {
+fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Result<()> {
+    // Parsed before the repository is even opened: the grammar is pure, so a
+    // misspelled revset fails the same way in a repo and out of one.
+    let revs = match &revisions {
+        Some(src) => Some(ff_core::revset::Revset::parse(src)?),
+        None => None,
+    };
     let repo = ff_core::discover(".")?;
     // Bounded at a past operation rather than filtered: operations behind a
     // point never change, so the log as it read then is this log with its
     // head cut off.
     let start = placed_at(ctx, &repo)?;
-    let entries = ff_core::ops::read_ops_from(&repo, start, count, captures)?;
+    let entries = match &revs {
+        // `-r` replaces where the rows come from and nothing else, so it
+        // composes with --captures and with the context flags: a bounded log
+        // is the set the expression is evaluated against.
+        Some(revs) => {
+            let bound = start;
+            let members = revs.evaluate_ops(&repo)?;
+            let ids: Vec<ff_core::Result<ff_core::OpId>> = match bound {
+                None => members.map(|m| m.map(|m| m.id)).collect(),
+                Some(at) => {
+                    let visible: std::collections::HashSet<ff_core::OpId> =
+                        ff_core::ops::OpLog::open(&repo)?
+                            .iter_from(at)
+                            .map(|op| op.map(|op| op.id()))
+                            .collect::<ff_core::Result<_>>()?;
+                    members
+                        .map(|m| m.map(|m| m.id))
+                        .filter(|id| id.as_ref().is_ok_and(|id| visible.contains(id)))
+                        .collect()
+                }
+            };
+            ff_core::ops::read_ops_of(&repo, ids.into_iter(), count, captures)?
+        }
+        None => ff_core::ops::read_ops_from(&repo, start, count, captures)?,
+    };
     crate::render::init_palette(&repo);
     let mut out = crate::pager::LogOut::new(&repo, ctx.json);
     let colored = out.colored();
@@ -268,38 +300,6 @@ fn revert(ctx: &Ctx, op: String) -> Result<()> {
         println!("  {} {what}", t.name);
     }
     println!("{}", crate::render::paint_dim("undo: ff undo", colored));
-    Ok(())
-}
-
-fn abandon(ctx: &Ctx, op: String) -> Result<()> {
-    let repo = ff_core::discover(".")?;
-    let (id, marked) = ff_core::abandon(
-        &repo,
-        &op,
-        &OpVerbOptions {
-            now: None,
-            argv: std::env::args().collect(),
-        },
-    )?;
-
-    if ctx.json {
-        let payload = serde_json::json!({ "abandoned": id, "positions": marked });
-        return crate::machine::emit("op abandon", &payload);
-    }
-    crate::render::init_palette(&repo);
-    let colored = crate::pager::color_enabled();
-    let short: String = id.chars().take(12).collect();
-    println!(
-        "abandoned {}: the log no longer walks there",
-        crate::render::paint_id(&short, colored)
-    );
-    println!(
-        "{}",
-        crate::render::paint_dim(
-            "  its operations are still objects; ff op show reads them until trim",
-            colored
-        )
-    );
     Ok(())
 }
 

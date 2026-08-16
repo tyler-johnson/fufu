@@ -1,5 +1,5 @@
-//! `ff op revert` and `ff op abandon` — the two `ff op` verbs that are not a
-//! move along the log.
+//! `ff op revert` — the one `ff op` verb that is neither a move along the
+//! log nor a read of it.
 //!
 //! Revert is the opposite half of `ff op restore`, and the only verb in the
 //! family that *writes* an operation: rewinding to a moment records nothing
@@ -14,7 +14,7 @@
 
 use crate::error::{Error, Result};
 use crate::model::RevertReport;
-use crate::ops::{OpKind, OpLog, RefTransition, retire, verb};
+use crate::ops::{OpKind, OpLog, RefTransition, verb};
 use crate::refs;
 use crate::snapshot::Provenance;
 
@@ -212,43 +212,4 @@ pub fn revert(
         },
         ctx,
     ))
-}
-
-/// Retire the branch of the log an operation sits on: it stops being
-/// somewhere the log can walk to, and its objects stay exactly where they are.
-pub fn abandon(
-    repo: &gix::Repository,
-    spec: &str,
-    opts: &OpVerbOptions,
-) -> Result<(String, usize)> {
-    let now = crate::ops::verb::now_or_wall_clock(opts.now);
-    let log = OpLog::open(repo)?;
-    let id = log.resolve(spec)?;
-    let target = log.get(id)?;
-
-    // Abandoning what the log is standing on would leave the pointer naming a
-    // position nothing resolves. Move off it first — which is a thing the
-    // user chooses, not something abandon should do behind their back.
-    if log.tip()? == Some(id) {
-        return Err(Error::coded(
-            "usage/bad-flags",
-            format!("{id} is where the log stands: move off it before abandoning it"),
-            vec!["ff undo".into(), "ff op restore <op>".into()],
-        ));
-    }
-
-    let seeds = retire::seeds_reaching(repo, id, target.time())?;
-    if seeds.is_empty() {
-        return Err(Error::coded(
-            "op/not-found",
-            format!(
-                "{id} is not on a branch of the log the pointer has stood on, so there is \
-                 nothing to abandon"
-            ),
-            vec!["ff op log".into()],
-        ));
-    }
-    let marked = retire::retire(repo, &seeds, now)?;
-    crate::ops::index::refresh(repo, crate::ops::index::Kind::Live);
-    Ok((id.to_string(), marked))
 }

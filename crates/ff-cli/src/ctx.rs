@@ -213,6 +213,7 @@ mod tests {
         assert_eq!(
             name(crate::cli::OpAction::Log {
                 count: 25,
+                revisions: None,
                 captures: false,
                 past: Default::default()
             }),

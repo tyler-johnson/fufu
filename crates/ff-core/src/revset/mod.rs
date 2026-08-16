@@ -15,6 +15,16 @@
 //! `x & ~y`, and `x+` names a walk with no index behind it. All three are
 //! recognized anyway, so typing one is taught rather than mystified.
 //!
+//! **One grammar spans both address spaces.** [`lex`] and [`parse`] never
+//! learn which one they are in — the difference is what a leaf denotes and
+//! which functions exist, not how the text is shaped — so the front end here
+//! serves [`Revset::evaluate`] over commits and [`Revset::evaluate_ops`] over
+//! operations alike. The op-space back end is [`opspace`], and it is a
+//! fraction of the size of this one because the live log is a chain: no DAG
+//! to sort, no merge base to find, no child map to build. `base()` is the one
+//! function that crosses, and it crosses in the direction that has somewhere
+//! to land — operations in, commits out.
+//!
 //! The back end spends its error budget in the middle. Parsing is pure,
 //! binding resolves every leaf and raises every refusal in O(leaves), and
 //! evaluation is lazy — so a bad revset fails in microseconds on any
@@ -26,12 +36,14 @@ pub mod resolve;
 
 mod eval;
 mod func;
+mod opspace;
 mod pattern;
 
 #[cfg(test)]
 mod prop;
 
 pub use lex::{Token, TokenKind, lex};
+pub use opspace::OpMember;
 pub use parse::{Arg, Expr, PatternKind, parse};
 
 use crate::error::{Error, Result};
@@ -78,6 +90,19 @@ impl Revset {
         Ok(Box::new(
             eval::run(repo, bound.plan)?.map(|m| m.map(|m| m.rev)),
         ))
+    }
+
+    /// Every operation the expression denotes, newest first, lazily.
+    ///
+    /// The same parsed expression, read against the other address space. The
+    /// front end never learned which space it was in, because the difference
+    /// is what a leaf denotes and which functions exist — not how the text is
+    /// shaped. That is what "one grammar spans both spaces" buys.
+    pub fn evaluate_ops<'r>(
+        &self,
+        repo: &'r gix::Repository,
+    ) -> Result<Box<dyn Iterator<Item = Result<opspace::OpMember>> + 'r>> {
+        opspace::evaluate(repo, &self.expr)
     }
 
     /// Exactly one member, or an error. Zero and many are different errors

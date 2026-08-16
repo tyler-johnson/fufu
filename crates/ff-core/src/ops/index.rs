@@ -155,22 +155,19 @@ pub fn refresh(repo: &gix::Repository, kind: Kind) {
 /// so the operations it stepped off hang off a position only the reflog
 /// records — and DESIGN keeps those addressable (`ff op restore` accepts an
 /// abandoned id until trim ages it out), which makes them part of the domain
-/// by definition rather than by kindness. Each seed walk stops the moment it
-/// meets an id already collected, so the total work is the size of the domain
-/// and not the number of seeds times its depth.
+/// by definition rather than by kindness. Trim is what removes an operation
+/// from it, and trim removes it honestly: the ref goes and its reflog with it,
+/// so a dropped operation leaves the domain as well as the walk. Each seed
+/// walk stops the moment it meets an id already collected, so the total work
+/// is the size of the domain and not the number of seeds times its depth.
 fn domain_ids(repo: &gix::Repository, kind: Kind) -> Result<Vec<String>> {
     let mut seeds: Vec<gix::ObjectId> = Vec::new();
     if let Some(tip) = crate::refs::ref_target(repo, kind.ref_name())? {
         seeds.push(tip);
     }
     if kind == Kind::Live {
-        // A retired seed is skipped rather than removed: `ff op abandon`
-        // marks positions, it does not edit git's reflog under a live ref.
-        let retired = crate::ops::retire::retired(repo)?;
         for line in crate::refs::read_ref_log(repo, kind.ref_name())? {
-            if !retired.contains(&line.new) {
-                seeds.push(line.new);
-            }
+            seeds.push(line.new);
         }
     }
 

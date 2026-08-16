@@ -528,10 +528,16 @@ fn functions_are_refused_by_signature() {
         refusal(&w.fx, "descendants(main, 2)"),
         "revset/deferred-descendants"
     );
-    // Recognized and refused: the name belongs to the other address space.
-    for src in ["base(main)", "on_branch(main)", "session(x)", "kind(op)"] {
+    // Recognized and refused: these denote sets of *operations*, which a set
+    // of commits has no room for.
+    for src in ["on_branch(main)", "session(x)", "kind(op)"] {
         assert_eq!(refusal(&w.fx, src), "usage/revset-wrong-space", "{src}");
     }
+    // `base()` is the exception, and the exception is the whole point: it
+    // takes operations and returns the commits they ran on, so it belongs
+    // here and its *argument* belongs to the other space. A branch name
+    // inside it is therefore the mirror refusal, not a wrong-space one.
+    assert_eq!(refusal(&w.fx, "base(main)"), "usage/rev-in-op-position");
     assert_eq!(
         refusal(&w.fx, r#"description(regex:"^fix")"#),
         "revset/regex-unavailable"

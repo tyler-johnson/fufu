@@ -4,8 +4,8 @@
 //! variable or the `--session` flag. There is no marker file, no mode, and
 //! nothing to open or close — a session is a tag an operation wears, so
 //! whoever sets one already knows its name and there is nothing to list. It
-//! rides every row of `ff op log --json`; the set language that would filter
-//! on it is waiting on an evaluator over operations.
+//! rides every row of `ff op log`, and filtering by one is
+//! `ff op log -r 'session(<name>)'` — the set language, not a flag of its own.
 
 use ff_core::error::{Error, Result};
 use ff_core::ops::{OpId, OpLog};

@@ -287,6 +287,15 @@ fn member_of(repo: &gix::Repository, rev: Rev) -> Result<Member> {
     })
 }
 
+/// One commit as a member, for `base()` — the crossing back from operations,
+/// which arrives holding a sha rather than a resolved leaf.
+pub(super) fn commit_member(repo: &gix::Repository, id: gix::ObjectId) -> Result<Member> {
+    Ok(Member {
+        rev: Rev::Commit(CommitId::new(id)),
+        time: commit_time(repo, id)?,
+    })
+}
+
 fn commit_time(repo: &gix::Repository, id: gix::ObjectId) -> Result<i64> {
     Ok(repo
         .find_commit(id)

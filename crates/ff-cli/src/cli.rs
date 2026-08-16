@@ -260,6 +260,9 @@ pub enum OpAction {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
+        /// Operations to show, as a revset over the operation log
+        #[arg(short = 'r', long = "revisions", value_name = "revset")]
+        revisions: Option<String>,
         /// Include captures — the machine-rate rows a verb view leaves out
         #[arg(long)]
         captures: bool,
@@ -304,13 +307,6 @@ pub enum OpAction {
         #[arg(value_name = "op")]
         op: String,
     },
-    /// Drop an operation's branch of the log from the live index
-    #[command(long_about = help::OP_ABANDON, after_long_help = help::OP_ABANDON_EXAMPLES)]
-    Abandon {
-        /// The operation to abandon
-        #[arg(value_name = "op")]
-        op: String,
-    },
 }
 
 impl OpAction {
@@ -322,7 +318,6 @@ impl OpAction {
             OpAction::Diff { .. } => "op diff",
             OpAction::Restore { .. } => "op restore",
             OpAction::Revert { .. } => "op revert",
-            OpAction::Abandon { .. } => "op abandon",
         }
     }
 
@@ -331,7 +326,7 @@ impl OpAction {
             OpAction::Log { past, .. }
             | OpAction::Show { past, .. }
             | OpAction::Diff { past, .. } => Some(past),
-            OpAction::Restore { .. } | OpAction::Revert { .. } | OpAction::Abandon { .. } => None,
+            OpAction::Restore { .. } | OpAction::Revert { .. } => None,
         }
     }
 }

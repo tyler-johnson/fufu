@@ -421,7 +421,7 @@ one run further forward, until the log is back where it started.
 Redo reads where the operation ref has been, so it can only follow a path
 that is still there. New work after an undo forks the log rather than
 truncating it: nothing is discarded, but redo stops offering a way forward
-it can no longer take, and says so. The abandoned branch keeps its ids,
+it can no longer take, and says so. The forked-off branch keeps its ids,
 and `ff op restore` still lands on any of them until trim ages them out.";
 
 pub const REDO_EXAMPLES: &str = "\
@@ -434,8 +434,8 @@ pub const OP: &str = "\
 The operation log as objects. Every capture and every fufu mutation lands
 on one log at refs/fufu/ops, and this is the family that reads and moves
 it: `log` lists, `show` and `diff` read, `restore` rewinds the whole
-repository to one, `revert` inverts a single one, and `abandon` drops a
-branch of the log.
+repository to one, and `revert` inverts a single one leaving later work
+standing. Deleting operations is `ff trim`'s job and nobody else's.
 
 Operation ids are spelled in the letters k–z and never in hex, which is
 what keeps hex meaning \"commit\" everywhere in fufu. `@` is the newest
@@ -460,13 +460,16 @@ Captures are left out by default — they outnumber verb operations by more
 than an order of magnitude, and an unfiltered log is mostly machine noise.
 --captures puts them back.
 
---at-op and --at bound the walk at a past operation rather than the tip,
-so `ff op log --at 2h` is the log as it read two hours ago.
+-r takes the set language over operations: the same operators as `ff log`,
+reading the other address space. Ancestry follows the log, so `@^` is the
+operation before the newest and `::@` is the whole log. Operations bring
+three functions of their own — on_branch(), session() and kind() — and
+share latest(), heads() and roots(). Filtering to one session is
+`session(<name>)`, and that is the only session filter there is.
 
-A session is a tag an operation wears, and --json carries it on every row.
-The set language that would filter on it — base(), on_branch(), session()
-and kind(), the four functions operations have and revisions do not — needs
-an evaluator over operations that does not exist yet.
+--at-op and --at bound the walk at a past operation rather than the tip,
+so `ff op log --at 2h` is the log as it read two hours ago, and an -r
+alongside them is evaluated against that bounded log.
 
 The bold prefix on each id is the shortest one these verbs resolve
 unambiguously, so an id copied from here never lands on an ambiguity.";
@@ -475,9 +478,11 @@ pub const OP_LOG_EXAMPLES: &str = "\
 Examples:
   ff op log                      the last 25 operations
   ff op log --captures           every row, captures included
-  ff op log --json               every row's session tag, for scripts
-  ff op log --at 2h              the log as it read two hours ago
-  ff op log --at-op kqzm         …or as it read at one operation";
+  ff op log -r 'kind(op)'        verb operations only
+  ff op log -r 'session(nightly)'  one session's operations
+  ff op log -r '~on_branch(main)'  everything that happened elsewhere
+  ff log -r 'base(@)'            the commit the newest operation ran on
+  ff op log --at 2h              the log as it read two hours ago";
 
 pub const OP_SHOW: &str = "\
 One operation in full: what ran, when, on which branch, what it moved, and
@@ -549,18 +554,3 @@ Examples:
   ff op revert kqzm              take that one change back out
   ff op log                      …and see the revert recorded
   ff undo                        take the revert back too";
-
-pub const OP_ABANDON: &str = "\
-Drop an operation and everything after it from the live log, leaving the
-objects in place. This is what retires a branch of the log that `ff redo`
-would otherwise keep offering — the operations remain readable and
-`ff op show` still reads them, they simply stop being somewhere the log
-can walk to.
-
-Trim ages abandoned operations out on the same keep window as everything
-else.";
-
-pub const OP_ABANDON_EXAMPLES: &str = "\
-Examples:
-  ff op abandon kqzm             retire that branch of the log
-  ff op log                      what the log still walks";

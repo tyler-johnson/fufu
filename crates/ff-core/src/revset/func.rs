@@ -73,15 +73,24 @@ const FUNCTIONS: &[Signature] = &[
     },
 ];
 
-/// The op-space functions, named in DESIGN and evaluated by the op-space
-/// backend. Listed here so revision space refuses them by name.
-const OP_SPACE: [&str; 4] = ["base", "on_branch", "session", "kind"];
+/// The op-space functions that stay in op space: each denotes a set of
+/// *operations*, which a set of commits has no room for. Listed here so
+/// revision space refuses them by name rather than by silence.
+///
+/// `base` is deliberately not among them. It takes operations and returns the
+/// commits they ran on, so it is a revision-space function with an op-space
+/// argument — the one crossing between the two, and the reason the crossing
+/// is something you write rather than something a suffix does quietly.
+const OP_SPACE: [&str; 3] = ["on_branch", "session", "kind"];
 
 /// Bind one call. Every refusal a function can raise happens here, at bind
 /// time, so an unknown name costs no more than a misspelled branch does.
 pub(super) fn bind(repo: &gix::Repository, name: &str, args: &[Arg]) -> Result<Plan> {
     if OP_SPACE.contains(&name) {
         return Err(wrong_space(name));
+    }
+    if name == "base" {
+        return base(repo, args);
     }
     if name == "descendants" {
         return Err(deferred_descendants());
@@ -112,6 +121,42 @@ pub(super) fn bind(repo: &gix::Repository, name: &str, args: &[Arg]) -> Result<P
             pattern: pattern_arg(sig, &args[0])?,
         },
     })
+}
+
+/// `base(<ops>)` — the commits a set of operations ran on.
+///
+/// The one place an expression crosses from operations back to history, and
+/// it is eager on purpose: the crossing is a mapping, not a walk, so it costs
+/// the size of the operation set and nothing else. Duplicates collapse
+/// because many operations share one base — a run of captures against one
+/// commit is the normal case, not the exception.
+fn base(repo: &gix::Repository, args: &[Arg]) -> Result<Plan> {
+    let sig = Signature {
+        name: "base",
+        args: &[Kind::Set],
+    };
+    if args.len() != 1 {
+        return Err(arity(&sig, args.len()));
+    }
+    let Arg::Set(expr) = &args[0] else {
+        return Err(arity_kind(&sig));
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for member in super::opspace::members(repo, expr)? {
+        let op = crate::ops::OpLog::open(repo)?.get(member.id)?;
+        let Some(base) = op.base() else {
+            continue; // the log's floor ran on nothing; it has no base
+        };
+        if seen.insert(base.object_id()) {
+            out.push(eval::commit_member(repo, base.object_id())?);
+        }
+    }
+    // The mapping does not preserve order — operations are ordered by when
+    // they ran and commits by when they were made — so the result is sorted
+    // into the language's own order rather than left in walk order.
+    out.sort_by_key(|m| std::cmp::Reverse(m.time));
+    Ok(Plan::Set(out))
 }
 
 fn set_arg(repo: &gix::Repository, sig: &Signature, arg: &Arg) -> Result<Plan> {
@@ -188,9 +233,6 @@ fn wrong_space(name: &str) -> Error {
             "`{name}()` reads operations, and `-r` here takes revisions; the two address \
              spaces share a grammar, not a vocabulary"
         ),
-        // Not `ff op log -r ...`: the op-space evaluator that would answer
-        // it is not built, and an exit naming a flag that does not parse is
-        // worse than one naming nothing.
-        vec!["ff op log".into(), "ff op log --json".into()],
+        vec![format!("ff op log -r \"{name}(...)\"")],
     )
 }

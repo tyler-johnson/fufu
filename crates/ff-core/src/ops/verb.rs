@@ -484,16 +484,34 @@ pub fn read_ops_from(
     captures: bool,
 ) -> Result<Vec<crate::model::OpEntry>> {
     let log = OpLog::open(repo)?;
-    let mut out = Vec::new();
-    let mut hex: Vec<String> = Vec::new();
     let walk: Box<dyn Iterator<Item = Result<crate::ops::Operation<'_>>>> = match start {
         Some(id) => Box::new(log.iter_from(id)),
         None => Box::new(log.iter()),
     };
-    for op in walk {
-        let Ok(op) = op else {
+    read_ops_of(repo, walk.map(|op| op.map(|op| op.id())), limit, captures)
+}
+
+/// The rows for whatever sequence of operations a caller has already chosen,
+/// newest first.
+///
+/// This is where `ff op log -r` arrives: the set language decides membership
+/// and order, and the display layer does not care how. It stays lazy in the
+/// caller's iterator, so `-r '::@' -n 25` is still twenty-five rows' work at
+/// any depth.
+pub fn read_ops_of(
+    repo: &gix::Repository,
+    ids: impl Iterator<Item = Result<OpId>>,
+    limit: usize,
+    captures: bool,
+) -> Result<Vec<crate::model::OpEntry>> {
+    let log = OpLog::open(repo)?;
+    let mut out = Vec::new();
+    let mut hex: Vec<String> = Vec::new();
+    for id in ids {
+        let Ok(id) = id else {
             break; // damaged history: show what is legible
         };
+        let op = log.get(id)?;
         if op.is_capture() && !captures {
             continue;
         }

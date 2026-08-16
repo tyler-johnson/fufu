@@ -382,29 +382,37 @@ pub static ENTRIES: &[Entry] = &[
         detail: "History has revisions; the log of what fufu did has operations. They never mix in \
                  one argument, which is what lets hex mean commit everywhere and letters mean \
                  operation everywhere with no rule to remember. An operation id typed here is \
-                 usually the right id and the wrong verb: `ff op show` reads one, and `--at-op` \
-                 runs a read-only command as of one.",
-        exits: &["ff op show <op>", "ff op log"],
+                 usually the right id and the wrong verb: `ff op show` reads one, `--at-op` runs \
+                 a read-only command as of one, and `ff op log -r` takes whole expressions over \
+                 them.",
+        exits: &["ff op show <op>", "ff op log -r '<expr>'"],
     },
     Entry {
         id: "usage/rev-in-op-position",
         summary: "that names a commit, and this position takes an operation",
-        detail: "The mirror of usage/op-in-rev-position, and it usually turns up on `@^2`. An \
-                 operation's first parent is the operation before it, which is why git's own \
-                 suffixes work here at all — but every parent past the first leaves the log: slot \
-                 2 is the commit the operation ran on, and the rest are the shas it pinned. \
-                 Crossing from an operation to its commit is spelled base(), so that it is \
-                 something you asked for rather than something a suffix did quietly.",
-        exits: &["ff op show @", "ff log -r 'base(@)'"],
+        detail: "The mirror of usage/op-in-rev-position. It turns up on `@^2` — an operation's \
+                 first parent is the operation before it, which is why git's own suffixes work \
+                 here at all, but every parent past the first leaves the log: slot 2 is the commit \
+                 the operation ran on, and the rest are the shas it pinned. It also turns up on a \
+                 branch name inside ff op log -r, where one log spans every branch, so narrowing \
+                 to one is the on_branch() predicate rather than a name. Either way the crossing \
+                 back to history is spelled base(), so that it is something you asked for rather \
+                 than something a suffix did quietly.",
+        exits: &[
+            "ff op show @",
+            "ff op log -r 'on_branch(<name>)'",
+            "ff log -r 'base(@)'",
+        ],
     },
     Entry {
         id: "usage/revset-unknown-function",
         summary: "no revset function goes by that name",
         detail: "The registry holds every function the language has, and the error lists the ones \
-                 that exist. Revision space has latest, heads, roots, description, and author; the \
-                 functions that read operations live in the other address space and say so \
-                 separately.",
-        exits: &["ff log -r 'latest(main)'"],
+                 that exist. Revision space has latest, heads, roots, description and author; \
+                 operation space has on_branch, session and kind, plus the same three set \
+                 functions. base() belongs to revision space and takes operations, because it is \
+                 the crossing between them.",
+        exits: &["ff log -r 'latest(main)'", "ff op log -r 'kind(op)'"],
     },
     Entry {
         id: "usage/revset-arity",
@@ -420,11 +428,12 @@ pub static ENTRIES: &[Entry] = &[
         summary: "that function reads operations, and this position takes revisions",
         detail: "One grammar spans both address spaces — the same operators and the same functions \
                  over operations instead of over history — but the vocabularies differ, because \
-                 each space can only name what it has. base(), on_branch(), session(), and kind() \
-                 are questions about operations, so they belong to the operation log. The \
-                 op-space evaluator that answers them is not built yet; ff op log reads the same \
-                 rows unfiltered in the meantime, and --json carries each row's session tag.",
-        exits: &["ff op log", "ff op log --json"],
+                 each space can only name what it has. on_branch(), session() and kind() are \
+                 questions about operations, so they belong after ff op log -r. base() goes the \
+                 other way: it takes operations and returns the commits they ran on, which makes \
+                 it a revision-space function with an op-space argument — and the only crossing \
+                 between the two.",
+        exits: &["ff op log -r 'kind(op)'", "ff log -r 'base(@)'"],
     },
     Entry {
         id: "usage/revset-empty-set",

@@ -45,7 +45,7 @@ pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 /// question of the same clock and must not grow a second parser for it.
 pub use restore::parse_time as restore_time;
 pub use restore::{RestoreOptions, RestoreSource, restore};
-pub use revert::{OpVerbOptions, abandon, revert};
+pub use revert::{OpVerbOptions, revert};
 pub use snapshot::{Provenance, TakeOptions};
 pub use start::{StartOptions, start};
 pub use status::status;

@@ -153,7 +153,6 @@ fn hex_is_refused_wherever_an_operation_is_taken() {
         vec!["op", "diff", &hex[..8], "--json"],
         vec!["op", "restore", &hex[..8], "--json"],
         vec!["op", "revert", &hex[..8], "--json"],
-        vec!["op", "abandon", &hex[..8], "--json"],
         vec!["restore", "--all", "--at-op", &hex[..8], "--json"],
     ] {
         let out = ff(&fx, &args);
@@ -313,36 +312,133 @@ fn op_revert_inverts_one_operation_and_records_itself() {
     assert_eq!(json(&out)["error"]["id"], "undo/not-undoable");
 }
 
-/// Abandoning retires a branch of the log: the operations stay readable
-/// objects, they simply stop being somewhere the log can walk to — which is
-/// what stops `ff redo` offering them.
+/// `-r` takes the set language over operations — the same grammar `ff log`
+/// takes, reading the other address space. This is also the only session
+/// filter there is, now that `ff session` is gone.
 #[test]
-fn op_abandon_retires_a_branch_of_the_log() {
+fn op_log_takes_the_set_language() {
     let fx = with_ops();
-    let repo = fx.repo();
-    let abandoned = ff_core::ops::OpLog::open(&repo)
-        .unwrap()
-        .tip()
-        .unwrap()
-        .unwrap()
-        .to_string();
-    drop(repo);
+    let all = op_ids(&fx, &["--captures"]);
 
-    assert!(ff(&fx, &["undo"]).status.success());
-    // Redo can still see the way forward.
-    let out = ff(&fx, &["op", "abandon", &abandoned, "--json"]);
+    let query = |expr: &str| -> Vec<String> {
+        let out = ff(
+            &fx,
+            &["op", "log", "-r", expr, "--captures", "-n", "0", "--json"],
+        );
+        assert!(
+            out.status.success(),
+            "ff op log -r {expr}: {}",
+            stderr(&out)
+        );
+        json(&out)["data"]["ops"]
+            .as_array()
+            .expect("ops")
+            .iter()
+            .map(|op| op["id"].as_str().expect("id").to_string())
+            .collect()
+    };
+
+    assert_eq!(query("@"), vec![all[0].clone()]);
+    assert_eq!(query("@^"), vec![all[1].clone()]);
+    assert_eq!(query("::@"), all, "the whole log");
+    assert_eq!(
+        query("@~2..@"),
+        all[..2].to_vec(),
+        "x is excluded, y included"
+    );
+
+    // The three predicates operations have.
+    let verbs = query("kind(op)");
+    assert!(!verbs.is_empty() && verbs.len() < all.len());
+    assert_eq!(
+        query("~kind(capture)").len(),
+        all.len() - query("kind(capture)").len()
+    );
+    assert!(!query("on_branch(main)").is_empty());
+    assert!(query("on_branch(nosuchbranch)").is_empty());
+
+    // -r composes with --captures rather than replacing it: the set says
+    // which operations, the flag says which kinds of row to render.
+    let out = ff(&fx, &["op", "log", "-r", "::@", "-n", "0", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
-    assert_eq!(json(&out)["data"]["abandoned"], abandoned);
+    let without = json(&out)["data"]["ops"].as_array().expect("ops").len();
+    assert!(without < all.len(), "captures still excluded by default");
+}
 
-    let out = ff(&fx, &["redo", "--json"]);
-    assert!(!out.status.success(), "the way forward was retired");
-    assert_eq!(json(&out)["error"]["id"], "op/nothing-to-redo");
+/// A session is a tag, and filtering by one is the set language — the answer
+/// `ff session` used to give with a span model DESIGN rejected.
+#[test]
+fn a_session_is_filtered_by_the_set_language() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Op Tester");
+    fx.set_config("user.email", "op@test.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "untagged\n");
+    assert!(ff(&fx, &["-m", "untagged"]).status.success());
+    fx.write("a.txt", "tagged\n");
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["--session", "nightly", "-m", "tagged"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn ff");
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
 
-    // Abandoning what the log stands on is refused: the pointer would name a
-    // position nothing resolves.
-    let out = ff(&fx, &["op", "abandon", "@", "--json"]);
-    assert!(!out.status.success());
-    assert_eq!(json(&out)["error"]["id"], "usage/bad-flags");
+    let out = ff(
+        &fx,
+        &[
+            "op",
+            "log",
+            "-r",
+            "session(nightly)",
+            "--captures",
+            "--json",
+        ],
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let ops = json(&out)["data"]["ops"].as_array().expect("ops").clone();
+    assert_eq!(ops.len(), 1, "one tagged capture: {ops:?}");
+    assert_eq!(ops[0]["session"], "nightly");
+}
+
+/// `base()` is the one crossing back to history, and it goes in the direction
+/// that has somewhere to land: operations in, commits out. So it is a
+/// revision-space function with an op-space argument.
+#[test]
+fn base_crosses_from_operations_to_commits() {
+    let fx = with_ops();
+
+    let out = ff(&fx, &["log", "-r", "base(@)", "--commits", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let commits = json(&out)["data"]["commits"]
+        .as_array()
+        .expect("commits")
+        .clone();
+    assert_eq!(commits.len(), 1, "one base: {commits:?}");
+    // The base is where the operation *ran*, which for a close is the commit
+    // underneath the one it created — pre-op on purpose, because that edge is
+    // what keeps real history inside the log's own ancestry.
+    assert_eq!(
+        commits[0]["id"].as_str().unwrap(),
+        fx.git(&["rev-parse", "HEAD~"]).trim(),
+        "the close ran on the commit under the one it made"
+    );
+
+    // The mirror stays refused: a set of commits has no room for operations.
+    for expr in ["on_branch(main)", "session(x)", "kind(op)"] {
+        let out = ff(&fx, &["log", "-r", expr, "--json"]);
+        assert_eq!(
+            json(&out)["error"]["id"],
+            "usage/revset-wrong-space",
+            "{expr}"
+        );
+    }
+    // And a revision inside base() is the other mirror.
+    let out = ff(&fx, &["log", "-r", "base(main)", "--json"]);
+    assert_eq!(json(&out)["error"]["id"], "usage/rev-in-op-position");
 }
 
 /// `--at-op` and `--at` bound the log at a past operation rather than

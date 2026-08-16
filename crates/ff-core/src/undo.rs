@@ -582,13 +582,13 @@ fn forward_target(repo: &gix::Repository, tip: OpId) -> Result<OpId> {
                     "the operation it would return to is no longer readable",
                 ));
             }
-            // `ff op abandon` retires a branch of the log by marking the
-            // reflog positions that reach it, which drops them out of the
-            // resolution domain — so this is exactly the test for "the way
-            // forward was retired", and it costs one index lookup.
+            // Trim is what removes an operation from the resolution domain,
+            // and it removes it honestly — the ref goes and its reflog with
+            // it. So this is exactly the test for "the way forward has aged
+            // out", and it costs one index lookup.
             if !crate::ops::index::contains(repo, crate::ops::index::Kind::Live, previous)? {
                 return Err(nothing(
-                    "the branch of the log it would return to has been abandoned",
+                    "the operations it would return to have been trimmed off the log",
                 ));
             }
             let target = OpId::new(previous);
