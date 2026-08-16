@@ -73,6 +73,16 @@ struct Index {
     /// Ops appended since the file's header was written. Unsorted, bounded
     /// by `CATCHUP_CAP`, scanned exactly like the file's own tail.
     extra: Vec<String>,
+    /// The file's own unsorted tail, read whole on first use.
+    ///
+    /// Bounded by `MERGE_TAIL`, so this is at most ~21 KiB — and reading it
+    /// in one go is the difference between a constant *count* and a constant
+    /// *cost*. Scanning it through [`Index::at`] meant a seek and a read per
+    /// record, which is five hundred syscalls per id and twelve thousand for
+    /// a screen of twenty-five: `ff evolog` measured 19ms against a 4ms
+    /// floor, almost all of it system time, and grew with the log right up
+    /// to the point the tail merges.
+    tail: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -124,6 +134,7 @@ fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
         base: len,
         total: len,
         extra: Vec::new(),
+        tail: None,
     })
 }
 
@@ -269,6 +280,7 @@ fn try_open_verified(file_path: &Path, expected_tip: &str) -> std::io::Result<In
         base,
         total,
         extra: Vec::new(),
+        tail: None,
     })
 }
 
@@ -334,6 +346,39 @@ impl Index {
         String::from_utf8_lossy(&buf).to_string()
     }
 
+    /// The unsorted tail, read whole and cached for the life of this handle.
+    fn tail(&mut self) -> &[String] {
+        if self.tail.is_none() {
+            let mut records = Vec::new();
+            if self.total > self.base {
+                if let Some(file) = self.file.as_mut() {
+                    let span = self.total - self.base;
+                    let mut buf = vec![0u8; span * RECORD_LEN];
+                    if file
+                        .seek(SeekFrom::Start(
+                            (HEADER_LEN + self.base * RECORD_LEN) as u64,
+                        ))
+                        .is_ok()
+                        && file.read_exact(&mut buf).is_ok()
+                    {
+                        records = buf
+                            .chunks_exact(RECORD_LEN)
+                            .map(|rec| String::from_utf8_lossy(&rec[..40]).to_string())
+                            .collect();
+                    }
+                } else {
+                    records = self
+                        .mem
+                        .get(self.base..self.total)
+                        .map(<[String]>::to_vec)
+                        .unwrap_or_default();
+                }
+            }
+            self.tail = Some(records);
+        }
+        self.tail.as_deref().unwrap_or_default()
+    }
+
     /// The index of the first base record that is not less than `key` — the
     /// binary search every lookup starts from.
     fn lower_bound(&mut self, key: &str) -> usize {
@@ -381,10 +426,9 @@ impl Index {
 
         // The tail and the catch-up are unsorted, so both are scanned — and
         // both are bounded, which is what keeps that scan a constant.
-        for i in self.base..self.total {
-            let rec = self.at(i);
+        for rec in self.tail() {
             if rec != id {
-                best = best.max(common_prefix(&rec, id));
+                best = best.max(common_prefix(rec, id));
             }
         }
         for rec in &self.extra {
@@ -474,10 +518,9 @@ fn collect_matches(index: &mut Index, prefix: &str, out: &mut Vec<String>) {
         i += 1;
     }
 
-    for j in index.base..index.total {
-        let rec = index.at(j);
-        if rec.starts_with(prefix) && !out.contains(&rec) {
-            out.push(rec);
+    for rec in index.tail() {
+        if rec.starts_with(prefix) && !out.contains(rec) {
+            out.push(rec.clone());
         }
     }
     for rec in &index.extra {
@@ -550,6 +593,7 @@ fn merge(file_path: &Path, tip: &str, file: File, base: usize, total: usize) {
         base,
         total,
         extra: Vec::new(),
+        tail: None,
     };
     let mut records: Vec<String> = (0..total)
         .map(|i| index.at(i))
