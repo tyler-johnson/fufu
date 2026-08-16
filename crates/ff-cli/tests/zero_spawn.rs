@@ -77,7 +77,8 @@ fn status_and_log_never_spawn() {
         &["status"][..],
         &["log", "--json"][..],
         &["log", "-n", "5"][..],
-        &["log", "--ops"][..],
+        &["op", "log"][..],
+        &["op", "log", "--captures"][..],
         &["evolog"][..],
         // Bare ff captures natively — the write side is zero-spawn too.
         &[][..],
@@ -171,8 +172,9 @@ fn phase2_verbs_never_spawn() {
         &["switch", "other"][..],
         &["switch", "main"][..],
         &["branch"][..],
-        &["log", "--ops"][..],
+        &["op", "log"][..],
         &["undo"][..],
+        &["redo"][..],
         &["new", "-m", "next change"][..],
         &["start", "-m", "next change"][..],
     ] {

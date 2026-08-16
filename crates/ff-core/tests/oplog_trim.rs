@@ -2,7 +2,7 @@
 //! log rebuilt with its three stated links rewritten, reflogs replayed — and
 //! expiry releasing pins, so the floor refuses undo afterwards.
 
-use ff_core::{CloseOptions, TrimOptions, UndoOptions};
+use ff_core::{CloseOptions, RewindOptions, TrimOptions};
 use ff_testsupport::Fixture;
 
 const T0: i64 = 1_700_000_000;
@@ -173,7 +173,7 @@ fn expiry_releases_pins_and_the_floor_refuses_undo() {
     let repo = fx.repo();
     let err = ff_core::undo(
         &repo,
-        &UndoOptions {
+        &RewindOptions {
             now: Some(T0 + 32 * DAY),
             ..Default::default()
         },
@@ -203,14 +203,21 @@ fn ops_above_the_floor_stay_undoable_after_a_trim() {
     let repo = fx.repo();
     let (report, _) = ff_core::undo(
         &repo,
-        &UndoOptions {
+        &RewindOptions {
             now: Some(T0 + 22 * DAY),
             ..Default::default()
         },
         &prov(),
     )
     .unwrap();
-    assert!(report.target_summary.contains("close 3"), "{report:?}");
+    assert!(
+        report
+            .stepped_summary
+            .as_deref()
+            .unwrap()
+            .contains("close 3"),
+        "{report:?}"
+    );
     let subject = fx.git(&["log", "-1", "--format=%s", "HEAD"]);
     assert_eq!(subject.trim(), "close 2");
 }

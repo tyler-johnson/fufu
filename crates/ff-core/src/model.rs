@@ -150,6 +150,25 @@ pub struct SnapEntry {
     pub prev: Option<String>,
 }
 
+/// What a restore pulled from. Restore reaches into both address spaces —
+/// a commit under `--from`, an operation under `--at-op` and `--at` — so the
+/// row says which one it was rather than leaving a reader to infer it from
+/// the shape of an id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RestoreOrigin {
+    /// `commit` or `operation`.
+    pub space: String,
+    /// Raw hex, always: the model stays hex and the letters spelling is
+    /// minted at the display edge.
+    pub id: String,
+    /// The abbreviation to display — a plain 7 for a commit, the unique
+    /// letters prefix for an operation.
+    pub short_id: String,
+    pub subject: String,
+    /// Committer time, seconds since the unix epoch.
+    pub time: i64,
+}
+
 /// The open change: the working tree summarized as one row (jj's `@`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpenChange {
@@ -176,8 +195,8 @@ pub struct OpenChange {
 /// The result of a worktree restore.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RestoreReport {
-    /// The snapshot the worktree was restored to.
-    pub target: SnapEntry,
+    /// Where the files came from, in the address space that named it.
+    pub origin: RestoreOrigin,
     /// Files written (created or overwritten) from the target.
     pub restored: Vec<String>,
     /// Files deleted because the target does not contain them.
@@ -191,7 +210,7 @@ pub struct RestoreReport {
 /// Per-branch view of one trim pass. The counts are that branch's share of
 /// the one log — there is no per-branch chain to drop a suffix of any more.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TrimChain {
+pub struct TrimPointer {
     /// The branch pointer, e.g. `refs/fufu/snap/main`.
     pub r#ref: String,
     /// The branch name (or `@detached`).
@@ -218,23 +237,48 @@ pub struct TrimLog {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrimReport {
-    pub chains: Vec<TrimChain>,
+    /// One row per branch pointer into the log. The counts are that
+    /// branch's share of the one log's retention, not a chain of its own —
+    /// there is no per-branch chain to drop a suffix of any more.
+    pub pointers: Vec<TrimPointer>,
     /// The one log's retention; `None` when no log exists yet.
     pub log: Option<TrimLog>,
     /// True when nothing was written (dry run).
     pub dry_run: bool,
 }
 
-/// The result of `ff undo`.
+/// The result of a move along the log: `ff undo`, `ff redo`, `ff op restore`.
+/// One mechanism, so one report — the three differ in how the landing was
+/// chosen and in nothing that happens afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UndoReport {
-    /// The operation that was undone, in the letters alphabet.
-    pub target: String,
-    pub target_summary: String,
-    /// `op` or `foreign` — foreign undos are labeled.
-    pub target_kind: String,
-    /// How many operations rolled back (later ops roll back too).
-    pub rolled_back: usize,
+pub struct RewindReport {
+    /// The operation landed on, in the letters alphabet. This is the state
+    /// the repository now holds, not the thing that was undone: the log's
+    /// pointer moved here, and everything reported below describes getting
+    /// the world to agree with it.
+    pub landed: String,
+    pub landed_summary: String,
+    /// `capture`, `op`, `foreign` or `note`.
+    pub landed_kind: String,
+    /// How many operations the move stepped over, captures included.
+    pub stepped: usize,
+    /// What was stepped over, named by the newest operation among them that
+    /// somebody decided on — the thing a person means by "what was undone".
+    /// A run of captures names its own newest. `None` when nothing was
+    /// stepped over at all.
+    pub stepped_summary: Option<String>,
+    pub stepped_kind: Option<String>,
+    /// How many of those were verb operations — decisions somebody made,
+    /// rather than the capture floor's own rows. Reported separately because
+    /// "undid one close and two other things" is a lie when the two others
+    /// were captures that changed no ref.
+    pub stepped_ops: usize,
+    /// How many operations a run collapsed into this one step. Zero when the
+    /// landing was named rather than found, since naming one is not a run.
+    /// A keystroke that moved forty operations must not have to be inferred.
+    pub collapsed: usize,
+    /// Whether the move went forward along the log (`ff redo`).
+    pub forward: bool,
     /// Every ref moved, with old and new values.
     pub refs: Vec<crate::ops::RefTransition>,
     /// Where HEAD went, when it moved.
@@ -242,6 +286,18 @@ pub struct UndoReport {
     /// Worktree files written or deleted.
     pub files: Vec<String>,
     pub warnings: Vec<String>,
+    pub pre_op: Option<String>,
+}
+
+/// The result of `ff op revert` — the one verb in the `ff op` family that
+/// writes an operation rather than moving to one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RevertReport {
+    /// The operation whose change was inverted, in the letters alphabet.
+    pub reverted: String,
+    pub reverted_summary: String,
+    /// The inverse transitions that were applied.
+    pub refs: Vec<crate::ops::RefTransition>,
     pub pre_op: Option<String>,
 }
 
@@ -389,7 +445,7 @@ impl ReconcileReport {
     }
 }
 
-/// One non-capture operation, for the ops view (`ff log --ops`).
+/// One operation, for the operation-log view (`ff op log`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpEntry {
     /// The letters spelling — an operation is addressed in letters, never hex.
@@ -401,6 +457,9 @@ pub struct OpEntry {
     pub summary: String,
     pub time: i64,
     pub branch: Option<String>,
+    /// The tag the operation wears, if any. A session is a tag and nothing
+    /// more, so it rides the row rather than grouping it.
+    pub session: Option<String>,
     /// The operation this one undid, when the verb is `undo`.
     pub undo_of: Option<String>,
 }

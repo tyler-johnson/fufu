@@ -70,8 +70,8 @@ fn help_resolves_nested_subcommands() {
 #[test]
 fn every_command_has_a_page() {
     let commands = [
-        "status", "log", "evolog", "git", "restore", "trim", "commit", "switch", "undo", "new",
-        "describe", "branch", "hook", "config", "doctor", "update",
+        "status", "log", "evolog", "git", "restore", "trim", "commit", "switch", "undo", "redo",
+        "op", "new", "describe", "branch", "hook", "config", "doctor", "update",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);
@@ -95,12 +95,19 @@ fn help_for_git_does_not_reach_git() {
     assert!(body.contains("alias git="), "missing alias mention");
 }
 
+/// One kind per flag, and the page has to say which is which — the whole
+/// point of splitting `--at` was that a reader never guesses from the shape
+/// of what they typed.
 #[test]
-fn restore_page_shows_reflog_syntax() {
+fn restore_page_names_all_three_sources() {
     let out = ff(&["help", "restore"]);
     let body = stdout(&out);
-    assert!(body.contains("@{1}"), "should contain @{{1}}");
-    assert!(!body.contains("@{n}"), "should not contain @{{n}}");
+    for flag in ["--from <rev>", "--at-op <op>", "--at <time>"] {
+        assert!(body.contains(flag), "missing {flag}: {body}");
+    }
+    // `@{n}` counted positions on one branch's reflog; `--at-op @^` says the
+    // same thing in the address space that owns the question.
+    assert!(!body.contains("@{"), "the reflog spelling is gone");
 }
 
 /// The command list above is of commands, so a new flag adds no page. `-r`

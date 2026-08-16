@@ -2,111 +2,38 @@ use ff_core::{Error, LogOptions, Result, revset::Revset};
 
 use crate::ctx::Ctx;
 
-/// `session` is the `--session` flag: `None` when absent, `Some("")` for the
-/// bare form (group everything), `Some(name)` to narrow to one session's
-/// spans. Meaningless for `--ops` and `--commits`, which walk operations and
-/// commits rather than the snapshot chain a session lives on — reject
-/// rather than silently ignore.
-///
 /// `revisions` is `-r`: the set the rows come from. It replaces the source of
-/// the rows and nothing else, so it composes with `--commits` and refuses the
-/// two flags that answer a different question entirely.
+/// the rows and nothing else, so it composes with `--commits`.
+///
+/// `ops` is the retired `--ops`, kept as a hidden flag only so typing it is
+/// answered rather than met with a bare "unexpected argument".
 pub fn run(
     ctx: &Ctx,
     count: usize,
     revisions: Option<String>,
     commits: bool,
     ops: bool,
-    session: Option<String>,
 ) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     if ops {
-        if session.is_some() {
-            return Err(session_bad_flags("--ops"));
-        }
-        if revisions.is_some() {
-            return Err(revisions_with_ops());
-        }
-        return ops_view(ctx.json, count);
+        return Err(ops_retired());
     }
-    if commits && session.is_some() {
-        return Err(session_bad_flags("--commits"));
-    }
-    if revisions.is_some() && session.is_some() {
-        return Err(revisions_with_session());
-    }
-    run_inner(ctx, count, revisions, commits, session)
+    // The past-state view is what `--at-op` would need here, and it does not
+    // exist yet; refuse before capturing, so a refused command writes nothing.
+    ctx.refuse_past("ff log")?;
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
+    run_inner(ctx, count, revisions, commits)
 }
 
-fn session_bad_flags(flag: &str) -> Error {
+/// A removal, not a rename: `ff op log` is a different command with a
+/// different output shape and its own `-r`, so the redirect names it rather
+/// than translating the invocation and pretending nothing moved.
+fn ops_retired() -> Error {
     Error::coded(
         "usage/bad-flags",
-        format!(
-            "--session does not work with {flag}: it walks operations or commits, not the \
-             snapshot chain a session lives on"
-        ),
-        vec!["ff log --session".into()],
+        "--ops is gone: the operation log is its own verb, with the ids the `ff op` \
+         family takes and an output shape of its own",
+        vec!["ff op log".into(), "ff op log --captures".into()],
     )
-}
-
-/// Two address spaces, one letter. `-r` here takes revisions, `--ops` walks
-/// operations, and quietly picking one would have shipped an `-r` whose
-/// meaning depended on a flag somewhere else on the line. The op-space `-r`
-/// arrives on `ff op log`, where it is the only `-r` there is.
-fn revisions_with_ops() -> Error {
-    Error::coded(
-        "usage/bad-flags",
-        "-r does not work with --ops: -r takes revisions and --ops walks operations, \
-         which are separate address spaces",
-        vec!["ff log --ops".into(), "ff log -r <revset>".into()],
-    )
-}
-
-fn revisions_with_session() -> Error {
-    Error::coded(
-        "usage/bad-flags",
-        "--session does not work with -r: a revset names a set of revisions, not the \
-         snapshot chain a session lives on",
-        vec!["ff log --session".into(), "ff log -r <revset>".into()],
-    )
-}
-
-/// `ff log --ops` — the operation log, newest first, with op ids. Captures
-/// are left out: they are the overwhelming majority of the log and `ff evolog`
-/// is the view that shows them.
-fn ops_view(json: bool, count: usize) -> Result<()> {
-    use std::io::Write as _;
-    let repo = ff_core::discover(".")?;
-    let entries = ff_core::ops::read_ops(&repo, count)?;
-    let mut out = crate::pager::LogOut::new(&repo, json);
-    let result = (|| -> std::io::Result<()> {
-        if json {
-            let payload = serde_json::json!({ "ops": entries });
-            crate::machine::write(&mut out, "log", &payload).map_err(std::io::Error::other)?;
-            return Ok(());
-        }
-        if entries.is_empty() {
-            writeln!(out, "no operations recorded yet")?;
-            return Ok(());
-        }
-        let now = now_secs();
-        for op in &entries {
-            let branch = op.branch.as_deref().unwrap_or("");
-            writeln!(
-                out,
-                "{}  {:>8}  {:<8} {:<10} {}",
-                op.short_id,
-                crate::render::relative_age(now, op.time),
-                op.kind,
-                branch,
-                op.summary
-            )?;
-        }
-        writeln!(out, "undo: ff undo <op>")?;
-        Ok(())
-    })();
-    out.finish();
-    result.map_err(Error::repo)
 }
 
 /// Default view, jj-style: the open change (`@`) as the spine's head, then
@@ -118,7 +45,6 @@ pub fn run_inner(
     count: usize,
     revisions: Option<String>,
     commits_only: bool,
-    session: Option<String>,
 ) -> Result<()> {
     // Parsed before the repository is even opened: the grammar is pure, so a
     // misspelled revset fails the same way in a repo and out of one.
@@ -144,41 +70,31 @@ pub fn run_inner(
     let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
     let segments = ff_core::segment_anchors(&repo, &ids)?;
 
-    // Each displayed commit's session is the session (if any) its own
-    // chain-segment anchor snapshot carried — "the snapshot" a commit row
+    // Each displayed commit's session is the tag (if any) its own
+    // chain-segment anchor operation carried — "the operation" a commit row
     // corresponds to, per `segment_anchors`. One targeted message read per
     // anchor already found, bounded by the commits already fetched: no
-    // second chain walk. JSON always wants this; human rendering only
-    // spends it when --session is in play.
-    let want_sessions = ctx.json || session.is_some();
-    let row_sessions: Vec<Option<String>> = if want_sessions {
+    // second chain walk. Only the machine surface spends it: a tag is a
+    // property of the operation rather than a view over the rows, so nothing
+    // groups by it here.
+    let row_sessions: Vec<Option<String>> = if ctx.json {
         commits
             .iter()
             .map(|entry| match segments.get(&entry.id) {
-                Some(anchor) => ff_core::snapshot_session(&repo, anchor),
+                Some(anchor) => crate::session::tag_of(&repo, anchor),
                 None => Ok(None),
             })
             .collect::<Result<_>>()?
     } else {
         vec![None; commits.len()]
     };
-    let narrow: Option<&str> = match &session {
-        Some(name) if !name.is_empty() => Some(name.as_str()),
-        _ => None,
-    };
 
     if ctx.json {
         // `commits` key contract preserved; `id_letters` is composed at this
-        // edge — the model stays hex. Every row now also carries `session`
-        // (null when the anchor snapshot has none); a name narrows the
-        // array to matching rows, the bare flag leaves it untouched.
+        // edge — the model stays hex. Every row also carries `session`, null
+        // when the anchor operation wore no tag.
         let mut commit_values = Vec::with_capacity(commits.len());
         for (entry, sess) in commits.iter().zip(&row_sessions) {
-            if let Some(target) = narrow
-                && sess.as_deref() != Some(target)
-            {
-                continue;
-            }
             let mut value = serde_json::to_value(entry).map_err(Error::repo)?;
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert("session".into(), serde_json::json!(sess));
@@ -241,7 +157,7 @@ pub fn run_inner(
             )?;
         }
 
-        let write_commit_row = |out: &mut crate::pager::LogOut, entry: &ff_core::LogEntry| {
+        for entry in &commits {
             let segment = segments.get(&entry.id).map(String::as_str);
             let commit_display = crate::render::CommitRowDisplay {
                 id: &entry.id,
@@ -252,43 +168,7 @@ pub fn run_inner(
                 out,
                 "{}",
                 crate::render::commit_row(&commit_display, segment, &lens, now, colored)
-            )
-        };
-
-        if session.is_none() {
-            for entry in &commits {
-                write_commit_row(&mut out, entry)?;
-            }
-            return Ok(());
-        }
-
-        // --session (bare or named): group into spans, header per span.
-        // Rows outside any session render exactly as they do today, unless
-        // a name narrowed the view — then only that session's spans show.
-        for slot in crate::render::session_slots(&row_sessions) {
-            match slot {
-                crate::render::SessionSlot::Row(idx) => {
-                    if narrow.is_some() {
-                        continue;
-                    }
-                    write_commit_row(&mut out, &commits[idx])?;
-                }
-                crate::render::SessionSlot::Span { name, rows: idxs } => {
-                    if let Some(target) = narrow
-                        && name != target
-                    {
-                        continue;
-                    }
-                    writeln!(
-                        out,
-                        "{}",
-                        crate::render::session_header(&name, idxs.len(), "commit")
-                    )?;
-                    for idx in idxs {
-                        write_commit_row(&mut out, &commits[idx])?;
-                    }
-                }
-            }
+            )?;
         }
         Ok(())
     })();

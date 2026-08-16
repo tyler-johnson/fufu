@@ -188,6 +188,9 @@ fn wrong_space(name: &str) -> Error {
             "`{name}()` reads operations, and `-r` here takes revisions; the two address \
              spaces share a grammar, not a vocabulary"
         ),
-        vec![format!("ff op log -r \"{name}(...)\"")],
+        // Not `ff op log -r ...`: the op-space evaluator that would answer
+        // it is not built, and an exit naming a flag that does not parse is
+        // worse than one naming nothing.
+        vec!["ff op log".into(), "ff op log --json".into()],
     )
 }

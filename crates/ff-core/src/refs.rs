@@ -143,6 +143,10 @@ pub(crate) fn delete_ref(
 
 /// One reflog line, preserved verbatim for replay.
 pub(crate) struct LogLine {
+    /// Where the ref stood before this line, `None` when it was created here.
+    /// This is what `ff redo` walks forward along: the reflog answers where
+    /// you have stood, and the previous column is the only record of it.
+    pub previous: Option<gix::ObjectId>,
     pub new: gix::ObjectId,
     pub name: String,
     pub email: String,
@@ -163,7 +167,9 @@ pub(crate) fn read_ref_log(repo: &gix::Repository, name: &str) -> Result<Vec<Log
     let mut out = Vec::new();
     for line in iter {
         let line = line.map_err(Error::repo)?;
+        let previous = gix::ObjectId::from_hex(line.previous_oid).map_err(Error::repo)?;
         out.push(LogLine {
+            previous: (!previous.is_null()).then_some(previous),
             new: gix::ObjectId::from_hex(line.new_oid).map_err(Error::repo)?,
             name: line.signature.name.to_string(),
             email: line.signature.email.to_string(),

@@ -14,8 +14,8 @@ pub mod ops;
 pub mod petname;
 mod refs;
 mod restore;
+mod revert;
 pub mod revset;
-mod session;
 pub mod snapid;
 pub mod snapshot;
 mod start;
@@ -41,15 +41,18 @@ pub use head::{head_state, operation};
 pub use log::{Log, LogOptions, log};
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
-pub use restore::{RestoreOptions, RestoreTarget, parse_target, restore};
-pub use session::{SessionSpan, snapshot_session, span_start_tree, spans};
+/// The `--at` grammar, exported because `ff op log --at` asks the same
+/// question of the same clock and must not grow a second parser for it.
+pub use restore::parse_time as restore_time;
+pub use restore::{RestoreOptions, RestoreSource, restore};
+pub use revert::{OpVerbOptions, abandon, revert};
 pub use snapshot::{Provenance, TakeOptions};
 pub use start::{StartOptions, start};
 pub use status::status;
 pub use switch::{SwitchOptions, resolve_branch, switch};
 pub use trim::{TrimOptions, trim};
 pub use trunk::{Trunk, TrunkKind, TrunkSource, trunk};
-pub use undo::{UndoOptions, undo};
+pub use undo::{Landing, RewindOptions, redo, rewind, undo};
 pub use upstream::upstream;
 
 /// Verifying the index trailer SHA-1 on every read costs ~2ms on a 5k-file

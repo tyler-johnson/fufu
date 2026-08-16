@@ -695,27 +695,31 @@ record_ff_fixture_state() {
       else
           rm -f "../saved/ids-live"
       fi
-      "$FF" evolog -n 0 --json > "../.evolog.json"
+      # `op log`, not `evolog`: {ID} feeds --at-op, which is an
+      # operation-typed position and takes letters only. `ff op log --json`
+      # is the one view whose ids are already in that spelling, so nothing
+      # here has to re-implement the alphabet.
+      "$FF" op log --captures -n 0 --json > "../.oplog.json"
     ); then
-        echo "run.sh: fixture build failed — '$FF' exited non-zero during evolog; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        echo "run.sh: fixture build failed — '$FF' exited non-zero during op log; this ff build cannot construct bench fixtures (op log --json is required, usually missing on binaries predating that command)" >&2
         exit 1
     fi
 
-    # Parse the evolog JSON to extract the mid-chain snapshot id for restore-at.
-    # A JSONDecodeError here means evolog produced no valid output — same root
+    # Parse the op log JSON to extract the mid-log operation id for restore-at.
+    # A JSONDecodeError here means op log produced no valid output — same root
     # cause as above (binary too old or broken), caught explicitly rather than
     # letting python3 traceback be the error signal.
-    python3 - "$dir" <<'PY' || { echo "run.sh: fixture build failed — '$FF' evolog --json output was not valid JSON; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2; exit 1; }
+    python3 - "$dir" <<'PY' || { echo "run.sh: fixture build failed — '$FF' op log --json output was not valid JSON; this ff build cannot construct bench fixtures (op log --json is required, usually missing on binaries predating that command)" >&2; exit 1; }
 import json, sys
 d = sys.argv[1]
-with open(f"{d}/.evolog.json") as f:
+with open(f"{d}/.oplog.json") as f:
     data = json.load(f)
-ids = [s["id"] for s in data["snapshots"]]
+ids = [s["id"] for s in data["data"]["ops"]]
 mid = ids[len(ids) // 2] if ids else ""
 with open(f"{d}/restore-id", "w") as f:
     f.write(mid)
 PY
-    rm -f "$dir/.evolog.json"
+    rm -f "$dir/.oplog.json"
 
     # Verify the artifacts we depend on for measurement exist.
     # saved/chain-tip is what reset prepare restores; restore-id is the {ID}
@@ -726,11 +730,11 @@ PY
     # construction. A fixture that did not build corrupts every row measured
     # against it, so there is nothing to "keep going" past.
     if [[ ! -s "$dir/saved/chain-tip" ]]; then
-        echo "run.sh: fixture build failed — saved/chain-tip is missing or empty for '$FF'; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        echo "run.sh: fixture build failed — saved/chain-tip is missing or empty for '$FF'; this ff build cannot construct bench fixtures (op log --json is required, usually missing on binaries predating that command)" >&2
         exit 1
     fi
     if [[ ! -s "$dir/restore-id" ]]; then
-        echo "run.sh: fixture build failed — restore-id is missing or empty for '$FF'; this ff build cannot construct bench fixtures (evolog --json is required, usually missing on binaries predating that command)" >&2
+        echo "run.sh: fixture build failed — restore-id is missing or empty for '$FF'; this ff build cannot construct bench fixtures (op log --json is required, usually missing on binaries predating that command)" >&2
         exit 1
     fi
 }

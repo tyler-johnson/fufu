@@ -97,9 +97,9 @@ fn dry_run_writes_nothing() {
     let snaps = aged_chain(&fx);
     let report = trim(&fx, true, false);
     assert!(report.dry_run);
-    assert_eq!(report.chains.len(), 1);
-    assert_eq!(report.chains[0].dropped, 3, "two captures and the floor");
-    assert_eq!(report.chains[0].kept, 2);
+    assert_eq!(report.pointers.len(), 1);
+    assert_eq!(report.pointers[0].dropped, 3, "two captures and the floor");
+    assert_eq!(report.pointers[0].kept, 2);
     let log = report.log.expect("the log is reported too");
     assert_eq!(log.dropped, 3);
     assert_eq!(log.trash_ref, None, "a dry run parks nothing");
@@ -116,9 +116,9 @@ fn trim_drops_suffix_preserving_survivors() {
     let originals: Vec<Raw> = snaps.iter().map(|id| cat(&fx, id)).collect();
 
     let report = trim(&fx, false, false);
-    assert_eq!(report.chains[0].dropped, 3);
-    assert_eq!(report.chains[0].kept, 2);
-    assert!(!report.chains[0].deleted);
+    assert_eq!(report.pointers[0].dropped, 3);
+    assert_eq!(report.pointers[0].kept, 2);
+    assert!(!report.pointers[0].deleted);
 
     // Trash = the pre-trim log tip, written before anything moved.
     let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
@@ -231,8 +231,8 @@ fn all_dropped_moves_the_log_to_trash_and_deletes_every_ref() {
     fx.write("a.txt", "old\n");
     let old_snap = snap_at(&fx, 200);
     let report = trim(&fx, false, false);
-    assert_eq!(report.chains[0].dropped, 2, "the capture and the floor");
-    assert!(report.chains[0].deleted);
+    assert_eq!(report.pointers[0].dropped, 2, "the capture and the floor");
+    assert!(report.pointers[0].deleted);
     assert!(report.log.as_ref().unwrap().deleted);
 
     for r in ["refs/fufu/snap/main", "refs/fufu/ops"] {
@@ -256,7 +256,11 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
 
     // Without --gone the chain stays.
     let report = trim(&fx, false, false);
-    let doomed = report.chains.iter().find(|c| c.branch == "doomed").unwrap();
+    let doomed = report
+        .pointers
+        .iter()
+        .find(|c| c.branch == "doomed")
+        .unwrap();
     assert_eq!(doomed.dropped, 0);
 
     // With --gone the POINTER goes, and only the pointer. You cannot excise
@@ -264,7 +268,11 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
     // rewriting every operation after them, so the operations behind the name
     // stay on the log and age out on the same cutoff as everything else.
     let report = trim(&fx, false, true);
-    let doomed = report.chains.iter().find(|c| c.branch == "doomed").unwrap();
+    let doomed = report
+        .pointers
+        .iter()
+        .find(|c| c.branch == "doomed")
+        .unwrap();
     assert!(doomed.deleted);
     assert_eq!(doomed.dropped, 0, "--gone drops no operations, and says so");
     let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/doomed"]);
@@ -318,8 +326,8 @@ fn nothing_to_drop_reports_and_leaves_the_log_alone() {
     fx.write("a.txt", "fresh\n");
     let snap = snap_at(&fx, 1);
     let report = trim(&fx, false, false);
-    assert_eq!(report.chains[0].dropped, 0);
-    assert_eq!(report.chains[0].kept, 2, "the capture and the floor");
+    assert_eq!(report.pointers[0].dropped, 0);
+    assert_eq!(report.pointers[0].kept, 2, "the capture and the floor");
     let tip = fx.git(&["rev-parse", "refs/fufu/snap/main"]);
     assert_eq!(tip.trim(), snap, "an untouched log keeps its exact shas");
 }
@@ -335,7 +343,7 @@ fn keep_config_overrides_default() {
     fx.set_config("fufu.keep", "7d");
     let report = trim(&fx, false, false);
     assert_eq!(
-        report.chains[0].dropped, 2,
+        report.pointers[0].dropped, 2,
         "a 7d cutoff drops a 10d capture and the floor beneath it"
     );
 }

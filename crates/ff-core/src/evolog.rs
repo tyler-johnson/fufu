@@ -3,7 +3,7 @@
 //!
 //! Captures only, and that is the faithful reading of what this view has
 //! always shown. `ff evolog` is the timeline of the open change; a verb
-//! operation is a thing that *happened to* the change, and `ff log --ops` is
+//! operation is a thing that *happened to* the change, and `ff op log` is
 //! where those live. Showing both here would also break the one property the
 //! `@` row rests on: its letters must not move because the user described the
 //! change, and a describe operation would become the newest row if the filter

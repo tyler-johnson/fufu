@@ -860,25 +860,30 @@ fn log_revisions_respect_the_row_limit() {
     );
 }
 
-/// Two address spaces, one letter: `-r` takes revisions and `--ops` walks
-/// operations, so the combination is refused rather than ranked.
+/// `--ops` is a removal, not a rename: `ff op log` is a different command
+/// with a different output shape, so typing the old flag is answered with a
+/// redirect rather than a bare "unexpected argument".
 #[test]
-fn log_revisions_and_ops_are_refused() {
+fn log_ops_redirects_to_the_op_family() {
     let fx = three_commits();
-    let out = ff(&fx, &["log", "-r", "main", "--ops", "--json"]);
+    let out = ff(&fx, &["log", "--ops", "--json"]);
     assert_eq!(out.status.code(), Some(2));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(v["error"]["id"], "usage/bad-flags");
+    let hints = v["error"]["exits"].as_array().expect("exits");
     assert!(
-        v["error"]["message"].as_str().unwrap().contains("--ops"),
-        "the message names the combination: {v}"
+        hints.iter().any(|h| h == "ff op log"),
+        "the redirect names the verb that runs: {v}"
     );
 
-    // Same rule for --session, for the same reason --commits refuses it.
+    // And the global --session is a tag, never a filter: it rides ff log
+    // without being mistaken for one.
     let out = ff(&fx, &["log", "-r", "main", "--session", "work", "--json"]);
-    assert_eq!(out.status.code(), Some(2));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert_eq!(v["error"]["id"], "usage/bad-flags");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// A bad revset surfaces as its own coded refusal, not as an empty log.
@@ -1007,7 +1012,7 @@ fn restore_accepts_letters_id_from_evolog() {
         .expect("letters id on the manual row")
         .to_string();
 
-    let out = ff(&fx, &["restore", "--all", "--at", &letters]);
+    let out = ff(&fx, &["restore", "--all", "--at-op", &letters]);
     assert!(
         out.status.success(),
         "{}",
@@ -1041,17 +1046,22 @@ fn restore_round_trip_with_undo_hint() {
     assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "diverged\n");
 
-    let out = ff(&fx, &["restore", "--all"]);
+    // The capture holding "captured" is an operation, so it is named in the
+    // operation address space, and `@` names it: restore resolves its source
+    // BEFORE taking its own pre-restore capture, so `@` still means the
+    // timeline as the user just saw it. Bare `restore --all` now means the
+    // commit under the open change — a different answer, checked below.
+    let out = ff(&fx, &["restore", "--all", "--at-op", "@"]);
     assert!(
         out.status.success(),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
     let text = stdout(&out);
-    assert!(text.starts_with("restored to "), "header: {text:?}");
+    assert!(text.starts_with("restored from "), "header: {text:?}");
     assert!(text.contains("restored  a.txt"), "file list: {text:?}");
     assert!(
-        text.trim_end().ends_with("undo: ff restore --all"),
+        text.trim_end().ends_with("undo: ff undo"),
         "undo hint: {text:?}"
     );
     assert_eq!(
@@ -1059,13 +1069,13 @@ fn restore_round_trip_with_undo_hint() {
         "captured\n"
     );
 
-    // The undo hint works: restore --all again returns to the diverged state
-    // (captured by restore's own mandatory pre-snapshot).
+    // Bare restore --all takes the whole tree back to the commit under the
+    // open change: "captured" was never committed, so it goes.
     let out = ff(&fx, &["restore", "--all"]);
     assert!(out.status.success());
     assert_eq!(
         std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
-        "diverged\n"
+        "a\n"
     );
 }
 
@@ -1081,10 +1091,13 @@ fn restore_json_shape() {
     let out = ff(&fx, &["restore", "--all", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     let d = &v["data"];
-    assert!(d["target"]["id"].is_string());
+    // The origin says which address space named the source, so a reader
+    // never has to infer it from the shape of an id.
+    assert_eq!(d["origin"]["space"], "commit");
+    assert!(d["origin"]["id"].is_string());
     assert_eq!(d["restored"][0], "a.txt");
-    assert_eq!(d["undo"], "ff restore --all");
-    assert!(d["pre_op"].is_string(), "pre-restore snapshot recorded");
+    assert_eq!(d["undo"], "ff undo");
+    assert!(d["pre_op"].is_string(), "pre-restore capture recorded");
 }
 
 #[test]
@@ -1098,17 +1111,23 @@ fn trim_reports_and_dry_runs() {
     let out = ff(&fx, &["trim"]);
     assert!(out.status.success());
     let text = stdout(&out);
+    // One log, so one line: retention acts on the log, and a branch pointer
+    // is a place in it rather than a chain of its own.
     assert!(
-        text.contains("main: nothing to drop"),
-        "fresh chains report kept counts: {text:?}"
+        text.contains("nothing to drop") && text.contains("operations kept"),
+        "the log reports its own kept count: {text:?}"
+    );
+    assert!(
+        !text.contains("main:"),
+        "no per-branch retention row: {text:?}"
     );
 
     let out = ff(&fx, &["trim", "--dry-run", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     let d = &v["data"];
     assert_eq!(d["dry_run"], true);
-    assert_eq!(d["chains"][0]["branch"], "main");
-    assert_eq!(d["chains"][0]["dropped"], 0);
+    assert_eq!(d["pointers"][0]["branch"], "main");
+    assert_eq!(d["pointers"][0]["dropped"], 0);
 }
 
 #[test]
@@ -1630,15 +1649,23 @@ fn json_output_is_one_line() {
     );
 }
 
-/// ``ff log --ops --json`` and ``ff log --commits --json`` both report
-/// ``cmd == "log"`` (sub-modes share the parent verb name).
+/// A sub-mode of one verb shares its name; a different verb does not. So
+/// ``ff log --commits`` is still ``log``, while the operation log — a
+/// different command with a different output shape — stamps ``op log``.
+/// ``ff session`` is the anti-precedent: two shapes under one name.
 #[test]
-fn log_ops_and_commits_share_the_log_name() {
+fn each_shape_carries_its_own_envelope_name() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
+    fx.write("a.txt", "so there is an operation to show\n");
+    assert!(ff(&fx, &[]).status.success());
 
-    for args in [["log", "--ops", "--json"], ["log", "--commits", "--json"]] {
+    for (args, name) in [
+        (vec!["log", "--commits", "--json"], "log"),
+        (vec!["op", "log", "--json"], "op log"),
+        (vec!["op", "show", "--json"], "op show"),
+    ] {
         let out = ff(&fx, &args);
         assert!(
             out.status.success(),
@@ -1646,7 +1673,7 @@ fn log_ops_and_commits_share_the_log_name() {
             String::from_utf8_lossy(&out.stderr)
         );
         let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-        assert_eq!(v["cmd"], "log", "cmd is log for {:?}", args);
+        assert_eq!(v["cmd"], name, "cmd for {args:?}");
     }
 }
 
@@ -1825,9 +1852,7 @@ fn json_is_accepted_by_every_verb() {
     fx.write("a.txt", "a\n");
     fx.commit("one");
 
-    for verb in [
-        "status", "log", "evolog", "doctor", "config", "branch", "session",
-    ] {
+    for verb in ["status", "log", "evolog", "doctor", "config", "branch"] {
         let out = ff(&fx, &[verb, "--json"]);
         // A clap usage error exits 2 with "unexpected argument". We assert
         // that does NOT happen: the flag is accepted.
@@ -1903,8 +1928,14 @@ fn globals_ride_ahead_of_the_subcommand() {
     let v: serde_json::Value = serde_json::from_str(&stdout(&trailing)).expect("valid json");
     assert_eq!(v["cmd"], "status");
 
-    // And --session rides the same way.
-    let out = ff(&fx, &["--session", "leading", "session", "--json"]);
+    // And --session rides the same way — it is a tag on the capture this
+    // invocation takes, not a verb of its own and not a filter.
+    let out = ff(&fx, &["--session", "leading", "op", "log", "--json"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["data"]["name"], "leading");
+    assert_eq!(v["cmd"], "op log");
 }

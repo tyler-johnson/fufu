@@ -302,6 +302,87 @@ fn not_an_op(id: gix::ObjectId) -> Error {
     )
 }
 
+/// One *run*: the granularity `ff undo` moves by, and the one `ff evolog`
+/// collapses to.
+///
+/// A capture is a machine's granularity and a person's undo is not, so a run
+/// is the longest stretch of adjacent captures carrying the same session,
+/// ending at the first operation that is not one. The session is only the
+/// equality test — no session compares equal to no session — so a run is a
+/// fact about adjacency, never a range a tag defines, which is what keeps
+/// sessions tags.
+///
+/// Only captures group. A verb's operation is a decision somebody made, so it
+/// is always its own run and always ends one; that is also what keeps undo
+/// from stepping past a commit by accident.
+#[derive(Debug, Clone)]
+pub struct Run {
+    /// The newest operation in the run — where it was entered from.
+    pub tip: OpId,
+    /// The oldest operation in the run.
+    pub oldest: OpId,
+    /// How many operations the run collapsed. A keystroke that moved forty
+    /// operations must not have to be inferred, so this is reported.
+    pub len: usize,
+    /// The operation before the run: where undo lands. `None` at the floor.
+    pub prev: Option<OpId>,
+    /// The tag every member shares. `None` both for an untagged capture run
+    /// and for a verb operation, which never groups in any case.
+    pub session: Option<String>,
+    /// What the run collapsed: captures, or the one operation it consists of.
+    pub kind: OpKind,
+}
+
+impl Run {
+    /// Whether the run collapsed more than the operation it started from.
+    pub fn collapsed(&self) -> bool {
+        self.len > 1
+    }
+}
+
+/// The run `tip` belongs to, walking backwards from it.
+///
+/// Note what this does *not* special-case: a verb's own pre-capture sits at
+/// the tip when the verb ran on a dirty tree, so `ff undo` finds its own
+/// capture at the head of the run it is about to undo, and takes it along.
+/// That is deliberate — DESIGN puts the pre-undo capture at the head of the
+/// abandoned branch precisely so redo hands your held work back first.
+pub fn run_at(repo: &gix::Repository, tip: OpId) -> Result<Run> {
+    let op = decode(repo, tip.object_id())?;
+    let kind = op.kind();
+    let session = op.session().map(str::to_string);
+    if kind != OpKind::Capture {
+        return Ok(Run {
+            tip,
+            oldest: tip,
+            len: 1,
+            prev: op.prev(),
+            session,
+            kind,
+        });
+    }
+    let (mut oldest, mut len, mut prev) = (tip, 1usize, op.prev());
+    while let Some(id) = prev {
+        let older = decode(repo, id.object_id())?;
+        // `Option == Option` is the whole rule: `None == None` groups two
+        // untagged captures, and no tag ever bridges to an untagged one.
+        if !older.is_capture() || older.session().map(str::to_string) != session {
+            break;
+        }
+        oldest = id;
+        len += 1;
+        prev = older.prev();
+    }
+    Ok(Run {
+        tip,
+        oldest,
+        len,
+        prev,
+        session,
+        kind,
+    })
+}
+
 /// Which link a walk follows. Both are stated in the message; neither is a
 /// parent slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

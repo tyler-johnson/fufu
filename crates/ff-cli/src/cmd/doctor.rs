@@ -328,102 +328,103 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     };
 
     if let Some(repo) = &repo {
-        // chains
-        let mut chain_data: Vec<(String, ff_core::gix::ObjectId)> = Vec::new();
-        let mut chain_full_names: Vec<String> = Vec::new();
-        {
-            let platform = repo.references().map_err(Error::repo)?;
-            let iter = platform
-                .prefixed(ff_core::ops::BRANCH_PREFIX)
-                .map_err(Error::repo)?;
-            for reference in iter {
-                let reference = reference.map_err(|err| {
-                    Error::coded(
-                        "op/unreadable",
-                        format!("ref iteration failed: {err}"),
-                        vec![],
-                    )
-                })?;
-                let name = reference.name().as_bstr().to_string();
-                let Some(tip) = reference.target().try_id().map(|id| id.to_owned()) else {
-                    continue;
-                };
-                let short = name
-                    .strip_prefix(ff_core::ops::BRANCH_PREFIX)
-                    .unwrap_or(&name)
-                    .to_string();
-                chain_full_names.push(name);
-                chain_data.push((short, tip));
-            }
-        }
+        // The log. One ref, so one row — the per-branch refs under
+        // BRANCH_PREFIX are pointers *into* it and are reported as such
+        // below, rather than as a second population of chains.
+        let log_tip = ff_core::ops::OpLog::open(repo)?.tip()?;
 
-        let has_chains = !chain_data.is_empty();
-
-        if has_chains {
-            let mut parts: Vec<String> = Vec::new();
-            for (short, tip) in &chain_data {
-                let age = crate::render::relative_age(now, tip_time(repo, *tip)?);
-                parts.push(format!("{short} {age}"));
-            }
+        if let Some(tip) = log_tip.map(|id| id.object_id()) {
+            let age = crate::render::relative_age(now, tip_time(repo, tip)?);
             rows.push(Row::ok(
-                "chains",
-                format!("{} chain(s): {}", chain_data.len(), parts.join(", ")),
+                "log",
+                format!("refs/fufu/ops, newest operation {age}"),
             ));
 
-            // identity
-            let mut offenders: Vec<String> = Vec::new();
-            for (short, tip) in &chain_data {
-                // `is_op_commit` and not "does it bear the fufu identity":
-                // a record commit bears the identity too.
-                if !ff_core::ops::is_op_commit(repo, *tip)? {
-                    offenders.push(short.clone());
-                }
-            }
-            if offenders.is_empty() {
+            // identity — `is_op_commit` and not "does it bear the fufu
+            // identity": a record commit bears the identity too.
+            if ff_core::ops::is_op_commit(repo, tip)? {
                 rows.push(Row::ok(
                     "identity",
-                    "chain tips carry fufu <fufu@local>".into(),
+                    "the log tip is a fufu operation".into(),
                 ));
             } else {
-                for short in &offenders {
-                    rows.push(Row::warn(
+                rows.push(Row::warn(
                     "identity",
-                    format!(
-                        "{short} tip is not a fufu operation — the pointer was moved by something other than fufu"
-                    ),
+                    "the log tip is not a fufu operation — the ref was moved by something \
+                     other than fufu"
+                        .into(),
                 ));
-                }
             }
 
-            // reflogs
-            let mut missing_reflogs: Vec<String> = Vec::new();
-            for full_name in &chain_full_names {
-                let Some(reference) = repo.try_find_reference(full_name).map_err(Error::repo)?
-                else {
-                    let short = full_name
+            // Pointers into the log: one per branch, the newest operation on
+            // each. A pointer naming an operation the log has not got is the
+            // one thing the two-ref append exists to prevent.
+            let mut pointers: Vec<String> = Vec::new();
+            {
+                let platform = repo.references().map_err(Error::repo)?;
+                let iter = platform
+                    .prefixed(ff_core::ops::BRANCH_PREFIX)
+                    .map_err(Error::repo)?;
+                for reference in iter {
+                    let reference = reference.map_err(|err| {
+                        Error::coded(
+                            "op/unreadable",
+                            format!("ref iteration failed: {err}"),
+                            vec![],
+                        )
+                    })?;
+                    let name = reference.name().as_bstr().to_string();
+                    let Some(at) = reference.target().try_id().map(|id| id.to_owned()) else {
+                        continue;
+                    };
+                    let short = name
                         .strip_prefix(ff_core::ops::BRANCH_PREFIX)
-                        .unwrap_or(full_name);
-                    missing_reflogs.push(short.to_string());
-                    continue;
-                };
-                let mut platform = reference.log_iter();
-                let has_log = platform.all().map_err(Error::repo)?.is_some();
-                if !has_log {
-                    let short = full_name
-                        .strip_prefix(ff_core::ops::BRANCH_PREFIX)
-                        .unwrap_or(full_name);
-                    missing_reflogs.push(short.to_string());
+                        .unwrap_or(&name)
+                        .to_string();
+                    let age = crate::render::relative_age(now, tip_time(repo, at)?);
+                    pointers.push(format!("{short} {age}"));
                 }
             }
-            if missing_reflogs.is_empty() {
-                rows.push(Row::ok("reflogs", "every chain ref has a reflog".into()));
-            } else {
-                for name in &missing_reflogs {
-                    rows.push(Row::warn(
-                        "reflogs",
-                        format!("{name} has no reflog — @{{time}} queries will not work on it"),
-                    ));
+            if !pointers.is_empty() {
+                rows.push(Row::ok(
+                    "pointers",
+                    format!(
+                        "{} branch pointer(s) into the log: {}",
+                        pointers.len(),
+                        pointers.join(", ")
+                    ),
+                ));
+            }
+
+            // The log's reflog is load-bearing now, not merely nice to have:
+            // `ff undo` steps the ref back rather than appending, so where
+            // the pointer has stood is recorded only here — and that is what
+            // `ff redo` walks forward along and what keeps an abandoned
+            // branch of the log addressable.
+            let has_reflog = match repo
+                .try_find_reference(ff_core::ops::OPS_REF)
+                .map_err(Error::repo)?
+            {
+                None => false,
+                Some(reference) => {
+                    let mut platform = reference.log_iter();
+                    platform.all().map_err(Error::repo)?.is_some()
                 }
+            };
+            if has_reflog {
+                rows.push(Row::ok(
+                    "reflogs",
+                    "the log ref has a reflog — undo and redo have somewhere to record where \
+                     the pointer has stood"
+                        .into(),
+                ));
+            } else {
+                rows.push(Row::warn(
+                    "reflogs",
+                    "the log ref has no reflog — ff redo cannot walk forward, and --at cannot \
+                     answer questions about where the log has been"
+                        .into(),
+                ));
             }
 
             // gc config
@@ -460,8 +461,8 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
             }
         } else {
             rows.push(Row::warn(
-            "chains",
-            "no refs/fufu/snap/* refs — the engine has never run here (run `ff`, or any git command via the alias)".into(),
+            "log",
+            "no refs/fufu/ops — the engine has never run here (run `ff`, or any git command via the alias)".into(),
         ));
         }
 
@@ -548,24 +549,21 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
             match log.tip()? {
                 None => {
                     rows.push(Row::info(
-                        "op log",
+                        "last op",
                         "no operations yet — the log opens on the first fufu command".into(),
                     ));
                 }
                 Some(tip) => match log.get(tip) {
                     Err(err) => {
                         rows.push(Row::warn(
-                            "op log",
+                            "last op",
                             format!("the log tip does not parse — {err}"),
                         ));
                     }
                     Ok(op) => {
                         let age = crate::render::relative_age(now, op.time());
                         let summary_trunc = crate::provenance::truncate(op.summary(), 60);
-                        rows.push(Row::info(
-                            "op log",
-                            format!("last op \"{summary_trunc}\" {age}"),
-                        ));
+                        rows.push(Row::info("last op", format!("\"{summary_trunc}\" {age}")));
 
                         // drift
                         let drift = ff_core::ops::verb::pending_foreign(repo)?;
@@ -695,20 +693,20 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                     keep_secs: Some(keep_secs),
                 },
             )?;
-            let total_dropped: usize = report.chains.iter().map(|c| c.dropped).sum();
+            let total_dropped: usize = report.pointers.iter().map(|c| c.dropped).sum();
 
             if total_dropped > 0 {
                 rows.push(Row::info(
                     "trim",
                     format!(
-                        "{} snapshot(s) older than {} — `ff trim` drops them (--dry-run previews)",
+                        "{} operation(s) older than {} — `ff trim` drops them (--dry-run previews)",
                         total_dropped, keep_display
                     ),
                 ));
             } else {
                 rows.push(Row::info(
                     "trim",
-                    "nothing to drop — every snapshot is inside the keep window".into(),
+                    "nothing to drop — every operation is inside the keep window".into(),
                 ));
             }
         }
@@ -847,7 +845,7 @@ mod tests {
         );
 
         // warn: level painted, detail plain
-        let row = Row::warn("chains", "no refs".into());
+        let row = Row::warn("log", "no refs".into());
         let formatted = format_row(&row, true);
         assert!(
             formatted.contains("no refs"),

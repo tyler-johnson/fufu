@@ -80,9 +80,9 @@ pub fn change_stat(repo: &gix::Repository) -> Result<ChangeStat> {
 }
 
 /// The diffstat between two arbitrary trees. `change_stat` drives this with
-/// (HEAD tree, newest operation's tree); `session::span_start_tree` and a
-/// span's newest capture's tree are the other caller, so the tree-diff engine
-/// lives in exactly one place regardless of which two trees are in question.
+/// (HEAD tree, newest operation's tree); `ff op diff` drives it with the trees
+/// of two operations, so the tree-diff engine lives in exactly one place
+/// regardless of which two trees are in question.
 pub fn tree_diff_stat(
     repo: &gix::Repository,
     old_tree_id: gix::ObjectId,

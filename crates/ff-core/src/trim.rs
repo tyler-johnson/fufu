@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use gix::refs::transaction::PreviousValue;
 
 use crate::error::{Error, Result};
-use crate::model::{TrimChain, TrimLog, TrimReport};
+use crate::model::{TrimLog, TrimPointer, TrimReport};
 use crate::ops::message::{self, SegmentLink};
 use crate::ops::record::observe_refs;
 use crate::ops::{BRANCH_PREFIX, OPS_REF, OPS_TRASH_REF, OpKind, OpRecord, walk};
@@ -68,7 +68,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     let cutoff = now - keep;
 
     let mut report = TrimReport {
-        chains: Vec::new(),
+        pointers: Vec::new(),
         log: None,
         dry_run: opts.dry_run,
     };
@@ -122,7 +122,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         if branch_gone {
             gone_branches.push(branch.clone());
         }
-        report.chains.push(TrimChain {
+        report.pointers.push(TrimPointer {
             r#ref: ref_name.clone(),
             branch: branch.clone(),
             // A `--gone` branch drops nothing from the log. You cannot excise

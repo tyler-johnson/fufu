@@ -5,6 +5,10 @@ use ff_core::{BranchInfo, Result};
 use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, name: Option<String>, delete: Option<String>) -> Result<()> {
+    // Listing branches as of a past operation needs that operation's ref
+    // table threaded through the walk, which is the follow-up this plan
+    // named rather than the flag being absent.
+    ctx.refuse_past("ff branch")?;
     let repo = ff_core::discover(".")?;
     if let Some(target) = delete {
         let (report, verb_ctx) = ff_core::branch::delete(

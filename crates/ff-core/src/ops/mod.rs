@@ -47,6 +47,7 @@ pub mod id;
 pub mod index;
 pub mod message;
 pub mod record;
+pub mod retire;
 pub mod verb;
 pub mod walk;
 
@@ -58,8 +59,8 @@ pub use append::{CaptureOutcome, capture, capture_with};
 pub use id::{CommitId, OpId};
 pub use message::SegmentLink;
 pub use record::{DescriptionTransition, OpRecord, RefTransition, RefsTable, StashEffect};
-pub use verb::{VerbContext, begin_verb, read_ops, reconcile};
-pub use walk::{Operation, is_op_commit};
+pub use verb::{VerbContext, begin_verb, read_ops, read_ops_from, reconcile};
+pub use walk::{Operation, Run, is_op_commit, run_at};
 
 use append::{Append, OpDraft};
 
@@ -191,6 +192,14 @@ impl<'r> OpLog<'r> {
     /// `read_ops(repo, limit)` made laziness a discipline instead.
     pub fn iter(&self) -> impl Iterator<Item = Result<Operation<'r>>> + '_ {
         walk::OpWalk::new(self.repo, self.tip(), walk::Follow::Log)
+    }
+
+    /// Every operation from `start` backwards, newest first — the same walk
+    /// bounded at a past operation instead of at the tip, which is all
+    /// `--at-op` needs here: the log as it read then is the log now with its
+    /// head cut off, since operations behind a point never change.
+    pub fn iter_from(&self, start: OpId) -> impl Iterator<Item = Result<Operation<'r>>> + '_ {
+        walk::OpWalk::new(self.repo, Ok(Some(start)), walk::Follow::Log)
     }
 
     /// One branch's operations, newest first.

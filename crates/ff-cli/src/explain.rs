@@ -112,47 +112,61 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/bad-restore-target",
-        summary: "--at was given something that is neither an id, an age, nor a date",
-        detail: "The target grammar is small on purpose: an operation id (or a unique prefix of \
-                 one), @{n} for n operations back, a compact age like 90s/15m/2h/3d/1w, or a date \
-                 git itself can parse. Ids win over ages where the two could overlap, which is \
-                 why 3d reads as three days and 123d reads as an id prefix.",
-        exits: &["ff evolog", "ff restore --at 2h"],
+        summary: "--at was given something that is neither an age nor a date",
+        detail: "--at takes a time and only a time: a compact age like 90s/15m/2h/3d/1w, or any \
+                 date git itself can parse. It resolves to the operation that was current at \
+                 that moment. Nothing here has to out-guess an id, which is the point of \
+                 splitting the flag — an operation is named by --at-op, in letters, and a \
+                 revision by --from.",
+        exits: &[
+            "ff restore --all --at 2h",
+            "ff restore --all --at-op <op>",
+            "ff op log",
+        ],
     },
     Entry {
         id: "restore/nothing-selected",
         summary: "restore was given nothing to restore",
         detail: "Restore is deliberately explicit: it takes the paths you name, or --all for the \
                  whole tree, and never guesses a selection on your behalf. Either form pairs with \
-                 --at to choose a point in the timeline.",
-        exits: &["ff restore --all", "ff restore <path> --at <id>"],
+                 one source flag — --from for a revision, --at-op for an operation, --at for a \
+                 time — and without one the source is the commit under the open change.",
+        exits: &[
+            "ff restore --all",
+            "ff restore <path> --from <rev>",
+            "ff restore <path> --at-op <op>",
+        ],
     },
     Entry {
         id: "undo/nothing",
         summary: "the operation log has nothing left to undo",
         detail: "Undo walks fufu's operation log. Either nothing has been recorded yet, or \
-                 everything recorded has already been rolled back or trimmed past the keep window. \
-                 ff log --ops shows what the log still holds.",
-        exits: &["ff log --ops"],
+                 everything recorded is a note — a marker for something that happened rather than \
+                 something that was done, which has no state behind it to put back. ff op log \
+                 shows what the log still holds.",
+        exits: &["ff op log"],
     },
     Entry {
         id: "undo/not-undoable",
-        summary: "that operation is not the kind undo can roll back",
-        detail: "Undo puts back the state an operation changed, so it has nothing to do with the \
-                 two kinds that changed nothing. A capture only records the working tree — that \
-                 invariant is what keeps the log small — and a note marks something that happened \
-                 rather than something that was done. To go back to what a capture holds, restore \
-                 to it: that is a worktree question, not a rollback.",
-        exits: &["ff log --ops", "ff restore --at <id>"],
+        summary: "that operation has nothing in it to invert",
+        detail: "ff op revert inverts the ref transitions an operation made, so it has nothing to \
+                 do with the two kinds that made none. A capture only records the working tree — \
+                 that invariant is what keeps the log small — and a note marks something that \
+                 happened rather than something that was done. To go back to what a capture \
+                 holds, restore to it: that is a worktree question, not a rollback. Note that \
+                 ff undo does not land here, because it steps over runs of captures on purpose.",
+        exits: &["ff op log", "ff restore --at-op <op>"],
     },
     Entry {
         id: "undo/trimmed",
         summary: "the state that undo would put back has been trimmed away",
         detail: "Undo restores the complete state an operation's predecessor recorded, and trim \
                  has dropped part of it past the keep window (fufu.keep, 90 days by default). \
-                 --force rolls back whatever remains and names each missing piece instead of \
-                 refusing; a longer keep window prevents the next one. Nothing was changed.",
-        exits: &["ff undo --force", "ff config keep <duration>"],
+                 ff op restore --force lands on whatever remains and names each missing piece \
+                 instead of refusing; a longer keep window prevents the next one. Bare ff undo \
+                 has no --force by design: a run whose state was trimmed is a run undo should \
+                 decline rather than half-apply. Nothing was changed.",
+        exits: &["ff op restore <op> --force", "ff config keep <duration>"],
     },
     Entry {
         id: "op/not-found",
@@ -184,9 +198,9 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "op/floor",
         summary: "there is nothing recorded before that operation",
-        detail: "Undo rolls back to the state an operation's predecessor recorded, and the oldest \
-                 operation on the log has none — it is the floor. That happens at a fresh \
-                 repository, or after trim removed everything earlier. Nothing was changed.",
+        detail: "Undo steps back to the state before a run, and the oldest operation on the log \
+                 has nothing before it — it is the floor. That happens at a fresh repository, or \
+                 after trim removed everything earlier. Nothing was changed.",
         exits: &["ff op log"],
     },
     Entry {
@@ -407,8 +421,10 @@ pub static ENTRIES: &[Entry] = &[
         detail: "One grammar spans both address spaces — the same operators and the same functions \
                  over operations instead of over history — but the vocabularies differ, because \
                  each space can only name what it has. base(), on_branch(), session(), and kind() \
-                 are questions about operations, so they belong after `ff op log -r`.",
-        exits: &["ff op log -r '<expr>'"],
+                 are questions about operations, so they belong to the operation log. The \
+                 op-space evaluator that answers them is not built yet; ff op log reads the same \
+                 rows unfiltered in the meantime, and --json carries each row's session tag.",
+        exits: &["ff op log", "ff op log --json"],
     },
     Entry {
         id: "usage/revset-empty-set",
@@ -474,12 +490,41 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff describe -m <msg>"],
     },
     Entry {
-        id: "usage/needs-session",
-        summary: "no session to diff — none was named and none is open",
-        detail: "ff session diff needs to know which session's span to show: name one, or open one \
-                 first so the bare form has an obvious answer. ff session list shows what spans \
-                 exist to name.",
-        exits: &["ff session list", "ff session diff <name>"],
+        id: "op/nothing-to-redo",
+        summary: "there is no forward step to take",
+        detail: "Redo walks forward along the branch of the log an undo stepped off, and reads \
+                 where the pointer has been out of the ref's own reflog to find it. Either no \
+                 undo has been recorded, or work has landed since one — and work after an undo \
+                 forks the log rather than truncating it, so redo stops offering a path it can no \
+                 longer take instead of stepping over something nobody asked it to abandon. \
+                 Nothing is lost either way: the operations are still there, and ff op restore \
+                 still lands on them by id.",
+        exits: &["ff op log", "ff undo"],
+    },
+    Entry {
+        id: "usage/at-op-unsupported",
+        summary: "that verb does not read a past state yet",
+        detail: "--at-op and --at ride every verb that reads, and for most of them that means \
+                 resolving a target the verb already resolves. For ff status, ff log, ff evolog \
+                 and ff branch it means something larger — rendering a whole view against an \
+                 operation's recorded ref table instead of against the refs on disk — and that \
+                 is not built. Saying so beats an unknown-argument error, which would teach that \
+                 the flags do not exist.",
+        exits: &[
+            "ff op show <op>",
+            "ff op log",
+            "ff restore <path> --at-op <op>",
+        ],
+    },
+    Entry {
+        id: "held/op-revert",
+        summary: "the inversion conflicts with work done since",
+        detail: "ff op revert takes one change back out while later work stands, which it can \
+                 only do where the refs it would move still hold what that operation left them \
+                 at. One of them has moved since, so inverting would quietly take the later work \
+                 with it. Nothing was changed. ff op show says what the operation did, and \
+                 ff op restore rewinds to it wholesale if that is what you meant.",
+        exits: &["ff op show <op>", "ff op restore <op>", "ff op log"],
     },
     Entry {
         id: "usage/bad-session",
@@ -645,11 +690,7 @@ mod tests {
         let mut found = 0usize;
         for file in rust_sources(&crates) {
             let text = std::fs::read_to_string(&file).expect("read source");
-            // Test modules are allowed placeholder ids: they exercise the
-            // namespace rule, not the registry. The convention here is that
-            // `#[cfg(test)]` is the last thing in a file.
-            let production = text.split("#[cfg(test)]").next().unwrap_or("");
-            for id in raised_ids(production) {
+            for id in raised_ids(&production_source(&text)) {
                 found += 1;
                 if !ENTRIES.iter().any(|e| e.id == id) {
                     missing.push((id, file.display().to_string()));
@@ -666,6 +707,82 @@ mod tests {
             missing.is_empty(),
             "Error::coded ids with no registry entry: {missing:#?}"
         );
+    }
+
+    /// Ids the registry carries that no `Error::coded` call raises.
+    ///
+    /// Each one is an id fufu cannot produce and must therefore explain for a
+    /// different reason, stated here so a genuinely dead entry cannot hide
+    /// behind a habit of adding names to this list.
+    const UNRAISED: &[(&str, &str)] = &[
+        (
+            "repo/not-found",
+            "raised structurally by Error::id() for the Discover variant, never by a coded call",
+        ),
+        (
+            "internal",
+            "the fallback id every uncoded error reports; there is nothing to raise",
+        ),
+    ];
+
+    /// The mirror of the guard above, and the reason both ship.
+    ///
+    /// `every_raised_id_is_in_the_registry` catches an id added without prose.
+    /// It cannot catch the opposite — prose left behind by an id that was
+    /// removed — because removing a raise site only makes that test's job
+    /// easier. `usage/needs-session` outlived `ff session` by exactly that
+    /// gap: an entry a user could still reach through `ff explain --list`,
+    /// describing two verbs that no longer existed.
+    #[test]
+    fn every_registry_entry_is_reachable() {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates/ is the manifest dir's parent")
+            .to_path_buf();
+
+        let mut raised: Vec<String> = Vec::new();
+        for file in rust_sources(&crates) {
+            let text = std::fs::read_to_string(&file).expect("read source");
+            raised.extend(raised_ids(&production_source(&text)));
+        }
+        assert!(
+            raised.len() > 20,
+            "only {} coded ids found — the source walk is broken, not the registry",
+            raised.len()
+        );
+
+        let orphans: Vec<&str> = ENTRIES
+            .iter()
+            .map(|e| e.id)
+            .filter(|id| !raised.iter().any(|r| r == id))
+            .filter(|id| !UNRAISED.iter().any(|(allowed, _)| allowed == id))
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "registry entries nothing raises — delete the prose or keep the raise site: \
+             {orphans:#?}"
+        );
+    }
+
+    /// A file with its inline test module cut off.
+    ///
+    /// Test modules are allowed placeholder ids: they exercise the namespace
+    /// rule, not the registry. What marks one is `#[cfg(test)] mod tests`
+    /// specifically, and not the bare attribute — `revset/mod.rs` declares
+    /// `#[cfg(test)] mod prop;` a third of the way down, so cutting at the
+    /// first attribute silently hid the rest of that file from both guards.
+    /// The forward guard could not notice, since missing a raise site only
+    /// makes its job easier; the reverse one found it on the first run.
+    fn production_source(text: &str) -> String {
+        let mut out = text;
+        for (idx, _) in text.match_indices("#[cfg(test)]") {
+            let rest = text[idx + "#[cfg(test)]".len()..].trim_start();
+            if rest.starts_with("mod tests") {
+                out = &text[..idx];
+                break;
+            }
+        }
+        out.to_string()
     }
 
     /// Every `.rs` file under `dir`, recursively.

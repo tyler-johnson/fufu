@@ -40,8 +40,11 @@ pub struct Cli {
 pub enum Command {
     /// Show the working tree status
     #[command(long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
-    Status,
-    /// Show the timeline: snapshots interleaved with commits
+    Status {
+        #[command(flatten)]
+        past: Past,
+    },
+    /// Show the timeline: commits wearing the operations that built them
     #[command(long_about = help::LOG, after_long_help = help::LOG_EXAMPLES)]
     Log {
         /// Number of rows to show; 0 means unlimited
@@ -53,22 +56,20 @@ pub enum Command {
         /// Commits only — the plain history view
         #[arg(long)]
         commits: bool,
-        /// The operation log — every fufu mutation, with op ids
-        #[arg(long, conflicts_with = "commits")]
+        /// Retired: the operation log is `ff op log`
+        #[arg(long, hide = true, conflicts_with = "commits")]
         ops: bool,
-        /// Group by session span; a name narrows to that session's spans
-        #[arg(long, num_args = 0..=1, default_missing_value = "")]
-        session: Option<String>,
+        #[command(flatten)]
+        past: Past,
     },
-    /// Show the open change's snapshot chain (the evolution log)
+    /// Show the open change's operations, newest first (the evolution log)
     #[command(long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
     Evolog {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
-        /// Group by session span; a name narrows to that session's spans
-        #[arg(long, num_args = 0..=1, default_missing_value = "")]
-        session: Option<String>,
+        #[command(flatten)]
+        past: Past,
     },
     /// Capture-first git passthrough; daily forms translate to ff verbs
     #[command(
@@ -84,23 +85,25 @@ pub enum Command {
     /// Restore worktree files from the timeline
     #[command(long_about = help::RESTORE, after_long_help = help::RESTORE_EXAMPLES)]
     Restore {
-        /// Snapshot to restore from: an id, '@{1}', 30m/2h/1d/1w, or a date
-        #[arg(long, value_name = "target")]
-        at: Option<String>,
-        /// Restore the entire worktree to the target state
+        /// Revision to restore from; without it, the commit under the change
+        #[arg(long, value_name = "rev")]
+        from: Option<String>,
+        /// Restore the entire worktree to the source state
         #[arg(long, conflicts_with = "paths")]
         all: bool,
-        /// Paths to restore from the target
+        /// Paths to restore from the source
         #[arg(value_name = "path", required_unless_present = "all")]
         paths: Vec<String>,
+        #[command(flatten)]
+        past: Past,
     },
-    /// Drop snapshots past the retention cutoff (fufu.keep, 90d)
+    /// Drop operations past the retention cutoff (fufu.keep, 90d)
     #[command(long_about = help::TRIM, after_long_help = help::TRIM_EXAMPLES)]
     Trim {
         /// Report what would be dropped without writing anything
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// Also drop whole chains whose branch no longer exists
+        /// Also drop the pointers of branches that no longer exist
         #[arg(long)]
         gone: bool,
     },
@@ -124,15 +127,17 @@ pub enum Command {
         #[arg(value_name = "branch")]
         target: String,
     },
-    /// Roll the repository back to the state before an operation
+    /// Step the whole repository back one run of work
     #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
-    Undo {
-        /// Op id or a unique prefix (see ff log --ops); newest if omitted
-        #[arg(value_name = "op")]
-        op: Option<String>,
-        /// Roll back what remains even if parts were trimmed
-        #[arg(long)]
-        force: bool,
+    Undo,
+    /// Step forward again after an undo
+    #[command(long_about = help::REDO, after_long_help = help::REDO_EXAMPLES)]
+    Redo,
+    /// The operation log as objects: read it, compare it, move to it
+    #[command(long_about = help::OP, after_long_help = help::OP_EXAMPLES)]
+    Op {
+        #[command(subcommand)]
+        action: OpAction,
     },
     /// Begin new work on a fresh branch
     #[command(
@@ -175,6 +180,8 @@ pub enum Command {
             conflicts_with = "name"
         )]
         delete: Option<String>,
+        #[command(flatten)]
+        past: Past,
     },
     /// Manage fufu's capture hooks: agents, shells, editors
     #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
@@ -198,7 +205,7 @@ pub enum Command {
         #[arg(long)]
         global: bool,
     },
-    /// Verify the safety net: chains, identity, reflogs, gc guard, wiring
+    /// Verify the safety net: the log, identity, reflogs, gc guard, wiring
     #[command(long_about = help::DOCTOR, after_long_help = help::DOCTOR_EXAMPLES)]
     Doctor {
         /// Repair the gc config keys (the one write doctor performs)
@@ -221,12 +228,112 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
-    /// Inspect capture sessions
-    #[command(long_about = help::SESSION)]
-    Session {
-        #[command(subcommand)]
-        action: Option<SessionAction>,
+}
+
+/// The two context flags, declared per-verb rather than `global = true`.
+///
+/// DESIGN scopes them to the verbs that *read*: `--at-op` and `--at` place a
+/// command against a past state, and a verb that only adds to now has no
+/// input state to place. So `ff commit --at 2h` is an unknown flag here
+/// rather than an accepted-then-refused one — the parser carries the rule,
+/// which is also what lets a verb claim any letter without consulting a list.
+///
+/// Two flags rather than one is what holds each to a single kind: an id is
+/// never a date, and a date is never an id.
+#[derive(clap::Args, Debug, Default)]
+pub struct Past {
+    /// Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+    #[arg(long = "at-op", value_name = "op")]
+    pub at_op: Option<String>,
+    /// Read as of the operation current at this time (30m/2h/3d, or a date)
+    #[arg(long = "at", value_name = "time", conflicts_with = "at_op")]
+    pub at: Option<String>,
+}
+
+/// `ff op` — the operation log as objects. The envelope names the full path
+/// (`"op log"`, not `"op"`), so two shapes never share one name.
+#[derive(Subcommand)]
+pub enum OpAction {
+    /// Every operation, newest first, with the ids these verbs take
+    #[command(long_about = help::OP_LOG, after_long_help = help::OP_LOG_EXAMPLES)]
+    Log {
+        /// Number of rows to show; 0 means unlimited
+        #[arg(short = 'n', long = "max-count", default_value_t = 25)]
+        count: usize,
+        /// Include captures — the machine-rate rows a verb view leaves out
+        #[arg(long)]
+        captures: bool,
+        #[command(flatten)]
+        past: Past,
     },
+    /// Show one operation: what it was, what it moved, what it holds
+    #[command(long_about = help::OP_SHOW, after_long_help = help::OP_SHOW_EXAMPLES)]
+    Show {
+        /// The operation; `@` (the newest) when omitted
+        #[arg(value_name = "op")]
+        op: Option<String>,
+        #[command(flatten)]
+        past: Past,
+    },
+    /// Compare the worktrees two operations carry
+    #[command(long_about = help::OP_DIFF, after_long_help = help::OP_DIFF_EXAMPLES)]
+    Diff {
+        /// The older operation
+        #[arg(value_name = "a")]
+        a: String,
+        /// The newer operation; `@` when omitted
+        #[arg(value_name = "b")]
+        b: Option<String>,
+        #[command(flatten)]
+        past: Past,
+    },
+    /// Rewind the whole repository to an operation
+    #[command(long_about = help::OP_RESTORE, after_long_help = help::OP_RESTORE_EXAMPLES)]
+    Restore {
+        /// The operation to land on
+        #[arg(value_name = "op")]
+        op: String,
+        /// Rewind to what remains even if parts were trimmed
+        #[arg(long)]
+        force: bool,
+    },
+    /// Invert one operation, leaving later work standing
+    #[command(long_about = help::OP_REVERT, after_long_help = help::OP_REVERT_EXAMPLES)]
+    Revert {
+        /// The operation to invert
+        #[arg(value_name = "op")]
+        op: String,
+    },
+    /// Drop an operation's branch of the log from the live index
+    #[command(long_about = help::OP_ABANDON, after_long_help = help::OP_ABANDON_EXAMPLES)]
+    Abandon {
+        /// The operation to abandon
+        #[arg(value_name = "op")]
+        op: String,
+    },
+}
+
+impl OpAction {
+    /// The envelope name — the full path, never the bare family.
+    fn name(&self) -> &'static str {
+        match self {
+            OpAction::Log { .. } => "op log",
+            OpAction::Show { .. } => "op show",
+            OpAction::Diff { .. } => "op diff",
+            OpAction::Restore { .. } => "op restore",
+            OpAction::Revert { .. } => "op revert",
+            OpAction::Abandon { .. } => "op abandon",
+        }
+    }
+
+    fn past(&self) -> Option<&Past> {
+        match self {
+            OpAction::Log { past, .. }
+            | OpAction::Show { past, .. }
+            | OpAction::Diff { past, .. } => Some(past),
+            OpAction::Restore { .. } | OpAction::Revert { .. } | OpAction::Abandon { .. } => None,
+        }
+    }
 }
 
 impl Command {
@@ -235,7 +342,7 @@ impl Command {
     /// error rather than a silently mislabeled envelope.
     pub fn name(&self) -> &'static str {
         match self {
-            Command::Status => "status",
+            Command::Status { .. } => "status",
             Command::Log { .. } => "log",
             Command::Evolog { .. } => "evolog",
             Command::Git { .. } => "git",
@@ -243,7 +350,9 @@ impl Command {
             Command::Trim { .. } => "trim",
             Command::Commit { .. } => "commit",
             Command::Switch { .. } => "switch",
-            Command::Undo { .. } => "undo",
+            Command::Undo => "undo",
+            Command::Redo => "redo",
+            Command::Op { action } => action.name(),
             Command::Branch { .. } => "branch",
             Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
@@ -252,7 +361,36 @@ impl Command {
             Command::Doctor { .. } => "doctor",
             Command::Explain { .. } => "explain",
             Command::Update { .. } => "update",
-            Command::Session { .. } => "session",
+        }
+    }
+
+    /// The `--at-op` / `--at` pair this verb declared, if it declared one.
+    ///
+    /// A match arm per variant, so a verb added without deciding whether it
+    /// reads a past state is a compile error rather than a flag that silently
+    /// does nothing. `None` is the positive statement that the verb only adds
+    /// to now — the parser has already refused the flags there.
+    pub fn past(&self) -> Option<&Past> {
+        match self {
+            Command::Status { past }
+            | Command::Log { past, .. }
+            | Command::Evolog { past, .. }
+            | Command::Restore { past, .. }
+            | Command::Branch { past, .. } => Some(past),
+            Command::Op { action } => action.past(),
+            Command::Git { .. }
+            | Command::Trim { .. }
+            | Command::Commit { .. }
+            | Command::Switch { .. }
+            | Command::Undo
+            | Command::Redo
+            | Command::Start { .. }
+            | Command::Describe { .. }
+            | Command::Hook { .. }
+            | Command::Config { .. }
+            | Command::Doctor { .. }
+            | Command::Explain { .. }
+            | Command::Update { .. } => None,
         }
     }
 
@@ -267,17 +405,6 @@ impl Command {
             Command::Git { .. } | Command::Hook { .. } | Command::Update { .. }
         )
     }
-}
-
-#[derive(clap::Subcommand)]
-pub enum SessionAction {
-    /// List the session spans on the current chain
-    List,
-    /// Show what a session's span changed
-    Diff {
-        /// Session name; defaults to the session from FF_SESSION
-        name: Option<String>,
-    },
 }
 
 /// Everything that feeds the capture floor is a hook. One grammar:

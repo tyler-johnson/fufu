@@ -83,6 +83,7 @@ mod tests {
             json: false,
             session: None,
             command: "hook",
+            at: None,
         }
     }
 

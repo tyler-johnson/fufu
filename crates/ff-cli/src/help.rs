@@ -26,9 +26,9 @@ pub const ROOT_EXAMPLES: &str = "\
 Examples:
   ff                             snapshot the working tree right now
   ff -m \"before the refactor\"    snapshot, with a name you will recognize
-  ff log                         the timeline: commits wearing their snapshots
-  ff restore --at 2h src/        a directory, as it was two hours ago
-  ff undo                        roll the whole repo back one operation
+  ff log                         the timeline: commits wearing their operations
+  ff restore src/ --at 2h        a directory, as it was two hours ago
+  ff undo                        roll the whole repo back one run of work
 
 Wire it in, so capture is ambient rather than remembered:
   ff hook shell install          alias git='ff git' — git snapshots first
@@ -53,12 +53,12 @@ Examples:
 
 pub const LOG: &str = "\
 The changes view, jj-style: the open change (@) sits atop the commit walk
-(●), and each commit wears the id of its newest snapshot — the letters
+(●), and each commit wears the id of its newest operation — the letters
 column `ff evolog` drills into.
 
---commits drops to plain history, no snapshot identity. --ops shows the
-operation log instead: every mutation fufu has made, newest first, carrying
-the op ids `ff undo` takes.
+--commits drops to plain history, no operation identity. The operation log
+itself is `ff op log`: every mutation fufu has made, newest first, carrying
+the ids the `ff op` verbs take.
 
 -r takes a revset and replaces where the rows come from: gitrevisions'
 whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @
@@ -72,30 +72,30 @@ pub const LOG_EXAMPLES: &str = "\
 Examples:
   ff log                         the last 25 rows
   ff log -n 0                    all of it
-  ff log --commits               history only, no snapshot rows
+  ff log --commits               history only, no operation rows
   ff log -r main                 just main's tip — no @ row, it is not in it
   ff log -r 'trunk..@'           what this branch has that trunk does not
-  ff log --ops                   the operation log, with ids for ff undo";
+  ff op log                      the operation log, in its own address space";
 
 pub const EVOLOG: &str = "\
-Every snapshot of the change you have open, newest first — the drill-in
+Every operation on the change you have open, newest first — the drill-in
 behind the letters column in `ff log`. This is where a lost hour is found:
-each row is a whole worktree, and `ff restore --at <id>` brings any of them
-back.
+each row is a whole worktree, and `ff restore --at-op <id>` brings any of
+them back.
 
 Because fufu captures before it works, the newest row is often this
-command's own snapshot, taken a moment ago when it found the tree dirty.
+command's own capture, taken a moment ago when it found the tree dirty.
 That is intended.
 
-Ids are spelled in the letters k–z, never hex digits, so a snapshot id can
-never be misread as a commit sha. The bold prefix is the shortest one
-`ff restore --at` resolves unambiguously.";
+Ids are spelled in the letters k–z, never hex digits, so an operation id
+can never be misread as a commit sha. The bold prefix is the shortest one
+`ff op` and `--at-op` resolve unambiguously.";
 
 pub const EVOLOG_EXAMPLES: &str = "\
 Examples:
-  ff evolog                      the open change's snapshots
+  ff evolog                      the open change's operations
   ff evolog -n 0                 all of them
-  ff restore --at <id> src/      pull a directory back from one";
+  ff restore src/ --at-op <id>   pull a directory back from one";
 
 pub const GIT: &str = "\
 Snapshots first, then runs the git command. This is what the shell alias
@@ -121,33 +121,36 @@ Examples:
   ff hook shell install          make every typed git command do this";
 
 pub const RESTORE: &str = "\
-Files come back as they were in a snapshot — the newest one unless --at
-names another. --all restores the whole tree, including deleting files
-that were created since.
+Files come back as they were somewhere else. Bare, that somewhere is the
+commit under the open change — the everyday \"discard my edits to this
+file\". --all restores the whole tree, including deleting files that were
+created since.
 
-Only the worktree is written. The index, HEAD, and branches
-stay exactly as they are. Restore takes its own snapshot first, and
-that one is mandatory: if the pre-restore capture fails, nothing is
-written. So any restore is undone by another restore, or by `ff undo`.
+Three flags name a different source, one kind each, because a position
+argument has exactly one kind and a second kind takes a flag:
 
---at takes a snapshot id as `ff evolog` prints it (letters, or raw hex), a
-position on the snapshot timeline (`@{1}` is one snapshot back, `@{2}` two
-— git's reflog syntax, counted on snapshots; keep the quotes, some shells
-eat braces), a compact age (30m, 2h, 3d, 1w), or any date git understands.";
+  --from <rev>      a revision — a branch, a sha, any revset naming one
+  --at-op <op>      an operation, by its letters-spelled id
+  --at <time>       the operation current at a time (30m/2h/3d, or a date)
+
+Only the worktree is written. The index, HEAD, and branches stay exactly
+as they are. Restore takes its own capture first, and that one is
+mandatory: if the pre-restore capture fails, nothing is written. So any
+restore is undone by another restore, or by `ff undo`.";
 
 pub const RESTORE_EXAMPLES: &str = "\
 Examples:
-  ff restore src/main.rs         the newest snapshot's copy of one file
+  ff restore src/main.rs         discard edits: back to the commit below
   ff restore --all --at 2h       the whole tree, as it stood two hours ago
-  ff restore --at qkzm docs/     a directory, from a snapshot id
-  ff restore --at '@{1}' .       everything, one snapshot back";
+  ff restore docs/ --at-op kqzm  a directory, from one operation
+  ff restore src/ --from main~2  the same paths, from history instead";
 
 pub const TRIM: &str = "\
-Retention with an undo. Each chain's pre-trim tip is written to
-refs/fufu/trash/<branch> before a single ref moves, so the last trim is
-itself recoverable. Survivors keep their trees, messages, and dates
+Retention with an undo. The log's pre-trim tip is written to
+refs/fufu/trash/@ops before a single ref moves, so the last trim is itself
+recoverable. Survivors keep their trees, messages, and dates
 byte-for-byte — only parent slots relink — and the reflog is replayed with
-the original times, so `@{1}` and `--at 2h` stay truthful afterwards.
+the original times, so `--at 2h` stays truthful afterwards.
 
 You rarely need to run this. A trim rides an ff command at most once per
 fufu.autoTrim (daily by default), per repository. This is the hand-run
@@ -157,7 +160,7 @@ pub const TRIM_EXAMPLES: &str = "\
 Examples:
   ff trim -n                     preview: what would go, nothing written
   ff trim                        drop everything past the keep window
-  ff trim --gone                 also drop chains whose branch is gone
+  ff trim --gone                 also drop pointers whose branch is gone
   ff config keep 30d             a shorter window
   ff config autoTrim false       leave trimming entirely to this command";
 
@@ -198,22 +201,31 @@ Examples:
 
 pub const UNDO: &str = "\
 Whole-repo undo: refs and the working tree together, not one without the
-other. Operations come from the log — `ff log --ops` prints them with
-the ids this command takes — and the newest undoable one is the default.
+other. It takes no argument and repeats — each one goes one step further
+back.
 
-There is no confirmation prompt, deliberately: an undo is itself one undo
-away, and redo is undoing the undo.
+A step is a *run*, not an operation. Captures happen at machine rate and a
+person's undo does not, so undo steps over the longest stretch of adjacent
+captures carrying the same session, ending at the first operation that is
+not one. A verb's operation is a decision somebody made, so it is always
+its own step — a switch and a commit are two undos, never one — which is
+also what keeps undo from rolling past a commit by accident.
 
---force rolls back what remains when parts of the pre-state have already
-been trimmed, skipping the missing pieces with warnings instead of
-refusing outright.";
+Undo moves the log's pointer rather than appending, so the log records
+work and never navigation, and `ff redo` is what comes forward again.
+Nothing is discarded: what an undo steps off stays reachable, with the
+capture taken just before it at the head, so redo hands back the work you
+were holding first.
+
+Naming one operation instead of a run is `ff op restore <op>`.";
 
 pub const UNDO_EXAMPLES: &str = "\
 Examples:
-  ff undo                        take back the last operation
-  ff log --ops                   find an older one
-  ff undo 3f1c8a2                roll back to before that op
-  ff undo                        …and that undo was itself an op: redo";
+  ff undo                        step back one run of work
+  ff undo                        …and again, further back
+  ff redo                        forward again
+  ff op log                      what the log holds, with ids
+  ff op restore kqzm             land on one named operation instead";
 
 pub const START: &str = "\
 Begin a new line of work on a fresh branch. `ff commit` records, `ff switch`
@@ -355,10 +367,10 @@ Examples:
 
 pub const DOCTOR: &str = "\
 A safety net you cannot inspect is not trustworthy, and every floor of
-this one can degrade quietly: a chain moved by something that is not fufu,
+this one can degrade quietly: a log moved by something that is not fufu,
 a reflog that never got created, the gc guard deleted out of local config,
 hooks never installed, a stale binary. Doctor reads the whole net in one
-pass — the engine (chains and their ages, the snapshot identity on every
+pass — the engine (the operation log and its age, the fufu identity on its
 tip, reflogs, the gc guard, log health and pending foreign drift,
 settings validated through the readers' own parsers, a trim preview and
 the auto-trim clock), the wiring (agent hooks, the shell alias, and a
@@ -401,14 +413,154 @@ Examples:
   ff config autoUpdate false     keep checking, but only notice
   ff config updateCheck false    turn the whole lane off";
 
-pub const SESSION: &str = "\
-A session is a named span of the capture chain: snapshots taken while one
-is set carry its name in the commit trailer, grouping them for later
-review. Anything that takes a snapshot can set one — a person before a
-long afternoon, a script through the environment, an agent hook per run.
+pub const REDO: &str = "\
+The complement of `ff undo`: step forward again along the branch of the
+log an undo stepped off. Takes no argument, and repeats — each one goes
+one run further forward, until the log is back where it started.
 
-Sessions are set by `FF_SESSION` in the environment or `--session` on bare
-`ff`. Agent hooks set their own. There is nothing to open or close.
+Redo reads where the operation ref has been, so it can only follow a path
+that is still there. New work after an undo forks the log rather than
+truncating it: nothing is discarded, but redo stops offering a way forward
+it can no longer take, and says so. The abandoned branch keeps its ids,
+and `ff op restore` still lands on any of them until trim ages them out.";
 
-Bare `ff session` reports what is set. `ff session list` shows the spans
-on the current chain. `ff session diff` shows what a span changed.";
+pub const REDO_EXAMPLES: &str = "\
+Examples:
+  ff undo && ff redo             back, and forward again
+  ff redo                        …and again, after several undos
+  ff op log                      where the log stands now";
+
+pub const OP: &str = "\
+The operation log as objects. Every capture and every fufu mutation lands
+on one log at refs/fufu/ops, and this is the family that reads and moves
+it: `log` lists, `show` and `diff` read, `restore` rewinds the whole
+repository to one, `revert` inverts a single one, and `abandon` drops a
+branch of the log.
+
+Operation ids are spelled in the letters k–z and never in hex, which is
+what keeps hex meaning \"commit\" everywhere in fufu. `@` is the newest
+operation, and git's own first-parent suffixes work on it — `@^` is the
+one before, `@~3` three back — because an operation's first parent *is*
+the operation before it.
+
+`ff undo` is the everyday shortcut for `ff op restore`, argument-free and
+repeatable; most work never needs the long form.";
+
+pub const OP_EXAMPLES: &str = "\
+Examples:
+  ff op log                      what has happened, newest first
+  ff op show @                   what the newest operation did
+  ff op diff @^ @                what changed across it
+  ff op restore kqzm             rewind the whole repository there
+  ff undo                        the same move, one run at a time";
+
+pub const OP_LOG: &str = "\
+Every operation, newest first, wearing the ids the `ff op` verbs take.
+Captures are left out by default — they outnumber verb operations by more
+than an order of magnitude, and an unfiltered log is mostly machine noise.
+--captures puts them back.
+
+--at-op and --at bound the walk at a past operation rather than the tip,
+so `ff op log --at 2h` is the log as it read two hours ago.
+
+A session is a tag an operation wears, and --json carries it on every row.
+The set language that would filter on it — base(), on_branch(), session()
+and kind(), the four functions operations have and revisions do not — needs
+an evaluator over operations that does not exist yet.
+
+The bold prefix on each id is the shortest one these verbs resolve
+unambiguously, so an id copied from here never lands on an ambiguity.";
+
+pub const OP_LOG_EXAMPLES: &str = "\
+Examples:
+  ff op log                      the last 25 operations
+  ff op log --captures           every row, captures included
+  ff op log --json               every row's session tag, for scripts
+  ff op log --at 2h              the log as it read two hours ago
+  ff op log --at-op kqzm         …or as it read at one operation";
+
+pub const OP_SHOW: &str = "\
+One operation in full: what ran, when, on which branch, what it moved, and
+the diffstat of the worktree it carries against the operation before it.
+Bare `ff op show` reads `@`, the newest.
+
+Every operation has a tree, which is what makes this uniform — a capture
+and a close are read the same way, and differ only in whether there are
+ref transitions to list.";
+
+pub const OP_SHOW_EXAMPLES: &str = "\
+Examples:
+  ff op show                     the newest operation
+  ff op show @^                  the one before it
+  ff op show kqzm                by id
+  ff op show --json              the same, for machines";
+
+pub const OP_DIFF: &str = "\
+What changed in the worktree between two operations. Both are operation
+ids; the second defaults to `@`, so a single argument reads \"from there to
+now\".
+
+This compares the trees two operations carry, not their ref transitions —
+adjacent operations can sit on different branches, and the diff across
+that seam reads as the whole worktree being replaced, which is literal
+rather than wrong.";
+
+pub const OP_DIFF_EXAMPLES: &str = "\
+Examples:
+  ff op diff @^ @                what the newest operation changed
+  ff op diff kqzm                from that operation to now
+  ff op diff kqzm kwzq           between two of them";
+
+pub const OP_RESTORE: &str = "\
+Rewind the whole repository to an operation: refs, HEAD, the working tree
+and the index together, exactly as that operation recorded them.
+
+It moves the log's pointer rather than appending, so what it steps off
+stays reachable and `ff redo` walks back forward along it. Nothing is
+discarded and no entry is written saying you navigated — the log records
+work, not movement.
+
+--force rewinds to what remains when parts of the recorded state have
+already been trimmed, naming each missing piece instead of refusing.
+
+`ff undo` is this verb without an argument, moving one run at a time.";
+
+pub const OP_RESTORE_EXAMPLES: &str = "\
+Examples:
+  ff op restore kqzm             land on that operation
+  ff op restore @~3              three operations back
+  ff op restore @ --force        what remains, after a trim took the rest
+  ff redo                        undo the rewind";
+
+pub const OP_REVERT: &str = "\
+Invert one operation and leave everything after it standing. Where
+`ff op restore` rewinds to a moment, this undoes a single change in the
+middle of later work.
+
+It is the one verb in this family that *writes* an operation, because
+inverting one change while later work stands is itself a thing that
+happened, and the log should say so.
+
+An inversion that no longer applies cleanly holds rather than guessing:
+the conflict is reported and nothing is written.";
+
+pub const OP_REVERT_EXAMPLES: &str = "\
+Examples:
+  ff op revert kqzm              take that one change back out
+  ff op log                      …and see the revert recorded
+  ff undo                        take the revert back too";
+
+pub const OP_ABANDON: &str = "\
+Drop an operation and everything after it from the live log, leaving the
+objects in place. This is what retires a branch of the log that `ff redo`
+would otherwise keep offering — the operations remain readable and
+`ff op show` still reads them, they simply stop being somewhere the log
+can walk to.
+
+Trim ages abandoned operations out on the same keep window as everything
+else.";
+
+pub const OP_ABANDON_EXAMPLES: &str = "\
+Examples:
+  ff op abandon kqzm             retire that branch of the log
+  ff op log                      what the log still walks";

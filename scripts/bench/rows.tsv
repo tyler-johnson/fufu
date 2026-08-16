@@ -1,5 +1,9 @@
 # rows.tsv -- the declared bench table. Tab-separated, "#" starts a comment.
 #
+# restore-at's {ID} is an operation id spelled in letters (k-z), not hex: --at-op
+# is an operation-typed position and raw hex is refused there by design, so the
+# fixture builder reads the id from `ff op log --json` rather than encoding one.
+#
 # capture and restore-at use prepare=reset rather than prepare=dirty because both
 # verbs are capture-first: a measured run of either one appends a snapshot to the
 # very chain the axis is varying. Without restoring the chain ref (and its id
@@ -57,8 +61,8 @@ log	chain-depth	flat	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x
 evolog	chain-depth	flat	-	evolog -n 25	-	evolog -n 25
 status	chain-depth	flat	-	status	--no-optional-locks status --porcelain	status
 capture	chain-depth	flat	reset	(bare)	add -A && commit -m x	status
-restore-at	chain-depth	flat	reset	restore --all --at {ID}	-	-
-oplog	chain-depth	flat	-	log --ops -n 25	-	op log -n 25
+restore-at	chain-depth	flat	reset	restore --all --at-op {ID}	-	-
+oplog	chain-depth	flat	-	op log -n 25	-	op log -n 25
 log	history-depth	linear	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%s	log -n 25
 log	real-history	report	-	log -n 25	--no-optional-locks log -25 --format=%H%x1f%h%x1f%s	log -n 25
 status	real-history	report	-	status	--no-optional-locks status --porcelain	status

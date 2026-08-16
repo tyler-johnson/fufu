@@ -1,78 +1,48 @@
-//! Worktree restore from the timeline. Load-bearing ordering: resolve the
-//! target FIRST (so `@{1}` and "newest" mean the timeline the user just looked
-//! at), then take the mandatory pre-restore capture, then write. Writes touch
-//! only the worktree — never the index, HEAD, or branches.
+//! Worktree restore. Load-bearing ordering: resolve the source FIRST (so
+//! "now" means the timeline the user just looked at), then take the mandatory
+//! pre-restore capture, then write. Writes touch only the worktree — never the
+//! index, HEAD, or branches.
 //!
-//! Targets are operations now rather than snapshots, and that is a widening
-//! rather than a change of subject: a snapshot is what an operation carries,
-//! so every operation has a tree to restore, and the ids `ff evolog` prints
-//! are the same ids they always were.
+//! **A positional argument has exactly one kind**, so the paths go in the
+//! position and the source goes behind a flag — and each flag holds exactly
+//! one kind in turn:
+//!
+//! ```text
+//! (bare)            the commit under the open change   — a commit
+//! --from <rev>      any revision, through the revset   — a commit
+//! --at-op <op>      an operation, spelled in letters   — an operation
+//! --at <time>       the operation current at a moment  — an operation
+//! ```
+//!
+//! What that arrangement retires is the old `--at`, which took an operation
+//! id, *raw hex*, `@{n}`, an age, or a date, and picked between them by
+//! shape. Raw hex there was the leak that mattered: hex is how you say
+//! *commit* everywhere else in fufu, and one verb quietly accepting it as an
+//! operation address is how the two spaces bleed. `@{n}` went with it, since
+//! `--at-op @^` says the same thing in the address space that owns the
+//! question.
 
 use crate::error::{Error, Result};
-use crate::model::{RestoreReport, SnapEntry};
-use crate::ops::{self, BRANCH_PREFIX, CaptureOutcome, OpLog};
-use crate::snapshot::chain;
+use crate::model::{RestoreOrigin, RestoreReport};
+use crate::ops::{self, CaptureOutcome, OpLog};
+use crate::revset::{Rev, Revset};
 use crate::snapshot::{Provenance, TakeOptions};
 use crate::worktree;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RestoreTarget {
-    /// The newest operation on the branch (the default).
-    Newest,
-    /// An operation id prefix, as raw hex.
-    Id(String),
-    /// `@{n}` — the reflog entry n steps back.
-    Back(usize),
-    /// The branch pointer as of a moment in time (`@{<date>}` semantics).
-    AtTime(i64),
-}
-
-/// Git's own shortest-accepted object prefix. Borrowed rather than restated:
-/// it is what separates an id from a duration below.
-const MIN_HEX_LEN: usize = gix::hash::Prefix::MIN_HEX_LEN;
-
-/// Parse the target grammar: nothing, a hex or letters-spelled id prefix,
-/// `@{n}`, a compact duration (`90s`/`15m`/`2h`/`3d`/`1w`), or a git-style
-/// date string. Ids are tried before durations — see the note inline.
-pub fn parse_target(raw: Option<&str>, now: i64) -> Result<RestoreTarget> {
-    let Some(raw) = raw else {
-        return Ok(RestoreTarget::Newest);
-    };
-    let raw = raw.trim();
-    if let Some(n) = raw
-        .strip_prefix("@{")
-        .and_then(|s| s.strip_suffix('}'))
-        .and_then(|s| s.parse::<usize>().ok())
-    {
-        return Ok(RestoreTarget::Back(n));
-    }
-    // Hex before ages: `d` is both a duration unit and a hex digit, so `123d`
-    // is a legal object prefix and must resolve as one. Ages survive because
-    // git's own four-character prefix minimum excludes them — `3d` and `10d`
-    // are too short to be a prefix, so they still read as durations.
-    if raw.len() >= MIN_HEX_LEN && raw.len() <= 40 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(RestoreTarget::Id(raw.to_ascii_lowercase()));
-    }
-    if let Some(secs) = parse_compact_age(raw) {
-        return Ok(RestoreTarget::AtTime(now - secs));
-    }
-    // Letters-spelled ids win over date words: `noon` and `tomorrow` are
-    // all-alphabet and parse as id prefixes — accepted shadowing (DESIGN.md).
-    if raw.len() >= MIN_HEX_LEN
-        && raw.len() <= 40
-        && crate::snapid::is_encoded(raw)
-        && let Some(hex) = crate::snapid::decode(raw)
-    {
-        return Ok(RestoreTarget::Id(hex));
-    }
-    let time = gix::date::parse(raw, Some(std::time::SystemTime::now())).map_err(|err| {
-        Error::coded(
-            "usage/bad-restore-target",
-            format!("unrecognized restore target {raw:?}: {err}"),
-            vec!["ff evolog".into(), "ff restore --at 2h".into()],
-        )
-    })?;
-    Ok(RestoreTarget::AtTime(time.seconds))
+/// Where a restore pulls from. One variant per flag, one kind per variant.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum RestoreSource {
+    /// The commit under the open change — the bare form, and the everyday
+    /// "discard my edits to this file". Both neighbors read this way:
+    /// `git restore <path>` and `jj restore <paths>` land in the same place.
+    #[default]
+    Open,
+    /// `--from <rev>` — a revision, through the one revset resolver.
+    Rev(String),
+    /// `--at-op <op>` — an operation, spelled in letters.
+    Op(String),
+    /// `--at <time>` — the operation current at that moment.
+    Time(String),
 }
 
 /// `<n><unit>` with a mandatory unit — bare integers are ambiguous here.
@@ -92,10 +62,33 @@ fn parse_compact_age(raw: &str) -> Option<i64> {
     })
 }
 
+/// A moment, as a compact age or anything git's own date parser accepts.
+///
+/// This is the whole of the time grammar now, and it is unambiguous because
+/// the position's kind *is* a time: nothing here has to out-guess an id, so
+/// `3d` is three days and `123d` is three days too, rather than an object
+/// prefix that happens to be all hex.
+pub fn parse_time(raw: &str, now: i64) -> Result<i64> {
+    let raw = raw.trim();
+    if let Some(secs) = parse_compact_age(raw) {
+        return Ok(now - secs);
+    }
+    let time = gix::date::parse(raw, Some(std::time::SystemTime::now())).map_err(|err| {
+        Error::coded(
+            "usage/bad-restore-target",
+            format!("unrecognized time {raw:?}: {err}"),
+            vec![
+                "ff restore --all --at 2h".into(),
+                "ff restore --all --at-op <op>".into(),
+            ],
+        )
+    })?;
+    Ok(time.seconds)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RestoreOptions {
-    /// Raw target string (see [`parse_target`]); `None` = newest.
-    pub target: Option<String>,
+    pub source: RestoreSource,
     /// Restore only these repo-relative paths (files, or directory prefixes).
     /// Empty + `all` = the whole worktree.
     pub paths: Vec<String>,
@@ -124,20 +117,16 @@ pub fn restore(
             "nothing selected: pass paths or --all",
             vec![
                 "ff restore --all".into(),
-                "ff restore <path> --at <id>".into(),
+                "ff restore <path> --at-op <op>".into(),
             ],
         ));
     }
-    let head = crate::head::head_state(repo)?;
-    let branch = chain::chain_name(&head);
 
     let now = opts.now.unwrap_or_else(crate::ops::append::wall_clock);
 
-    // 1. Resolve first: "newest" and @{n} refer to the timeline as the user
-    //    saw it, before the pre-restore capture moves the pointer.
-    let target = parse_target(opts.target.as_deref(), now)?;
-    let target_id = resolve(repo, &target, &branch)?;
-    let target_entry = entry_of(repo, target_id)?;
+    // 1. Resolve first: an age and "the newest" refer to the timeline as the
+    //    user saw it, before the pre-restore capture moves anything.
+    let (origin, source_tree) = resolve(repo, &opts.source, now)?;
 
     // 2. Mandatory pre-restore capture: the state being overwritten must be on
     //    the log before a single byte moves.
@@ -166,14 +155,13 @@ pub fn restore(
         }
     };
 
-    // 3. Diff fresh capture → target — never worktree → target, where
+    // 3. Diff fresh capture → source — never worktree → source, where
     //    untracked files would read as deletions.
-    let target_tree = log.get(ops::OpId::new(target_id))?.tree();
     let select = |path: &str| opts.all || path_selected(path, &opts.paths);
-    let transition = worktree::apply_tree_transition(repo, fresh_tree, target_tree, &select)?;
+    let transition = worktree::apply_tree_transition(repo, fresh_tree, source_tree, &select)?;
 
     Ok(RestoreReport {
-        target: target_entry,
+        origin,
         restored: transition.written,
         deleted: transition.deleted,
         skipped_gitlinks: transition.skipped_gitlinks,
@@ -188,133 +176,117 @@ fn path_selected(path: &str, selectors: &[String]) -> bool {
     })
 }
 
-fn entry_of(repo: &gix::Repository, id: gix::ObjectId) -> Result<SnapEntry> {
-    let mut entry = crate::evolog::snap_entry(repo, id)?
-        .ok_or_else(|| not_an_op(id))?
-        .entry;
-    use gix::prelude::ObjectIdExt;
-    entry.short_id = id
-        .attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string());
-    Ok(entry)
-}
-
-/// Resolve a target against the branch. Every exit is identity-guarded: the
-/// resolved commit must be a fufu *operation* or the restore refuses.
+/// Resolve a source to the tree it offers, and to the row describing it.
 ///
-/// The guard is [`ops::is_op_commit`] and not "does it bear the fufu
-/// identity", which is what the old one asked. A record commit bears the
-/// identity too, and restoring from one would wipe the working tree and write
-/// three metadata files in its place.
-fn resolve(repo: &gix::Repository, target: &RestoreTarget, branch: &str) -> Result<gix::ObjectId> {
-    let pointer = format!("{BRANCH_PREFIX}{branch}");
-    let id = match target {
-        RestoreTarget::Newest => crate::refs::ref_target(repo, &pointer)?.ok_or_else(|| {
-            Error::coded(
-                "op/not-found",
-                format!("no operations on {branch} yet — nothing to restore"),
-                vec!["ff evolog".into()],
-            )
-        })?,
-        RestoreTarget::Id(prefix) => {
-            // The index is a cache, so every candidate it offers is checked
-            // against the object store below. A stale entry can only ever
-            // produce a candidate that then fails the guard — never a wrong
-            // restore.
-            let mut candidates = Vec::new();
-            for candidate in ops::index::prefix_matches(repo, prefix)? {
-                if ops::is_op_commit(repo, candidate)? {
-                    candidates.push(candidate);
-                }
-            }
-            candidates.sort_unstable();
-            candidates.dedup();
-            match candidates.as_slice() {
-                [] => {
-                    return Err(Error::coded(
-                        "op/not-found",
-                        format!("no operation matches {prefix}"),
-                        vec!["ff evolog".into(), "ff log --ops".into()],
-                    ));
-                }
-                [one] => *one,
-                many => {
-                    let list: Vec<String> = many
-                        .iter()
-                        .map(|id| ops::OpId::new(*id).short(12))
-                        .collect();
-                    return Err(Error::coded(
-                        "op/ambiguous",
-                        format!(
-                            "{prefix} matches {} operations: {}",
-                            many.len(),
-                            list.join(", ")
-                        ),
-                        vec!["ff evolog".into()],
-                    ));
-                }
+/// Every operation-space exit is identity-guarded by the resolver it goes
+/// through: [`OpLog::resolve`] refuses hex outright and confirms every
+/// candidate is an operation commit — not merely a commit bearing the fufu
+/// identity, which a *record* commit does too, and restoring from one would
+/// wipe the working tree and write three metadata files in its place.
+fn resolve(
+    repo: &gix::Repository,
+    source: &RestoreSource,
+    now: i64,
+) -> Result<(RestoreOrigin, gix::ObjectId)> {
+    match source {
+        RestoreSource::Open => {
+            let head = repo.head_commit().map_err(|_| unborn())?;
+            commit_origin(repo, head.id().detach())
+        }
+        RestoreSource::Rev(raw) => {
+            let point = Revset::parse(raw)?.point(repo)?;
+            match point.rev {
+                Rev::Commit(id) => commit_origin(repo, id.object_id()),
+                // Refused rather than answered with a no-op: `@` is the open
+                // change, which is where the files already are, so a restore
+                // from it can only be a spelling somebody did not mean.
+                Rev::Open => Err(Error::coded(
+                    "target/unresolvable",
+                    "`@` is the open change: restoring from it would put the files back \
+                     where they already are. The commit under it is `HEAD`",
+                    vec![
+                        "ff restore <path> --from HEAD".into(),
+                        "ff restore <path>".into(),
+                    ],
+                )),
             }
         }
-        RestoreTarget::Back(n) => {
-            reflog_entry(repo, &pointer, |lines| lines.nth(*n))?.ok_or_else(|| {
-                Error::coded(
-                    "op/not-found",
-                    format!("@{{{n}}}: not that many operations on {branch}"),
-                    vec!["ff evolog".into()],
-                )
-            })?
+        RestoreSource::Op(spec) => {
+            let id = OpLog::open(repo)?.resolve(spec)?;
+            op_origin(repo, id)
         }
-        RestoreTarget::AtTime(t) => reflog_entry(repo, &pointer, |lines| {
-            // A manual find: `Iterator::find` needs `Self: Sized`.
-            loop {
-                match lines.next() {
-                    Some(line) if line.1 <= *t => break Some(line),
-                    Some(_) => continue,
-                    None => break None,
+        RestoreSource::Time(raw) => {
+            let at = parse_time(raw, now)?;
+            let log = OpLog::open(repo)?;
+            // The operation current at that moment: the newest one at or
+            // before it, over the whole log rather than one branch's slice of
+            // it, because there is one log and "what was true then" is not a
+            // question about which branch you happen to stand on now.
+            for op in log.iter() {
+                let op = op?;
+                if op.time() <= at {
+                    return op_origin(repo, op.id());
                 }
             }
-        })?
-        .ok_or_else(|| {
-            Error::coded(
+            Err(Error::coded(
                 "op/not-found",
-                format!("no operation on {branch} at or before that time"),
-                vec!["ff evolog".into()],
-            )
-        })?,
-    };
-    if !ops::is_op_commit(repo, id)? {
-        return Err(not_an_op(id));
+                format!("no operation on the log at or before {raw}"),
+                vec!["ff op log".into()],
+            ))
+        }
     }
-    Ok(id)
 }
 
-fn not_an_op(id: gix::ObjectId) -> Error {
+fn commit_origin(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+) -> Result<(RestoreOrigin, gix::ObjectId)> {
+    let commit = repo.find_commit(id).map_err(Error::repo)?;
+    let tree = commit.tree_id().map_err(Error::repo)?.detach();
+    let subject = commit
+        .message()
+        .map(|m| m.summary().to_string())
+        .unwrap_or_default();
+    let time = commit.time().map_err(Error::repo)?.seconds;
+    Ok((
+        RestoreOrigin {
+            space: "commit".into(),
+            id: id.to_string(),
+            // Seven characters, plain: commit shas get no prefix
+            // highlighting, and 7 is effectively always unique at this scale.
+            short_id: id.to_string().chars().take(7).collect(),
+            subject,
+            time,
+        },
+        tree,
+    ))
+}
+
+fn op_origin(repo: &gix::Repository, id: ops::OpId) -> Result<(RestoreOrigin, gix::ObjectId)> {
+    let op = OpLog::open(repo)?.get(id)?;
+    let hex = id.hex();
+    let len = ops::index::prefix_lens(repo, std::slice::from_ref(&hex))?
+        .get(&hex)
+        .copied()
+        .unwrap_or(8)
+        .max(4);
+    Ok((
+        RestoreOrigin {
+            space: "operation".into(),
+            id: hex,
+            short_id: id.short(len),
+            subject: op.summary().to_string(),
+            time: op.time(),
+        },
+        op.tree(),
+    ))
+}
+
+fn unborn() -> Error {
     Error::coded(
         "op/not-found",
-        format!("{id} is not a fufu operation; refusing to restore from it"),
-        vec!["ff evolog".into()],
+        "this branch has no commits yet, so there is nothing under the open change to \
+         restore from",
+        vec!["ff restore <path> --at-op <op>".into(), "ff op log".into()],
     )
-}
-
-/// Run a selector over reflog lines, newest first, as `(new_oid, time)`.
-fn reflog_entry(
-    repo: &gix::Repository,
-    ref_name: &str,
-    select: impl FnOnce(&mut dyn Iterator<Item = (gix::ObjectId, i64)>) -> Option<(gix::ObjectId, i64)>,
-) -> Result<Option<gix::ObjectId>> {
-    let Some(reference) = repo.try_find_reference(ref_name).map_err(Error::repo)? else {
-        return Ok(None);
-    };
-    let mut platform = reference.log_iter();
-    let Some(iter) = platform.rev().map_err(Error::repo)? else {
-        return Ok(None);
-    };
-    let mut lines = iter.filter_map(|line| {
-        let line = line.ok()?;
-        let time = line.signature.time.seconds;
-        Some((line.new_oid, time))
-    });
-    Ok(select(&mut lines).map(|(id, _)| id))
 }

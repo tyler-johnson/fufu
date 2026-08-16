@@ -8,6 +8,19 @@ use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, target: String) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    // A verb means a *kind*, and a kind mismatch redirects rather than
+    // refuses. `ff switch <sha>` has exactly one sensible reading — you want
+    // to be working there — so fufu takes it and says so. Acting is not
+    // guessing: one available reading is taken and announced, and more than
+    // one would be an error naming the candidates (which is what an ambiguous
+    // branch prefix still gets, below).
+    match ff_core::resolve_branch(&repo, &target) {
+        Ok(_) => {}
+        Err(err) if err.id() == "branch/not-found" && names_a_revision(&repo, &target) => {
+            return switch_to_a_revision(ctx, &repo, target);
+        }
+        Err(err) => return Err(err),
+    }
     let (report, verb_ctx) = ff_core::switch(
         &repo,
         &SwitchOptions {
@@ -67,6 +80,73 @@ pub fn run(ctx: &Ctx, target: String) -> Result<()> {
             );
         }
     }
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+    Ok(())
+}
+
+/// Whether the target denotes a revision. Deliberately quiet about *why* it
+/// does not: the caller already holds the branch error, and that is the one
+/// worth reporting when neither reading works — somebody typing a branch name
+/// with a typo in it is not asking about revisions.
+fn names_a_revision(repo: &ff_core::gix::Repository, target: &str) -> bool {
+    use ff_core::revset::{Rev, Revset};
+    matches!(
+        Revset::parse(target).and_then(|set| set.point(repo)),
+        Ok(point) if matches!(point.rev, Rev::Commit(_))
+    )
+}
+
+/// The redirect: mint an anonymous branch at the revision and land on it,
+/// which is precisely `ff start <rev>` — so it *is* `ff start <rev>`, rather
+/// than a second implementation of minting that could drift from the first.
+fn switch_to_a_revision(ctx: &Ctx, repo: &ff_core::gix::Repository, target: String) -> Result<()> {
+    let (report, verb_ctx) = ff_core::start(
+        repo,
+        &ff_core::StartOptions {
+            target: Some(target.clone()),
+            message: None,
+            branch: None,
+            now: None,
+            argv: std::env::args().collect(),
+        },
+        &crate::provenance::pre_ff(ctx),
+    )?;
+
+    crate::render::init_palette(repo);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
+
+    if ctx.json {
+        let payload = serde_json::json!({
+            "start": report,
+            "redirected_from": target,
+            "reconcile": verb_ctx.reconcile,
+            "undo": "ff undo",
+        });
+        crate::machine::emit("switch", &payload)?;
+        return Ok(());
+    }
+
+    let colored = crate::pager::color_enabled();
+    if let Some(stash) = &report.parked {
+        println!(
+            "parked the open change on {} ({})",
+            report.forked_from,
+            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+        );
+    }
+    println!(
+        "{target} is a revision, not a branch — minted {} there and switched to it",
+        report.minted
+    );
+    println!(
+        "{}",
+        crate::render::paint_dim(
+            &format!(
+                "  ff branch <name>  claim it   ·   ff start {target}  the verb that meant it"
+            ),
+            colored
+        )
+    );
     println!("{}", crate::render::paint_dim("undo: ff undo", colored));
     Ok(())
 }

@@ -1,8 +1,11 @@
-//! `ff trim` — manual retention. Reports per branch; after any real run,
-//! nudges git's own gc (the one pragmatic spawn in fufu: native writes never
-//! trigger auto-gc, so without this nothing ever packs the object store —
-//! not just the objects a trim orphaned). `gc --auto` is self-limiting: below
-//! git's own threshold it returns having done nothing.
+//! `ff trim` — manual retention. Reports the one log first, because that is
+//! what retention acts on; a branch pointer is a *place in* the log, and the
+//! only per-branch fact worth a line is a pointer that went away with its
+//! branch. After any real run it nudges git's own gc (the one pragmatic spawn
+//! in fufu: native writes never trigger auto-gc, so without this nothing ever
+//! packs the object store — not just the objects a trim orphaned). `gc
+//! --auto` is self-limiting: below git's own threshold it returns having done
+//! nothing.
 
 use ff_core::{Result, TrimOptions};
 
@@ -24,56 +27,50 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
     if !dry_run {
         crate::autotrim::stamp(&repo);
     }
-    let anything_dropped = report.chains.iter().any(|c| c.dropped > 0);
+    let anything_dropped = report.log.as_ref().is_some_and(|log| log.dropped > 0);
 
     if ctx.json {
         crate::machine::emit("trim", &report)?;
     } else {
-        if report.chains.is_empty() {
-            println!("no operations yet");
-        }
-        for chain in &report.chains {
-            let total = chain.dropped + chain.kept;
-            if chain.deleted && chain.dropped == 0 {
-                // `--gone`: the branch is gone, so its way into the log goes
-                // too. The operations themselves stay — one branch's cannot be
-                // excised from the middle of a global chain — and age out on
-                // the same cutoff as everything else.
-                println!(
-                    "{}: branch is gone — pointer removed; its operations age out on the keep window",
-                    chain.branch
-                );
-            } else if chain.dropped == 0 {
-                println!(
-                    "{}: nothing to drop ({} operation{} kept)",
-                    chain.branch,
-                    chain.kept,
-                    if chain.kept == 1 { "" } else { "s" }
-                );
-            } else if dry_run {
-                println!(
-                    "{}: would drop {} of {} operations",
-                    chain.branch, chain.dropped, total
-                );
-            } else {
-                let tail = match &chain.trash_ref {
-                    Some(trash) => {
-                        format!(" — previous tip saved at {trash} until the next trim")
-                    }
-                    None => String::new(),
-                };
-                if chain.deleted {
+        match &report.log {
+            None => println!("no operations yet"),
+            Some(log) => {
+                let total = log.dropped + log.kept;
+                if log.dropped == 0 {
                     println!(
-                        "{}: dropped all {} operations, pointer removed{}",
-                        chain.branch, chain.dropped, tail
+                        "nothing to drop ({} operation{} kept)",
+                        log.kept,
+                        if log.kept == 1 { "" } else { "s" }
                     );
+                } else if dry_run {
+                    println!("would drop {} of {total} operations", log.dropped);
                 } else {
-                    println!(
-                        "{}: dropped {} of {} operations{}",
-                        chain.branch, chain.dropped, total, tail
-                    );
+                    let tail = match &log.trash_ref {
+                        Some(trash) => {
+                            format!(" — previous tip saved at {trash} until the next trim")
+                        }
+                        None => String::new(),
+                    };
+                    if log.deleted {
+                        println!(
+                            "dropped all {} operations, the log removed{tail}",
+                            log.dropped
+                        );
+                    } else {
+                        println!("dropped {} of {total} operations{tail}", log.dropped);
+                    }
                 }
             }
+        }
+        // `--gone`: the branch is gone, so its way into the log goes too. The
+        // operations themselves stay — one branch's cannot be excised from
+        // the middle of one log — and age out on the same cutoff as
+        // everything else.
+        for pointer in report.pointers.iter().filter(|p| p.deleted) {
+            println!(
+                "  {}: branch is gone — pointer removed; its operations age out on the keep window",
+                pointer.branch
+            );
         }
         if anything_dropped && !dry_run {
             println!("dropped data frees after gc");

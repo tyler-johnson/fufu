@@ -33,6 +33,7 @@ const OLD_TRASH_PREFIX: &str = "refs/fufu/trash/";
 
 /// The verb preamble's result: the clock, the operation holding the state the
 /// verb is about to change, and what reconciliation found on the way in.
+#[derive(Debug)]
 pub struct VerbContext {
     pub now: i64,
     /// The operation whose tree IS the pre-verb worktree: freshly captured,
@@ -459,20 +460,41 @@ fn reflog_hint(repo: &gix::Repository, name: &str, target: Option<&str>) -> Opti
     None
 }
 
-/// One branch's operations as display rows, newest first, captures excluded.
+/// The log as display rows, newest first, captures excluded.
 ///
 /// Captures are the overwhelming majority of the log and say nothing a verb
 /// view wants — this is the same set the journal held, read from the one log
 /// rather than from a second one.
 pub fn read_ops(repo: &gix::Repository, limit: usize) -> Result<Vec<crate::model::OpEntry>> {
+    read_ops_from(repo, None, limit, false)
+}
+
+/// The same rows, bounded at a past operation and optionally including the
+/// capture floor's own.
+///
+/// `start` is where the walk begins: the tip when `None`, and an operation
+/// when `--at-op` or `--at` placed the reader in the past. Bounding rather
+/// than filtering is the honest reading of "the log as it stood then" —
+/// operations behind a point never change, so the past view is this one with
+/// its head cut off.
+pub fn read_ops_from(
+    repo: &gix::Repository,
+    start: Option<OpId>,
+    limit: usize,
+    captures: bool,
+) -> Result<Vec<crate::model::OpEntry>> {
     let log = OpLog::open(repo)?;
     let mut out = Vec::new();
     let mut hex: Vec<String> = Vec::new();
-    for op in log.iter() {
+    let walk: Box<dyn Iterator<Item = Result<crate::ops::Operation<'_>>>> = match start {
+        Some(id) => Box::new(log.iter_from(id)),
+        None => Box::new(log.iter()),
+    };
+    for op in walk {
         let Ok(op) = op else {
             break; // damaged history: show what is legible
         };
-        if op.is_capture() {
+        if op.is_capture() && !captures {
             continue;
         }
         if limit != 0 && out.len() >= limit {
@@ -489,6 +511,7 @@ pub fn read_ops(repo: &gix::Repository, limit: usize) -> Result<Vec<crate::model
             summary: op.summary().to_string(),
             time: op.time(),
             branch: op.branch().map(str::to_string),
+            session: op.session().map(str::to_string),
             undo_of: record.and_then(|r| r.undo_of.clone()),
         });
     }

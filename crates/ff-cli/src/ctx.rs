@@ -9,9 +9,20 @@
 //! `run` signature would say the result depends on it. So the mechanism is a
 //! parameter from the day the only thing riding it is harmless.
 
-use ff_core::Result;
+use ff_core::{Error, Result};
 
 use crate::cli::{Cli, Command};
+
+/// Which past state a command was asked to read against, if any.
+///
+/// One kind per door: `--at-op` takes an operation id and `--at` takes a
+/// clock. They are one mechanism with two entrances, so naming both at once
+/// is refused rather than ranked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum At {
+    Op(String),
+    Time(String),
+}
 
 #[derive(Debug)]
 pub struct Ctx {
@@ -23,12 +34,16 @@ pub struct Ctx {
     /// The name every JSON envelope of this invocation carries — payload or
     /// error, emitted from a verb or from main's error handler.
     pub command: &'static str,
+    /// The past state this invocation reads against. Settled here so a verb
+    /// never has to decide what its two flags mean together.
+    pub at: Option<At>,
 }
 
 impl Ctx {
-    /// Settle the invocation state from the parsed command line. The only
-    /// failure is a `--session` that cannot be stored; it lands before
-    /// dispatch, so no verb ever runs against a half-valid context.
+    /// Settle the invocation state from the parsed command line. Failures
+    /// land before dispatch, so no verb ever runs against a half-valid
+    /// context: a `--session` that cannot be stored, or both context flags
+    /// at once.
     pub fn new(args: &Cli) -> Result<Self> {
         let env = std::env::var_os("FF_SESSION").map(|raw| raw.to_string_lossy().into_owned());
         Self::resolve(
@@ -48,15 +63,61 @@ impl Ctx {
         command: &Option<Command>,
     ) -> Result<Self> {
         // Bare `ff` is the snapshot verb, and its envelope says so.
-        let (command, json_capable) = match command {
+        let (name, json_capable) = match command {
             None => ("snap", true),
             Some(cmd) => (cmd.name(), cmd.json_capable()),
+        };
+        // clap's `conflicts_with` already refuses the pair on every verb that
+        // declares them; this is the same refusal stated where the meaning
+        // lives, so a flattened group added without it cannot leak through.
+        let past = command.as_ref().and_then(Command::past);
+        let at = match (
+            past.and_then(|p| p.at_op.as_deref()),
+            past.and_then(|p| p.at.as_deref()),
+        ) {
+            (Some(_), Some(_)) => {
+                return Err(Error::coded(
+                    "usage/bad-flags",
+                    "--at-op takes an operation id and --at takes a time: they are one \
+                     reach with two doors, so naming both says nothing more than either",
+                    vec!["ff --at-op <op> <verb>".into(), "ff --at 2h <verb>".into()],
+                ));
+            }
+            (Some(op), None) => Some(At::Op(op.to_string())),
+            (None, Some(time)) => Some(At::Time(time.to_string())),
+            (None, None) => None,
         };
         Ok(Ctx {
             json: json && json_capable,
             session: crate::session::resolve(session, env)?,
-            command,
+            command: name,
+            at,
         })
+    }
+
+    /// The refusal a verb owes when it declares the context flags but cannot
+    /// yet honor them. Threading an operation's ref table through every
+    /// `repo.head()` and `repo.references()` site is what these verbs are
+    /// waiting on; until then, saying so beats an unknown-argument error that
+    /// would teach the flags do not exist.
+    pub fn refuse_past(&self, verb: &str) -> Result<()> {
+        let Some(at) = &self.at else { return Ok(()) };
+        let flag = match at {
+            At::Op(_) => "--at-op",
+            At::Time(_) => "--at",
+        };
+        Err(Error::coded(
+            "usage/at-op-unsupported",
+            format!(
+                "{verb} does not read a past state yet, so {flag} has nothing to place it \
+                 against; the verbs that resolve a target rather than render a view take it today"
+            ),
+            vec![
+                "ff op show <op>".into(),
+                "ff op log".into(),
+                "ff restore <path> --at-op <op>".into(),
+            ],
+        ))
     }
 }
 
@@ -109,10 +170,19 @@ mod tests {
         );
     }
 
+    fn status(at_op: Option<&str>, at: Option<&str>) -> Command {
+        Command::Status {
+            past: crate::cli::Past {
+                at_op: at_op.map(str::to_string),
+                at: at.map(str::to_string),
+            },
+        }
+    }
+
     #[test]
     fn json_is_ignored_by_the_verbs_that_own_their_stream() {
         let json = |command| Ctx::resolve(true, None, None, &Some(command)).unwrap().json;
-        assert!(json(Command::Status));
+        assert!(json(status(None, None)));
         assert!(!json(Command::Git { args: vec![] }));
         assert!(!json(Command::Update { check: false }));
         // And nothing turns it on that did not ask.
@@ -123,10 +193,71 @@ mod tests {
     fn the_bare_command_is_named_snap() {
         assert_eq!(ctx(None, None).unwrap().command, "snap");
         assert_eq!(
-            Ctx::resolve(false, None, None, &Some(Command::Status))
+            Ctx::resolve(false, None, None, &Some(status(None, None)))
                 .unwrap()
                 .command,
             "status"
         );
+    }
+
+    /// `ff op log` and `ff op show` are two shapes, so they are two names on
+    /// the envelope — the anti-precedent is `ff session`, which put a listing
+    /// and a diffstat under one.
+    #[test]
+    fn the_op_family_names_the_full_path() {
+        let name = |action| {
+            Ctx::resolve(false, None, None, &Some(Command::Op { action }))
+                .unwrap()
+                .command
+        };
+        assert_eq!(
+            name(crate::cli::OpAction::Log {
+                count: 25,
+                captures: false,
+                past: Default::default()
+            }),
+            "op log"
+        );
+        assert_eq!(
+            name(crate::cli::OpAction::Revert { op: "kqzm".into() }),
+            "op revert"
+        );
+    }
+
+    /// One kind per flag, and one reach: naming both doors is refused here
+    /// rather than ranked, before any verb has run.
+    #[test]
+    fn the_two_context_flags_are_one_reach() {
+        let at = |op, time| Ctx::resolve(false, None, None, &Some(status(op, time)));
+        assert_eq!(at(None, None).unwrap().at, None);
+        assert_eq!(
+            at(Some("kqzm"), None).unwrap().at,
+            Some(At::Op("kqzm".into()))
+        );
+        assert_eq!(
+            at(None, Some("2h")).unwrap().at,
+            Some(At::Time("2h".into()))
+        );
+        assert_eq!(
+            at(Some("kqzm"), Some("2h")).unwrap_err().id(),
+            "usage/bad-flags"
+        );
+    }
+
+    /// A verb that only adds to now never carries the flags, so the context
+    /// is empty there by construction rather than by a check at the far end.
+    #[test]
+    fn verbs_that_only_add_to_now_carry_no_past() {
+        assert!(Command::Undo.past().is_none());
+        assert!(
+            Command::Commit {
+                message: None,
+                no_verify: false,
+                branch: None
+            }
+            .past()
+            .is_none()
+        );
+        assert!(status(None, None).past().is_some());
     }
 }

@@ -79,17 +79,19 @@ fn main() {
 
     let result = match args.command {
         None => cmd::snap::run(&ctx, args.message),
-        Some(cli::Command::Status) => cmd::status::run(&ctx),
+        Some(cli::Command::Status { .. }) => cmd::status::run(&ctx),
         Some(cli::Command::Log {
             count,
             revisions,
             commits,
             ops,
-            session,
-        }) => cmd::log::run(&ctx, count, revisions, commits, ops, session),
-        Some(cli::Command::Evolog { count, session }) => cmd::evolog::run(&ctx, count, session),
+            ..
+        }) => cmd::log::run(&ctx, count, revisions, commits, ops),
+        Some(cli::Command::Evolog { count, .. }) => cmd::evolog::run(&ctx, count),
         Some(cli::Command::Git { args: git_args }) => cmd::git::run(&ctx, git_args),
-        Some(cli::Command::Restore { at, all, paths }) => cmd::restore::run(&ctx, at, all, paths),
+        Some(cli::Command::Restore {
+            from, all, paths, ..
+        }) => cmd::restore::run(&ctx, from, all, paths),
         Some(cli::Command::Trim { dry_run, gone }) => cmd::trim::run(&ctx, dry_run, gone),
         Some(cli::Command::Commit {
             message,
@@ -97,8 +99,10 @@ fn main() {
             branch,
         }) => cmd::commit::run(&ctx, message, no_verify, branch),
         Some(cli::Command::Switch { target }) => cmd::switch::run(&ctx, target),
-        Some(cli::Command::Undo { op, force }) => cmd::undo::run(&ctx, op, force),
-        Some(cli::Command::Branch { name, delete }) => cmd::branch::run(&ctx, name, delete),
+        Some(cli::Command::Undo) => cmd::undo::run(&ctx),
+        Some(cli::Command::Redo) => cmd::undo::redo(&ctx),
+        Some(cli::Command::Op { action }) => cmd::op::run(&ctx, action),
+        Some(cli::Command::Branch { name, delete, .. }) => cmd::branch::run(&ctx, name, delete),
         Some(cli::Command::Start {
             target,
             message,
@@ -117,14 +121,6 @@ fn main() {
         Some(cli::Command::Doctor { fix }) => cmd::doctor::run(&ctx, fix),
         Some(cli::Command::Explain { id, list }) => cmd::explain::run(&ctx, id, list),
         Some(cli::Command::Update { check }) => cmd::update::run(&ctx, check),
-        Some(cli::Command::Session { action }) => {
-            let (action_str, name) = match action {
-                Some(cli::SessionAction::List) => (Some("list"), None),
-                Some(cli::SessionAction::Diff { name }) => (Some("diff"), name),
-                None => (None, None),
-            };
-            cmd::session::run(&ctx, action_str, name)
-        }
     };
 
     if let Err(err) = result {

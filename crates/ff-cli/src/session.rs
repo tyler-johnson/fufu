@@ -1,9 +1,14 @@
 //! Session plumbing: resolve the current session name and validate names.
 //!
 //! Sessions are stateless: the only source is the `FF_SESSION` environment
-//! variable. There is no marker file, no mode, and nothing to open or close.
+//! variable or the `--session` flag. There is no marker file, no mode, and
+//! nothing to open or close — a session is a tag an operation wears, so
+//! whoever sets one already knows its name and there is nothing to list. It
+//! rides every row of `ff op log --json`; the set language that would filter
+//! on it is waiting on an evaluator over operations.
 
 use ff_core::error::{Error, Result};
+use ff_core::ops::{OpId, OpLog};
 
 /// Validate a session name. Any UTF-8 string is legal — the rules are only
 /// what storing it as a commit-message trailer actually requires.
@@ -57,6 +62,18 @@ pub fn resolve(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> 
             Ok(None)
         }
     }
+}
+
+/// The tag one operation wears, if any. One targeted object read — the id is
+/// already known from a walk the caller has done, so this never re-walks
+/// anything. Rows carry their tag on the machine surface whether or not a
+/// person asked; it is a property of the operation, not a view over it.
+pub fn tag_of(repo: &ff_core::gix::Repository, hex: &str) -> Result<Option<String>> {
+    let oid = ff_core::gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo)?;
+    Ok(OpLog::open(repo)?
+        .get(OpId::new(oid))?
+        .session()
+        .map(str::to_string))
 }
 
 #[cfg(test)]

@@ -114,7 +114,7 @@ fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
     }
 
     // Out of reach: rebuild from the log walk.
-    let mut sorted = log_ids(repo, kind.ref_name())?;
+    let mut sorted = domain_ids(repo, kind)?;
     sorted.sort_unstable();
     let _ = write_index(&file_path, &tip_str, &sorted);
     let len = sorted.len();
@@ -127,18 +127,68 @@ fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
     })
 }
 
-/// Every op id on a log ref, newest first. The resolution domain in its
-/// materialized form — ids only, no abbreviation, which is what makes it
+/// Recompute a domain and write it, replacing whatever was there.
+///
+/// The one caller is a pointer move. A rewind puts the tip somewhere
+/// [`catch_up`] cannot reach forward from, and nothing appends afterwards to
+/// land the file, so every later read would rebuild in line — a linear cost
+/// on the read path, which is the one place that can never afford one. Paying
+/// it once here keeps the flat rows flat. Best effort and silent, like every
+/// other write to a derived cache.
+pub fn refresh(repo: &gix::Repository, kind: Kind) {
+    let Ok(Some(tip)) = crate::refs::ref_target(repo, kind.ref_name()) else {
+        return;
+    };
+    let Ok(mut ids) = domain_ids(repo, kind) else {
+        return;
+    };
+    ids.sort_unstable();
+    let _ = write_index(&path(repo, kind), &tip.to_string(), &ids);
+}
+
+/// Every op id a domain resolves — the materialized form of exactly the set
+/// `ff op` accepts, ids only and no abbreviation, which is what makes it
 /// affordable over a whole log.
-fn log_ids(repo: &gix::Repository, ref_name: &str) -> Result<Vec<String>> {
+///
+/// For the live log that is the walk from the tip *plus* what the ref's own
+/// reflog still reaches. An undo steps the pointer back rather than appending,
+/// so the operations it stepped off hang off a position only the reflog
+/// records — and DESIGN keeps those addressable (`ff op restore` accepts an
+/// abandoned id until trim ages it out), which makes them part of the domain
+/// by definition rather than by kindness. Each seed walk stops the moment it
+/// meets an id already collected, so the total work is the size of the domain
+/// and not the number of seeds times its depth.
+fn domain_ids(repo: &gix::Repository, kind: Kind) -> Result<Vec<String>> {
+    let mut seeds: Vec<gix::ObjectId> = Vec::new();
+    if let Some(tip) = crate::refs::ref_target(repo, kind.ref_name())? {
+        seeds.push(tip);
+    }
+    if kind == Kind::Live {
+        // A retired seed is skipped rather than removed: `ff op abandon`
+        // marks positions, it does not edit git's reflog under a live ref.
+        let retired = crate::ops::retire::retired(repo)?;
+        for line in crate::refs::read_ref_log(repo, kind.ref_name())? {
+            if !retired.contains(&line.new) {
+                seeds.push(line.new);
+            }
+        }
+    }
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out = Vec::new();
-    let mut cur = crate::refs::ref_target(repo, ref_name)?;
-    while let Some(id) = cur {
-        let Ok(op) = crate::ops::walk::decode(repo, id) else {
-            break; // damaged history: index what is legible
-        };
-        out.push(id.to_string());
-        cur = op.prev().map(|p| p.object_id());
+    for seed in seeds {
+        let mut cur = Some(seed);
+        while let Some(id) = cur {
+            let Ok(op) = crate::ops::walk::decode(repo, id) else {
+                break; // damaged history: index what is legible
+            };
+            let id_str = id.to_string();
+            if !seen.insert(id_str.clone()) {
+                break; // this tail is already in the domain
+            }
+            out.push(id_str);
+            cur = op.prev().map(|p| p.object_id());
+        }
     }
     Ok(out)
 }

@@ -508,25 +508,51 @@ fn at_walks_back_and_stops_at_the_floor() {
     assert!(err.to_string().contains("base()"), "{err}");
 }
 
+/// Stepping the pointer back and trimming look identical at the ref and are
+/// opposite in meaning, and the reflog is what tells them apart.
+///
+/// A rewind leaves the position it stepped off recorded in the ref's own
+/// reflog, so the operation stays addressable — that is what lets `ff redo`
+/// walk forward and `ff op restore` accept an abandoned id. Trim deletes the
+/// ref outright and replays a reflog holding only survivors, so what it drops
+/// is gone from the domain as well as from the walk.
 #[test]
-fn an_op_past_the_live_tip_reads_as_trimmed() {
+fn a_rewind_keeps_an_op_addressable_and_a_trim_does_not() {
     let fx = Fixture::new();
     let ids = many_ops(&fx);
     let repo = fx.repo();
     let log = OpLog::open(&repo).unwrap();
     let dropped = ids[19];
 
-    // Rewind the log the way trim leaves it: the object is still there, the
-    // ref no longer reaches it.
+    // A rewind: the ref moves and the reflog remembers where it stood.
     crate::refs::write_ref(
         &repo,
         OPS_REF,
         ids[18].object_id(),
         gix::refs::transaction::PreviousValue::Any,
         NOW,
-        "test: rewind the log",
+        "fufu: undo to test",
     )
     .unwrap();
+    crate::ops::index::refresh(&repo, crate::ops::index::Kind::Live);
+    assert!(log.get(dropped).is_ok(), "the object still decodes");
+    assert!(
+        log.live(dropped).is_ok(),
+        "a rewound-past operation is still addressable"
+    );
+
+    // A trim: the ref goes, and its reflog with it.
+    crate::refs::delete_ref(&repo, OPS_REF, ids[18].object_id(), NOW).unwrap();
+    crate::refs::write_ref(
+        &repo,
+        OPS_REF,
+        ids[18].object_id(),
+        gix::refs::transaction::PreviousValue::MustNotExist,
+        NOW,
+        "test: replayed log",
+    )
+    .unwrap();
+    crate::ops::index::refresh(&repo, crate::ops::index::Kind::Live);
 
     assert!(log.get(dropped).is_ok(), "the object still decodes");
     let err = log.live(dropped).unwrap_err();

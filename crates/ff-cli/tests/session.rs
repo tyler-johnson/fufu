@@ -312,56 +312,44 @@ fn switch_carries_the_session() {
     );
 }
 
-// --- bare session reports the env ---
+// --- the verb is gone; the tag is not ---
 
+/// `ff session` was a verb for listing what is a tag, and whoever sets a tag
+/// already knows its name — so the verb went, subcommands and all. What
+/// survives is the tag itself, readable where it is actually stored: on the
+/// operation it stamped.
 #[test]
-fn bare_session_reports_the_env() {
+fn the_session_verb_is_gone_and_the_tag_rides_the_operation() {
     let fx = Fixture::new();
     fx.write("a.txt", "initial\n");
     fx.commit("init");
 
-    // With FF_SESSION set.
-    let out = ff_with_session(&fx, "my-session", &["session", "--json"]);
+    for args in [
+        &["session"][..],
+        &["session", "list"][..],
+        &["session", "diff"][..],
+        &["session", "start", "x"][..],
+    ] {
+        let out = ff(&fx, args);
+        assert!(!out.status.success(), "ff {args:?} must not resolve");
+        assert!(
+            stderr(&out).contains("unrecognized subcommand"),
+            "ff {args:?}: {}",
+            stderr(&out)
+        );
+    }
+
+    // The tag itself is on the row it stamped, and `--json` carries it.
+    fx.write("a.txt", "changed\n");
+    let out = ff_with_session(&fx, "my-session", &[]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let out = ff(&fx, &["op", "log", "--captures", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["data"]["name"], "my-session");
-
-    // Without FF_SESSION.
-    let out = ff(&fx, &["session", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["data"]["name"], serde_json::Value::Null);
-
-    // Human output.
-    let out = ff(&fx, &["session"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let ops = v["data"]["ops"].as_array().expect("ops array");
     assert!(
-        stdout(&out).contains("no session set"),
-        "human message: {}",
-        stdout(&out)
-    );
-}
-
-// --- start and end are gone ---
-
-#[test]
-fn start_and_end_are_gone() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "initial\n");
-    fx.commit("init");
-
-    let out = ff(&fx, &["session", "start", "x"]);
-    assert!(
-        !out.status.success(),
-        "start should be rejected: stderr={}",
-        stderr(&out)
-    );
-
-    let out = ff(&fx, &["session", "end"]);
-    assert!(
-        !out.status.success(),
-        "end should be rejected: stderr={}",
-        stderr(&out)
+        ops.iter().any(|op| op["session"] == "my-session"),
+        "the tag rides the row: {v}"
     );
 }
 
@@ -384,46 +372,6 @@ fn env_provides_session_for_snapshot() {
         msg.contains("fufu-session: env-session"),
         "env session stamped on snapshot: {msg}"
     );
-}
-
-// --- list: empty is a yes, not a no ---
-
-#[test]
-fn list_is_empty_without_sessions() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "0\n");
-    fx.commit("init");
-
-    let out = ff(&fx, &["session", "list", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["data"]["spans"].as_array().expect("array").len(), 0);
-
-    let out = ff(&fx, &["session", "list"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    assert!(
-        stdout(&out).contains("no sessions on this branch"),
-        "human message: {}",
-        stdout(&out)
-    );
-}
-
-// --- session diff: no session open, none named ---
-
-#[test]
-fn session_diff_without_a_session_errors() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "x\n");
-    fx.commit("init");
-
-    let out = ff(&fx, &["session", "diff", "--json"]);
-    assert!(
-        !out.status.success(),
-        "must fail with no session and no name"
-    );
-    assert_eq!(out.status.code(), Some(2));
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
-    assert_eq!(v["error"]["id"], "usage/needs-session");
 }
 
 // --- --session flag rides every verb ---

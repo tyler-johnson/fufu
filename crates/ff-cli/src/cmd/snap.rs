@@ -2,8 +2,9 @@
 //! one operation.
 //!
 //! The outcome is mapped to text here rather than in core: `CaptureOutcome`
-//! names an operation and a branch, and the words "snapshot" and "chain" are
-//! this surface's vocabulary for them.
+//! names an operation and a branch, and "snapshot" is this surface's word
+//! for what one carries — a capture is the operation, the snapshot is its
+//! tree.
 
 use ff_core::{CaptureOutcome, EvologOptions, Provenance, Result};
 

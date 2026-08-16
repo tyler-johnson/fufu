@@ -56,10 +56,11 @@ fn stdout(out: &Output) -> String {
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
-/// 1. Fresh repo, no snapshots: chains warn + triggers warn, chain-dependent
-///    checks (identity, reflogs, gc config) skipped entirely.
+/// 1. Fresh repo, nothing captured: the log warn + triggers warn, and the
+///    checks that only mean something once a log exists (identity, reflogs,
+///    gc config) skipped entirely.
 #[test]
-fn fresh_repo_no_snapshots_warns_chains() {
+fn fresh_repo_with_no_log_warns() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -69,12 +70,12 @@ fn fresh_repo_no_snapshots_warns_chains() {
 
     let out_text = stdout(&out);
     assert!(
-        out_text.contains("WARN  chains"),
-        "chains warn present:\n{out_text}"
+        out_text.contains("WARN  log"),
+        "log warn present:\n{out_text}"
     );
     assert!(
-        out_text.contains("no refs/fufu/snap/* refs — the engine has never run here"),
-        "chains detail:\n{out_text}"
+        out_text.contains("no refs/fufu/ops — the engine has never run here"),
+        "log detail:\n{out_text}"
     );
     assert!(
         out_text.contains("WARN  triggers"),
@@ -85,7 +86,7 @@ fn fresh_repo_no_snapshots_warns_chains() {
         "triggers detail:\n{out_text}"
     );
 
-    // Chain-dependent checks must not appear
+    // Checks that need a log must not appear
     assert!(
         !out_text.contains("identity"),
         "identity should be skipped:\n{out_text}"
@@ -127,17 +128,23 @@ fn all_green_after_snapshot_and_wiring() {
     assert_eq!(out.status.code(), Some(0), "exit 0 when all green");
 
     let out_text = stdout(&out);
-    assert!(out_text.contains("ok    chains"), "chains ok:\n{out_text}");
+    // One log, so one row — and the per-branch refs are reported as what
+    // they are, pointers into it.
+    assert!(out_text.contains("ok    log"), "log ok:\n{out_text}");
     assert!(
-        out_text.contains("1 chain(s): main"),
-        "chain count:\n{out_text}"
+        out_text.contains("refs/fufu/ops"),
+        "the log names its ref:\n{out_text}"
+    );
+    assert!(
+        out_text.contains("1 branch pointer(s) into the log: main"),
+        "pointer row:\n{out_text}"
     );
     assert!(
         out_text.contains("ok    identity"),
         "identity ok:\n{out_text}"
     );
     assert!(
-        out_text.contains("chain tips carry fufu <fufu@local>"),
+        out_text.contains("the log tip is a fufu operation"),
         "identity detail:\n{out_text}"
     );
     assert!(
@@ -169,8 +176,8 @@ fn all_green_after_snapshot_and_wiring() {
     assert!(loose > 0, "a snapshotted repo has loose objects: {objects}");
     assert!(objects.contains("pack"), "pack count named: {objects}");
     assert!(
-        out_text.contains("info  op log"),
-        "op log info:\n{out_text}"
+        out_text.contains("info  last op"),
+        "last op info:\n{out_text}"
     );
     assert!(
         out_text.contains("info  settings"),
@@ -334,16 +341,18 @@ fn invalid_keep_warns_settings() {
 
 /// 5. Moving a chain tip to a non-snapshot commit warns on identity.
 #[test]
-fn moved_chain_tip_warns_identity() {
+fn a_moved_log_tip_warns_identity() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    // Initialize snapshots
+    // Initialize the log
     ff_init(&fx);
 
-    // Point the chain ref at HEAD (the user commit, not a fufu snapshot)
-    fx.git(&["update-ref", "refs/fufu/snap/main", "HEAD"]);
+    // Point the log at HEAD — a user commit, not a fufu operation. The guard
+    // is `is_op_commit` and not "does it bear the fufu identity", because a
+    // record commit bears the identity too.
+    fx.git(&["update-ref", "refs/fufu/ops", "HEAD"]);
 
     let out = doctor(&fx, &[]);
     assert_eq!(out.status.code(), Some(1), "exit 1 with identity warning");
@@ -354,7 +363,7 @@ fn moved_chain_tip_warns_identity() {
     );
     assert!(
         out_text.contains(
-            "main tip is not a fufu operation — the pointer was moved by something other than fufu"
+            "the log tip is not a fufu operation — the ref was moved by something other than fufu"
         ),
         "identity detail:\n{out_text}"
     );

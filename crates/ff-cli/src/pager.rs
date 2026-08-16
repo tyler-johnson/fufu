@@ -1,4 +1,4 @@
-//! Paged output for the log family (`ff log`, `ff evolog`, `ff log --ops`),
+//! Paged output for the log family (`ff log`, `ff evolog`, `ff op log`),
 //! git/jj-style: a pager spawns only when stdout is a real TTY and the view
 //! is human (never `--json`), so pipes and scripts see plain direct bytes.
 //! Pager choice: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then

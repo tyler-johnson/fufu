@@ -10,10 +10,8 @@ use ff_core::{Error, EvologOptions, Result};
 
 use crate::ctx::Ctx;
 
-/// `session` is the `--session` flag: `None` when absent, `Some("")` for the
-/// bare form (group everything), `Some(name)` to narrow to one session's
-/// spans.
-pub fn run(ctx: &Ctx, count: usize, session: Option<String>) -> Result<()> {
+pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
+    ctx.refuse_past("ff evolog")?;
     crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
@@ -25,31 +23,20 @@ pub fn run(ctx: &Ctx, count: usize, session: Option<String>) -> Result<()> {
         },
     )?;
 
-    // Every row's session, one targeted message read each — bounded by the
-    // rows already fetched, not a second chain walk. JSON always wants this
-    // (a plain `ff evolog --json` carries it too); human rendering only
-    // spends it when --session is actually in play.
-    let want_sessions = ctx.json || session.is_some();
-    let row_sessions: Vec<Option<String>> = if want_sessions {
+    // Every row's tag, one targeted message read each — bounded by the rows
+    // already fetched, not a second chain walk. Only the machine surface
+    // spends it: a tag is a property of the operation, not a view over rows.
+    let row_sessions: Vec<Option<String>> = if ctx.json {
         rows.iter()
-            .map(|row| ff_core::snapshot_session(&repo, &row.id))
+            .map(|row| crate::session::tag_of(&repo, &row.id))
             .collect::<Result<_>>()?
     } else {
         vec![None; rows.len()]
-    };
-    let narrow: Option<&str> = match &session {
-        Some(name) if !name.is_empty() => Some(name.as_str()),
-        _ => None,
     };
 
     if ctx.json {
         let mut snapshots = Vec::with_capacity(rows.len());
         for (row, sess) in rows.iter().zip(&row_sessions) {
-            if let Some(target) = narrow
-                && sess.as_deref() != Some(target)
-            {
-                continue;
-            }
             let mut value = serde_json::to_value(row).map_err(Error::repo)?;
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert("session".into(), serde_json::json!(sess));
@@ -73,47 +60,8 @@ pub fn run(ctx: &Ctx, count: usize, session: Option<String>) -> Result<()> {
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
-        if session.is_none() {
-            for row in &rows {
-                writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
-            }
-            return Ok(());
-        }
-        // --session (bare or named): group into spans, header per span.
-        // Rows outside any session render exactly as they do today, unless
-        // a name narrowed the view — then only that session's spans show.
-        for slot in crate::render::session_slots(&row_sessions) {
-            match slot {
-                crate::render::SessionSlot::Row(idx) => {
-                    if narrow.is_some() {
-                        continue;
-                    }
-                    writeln!(
-                        out,
-                        "{}",
-                        crate::render::snap_row(&rows[idx], &lens, now, colored)
-                    )?;
-                }
-                crate::render::SessionSlot::Span { name, rows: idxs } => {
-                    if let Some(target) = narrow
-                        && name != target
-                    {
-                        continue;
-                    }
-                    writeln!(
-                        out,
-                        "{}",
-                        crate::render::session_header(&name, idxs.len(), "snapshot")
-                    )?;
-                    for idx in idxs {
-                        writeln!(
-                            out,
-                            "{}",
-                            crate::render::snap_row(&rows[idx], &lens, now, colored)
-                        )?;
-                    }
-                }
-            }
+        for row in &rows {
+            writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
         }
         Ok(())
     })();

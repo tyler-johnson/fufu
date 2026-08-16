@@ -64,7 +64,14 @@ fn undo_output_plain_when_piped() {
     let out = ff(&fx, &["undo"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.starts_with("undid "), "header: {text:?}");
+    assert!(text.starts_with("undid"), "header: {text:?}");
+    assert!(no_escapes(&text), "stdout contained escape bytes");
+
+    // And forward again, on the same piped stream.
+    let out = ff(&fx, &["redo"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.starts_with("redid"), "header: {text:?}");
     assert!(no_escapes(&text), "stdout contained escape bytes");
 }
 
@@ -78,13 +85,13 @@ fn restore_output_plain_when_piped() {
     assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "diverged\n");
 
-    let out = ff(&fx, &["restore", "--all"]);
+    let out = ff(&fx, &["restore", "--all", "--at-op", "@"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.starts_with("restored to "), "header: {text:?}");
+    assert!(text.starts_with("restored from "), "header: {text:?}");
     assert!(text.contains("restored  a.txt"), "file list: {text:?}");
     assert!(
-        text.trim_end().ends_with("undo: ff restore --all"),
+        text.trim_end().ends_with("undo: ff undo"),
         "undo hint: {text:?}"
     );
     assert!(no_escapes(&text), "stdout contained escape bytes");
@@ -124,13 +131,13 @@ fn recovery_output_bytes_unchanged() {
     assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "diverged\n");
 
-    let out = ff(&fx, &["restore", "--all"]);
+    let out = ff(&fx, &["restore", "--all", "--at-op", "@"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.starts_with("restored to "), "restore header");
+    assert!(text.starts_with("restored from "), "restore header");
     assert!(text.contains("restored  a.txt"), "restore file list");
     assert!(
-        text.trim_end().ends_with("undo: ff restore --all"),
+        text.trim_end().ends_with("undo: ff undo"),
         "restore undo hint"
     );
 
