@@ -390,20 +390,23 @@ fn run_trigger(repo: &ff_core::gix::Repository) -> Result<()> {
     let branch = ff_core::snapshot::chain::chain_name(&status.head);
     let tip_hex = head_tip_hex(&status.head);
 
-    // The same three inputs `ff status` uses to compute a future: branch,
-    // its tip, and its open tree.
-    let future = match &status.head {
+    // The same three inputs `ff status` uses to compute futures: branch, its
+    // tip, and its open tree.
+    let futures = match &status.head {
         ff_core::HeadState::Branch { commit, .. } => {
             let tip = ff_core::gix::ObjectId::from_hex(commit.as_bytes()).ok();
             let open = ff_core::futures::open_tree(repo, &branch)?;
-            ff_core::futures::future_for(repo, &branch, tip, open)?
+            ff_core::futures::futures_for(repo, &branch, tip, open)?
         }
-        _ => None,
+        _ => ff_core::futures::Futures {
+            base: None,
+            remote: None,
+        },
     };
 
     let foreign = foreign_tip(repo);
 
-    let fingerprint = fingerprint_of(&branch, &tip_hex, &future, foreign);
+    let fingerprint = fingerprint_of(&branch, &tip_hex, &futures, foreign);
     let path = repo.common_dir().join("fufu/ambient");
     let previous = std::fs::read_to_string(&path).unwrap_or_default();
     if previous == fingerprint {
@@ -412,11 +415,16 @@ fn run_trigger(repo: &ff_core::gix::Repository) -> Result<()> {
         return Ok(());
     }
 
+    crate::render::init_palette(repo);
+    let colored = crate::pager::color_enabled();
     let mut message = String::new();
-    if let Some(future) = &future {
-        crate::render::init_palette(repo);
-        let colored = crate::pager::color_enabled();
-        message.push_str(&crate::render::futures_line(future, colored));
+    // Nothing to sync is not news. `ff status` fills that silence with a dim
+    // phrase because someone asked it a question; a prompt hook nobody asked
+    // stays quiet — but the fingerprint below is still stored, so the next
+    // prompt after something *does* change speaks exactly once.
+    let sync = crate::render::sync_parts(&futures, colored);
+    if !sync.is_empty() {
+        message.push_str(&sync.join(" · "));
         message.push('\n');
     }
     if foreign {
@@ -460,27 +468,30 @@ fn foreign_tip(repo: &ff_core::gix::Repository) -> bool {
     .unwrap_or(false)
 }
 
-/// Five fields, joined with the unit separator (`\u{1f}`, this codebase's
+/// The fields, joined with the unit separator (`\u{1f}`, this codebase's
 /// existing delimiter for bench-style formats) that together are the
-/// command's *identity* — not its payload. Only the verdict's kind is
+/// message's *identity* — not its payload. Only each verdict's kind is
 /// included, never its payload: a branch that replays cleanly and then
 /// gains one more clean commit has not changed verdict kind, so it must
-/// not change the fingerprint either.
+/// not change the fingerprint either. Both axes contribute, so a remote
+/// that moved while the base stood still is still news.
 fn fingerprint_of(
     branch: &str,
     tip_hex: &str,
-    future: &Option<ff_core::futures::Future>,
+    futures: &ff_core::futures::Futures,
     foreign: bool,
 ) -> String {
-    let (base_tip, kind): (&str, &str) = match future {
-        Some(f) => (f.base.tip.as_str(), verdict_kind(&f.verdict)),
-        None => ("", ""),
+    let axis = |f: &Option<ff_core::futures::Future>| match f {
+        Some(f) => format!("{}:{}", f.against.tip, verdict_kind(&f.verdict)),
+        None => String::new(),
     };
+    let base = axis(&futures.base);
+    let remote = axis(&futures.remote);
     [
         branch,
-        base_tip,
         tip_hex,
-        kind,
+        base.as_str(),
+        remote.as_str(),
         if foreign { "foreign" } else { "" },
     ]
     .join("\u{1f}")
@@ -495,5 +506,6 @@ fn verdict_kind(verdict: &ff_core::futures::Verdict) -> &'static str {
         Verdict::Clean { .. } => "clean",
         Verdict::Conflict { .. } => "conflict",
         Verdict::Unknown { .. } => "unknown",
+        Verdict::Gone => "gone",
     }
 }

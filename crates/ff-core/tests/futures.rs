@@ -1,7 +1,7 @@
 //! Futures: the verdict matrix, the invariant that a probe writes nothing to
 //! the object database, the base ladder, and the cache.
 
-use ff_core::futures::{self, At, BaseKind, UnknownReason, Verdict};
+use ff_core::futures::{self, At, Role, UnknownReason, Verdict};
 use ff_core::gix;
 use ff_testsupport::Fixture;
 
@@ -363,11 +363,11 @@ fn parent_metadata_wins_the_ladder() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::BaseRef {
+        futures::SyncRef {
             name: "base".into(),
             r#ref: "refs/heads/base".into(),
             tip: tip(&fx, "base").to_string(),
-            kind: BaseKind::Parent,
+            role: Role::Parent,
         }
     );
 }
@@ -392,11 +392,11 @@ fn a_parent_that_no_longer_resolves_falls_through_to_trunk() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::BaseRef {
+        futures::SyncRef {
             name: "main".into(),
             r#ref: "refs/heads/main".into(),
             tip: tip(&fx, "main").to_string(),
-            kind: BaseKind::Trunk,
+            role: Role::Trunk,
         }
     );
 }
@@ -412,11 +412,11 @@ fn a_branch_measures_against_trunk() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::BaseRef {
+        futures::SyncRef {
             name: "main".into(),
             r#ref: "refs/heads/main".into(),
             tip: tip(&fx, "main").to_string(),
-            kind: BaseKind::Trunk,
+            role: Role::Trunk,
         }
     );
 }
@@ -437,22 +437,17 @@ fn set_upstream(fx: &Fixture, target: &str) {
 }
 
 #[test]
-fn standing_on_trunk_measures_against_the_upstream() {
+fn standing_on_trunk_has_no_base() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
     set_upstream(&fx, fx.git(&["rev-parse", "main"]).trim());
-    let got = futures::base_for(&fx.repo(), "main")
-        .expect("base_for")
-        .expect("a base");
-    assert_eq!(
-        got,
-        futures::BaseRef {
-            name: "origin/main".into(),
-            r#ref: "refs/remotes/origin/main".into(),
-            tip: tip(&fx, "main").to_string(),
-            kind: BaseKind::Upstream,
-        }
+    // Trunk sits on nothing, so the upstream is the remote axis's business,
+    // not the base's.
+    assert!(
+        futures::base_for(&fx.repo(), "main")
+            .expect("base_for")
+            .is_none()
     );
 }
 
@@ -484,6 +479,83 @@ fn an_ambiguous_trunk_is_swallowed_to_none() {
     );
 }
 
+// --- The remote ladder ---
+
+#[test]
+fn the_remote_is_this_branchs_own_copy() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, fx.git(&["rev-parse", "main"]).trim());
+    let got = futures::remote_for(&fx.repo(), "main")
+        .expect("remote_for")
+        .expect("a remote");
+    assert_eq!(
+        got,
+        futures::SyncRef {
+            name: "origin/main".into(),
+            r#ref: "refs/remotes/origin/main".into(),
+            tip: tip(&fx, "main").to_string(),
+            role: Role::Remote,
+        }
+    );
+}
+
+#[test]
+fn a_tracking_ref_wearing_another_name_is_an_alias() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    let main_sha = fx.git(&["rev-parse", "main"]).trim().to_string();
+    fx.git(&["branch", "feature"]);
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    // feature tracks origin/main: a tracking ref wearing another branch's name.
+    fx.git(&["config", "branch.feature.remote", "origin"]);
+    fx.git(&["config", "branch.feature.merge", "refs/heads/main"]);
+    fx.git(&["update-ref", "refs/remotes/origin/main", &main_sha]);
+    let got = futures::remote_for(&fx.repo(), "feature")
+        .expect("remote_for")
+        .expect("a remote");
+    assert_eq!(got.role, Role::RemoteAlias);
+    assert_eq!(got.name, "origin/main");
+}
+
+#[test]
+fn no_upstream_means_no_remote() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    assert!(
+        futures::remote_for(&fx.repo(), "main")
+            .expect("remote_for")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_configured_but_absent_remote_is_gone() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    // The empty target skips the update-ref: configured, but the ref is
+    // absent — a gone remote.
+    set_upstream(&fx, "");
+    let got = futures::remote_for(&fx.repo(), "main")
+        .expect("remote_for")
+        .expect("a remote");
+    assert_eq!(got.tip, "");
+    assert_eq!(got.role, Role::Remote);
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::Gone);
+}
+
 // --- The cache ---
 
 /// The cache file for `branch` under the fixture's common dir.
@@ -491,11 +563,19 @@ fn cache_file(fx: &Fixture, branch: &str) -> std::path::PathBuf {
     fx.path().join(".git/fufu/futures").join(branch)
 }
 
-/// Overwrite the stored verdict with a lie no probe could produce.
+/// Overwrite the stored base verdict with a lie no probe could produce.
 fn poison(path: &std::path::Path) {
     let text = std::fs::read_to_string(path).expect("the cache file exists");
     let mut v: serde_json::Value = serde_json::from_str(&text).expect("the cache is JSON");
-    v["verdict"] = serde_json::json!({ "kind": "clean", "replayed": 999 });
+    v["base"]["verdict"] = serde_json::json!({ "kind": "clean", "replayed": 999 });
+    std::fs::write(path, serde_json::to_string(&v).unwrap()).expect("write the poisoned cache");
+}
+
+/// Overwrite the stored remote verdict with a lie no probe could produce.
+fn poison_remote(path: &std::path::Path) {
+    let text = std::fs::read_to_string(path).expect("the cache file exists");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("the cache is JSON");
+    v["remote"]["verdict"] = serde_json::json!({ "kind": "clean", "replayed": 999 });
     std::fs::write(path, serde_json::to_string(&v).unwrap()).expect("write the poisoned cache");
 }
 
@@ -504,13 +584,13 @@ fn a_warm_call_serves_the_stored_verdict() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    let f = futures::future_for(&repo, "feature", Some(t), None)
+    let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
     // A second call returning the poisoned 999 could not have re-merged.
     poison(&cache_file(&fx, "feature"));
-    let f = futures::future_for(&repo, "feature", Some(t), None)
+    let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 999 });
@@ -521,7 +601,7 @@ fn cache_invalidates_when_the_base_tip_changes() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    futures::future_for(&repo, "feature", Some(t), None)
+    futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     poison(&cache_file(&fx, "feature"));
@@ -529,7 +609,7 @@ fn cache_invalidates_when_the_base_tip_changes() {
     fx.git(&["switch", "main"]);
     fx.write("m2.txt", "more\n");
     fx.commit("main moves again");
-    let f = futures::future_for(&repo, "feature", Some(t), None)
+    let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
@@ -540,14 +620,14 @@ fn cache_invalidates_when_the_branch_tip_changes() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    futures::future_for(&repo, "feature", Some(t), None)
+    futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     poison(&cache_file(&fx, "feature"));
     // Feature moves: a different branch tip must miss the cache.
     fx.write("f4.txt", "four\n");
     fx.commit("feat four");
-    let f = futures::future_for(&repo, "feature", Some(tip(&fx, "feature")), None)
+    let f = futures::base_future(&repo, "feature", Some(tip(&fx, "feature")), None)
         .unwrap()
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 4 });
@@ -558,14 +638,14 @@ fn cache_invalidates_when_the_open_tree_changes() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    futures::future_for(&repo, "feature", Some(t), None)
+    futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     poison(&cache_file(&fx, "feature"));
     // A different open_tree argument must miss the cache; the tip's own tree
     // is admitted and skipped, so the truth is still the clean replay.
     let open = oid(&fx.git(&["rev-parse", "feature^{tree}"]));
-    let f = futures::future_for(&repo, "feature", Some(t), Some(open))
+    let f = futures::base_future(&repo, "feature", Some(t), Some(open))
         .unwrap()
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
@@ -576,7 +656,7 @@ fn cache_invalidates_when_the_base_ref_changes() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    futures::future_for(&repo, "feature", Some(t), None)
+    futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
     poison(&cache_file(&fx, "feature"));
@@ -587,10 +667,10 @@ fn cache_invalidates_when_the_base_ref_changes() {
     // A fresh handle: a gix Repository serves the config it had at open
     // time, so the stale handle would still measure against main.
     let repo = fx.repo();
-    let f = futures::future_for(&repo, "feature", Some(t), None)
+    let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
-    assert_eq!(f.base.name, "alt");
+    assert_eq!(f.against.name, "alt");
     assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
 }
 
@@ -599,12 +679,12 @@ fn deleting_the_cache_directory_changes_no_answer() {
     let fx = linear_clean();
     let repo = fx.repo();
     let t = tip(&fx, "feature");
-    let v1 = futures::future_for(&repo, "feature", Some(t), None)
+    let v1 = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future")
         .verdict;
     std::fs::remove_dir_all(fx.path().join(".git/fufu/futures")).expect("drop the cache");
-    let v2 = futures::future_for(&repo, "feature", Some(t), None)
+    let v2 = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future")
         .verdict;
@@ -615,7 +695,7 @@ fn deleting_the_cache_directory_changes_no_answer() {
 fn cache_remove_drops_the_file() {
     let fx = linear_clean();
     let repo = fx.repo();
-    futures::future_for(&repo, "feature", Some(tip(&fx, "feature")), None)
+    futures::base_future(&repo, "feature", Some(tip(&fx, "feature")), None)
         .unwrap()
         .expect("a future");
     let path = cache_file(&fx, "feature");
@@ -623,6 +703,110 @@ fn cache_remove_drops_the_file() {
     futures::cache::remove(&repo, "feature").expect("remove the entry");
     assert!(!path.exists(), "remove must drop the file");
     futures::cache::remove(&repo, "feature").expect("removing an absent file is Ok");
+}
+
+// --- The remote axis ---
+
+#[test]
+fn a_gone_remote_writes_no_cache() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, "");
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::Gone);
+    assert!(
+        !cache_file(&fx, "main").exists(),
+        "there is nothing worth remembering about an absent ref"
+    );
+}
+
+#[test]
+fn unpushed_commits_are_up_to_date_against_the_remote() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    // The shared copy sits at the first commit; two more land on the branch.
+    set_upstream(&fx, fx.git(&["rev-parse", "main"]).trim());
+    fx.write("b.txt", "b\n");
+    fx.commit("two");
+    fx.write("c.txt", "c\n");
+    fx.commit("three");
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    // The surface will spell this "2 to push": up-to-date against the remote
+    // means the branch is ahead, not that nothing moved.
+    assert_eq!(f.verdict, Verdict::UpToDate { ahead: 2 });
+}
+
+#[test]
+fn a_remote_that_moved_ahead_fast_forwards() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("a");
+    // Capture the branch tip before the remote pulls ahead of it.
+    let a_sha = fx.git(&["rev-parse", "main"]).trim().to_string();
+    fx.write("b.txt", "b\n");
+    fx.commit("b");
+    fx.write("c.txt", "c\n");
+    fx.commit("c");
+    // The shared copy has moved to c; we simulate the branch still at a.
+    set_upstream(&fx, fx.git(&["rev-parse", "main"]).trim());
+    let f = futures::remote_future(&fx.repo(), "main", Some(oid(&a_sha)), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::FastForward { behind: 2 });
+}
+
+#[test]
+fn both_axes_cache_independently() {
+    let fx = linear_clean();
+    let feature_sha = fx.git(&["rev-parse", "feature"]).trim().to_string();
+    // Give feature an upstream pointing at its own tip: the remote verdict
+    // is UpToDate { ahead: 0 }.
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    fx.git(&["config", "branch.feature.remote", "origin"]);
+    fx.git(&["config", "branch.feature.merge", "refs/heads/feature"]);
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &feature_sha]);
+    // A fresh handle: a gix Repository serves the config it had at open time.
+    let repo = fx.repo();
+    let t = tip(&fx, "feature");
+
+    // First call computes both axes and writes both slots.
+    let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
+    assert_eq!(both.base.unwrap().verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(both.remote.unwrap().verdict, Verdict::UpToDate { ahead: 0 });
+
+    // Poison the base slot only: the remote slot must survive untouched.
+    poison(&cache_file(&fx, "feature"));
+    let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
+    assert_eq!(both.base.unwrap().verdict, Verdict::Clean { replayed: 999 });
+    assert_eq!(
+        both.remote.unwrap().verdict,
+        Verdict::UpToDate { ahead: 0 },
+        "poisoning the base slot must not clobber the remote slot"
+    );
+
+    // Poison the remote slot only: the base slot must survive untouched.
+    poison_remote(&cache_file(&fx, "feature"));
+    let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
+    assert_eq!(
+        both.remote.unwrap().verdict,
+        Verdict::Clean { replayed: 999 }
+    );
+    assert_eq!(
+        both.base.unwrap().verdict,
+        Verdict::Clean { replayed: 999 },
+        "poisoning the remote slot must not clobber the base slot"
+    );
 }
 
 // --- The path ---
@@ -634,7 +818,7 @@ fn a_slash_in_the_branch_name_round_trips() {
     fx.commit("base");
     fx.git(&["branch", "ff/witty-otter"]);
     let repo = fx.repo();
-    futures::future_for(
+    futures::base_future(
         &repo,
         "ff/witty-otter",
         Some(tip(&fx, "ff/witty-otter")),

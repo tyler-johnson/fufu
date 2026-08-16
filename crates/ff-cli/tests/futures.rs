@@ -175,12 +175,89 @@ fn ahead_fixture() -> Fixture {
     fx
 }
 
-/// A lone `main`, no second branch, no upstream: there is no base to
-/// measure against.
+/// A lone `main`, no second branch, no upstream: neither axis exists, so
+/// there is nothing to measure against and nothing honest to claim.
 fn no_base_fixture() -> Fixture {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
+    fx
+}
+
+/// The sha `rev` resolves to.
+fn sha(fx: &Fixture, rev: &str) -> String {
+    fx.git(&["rev-parse", rev]).trim().to_string()
+}
+
+/// Wire `branch`'s upstream to `origin/<branch>` and point that tracking ref
+/// at `target` — or leave it absent when `target` is empty, which is exactly
+/// what a branch deleted on the forge looks like from here. No network is
+/// involved: a tracking ref is just a ref.
+fn set_upstream(fx: &Fixture, branch: &str, target: &str) {
+    let remote_key = format!("branch.{branch}.remote");
+    let merge_key = format!("branch.{branch}.merge");
+    let merge_val = format!("refs/heads/{branch}");
+    let tracking = format!("refs/remotes/origin/{branch}");
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    fx.git(&["config", &remote_key, "origin"]);
+    fx.git(&["config", &merge_key, &merge_val]);
+    if !target.is_empty() {
+        fx.git(&["update-ref", &tracking, target]);
+    }
+}
+
+/// Two commits on `main` the remote has not seen. Standing on trunk, so the
+/// base axis has nothing to say and the remote axis has all of it.
+fn to_push_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    let at = sha(&fx, "main");
+    set_upstream(&fx, "main", &at);
+    fx.write("b.txt", "b\n");
+    fx.commit("second");
+    fx.write("c.txt", "c\n");
+    fx.commit("third");
+    fx
+}
+
+/// The mirror of `to_push_fixture`: the remote moved twice, this copy did not.
+fn to_pull_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    let at = sha(&fx, "main");
+    fx.write("b.txt", "b\n");
+    fx.commit("second");
+    fx.write("c.txt", "c\n");
+    fx.commit("third");
+    let ahead = sha(&fx, "main");
+    fx.git(&["reset", "--hard", &at]);
+    set_upstream(&fx, "main", &ahead);
+    fx
+}
+
+/// An upstream configured against a tracking ref that is not there — what a
+/// branch looks like once someone deletes it on the forge.
+fn gone_remote_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, "main", "");
+    fx
+}
+
+/// `clean_fixture` with a remote copy of `feature` still sitting at the fork
+/// point: the base moved *and* there is work to push, so both axes speak.
+fn both_axes_fixture() -> Fixture {
+    let fx = clean_fixture();
+    let fork = sha(&fx, "feature~3");
+    set_upstream(&fx, "feature", &fork);
     fx
 }
 
@@ -193,7 +270,7 @@ fn clean_verdict_prints_the_clean_line() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
-        text.contains("main moved — rebases cleanly (3 commits replayed)"),
+        text.contains("base moved — rebases cleanly (3 commits replayed)"),
         "got: {text}"
     );
 }
@@ -215,7 +292,7 @@ fn conflict_line_names_the_commit_and_counts_files() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
-        text.contains("main moved — conflicts at \"feat two conflicts\" in 1 file"),
+        text.contains("base moved — conflicts at \"feat two conflicts\" in 1 file"),
         "got: {text}"
     );
 }
@@ -238,25 +315,85 @@ fn fast_forward_line() {
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("main moved — fast-forwards"), "got: {text}");
+    assert!(text.contains("base moved — fast-forwards"), "got: {text}");
 }
 
 #[test]
-fn up_to_date_line() {
+fn a_settled_axis_collapses_to_nothing_to_sync() {
     let fx = up_to_date_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("up to date with main"), "got: {text}");
+    assert!(text.contains("nothing to sync"), "got: {text}");
+    // Never "in sync", which a reader can hear as "merged".
+    assert!(!text.contains("in sync"), "got: {text}");
 }
 
 #[test]
-fn ahead_line() {
+fn ahead_of_the_base_is_silent() {
+    // Sync never merges you into your base, so unmerged work is a branch's
+    // permanent condition rather than pending work. Saying so every time
+    // would teach people to stop reading the line.
     let fx = ahead_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("ahead 2 of main"), "got: {text}");
+    assert!(!text.contains("ahead"), "got: {text}");
+    assert!(text.contains("nothing to sync"), "got: {text}");
+}
+
+// --- The remote axis -------------------------------------------------------
+
+#[test]
+fn unpushed_commits_are_what_there_is_to_push() {
+    // The same verdict the base axis stays silent about: against the remote
+    // it names precisely the commits sync will send.
+    let fx = to_push_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("2 to push"), "got: {text}");
+    assert!(
+        !text.contains("origin/"),
+        "ref syntax never appears: {text}"
+    );
+}
+
+#[test]
+fn a_remote_that_moved_ahead_is_what_there_is_to_pull() {
+    let fx = to_pull_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("2 to pull"), "got: {text}");
+}
+
+#[test]
+fn a_deleted_remote_branch_says_so() {
+    let fx = gone_remote_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("remote is gone"), "got: {text}");
+}
+
+#[test]
+fn both_axes_speak_in_one_vocabulary() {
+    let fx = both_axes_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("base moved — rebases cleanly (3 commits replayed)"),
+        "got: {text}"
+    );
+    assert!(text.contains("3 to push"), "got: {text}");
+    // Base first, remote second: the thing underneath you before the thing
+    // beside you.
+    let base_at = text.find("base moved").expect("a base phrase");
+    let push_at = text.find("3 to push").expect("a remote phrase");
+    assert!(base_at < push_at, "base comes first: {text}");
+    assert!(!text.contains("nothing to sync"), "got: {text}");
 }
 
 #[test]
@@ -290,7 +427,7 @@ fn unknown_line_says_it_cannot_simulate() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
-        text.contains("can't simulate against main (merge commits in the range)"),
+        text.contains("base moved — can't simulate (merge commits in the range)"),
         "got: {text}"
     );
 }
@@ -325,13 +462,16 @@ fn a_long_subject_is_truncated() {
 }
 
 #[test]
-fn no_base_means_no_futures_line() {
+fn no_axis_at_all_means_no_sync_line() {
+    // `nothing to sync` is a claim, and fufu can only make it about axes it
+    // can name. With neither, it says nothing rather than guessing.
     let fx = no_base_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(!text.contains("moved —"), "got: {text}");
-    assert!(!text.contains("up to date with"), "got: {text}");
+    assert!(!text.contains("nothing to sync"), "got: {text}");
+    assert!(!text.contains("to push"), "got: {text}");
     assert!(!text.contains("can't simulate"), "got: {text}");
 }
 
@@ -404,15 +544,17 @@ fn verdict_colors_per_theme() {
             line
         );
 
-        let ahead = ahead_fixture();
+        // Blue is for commits pending against the remote, either direction —
+        // so the fixture that earns it is unpushed work, not ahead-of-base.
+        let ahead = to_push_fixture();
         ahead.set_config("fufu.theme", t.theme);
         let out = ff_colored(&ahead, &["status"]);
         assert!(out.status.success());
         let text = stdout(&out);
         let line = text
             .lines()
-            .find(|l| l.contains("ahead"))
-            .unwrap_or_else(|| panic!("no ahead futures line in {text:?}"));
+            .find(|l| l.contains("to push"))
+            .unwrap_or_else(|| panic!("no pending-against-remote line in {text:?}"));
         assert!(
             line.contains(&format!("\x1b[{}m", t.ahead)),
             "theme {}: expected ahead code {} in {:?}",
@@ -430,7 +572,7 @@ fn no_color_keeps_every_word() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
-        text.contains("main moved — rebases cleanly (3 commits replayed)"),
+        text.contains("base moved — rebases cleanly (3 commits replayed)"),
         "got: {text}"
     );
     assert!(
@@ -451,31 +593,51 @@ fn json_carries_the_whole_object() {
     assert!(v["ff"].is_number(), "ff envelope key present");
     assert_eq!(v["cmd"], "status");
 
-    let futures = &v["data"]["futures"];
-    assert_eq!(futures["base"]["name"], "main");
-    assert_eq!(futures["base"]["kind"], "trunk");
-    assert_eq!(futures["base"]["ref"], "refs/heads/main");
-    let tip = futures["base"]["tip"].as_str().expect("tip is a string");
+    // The human line compresses; the JSON carries the whole object, one slot
+    // per axis, so a script never has to parse prose back into facts.
+    let base = &v["data"]["futures"]["base"];
+    assert_eq!(base["against"]["name"], "main");
+    assert_eq!(base["against"]["role"], "trunk");
+    assert_eq!(base["against"]["ref"], "refs/heads/main");
+    let tip = base["against"]["tip"].as_str().expect("tip is a string");
     assert_eq!(tip.len(), 40, "tip is 40-char hex: {tip:?}");
     assert!(tip.chars().all(|c| c.is_ascii_hexdigit()));
 
-    assert_eq!(futures["verdict"]["kind"], "conflict");
-    assert_eq!(futures["verdict"]["at"]["what"], "commit");
-    assert_eq!(futures["verdict"]["at"]["subject"], "feat two conflicts");
-    assert_eq!(
-        futures["verdict"]["paths"],
-        serde_json::json!(["shared.txt"])
-    );
+    assert_eq!(base["verdict"]["kind"], "conflict");
+    assert_eq!(base["verdict"]["at"]["what"], "commit");
+    assert_eq!(base["verdict"]["at"]["subject"], "feat two conflicts");
+    assert_eq!(base["verdict"]["paths"], serde_json::json!(["shared.txt"]));
+
+    assert_eq!(v["data"]["futures"]["remote"], serde_json::Value::Null);
 }
 
 #[test]
-fn json_futures_is_null_without_a_base() {
+fn json_carries_the_remote_axis_too() {
+    let fx = both_axes_fixture();
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let remote = &v["data"]["futures"]["remote"];
+    assert_eq!(remote["against"]["name"], "origin/feature");
+    assert_eq!(remote["against"]["role"], "remote");
+    assert_eq!(remote["against"]["ref"], "refs/remotes/origin/feature");
+    assert_eq!(remote["verdict"]["kind"], "up-to-date");
+    assert_eq!(remote["verdict"]["ahead"], 3);
+    // The line the human sees says nothing about the base being ahead; the
+    // model still carries every fact behind it.
+    assert_eq!(v["data"]["futures"]["base"]["verdict"]["kind"], "clean");
+}
+
+#[test]
+fn json_both_axes_are_null_without_either() {
     let fx = no_base_fixture();
     let out = ff(&fx, &["status", "--json"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["data"]["futures"], serde_json::Value::Null);
+    assert_eq!(v["data"]["futures"]["base"], serde_json::Value::Null);
+    assert_eq!(v["data"]["futures"]["remote"], serde_json::Value::Null);
 }
 
 #[test]
@@ -485,8 +647,18 @@ fn json_clean_shape() {
     assert!(out.status.success());
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
-    assert_eq!(v["data"]["futures"]["verdict"]["kind"], "clean");
-    assert_eq!(v["data"]["futures"]["verdict"]["replayed"], 3);
+    assert_eq!(v["data"]["futures"]["base"]["verdict"]["kind"], "clean");
+    assert_eq!(v["data"]["futures"]["base"]["verdict"]["replayed"], 3);
+}
+
+#[test]
+fn json_gone_remote_shape() {
+    let fx = gone_remote_fixture();
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["data"]["futures"]["remote"]["verdict"]["kind"], "gone");
 }
 
 #[test]
@@ -590,7 +762,7 @@ fn the_verdict_rides_the_header_line() {
         "header names the branch first: {first:?}"
     );
     assert!(
-        first.contains("main moved — rebases cleanly"),
+        first.contains("base moved — rebases cleanly"),
         "the verdict is on the header line: {first:?}"
     );
     // And nowhere else: exactly one line mentions it.
@@ -605,32 +777,27 @@ fn the_verdict_rides_the_header_line() {
 /// This is the duplicate that prompted the move: `on main · in sync with
 /// origin/main` followed by a trailing `up to date with main`.
 #[test]
-fn a_base_that_is_the_upstream_is_not_said_twice() {
-    // The real shape: standing ON trunk, whose base rung is its own upstream.
-    // Both halves would otherwise name refs/remotes/origin/main.
+fn standing_on_trunk_states_the_upstream_once() {
+    // The shape that used to say it twice: standing ON trunk, whose base rung
+    // reached for its own upstream while the header carried an upstream
+    // phrase besides. Trunk has no base now — it sits on nothing — so the
+    // remote is the only axis, and a settled one collapses to one phrase.
     let fx = Fixture::new();
     fx.write("shared.txt", "line1\nline2\nline3\n");
     fx.commit("base");
-    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
-    fx.git(&[
-        "config",
-        "remote.origin.fetch",
-        "+refs/heads/*:refs/remotes/origin/*",
-    ]);
-    fx.git(&["config", "branch.main.remote", "origin"]);
-    fx.git(&["config", "branch.main.merge", "refs/heads/main"]);
-    fx.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+    let at = sha(&fx, "main");
+    set_upstream(&fx, "main", &at);
 
     let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
     let text = stdout(&out);
     let first = text.lines().next().expect("a header line");
-    assert!(
-        !first.contains("in sync with"),
-        "the upstream phrase gave up the slot: {first:?}"
-    );
+    assert!(!first.contains("in sync with"), "got: {first:?}");
+    assert!(!first.contains("origin/"), "got: {first:?}");
+    assert!(!first.contains("base"), "trunk sits on nothing: {first:?}");
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("up to date with"))
+            .filter(|l| l.contains("nothing to sync"))
             .count(),
         1,
         "stated once, on the header:\n{text}"

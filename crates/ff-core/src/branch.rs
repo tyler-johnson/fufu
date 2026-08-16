@@ -255,7 +255,9 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
         } else {
             None
         };
-        let future = crate::futures::future_for(repo, &name, tip, open).unwrap_or(None);
+        // Base axis only: a listing walks every branch, and probing a remote
+        // per row would make it pay a network-shaped question nobody asked.
+        let future = crate::futures::base_future(repo, &name, tip, open).unwrap_or(None);
         let info = BranchInfo {
             name: name.clone(),
             current: name == current,

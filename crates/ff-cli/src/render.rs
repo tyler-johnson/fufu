@@ -3,7 +3,7 @@
 
 use ff_core::{
     ChangeKind, ChangeStat, FileStat, HeadState, InProgress, LogEntry, ReconcileReport, SnapEntry,
-    Status, Upstream,
+    Status,
 };
 
 /// Render a reconcile pass to stderr, loudly, before any verb output —
@@ -169,16 +169,61 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     out
 }
 
-/// One line saying what syncing this branch would cost. The ambient shell
-/// channel prints the same line, so the two can never disagree.
-pub fn futures_line(future: &ff_core::futures::Future, colored: bool) -> String {
-    use ff_core::futures::{At, Verdict};
+/// What `ff sync` would do, in the two nouns a person learns once: the
+/// **base** this work sits on, and the **remote** copy of this same branch.
+/// One part per axis, in that order; an axis sync would not act on
+/// contributes nothing. `ff status` and the ambient shell channel share this
+/// renderer, so a prompt can never word a verdict differently from the
+/// command.
+pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<String> {
+    [futures.base.as_ref(), futures.remote.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|f| axis_phrase(f, colored))
+        .collect()
+}
 
-    let base = &future.base.name;
-    match &future.verdict {
+/// One axis's phrase, or `None` when `ff sync` would not act on it.
+fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
+    use ff_core::futures::{At, Role, Verdict};
+
+    let role = f.against.role;
+    // The role word, carrying a name only when the name is news — a base that
+    // is not trunk, a remote that is not this branch's own copy. Every other
+    // time the name is noise. Ref syntax never appears: `origin/feature` is a
+    // cache of what a remote held at last fetch wearing a branch's name, and
+    // making a person reconcile that by hand is the confusion fufu deletes.
+    let which = match role {
+        Role::Trunk => "base".to_string(),
+        Role::Parent => format!("base {}", f.against.name),
+        Role::Remote => "remote".to_string(),
+        Role::RemoteAlias => format!("remote {}", f.against.name),
+    };
+    // Push and pull count against a place, so an aliased remote names it
+    // inline rather than wearing the `remote <name>` prefix.
+    let toward = |preposition: &str| match role {
+        Role::RemoteAlias => format!(" {preposition} {}", f.against.name),
+        _ => String::new(),
+    };
+
+    Some(match &f.verdict {
+        // Sync never merges you into your base, so unmerged work is a
+        // branch's permanent condition rather than pending work — and a line
+        // that reported it every time would teach people to stop reading it.
+        Verdict::UpToDate { .. } if role.is_base() => return None,
+        // Against the remote the same verdict means the opposite: these are
+        // precisely the commits sync will send.
+        Verdict::UpToDate { ahead: 0 } => return None,
+        Verdict::UpToDate { ahead } => {
+            paint_ahead(&format!("{ahead} to push{}", toward("to")), colored)
+        }
+        Verdict::FastForward { behind } if !role.is_base() => {
+            paint_ahead(&format!("{behind} to pull{}", toward("from")), colored)
+        }
+        Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
         Verdict::Clean { replayed } => paint_ok(
             &format!(
-                "{base} moved — rebases cleanly ({replayed} {} replayed)",
+                "{which} moved — rebases cleanly ({replayed} {} replayed)",
                 noun(*replayed, "commit", "commits")
             ),
             colored,
@@ -188,7 +233,7 @@ pub fn futures_line(future: &ff_core::futures::Future, colored: bool) -> String 
             paths,
         } => paint_warn(
             &format!(
-                "{base} moved — conflicts at \"{}\" in {} {}",
+                "{which} moved — conflicts at \"{}\" in {} {}",
                 truncate_subject(subject),
                 paths.len(),
                 noun(paths.len(), "file", "files")
@@ -200,20 +245,18 @@ pub fn futures_line(future: &ff_core::futures::Future, colored: bool) -> String 
             paths,
         } => paint_warn(
             &format!(
-                "{base} moved — conflicts with your open change in {} {}",
+                "{which} moved — conflicts with your open change in {} {}",
                 paths.len(),
                 noun(paths.len(), "file", "files")
             ),
             colored,
         ),
-        Verdict::FastForward { .. } => paint_ok(&format!("{base} moved — fast-forwards"), colored),
-        Verdict::UpToDate { ahead: 0 } => paint_dim(&format!("up to date with {base}"), colored),
-        Verdict::UpToDate { ahead } => paint_ahead(&format!("ahead {ahead} of {base}"), colored),
         Verdict::Unknown { reason } => paint_dim(
-            &format!("can't simulate against {base} ({})", reason.text()),
+            &format!("{which} moved — can't simulate ({})", reason.text()),
             colored,
         ),
-    }
+        Verdict::Gone => paint_warn(&format!("{which} is gone"), colored),
+    })
 }
 
 /// Pick the singular or plural noun for a count: `1 commit`, `3 commits`.
@@ -237,13 +280,8 @@ fn truncate_subject(subject: &str) -> String {
     truncated
 }
 
-/// Build the header line: branch + upstream phrase + operation.
-/// The upstream phrase is colored by state.
-fn status_header(
-    status: &Status,
-    future: &Option<ff_core::futures::Future>,
-    colored: bool,
-) -> String {
+/// Build the header line: branch + what syncing would cost + operation.
+fn status_header(status: &Status, futures: &ff_core::futures::Futures, colored: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(match &status.head {
         HeadState::Unborn { r#ref } => {
@@ -255,74 +293,27 @@ fn status_header(
             format!("detached at {}", &commit[..commit.len().min(8)])
         }
     });
-    // The verdict outranks ahead-ness: when fufu can say what syncing would
-    // cost, that is the half needing a decision, so it takes the header slot
-    // the upstream phrase used to hold. The upstream still speaks when it is
-    // a *different* ref than the base — a pushed branch stacked on another
-    // has two independent facts, and only one of them is the verdict.
-    match &future {
-        Some(f) => {
-            parts.push(futures_line(f, colored));
-            if let Some(upstream) = &status.upstream
-                && !base_is_upstream(&f.base, upstream)
-            {
-                parts.push(colored_upstream_phrase(upstream, colored));
-            }
+    // What the header reports is what `ff sync` would do — which is also what
+    // decides whether it speaks at all. The upstream's raw ahead/behind used
+    // to sit here; the remote axis says the same thing in the vocabulary the
+    // base already uses, and saying it twice in two dialects was the whole
+    // problem.
+    let sync = sync_parts(futures, colored);
+    if sync.is_empty() {
+        // Both axes settled — or the only one fufu could name did. One dim
+        // phrase stands for both, and never "in sync", which a reader can
+        // hear as "merged". With no axis at all (detached, unborn, no
+        // nameable trunk) there is nothing honest to claim, so say nothing.
+        if futures.base.is_some() || futures.remote.is_some() {
+            parts.push(paint_dim("nothing to sync", colored));
         }
-        None => {
-            if let Some(upstream) = &status.upstream {
-                parts.push(colored_upstream_phrase(upstream, colored));
-            }
-        }
+    } else {
+        parts.extend(sync);
     }
     if let Some(op) = &status.operation {
         parts.push(operation_phrase(*op).to_string());
     }
     parts.join(" · ")
-}
-
-/// Whether the futures base and the upstream name the same ref — in which
-/// case they would say the same thing twice.
-fn base_is_upstream(base: &ff_core::futures::BaseRef, upstream: &Upstream) -> bool {
-    let short = base
-        .r#ref
-        .strip_prefix("refs/remotes/")
-        .or_else(|| base.r#ref.strip_prefix("refs/heads/"))
-        .unwrap_or(&base.r#ref);
-    short == upstream.r#ref
-}
-
-/// Build the upstream phrase, colored by state.
-fn colored_upstream_phrase(u: &Upstream, colored: bool) -> String {
-    let phrase = upstream_phrase(u);
-    if !colored {
-        return phrase;
-    }
-    let style = if u.gone {
-        None
-    } else if u.ahead == 0 && u.behind == 0 {
-        Some(DIM)
-    } else if u.ahead > 0 && u.behind == 0 {
-        Some(palette().ahead)
-    } else {
-        None
-    };
-    match style {
-        Some(s) => format!("{}{phrase}{}", s.render(), s.render_reset()),
-        None => phrase,
-    }
-}
-
-fn upstream_phrase(u: &Upstream) -> String {
-    if u.gone {
-        return format!("{} is gone", u.r#ref);
-    }
-    match (u.ahead, u.behind) {
-        (0, 0) => format!("in sync with {}", u.r#ref),
-        (a, 0) => format!("ahead {a} of {}", u.r#ref),
-        (0, b) => format!("behind {b} of {}", u.r#ref),
-        (a, b) => format!("ahead {a}, behind {b} of {}", u.r#ref),
-    }
 }
 
 fn operation_phrase(op: InProgress) -> &'static str {

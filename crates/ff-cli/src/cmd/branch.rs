@@ -129,7 +129,7 @@ fn row(info: &BranchInfo) -> String {
         }
     }
     if let Some(future) = &info.future {
-        let base = &future.base.name;
+        let base = &future.against.name;
         match &future.verdict {
             ff_core::futures::Verdict::Clean { .. } => {
                 notes.push(format!("{base}: rebases cleanly"));
@@ -142,8 +142,12 @@ fn row(info: &BranchInfo) -> String {
             }
             // Terse on purpose: a row that says "nothing to report" is
             // noise, and the detail belongs to `ff status` and `--json`.
+            // `Gone` cannot reach here — rows carry the base axis only — but
+            // the match is exhaustive so the next verdict added has to think
+            // about this column.
             ff_core::futures::Verdict::UpToDate { .. }
-            | ff_core::futures::Verdict::Unknown { .. } => {}
+            | ff_core::futures::Verdict::Unknown { .. }
+            | ff_core::futures::Verdict::Gone => {}
         }
     }
     if !notes.is_empty() {

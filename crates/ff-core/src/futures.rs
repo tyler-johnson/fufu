@@ -32,6 +32,9 @@ pub enum Verdict {
     Conflict { at: At, paths: Vec<String> },
     /// Honest silence — a wrong verdict is worse than none.
     Unknown { reason: UnknownReason },
+    /// The tracking ref is configured but the ref is not there — the shared
+    /// copy was deleted. Only ever produced for a remote.
+    Gone,
 }
 
 /// Where a conflict lands.
@@ -63,27 +66,43 @@ impl UnknownReason {
     }
 }
 
+/// What a branch answers to, and which of the two nouns names it. Both are
+/// restacks; only the wording differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Role {
+    /// The base beneath this branch, and the one a reader would assume.
+    Trunk,
+    /// The base beneath this branch: a branch it was explicitly stacked on.
+    Parent,
+    /// The shared copy of this same branch.
+    Remote,
+    /// A tracking ref wearing another branch's name.
+    RemoteAlias,
+}
+
+impl Role {
+    /// Whether this role is a base rather than a remote.
+    pub fn is_base(self) -> bool {
+        matches!(self, Role::Trunk | Role::Parent)
+    }
+}
+
 /// Which branch a future is measured against, and how fufu picked it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BaseRef {
+pub struct SyncRef {
     /// Short name as a person would say it: `main`, `origin/main`.
     pub name: String,
     pub r#ref: String,
+    /// The empty string when the ref is configured but absent — a gone remote.
+    /// Every other role always resolves.
     pub tip: String,
-    pub kind: BaseKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BaseKind {
-    Parent,
-    Trunk,
-    Upstream,
+    pub role: Role,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Future {
-    pub base: BaseRef,
+    pub against: SyncRef,
     pub verdict: Verdict,
 }
 
@@ -269,24 +288,25 @@ pub fn open_tree(repo: &gix::Repository, branch: &str) -> Result<Option<gix::Obj
 
 /// Which branch `branch` should be measured against. `None` when fufu cannot
 /// honestly name one.
-pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<BaseRef>> {
+pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>> {
     // 1. An explicitly recorded parent, when it still resolves.
     let meta = crate::branchmeta::read(repo, branch)?;
     if let Some(parent) = meta.parent.filter(|p| p != branch) {
         let full_ref = format!("refs/heads/{parent}");
         if let Some(tip) = crate::refs::ref_target(repo, &full_ref)? {
-            return Ok(Some(BaseRef {
+            return Ok(Some(SyncRef {
                 name: parent,
                 r#ref: full_ref,
                 tip: tip.to_string(),
-                kind: BaseKind::Parent,
+                role: Role::Parent,
             }));
         }
     }
 
-    // 2. Trunk — unless trunk is the branch we are standing on. Ambiguity is
-    // swallowed to None and never propagated: a repository that cannot name
-    // its trunk still gets a working `ff status`.
+    // 2. Trunk is the base unless it is the branch underfoot, in which case
+    // there is no base at all: trunk sits on nothing. Ambiguity is swallowed
+    // to None and never propagated: a repository that cannot name its trunk
+    // still gets a working `ff status`.
     let own_ref = format!("refs/heads/{branch}");
     let trunk = crate::trunk::trunk(repo).ok();
     let standing_on_trunk = trunk.as_ref().is_some_and(|t| t.full_ref == own_ref);
@@ -294,38 +314,59 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<BaseRef>>
         && !standing_on_trunk
         && let Some(tip) = crate::refs::ref_target(repo, &t.full_ref)?
     {
-        return Ok(Some(BaseRef {
+        return Ok(Some(SyncRef {
             name: t.name.clone(),
             r#ref: t.full_ref.clone(),
             tip: tip.to_string(),
-            kind: BaseKind::Trunk,
+            role: Role::Trunk,
         }));
     }
 
-    // 3. Standing on trunk: the upstream tracking ref, when configured and
-    // not gone.
-    if standing_on_trunk {
-        let full: gix::refs::FullName = own_ref.as_str().try_into().map_err(Error::repo)?;
-        let Some(tracking) =
-            repo.branch_remote_tracking_ref_name(full.as_ref(), gix::remote::Direction::Fetch)
-        else {
-            return Ok(None);
-        };
-        let tracking = tracking.map_err(Error::repo)?;
-        let full_ref = tracking.as_ref().as_bstr().to_string();
-        let name = tracking.as_ref().shorten().to_string();
-        if let Some(tip) = crate::refs::ref_target(repo, &full_ref)? {
-            return Ok(Some(BaseRef {
-                name,
-                r#ref: full_ref,
-                tip: tip.to_string(),
-                kind: BaseKind::Upstream,
-            }));
-        }
-    }
-
-    // 4. Detached, unborn, or unresolvable: no honest base.
+    // Standing on trunk, detached, unborn, or an unresolvable trunk: no
+    // honest base. On trunk, the thing it answers to is its remote — now its
+    // own axis.
     Ok(None)
+}
+
+/// The shared copy of `branch` — the tracking ref git would fetch into.
+/// `None` when no upstream is configured.
+pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>> {
+    let own_ref = format!("refs/heads/{branch}");
+    let full: gix::refs::FullName = own_ref.as_str().try_into().map_err(Error::repo)?;
+    let Some(tracking) =
+        repo.branch_remote_tracking_ref_name(full.as_ref(), gix::remote::Direction::Fetch)
+    else {
+        return Ok(None);
+    };
+    let tracking = tracking.map_err(Error::repo)?;
+    let name = tracking.as_ref().shorten().to_string();
+    let r#ref = tracking.as_ref().as_bstr().to_string();
+
+    // The remote-side branch name from `branch.<name>.merge`: when it is
+    // another branch's name, this tracking ref is an alias, not the branch's
+    // own copy. A branch whose upstream cannot be named otherwise is
+    // overwhelmingly its own copy, and guessing "alias" would put a wrong
+    // name on the screen.
+    let role = match repo.branch_remote_ref_name(full.as_ref(), gix::remote::Direction::Fetch) {
+        Some(Ok(remote_name)) if remote_name.as_ref().shorten() != branch => Role::RemoteAlias,
+        _ => Role::Remote,
+    };
+
+    // Asymmetry with `base_for`, on purpose: an unresolvable base is a base
+    // fufu cannot name, so `base_for` returns None; an unresolvable remote is
+    // a *fact about the remote* — the shared copy was deleted — and the user
+    // needs to hear it, so the empty tip is returned, not swallowed.
+    let tip = match crate::refs::ref_target(repo, &r#ref)? {
+        Some(t) => t.to_string(),
+        None => String::new(),
+    };
+
+    Ok(Some(SyncRef {
+        name,
+        r#ref,
+        tip,
+        role,
+    }))
 }
 
 /// The futures cache: plain JSON keyed by its own inputs, so a stale entry is
@@ -334,17 +375,46 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<BaseRef>>
 pub mod cache {
     use super::*;
 
+    /// One axis's cached verdict, keyed by its own four inputs, so a stale
+    /// entry is by definition one that will not be used.
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub(super) struct Entry {
-        pub(super) base_ref: String,
-        pub(super) base_tip: String,
+        pub(super) against_ref: String,
+        pub(super) against_tip: String,
         pub(super) branch_tip: String,
         pub(super) open_tree: Option<String>,
         pub(super) verdict: Verdict,
     }
 
+    /// Both axes in one file: two independent slots, so recomputing one never
+    /// costs the other.
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+    pub(super) struct File {
+        #[serde(default)]
+        pub(super) base: Option<Entry>,
+        #[serde(default)]
+        pub(super) remote: Option<Entry>,
+    }
+
     pub(super) fn path(repo: &gix::Repository, branch: &str) -> PathBuf {
         repo.common_dir().join("fufu/futures").join(branch)
+    }
+
+    /// Read the file, replace one slot, write it back — so writing the base
+    /// slot never drops a remote slot computed a moment earlier.
+    pub(super) fn store(repo: &gix::Repository, branch: &str, is_base: bool, entry: Entry) {
+        let path = path(repo, branch);
+        let mut file = match crate::jsonfile::read::<File>(&path) {
+            Ok(Some(file)) => file,
+            _ => File::default(),
+        };
+        if is_base {
+            file.base = Some(entry);
+        } else {
+            file.remote = Some(entry);
+        }
+        // Best-effort: a cache that cannot be written must never fail a read.
+        let _ = crate::jsonfile::write(&path, &file);
     }
 
     /// Drop a branch's cached future. Losing it costs recomputation, nothing else.
@@ -353,52 +423,110 @@ pub mod cache {
     }
 }
 
-/// The future of `branch`, served from cache when all four inputs still
-/// match and computed otherwise. `None` when there is no base to measure
-/// against, or the branch has no tip yet.
-pub fn future_for(
+/// Both axes at once. Either may be `None`: a branch standing on trunk has no
+/// base, a branch nobody has pushed has no remote.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Futures {
+    pub base: Option<Future>,
+    pub remote: Option<Future>,
+}
+
+/// The future of `branch` along one axis, served from cache when all four
+/// inputs still match and computed otherwise. `None` when the branch has no
+/// tip yet. The cache-key self-invalidation that made this safe for a single
+/// slot is now true twice over: each slot keys on its own four inputs.
+fn future_on(
     repo: &gix::Repository,
     branch: &str,
+    against: SyncRef,
     branch_tip: Option<gix::ObjectId>,
     open_tree: Option<gix::ObjectId>,
+    is_base: bool,
 ) -> Result<Option<Future>> {
-    let Some(base) = base_for(repo, branch)? else {
-        return Ok(None);
-    };
     let Some(tip) = branch_tip else {
         return Ok(None);
     };
 
     let tip_hex = tip.to_string();
     let open_hex = open_tree.map(|id| id.to_string());
-    let path = cache::path(repo, branch);
 
-    if let Ok(Some(entry)) = crate::jsonfile::read::<cache::Entry>(&path)
-        && entry.base_ref == base.r#ref
-        && entry.base_tip == base.tip
-        && entry.branch_tip == tip_hex
-        && entry.open_tree == open_hex
-    {
-        return Ok(Some(Future {
-            base,
-            verdict: entry.verdict,
-        }));
+    if let Ok(Some(file)) = crate::jsonfile::read::<cache::File>(&cache::path(repo, branch)) {
+        let entry = if is_base { file.base } else { file.remote };
+        if let Some(entry) = entry
+            && entry.against_ref == against.r#ref
+            && entry.against_tip == against.tip
+            && entry.branch_tip == tip_hex
+            && entry.open_tree == open_hex
+        {
+            return Ok(Some(Future {
+                against,
+                verdict: entry.verdict,
+            }));
+        }
     }
 
-    let base_tip = gix::ObjectId::from_hex(base.tip.as_bytes()).map_err(Error::repo)?;
-    let verdict = probe(repo, base_tip, tip, open_tree)?;
+    let against_tip = gix::ObjectId::from_hex(against.tip.as_bytes()).map_err(Error::repo)?;
+    let verdict = probe(repo, against_tip, tip, open_tree)?;
 
-    // Best-effort: a cache that cannot be written must never fail a read.
-    let _ = crate::jsonfile::write(
-        &path,
-        &cache::Entry {
-            base_ref: base.r#ref.clone(),
-            base_tip: base.tip.clone(),
+    cache::store(
+        repo,
+        branch,
+        is_base,
+        cache::Entry {
+            against_ref: against.r#ref.clone(),
+            against_tip: against.tip.clone(),
             branch_tip: tip_hex,
             open_tree: open_hex,
             verdict: verdict.clone(),
         },
     );
 
-    Ok(Some(Future { base, verdict }))
+    Ok(Some(Future { against, verdict }))
+}
+
+/// What replaying `branch` onto its base would cost.
+pub fn base_future(
+    repo: &gix::Repository,
+    branch: &str,
+    branch_tip: Option<gix::ObjectId>,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Option<Future>> {
+    let Some(against) = base_for(repo, branch)? else {
+        return Ok(None);
+    };
+    future_on(repo, branch, against, branch_tip, open_tree, true)
+}
+
+/// What reconciling `branch` with its shared copy would cost.
+pub fn remote_future(
+    repo: &gix::Repository,
+    branch: &str,
+    branch_tip: Option<gix::ObjectId>,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Option<Future>> {
+    let Some(against) = remote_for(repo, branch)? else {
+        return Ok(None);
+    };
+    // A configured-but-absent tracking ref has nothing to simulate against
+    // and nothing worth remembering: the answer is the fact itself.
+    if against.tip.is_empty() {
+        return Ok(Some(Future {
+            against,
+            verdict: Verdict::Gone,
+        }));
+    }
+    future_on(repo, branch, against, branch_tip, open_tree, false)
+}
+
+/// Both axes, for the callers that report both.
+pub fn futures_for(
+    repo: &gix::Repository,
+    branch: &str,
+    branch_tip: Option<gix::ObjectId>,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Futures> {
+    Ok(Futures {
+        base: base_future(repo, branch, branch_tip, open_tree)?,
+        remote: remote_future(repo, branch, branch_tip, open_tree)?,
+    })
 }

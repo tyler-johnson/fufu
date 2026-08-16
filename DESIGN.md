@@ -88,7 +88,7 @@ user gets git's exact documented behavior, including git's conflicts at git's
 usual moments. That is expected, and it belongs to the user; fufu does not reach
 into operations it didn't perform. What it does instead: capture around them,
 absorb them into the timeline, and reconcile loudly afterward. Guards obey the
-same boundary — `ff push` refuses a stack with held rewrites, while raw
+same boundary — `ff sync` refuses to publish a stack with held rewrites, while raw
 `git push` is git, with the status channel getting loud after the fact rather
 than a hook getting in the way.
 
@@ -181,7 +181,7 @@ describes the change being closed, `ff start -m` the change being opened — a
 pending description parked per branch until its close; bare `ff describe`
 edits it, `ff describe <rev>` rewords what's already closed. An undescribed
 close is legal ("(no description)", jj-style); hygiene enforces at the exit,
-where `ff push` flags undescribed commits rather than letting them past the
+where `ff sync` flags undescribed commits rather than letting them past the
 boundary.
 
 `ff start` (alias `ff new`) always begins a new line of work — a fresh
@@ -275,7 +275,7 @@ files." The user never has to attempt an operation to learn its cost.
 
 **Branches stack, and a stack is a parent link.** A branch records the *branch* it sits on, not merely the commit it forked from — a commit cannot follow its parent as the parent moves, and following is the whole point. When a parent moves its children go stale, and the same free probe that answers "would rebasing onto main conflict?" answers it one level down: `ff branch` and `ff status` say *parent moved, replays clean* or *parent moved, conflicts in two files*, in the verdicts they already spend. Knowing changes nothing on its own. `ff sync` is what applies it, on the branch you are standing on, so a restack is always something a person asked for — which is also what keeps propagation from crossing the push boundary by accident, since published history is the one thing fufu will not rewrite behind you.
 
-The cascade is sequential, and saying so is part of the feature: syncing a branch moves it, which makes *its* children stale against a base that did not exist a moment earlier, so their verdicts are recomputed rather than promised. Only the next step's answer is trustworthy, and a whole-tree "all clean" would be a claim fufu cannot honestly make. `ff restack` is the primitive under all of it — replay these commits onto that base, in memory, hold on conflict — and the rest are aims for it: `ff sync` is restack with a fetch in front, `ff restack --onto <branch>` records a new parent before replaying, and `ff done` is restack pointed at an edit session's parent, a session being a branch temporarily inserted beneath one.
+The cascade is sequential, and saying so is part of the feature: syncing a branch moves it, which makes *its* children stale against a base that did not exist a moment earlier, so their verdicts are recomputed rather than promised. Only the next step's answer is trustworthy, and a whole-tree "all clean" would be a claim fufu cannot honestly make. `ff restack` is the primitive under all of it — replay these commits onto that base, in memory, hold on conflict — and the rest are aims for it: `ff sync` runs it against both things a branch answers to, with the network in front, `ff restack --onto <branch>` records a new parent before replaying, and `ff done` is restack pointed at an edit session's parent, a session being a branch temporarily inserted beneath one. A branch answers to two: the **base** beneath it, and the **remote** copy of itself. Reconciling with either is a replay that can conflict, which is why one verb covers both and why there is no `ff push` — publishing is the outgoing half of lining up, not a separate act, and `fufu.pushOnSync` (default true, `--push`/`--no-push` per call) is the one knob for it. What that knob never buys is passage: the exit guards are properties of publishing, not a mode, so a held rewrite is refused whichever way it is set.
 
 ### Floor 3 — Rewrite
 
@@ -379,7 +379,7 @@ disciplines:
    says so, with what conflicts and where.
 2. **Pinned until gone** — every status render shows held rewrites until they land
    or are abandoned.
-3. **Exits blocked** — `ff push` refuses to publish anything with a held rewrite,
+3. **Exits blocked** — `ff sync` refuses to publish anything with a held rewrite,
    the way jj refuses to push conflicted commits. (The guard lives on the fufu
    surface: raw `git push` is git — the two regimes — and reconciliation gets
    loud after the fact instead of a hook getting in the way.)
@@ -418,9 +418,8 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff edit <rev>` | editing session on any commit: mints an anonymous branch there and switches to it. The branch you came from stays put and its commits wait ahead; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
 | `ff prev` / `ff next` | scrub one commit back or forward. `prev` opens a session — the first one from the tip is editing `HEAD` — and `next` replays the commit waiting ahead, which makes `ff done` exactly `ff next` until nothing is | `rebase -i` reword/edit dances |
 | `ff done` | finish the current session (`edit` or `resolve`): absorb the edits, restack in memory, land, return to tip | `rebase --continue` ceremony |
-| `ff restack [--onto <branch>]` | replay this branch's commits onto its parent; `--onto` records a new parent first, which is how a branch is re-aimed | `rebase --onto` arithmetic |
-| `ff sync` | fetch, then restack onto the parent (trunk by default): land if clean, hold if not | manual rebase-onto-main ceremony |
-| `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
+| `ff restack [--onto <branch>]` | the primitive, offline: replay this branch's commits onto its parent; `--onto` records a new parent first, which is how a branch is re-aimed | `rebase --onto` arithmetic |
+| `ff sync [--push\|--no-push]` | line this branch up with both things it answers to — restack onto the base if it moved, reconcile with the remote, publish unless told otherwise: land if clean, hold if not; exits stay guarded (refuses held rewrites, lease by default) | `fetch` + `rebase` + `push --force-with-lease`, in the right order, and prayer |
 | `ff undo` | step the whole repository back one run — refs and tree together, and a run of captures is one step. Takes no argument, and repeats: each one goes further back | reflog archaeology, `reset --hard` fear |
 | `ff redo` | the complement, moving forward again after one or more undos | nothing |
 | `ff op <log\|show\|diff\|restore\|revert>` | the operation log as objects: read it (`-r` takes the set language over operations), show what one changed, compare two, rewind the repository to one (`restore`), or invert a single one and leave later work standing (`revert`). Deleting operations is `ff trim`'s job alone | nothing — git has no operation log |
@@ -447,9 +446,11 @@ Both ride every verb that reads repository state, and no others. The line is not
 
 Operation ids are spelled in jj's reverse-hex alphabet: hex digit value `i` maps to `"zyxwvutsrqponmlk"[i]`, so `0` → `z` down through `f` → `k`. The letter range k–z shares no character with hex, so an op id can never be misread as a commit sha — which matters more here than it looks, since an operation *is* a commit and its raw hex would be indistinguishable from any other. The letters are what make the two address spaces visibly different at a glance, so they are the only spelling — displayed everywhere an op appears, and the only form accepted where one is input (`ff op <verb>`, `--at-op`). Raw hex is not a second way to say the same thing; it is how you say *commit*.
 
-Op id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff op` resolves against — the operation log, live and trashed — so the bold prefix is precisely what those verbs accept unambiguously. That domain is materialized under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the log tip moves out from under it, so highlighting and resolution read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the op column is where the highlighting pays. One palette serves the whole tool, and it colors **roles, not commands**: op ids magenta, commit shas blue, ages cyan, the working-copy `@` green, insertions green and deletions red, rails and asides dim, plus three verdict colors — green for clear, orange for trouble, blue for ahead-of-upstream. Prose stays plain; color marks the tokens you scan for (hex, ids, times) and the verdicts you act on. That is why `ff doctor`'s WARN, a rebase that would conflict, and a check that failed are all the same orange: one color per meaning, wherever the meaning turns up. Color is redundant encoding and never the only encoding: every verdict carries a word or a glyph saying the same thing, so `NO_COLOR`, a monochrome terminal, and a screen reader cost the reader decoration and never information.
+Op id columns highlight the shortest unique prefix: bold what you can type, dim the rest. The uniqueness domain is exactly the set `ff op` resolves against — the operation log, live and trashed — so the bold prefix is precisely what those verbs accept unambiguously. That domain is materialized under `<common-dir>/fufu/ids/`, appended by capture and rebuilt whenever the log tip moves out from under it, so highlighting and resolution read one list rather than two code paths agreeing. Commit shas get no highlighting: they display as a plain 7 characters (7 is effectively always odb-unique at this repo's scale, and git resolves any rare ambiguity when one is pasted); the op column is where the highlighting pays. One palette serves the whole tool, and it colors **roles, not commands**: op ids magenta, commit shas blue, ages cyan, the working-copy `@` green, insertions green and deletions red, rails and asides dim, plus three verdict colors — green for clear, orange for trouble, blue for commits pending against the remote, either direction. Prose stays plain; color marks the tokens you scan for (hex, ids, times) and the verdicts you act on. That is why `ff doctor`'s WARN, a rebase that would conflict, and a check that failed are all the same orange: one color per meaning, wherever the meaning turns up. Color is redundant encoding and never the only encoding: every verdict carries a word or a glyph saying the same thing, so `NO_COLOR`, a monochrome terminal, and a screen reader cost the reader decoration and never information.
 
-`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction. The futures line rides the header, in the slot the upstream phrase used to hold: that is what "the verdict outranks ahead-ness" means once both exist, because ahead-ness is a fact you already knew and the verdict is the half that needs a decision. The upstream keeps its say only when it names a *different* ref than the base — a pushed branch stacked on another has two independent facts — and is dropped when the two would describe the same relationship twice. The line spends the three verdict colors exactly as the shared rule defines them: dim when there is nothing to say, blue when the branch is only ahead, green when the base moved and the rebase is clean, orange when it conflicts. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the header compresses into one line.
+`ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction. The header closes with the sync line, built from two nouns a person learns once: the **base** is what this work sits on (trunk, or the branch it was stacked on), the **remote** is the shared copy of this same branch. Both are restacks — something you sit on moved; would replaying onto it be clean? — so both spend one vocabulary and the same verdict colors: green when it replays clean, orange when it conflicts, blue for commits pending against the remote either way, dim when there is nothing to say. The line says roles, not branch names; a name appears only when the role resolves to something a reader would not have guessed — a base that is not trunk, a remote that is not this branch's own — because that is exactly when the name is news and every other time it is noise. Ref syntax never appears: `origin/feature` is a cache of what a remote held at last fetch wearing a branch's name, and making a person reconcile it by hand is the confusion fufu exists to delete.
+
+What the line reports is what `ff sync` would do, which is also what decides whether it speaks at all: an axis stays silent when sync would not act on it, and when neither would, a single dim `nothing to sync` stands for both — never "in sync", which a reader can hear as "merged". So being ahead of your base is silent while being ahead of your remote is not: sync never merges you into your base, making unmerged work a branch's permanent condition rather than pending work, while unpushed commits are precisely what sync will send. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the header compresses into one line.
 
 The log family (`ff log`, `ff evolog`, `ff op log`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
@@ -764,9 +765,13 @@ name the commit that breaks. The whole replay runs inside one
 by the next step — so a probe writes nothing, which is asserted by counting
 loose objects around one. One merge per commit with plain options, the conflict
 list deciding; `stash.rs` probes and then re-merges only because it needs the
-tree to persist, and futures never do. Bases come from a ladder: an explicitly
-recorded parent branch, else trunk, else — when trunk *is* the branch underfoot
-— its upstream. **Trunk ambiguity is swallowed to "no base", never propagated:**
+tree to persist, and futures never do. A branch answers to two things and they
+are measured on separate axes: the base beneath it and the remote copy of
+itself. Bases come from a ladder: an explicitly recorded parent branch, else
+trunk — and nothing after that, because when trunk *is* the branch underfoot
+there is no base, only a remote. Reaching for the upstream there was what made
+`ff status` report one fact twice in two dialects.
+**Trunk ambiguity is swallowed to "no base", never propagated:**
 a repository that cannot name its trunk still gets a working `ff status`. For
 the same reason `BranchMeta.parent` records only an explicit fork target; a bare
 `ff start` records none, so trunk stays live rather than frozen at mint time.
@@ -777,24 +782,30 @@ integrate, and while a real rebase would still linearize it, that is the branch
 rewriting itself and not a cost the base imposes. Merge commits inside the range
 and depths past `fufu.futuresDepth` are honest `Unknown`s, because a wrong
 verdict is worse than an admitted silence. The cache under
-`<common-dir>/fufu/futures/<branch>` is keyed by its own four inputs (base ref,
-base tip, branch tip, open tree), so it is self-invalidating: no eviction
-policy, no staleness clock, and deleting it changes no answer, only the cost of
-getting one. The ambient channel is the `ff hook shell trigger` runtime the verb
+`<common-dir>/fufu/futures/<branch>` holds a slot per axis, each keyed by its
+own four inputs (the ref measured against, its tip, the branch tip, the open
+tree), so it is self-invalidating: no eviction policy, no staleness clock, and
+deleting it changes no answer, only the cost of getting one. A remote
+configured against a ref that is not there short-circuits to `gone` without
+probing or caching, there being nothing to simulate and nothing worth
+remembering. The ambient channel is the `ff hook shell trigger` runtime the verb
 grammar already had room for — read-only by construction (no capture, no
 reconcile, no journal append), gated on a TTY first because it runs at every
-prompt, and fingerprinted on the verdict's *kind* alone, so a branch gaining one
-more cleanly-replaying commit is not news. `ff status` and that channel share
-one renderer, since a channel that worded a verdict differently from the command
-would be worse than one that stayed quiet.
+prompt, and fingerprinted on the verdicts' *kinds* alone, both axes, so a branch
+gaining one more cleanly-replaying commit is not news but a remote that moved
+while the base stood still is. `ff status` and that channel share one renderer,
+since a channel that worded a verdict differently from the command would be
+worse than one that stayed quiet — though where `ff status` fills an all-quiet
+line with `nothing to sync`, the channel says nothing at all: someone asked
+`ff status` a question, and nobody asked the prompt.
 
 **Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff describe`,
 `ff edit` sessions with `ff done`, `ff sync` with land-if-clean, held rewrites
 and `ff resolve`. The jj-grade workflow lands here, safe because phases 1–3 are
 underneath it.
 
-**Phase 5 — Exits and adoption.** `ff push` with lease semantics and the held-
-rewrite guard; the name and packaging sweep. (The `ff git` passthrough and
+**Phase 5 — Exits and adoption.** `ff sync`'s outgoing half — lease semantics
+and the held-rewrite guard; the name and packaging sweep. (The `ff git` passthrough and
 alias shipped with Phase 1; by here the translation whitelist has grown with
 every verb.) The tool becomes recommendable to someone who isn't its author.
 
@@ -842,8 +853,13 @@ a working development machine.
   an operation that recorded no index — a foreign one, because fufu wasn't
   running, or a capture, because it carries no record — undoes to a clean
   index at that operation's own HEAD tree.
-- **Auto-sync policy surface** — per-branch opt-in defaults; whether
-  tracked-upstream branches default to "offer" or "auto."
+- **Auto-sync policy surface** — settled that `ff sync` is the single verb and
+  `fufu.pushOnSync` its single knob; open is whether an upstream-tracking branch
+  ever syncs *without* being asked, and on what trigger. Incoming and outgoing
+  differ in kind here in a way the knob does not capture: a pull that
+  fast-forwards can only fail to be useful, while a push leaves the machine and
+  cannot be undone by `ff undo`, so an automatic lane may want to carry only the
+  half that stays local.
 - **Agent adoption** — the machine surface makes fufu usable by an agent; what
   makes an agent reach for `ff` instead of `git` is a separate question.
   Candidates: guidance delivered into the agent's own instructions at hook

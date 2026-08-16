@@ -63,7 +63,7 @@ The busywork between commits — fixup commits, autosquash dances, rebasing onto
 
 ```console
 $ ff status                       # futures, not just facts: fufu already knows the rebase is safe
-on unicode-cleanup · main moved — rebases cleanly (2 commits replayed) · behind 4 of origin/main
+on unicode-cleanup · base moved — rebases cleanly (2 commits replayed) · 2 to push
 @  qzrtmvwk a3c7e91   2m ago
 │  (no description)
 │  M src/parser/escape.rs  +5  -2  ++++--
@@ -79,9 +79,10 @@ absorbed 3 hunks into 2 commits:
 descendants rebased in memory
 undo: ff undo
 
-$ ff sync                         # catch up with main — rebases in memory, lands only if clean
-fetched origin: main is at e1c47a2 (4 new commits)
-unicode-cleanup rebases cleanly — landed (2 commits replayed)
+$ ff sync                         # line up with base and remote — rebases in memory, lands only if clean
+base moved to e1c47a2 (4 new commits)
+rebases cleanly — landed (2 commits replayed)
+pushed 2 commits to the remote
 undo: ff undo
 ```
 
