@@ -255,30 +255,56 @@ when it closes. -m sets it inline; the bare form opens $EDITOR seeded with
 the current text — the same spawn git makes for a commit message, and one
 of the very few fufu makes at all.
 
--b renames the current branch instead: how an anonymous branch earns a
-real name once the work has one.";
+-b names the branch you are on instead — the same act whether it is an
+anonymous petname earning a real name or a chosen name being replaced. The
+capture chain, any parked change, and the pending description all come
+along, which is the part a bare `git branch -m` would orphan.";
 
 pub const DESCRIBE_EXAMPLES: &str = "\
 Examples:
   ff describe -m \"parser: handle unicode escapes\"
   ff describe                    open $EDITOR on the pending description
-  ff describe -b unicode-cleanup rename the branch you are on";
+  ff describe -b unicode-cleanup name the branch you are on";
 
 pub const BRANCH: &str = "\
-Bare `ff branch` lists what exists, named branches and anonymous ones kept
-apart. Given a name, it claims the anonymous branch you are standing on —
-the capture chain and any parked change come along, so claiming a name
-costs nothing and loses nothing.
+Bookkeeping for lines of work: `ff branch list` says what exists and
+`ff branch delete` takes one away. Bare `ff branch` is the list.
 
--d deletes. The branch's timeline moves to trash rather than evaporating,
-and the whole delete is recorded, so `ff undo` brings the branch and its
-snapshots back.";
+Naming is not here. `ff describe -b <name>` names the branch you are on,
+on the same axis as -m — one verb for saying what work is, whether the
+subject is the change's description or the branch's name.";
 
 pub const BRANCH_EXAMPLES: &str = "\
 Examples:
-  ff branch                      what exists, and what is still anonymous
-  ff branch unicode-cleanup      claim the name you are standing on
-  ff branch -d old-experiment    delete it (undoable)";
+  ff branch                        what exists, and what is still anonymous
+  ff branch delete old-experiment  remove it (undoable)
+  ff describe -b unicode-cleanup   name the branch you are on";
+
+pub const BRANCH_LIST: &str = "\
+Named branches first, then the anonymous ones fufu minted, kept apart so a
+petname never reads as something you chose. Each row carries its tip, the
+subject there, and what is hanging off it: a parked change, a pending
+description, and how it stands against its upstream.";
+
+pub const BRANCH_LIST_EXAMPLES: &str = "\
+Examples:
+  ff branch list                 what exists, and what is still anonymous
+  ff branch list --json          the same, for a machine";
+
+pub const BRANCH_DELETE: &str = "\
+The branch's pointer into the log moves to trash rather than evaporating,
+its parked change is demoted to an ordinary stash entry, and the tip stays
+pinned by the operation — so nothing is lost and there is no merged-check
+to argue with. `ff undo` brings the branch and its timeline back.
+
+The branch's operations themselves stay on the log either way; what goes
+is the way in through this name.";
+
+pub const BRANCH_DELETE_EXAMPLES: &str = "\
+Examples:
+  ff branch delete old-experiment
+  ff branch delete ff/misty-owl  an anonymous one you are done with
+  ff undo                        put it back";
 
 pub const HOOK: &str = "\
 Everything that feeds the capture floor is a hook, under one grammar:

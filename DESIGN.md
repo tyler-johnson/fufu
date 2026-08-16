@@ -224,11 +224,13 @@ commits land, because that is git's own behavior once HEAD is attached
 (contrast jj's bookmarks, which sit still until told). Work doesn't wait for a
 name: every `ff start` mints an **anonymous branch** — a
 real branch with a generated name under a reserved prefix (`ff/quiet-lake`) —
-unless `-b` names it at birth; `ff branch <name>` claims it later: a rename that carries the capture
+unless `-b` names it at birth; `ff describe -b <name>` names it later: a rename that carries the capture
 chain, the parked entry, and fufu's metadata along, which is the part a bare
 `git branch -m` would orphan. A `-b <name>` flag rides the change verbs
-on the same axis as `-m`: on `ff describe` it always *renames* — the claim,
-made inline, and the one form that renames proper names too. On `ff start`
+on the same axis as `-m`: on `ff describe` it names the branch you are on,
+which is why naming lives there and nowhere else — one verb says what work
+*is*, whether the subject is the change's description or the branch's name,
+and claiming a petname is not a different act from replacing a chosen one. On `ff start`
 it names the branch being minted — every `start` creates one, so there is
 nothing to decide. On `ff commit` it names the branch the closing change lands on,
 and the reserved prefix makes the meaning decidable rather than guessed: a
@@ -407,10 +409,10 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff` | the map: recent work across every branch, parked changes included — where you left things | `git branch -v`, `git stash list`, and remembering |
 | `ff status` | `ff log` cropped to two rows — the open change and the commit under it — with the diffstat between them, plus futures: held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
-| `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
+| `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` names the branch you are on, petname or chosen alike, and is the only verb that does; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
 | `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
 | `ff switch <branch>[@<remote>]` | branch switch with tree memory; `@<remote>` fetches first and lands you on a synced copy | `stash` dances, `fetch` + `switch -c --track` |
-| `ff branch` | move/rename/delete lines of work — recorded, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, its operations and parked state carried along | `git branch` bookkeeping |
+| `ff branch <list\|delete>` | the bookkeeping left over once naming lives on `ff describe -b`: what exists, and taking one away — recorded, undoable, parked-entry-aware | `git branch` bookkeeping |
 | `ff absorb [<paths>]` | fold working changes into a past commit — `HEAD`, or `--into <rev>` — and restack its descendants in memory | `commit --fixup` + `rebase -i --autosquash` |
 | `ff lift [<paths>]` | the counterpart: take changes back out of a past commit (`HEAD`, or `--from <rev>`) into the open change, restacking descendants. Only ownership moves; no file does | nothing |
 | `ff edit <rev>` | editing session on any commit: mints an anonymous branch there and switches to it. The branch you came from stays put and its commits wait ahead; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
@@ -567,7 +569,7 @@ The same discipline governs arguments generally: **a positional argument has exa
 
 That is also what keeps `ff restore` and `ff op restore` from being two spellings of one idea — jj's arrangement exactly, and it works there for the same reason: the two share no argument. `ff restore` takes paths, and moves file content. `ff op restore` takes an operation, and moves the whole repository. The `op` prefix is not decoration; it announces which address space you are in, so there is no way to half-write one and land in the other. `ff undo` is the everyday shortcut for the second, argument-free and repeatable, and most users will never type either long form.
 
-Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `ff switch <sha>` has exactly one sensible reading, so fufu mints an anonymous branch there and says so, naming `ff branch <name>` to claim it and `ff start` as the verb that meant it; `ff edit <branch>` already redirects the other way. Acting is not guessing: one available reading is taken and announced, while more than one is an error naming the candidates — which is why trunk resolution still refuses to pick.
+Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `ff switch <sha>` has exactly one sensible reading, so fufu mints an anonymous branch there and says so, naming `ff describe -b <name>` to name it and `ff start` as the verb that meant it; `ff edit <branch>` already redirects the other way. Acting is not guessing: one available reading is taken and announced, while more than one is an error naming the candidates — which is why trunk resolution still refuses to pick.
 
 **Extension.** Three mechanisms, all of them git idioms:
 
@@ -709,7 +711,7 @@ over, its code not owed. From here on, nothing can be lost.
 **Phase 2 — Time.** The operation log and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
 tree memory via driven stash — `ff switch`, `ff start`, `ff branch`, anonymous
-branches and the claim-rename — and `ff commit` closing the open change (fufu's
+branches and the naming rename — and `ff commit` closing the open change (fufu's
 first index write: a close must leave `.git/index` matching the new HEAD, or
 foreign `git status` shows phantom changes). The daily driver exists after this phase.
 
@@ -776,8 +778,8 @@ a working development machine.
 - **Tree memory residuals** — same branch checked out in two worktrees; parked
   entries orphaned by foreign branch deletion; whether to set `status.showStash`
   so plain `git status` mentions parked work.
-- **Anonymous-branch hygiene** — unnamed branches accumulate; `ff branch`
-  segregates them in listings (Phase 2) and the name scheme and metadata
+- **Anonymous-branch hygiene** — unnamed branches accumulate; `ff branch list`
+  segregates them (Phase 2) and the name scheme and metadata
   home are settled (`ff/<adjective>-<noun>`; JSON under
   `<common-dir>/fufu/branch/`), but a tidy of merged or abandoned anonymous
   branches remains open.

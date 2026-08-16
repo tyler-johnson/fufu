@@ -1,4 +1,5 @@
-//! `ff describe` — pending description edit (or `-b` rename). Bare form
+//! `ff describe` — pending description edit, or `-b` to name the branch you
+//! are on (claiming a petname and renaming a chosen name alike). Bare form
 //! opens $EDITOR seeded with the current pending text — a sanctioned spawn,
 //! exactly like git's editor behavior.
 
@@ -23,7 +24,6 @@ pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result
         let (report, verb_ctx) = ff_core::branch::rename_current(
             &repo,
             &new_name,
-            false,
             &crate::provenance::pre_ff(ctx),
             None,
             std::env::args().collect(),
@@ -39,7 +39,13 @@ pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result
             crate::machine::emit("describe", &payload)?;
             return Ok(());
         }
-        println!("renamed {} to {}", report.from, report.to);
+        // One act, two readings: a petname had no name worth keeping, so
+        // taking one is a claim; a chosen name being replaced is a rename.
+        if ff_core::branch::is_anonymous(&report.from) {
+            println!("claimed {} as {}", report.from, report.to);
+        } else {
+            println!("renamed {} to {}", report.from, report.to);
+        }
         println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         return Ok(());
     }

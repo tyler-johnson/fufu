@@ -1,4 +1,4 @@
-//! Branch verbs: the claim-rename must preserve the timeline byte-for-byte
+//! Branch verbs: the naming rename must preserve the timeline byte-for-byte
 //! (modulo the name), match `git branch -m`'s observable reflog semantics,
 //! carry the parked entry and metadata, and guard worktrees. Delete trashes
 //! the chain and demotes the parked entry — never loses work.
@@ -24,7 +24,7 @@ fn ident(fx: &Fixture) {
 }
 
 fn prov() -> ff_core::Provenance {
-    ff_core::Provenance::new("pre", Some("ff branch".into()))
+    ff_core::Provenance::new("pre", Some("ff describe".into()))
 }
 
 #[test]
@@ -108,12 +108,17 @@ fn claim_carries_chain_parked_entry_and_metadata() {
     let parked_before = fx.git(&["rev-parse", "refs/fufu/parked/ff/misty-owl"]);
 
     let repo = fx.repo();
-    let (report, _ctx) = ff_core::branch::claim_current(
+    let (report, _ctx) = ff_core::branch::rename_current(
         &repo,
         "real-work",
         &prov(),
         Some(NOW + 1),
-        vec!["ff".into(), "branch".into(), "real-work".into()],
+        vec![
+            "ff".into(),
+            "describe".into(),
+            "-b".into(),
+            "real-work".into(),
+        ],
     )
     .unwrap();
     assert_eq!(report.from, "ff/misty-owl");
@@ -149,29 +154,33 @@ fn claim_carries_chain_parked_entry_and_metadata() {
     );
     // Recorded, and clean after.
     let record = tip_record(&fx.repo());
-    assert_eq!(record.verb, "branch");
+    assert_eq!(record.verb, "describe", "naming a branch is describe's act");
     let after = ff_core::ops::reconcile(&fx.repo(), NOW + 5).unwrap();
     assert!(after.is_quiet(), "{after:?}");
 }
 
+/// Naming a proper name is allowed — that is `ff describe -b`'s whole
+/// difference from the claim it replaced — while landing on a name someone
+/// else's work already holds is the one guess worth refusing.
 #[test]
-fn claim_refuses_proper_names_and_taken_names() {
+fn naming_allows_proper_names_and_refuses_taken_ones() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
     ident(&fx);
     let repo = fx.repo();
-    // On main (a proper name): claim refuses.
-    assert!(
-        ff_core::branch::claim_current(&repo, "other", &prov(), Some(NOW), Vec::new()).is_err()
-    );
+    // On main (a proper name): renaming is the same act as claiming.
+    let (report, _ctx) =
+        ff_core::branch::rename_current(&repo, "other", &prov(), Some(NOW), Vec::new()).unwrap();
+    assert_eq!(report.from, "main");
+    assert_eq!(report.to, "other");
     // On an anonymous branch, but the name is taken.
     fx.git(&["branch", "taken"]);
     fx.git(&["checkout", "-q", "-b", "ff/bold-crane"]);
     let repo = fx.repo();
-    assert!(
-        ff_core::branch::claim_current(&repo, "taken", &prov(), Some(NOW), Vec::new()).is_err()
-    );
+    let err = ff_core::branch::rename_current(&repo, "taken", &prov(), Some(NOW + 1), Vec::new())
+        .unwrap_err();
+    assert_eq!(err.id(), "branch/exists");
 }
 
 #[test]

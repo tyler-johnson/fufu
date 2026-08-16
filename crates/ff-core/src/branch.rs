@@ -1,5 +1,5 @@
-//! Branch operations. Phase 2 ships the rename core (the claim), list,
-//! and delete; anonymous branches live under `refs/heads/ff/<petname>`.
+//! Branch operations. Phase 2 ships the rename core (`ff describe -b`),
+//! list, and delete; anonymous branches live under `refs/heads/ff/<petname>`.
 //!
 //! Rename is built by hand — gix has no native rename — as
 //! create-new-with-replayed-reflog FIRST, then delete-old: a crash leaves
@@ -81,8 +81,8 @@ pub struct RenameEffects {
 }
 
 /// Rename `old` to `new`, carrying the snap chain, parked entry, and
-/// metadata. This is the mechanism beneath the claim (`ff branch <name>`,
-/// `ff describe -b`) and `-b` placeholder claims.
+/// metadata. This is the mechanism beneath `ff describe -b` and the `-b`
+/// placeholder claims on `ff commit` and `ff start`.
 pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<RenameEffects> {
     validate_name(new)?;
     let old_ref = heads_ref(old);
@@ -94,7 +94,7 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch list".into()],
         ));
     }
     guard_other_worktrees(repo, old)?;
@@ -212,7 +212,7 @@ pub(crate) fn retarget_head(repo: &gix::Repository, full_ref: &str, now: i64) ->
     }
 }
 
-/// List branches for `ff branch`: named and anonymous segregated, each with
+/// List branches for `ff branch list`: named and anonymous segregated, each with
 /// its tip, parked marker, pending description, and upstream annotation.
 pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
     use crate::model::BranchInfo;
@@ -265,24 +265,14 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
     Ok(crate::model::BranchList { named, anonymous })
 }
 
-/// `ff branch <name>` — claim the current anonymous branch, recorded.
-pub fn claim_current(
-    repo: &gix::Repository,
-    new_name: &str,
-    prov: &crate::snapshot::Provenance,
-    now: Option<i64>,
-    argv: Vec<String>,
-) -> Result<(crate::model::ClaimReport, verb::VerbContext)> {
-    rename_current(repo, new_name, true, prov, now, argv)
-}
-
-/// Rename the current branch, recorded. `require_anonymous` is the claim
-/// discipline (`ff branch <name>`); `ff describe -b` lifts it — the one
-/// rename that may touch proper names.
+/// Name the current branch, recorded — `ff describe -b`, the one verb that
+/// names a branch. Claiming a petname and renaming a proper name are the
+/// same act on the same axis as `-m`, so there is no discipline separating
+/// them: what an anonymous branch lacks is a name, not permission to have
+/// one changed.
 pub fn rename_current(
     repo: &gix::Repository,
     new_name: &str,
-    require_anonymous: bool,
     prov: &crate::snapshot::Provenance,
     now: Option<i64>,
     argv: Vec<String>,
@@ -298,26 +288,17 @@ pub fn rename_current(
         _ => {
             return Err(Error::coded(
                 "repo/detached",
-                "not on a branch: nothing to claim",
+                "not on a branch: there is no branch to name",
                 vec!["ff switch <branch>".into()],
             ));
         }
     };
-    if require_anonymous && !is_anonymous(&current) {
-        return Err(Error::coded(
-            "branch/already-named",
-            format!(
-                "{current} already has a proper name; use ff describe -b {new_name} to rename it"
-            ),
-            vec![format!("ff describe -b {new_name}")],
-        ));
-    }
     validate_name(new_name)?;
     if refs::ref_target(repo, &heads_ref(new_name))?.is_some() {
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new_name} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch list".into()],
         ));
     }
     guard_other_worktrees(repo, &current)?;
@@ -360,7 +341,7 @@ pub fn rename_current(
     } else {
         format!("rename {current} to {new_name}")
     };
-    let mut record = OpRecord::new("branch", summary, now);
+    let mut record = OpRecord::new("describe", summary, now);
     record.argv = argv;
     record.refs = transitions;
     record.head = Some((
@@ -401,7 +382,7 @@ pub fn rename_current(
     ))
 }
 
-/// `ff branch -d <name>` — delete a branch, recorded. The branch's pointer
+/// `ff branch delete <name>` — delete a branch, recorded. The branch's pointer
 /// into the log moves to trash (trim's one-deep pattern) rather than being
 /// dropped, the parked entry is demoted (its stash entry survives), and the
 /// tip stays pinned by the operation — so the deletion is undoable, which is
@@ -523,7 +504,7 @@ pub fn create_at(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {branch} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch list".into()],
         ));
     }
     refs::write_ref(

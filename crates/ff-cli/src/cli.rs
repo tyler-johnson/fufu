@@ -162,24 +162,15 @@ pub enum Command {
         /// The description text; omitted opens $EDITOR
         #[arg(short = 'm', value_name = "msg")]
         message: Option<String>,
-        /// Rename the current branch instead (proper names allowed)
+        /// Name the branch you are on instead — anonymous or already named
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
     },
-    /// List branches, claim the current anonymous branch, or delete one
+    /// Manage lines of work: what exists, and removing one
     #[command(long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
-        /// Claim the current anonymous branch with this name
-        #[arg(value_name = "name")]
-        name: Option<String>,
-        /// Delete a branch (timeline moves to trash; undoable via ff undo)
-        #[arg(
-            short = 'd',
-            long = "delete",
-            value_name = "branch",
-            conflicts_with = "name"
-        )]
-        delete: Option<String>,
+        #[command(subcommand)]
+        action: Option<BranchAction>,
         #[command(flatten)]
         past: Past,
     },
@@ -331,6 +322,48 @@ impl OpAction {
     }
 }
 
+/// `ff branch` — the branch family, and it does not name anything. Naming
+/// the branch you are on is `ff describe -b`, on the same axis as `-m`: one
+/// verb for saying what a piece of work is, whether the subject is the
+/// change's description or the branch's name. So this family is the
+/// bookkeeping that is left — what exists, and taking one away.
+#[derive(Subcommand)]
+pub enum BranchAction {
+    /// Named branches and anonymous ones, kept apart
+    #[command(long_about = help::BRANCH_LIST, after_long_help = help::BRANCH_LIST_EXAMPLES)]
+    List {
+        #[command(flatten)]
+        past: Past,
+    },
+    /// Delete a branch — its timeline moves to trash, and `ff undo` is enough
+    #[command(long_about = help::BRANCH_DELETE, after_long_help = help::BRANCH_DELETE_EXAMPLES)]
+    Delete {
+        /// The branch to delete, by its full name
+        #[arg(value_name = "branch")]
+        target: String,
+    },
+    /// Anything else — most often the retired `ff branch <name>` claim.
+    #[command(external_subcommand)]
+    Other(Vec<OsString>),
+}
+
+impl BranchAction {
+    /// The envelope name — the full path, as in the `ff op` family.
+    fn name(&self) -> &'static str {
+        match self {
+            BranchAction::List { .. } | BranchAction::Other(_) => "branch list",
+            BranchAction::Delete { .. } => "branch delete",
+        }
+    }
+
+    fn past(&self) -> Option<&Past> {
+        match self {
+            BranchAction::List { past } => Some(past),
+            BranchAction::Delete { .. } | BranchAction::Other(_) => None,
+        }
+    }
+}
+
 impl Command {
     /// The name this verb stamps on its JSON envelope, success or error. It
     /// lives beside the variant so a verb added without one is a compile
@@ -348,7 +381,12 @@ impl Command {
             Command::Undo => "undo",
             Command::Redo => "redo",
             Command::Op { action } => action.name(),
-            Command::Branch { .. } => "branch",
+            // Bare `ff branch` is the list, so it names the shape it emits
+            // rather than the family — two payloads under one name is what
+            // the `ff op` family was built to avoid.
+            Command::Branch { action, .. } => {
+                action.as_ref().map_or("branch list", BranchAction::name)
+            }
             Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
             Command::Hook { .. } => "hook",
@@ -370,8 +408,13 @@ impl Command {
             Command::Status { past }
             | Command::Log { past, .. }
             | Command::Evolog { past, .. }
-            | Command::Restore { past, .. }
-            | Command::Branch { past, .. } => Some(past),
+            | Command::Restore { past, .. } => Some(past),
+            // Declared twice on purpose: once for the bare form, once for
+            // the spelled-out `list`, so `--at-op` is takeable on either
+            // side of the subcommand rather than only before it.
+            Command::Branch { action, past } => {
+                Some(action.as_ref().and_then(BranchAction::past).unwrap_or(past))
+            }
             Command::Op { action } => action.past(),
             Command::Git { .. }
             | Command::Trim { .. }

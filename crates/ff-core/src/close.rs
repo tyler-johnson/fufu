@@ -81,8 +81,8 @@ pub fn close(
         HeadState::Detached { .. } => {
             return Err(Error::coded(
                 "repo/detached",
-                "detached HEAD: there is no branch to close onto (ff branch <name> to mint one)",
-                vec!["ff branch <name>".into()],
+                "detached HEAD: there is no branch to close onto",
+                vec!["ff switch <branch>".into()],
             ));
         }
     };

@@ -92,7 +92,7 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
                 Translated::Commit { message } => {
                     crate::cmd::commit::run(ctx, message, false, None)
                 }
-                Translated::Branch => crate::cmd::branch::run(ctx, None, None),
+                Translated::Branch => crate::cmd::branch::run(ctx, None),
             };
             if let Some(repo) = &repo
                 && let Some(notice) =

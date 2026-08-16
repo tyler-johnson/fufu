@@ -102,7 +102,7 @@ fn main() {
         Some(cli::Command::Undo) => cmd::undo::run(&ctx),
         Some(cli::Command::Redo) => cmd::undo::redo(&ctx),
         Some(cli::Command::Op { action }) => cmd::op::run(&ctx, action),
-        Some(cli::Command::Branch { name, delete, .. }) => cmd::branch::run(&ctx, name, delete),
+        Some(cli::Command::Branch { action, .. }) => cmd::branch::run(&ctx, action),
         Some(cli::Command::Start {
             target,
             message,

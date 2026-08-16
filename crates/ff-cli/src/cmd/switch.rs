@@ -142,7 +142,7 @@ fn switch_to_a_revision(ctx: &Ctx, repo: &ff_core::gix::Repository, target: Stri
         "{}",
         crate::render::paint_dim(
             &format!(
-                "  ff branch <name>  claim it   ·   ff start {target}  the verb that meant it"
+                "  ff describe -b <name>  name it   ·   ff start {target}  the verb that meant it"
             ),
             colored
         )

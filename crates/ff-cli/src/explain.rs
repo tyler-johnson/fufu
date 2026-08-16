@@ -20,31 +20,23 @@ pub static ENTRIES: &[Entry] = &[
         detail: "fufu never reuses a branch name implicitly. A name that is already taken could be \
                  someone's work, and quietly landing on top of it is the one guess worth refusing. \
                  Pick another name, or switch to that branch if it was the one you meant.",
-        exits: &["ff branch <name>"],
+        exits: &["ff branch list", "ff describe -b <name>"],
     },
     Entry {
         id: "branch/not-found",
         summary: "no branch here goes by that name",
         detail: "Names resolve against local branches, so a branch that exists on the remote but \
                  not here will not be found. Adding @<remote> fetches it and lands you on a copy. \
-                 Bare ff branch lists what is local.",
-        exits: &["ff branch", "ff switch <branch>@origin"],
+                 ff branch list says what is local.",
+        exits: &["ff branch list", "ff switch <branch>@origin"],
     },
     Entry {
         id: "branch/ambiguous",
         summary: "that branch prefix matches more than one branch",
         detail: "A prefix has to name one branch, and this one names several. Every candidate is \
-                 listed so you can pick; typing one more character is usually enough. Bare ff \
-                 branch lists what is local.",
-        exits: &["ff branch"],
-    },
-    Entry {
-        id: "branch/already-named",
-        summary: "that branch already has a proper name",
-        detail: "Claiming is for anonymous branches — the ones fufu minted a petname for — and \
-                 renaming a branch someone chose a name for is a different, louder act. \
-                 ff describe -b does it, and is the one rename that may touch proper names.",
-        exits: &["ff describe -b <name>"],
+                 listed so you can pick; typing one more character is usually enough. \
+                 ff branch list says what is local.",
+        exits: &["ff branch list"],
     },
     Entry {
         id: "branch/invalid-name",
@@ -365,7 +357,7 @@ pub static ENTRIES: &[Entry] = &[
                  not one of fufu's own symbols. Object prefixes have to be at least four \
                  characters — git's own minimum, borrowed rather than restated — so a shorter one \
                  reads as an ordinary name and finds nothing.",
-        exits: &["ff log", "ff branch"],
+        exits: &["ff log", "ff branch list"],
     },
     Entry {
         id: "usage/revset-not-a-commit",
@@ -442,7 +434,7 @@ pub static ENTRIES: &[Entry] = &[
                  that came out empty. The common causes are a range whose endpoints are the wrong \
                  way round, an intersection of two sets that never overlap, and a predicate no \
                  commit satisfies.",
-        exits: &["ff log", "ff branch"],
+        exits: &["ff log", "ff branch list"],
     },
     Entry {
         id: "usage/revset-not-a-point",
@@ -488,6 +480,16 @@ pub static ENTRIES: &[Entry] = &[
                  refused rather than quietly resolved by precedence, so the command you get is \
                  always the command you wrote.",
         exits: &[],
+    },
+    Entry {
+        id: "usage/unknown-subcommand",
+        summary: "that family does not have that subcommand",
+        detail: "A verb that groups subcommands answers an unknown one itself rather than letting \
+                 the parser call it an unexpected argument, because the usual cause is not a typo. \
+                 ff branch <name> used to claim the anonymous branch you were standing on; naming \
+                 a branch is ff describe -b now, on the same axis as -m, and it takes proper names \
+                 too. What is left in the family is the bookkeeping: list, and delete.",
+        exits: &["ff branch list", "ff describe -b <name>"],
     },
     Entry {
         id: "usage/needs-message",
