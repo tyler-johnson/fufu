@@ -114,6 +114,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         skeleton.prev_on_branch = prev_on_branch;
         skeleton.session = draft.session.clone();
         skeleton.prev_segment = Some(segment_link(repo, prev_on_branch, draft.base)?);
+        skeleton.prev_verb = Some(verb_link(repo, prev)?);
         skeleton.refs_blob = match &draft.refs {
             Some(table) => Some(
                 repo.write_blob(table.to_blob().as_bytes())
@@ -244,6 +245,33 @@ fn segment_link(
     Ok(if previous.base().map(|b| b.object_id()) == base {
         previous
             .prev_segment()
+            .unwrap_or(message::SegmentLink::At(prev))
+    } else {
+        message::SegmentLink::At(prev)
+    })
+}
+
+/// The verb skip-link, by the same rule and the same trade as the segment
+/// one: the predecessor either *is* the answer or already knows it, so one
+/// object decode here spares the display walk a decode per capture it did not
+/// want. What makes the cost worth naming is that `ff op log` shows verbs by
+/// default, and the run of captures between two of them is exactly what grows
+/// while an open change stays open.
+///
+/// A predecessor written before the link existed cannot be asked, and the
+/// trailer has no way to say "unknown" — a written `none` is a positive claim
+/// that the walk is over. So the link points at the predecessor itself: a hop
+/// that skips nothing, lands on a capture the caller's filter drops, and
+/// leaves the walk to step the slow way from there. Truthful and useless
+/// beats a shortcut past operations that are still on the log.
+fn verb_link(repo: &gix::Repository, prev: Option<gix::ObjectId>) -> Result<message::SegmentLink> {
+    let Some(prev) = prev else {
+        return Ok(message::SegmentLink::ChainStart);
+    };
+    let previous = walk::decode(repo, prev)?;
+    Ok(if previous.is_capture() {
+        previous
+            .prev_verb()
             .unwrap_or(message::SegmentLink::At(prev))
     } else {
         message::SegmentLink::At(prev)

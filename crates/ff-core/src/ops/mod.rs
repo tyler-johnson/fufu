@@ -202,6 +202,23 @@ impl<'r> OpLog<'r> {
         walk::OpWalk::new(self.repo, Ok(Some(start)), walk::Follow::Log)
     }
 
+    /// The operations that are not captures, newest first — the same walk
+    /// with the runs of captures hopped whole rather than decoded and
+    /// discarded. That decoding is what made `ff op log` grow with the log
+    /// while its answer stayed twenty-five rows.
+    ///
+    /// The start is yielded whatever it is: the tip is nearly always a
+    /// capture, and refusing to begin there would leave nowhere to begin.
+    pub fn iter_verbs(&self) -> impl Iterator<Item = Result<Operation<'r>>> + '_ {
+        walk::OpWalk::new(self.repo, self.tip(), walk::Follow::Verbs)
+    }
+
+    /// [`Self::iter_verbs`] bounded at a past operation, the way
+    /// [`Self::iter_from`] bounds [`Self::iter`].
+    pub fn iter_verbs_from(&self, start: OpId) -> impl Iterator<Item = Result<Operation<'r>>> + '_ {
+        walk::OpWalk::new(self.repo, Ok(Some(start)), walk::Follow::Verbs)
+    }
+
     /// One branch's operations, newest first.
     ///
     /// This link and `prev` skip different things, which is why both ship:

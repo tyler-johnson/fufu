@@ -484,9 +484,16 @@ pub fn read_ops_from(
     captures: bool,
 ) -> Result<Vec<crate::model::OpEntry>> {
     let log = OpLog::open(repo)?;
-    let walk: Box<dyn Iterator<Item = Result<crate::ops::Operation<'_>>>> = match start {
-        Some(id) => Box::new(log.iter_from(id)),
-        None => Box::new(log.iter()),
+    // A verb view hops the runs of captures rather than decoding them to find
+    // out it did not want them — twenty-five rows' work whatever the log has
+    // grown to. `read_ops_of`'s kind filter stays the guard: the hop only
+    // decides what is *walked*, never what is shown.
+    let walk: Box<dyn Iterator<Item = Result<crate::ops::Operation<'_>>>> = match (start, captures)
+    {
+        (Some(id), true) => Box::new(log.iter_from(id)),
+        (Some(id), false) => Box::new(log.iter_verbs_from(id)),
+        (None, true) => Box::new(log.iter()),
+        (None, false) => Box::new(log.iter_verbs()),
     };
     read_ops_of(repo, walk.map(|op| op.map(|op| op.id())), limit, captures)
 }

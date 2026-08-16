@@ -56,17 +56,31 @@ pub fn ref_ids(repo: &gix::Repository, branch: &str) -> Result<Vec<String>> {
     Ok(ids)
 }
 
-/// Abbreviate the ids of rows that are about to be shown or serialized.
-/// `shorten()` is an object-store prefix lookup, not a string operation —
-/// affordable per displayed row, ruinous per link — so the walk leaves
-/// `short_id` empty and only this fills it.
+/// Abbreviate the ids of rows that are about to be shown or serialized, so
+/// the walk itself stays a walk: `short_id` is left empty there and only
+/// filled here, for the rows on screen.
+///
+/// The length comes from the id index rather than from `shorten()`, which is
+/// the same answer `ff op log` gives and a cheaper one. `shorten()` asks the
+/// object store how short a prefix can be while staying unambiguous among
+/// *every object in the repository*, so it grows with the store: twenty-five
+/// rows on a thousand-operation log cost four times what they cost on a
+/// hundred, for an abbreviation nobody typed differently. The index answers
+/// the question actually being asked — unambiguous among the operations —
+/// with a binary search over a sorted file.
 fn fill_short_ids(repo: &gix::Repository, rows: &mut [SnapEntry]) {
+    let hex: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let Ok(lens) = crate::ops::index::prefix_lens(repo, &hex) else {
+        // A derived cache that cannot be read is not a reason to fail a read:
+        // fall back to the width every other row would have got anyway.
+        for row in rows {
+            row.short_id = row.id.chars().take(8).collect();
+        }
+        return;
+    };
     for row in rows {
-        row.short_id = gix::ObjectId::from_hex(row.id.as_bytes())
-            .ok()
-            .and_then(|id| id.attach(repo).shorten().ok())
-            .map(|prefix| prefix.to_string())
-            .unwrap_or_else(|| row.id.clone());
+        let len = lens.get(&row.id).copied().unwrap_or(8).max(4);
+        row.short_id = row.id.chars().take(len).collect();
     }
 }
 

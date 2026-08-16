@@ -87,6 +87,13 @@ impl<'r> Operation<'r> {
         self.skeleton.prev_segment
     }
 
+    /// The newest operation before this one that is not a capture, when the
+    /// op names it. `None` is an op written before the link existed, not a
+    /// claim that there is no such operation.
+    pub fn prev_verb(&self) -> Option<message::SegmentLink> {
+        self.skeleton.prev_verb
+    }
+
     /// The worktree this op carries. Free: it is the commit's own tree.
     ///
     /// It is a *plan*, not an observation — the state the world should be in
@@ -391,6 +398,16 @@ pub(crate) enum Follow {
     Log,
     /// `fufu-prev-branch` — one branch's operations, newest first.
     Branch,
+    /// `fufu-prev-verb` — the operations that are not captures, newest
+    /// first, hopping the runs of captures between them whole.
+    ///
+    /// The start is yielded whatever it is, because the tip is nearly always
+    /// a capture and a walk that refused to begin there would have nowhere
+    /// to begin at all; the caller's kind filter is what keeps it off the
+    /// rows. An op that names no such link is walked one step the slow way,
+    /// so a log written before the link existed degrades to what it always
+    /// did rather than stopping short.
+    Verbs,
 }
 
 /// A lazy walk. Nothing is decoded until it is asked for, so a caller can
@@ -439,6 +456,11 @@ impl<'r> Iterator for OpWalk<'r> {
                 self.next = match self.follow {
                     Follow::Log => op.prev(),
                     Follow::Branch => op.prev_on_branch(),
+                    Follow::Verbs => match op.prev_verb() {
+                        Some(message::SegmentLink::At(id)) => Some(OpId::new(id)),
+                        Some(message::SegmentLink::ChainStart) => None,
+                        None => op.prev(),
+                    },
                 }
                 .map(|id| id.object_id());
                 Some(Ok(op))

@@ -36,6 +36,12 @@ const PREV_BRANCH_KEY: &str = "fufu-prev-branch";
 /// The newest op of the segment before this one (see `evolog`'s
 /// `segment_anchors`): the hop that skips a run of same-base ops whole.
 const PREV_SEGMENT_KEY: &str = "fufu-prev-segment";
+/// The newest operation before this one that is not a capture: the hop that
+/// skips a run of captures whole. `ff op log` shows verbs by default, and
+/// without this it decodes every capture between two of them to find out it
+/// did not want them — a cost that grows with the log while the answer stays
+/// twenty-five rows.
+const PREV_VERB_KEY: &str = "fufu-prev-verb";
 /// The blob holding the last-seen ref table. A verb op writes a fresh one
 /// (its plan); a capture copies its predecessor's oid verbatim.
 const REFS_KEY: &str = "fufu-refs";
@@ -44,12 +50,18 @@ const SESSION_KEY: &str = "fufu-session";
 
 const NONE: &str = "none";
 
-/// What an op knows about the segment before its own.
+/// A skip-link's destination, shared by every hop an op records.
+///
+/// The distinction that earns the type is `ChainStart` against a missing
+/// trailer: one is a positive claim that the walk is over, the other is an op
+/// written before the link existed and has to be walked the slow way.
+/// `Option<SegmentLink>` says all three things, which is why the fields are
+/// spelled that way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentLink {
-    /// This op's segment is the branch's first: there is nothing earlier.
+    /// Nothing earlier: the branch's first segment, or no verb before this.
     ChainStart,
-    /// The newest op of the previous segment.
+    /// The op the hop lands on.
     At(gix::ObjectId),
 }
 
@@ -63,6 +75,7 @@ pub struct Skeleton {
     pub prev: Option<gix::ObjectId>,
     pub prev_on_branch: Option<gix::ObjectId>,
     pub prev_segment: Option<SegmentLink>,
+    pub prev_verb: Option<SegmentLink>,
     pub refs_blob: Option<gix::ObjectId>,
     pub session: Option<String>,
 }
@@ -76,6 +89,7 @@ impl Skeleton {
             prev: None,
             prev_on_branch: None,
             prev_segment: None,
+            prev_verb: None,
             refs_blob: None,
             session: None,
         }
@@ -145,6 +159,14 @@ pub fn build(subject: &str, skipped: &[String], skeleton: &Skeleton) -> String {
             Some(SegmentLink::At(id)) => id.to_string(),
         },
     );
+    trailer(
+        &mut msg,
+        PREV_VERB_KEY,
+        &match skeleton.prev_verb {
+            None | Some(SegmentLink::ChainStart) => NONE.to_string(),
+            Some(SegmentLink::At(id)) => id.to_string(),
+        },
+    );
     trailer(&mut msg, REFS_KEY, &oid_value(skeleton.refs_blob));
     if let Some(session) = &skeleton.session {
         trailer(&mut msg, SESSION_KEY, session);
@@ -172,6 +194,21 @@ fn trailer(msg: &mut String, key: &str, value: &str) {
     msg.push('\n');
 }
 
+/// Read one skip-link trailer. Absent and `none` differ: absent is an op
+/// written before the link existed (walk it the slow way), `none` is a
+/// positive claim that nothing precedes it (stop).
+fn hop_of(message: &str, key: &str) -> Option<SegmentLink> {
+    value_of(message, key).and_then(|v| {
+        if v == NONE {
+            Some(SegmentLink::ChainStart)
+        } else {
+            gix::ObjectId::from_hex(v.as_bytes())
+                .ok()
+                .map(SegmentLink::At)
+        }
+    })
+}
+
 fn oid_value(id: Option<gix::ObjectId>) -> String {
     id.map_or_else(|| NONE.to_string(), |id| id.to_string())
 }
@@ -187,18 +224,8 @@ pub fn parse(message: &str) -> Option<Skeleton> {
         base: oid_of(message, BASE_KEY),
         prev: oid_of(message, PREV_KEY),
         prev_on_branch: oid_of(message, PREV_BRANCH_KEY),
-        // Absent and `none` differ here: absent is an op written before the
-        // link existed (walk it the slow way), `none` is a positive claim
-        // that nothing precedes this segment (stop).
-        prev_segment: value_of(message, PREV_SEGMENT_KEY).and_then(|v| {
-            if v == NONE {
-                Some(SegmentLink::ChainStart)
-            } else {
-                gix::ObjectId::from_hex(v.as_bytes())
-                    .ok()
-                    .map(SegmentLink::At)
-            }
-        }),
+        prev_segment: hop_of(message, PREV_SEGMENT_KEY),
+        prev_verb: hop_of(message, PREV_VERB_KEY),
         refs_blob: oid_of(message, REFS_KEY),
         session: value_of(message, SESSION_KEY).map(str::to_string),
     })
@@ -258,6 +285,7 @@ mod tests {
             prev: Some(oid(0x22)),
             prev_on_branch: Some(oid(0x33)),
             prev_segment: Some(SegmentLink::At(oid(0x44))),
+            prev_verb: Some(SegmentLink::At(oid(0x66))),
             refs_blob: Some(oid(0x55)),
             session: Some("agent-7".into()),
         }

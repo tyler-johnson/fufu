@@ -206,6 +206,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     let mut replay: Vec<(gix::ObjectId, i64, String)> = Vec::new();
     let mut per_branch_replay: HashMap<String, Vec<(gix::ObjectId, i64, String)>> = HashMap::new();
     let mut prev_new: Option<gix::ObjectId> = None;
+    let mut prev_verb_new: Option<gix::ObjectId> = None;
 
     for entry in &survivors {
         let mut commit = entry.commit.clone();
@@ -235,6 +236,16 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
             },
             _ => SegmentLink::ChainStart,
         });
+        // The verb link comes out of the replay rather than the old trailer,
+        // because the replay already knows the answer: it runs oldest-first,
+        // so the last non-capture written *is* what this op hops to. That
+        // also relinks a log written before the trailer existed, which the
+        // remap above cannot do — there is nothing to remap.
+        skeleton.prev_verb = Some(match prev_verb_new {
+            Some(id) => SegmentLink::At(id),
+            None => SegmentLink::ChainStart,
+        });
+        let is_capture = skeleton.kind == OpKind::Capture;
 
         // Slot 1 is the chain's, and the base rides at slot 2 behind it — so
         // the survivor that becomes the new root loses its base *parent* along
@@ -256,6 +267,9 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         let new_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
         old_to_new.insert(entry.id, new_id);
         prev_new = Some(new_id);
+        if !is_capture {
+            prev_verb_new = Some(new_id);
+        }
         replay.push((new_id, entry.time, entry.subject.clone()));
         if let Some(branch) = &entry.branch {
             per_branch_replay.entry(branch.clone()).or_default().push((

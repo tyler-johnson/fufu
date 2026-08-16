@@ -652,3 +652,64 @@ fn write_ahead_crash_is_labeled_incomplete() {
         op.summary()
     );
 }
+
+/// The verb walk must be the log walk with the captures taken out: the same
+/// operations, in the same order. It is a skip-link, so the failure it can
+/// have is silent — a hop that jumped one verb too far would drop a row from
+/// `ff op log` and nothing else would notice.
+#[test]
+fn the_verb_walk_is_the_log_walk_without_the_captures() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let repo = fx.repo();
+
+    // Runs of every awkward length: none, one, and several, on both sides of
+    // a verb — including two verbs adjacent, where the hop skips nothing.
+    let mut now = NOW;
+    verb(&repo, "first", now);
+    for i in 0..3 {
+        fx.write("a.txt", &format!("run one {i}\n"));
+        now += 1;
+        snap(&fx, &repo, now);
+    }
+    now += 1;
+    verb(&repo, "second", now);
+    now += 1;
+    verb(&repo, "third", now);
+    fx.write("a.txt", "run two\n");
+    now += 1;
+    snap(&fx, &repo, now);
+    now += 1;
+    verb(&repo, "fourth", now);
+    for i in 0..5 {
+        fx.write("a.txt", &format!("run three {i}\n"));
+        now += 1;
+        snap(&fx, &repo, now);
+    }
+
+    let log = OpLog::open(&repo).unwrap();
+    let filtered: Vec<String> = log
+        .iter()
+        .map(|op| op.unwrap())
+        .filter(|op| !op.is_capture())
+        .map(|op| op.id().hex())
+        .collect();
+    let hopped: Vec<String> = log
+        .iter_verbs()
+        .map(|op| op.unwrap())
+        .filter(|op| !op.is_capture())
+        .map(|op| op.id().hex())
+        .collect();
+    assert_eq!(hopped, filtered, "the hop changes the cost, not the answer");
+    assert!(filtered.len() >= 4, "the fixture has verbs to find");
+
+    // And the point of it: the walk decodes the verbs and the tip, not the
+    // nine captures between them.
+    let decoded = log.iter_verbs().count();
+    assert!(
+        decoded <= filtered.len() + 2,
+        "the verb walk decoded {decoded} operations for {} rows",
+        filtered.len()
+    );
+}

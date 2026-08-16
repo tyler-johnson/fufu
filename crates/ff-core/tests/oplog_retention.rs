@@ -135,9 +135,14 @@ fn trim_drops_suffix_preserving_survivors() {
     let new_oldest = cat(&fx, &new_oldest_id);
 
     // Survivor content is byte-preserved: tree, subject, identities, dates.
-    // What may differ is exactly what describes the log's SHAPE — the three
+    // What may differ is exactly what describes the log's SHAPE — the four
     // stated links — because the shape is the thing the trim changed.
-    let shape_keys = ["fufu-prev:", "fufu-prev-branch:", "fufu-prev-segment:"];
+    let shape_keys = [
+        "fufu-prev:",
+        "fufu-prev-branch:",
+        "fufu-prev-segment:",
+        "fufu-prev-verb:",
+    ];
     let without_links = |msg: &str| -> Vec<String> {
         msg.lines()
             .filter(|l| !shape_keys.iter().any(|k| l.starts_with(k)))
