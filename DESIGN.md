@@ -63,7 +63,7 @@ stripped of fufu is slower, not stranded.
 The corollary's strong form: fufu is **abandonable and returnable at any moment**,
 not merely removable once. A GUI session, a teammate's raw git, a weekend on a
 machine without fufu — all legitimate, all absorbable. This forces one deep design
-rule: fufu's state (journal, rewrite map, parked trees, held rewrites) is a *cache
+rule: fufu's state (the operation log, rewrite map, parked trees, held rewrites) is a *cache
 over git, never an authority*. When fufu's records disagree with the repository,
 the repository wins and fufu rebuilds its picture from what it observes. Returning
 is reconciliation, not recovery — and reconciliation is loud about anything it
@@ -171,8 +171,8 @@ regimes); the capture floor holds the safety copy regardless.
 
 **The open change.** jj makes the working copy a literal commit, eagerly created
 empty and continuously amended. fufu keeps the guarantee and drops the object:
-the working tree *is* the open change, its history is the capture chain, and no
-commit exists until the change closes. `ff commit` is the close — build the
+the working tree *is* the open change, its history is the captures the log
+already holds, and no commit exists until the change closes. `ff commit` is the close — build the
 tree (`add -A` semantics), write the commit, the branch advances, status is
 clean. A clean tree makes the close a no-op: **no empty commit is ever
 created** — jj's placeholder commits are exactly the kind of state a boring
@@ -309,7 +309,7 @@ work when it can just work, stop for the user when it can't. `ff switch`
 remains the deliberate "later": leaving a branch parks the session, note
 included, like any dirty state, and status pins it until return. An explicit
 abandon (`ff done --abandon`) drops the session and restores the parked tip;
-the session's edits stay in the capture chain regardless.
+the session's edits stay in the log regardless.
 
 **Land-if-clean automation.** The theme of the whole floor: **just work when it
 can just work; stop for the user only when it can't.** Operations attempt
@@ -392,7 +392,7 @@ the dangerous-but-daily git commands (`rebase -i`, `stash`, `reset`, reflog
 spelunking) are exactly what fufu's verbs replace.
 
 **The rule that keeps this honest: every fufu verb must earn its existence by doing
-something git's version doesn't** — routing through the op journal, enforcing an
+something git's version doesn't** — routing through the operation log, enforcing an
 exit guard, engaging tree memory, capturing first. If a proposed verb would behave
 identically to its git counterpart, it must not exist; git is right there. The
 moment fufu verbs are just spellings, the tool collapses into shell aliases with
@@ -410,7 +410,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` renames the branch (the claim, inline); descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
 | `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
 | `ff switch <branch>[@<remote>]` | branch switch with tree memory; `@<remote>` fetches first and lands you on a synced copy | `stash` dances, `fetch` + `switch -c --track` |
-| `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, capture chain and parked state carried along | `git branch` bookkeeping |
+| `ff branch` | move/rename/delete lines of work — recorded, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, its operations and parked state carried along | `git branch` bookkeeping |
 | `ff absorb [<paths>]` | fold working changes into a past commit — `HEAD`, or `--into <rev>` — and restack its descendants in memory | `commit --fixup` + `rebase -i --autosquash` |
 | `ff lift [<paths>]` | the counterpart: take changes back out of a past commit (`HEAD`, or `--from <rev>`) into the open change, restacking descendants. Only ownership moves; no file does | nothing |
 | `ff edit <rev>` | editing session on any commit: mints an anonymous branch there and switches to it. The branch you came from stays put and its commits wait ahead; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
@@ -424,7 +424,6 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff op <log\|show\|diff\|restore\|revert\|abandon>` | the operation log as objects: read it, show what one changed, compare two, rewind the repository to one (`restore`), or invert a single one and leave later work standing (`revert`) | nothing — git has no operation log |
 | `ff log [-r <revset>]` | changes as the spine, jj-style: the open change (`@`) atop the commit walk (`●`), each commit wearing its newest operation's id; `-r` takes the set language | `reflog` + `log` |
 | `ff evolog` | commits and the operations between them, newest first, runs collapsed the way `ff undo` moves — the combined view, and the drill-in behind `ff log`'s letters column | `reflog` spelunking |
-| `ff session` | list the session tags the operation log knows — the ids you filter by. Setting one is `--session` or `FF_SESSION`, never a verb | nothing — git has no concept of work that isn't a commit |
 | `ff restore <path> [--from <rev>]` | pull paths back: bare, from the commit under the open change; `--from` names another revision; `--at-op` reaches a past operation instead | hoping |
 | `ff trim` | drop operations past the keep window — trash-first, so the last trim is itself undoable; rides an ff command daily, so retention enforces itself | remembering to prune, or quietly never pruning |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
@@ -433,7 +432,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
 | `ff doctor` | verify the net: chains, identity, reflogs, gc guard, objects, wiring, update — `--fix` repairs exactly the gc keys | "is this thing even on?" doubt |
 | `ff explain <id>` | what an error id means, and the ways out of it | searching the message text |
-| `ff watch` | stream journal entries as they land, newline-delimited JSON | polling `git status` in a loop |
+| `ff watch` | stream operations as they land, newline-delimited JSON | polling `git status` in a loop |
 | `ff completions <shell>` | shell completion, with branches, revs, and op ids resolved live | hand-rolled dotfile fragments |
 
 Two flag conventions keep the surface from turning into a scramble for letters. **`-m` describes what the verb creates** — the commit `ff commit` closes, the change `ff start` opens, the description `ff describe` sets — so one letter means one thing across every verb that makes something. And **universal flags are long-only**: the few flags every verb carries (`--json`, `--session`, `--at-op`) never take a short form, so a verb may claim any letter without consulting a list, and the collision is caught by the parser rather than by convention.
@@ -448,7 +447,7 @@ Op id columns highlight the shortest unique prefix: bold what you can type, dim 
 
 `ff status` is that same picture cropped to two rows: `@`, the open change, and the commit under it, with the diff between them hanging on the rail that joins them — one line per file: a change-kind letter, the path, insertions and deletions counted separately, and a width-scaled `+`/`-` bar. The two counts stay apart rather than summing to git's single total because "18 changed" is the one number nobody acts on, and the letter earns its column because no bar can tell a new 40-line file from one that grew by 40, while binary and mode changes have no numbers to draw at all. There are no sections: a file is ignored or it is listed. Conflicts keep a block of their own — that is a state, not a staging distinction — and the futures line closes the block. The futures line spends the three verdict colors exactly as the shared rule defines them — dim when there is nothing to say, blue when the branch is only ahead, green when upstream moved and the rebase is clean, orange when it conflicts — and the verdict outranks ahead-ness when both are true, because it is the half that needs a decision. The palette is 256-color and deliberately desaturated: the base sixteen have no orange at all, and saturated glyphs make the dim rails beside them look broken — anstream downgrades on terminals that can't do 256. Which palette is `fufu.theme`: `muted` by default, `vivid` for the saturated cut, and `terminal` to drop to the base sixteen and inherit whatever the user's own terminal theme defines — the one honest choice for someone who has already tuned their colors and wants every tool to respect them. `--json` carries the model rather than the crop (see The machine surface): the same `changes` array, plus `open`, `parent`, and the futures the two-row view compresses into one line.
 
-The log family (`ff log`, `ff evolog`, `ff log --ops`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
+The log family (`ff log`, `ff evolog`, `ff op log`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FRX` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors, don't clear the screen). Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
 ### `ff git` and the alias
 
@@ -512,9 +511,9 @@ The passive lane keeps installs fresh without being asked. Official binaries (ne
 
 ### `ff doctor`
 
-jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (a chain moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (chains and their ages, the snapshot identity on every tip, reflogs, the gc guard, journal health and pending foreign drift, settings validated through the same parsers the readers use, the object store's loose-versus-packed split, a trim preview and the auto-trim clock), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
+jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (the log moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (the operation log and its age, fufu's identity on the operations carrying it, reflogs, the gc guard, pending foreign drift, settings validated through the same parsers the readers use, the object store's loose-versus-packed split, a trim preview and the auto-trim clock), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
 
-Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the journal will absorb and never absorbs it, takes no snapshot, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
+Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the log will absorb and never absorbs it, captures nothing, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
 
 ## The machine surface
 
@@ -530,7 +529,7 @@ Exit codes carry the same verdict at shell resolution: **0** done, or yes; **1**
 
 **Every ask has a non-interactive answer.** Wherever this document says fufu asks — the ambiguous parked entry, an undescribed close, an unusual file about to land — a flag supplies the answer up front, and in a non-interactive environment (`FF_NONINTERACTIVE`, or stdin that is not a terminal) the question becomes a structured error naming that flag. No verb ever blocks on a prompt or an editor with nobody there to answer it. `FF_READONLY` completes the pair from the other side: a mode refusing every mutation, so a supervisor or a CI job can be certain a read stayed a read.
 
-**Sessions.** A session is a tag on an operation, and deliberately nothing more. Set one — `--session`, `FF_SESSION` in the environment, the agent trigger stamping its own id without being asked — and every operation recorded while it is set carries it. There is no opening and no closing, so nothing has to end cleanly and a crash costs nothing.
+**Sessions.** A session is a tag on an operation, and deliberately nothing more. Set one — `--session`, `FF_SESSION` in the environment, the agent trigger stamping its own id without being asked — and every operation recorded while it is set carries it. There is no opening and no closing, so nothing has to end cleanly and a crash costs nothing. There is no verb for listing them either: whoever sets a session knows its name — an agent stamps an id it generated, a person types one they chose — and a tag fufu had to enumerate is a tag fufu had to own.
 
 Tagged operations need not be contiguous. Two agents working at once interleave, and a session is the *set* of operations carrying its tag, never the range between two points. Filtering is the whole purpose (`ff op log -r 'session(<id>)'`): it buys a question nothing answers today — what did that entire stretch of work change? — and staying a tag is what leaves room to grow later, instead of committing now to boundaries the model would then have to defend. Setting a session is a flag; asking about one is the grammar. `--session` and `FF_SESSION` say what to *tag* — an instruction about what happens next, which no expression can carry — while `session(<name>)` selects the operations already carrying a tag, and rides the same language everything else does. The two never overlap, which is why the flag does not double as a filter: one word doing both jobs would leave `ff op log --session x` ambiguous about whether it was narrowing the log or labelling the capture it takes on the way in. The id rides a trailer on the operation's commit — git objects, legible to anyone who reads them — with a per-repo index as the usual rebuildable cache.
 
@@ -571,7 +570,7 @@ Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `f
 **Extension.** Three mechanisms, all of them git idioms:
 
 - `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches — git's own extension model, with the repository, the machine contract, and the current session tag handed down in the environment.
-- `ff watch` streams journal entries as they land, newline-delimited JSON. The op journal is already an event log; this gives it subscribers — status lines, editor plugins, dashboards, agent supervisors. It is not a daemon: it is a foreground process the user started, and it holds no authority.
+- `ff watch` streams operations as they land, newline-delimited JSON. The operation log is already an event log; this gives it subscribers — status lines, editor plugins, dashboards, agent supervisors. It is not a daemon: it is a foreground process the user started, and it holds no authority.
 - `ff-core` is a library before it is a binary. Publishing it is the deepest hook and the largest promise, so it waits until what it would freeze has stopped moving.
 
 The rule that keeps extension from eating the invariant: **extensions read fufu state and call fufu verbs; only fufu writes fufu state.** A plugin editing `refs/fufu/*` is a second author of a cache whose entire safety argument is that it has one — principle 3, with the author named.
@@ -686,7 +685,7 @@ before automation (land-if-clean needs the simulation), exits last (publishing
 is the highest-stakes surface). Every phase ends with a tool worth dogfooding
 daily — fufu is built by using fufu.
 
-The machine surface is not a phase but a constraint on every one: one model with two renderers is a Phase 0 substrate decision, error ids and exit codes arrive with the verbs that raise them, sessions ride the capture floor in Phase 1, `ff watch` follows the journal in Phase 2, and the generated surfaces — MCP, completions — land with adoption in Phase 5.
+The machine surface is not a phase but a constraint on every one: one model with two renderers is a Phase 0 substrate decision, error ids and exit codes arrive with the verbs that raise them, sessions ride the capture floor in Phase 1, `ff watch` follows the operation log in Phase 2, and the generated surfaces — MCP, completions — land with adoption in Phase 5.
 
 **Phase 0 — Bedrock.** Rust workspace on gix; the native read core (refs,
 objects, index, status, log); the differential test harness against the git
@@ -705,22 +704,28 @@ capture-first commands, the alias, and agent hooks (Claude Code); editor
 integration is deferred until a real need shows up. jog's lessons carried
 over, its code not owed. From here on, nothing can be lost.
 
-**Phase 2 — Time.** The op journal and whole-repo `ff undo`; reconciliation as
+**Phase 2 — Time.** The operation log and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
 tree memory via driven stash — `ff switch`, `ff start`, `ff branch`, anonymous
 branches and the claim-rename — and `ff commit` closing the open change (fufu's
 first index write: a close must leave `.git/index` matching the new HEAD, or
 foreign `git status` shows phantom changes). The daily driver exists after this phase.
 
-*Phase 2 implementation notes (shipped Aug 2026).* The journal is a commit
-chain at `refs/fufu/journal`: parent 1 the previous entry, parents 2..n the
-commits the entry references — reachability is the gc pin, and the CAS append
-is the op serialization lock. Every mutating verb journals write-ahead
-(planned post-state before mutating); a crash between append and mutation is
-labeled "may not have completed" by the next reconcile. Foreign motion is
-absorbed as one `foreign` entry per pass, quoted with git's own reflog
-messages, undoable and labeled; the notice stays pinned in `ff status` while
-the journal tip is foreign. Parks are byte-shaped `git stash push -u -m
+*Phase 2 implementation notes (shipped Aug 2026).* The operation log is one
+commit chain at `refs/fufu/ops`, captures and verbs together: parent 1 the
+previous operation — reserved for it, never a pin, so a first-parent walk *is*
+the log — parent 2 the base commit, parent 3 the record for the operations
+that change refs, pins after that. Reachability is the gc pin, and the CAS
+append is the op serialization lock. A capture changes no ref by invariant, so
+it carries no record and costs the one commit a snapshot always cost, which is
+what let the two chains merge without doubling the store. Per-branch access is
+a pointer at `refs/fufu/snap/<branch>` plus a back-link on every operation, so
+one branch's history is a walk and not a filter. Every mutating verb records
+write-ahead (planned post-state before mutating); a crash between append and
+mutation is labeled "may not have completed" by the next reconcile. Foreign
+motion is absorbed as one `foreign` operation per pass, quoted with git's own
+reflog messages, undoable and labeled; the notice stays pinned in `ff status`
+while the log tip is foreign. Parks are byte-shaped `git stash push -u -m
 "fufu: wip on <branch>"` entries (differentially proven), tracked by identity
 in `refs/fufu/parked/<branch>`; drop is reflog surgery matching `git reflog
 delete --rewrite` byte-for-byte. Indexes fufu writes carry a synthesized TREE
@@ -733,13 +738,13 @@ UNTR/FSMN/REUC carry; branch renames replay the reflog but write no
 transaction machinery drops) and the first replayed line's previous-oid
 column is null; parks refuse intent-to-add entries exactly as `git stash`
 does; `ff commit` during a foreign merge/rebase refuses, pointing at git,
-until Phase 4 owns merges. Journal retention rides the same `fufu.keep`
-knob through `ff trim` — trash-first at `refs/fufu/trash/@journal`, pin
+until Phase 4 owns merges. Retention rides the same `fufu.keep`
+knob through `ff trim` — trash-first at `refs/fufu/trash/@ops`, pin
 parents preserved verbatim, prev links rewritten — and the oldest survivor
 becomes the undo floor. Petnames are `ff/<adjective>-<noun>` from embedded
 wordlists. Two-phase descriptions live in plain JSON files under
 `<common-dir>/fufu/branch/<branch>` (pending description, fork base, parent branch),
-journaled on every change so `ff undo` restores the text.
+recorded on every change so `ff undo` restores the text.
 
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
 reporting futures, not just facts; the ambient shell channel speaks at pause
@@ -794,17 +799,11 @@ a working development machine.
   tip); whether editing a published commit warns or refuses; and how a
   session-turned-held-rewrite composes with the parked tip state.
 - **Undo across foreign events** — settled in Phase 2: a reconciled foreign
-  mutation is a journal entry, `ff undo` rolls it back like any other, the
+  mutation is an operation, `ff undo` rolls it back like any other, the
   report labels it as a change made outside fufu. One rough edge stays open:
-  a foreign entry records no pre-state index (fufu wasn't running), so its
-  undo restores a clean index at the pre-state HEAD.
-- **Merging snapshots into operations** — the model is settled; the conversion
-  is not. Existing repos hold two chains at roughly 25:1, and the small one
-  points into the large one by sha rather than by structure. Everything needed
-  to rebuild them as one log is present, but it is a real migration, not a lazy
-  upgrade. Open with it: whether per-branch access stays a pointer plus a
-  back-link or something else, and whether `ff op` wants jj's `integrate` at
-  all, given fufu has no divergent-operation problem to solve.
+  an operation that recorded no index — a foreign one, because fufu wasn't
+  running, or a capture, because it carries no record — undoes to a clean
+  index at that operation's own HEAD tree.
 - **Auto-sync policy surface** — per-branch opt-in defaults; whether
   tracked-upstream branches default to "offer" or "auto."
 - **Agent adoption** — the machine surface makes fufu usable by an agent; what
