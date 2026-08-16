@@ -284,15 +284,9 @@ it (`jj edit`), which in git terms means detaching HEAD. fufu keeps the reach an
 drops the detachment. The short reach is at a distance: `ff absorb` (aimed with
 `--into <rev>`) applies working changes to a commit in memory, rebases its
 descendants in memory, and moves refs — you never leave your tip. The long reach
-is a session: `ff edit <rev>` parks the tip's state through tree memory and
-materializes `<rev>`'s tree into the working tree, HEAD staying attached to the
-branch the whole time. You edit the commit's actual content — the thing distance
-can't give you — and `ff done` amends it, restacks descendants in memory, and
-returns you to tip with the parked state restored. A conflicting restack holds
-like any other rewrite. Travel happens in tree-space, never in ref-space: to
-plain git a session is nothing more exotic than a dirty working tree on the
-branch, abandoning fufu mid-session leaves exactly that, and the capture floor
-holds the tip state regardless.
+is a session, and a session is a branch: `ff edit <rev>` mints an anonymous branch there and switches to it, leaving the branch you came from exactly where it stands. You edit the commit's actual content — the thing distance can't give you — and `ff done` amends it, replays the commits that were ahead, and lands you back. A conflicting replay holds like any other rewrite. The open change you were holding parks as the session opens and returns when it ends, which is exactly what separates the two reaches: `ff absorb` folds what you are holding into a past commit, and `ff edit` sets it aside so you can work on that commit directly.
+
+Travel happens in ref-space, and HEAD and the working tree agree at every moment, which is the whole reason to do it this way: plain git sees an ordinary branch with ordinary edits, the capture floor records ordinary trees, and no verb has to ask whether a session is running. Holding the old tree against a newer HEAD would instead make every session look to git like a wholesale revert, and would suspend the tree-agrees-with-HEAD invariant the rest of fufu is built on. The commits left ahead stay on the branch that already held them, so they need no home of their own and no new grammar to name — they are `@..<branch>`, which is what `ff log` dims above the open change while a session runs. And sessions are resumable because they are branches: the state is one field of the anonymous branch's metadata naming the branch to replay onto, switching away and coming back costs nothing, abandoning one is deleting the branch, and a session branch says so wherever branches are listed, because an unfinished one is worth noticing.
 
 A session must end — `ff done` is the only place the amend-and-restack fires —
 but ending it is not always the user's chore. Any verb that needs the branch
@@ -414,7 +408,8 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff switch <branch>[@<remote>]` | branch switch with tree memory; `@<remote>` fetches first and lands you on a synced copy | `stash` dances, `fetch` + `switch -c --track` |
 | `ff branch` | move/rename/delete lines of work — journaled, undoable, parked-entry-aware; `ff branch <name>` claims an anonymous branch, capture chain and parked state carried along | `git branch` bookkeeping |
 | `ff absorb` | fold working changes into the stack commits they belong to (`--into <rev>` aims a specific one); descendants rebase in memory | `commit --fixup` + `rebase -i --autosquash` |
-| `ff edit <rev>` | editing session on any commit: parks tip state, materializes `<rev>`'s tree, HEAD never moves; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
+| `ff edit <rev>` | editing session on any commit: mints an anonymous branch there and switches to it. The branch you came from stays put and its commits wait ahead; given a branch name it simply is `ff switch` | detached-HEAD `rebase -i` edit dances |
+| `ff prev` / `ff next` | scrub one commit back or forward. `prev` opens a session — the first one from the tip is editing `HEAD` — and `next` replays the commit waiting ahead, which makes `ff done` exactly `ff next` until nothing is | `rebase -i` reword/edit dances |
 | `ff done` | finish the current session (`edit` or `resolve`): absorb the edits, restack in memory, land, return to tip | `rebase --continue` ceremony |
 | `ff sync` | fetch; speculatively rebase onto main; land if clean, hold if not | manual rebase-onto-main ceremony |
 | `ff push` | publish, with exits guarded: refuses held rewrites, lease semantics by default | `push --force-with-lease` and prayer |
