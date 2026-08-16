@@ -465,6 +465,24 @@ fn racing_captures_leave_a_usable_index() {
 
     let final_repo = fx.repo();
     let live_ids = log_ids(&final_repo, Domain::Live);
+
+    // The invariant underneath the index one, and the reason this test used
+    // to fail about once in fifty. Every position the ref has held must be
+    // on the walk from the tip: an append that reported success and then got
+    // written over is an operation the reflog reaches and the log does not,
+    // which is a lost write wearing a rewind's clothes. Assert it before the
+    // index, because the index disagreeing is only how it happened to show.
+    let reflog = fx.git(&["reflog", "show", OPS_REF, "--format=%H"]);
+    let strays: Vec<&str> = reflog
+        .lines()
+        .filter(|line| !line.is_empty() && !live_ids.iter().any(|id| id == line))
+        .collect();
+    assert!(
+        strays.is_empty(),
+        "operations the reflog reaches and the walk does not: {strays:#?}\nreflog:\n{reflog}\nwalk:\n{}",
+        live_ids.join("\n")
+    );
+
     let lens = index::prefix_lens(&final_repo, &live_ids).expect("prefix_lens");
     let ref_lens = reference(&final_repo);
     for id in &live_ids {

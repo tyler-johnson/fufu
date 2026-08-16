@@ -719,8 +719,10 @@ foreign `git status` shows phantom changes). The daily driver exists after this 
 commit chain at `refs/fufu/ops`, captures and verbs together: parent 1 the
 previous operation — reserved for it, never a pin, so a first-parent walk *is*
 the log — parent 2 the base commit, parent 3 the record for the operations
-that change refs, pins after that. Reachability is the gc pin, and the CAS
-append is the op serialization lock. A capture changes no ref by invariant, so
+that change refs, pins after that. Reachability is the gc pin, and appends
+serialize on a lock fufu takes itself: gix compares a ref's expected value
+against one it read *before* locking, so the CAS catches a stale plan and not
+a second writer. A capture changes no ref by invariant, so
 it carries no record and costs the one commit a snapshot always cost, which is
 what let the two chains merge without doubling the store. Per-branch access is
 a pointer at `refs/fufu/snap/<branch>` plus a back-link on every operation, so

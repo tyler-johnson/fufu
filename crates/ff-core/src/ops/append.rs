@@ -6,6 +6,12 @@
 //! lag one it has. The journal moved one ref and the snapshot chain moved
 //! another, and nothing made the pair atomic; a crash between them left a
 //! stale pointer that only a full walk could detect.
+//!
+//! That transaction is not what excludes a second writer, though it reads
+//! like it should be: gix compares `MustExistAndMatch` against a value it
+//! read before taking the reference's lock, so two appends can both pass the
+//! check and both apply. [`crate::ops::lock`] is what actually serializes
+//! them, and it is held across the read of the tip and the move.
 
 use gix::refs::transaction::PreviousValue;
 
@@ -14,7 +20,7 @@ use crate::ops::id::OpId;
 use crate::ops::message::{self, Skeleton};
 use crate::ops::record::{OpRecord, RefsTable};
 use crate::ops::walk;
-use crate::ops::{BRANCH_PREFIX, OPS_REF, OpKind};
+use crate::ops::{BRANCH_PREFIX, OPS_REF, OpKind, lock};
 use crate::refs::{self, EditOutcome};
 use crate::snapshot::{Provenance, TakeOptions};
 
@@ -83,6 +89,21 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
     };
 
     for attempt in 0..attempts {
+        // The lock spans the read of the tip and the move, because that span
+        // is the whole of the race: gix checks `MustExistAndMatch` against a
+        // value it read before locking, so the CAS alone lets a second
+        // writer overwrite an operation the first had already committed.
+        // The expensive part of a capture — assembling the worktree tree —
+        // is already done by the time we are here, so what the lock covers
+        // is a few small object writes and one ref transaction.
+        let wait = match draft.kind {
+            OpKind::Capture => lock::Wait::Never,
+            _ => lock::Wait::Briefly,
+        };
+        let Some(_held) = lock::acquire(repo, wait)? else {
+            break;
+        };
+
         let prev = refs::ref_target(repo, OPS_REF)?;
         let prev_on_branch = refs::ref_target(repo, branch_ref.as_str())?;
 

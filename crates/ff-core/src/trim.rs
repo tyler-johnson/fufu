@@ -73,6 +73,25 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         dry_run: opts.dry_run,
     };
 
+    // Trim rewrites the log by deleting the ref and replaying it, so a
+    // capture arriving mid-pass would see no log at all and start a second
+    // one. The lock closes that window as well as the CAS one — see
+    // `ops::lock`. A dry run reads and writes nothing, so it takes nothing.
+    let held = if opts.dry_run {
+        None
+    } else {
+        match crate::ops::lock::acquire(repo, crate::ops::lock::Wait::Briefly)? {
+            Some(guard) => Some(guard),
+            None => {
+                return Err(Error::coded(
+                    "ref/contended",
+                    "another fufu process is writing the operation log",
+                    vec![],
+                ));
+            }
+        }
+    };
+
     // Collect pointers first: ref iteration must not overlap ref edits.
     let pointers = branch_pointers(repo)?;
     let Some(tip) = crate::refs::ref_target(repo, OPS_REF)? else {
@@ -261,6 +280,12 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
             replay_ref(repo, ref_name, lines)?;
         }
     }
+
+    // The rewrite is over, and the note is an ordinary append that takes the
+    // log lock for itself — so let go of it here rather than deadlocking
+    // against our own writer. A capture landing in the gap appends onto the
+    // replayed tip, which is exactly what it would have done anyway.
+    drop(held);
 
     // The trim itself becomes a note — non-pinning by design: pinning trim's
     // own pre-state would defeat retention. The trash ref stays its one-deep

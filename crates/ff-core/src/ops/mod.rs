@@ -45,6 +45,7 @@
 pub mod append;
 pub mod id;
 pub mod index;
+pub(crate) mod lock;
 pub mod message;
 pub mod record;
 pub mod verb;

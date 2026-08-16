@@ -116,6 +116,18 @@ pub fn rewind(
 
     let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
+
+    // Held from the read of the tip below until the pointer has moved. The
+    // CAS on that move is `MustExistAndMatch` like an append's, and carries
+    // exactly as little weight — see `ops::lock`. Taken after the preamble's
+    // own capture, which takes and releases the same lock.
+    let Some(_held) = crate::ops::lock::acquire(repo, crate::ops::lock::Wait::Briefly)? else {
+        return Err(Error::coded(
+            "ref/contended",
+            "another fufu process is writing the operation log",
+            vec![],
+        ));
+    };
     let log = OpLog::open(repo)?;
 
     // Resolved AFTER reconciliation and after this verb's own capture, which
