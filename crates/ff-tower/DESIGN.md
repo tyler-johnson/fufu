@@ -106,6 +106,8 @@ The cost that bites is bootstrap, not disk — everything gitignored (`target/`,
 
 Note that bays make fufu's tree memory moot for the agent lane — an agent owning a tree for the life of a flight never parks or switches. That is fine. Humans still switch, and Floor 2 still serves them.
 
+Bays are not agent-only, though, and the `review` procedure is the case that proves it: its human part is *check out someone else's branch and run it*, which is a bay with a foreign branch in it. Filing a review can warm one, so the tree is already built by the time you sit down. That is the moment the pool pays for itself for a person rather than a fleet.
+
 ## Storage and sync
 
 Not files in the working tree. `.tower/flights/*.md` is the obvious move and the trap every git-native tracker falls into: the board becomes branch-dependent, ticket edits pollute code diffs, and closing something on an unmerged branch means the board lies until merge.
@@ -129,16 +131,53 @@ One model, every renderer — fufu's principle 14, so the MCP server is a thin s
 ```
 caller          surface        what it does
 ────────────────────────────────────────────────────────────────
-a person        CLI            board · answer · promote · file · triage
-an agent        MCP            next · brief · hold · file · link · comment
+a person        CLI            decide, answer, route, publish
+an agent        MCP            claim, read a brief, report, hold
 nothing         —              no daemon, no cron, no spawns
 ```
 
 The board is an inbox, in four sections matching four states of mind: **waiting on you** (agent questions, review requests, changes requested), **in the air** (bays, with live conflict verdicts), **holding** (CI, merge queue, blocked on a person), **open**.
 
+Inside *waiting on you*, partition by what the item costs you rather than by priority — an answer is thirty seconds, a review is twenty minutes, a decision is unbounded. Sorting them together means you cannot spend the five minutes you actually have. Cost is read off the shape of the thing, so it needs no judgment and no model call.
+
+The whole design is aimed at one reflex: bare `tower`, often, because it is the fastest way to learn what to do next. Two things have to hold or the reflex never forms. It has to be true, which is the derived-not-entered thesis. And **render must never block on the network** — fold the local log, draw, note the age, refresh on the cadence stamp. A board that is fresh and slow loses to one that is instant and honest about how stale it is.
+
 The review loop deserves modeling directly, because it is mostly waiting and mostly agent-shaped: an incoming review is work arriving, and sorting its comments into what a machine can carry out and what needs a decision is where the ergonomic win lives. Answer the one design question, let the other three land.
 
+### The verbs
+
+fufu's rule that every verb must earn its existence carries over, and the one it kills first is `run`. Tower cannot run anything — a verb that implies dispatch would be the first crack in principle 2, and that line is too load-bearing to contradict casually. Starting work under a procedure is `tower file`, because filing is what actually happens; the decomposition and the first brief fall out of it.
+
+| verb | what it does | caller |
+|---|---|---|
+| `tower` (alias `board`) | the inbox: what needs you, what is in the air, what is holding, what is open | you |
+| `tower next [-n <k>]` | claim the next ready flight, or a set of `k` that collide with neither each other nor anything already flying; `--peek` reads without claiming | an agent |
+| `tower claim <flight>` | claim one specific flight, out of order | either |
+| `tower file <procedure> [<subject>]` | put work on the board under a procedure — the one front door, adapter or hallway | either |
+| `tower triage` | walk the unclassified pile and route each item to a procedure | you |
+| `tower take <flight>` | take the controls: crew this to you, agent off | you |
+| `tower requeue <flight>` | the reverse — hand it back to the pool | either |
+| `tower brief <flight>` | everything known about this flight: subject, files, prior art, verify command, handoff notes | an agent |
+| `tower hold <flight> -m <question>` | stop with a question attached — bay warm, session open, exit 3 | an agent |
+| `tower answer <flight> -m <answer>` | answer it and release the hold | you |
+| `tower done [<flight>]` | finish a part whose completion nothing can derive; a smoke test that went fine leaves no trace | you |
+| `tower link <a> <b>` | declare that one flight depends on another — discovered conflicts need no verb | either |
+| `tower comment <flight> -m <note>` | a note on the record, local; saying it to the team is a separate, deliberate gesture | either |
+| `tower decompose <flight>` | file a procedure's parts, or split further by hand | either |
+| `tower promote <flight>` | mint the upstream ticket, link it, keep local history — the publish boundary | you |
+| `tower bay <list\|warm\|release>` | the pool: what is bootstrapped, what is occupied, what to build ahead of you | either |
+| `tower explain <flight>` | why this is here, why this procedure, and what it beat | you |
+| `tower procedures [<name>]` | what is installed, what each matches, and where to fork it | you |
+| `tower push` | push your log ref — backup and roaming, the one outward gesture the team never sees | you |
+| `tower config` | settings, on fufu's typed-registry model | you |
+| `tower doctor` | unpushed flights, stale adapters, bays that no longer resolve | you |
+| `tower <adapter> <args>` | passthrough to `tower-<adapter>` on PATH: `tower linear`, `tower github` | either |
+
+Every one of them is a read plus a local write. Nothing in the column on the right is a dispatch target.
+
 ## Triage
+
+Triage asks two questions, and the ordering one is second. First is *what is this and therefore what happens to it*, which is the next section. This one is the ranking that follows, and the two are orthogonal — a review flight can be waiting on you or in the air like any other.
 
 Triage splits on the same line everything else does. Blocked or not — by a declared dependency, a discovered conflict, or a person who has not replied — is a graph query, a merge-tree call, and an upstream read. Cost to start is a warm bay, an existing branch, and which files this week's capture chain touched. What changed since you last looked is a log diff. All of it is computation; none of it is judgment.
 
@@ -158,13 +197,86 @@ Errors are asymmetric, so defaults lean conservative. Filing a decision as mecha
 
 Three things tower should not build: **estimates** (measurable for started work, fiction for unstarted — report what is known and invent nothing), **learned ranking** (no data on day one and not enough for a long time; weights live in config and are tuned by hand), and **automatic deduplication** (semantic, rarely urgent, expensive when wrong).
 
+## Procedures
+
+Work does not arrive in one shape. A ticket assigned to you, a review requested of you, a thing your manager asked for in a meeting — each has a different first step, a different split between what a machine can carry and what only you can, and a different meaning of done. Ranking a homogeneous list has nothing to say about which list.
+
+A **procedure** is a named recipe for one shape of work: what it decomposes into, who flies each part, and when it is finished. A signal is classified into one at intake, and everything downstream — board section, brief, claimability, completion — follows from that stamp. The word is the metaphor's: a published procedure is a standard sequence for a recurring situation, and the tower clears you for one by name. A plan and a permission, never a hand on the yoke.
+
+The shipped set is small, because the point is that people fork it:
+
+| procedure | the signal | parts, in order |
+|---|---|---|
+| `ticket` | assigned work, whether or not it exists upstream yet | research · **promote** · implement · **review** |
+| `review` | someone else's work you have been asked to look at | agent pass and **smoke test**, concurrently · **verdict** |
+| `open` | anything unclassified | one part, **yours** |
+
+Bold parts are crewed to you. Almost nothing here is a new primitive: a procedure is a decomposition template plus a crew assignment per part, riding on `file`, `link`, and `brief`. That the `ticket` procedure contains its own promotion is the entire research-first workflow — a flight exists before its upstream identity, research produces the body, `tower promote` mints the ticket. That is local-steps-are-anonymous-branches walked one step forward, with principle 3 putting your hand on the promotion because it is the moment the team sees anything.
+
+**Every procedure ends with you.** Not a default — principle 3 restated at the flight level. The boundary where the team sees the work is always a human gesture, so the last part is always yours. A procedure with no human part is not a procedure, it is a script.
+
+**Procedures declare structure; skills hold judgment.** A procedure is data — a name, match rules, parts, crew, a done condition — and it cannot express control flow. No conditions, no loops. Everything conditional lives in the skill an agent-crewed part points at, in markdown, which is where this document already puts judgment. The moment a procedure needs an `if`, it is a skill. That rule is the only thing between this feature and Jira's workflow editor, which is where configurable trackers go to die: the config language grows into a bad programming language and the shipped defaults become nothing.
+
+The same test draws every part boundary: a part ends where the crew changes or a gate stands, and nowhere else. Two agent-crewed stretches with nothing between them are one part, and the sequencing inside is the skill's business — which is why `ticket` researches and drafts the body in a single part rather than two.
+
+### Shape
+
+Two files. The structure is data, the judgment beside it is markdown, and the split is principle 13 made physical. Definitions layer the usual way — yours roams with your config, the repository's is the team's, merged by name with the more specific winning. This is not the working-tree trap from *Storage and sync*: what must never live in the tree is derived, mutable board state, and a procedure definition is config that changes monthly.
+
+```toml
+name    = "review"
+subject = "branch"            # may resolve to a PR later
+
+[[match]]                     # only ever runs on adapter signals
+source = "github"
+event  = "review_requested"
+
+[[part]]
+id    = "pass"
+crew  = "agent"
+skill = "review"
+done  = "asserted"
+
+[[part]]
+id   = "smoke"
+crew = "you"
+bay  = "warm"                 # build the tree ahead of me
+done = "asserted"
+
+[[part]]
+id    = "verdict"
+crew  = "you"
+after = ["pass", "smoke"]
+done  = "asserted"
+```
+
+Order is a DAG through `after` — the same edges `tower link` writes — so concurrency is the absence of a declaration rather than a keyword: `pass` and `smoke` fly together because neither names the other.
+
+**`done` is a closed enum**: `asserted` (the crew says so), `committed`, `promoted`, `landed`. Four values cannot grow into an expression language, which is the whole point. *Done when CI is green and two people approved* is a human-crewed part you assert, and what convinces you belongs to the skill.
+
+**The definition is read once, at file time, and its parts are copied into the log.** Filing writes the flight: the procedure stamp and which rule matched, the subject and its resolution state, and one instance per part carrying crew, skill, edges, and claimant. Readiness, conflicts, order, and section stay derived as ever. Editing a procedure therefore never disturbs a flight already in the air — a board that re-read config at render time would flicker for exactly the reason principle 11 forbids re-running judgment, and forking a procedure mid-week has to be safe or nobody will.
+
+### Intake
+
+**Every signal comes through one front door.** A GitHub review request, a Linear assignment, and a hallway conversation are one event with different provenance, and `tower file` is the same intake path an adapter takes. If the human-originated signal is second class, a large fraction of most people's week is invisible and the board lies about the day.
+
+Intake is a read, not a subscription — upstream is pulled lazily at invocation, as everything else here is. So it does not matter where work was born: file the ticket by hand in Linear, and the next call picks it up with no webhook and nothing running in between.
+
+Classification is deterministic and stored, never recomputed; principle 11 governs routing exactly as it governs triage. Rules match on facts an adapter or a person supplied, run once when the signal lands, and leave an overridable event in the log. **The routing is explained** for the same reason the ranking is: *classified `review` because upstream sent `review_requested`* is correctable in a glance, and a silent stamp is a black box you stop trusting on the second bad call.
+
+Ambiguity goes to you and stays unclaimable. Asymmetric errors again, with teeth this time: an orchestrator looping on `tower next` will otherwise eventually claim a vague meeting request and start editing files. `next` returns only flights whose procedure declares an agent-crewed first part, unclassified work sits in your lane, and `tower triage` is the walk through that pile.
+
+**A flight's subject resolves late.** File a review against a bare branch with no PR, or a ticket that exists nowhere — tower holds a local subject, derives what the repository shows, and stays silent about fields it cannot see. When the PR opens or the ticket is minted, the adapter links it and upstream truth flows into the fields it owns. Both shipped procedures need this, and it is one mechanism rather than two special cases.
+
+Which forces one piece of exactness: a signal arriving for a subject you already filed merges into that flight as a `foreign` event rather than filing a second one. This is identity equality on a resolved reference, cheap and exact, and deliberately not the semantic deduplication this document declines to build. Without it, being faster than your own sync double-files every review you noticed before the forge told you about it.
+
 ## Skills
 
 tower ships agent skills, and they are where the orchestrator lives. That is not a contradiction of principle 2: a skill is instructions the harness executes, not a process tower spawns. tower ships the recipe, the harness runs it, and uninstalling the harness leaves tower working. tower never grows a process supervisor.
 
 It is also the right home for judgment. tower reports facts and what is clear; a skill decides what to do when a flight holds, when a review comment needs a person, when to stop. Policy in markdown the user can fork beats policy compiled into Rust.
 
-The shipped set is small: **plan** (decompose a goal into linked flights — solo mode's entry point), **work** (claim, do, hold or commit, repeat — the one that pairs with a loop), and **review** (first-pass a review request, or apply the mechanically-fixable half of one and hold the rest).
+The shipped set is small: **plan** (decompose a goal into linked flights — solo mode's entry point), **work** (claim, do, hold or commit, repeat — the one that pairs with a loop), and **review** (first-pass a review request, or apply the mechanically-fixable half of one and hold the rest). Each agent-crewed part of a procedure names the skill it is flown with, which is the seam that keeps structure in data and judgment in prose.
 
 Loop control is exit codes, fufu's own: **0** here is work, **1** nothing available, **3** work exists but it needs you. A loop runs until 1 or 3 and reports which. No timeout, no sentinel.
 
@@ -195,6 +307,8 @@ Three layers of memory stay apart: a **skill** knows how to drive tower, the **a
 9. **One model, every surface.** CLI, MCP, and anything later consume one contract.
 10. **Facts, not consensus.** tower is authoritative over what the repository shows and what you alone authored. It holds no negotiated state, because it has no way to negotiate.
 11. **Judgment is stored, never recomputed.** A model's verdict is written to the log as authored intent. The board stays a pure function of repository and log, or it flickers and is not believed.
+12. **Every procedure ends with you.** Principle 3 at the flight level: the last part of any shape of work is human-crewed, because the boundary where the team sees it always is.
+13. **Procedures declare structure; skills hold judgment.** Procedures are data and carry no control flow. Every conditional lives in markdown a person can fork.
 
 ## What it waits on
 
@@ -203,6 +317,7 @@ Load-bearing and absent from fufu today:
 - **Futures (Phase 3)** — every discovered conflict, land order, and assignment-time holdback.
 - **`ff watch` (Phase 2 journal follow)** — the live board and continuous conflict re-checking.
 - **`ff push` (Phase 5)** — `review` and `landed` are the two states tower cannot honestly derive without it.
+- **Forge reads** — no longer optional. The `review` procedure stands almost entirely on state the repository cannot see, so the adapter that supplies it is a dependency of a shipped default rather than a nicety.
 
 `ff session` has since shipped, which is the piece briefs, work logs, handoff, and per-flight capture chains all sit on.
 
@@ -212,7 +327,8 @@ What works on today's primitives: the board through `active`, flight-to-branch l
 
 - **Triage quality is the product.** The deterministic half is settled above, and it covers *waiting on you* — the section that has to be right. What stays open is the weighting inside `open`, which has no data behind it on day one. Argues for shipping a read-only board against real upstream data long before anything is allowed to claim work.
 - **Does the flight own the branch, or the branch own the flight?** If `ff branch <name>` claims a placeholder, does claiming mint a flight? The everything-is-a-flight version is seductive and probably wrong.
-- **PR state is forge truth, not repository truth.** Pulling it in punctures the derived-from-the-repo purity; the alternative is a board that cannot say `review`.
+- **How much forge state to absorb.** Not whether — the `review` procedure settles that — but where it stops. Every field pulled in punctures the derived-from-the-repo purity a little further, and the ownership table is the only thing keeping that from becoming a second tracker.
+- **Whether the `done` enum stays at four.** It is closed on purpose, and the first genuinely missing value is the moment to check whether the answer is a fifth constant or a part nobody wanted to crew.
 - **What a flight means after a rewrite** folds its snapshots into a commit — fufu's open session-boundary question, made urgent rather than theoretical.
 - **Bay relocation.** tower prints a path and cannot make a running agent honor it. How loudly should misplaced work be reported, and is there a consented way to move an agent?
 - **Sandboxing composes but is unaddressed.** A bay can be a worktree bind-mounted into a container without tower's model changing; whether that is tower's concern at all is open.
