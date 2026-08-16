@@ -52,9 +52,8 @@ switched to ff/quiet-lake
 resumed the parked change (1 file(s))
 undo: ff undo
 
-$ ff describe -b unicode-cleanup -m "really great idea I had"    # it's real now — claim the name
-renamed ff/quiet-lake to unicode-cleanup
-pending description on unicode-cleanup: really great idea I had
+$ ff describe -b unicode-cleanup    # it's real now — claim the name
+claimed ff/quiet-lake as unicode-cleanup
 undo: ff undo
 ```
 
