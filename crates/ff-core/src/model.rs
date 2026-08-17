@@ -328,6 +328,75 @@ pub struct RewordReport {
     pub published: usize,
 }
 
+/// The result of `ff absorb`: the open change — or the part of it a path
+/// filter selected — folded into a commit at a distance, and the restack it
+/// forced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AbsorbOutcome {
+    /// The change was folded into the target and restacked.
+    Absorbed(AbsorbReport),
+    /// A clean tree, or a path filter that selected nothing.
+    NothingToAbsorb { branch: String },
+}
+
+/// An absorb that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AbsorbReport {
+    /// The branch the absorb ran on.
+    pub branch: String,
+    /// The target commit before the absorb.
+    pub into: String,
+    /// The target commit after it.
+    pub new: String,
+    /// The target's subject, which an absorb never changes.
+    pub subject: String,
+    /// Descendants restacked behind the target.
+    pub restacked: usize,
+    /// Other local branches carried with the rewrite, short names, sorted.
+    pub moved: Vec<String>,
+    /// How many of the rewritten commits the branch's remote already has.
+    pub published: usize,
+    /// The paths the filter selected; empty means the whole open change.
+    pub paths: Vec<String>,
+    /// Whether anything is still open once the absorb has landed.
+    pub still_open: bool,
+}
+
+/// The result of `ff lift`: paths taken out of a commit and back into the
+/// open change, and the restack it forced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiftOutcome {
+    /// The paths were lifted out of the target and restacked.
+    Lifted(LiftReport),
+    /// The selected paths are not among the ones that commit introduced.
+    NothingToLift { from: String },
+}
+
+/// A lift that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LiftReport {
+    /// The branch the lift ran on.
+    pub branch: String,
+    /// The target commit before the lift.
+    pub from: String,
+    /// The target commit after it.
+    pub new: String,
+    /// The target's subject, which a lift never changes.
+    pub subject: String,
+    /// Descendants restacked behind the target.
+    pub restacked: usize,
+    /// Other local branches carried with the rewrite, short names, sorted.
+    pub moved: Vec<String>,
+    /// How many of the rewritten commits the branch's remote already has.
+    pub published: usize,
+    /// The paths the filter selected; empty means the whole commit.
+    pub paths: Vec<String>,
+    /// The target introduces nothing of its own now — an empty commit.
+    pub emptied: bool,
+}
+
 /// The result of `ff start` — always mints a fresh branch and parks
 /// whatever was open where it was.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

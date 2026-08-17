@@ -194,7 +194,7 @@ pub fn reword(
         ));
     }
 
-    let published = published_count(repo, &branch, &plan.rewrites)?;
+    let published = rewrite::published_count(repo, &branch, &plan.rewrites)?;
 
     // Write-ahead: the planned table is the post-reword world. HEAD does not
     // move — it stays symbolic on the same branch.
@@ -297,49 +297,6 @@ pub fn reword(
         },
         ctx,
     ))
-}
-
-/// How many of the *old* shas the branch's remote-tracking ref already
-/// contains. Disclosure, not a guard: nothing here refuses a rewrite because
-/// commits are published.
-fn published_count(
-    repo: &gix::Repository,
-    branch: &str,
-    rewrites: &[rewrite::Rewrite],
-) -> Result<usize> {
-    let full_name: gix::refs::FullName = format!("refs/heads/{branch}")
-        .as_str()
-        .try_into()
-        .map_err(Error::repo)?;
-    let Some(tracking) =
-        repo.branch_remote_tracking_ref_name(full_name.as_ref(), gix::remote::Direction::Fetch)
-    else {
-        return Ok(0);
-    };
-    let tracking = tracking.map_err(Error::repo)?;
-
-    let mut tracking_ref = match repo.find_reference(tracking.as_ref()) {
-        Ok(r) => r,
-        Err(gix::reference::find::existing::Error::NotFound { .. }) => return Ok(0),
-        Err(err) => return Err(Error::repo(err)),
-    };
-    let remote_tip = tracking_ref
-        .peel_to_id_in_place()
-        .map_err(Error::repo)?
-        .detach();
-
-    let mut count = 0usize;
-    for r in rewrites {
-        let Ok(old) = gix::ObjectId::from_hex(r.old.as_bytes()) else {
-            continue;
-        };
-        if let Ok(bases) = repo.merge_bases_many(old, &[remote_tip])
-            && bases.iter().any(|b| b.detach() == old)
-        {
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 /// A short abbreviation of a commit id, git's own minimal-unique-prefix

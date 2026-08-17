@@ -103,6 +103,14 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["git rebase --abort", "git merge --abort"],
     },
     Entry {
+        id: "usage/absorb-into-open",
+        summary: "absorb was named the open change as its target",
+        detail: "The open change is already where your changes are, so there is nothing to fold \
+                 it into. Name a commit that has closed — ff log says which ones sit under you — \
+                 or close the change first with ff commit and absorb into the commit that lands.",
+        exits: &["ff absorb", "ff commit -m <msg>"],
+    },
+    Entry {
         id: "usage/bad-restore-target",
         summary: "--at was given something that is neither an age nor a date",
         detail: "--at takes a time and only a time: a compact age like 90s/15m/2h/3d/1w, or any \
@@ -504,6 +512,14 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff status", "ff git <args>"],
     },
     Entry {
+        id: "usage/lift-from-open",
+        summary: "lift was named the open change as its source",
+        detail: "The open change is what a lift lands in, so naming it as a source has nothing \
+                 committed to take back out. Name a commit that has closed — ff log says which \
+                 ones sit under you — and lift takes its files back into the open change.",
+        exits: &["ff lift", "ff log"],
+    },
+    Entry {
         id: "usage/needs-message",
         summary: "a description was needed and there was no terminal to ask on",
         detail: "The bare form of describe opens an editor, which needs a terminal; in a script, \
@@ -548,6 +564,23 @@ pub static ENTRIES: &[Entry] = &[
                  with it. Nothing was changed. ff op show says what the operation did, and \
                  ff op restore rewinds to it wholesale if that is what you meant.",
         exits: &["ff op show <op>", "ff op restore <op>", "ff op log"],
+    },
+    Entry {
+        id: "held/rewrite-conflict",
+        summary: "the rewrite stops at a commit it cannot replay",
+        detail: "The replay reached a commit whose changes cannot be reapplied over the rewrite, \
+                 so nothing was written. Conflicts are not parked yet — there is no half-done \
+                 state to resolve — so the rewrite has to be made smaller, or the change \
+                 committed on its own first and the rewrite run around it.",
+        exits: &["ff status", "ff absorb --into <rev>", "ff commit -m <msg>"],
+    },
+    Entry {
+        id: "rewrite/merge-in-range",
+        summary: "a merge commit sits in the range being replayed",
+        detail: "Re-parenting a merge is unambiguous, and a reword does it happily, but \
+                 replaying a merge is not — the same change can come out of either side. A \
+                 rewrite that would move a tree over it refuses rather than picking a side.",
+        exits: &["ff log"],
     },
     Entry {
         id: "rewrite/not-in-history",

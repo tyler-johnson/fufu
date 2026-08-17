@@ -134,6 +134,8 @@ fn main() {
             message,
             branch,
         }) => cmd::describe::run(&ctx, rev, message, branch),
+        Some(cli::Command::Absorb { into, paths }) => cmd::absorb::run(&ctx, into, paths),
+        Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(&ctx, kind),
         Some(cli::Command::Config {
             key,

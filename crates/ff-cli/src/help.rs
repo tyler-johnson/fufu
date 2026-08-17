@@ -280,6 +280,40 @@ Examples:
   ff describe -b unicode-cleanup name the branch you are on
   ff describe HEAD~2 -m \"fix\"    reword a closed commit, restacking above it";
 
+pub const ABSORB: &str = "\
+Folds the open change into a commit that has already closed — the revision
+you name, or the one it sits on when you name none. An absorb does not
+attribute hunks: the change is the unit, and a path filter only chooses
+which of its files fold in, leaving the rest open.
+
+Everything above the target re-parents in the same operation, so a branch
+inside that range comes along with it. What moves is the commit's identity
+and the stack above it; no file is copied or renamed in the re-point.";
+
+pub const ABSORB_EXAMPLES: &str = "\
+Examples:
+  ff absorb                      fold everything open into the commit under it
+  ff absorb --into HEAD~2        fold it into a commit further back
+  ff absorb src/parser.rs        fold only that path";
+
+pub const LIFT: &str = "\
+The other direction of absorb: takes paths out of a commit that has already
+closed and back into the open change — the revision you name, or the one it
+sits on when you name none. A lift does not attribute hunks either: whole
+files are what come back out, and a path filter only chooses which of the
+commit's files they are.
+
+Everything above the target re-parents in the same operation, so a branch
+inside that range comes along with it. If the lift takes everything the
+commit held, the commit is empty. What moves is the commit's identity and
+the stack above it; no file is copied or renamed in the re-point.";
+
+pub const LIFT_EXAMPLES: &str = "\
+Examples:
+  ff lift                        take everything out of the commit under it
+  ff lift --from HEAD~2          take it out of a commit further back
+  ff lift src/parser.rs          take only that path back out";
+
 pub const BRANCH: &str = "\
 Bookkeeping for lines of work: `ff branch list` says what exists and
 `ff branch delete` takes one away. Bare `ff branch` is the list.

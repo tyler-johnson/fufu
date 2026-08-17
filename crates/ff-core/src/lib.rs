@@ -1,3 +1,4 @@
+pub mod absorb;
 pub mod branch;
 pub mod branchmeta;
 mod changestat;

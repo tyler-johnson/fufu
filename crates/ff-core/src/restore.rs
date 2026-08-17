@@ -169,7 +169,9 @@ pub fn restore(
     })
 }
 
-fn path_selected(path: &str, selectors: &[String]) -> bool {
+/// Whether `path` is selected by any of `selectors` — a file path or a
+/// directory prefix.
+pub(crate) fn path_selected(path: &str, selectors: &[String]) -> bool {
     selectors.iter().any(|sel| {
         let sel = sel.trim_end_matches('/');
         path == sel || path.starts_with(&format!("{sel}/"))

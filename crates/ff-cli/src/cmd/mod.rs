@@ -1,3 +1,4 @@
+pub mod absorb;
 pub mod branch;
 pub mod commit;
 pub mod config;
@@ -9,6 +10,7 @@ pub mod foreign;
 pub mod git;
 pub mod git_exec;
 pub mod hook;
+pub mod lift;
 pub mod log;
 pub mod map;
 pub mod op;

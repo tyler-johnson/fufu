@@ -185,6 +185,26 @@ pub enum Command {
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
     },
+    /// Fold working changes into a commit that has already closed
+    #[command(long_about = help::ABSORB, after_long_help = help::ABSORB_EXAMPLES)]
+    Absorb {
+        /// Commit to absorb into; without it, the commit under the change
+        #[arg(long, value_name = "rev")]
+        into: Option<String>,
+        /// Limit the absorb to these paths (files or directory prefixes)
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
+    },
+    /// Take changes back out of a closed commit, into the open change
+    #[command(long_about = help::LIFT, after_long_help = help::LIFT_EXAMPLES)]
+    Lift {
+        /// Commit to lift out of; without it, the commit under the change
+        #[arg(long, value_name = "rev")]
+        from: Option<String>,
+        /// Limit the lift to these paths (files or directory prefixes)
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
+    },
     /// Manage lines of work: what exists, and removing one
     #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
@@ -447,6 +467,8 @@ impl Command {
             }
             Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
+            Command::Absorb { .. } => "absorb",
+            Command::Lift { .. } => "lift",
             Command::Hook { .. } => "hook",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
@@ -495,6 +517,8 @@ impl Command {
             | Command::Redo
             | Command::Start { .. }
             | Command::Describe { .. }
+            | Command::Absorb { .. }
+            | Command::Lift { .. }
             | Command::Hook { .. }
             | Command::Config { .. }
             | Command::Doctor { .. }

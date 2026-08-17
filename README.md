@@ -59,7 +59,7 @@ undo: ff undo
 
 ### Maintenance on autopilot
 
-The busywork between commits — fixup commits, autosquash dances, rebasing onto main — flies itself. `ff status` answers questions git makes you find out the hard way, `absorb` files review fixes into the commits they belong to, and `sync` lands you on main only when it's safe.
+The busywork between commits — fixup commits, autosquash dances, rebasing onto main — flies itself. `ff status` answers questions git makes you find out the hard way, `absorb` folds a review fix into the commit you name and restacks everything above it without moving a file on disk, and `sync` lands you on main only when it's safe.
 
 ```console
 $ ff status                       # futures, not just facts: fufu already knows the rebase is safe
@@ -72,11 +72,9 @@ on unicode-cleanup · base moved — rebases cleanly (2 commits replayed) · 2 t
 ●           2c9ea49   3d ago
 │  parser: handle unicode escapes
 
-$ ff absorb                       # review fixes fold into the commits they belong to
-absorbed 3 hunks into 2 commits:
-  2c9ea49 parser: handle unicode escapes
-  d81b3f6 parser: fold surrogate pairs
-descendants rebased in memory
+$ ff absorb --into 2c9ea49        # the fix belongs to that commit, not to a new one
+absorbed into 8f1d3ba: parser: handle unicode escapes
+restacked 1 commit(s) above it
 undo: ff undo
 
 $ ff sync                         # line up with base and remote — rebases in memory, lands only if clean

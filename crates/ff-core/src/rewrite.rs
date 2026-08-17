@@ -1,7 +1,8 @@
 //! The writing half of the engine [`crate::futures::probe`] simulates: it
-//! re-parents a range of commits and writes the rewritten objects, moving no
-//! refs of its own. Every rewrite verb — reword today, absorb and lift later
-//! — aims here rather than forking its own commit-writing logic.
+//! re-parents a range of commits — replaying them by three-way merge when the
+//! change moves the target's tree — and writes the rewritten objects, moving
+//! no refs of its own. Every rewrite verb, reword today and absorb and lift
+//! later, aims here rather than forking its own commit-writing logic.
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,6 +25,9 @@ pub struct Rewrite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     Message(String),
+    /// The target's new tree, already computed by the caller. Descendants
+    /// are replayed onto it rather than merely re-parented.
+    Tree(gix::ObjectId),
 }
 
 /// The result of re-parenting `target..tip` after applying a [`Change`] to
@@ -37,8 +41,8 @@ pub struct RewritePlan {
     pub new_tip: gix::ObjectId,
 }
 
-/// Apply `change` to `target` and re-parent every commit between it and
-/// `tip`. Writes commit objects; moves no refs.
+/// Apply `change` to `target` and re-parent or replay every commit between it
+/// and `tip`. Writes commit objects; moves no refs.
 pub fn plan(
     repo: &gix::Repository,
     target: gix::ObjectId,
@@ -103,60 +107,19 @@ pub fn plan(
         }
     }
 
-    // 5. Rewrite each affected commit in order.
-    let committer = crate::refs::user_signature(repo, now)?;
-    let mut map: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
-    let mut rewrites: Vec<Rewrite> = Vec::new();
-    for &id in &ordered {
-        if !affected.contains(&id) {
-            continue;
+    // 5. Rewrite the affected commits. A tree change can conflict, so a dry
+    // run against an in-memory object store must pass first: it raises the
+    // conflict or the merge-commit refusal, writes nothing, and only then
+    // does the real pass run. A message change moves no tree, so it skips
+    // the dry run and keeps today's single pass.
+    let (rewrites, map) = match change {
+        Change::Message(_) => replay(repo, &ordered, &affected, target, change, now)?,
+        Change::Tree(_) => {
+            let memory = repo.clone().with_object_memory();
+            replay(&memory, &ordered, &affected, target, change, now)?;
+            replay(repo, &ordered, &affected, target, change, now)?
         }
-        let obj = repo.find_object(id).map_err(Error::repo)?;
-        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-
-        let tree = gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?;
-        let parents: Vec<gix::ObjectId> = commit_ref
-            .parents
-            .iter()
-            .map(|hex| {
-                let old = gix::ObjectId::from_hex(hex).map_err(Error::repo)?;
-                Ok(map.get(&old).copied().unwrap_or(old))
-            })
-            .collect::<Result<_>>()?;
-        let author = commit_ref.author.to_owned().map_err(Error::repo)?;
-        let message: BString = if id == target {
-            match change {
-                Change::Message(text) => crate::close::normalize_message(text).into(),
-            }
-        } else {
-            commit_ref.message.to_owned()
-        };
-        let mut extra_headers: Vec<(BString, BString)> = Vec::new();
-        for (key, value) in &commit_ref.extra_headers {
-            let name: &[u8] = key;
-            if name == b"gpgsig" || name == b"gpgsig-sha256" {
-                continue;
-            }
-            extra_headers.push(((*key).to_owned(), value.clone().into_owned()));
-        }
-        let encoding = commit_ref.encoding.map(|e| e.to_owned());
-
-        let commit = gix::objs::Commit {
-            tree,
-            parents: parents.into(),
-            author,
-            committer: committer.clone(),
-            encoding,
-            message,
-            extra_headers,
-        };
-        let new_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
-        map.insert(id, new_id);
-        rewrites.push(Rewrite {
-            old: id.to_string(),
-            new: new_id.to_string(),
-        });
-    }
+    };
 
     // 6. Local heads inside the range that actually moved.
     let mut carried: Vec<RefTransition> = Vec::new();
@@ -195,6 +158,217 @@ pub fn plan(
         carried,
         new_tip,
     })
+}
+
+/// How many of the *old* shas the branch's remote-tracking ref already
+/// contains. Disclosure, not a guard: nothing here refuses a rewrite because
+/// commits are published.
+pub fn published_count(
+    repo: &gix::Repository,
+    branch: &str,
+    rewrites: &[Rewrite],
+) -> Result<usize> {
+    let full_name: gix::refs::FullName = format!("refs/heads/{branch}")
+        .as_str()
+        .try_into()
+        .map_err(Error::repo)?;
+    let Some(tracking) =
+        repo.branch_remote_tracking_ref_name(full_name.as_ref(), gix::remote::Direction::Fetch)
+    else {
+        return Ok(0);
+    };
+    let tracking = tracking.map_err(Error::repo)?;
+
+    let mut tracking_ref = match repo.find_reference(tracking.as_ref()) {
+        Ok(r) => r,
+        Err(gix::reference::find::existing::Error::NotFound { .. }) => return Ok(0),
+        Err(err) => return Err(Error::repo(err)),
+    };
+    let remote_tip = tracking_ref
+        .peel_to_id_in_place()
+        .map_err(Error::repo)?
+        .detach();
+
+    let mut count = 0usize;
+    for r in rewrites {
+        let Ok(old) = gix::ObjectId::from_hex(r.old.as_bytes()) else {
+            continue;
+        };
+        if let Ok(bases) = repo.merge_bases_many(old, &[remote_tip])
+            && bases.iter().any(|b| b.detach() == old)
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// Paths for a refusal message: the first three, "and N more" for the rest.
+pub(crate) fn join_paths(paths: &[String]) -> String {
+    if paths.len() <= 3 {
+        paths.join(", ")
+    } else {
+        format!("{}, and {} more", paths[..3].join(", "), paths.len() - 3)
+    }
+}
+
+/// Rewrite each affected commit in order: the target takes its new tree or
+/// message, and every other affected commit is replayed onto its rewritten
+/// first parent. Under a tree change a merge commit in the range is refused
+/// before the first write.
+fn replay(
+    repo: &gix::Repository,
+    ordered: &[gix::ObjectId],
+    affected: &HashSet<gix::ObjectId>,
+    target: gix::ObjectId,
+    change: &Change,
+    now: i64,
+) -> Result<(Vec<Rewrite>, HashMap<gix::ObjectId, gix::ObjectId>)> {
+    // Re-parenting a merge is unambiguous; replaying one is not.
+    if let Change::Tree(_) = change {
+        for &id in ordered {
+            if id == target || !affected.contains(&id) {
+                continue;
+            }
+            let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
+            if commit.parent_ids().count() > 1 {
+                let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+                return Err(Error::coded(
+                    "rewrite/merge-in-range",
+                    format!(
+                        "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
+                         rewritten",
+                        short(repo, id),
+                        subject
+                    ),
+                    vec!["ff log".into()],
+                ));
+            }
+        }
+    }
+
+    let committer = crate::refs::user_signature(repo, now)?;
+    let mut map: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
+    let mut rewrites: Vec<Rewrite> = Vec::new();
+    for &id in ordered {
+        if !affected.contains(&id) {
+            continue;
+        }
+        let obj = repo.find_object(id).map_err(Error::repo)?;
+        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+
+        let old_parents: Vec<gix::ObjectId> = commit_ref
+            .parents
+            .iter()
+            .map(|hex| gix::ObjectId::from_hex(hex).map_err(Error::repo))
+            .collect::<Result<_>>()?;
+        let parents: Vec<gix::ObjectId> = old_parents
+            .iter()
+            .map(|&old| map.get(&old).copied().unwrap_or(old))
+            .collect();
+        let tree = if id == target {
+            match change {
+                Change::Message(_) => {
+                    gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?
+                }
+                Change::Tree(new) => *new,
+            }
+        } else {
+            replayed_tree(repo, id, old_parents.first().copied(), &map)?
+        };
+        let author = commit_ref.author.to_owned().map_err(Error::repo)?;
+        let message: BString = if id == target {
+            match change {
+                Change::Message(text) => crate::close::normalize_message(text).into(),
+                Change::Tree(_) => commit_ref.message.to_owned(),
+            }
+        } else {
+            commit_ref.message.to_owned()
+        };
+        let mut extra_headers: Vec<(BString, BString)> = Vec::new();
+        for (key, value) in &commit_ref.extra_headers {
+            let name: &[u8] = key;
+            if name == b"gpgsig" || name == b"gpgsig-sha256" {
+                continue;
+            }
+            extra_headers.push(((*key).to_owned(), value.clone().into_owned()));
+        }
+        let encoding = commit_ref.encoding.map(|e| e.to_owned());
+
+        let commit = gix::objs::Commit {
+            tree,
+            parents: parents.into(),
+            author,
+            committer: committer.clone(),
+            encoding,
+            message,
+            extra_headers,
+        };
+        let new_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
+        map.insert(id, new_id);
+        rewrites.push(Rewrite {
+            old: id.to_string(),
+            new: new_id.to_string(),
+        });
+    }
+    Ok((rewrites, map))
+}
+
+/// The new tree of a non-target affected commit. When its first parent's
+/// tree did not move, the commit's own tree is carried unchanged and no merge
+/// runs at all; otherwise its tree is replayed onto the rewritten parent, and
+/// an unresolved merge refuses the whole rewrite.
+fn replayed_tree(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+    old_parent0: Option<gix::ObjectId>,
+    map: &HashMap<gix::ObjectId, gix::ObjectId>,
+) -> Result<gix::ObjectId> {
+    let Some(old_parent0) = old_parent0 else {
+        return Err(Error::msg(
+            "a non-target commit in the affected set has no first parent: internal ordering \
+             error",
+        ));
+    };
+    let new_parent0 = *map.get(&old_parent0).unwrap_or(&old_parent0);
+    let base = tree_of(repo, old_parent0)?;
+    let ours = tree_of(repo, new_parent0)?;
+    if base == ours {
+        return tree_of(repo, id);
+    }
+    let their = tree_of(repo, id)?;
+    let options = repo.tree_merge_options().map_err(Error::repo)?;
+    let mut outcome = repo
+        .merge_trees(base, ours, their, Default::default(), options)
+        .map_err(Error::repo)?;
+    let paths = crate::futures::unresolved(&outcome);
+    if !paths.is_empty() {
+        let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
+        let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+        return Err(Error::coded(
+            "held/rewrite-conflict",
+            format!(
+                "replaying {} \"{}\" over the rewrite conflicts in {}: nothing was rewritten",
+                short(repo, id),
+                subject,
+                join_paths(&paths),
+            ),
+            vec!["ff status".into(), "ff log -r <rev>".into()],
+        ));
+    }
+    Ok(outcome.tree.write().map_err(Error::repo)?.detach())
+}
+
+/// The tree of a commit, resolved through whichever repository handle is
+/// given.
+fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
+    Ok(repo
+        .find_object(commit)
+        .map_err(Error::repo)?
+        .into_commit()
+        .tree_id()
+        .map_err(Error::repo)?
+        .detach())
 }
 
 /// Iterative post-order DFS from `tip` over parents restricted to `range`,

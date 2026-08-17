@@ -122,7 +122,7 @@ pub(crate) fn conflict_paths(
 }
 
 /// The unresolved paths of a completed merge, sorted and deduped.
-fn unresolved(outcome: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
+pub(crate) fn unresolved(outcome: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
     let how = gix::merge::tree::TreatAsUnresolved::git();
     let mut paths: Vec<String> = outcome
         .conflicts
