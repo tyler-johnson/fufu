@@ -504,6 +504,15 @@ fn kind_letter(kind: ChangeKind) -> char {
 /// Dim is a modifier, not a color — it is never themed.
 const DIM: anstyle::Style = anstyle::Style::new().dimmed();
 
+/// Bold is the other unthemed modifier, and it already means one thing in
+/// this tool: *what you can type*. Op id columns bold their shortest unique
+/// prefix and dim the rest for exactly that reason. A branch name is the
+/// other typeable token on a row — it is what `ff switch` takes — so it wears
+/// the same encoding rather than a tenth palette color. The current branch
+/// adds the `at` green on top: bold says "you could go here", green says
+/// "you are here".
+const BOLD: anstyle::Style = anstyle::Style::new().bold();
+
 /// Nine semantic roles, each an ANSI style. Three themes are provided; the
 /// process-global palette defaults to `MUTED` so every path works without
 /// explicit initialization (tests, callers that forget, color-off pipes).
@@ -855,7 +864,7 @@ pub fn map_payload(
                 line0.push_str(&if r.current {
                     paint(&r.name, palette().at, colored)
                 } else {
-                    r.name.clone()
+                    paint(&r.name, BOLD, colored)
                 });
                 if let Some(files) = r.parked {
                     let note = if files == 1 {

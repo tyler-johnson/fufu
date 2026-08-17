@@ -159,6 +159,42 @@ fn a_fork_draws_a_second_lane() {
     );
 }
 
+/// Branch names are the row's other typeable token — what `ff switch` takes —
+/// so they wear the same bold that op ids spend on their typeable prefix. The
+/// current branch adds the `at` green on top: bold says you could go here,
+/// green says you are here. That is what makes the map scannable for a
+/// destination rather than just readable.
+#[test]
+fn branch_names_are_bold_and_the_current_one_is_also_green() {
+    let fx = fork_fixture();
+    let text = stdout(&ff_colored(&fx, &[]));
+
+    // Every branch name is wrapped in a bold run.
+    for name in ["main", "feature"] {
+        assert!(
+            text.contains(&format!("\u{1b}[1m{name}"))
+                || text.contains(&format!("m{name}\u{1b}[0m")),
+            "{name} is painted, not plain: {text:?}"
+        );
+    }
+
+    // The current branch rides the `@` row and carries the green as well; the
+    // other branch is bold with no color of its own.
+    let at_row = text.lines().next().expect("an @ row");
+    assert!(
+        at_row.contains("\u{1b}[1m\u{1b}[38;5;71mmain"),
+        "current branch is bold + at-green: {at_row:?}"
+    );
+    let feature_row = text
+        .lines()
+        .find(|line| line.contains("feature"))
+        .expect("a row naming the other branch");
+    assert!(
+        feature_row.contains("\u{1b}[1mfeature\u{1b}[0m"),
+        "a non-current branch is bold and uncolored: {feature_row:?}"
+    );
+}
+
 #[test]
 fn an_elided_run_reports_its_count() {
     let fx = Fixture::new();
