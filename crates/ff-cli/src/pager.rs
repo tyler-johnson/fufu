@@ -68,12 +68,6 @@ impl LogOut {
         }
     }
 
-    /// Direct-to-stdout with the same color decision, never a pager — for
-    /// short confirmations (bare `ff`) that must not interpose less.
-    pub fn unpaged() -> Self {
-        Self::direct(color_enabled())
-    }
-
     fn direct(colored: bool) -> Self {
         LogOut {
             inner: Inner::Direct(anstream::AutoStream::auto(std::io::stdout())),

@@ -19,18 +19,24 @@ recoverable. Snapshots are ordinary git objects under refs/fufu/, beside
 your history rather than in it: nothing fufu stores reaches a remote, and
 nothing it stores needs fufu to read back.
 
-Bare `ff` is the snapshot verb: `ff` takes one now, `ff -m \"msg\"` names it.
-Every other command captures first, then does its work.";
+Bare `ff` is the map: recent work across every branch, parked changes
+included — where you left things. It draws the commits that carry shape
+(branch tips, forks, merges) and contracts the straight runs between them
+into one `~ N commits` row, because the shape is the answer and the
+commits are how the shape is labeled.
+
+You never type a capture. Every verb takes one first.";
 
 pub const ROOT_EXAMPLES: &str = "\
 Examples:
-  ff                             snapshot the working tree right now
-  ff -m \"before the refactor\"    snapshot, with a name you will recognize
+  ff                             the map: where you left things
+  ff -n 3                        just the three branches you touched last
+  ff --all                       every local branch, however old
   ff log                         the timeline: commits wearing their operations
   ff restore src/ --at 2h        a directory, as it was two hours ago
   ff undo                        roll the whole repo back one run of work
 
-Wire it in, so capture is ambient rather than remembered:
+Wire it in, so capture reaches the commands you did not type:
   ff hook shell install          alias git='ff git' — git snapshots first
   ff hook agent install          snapshot around your agent's tool calls
   ff doctor                      is any of this actually on?

@@ -5,6 +5,7 @@ mod cli;
 mod cmd;
 mod ctx;
 mod explain;
+mod graph;
 mod help;
 mod machine;
 mod pager;
@@ -23,14 +24,31 @@ use clap::Parser;
 /// every root-level argument beside a subcommand — including the ones
 /// declared `global = true`, which exist precisely to ride any verb. That
 /// made `ff --json status` a usage error, and would have made `ff --at-op
-/// <op> status` one too. Bare-snap's `-m` was the only real conflict it ever
-/// caught, so it is named here instead and the globals go free.
+/// <op> status` one too. The map's retired `-m` and branch scope were the
+/// only real conflicts it ever caught, so they are named here instead and
+/// the globals go free.
 fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
-    if args.message.is_some() && args.command.is_some() {
+    // `-m` is the retired snapshot message: a removal, refused with or
+    // without a subcommand, and answered with what bare ff is now.
+    if args.message.is_some() {
         return Err(ff_core::Error::coded(
             "usage/bad-flags",
-            "-m is bare ff's snapshot message; it does not ride another verb",
-            vec!["ff -m <msg>".into(), "ff <verb> -m <msg>".into()],
+            "-m is gone: bare ff is the map now, and capture is automatic — every \
+             verb captures first, so there is no snapshot to name",
+            vec![
+                "ff".into(),
+                "ff describe -m <msg>".into(),
+                "ff commit -m <msg>".into(),
+            ],
+        ));
+    }
+    // `-n` and `--all` are the map's branch scope; beside a subcommand they
+    // mean nothing, so they are refused rather than silently ignored.
+    if args.command.is_some() && (args.branches.is_some() || args.all) {
+        return Err(ff_core::Error::coded(
+            "usage/bad-flags",
+            "-n and --all are bare ff's branch scope; they do not ride another verb",
+            vec!["ff -n 5".into(), "ff log -n 5".into()],
         ));
     }
     ctx::Ctx::new(args)
@@ -67,18 +85,18 @@ fn main() {
 
     let args = cli::Cli::parse();
 
-    // Whatever must be settled before dispatch: the one flag combination
-    // clap no longer refuses, and the invocation context every verb reads.
-    // The envelope says "snap" because a command line this broken has no
-    // verb to name — which is what it said before, too.
+    // Whatever must be settled before dispatch: the flag combinations clap
+    // no longer refuses, and the invocation context every verb reads.
+    // The envelope says "map" because a command line this broken has no
+    // verb to name, and bare ff is the map.
     let ctx = match settle(&args) {
         Ok(ctx) => ctx,
         // No verb survived parsing, so the raw flag decides the rendering.
-        Err(err) => report(args.json, "snap", &err),
+        Err(err) => report(args.json, "map", &err),
     };
 
     let result = match args.command {
-        None => cmd::snap::run(&ctx, args.message),
+        None => cmd::map::run(&ctx, args.branches, args.all),
         Some(cli::Command::Status { .. }) => cmd::status::run(&ctx),
         Some(cli::Command::Log {
             count,

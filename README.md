@@ -36,15 +36,15 @@ undo: ff undo
 Forgot where you left that idea? Bare `ff` is the map: recent work on every branch, parked changes included. Switching away parks whatever you're in the middle of — no stash juggling — and switching back brings that tree in exactly as you left it.
 
 ```console
-$ ff                              # days later: where did I leave that idea?
-@  qpmvkzrt 7a3f1c8      2m  JIRA-1234/some-feature-im-adding
+$ ff                              # where did I leave that idea?
+@  xvvvrvlz d5d43cb   1m ago  JIRA-1234/some-feature-im-adding
 │  api: surface rate-limit errors
-●  rsqmkwtv 1f4c2d7     26m
+●           c35c701   1h ago
 │  api: retry with backoff
-│ ●  wpxvqnkz 2c9ea49    3d  ff/quiet-lake
-├─╯  parser: handle unicode escapes  (+ parked change, 1 file)
-●  tkzvmwqx 5b7a90e      2h  main
-│  release: cut v0.4.1
+│ ●           6b78881   3d ago  ff/quiet-lake  (+ parked change, 1 file)
+├─╯  parser: handle unicode escapes
+●           aa86694   2h ago  main
+   release: cut v0.4.1
 
 $ ff switch ff/quiet-lake         # mid-edit is fine: this one parks, that one resumes
 parked the open change on JIRA-1234/some-feature-im-adding (84db9582)

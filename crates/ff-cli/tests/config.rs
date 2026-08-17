@@ -280,7 +280,8 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 10);
+    // mapDepth joined the registry, so the list has 11 entries.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -516,6 +517,33 @@ fn futures_depth_rejects_a_negative() {
     let global = fx.root().join("gitconfig");
 
     let out = ff_cfg(&fx.path(), &["config", "futuresDepth", "--", "-5"], &global);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn map_depth_round_trips_with_a_suffix() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "mapDepth", "2k"], &global);
+    assert!(out.status.success(), "set 2k failed: {}", stderr(&out));
+
+    // Read back: whatever git stored is what the command shows.
+    let out = ff_cfg(&fx.path(), &["config", "mapDepth"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.trim() == "2k",
+        "stored value shown verbatim, got: {text}"
+    );
+}
+
+#[test]
+fn map_depth_rejects_a_negative() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "mapDepth", "--", "-5"], &global);
     assert_eq!(out.status.code(), Some(2));
 }
 

@@ -57,7 +57,7 @@ fn with_ops() -> Fixture {
     fx.commit("init");
     for i in 1..=3 {
         fx.write("a.txt", &format!("v{i}\n"));
-        assert!(ff(&fx, &["-m", &format!("snap {i}")]).status.success());
+        assert!(ff(&fx, &[]).status.success());
     }
     fx.write("b.txt", "closing\n");
     assert!(
@@ -375,11 +375,11 @@ fn a_session_is_filtered_by_the_set_language() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
     fx.write("a.txt", "untagged\n");
-    assert!(ff(&fx, &["-m", "untagged"]).status.success());
+    assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "tagged\n");
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
-        .args(["--session", "nightly", "-m", "tagged"])
+        .args(["--session", "nightly"])
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")

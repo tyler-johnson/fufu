@@ -135,6 +135,17 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "one. Suffixes work: 1k.",
             ],
         },
+        Setting {
+            name: "mapDepth",
+            key: "fufu.mapDepth",
+            def: "1000",
+            kind: SettingKind::Size,
+            desc: &[
+                "How many commits bare ff walks before it stops and says so with a",
+                "trailing ~. The map is a skeleton of branch tips and forks, so this",
+                "caps the walk, not the rows. Suffixes work: 2k.",
+            ],
+        },
     ]
 }
 

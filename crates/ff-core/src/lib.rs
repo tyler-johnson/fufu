@@ -11,6 +11,7 @@ mod hooks;
 pub mod index;
 mod jsonfile;
 mod log;
+pub mod map;
 pub mod model;
 pub mod ops;
 pub mod petname;
@@ -41,6 +42,7 @@ pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
 pub use log::{Log, LogOptions, log};
+pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 /// The `--at` grammar, exported because `ff op log --at` asks the same

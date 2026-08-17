@@ -85,9 +85,13 @@ fn status_and_log_never_spawn() {
         // `git` subprocess on every prompt would be a permanent, invisible
         // tax.
         &["hook", "shell", "trigger"][..],
-        // Bare ff captures natively — the write side is zero-spawn too.
+        // Bare ff is the map: both its capture and its read are native, so
+        // both spellings stay in the trapped set.
         &[][..],
         &["--json"][..],
+        // The map's branch-scope paths.
+        &["-n", "2"][..],
+        &["--all"][..],
     ] {
         let out = ff_trapped(&trap, &fx.path(), args);
         assert!(
@@ -355,11 +359,11 @@ fn auto_trim_never_spawns() {
 
     // Take two snapshots so there is content to trim.
     fx.write("a.txt", "dirty1\n");
-    let out = ff_trapped(&build_trap(), &fx.path(), &["-m", "one"]);
+    let out = ff_trapped(&build_trap(), &fx.path(), &[]);
     assert!(out.status.success(), "snapshot one");
 
     fx.write("a.txt", "dirty2\n");
-    let out = ff_trapped(&build_trap(), &fx.path(), &["-m", "two"]);
+    let out = ff_trapped(&build_trap(), &fx.path(), &[]);
     assert!(out.status.success(), "snapshot two");
 
     // Make snapshots old enough to drop.
@@ -413,9 +417,7 @@ fn manual_trim_nudges_gc_even_when_nothing_dropped() {
     fx.commit("init");
     fx.write("a.txt", "dirty\n");
     assert!(
-        ff_trapped(&build_trap(), &fx.path(), &["-m", "one"])
-            .status
-            .success(),
+        ff_trapped(&build_trap(), &fx.path(), &[]).status.success(),
         "snapshot taken"
     );
 

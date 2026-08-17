@@ -771,6 +771,118 @@ pub fn commit_row(
     format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
 }
 
+/// One map row's payload: the glyph that rides its lane, and the one or two
+/// lines that hang beside it.
+pub struct MapPayload {
+    pub glyph: String,
+    pub lines: Vec<String>,
+}
+
+/// The map's columns are `ff log`'s, so the two surfaces read as siblings;
+/// the glyph and the rail the lines hang from are the graph renderer's, not
+/// ours. `lens` prices the one op id the map shows — the Open row's.
+pub fn map_payload(
+    node: &ff_core::MapNode,
+    lens: &std::collections::HashMap<String, usize>,
+    now: i64,
+    colored: bool,
+) -> MapPayload {
+    match node {
+        ff_core::MapNode::Open {
+            branch,
+            id,
+            subject,
+            pending,
+            time,
+            born,
+            clean: _,
+        } => {
+            // The map never collapses to "no changes": the branch name has to
+            // land in its column on every row.
+            let letters = match id {
+                Some(id) => styled_id(
+                    &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
+                    lens.get(id).copied().unwrap_or(1),
+                    ID_WIDTH,
+                    colored,
+                ),
+                None => BLANK_ID.to_string(),
+            };
+            let sha = col(
+                pending.as_deref().map(short7).unwrap_or_default(),
+                SHA_WIDTH,
+                palette().sha,
+                colored,
+            );
+            let age = col_right(
+                &time.map(|t| relative_age(now, t)).unwrap_or_default(),
+                AGE_WIDTH,
+                palette().age,
+                colored,
+            );
+            let mut line0 = format!("{letters} {sha} {age}");
+            if branch != "@detached" {
+                line0.push_str("  ");
+                line0.push_str(&paint(branch, palette().at, colored));
+            }
+            if !born {
+                line0.push_str(&format!("  {}", paint("(no commits yet)", DIM, colored)));
+            }
+            let line1 = match subject {
+                Some(text) => text.clone(),
+                None => paint("(no description)", DIM, colored),
+            };
+            MapPayload {
+                glyph: paint("@", palette().at, colored),
+                lines: vec![line0.trim_end().to_string(), line1],
+            }
+        }
+        ff_core::MapNode::Commit {
+            id: _,
+            short_id,
+            subject,
+            time,
+            refs,
+        } => {
+            // The letters column is blank by design: it is `ff log`'s
+            // chain-segment anchor, earned by a walk the map does not do —
+            // the column stays so the shas line up with the `@` row.
+            let sha = col(short7(short_id), SHA_WIDTH, palette().sha, colored);
+            let age = col_right(&relative_age(now, *time), AGE_WIDTH, palette().age, colored);
+            let mut line0 = format!("{BLANK_ID} {sha} {age}");
+            for r in refs {
+                line0.push_str("  ");
+                line0.push_str(&if r.current {
+                    paint(&r.name, palette().at, colored)
+                } else {
+                    r.name.clone()
+                });
+                if let Some(files) = r.parked {
+                    let note = if files == 1 {
+                        "(+ parked change, 1 file)"
+                    } else {
+                        &format!("(+ parked change, {files} files)")
+                    };
+                    line0.push_str(&format!("  {}", paint(note, DIM, colored)));
+                }
+            }
+            // `pending_description` is --json only: a description with no open
+            // row to hang on would be inventing a shape.
+            MapPayload {
+                glyph: paint("●", palette().sha, colored),
+                lines: vec![line0.trim_end().to_string(), subject.clone()],
+            }
+        }
+        ff_core::MapNode::Elided { count } => MapPayload {
+            glyph: paint("~", DIM, colored),
+            lines: vec![match count {
+                Some(n) => paint(&format!("{n} commits"), DIM, colored),
+                None => String::new(),
+            }],
+        },
+    }
+}
+
 pub fn log_row(entry: &LogEntry, now: i64) -> String {
     format!(
         "{}  {:>8}  {}  {}",

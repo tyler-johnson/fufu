@@ -113,7 +113,7 @@ fn control_characters_are_refused() {
 
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
-        .args(["-m", "x", "--session", "a\nb"])
+        .args(["--session", "a\nb"])
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -148,7 +148,7 @@ fn over_length_is_refused() {
     let long = "a".repeat(129);
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
-        .args(["-m", "x", "--session", &long])
+        .args(["--session", &long])
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -174,7 +174,7 @@ fn over_length_is_refused() {
     let ok = "a".repeat(128);
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
-        .args(["-m", "x", "--session", &ok])
+        .args(["--session", &ok])
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -234,7 +234,7 @@ fn flag_beats_env() {
     fx.write("a.txt", "changed\n");
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
-        .args(["-m", "x", "--session", "b"])
+        .args(["--session", "b"])
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")

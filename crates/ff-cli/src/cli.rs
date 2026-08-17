@@ -4,12 +4,12 @@ use clap::{Parser, Subcommand};
 
 use crate::help;
 
-/// Bare `ff` is the snapshot verb (jj-style): `ff [-m <msg>]` takes a manual
-/// snapshot; every other command captures first, then does its work. `-m`
-/// belongs to that bare form alone — `ff -m x status` is refused by hand in
-/// main, not by clap, because the clap setting that used to do it
-/// (`args_conflicts_with_subcommands`) refuses every root-level arg beside a
-/// subcommand, `global = true` ones included.
+/// Bare `ff` is the map (jj-style): the local branches as a skeleton —
+/// tips, merges, forks — the answer to "where did I leave that idea?".
+/// Capture is automatic and every verb takes it first, so `-m` is declared
+/// only to stay hidden — typing it is answered in main rather than met with
+/// clap's bare "unexpected argument", the same reason `--ops` is still
+/// declared at log's `-r`.
 #[derive(Parser)]
 #[command(
     name = "ff",
@@ -23,9 +23,15 @@ use crate::help;
     after_long_help = help::ROOT_EXAMPLES
 )]
 pub struct Cli {
-    /// Message for the manual snapshot
-    #[arg(short = 'm', value_name = "msg")]
+    /// Retired: bare ff is the map, and capture is automatic
+    #[arg(short = 'm', value_name = "msg", hide = true)]
     pub message: Option<String>,
+    /// Branches to show, newest tip first; 0 means all
+    #[arg(short = 'n', long = "max-count", value_name = "count")]
+    pub branches: Option<usize>,
+    /// Every local branch
+    #[arg(long)]
+    pub all: bool,
     /// Emit machine-readable JSON
     #[arg(long, global = true)]
     pub json: bool,

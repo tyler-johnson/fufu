@@ -81,7 +81,7 @@ fn a_run_of_captures_is_one_step_in_both_directions() {
     let fx = base();
     for letter in ["a", "b", "c"] {
         fx.write("a.txt", &format!("{letter}\n"));
-        ok(&fx, &["-m", letter]);
+        ok(&fx, &[]);
     }
     assert_eq!(body(&fx), "c\n");
 
@@ -100,10 +100,10 @@ fn a_run_of_captures_is_one_step_in_both_directions() {
 fn a_session_boundary_ends_the_run() {
     let fx = base();
     fx.write("a.txt", "d\n");
-    let out = ff_env(&fx.path(), &["-m", "d"], Some("s"));
+    let out = ff_env(&fx.path(), &[], Some("s"));
     assert!(out.status.success(), "{}", stderr(&out));
     fx.write("a.txt", "e\n");
-    ok(&fx, &["-m", "e"]);
+    ok(&fx, &[]);
 
     ok(&fx, &["undo"]);
     assert_eq!(body(&fx), "d\n", "only e went");
@@ -191,7 +191,7 @@ fn both_verbs_repeat() {
     let fx = base();
     for letter in ["a", "b", "c"] {
         fx.write("a.txt", &format!("{letter}\n"));
-        ok(&fx, &["-m", letter]);
+        ok(&fx, &[]);
         // A commit between the captures, so each is its own run.
         ok(&fx, &["commit", "-m", &format!("close {letter}")]);
     }
@@ -221,7 +221,7 @@ fn redo_refuses_once_work_has_landed() {
     ok(&fx, &["undo"]);
 
     fx.write("a.txt", "a different direction\n");
-    ok(&fx, &["-m", "elsewhere"]);
+    ok(&fx, &[]);
 
     let out = ff(&fx, &["redo", "--json"]);
     assert!(!out.status.success(), "the log forked");

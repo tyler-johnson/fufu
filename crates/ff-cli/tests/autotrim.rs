@@ -78,7 +78,7 @@ fn due_fixture() -> Fixture {
 
     // Take two snapshots so the chain has content to drop.
     fx.write("a.txt", "dirty1\n");
-    let out = ff(&fx, &["-m", "one"]);
+    let out = ff(&fx, &[]);
     assert!(
         out.status.success(),
         "snapshot one: {}",
@@ -86,7 +86,7 @@ fn due_fixture() -> Fixture {
     );
 
     fx.write("a.txt", "dirty2\n");
-    let out = ff(&fx, &["-m", "two"]);
+    let out = ff(&fx, &[]);
     assert!(
         out.status.success(),
         "snapshot two: {}",
@@ -180,11 +180,11 @@ fn a_fresh_stamp_defers() {
 
     // Take two snapshots.
     fx.write("a.txt", "dirty1\n");
-    let out = ff(&fx, &["-m", "one"]);
+    let out = ff(&fx, &[]);
     assert!(out.status.success(), "snapshot one");
 
     fx.write("a.txt", "dirty2\n");
-    let out = ff(&fx, &["-m", "two"]);
+    let out = ff(&fx, &[]);
     assert!(out.status.success(), "snapshot two");
 
     // Make snapshots old enough to drop.
@@ -303,7 +303,7 @@ fn a_manual_trim_resets_the_clock() {
 
     // Take a snapshot so there is something to trim.
     fx.write("a.txt", "dirty\n");
-    let out = ff(&fx, &["-m", "snap"]);
+    let out = ff(&fx, &[]);
     assert!(out.status.success(), "snapshot succeeded");
 
     // Write the stamp as due.

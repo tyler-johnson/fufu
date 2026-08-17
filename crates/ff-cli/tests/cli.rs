@@ -49,6 +49,16 @@ fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).expect("utf-8 stdout")
 }
 
+/// The letters spelling of a hex id's first 8 digits: the alphabet is the
+/// k–z run, so an id can never be misread as a commit sha.
+fn letters8(hex: &str) -> String {
+    const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
+    hex[..8]
+        .chars()
+        .map(|c| ALPHABET[c.to_digit(16).unwrap() as usize] as char)
+        .collect()
+}
+
 #[test]
 fn status_json_shape() {
     let fx = Fixture::new();
@@ -379,19 +389,30 @@ fn usage_errors_exit_2() {
     let fx = Fixture::new();
     let unknown_flag = ff(&fx, &["status", "--nope"]);
     assert_eq!(unknown_flag.status.code(), Some(2));
-    // `-m` is bare ff's snapshot message: riding another verb is nonsense,
-    // and `usage/bad-flags` puts it in the same exit-2 class as clap's own.
+    // `-m` is retired outright: the old snapshot message has no home on any
+    // command line, so it exits 2 whether or not a verb follows it.
     let mixed = ff(&fx, &["-m", "msg", "status"]);
     assert_eq!(mixed.status.code(), Some(2));
+    let retired = ff(&fx, &["-m", "msg"]);
+    assert_eq!(retired.status.code(), Some(2));
     let bad_count = ff(&fx, &["log", "-n", "many"]);
     assert_eq!(bad_count.status.code(), Some(2));
 }
 
 #[test]
-fn bare_ff_snapshots_and_noops() {
+fn bare_ff_draws_the_map() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
-    fx.commit("init");
+    fx.commit("f");
+    fx.git(&["branch", "feature"]);
+    fx.write("a.txt", "m1\n");
+    fx.commit("main one");
+    fx.write("a.txt", "m2\n");
+    fx.commit("main two");
+    fx.git(&["switch", "feature"]);
+    fx.write("a.txt", "ft\n");
+    fx.commit("feature one");
+    fx.git(&["switch", "main"]);
     fx.write("a.txt", "dirty\n");
 
     let out = ff(&fx, &[]);
@@ -401,70 +422,94 @@ fn bare_ff_snapshots_and_noops() {
         String::from_utf8_lossy(&out.stderr)
     );
     let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
     assert!(
-        text.starts_with("snapshot ") && text.contains(" on main\n"),
-        "created line: {text:?}"
+        lines.first().is_some_and(|line| line.starts_with('@')),
+        "the open change leads the map: {text:?}"
     );
-    // The top of the snapshot chain follows after a blank line.
-    assert!(text.contains("\n\n"), "blank separator: {text:?}");
     assert!(
-        text.contains("manual"),
-        "confirmation shows the snapshot: {text:?}"
+        lines.iter().any(|line| line.contains("feature")),
+        "the other branch's name is on the map: {text:?}"
     );
-    // Rows lead with the letters-spelled snapshot id.
-    let confirmation = text.split("\n\n").nth(1).unwrap();
+    // The old confirmation line went away with the verb.
     assert!(
-        confirmation.lines().all(|line| {
-            let token = line.split_whitespace().next().unwrap_or("");
-            token.len() >= 4 && token.chars().all(|c| ('k'..='z').contains(&c))
-        }),
-        "letters ids lead the rows: {confirmation:?}"
+        !lines.iter().any(|line| line.contains("snapshot ")),
+        "no snapshot confirmation: {text:?}"
     );
-
+    // Capture did not go anywhere: bare ff still writes the chain first.
     let chain = fx.git(&["rev-parse", "--verify", "refs/fufu/snap/main"]);
     assert!(!chain.trim().is_empty());
 
+    // The map is a view: a second run over the same tree draws the same
+    // skeleton, and there is no "no changes since the last snapshot" line.
     let again = ff(&fx, &[]);
-    assert_eq!(
-        stdout(&again),
-        "no changes since the last snapshot on main\n"
+    assert!(
+        again.status.success(),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    assert!(
+        stdout(&again)
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with('@')),
+        "still the map on the second run"
     );
 }
 
 #[test]
-fn bare_ff_json_shapes() {
+fn bare_ff_json_is_the_map() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
-    fx.commit("init");
+    fx.commit("f");
+    fx.git(&["branch", "feature"]);
+    fx.write("a.txt", "m1\n");
+    fx.commit("main one");
+    fx.write("a.txt", "m2\n");
+    fx.commit("main two");
+    fx.git(&["switch", "feature"]);
+    fx.write("a.txt", "ft\n");
+    fx.commit("feature one");
+    fx.git(&["switch", "main"]);
     fx.write("a.txt", "dirty\n");
 
     let out = ff(&fx, &["--json"]);
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert_eq!(v["data"]["outcome"], "created");
-    assert_eq!(v["data"]["branch"], "main");
     assert!(
-        v["data"]["id"]
-            .as_str()
-            .unwrap()
-            .starts_with(v["data"]["short_id"].as_str().unwrap())
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
-
-    let again = ff(&fx, &["--json"]);
-    let v: serde_json::Value = serde_json::from_str(&stdout(&again)).unwrap();
-    assert_eq!(v["data"]["outcome"], "noop");
-    assert_eq!(v["data"]["branch"], "main");
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1);
+    assert_eq!(v["cmd"], "map");
+    let rows = v["data"]["rows"].as_array().expect("rows array");
+    assert!(!rows.is_empty(), "the map has rows");
+    assert!(v["data"]["truncated"].is_boolean());
+    assert_eq!(rows[0]["node"]["kind"], "open");
+    assert!(
+        rows.iter().any(|row| row["node"]["kind"] == "commit"),
+        "a commit row is on the map"
+    );
 }
 
 #[test]
-fn bare_ff_message_becomes_subject() {
+fn the_snapshot_verb_is_retired() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
-    fx.write("a.txt", "dirty\n");
+
     let out = ff(&fx, &["-m", "before the refactor"]);
-    assert!(out.status.success());
-    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
-    assert_eq!(subject.trim(), "manual: before the refactor");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("-m is gone"),
+        "stderr names the removal: {stderr:?}"
+    );
+
+    // The machine surface carries the same coded refusal.
+    let out = ff(&fx, &["-m", "x", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["error"]["id"], "usage/bad-flags");
 }
 
 #[test]
@@ -626,14 +671,6 @@ fn log_at_row_states() {
 /// no matching snapshot → blank letters column.
 #[test]
 fn log_segment_tips_fill_and_blank() {
-    fn letters8(hex: &str) -> String {
-        const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
-        hex[..8]
-            .chars()
-            .map(|c| ALPHABET[c.to_digit(16).unwrap() as usize] as char)
-            .collect()
-    }
-
     let fx = Fixture::new();
     fx.set_config("user.name", "Segment User");
     fx.set_config("user.email", "segment@test");
@@ -950,16 +987,40 @@ fn evolog_lists_snapshots_and_json() {
     assert_eq!(stdout(&out), "no snapshots on main yet\n");
 
     fx.write("a.txt", "one\n");
-    assert!(ff(&fx, &["-m", "first"]).status.success());
+    assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "two\n");
-    assert!(ff(&fx, &["-m", "second"]).status.success());
+    assert!(ff(&fx, &[]).status.success());
 
     let out = ff(&fx, &["evolog"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
+    // The tree did not change since the second capture, so this run is a
+    // NoOp and the row count stays at the two captures above.
     assert_eq!(lines.len(), 2, "snapshot rows only: {text:?}");
-    assert!(lines[0].contains("second") && lines[1].contains("first"));
+
+    let out = ff(&fx, &["evolog", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let snaps = v["data"]["snapshots"].as_array().unwrap();
+    assert_eq!(snaps.len(), 2);
+    // Newest first, and the human rows lead with the letters spellings of
+    // those same ids in the same order — the message is gone, so the ids
+    // are what ties the two surfaces together.
+    assert!(
+        snaps[0]["time"].as_i64().unwrap() >= snaps[1]["time"].as_i64().unwrap(),
+        "snapshots are newest first: {v:?}"
+    );
+    assert_eq!(
+        lines[0].split_whitespace().next().unwrap(),
+        letters8(snaps[0]["id"].as_str().unwrap()),
+        "row 0 carries the newest id: {text:?}"
+    );
+    assert_eq!(
+        lines[1].split_whitespace().next().unwrap(),
+        letters8(snaps[1]["id"].as_str().unwrap()),
+        "row 1 carries the older id: {text:?}"
+    );
+
     for line in &lines {
         let token = line.split_whitespace().next().unwrap();
         assert_eq!(token.len(), 8, "letters8 id column: {line:?}");
@@ -969,10 +1030,6 @@ fn evolog_lists_snapshots_and_json() {
         );
     }
 
-    let out = ff(&fx, &["evolog", "--json"]);
-    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    let snaps = v["data"]["snapshots"].as_array().unwrap();
-    assert_eq!(snaps.len(), 2);
     assert!(
         snaps[0]["id"]
             .as_str()
@@ -1000,16 +1057,20 @@ fn restore_accepts_letters_id_from_evolog() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
     fx.write("a.txt", "captured\n");
-    assert!(ff(&fx, &["-m", "keep this"]).status.success());
+    assert!(ff(&fx, &[]).status.success());
     fx.write("a.txt", "diverged\n");
 
     let out = ff(&fx, &["evolog"]);
     let text = stdout(&out);
-    let letters = text
-        .lines()
-        .find(|line| line.contains("keep this"))
-        .and_then(|line| line.split_whitespace().next())
-        .expect("letters id on the manual row")
+    // Capture-first: evolog captured the tree as it stood — "diverged" —
+    // before it printed, so the row we want (the one holding "captured\n")
+    // is the *older* capture, row 1, not the newest row 0.
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "exactly two captures: {text:?}");
+    let letters = lines[1]
+        .split_whitespace()
+        .next()
+        .expect("letters id leads the row")
         .to_string();
 
     let out = ff(&fx, &["restore", "--all", "--at-op", &letters]);

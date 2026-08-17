@@ -72,7 +72,7 @@ fn doctor_output_unchanged_without_color() {
 fn doctor_exit_code_tracks_findings() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
-    let snap = ff(&fx, &["-m", "initial"]);
+    let snap = ff(&fx, &[]);
     assert!(snap.status.success(), "snapshot should succeed");
 
     let out = ff(&fx, &["doctor", "--json"]);

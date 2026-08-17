@@ -62,9 +62,9 @@ impl Ctx {
         env: Option<&str>,
         command: &Option<Command>,
     ) -> Result<Self> {
-        // Bare `ff` is the snapshot verb, and its envelope says so.
+        // Bare `ff` is the map, and its envelope says so.
         let (name, json_capable) = match command {
-            None => ("snap", true),
+            None => ("map", true),
             Some(cmd) => (cmd.name(), cmd.json_capable()),
         };
         // clap's `conflicts_with` already refuses the pair on every verb that
@@ -190,8 +190,8 @@ mod tests {
     }
 
     #[test]
-    fn the_bare_command_is_named_snap() {
-        assert_eq!(ctx(None, None).unwrap().command, "snap");
+    fn the_bare_command_is_named_map() {
+        assert_eq!(ctx(None, None).unwrap().command, "map");
         assert_eq!(
             Ctx::resolve(false, None, None, &Some(status(None, None)))
                 .unwrap()
