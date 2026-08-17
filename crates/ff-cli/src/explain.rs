@@ -505,10 +505,11 @@ pub static ENTRIES: &[Entry] = &[
         detail: "A handful of git words name something fufu does differently, so typing one is a \
                  question rather than a typo and it gets an answer instead of a parse error. \
                  checkout was two jobs and is two verbs here; diff and stash describe states fufu \
-                 keeps rather than commands you run. pull and rebase are the ones still coming — \
-                 ff sync will line a branch up with its base and its remote in one move, and \
-                 ff restack is the replay underneath it. Until they land the passthrough runs the \
-                 real thing, capture-first, so nothing you do through it can be lost.",
+                 keeps rather than commands you run. rebase already has an answer — ff restack \
+                 replays a branch onto its base — and pull is the one still coming: ff sync will \
+                 line a branch up with its base and its remote in one move. Until it lands the \
+                 passthrough runs the real thing, capture-first, so nothing you do through it can \
+                 be lost.",
         exits: &["ff status", "ff git <args>"],
     },
     Entry {
@@ -590,6 +591,31 @@ pub static ENTRIES: &[Entry] = &[
                  on another line of work, or below a fork you have since left. ff log says what \
                  is under you, and ff log -r <rev> says where a revision actually sits.",
         exits: &["ff log", "ff log -r <rev>"],
+    },
+    Entry {
+        id: "restack/no-base",
+        summary: "there is no base to replay this branch onto",
+        detail: "A restack replays a branch onto the base it sits on — the parent recorded when \
+                 it was forked, falling back to trunk. Standing on trunk itself there is no \
+                 base, since trunk sits on nothing. Name one with --onto to say where it goes \
+                 instead.",
+        exits: &["ff restack <branch> --onto <base>", "ff status"],
+    },
+    Entry {
+        id: "restack/unrelated",
+        summary: "the branch and its base share no history",
+        detail: "A replay measures its range from a common ancestor, and two histories that \
+                 share none have no range to replay. ff log says what each line of work sits \
+                 on, so the two can be compared against each other.",
+        exits: &["ff log", "ff restack <branch> --onto <base>"],
+    },
+    Entry {
+        id: "usage/restack-onto-self",
+        summary: "a branch cannot be restacked onto itself",
+        detail: "--onto names the branch to replay onto, and that has to be a different one — \
+                 a branch replayed onto itself is the same history it already is. Name the base \
+                 you want it to sit on, or drop the flag to use the one recorded.",
+        exits: &["ff restack <branch> --onto <base>", "ff branch list"],
     },
     Entry {
         id: "usage/bad-session",

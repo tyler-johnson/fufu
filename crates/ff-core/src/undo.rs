@@ -377,16 +377,22 @@ pub fn rewind(
         crate::index::write_index_for_tree(repo, index_target)?;
     }
 
-    // 6. Pending descriptions, in the same order and by the same rule: what
-    //    is left behind restores its `old`, what is entered applies its
-    //    `new`, and the last write is the one the landing recorded.
+    // 6. Pending descriptions and recorded parents, in the same order and by
+    //    the same rule: what is left behind restores its `old`, what is
+    //    entered applies its `new`, and the last write is the one the
+    //    landing recorded.
     for (op, replay) in replay_order(&back, &fwd) {
-        if let Some(op_record) = op.record()?
-            && let Some(d) = &op_record.description
-        {
-            let mut meta = branchmeta::read(repo, &d.branch)?;
-            meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
-            branchmeta::write(repo, &d.branch, &meta)?;
+        if let Some(op_record) = op.record()? {
+            if let Some(d) = &op_record.description {
+                let mut meta = branchmeta::read(repo, &d.branch)?;
+                meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
+                branchmeta::write(repo, &d.branch, &meta)?;
+            }
+            if let Some(p) = &op_record.parent {
+                let mut meta = branchmeta::read(repo, &p.branch)?;
+                meta.parent = if replay { p.new.clone() } else { p.old.clone() };
+                branchmeta::write(repo, &p.branch, &meta)?;
+            }
         }
     }
 

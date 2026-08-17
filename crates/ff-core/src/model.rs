@@ -363,6 +363,66 @@ pub struct AbsorbReport {
     pub still_open: bool,
 }
 
+/// The result of `ff restack`: a branch's commits replayed onto a different
+/// base, the open change carried onto the new tip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RestackOutcome {
+    /// The branch was replayed onto its base.
+    Restacked(RestackReport),
+    /// Already sitting on its base, and no re-aim was asked for.
+    NothingToRestack { branch: String, base: String },
+}
+
+/// A restack that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RestackReport {
+    /// The branch that moved.
+    pub branch: String,
+    /// The base it was replayed onto, as a person would say it: `main`.
+    pub base: String,
+    /// That base's tip commit, full sha.
+    pub onto: String,
+    /// `--onto` recorded a new parent for this branch.
+    pub reaimed: bool,
+    /// The parent it recorded before, when there was one.
+    pub previous_parent: Option<String>,
+    /// Commits replayed. Zero on a fast-forward and on a bare re-aim.
+    pub replayed: usize,
+    /// How many commits the base holds that the branch did not — what
+    /// "the base moved" amounts to.
+    pub behind: usize,
+    /// The base already contained the branch, so the ref moved and nothing
+    /// was rewritten.
+    pub fast_forward: bool,
+    /// The branch's tip after the restack, full sha.
+    pub new_tip: String,
+    /// Other local branches carried with the rewrite, short names, sorted.
+    pub moved: Vec<String>,
+    /// How many of the rewritten commits the branch's remote already has.
+    pub published: usize,
+    /// The tracking ref `published` was measured against — `origin/feature`.
+    /// `None` when the branch has no upstream. Restack can rewrite a branch
+    /// you are not standing on, so this cannot be re-derived from HEAD.
+    pub published_on: Option<String>,
+    /// The branch has a parked change, and whether it would still apply.
+    pub parked: Option<Parked>,
+    /// Worktree files written or deleted. Zero when the restacked branch is
+    /// not the one HEAD stands on or under.
+    pub files: usize,
+    /// Anything still open once the restack has landed.
+    pub still_open: bool,
+}
+
+/// A parked change the restack leaves untouched, disclosed not resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Parked {
+    /// The stash commit fufu recorded for that branch.
+    pub stash: String,
+    /// It still merges onto the branch's new tip.
+    pub applies: bool,
+}
+
 /// The result of `ff lift`: paths taken out of a commit and back into the
 /// open change, and the restack it forced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

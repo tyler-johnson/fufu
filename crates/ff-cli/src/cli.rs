@@ -205,6 +205,16 @@ pub enum Command {
         #[arg(value_name = "path")]
         paths: Vec<String>,
     },
+    /// Replay a branch's commits onto the base it sits on
+    #[command(long_about = help::RESTACK, after_long_help = help::RESTACK_EXAMPLES)]
+    Restack {
+        /// Branch to restack; without it, the one you are on
+        #[arg(value_name = "branch")]
+        branch: Option<String>,
+        /// Base to replay onto; recorded as this branch's new parent
+        #[arg(long, value_name = "branch")]
+        onto: Option<String>,
+    },
     /// Manage lines of work: what exists, and removing one
     #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
@@ -469,6 +479,7 @@ impl Command {
             Command::Describe { .. } => "describe",
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
+            Command::Restack { .. } => "restack",
             Command::Hook { .. } => "hook",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
@@ -519,6 +530,7 @@ impl Command {
             | Command::Describe { .. }
             | Command::Absorb { .. }
             | Command::Lift { .. }
+            | Command::Restack { .. }
             | Command::Hook { .. }
             | Command::Config { .. }
             | Command::Doctor { .. }

@@ -154,6 +154,24 @@ pub fn probe(
     branch_tip: gix::ObjectId,
     open_tree: Option<gix::ObjectId>,
 ) -> Result<Verdict> {
+    let depth = repo
+        .config_snapshot()
+        .integer("fufu.futuresDepth")
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(DEFAULT_FUTURES_DEPTH);
+    probe_to_depth(repo, onto, branch_tip, open_tree, depth)
+}
+
+/// As [`probe`], with the replay depth handed in instead of read from
+/// `fufu.futuresDepth`: the cap exists because status probes at prompt rate,
+/// and a verb the user asked for pays the real cost instead.
+pub fn probe_to_depth(
+    repo: &gix::Repository,
+    onto: gix::ObjectId,
+    branch_tip: gix::ObjectId,
+    open_tree: Option<gix::ObjectId>,
+    depth: usize,
+) -> Result<Verdict> {
     // All merge bases, not just the best one: with a criss-cross history a
     // single base misreads both sides.
     let bases: Vec<gix::ObjectId> = repo
@@ -178,12 +196,6 @@ pub fn probe(
         let behind = crate::upstream::count_exclusive(repo, onto, &bases)?;
         return Ok(Verdict::FastForward { behind });
     }
-
-    let depth = repo
-        .config_snapshot()
-        .integer("fufu.futuresDepth")
-        .and_then(|v| usize::try_from(v).ok())
-        .unwrap_or(DEFAULT_FUTURES_DEPTH);
 
     // Newest-first from the walk; reversed below. Merge commits bail, so the
     // range is a simple chain and reversing is exactly oldest-first.

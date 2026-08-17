@@ -43,6 +43,14 @@ pub struct DescriptionTransition {
     pub new: Option<String>,
 }
 
+/// A recorded-parent change (old/new branch names, `None` = absent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParentTransition {
+    pub branch: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
+
 /// The machine record of one operation (`op.json`).
 ///
 /// `pre_snapshot` and `index_tree` are gone from the old journal shape
@@ -87,6 +95,8 @@ pub struct OpRecord {
     pub stash: Vec<StashEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<DescriptionTransition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<ParentTransition>,
     /// The rewrite map: old→new for every commit this op rewrote. The log is
     /// already the authority and already pins the old commits, so undo and
     /// `ff trim` cover the map for free.
@@ -120,6 +130,7 @@ impl OpRecord {
             refs: Vec::new(),
             stash: Vec::new(),
             description: None,
+            parent: None,
             rewrites: Vec::new(),
             undo_of: None,
             undo_cursor: None,

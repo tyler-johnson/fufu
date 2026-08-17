@@ -17,6 +17,7 @@ pub mod model;
 pub mod ops;
 pub mod petname;
 mod refs;
+pub mod restack;
 mod restore;
 mod revert;
 pub mod revset;

@@ -258,3 +258,226 @@ fn target_not_in_history_still_refuses() {
 
     assert_eq!(err.id(), "rewrite/not-in-history", "{err}");
 }
+
+/// The shared stack:
+///
+/// c0 ─ c1 ─────────── m2        (main)
+///       └─ f1 ─ f2 ─ f3         (feature, with `mid` at f2)
+///
+/// Different files throughout, so the replay is clean. Leaves the fixture
+/// standing on `feature`.
+fn onto_stack(fx: &Fixture) -> (String, String, String, String, String, String) {
+    fx.write("root.txt", "root\n");
+    let c0 = fx.commit("root");
+    fx.write("m.txt", "m\n");
+    let c1 = fx.commit("m");
+
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    let f2 = fx.commit("f2");
+    fx.write("c.txt", "c\n");
+    let f3 = fx.commit("f3");
+    fx.git(&["branch", "mid", &f2]);
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("d.txt", "d\n");
+    let m2 = fx.commit("m2");
+
+    fx.git(&["switch", "-q", "feature"]);
+    (c0, c1, f1, f2, f3, m2)
+}
+
+#[test]
+fn onto_replays_the_target_onto_the_new_base() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, f1, f2, f3, m2) = onto_stack(&fx);
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&f1), oid(&f3), &Change::Onto(oid(&m2)), NOW).unwrap();
+
+    assert_eq!(
+        rewritten.rewrites.len(),
+        3,
+        "the target and both descendants are rewritten"
+    );
+
+    let new = |old: &str| {
+        rewritten
+            .rewrites
+            .iter()
+            .find(|r| r.old == *old)
+            .expect("the commit was rewritten")
+            .new
+            .clone()
+    };
+    let new_f1 = new(&f1);
+    let new_f2 = new(&f2);
+    let new_f3 = new(&f3);
+
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{new_f1}^")]).trim(),
+        m2,
+        "the new target hangs from the new base"
+    );
+    assert_eq!(
+        rewritten.new_tip.to_string(),
+        new_f3,
+        "the new tip is the rewrite of f3"
+    );
+
+    // The target's replay is the three-way merge git itself produces,
+    // because merge-base(m2, f1) is exactly the target's old first parent.
+    let expected = fx
+        .git(&["merge-tree", "--write-tree", &m2, &f1])
+        .trim()
+        .to_string();
+    assert_eq!(
+        tree_of(&fx, &new_f1),
+        expected,
+        "the target's new tree is git's own merge"
+    );
+
+    // The descendants are replayed over the rewritten parent: every
+    // rewritten tree carries d.txt from the new base and keeps its own file.
+    for (sha, own) in [
+        (new_f1.as_str(), "a.txt"),
+        (new_f2.as_str(), "b.txt"),
+        (new_f3.as_str(), "c.txt"),
+    ] {
+        let listing = fx.git(&["ls-tree", "-r", "--name-only", sha]);
+        let paths: Vec<&str> = listing.lines().collect();
+        assert!(
+            paths.contains(&"d.txt"),
+            "{sha} must carry d.txt from the new base"
+        );
+        assert!(paths.contains(&own), "{sha} must keep its own {own}");
+    }
+}
+
+#[test]
+fn onto_carries_a_branch_inside_the_range() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, f1, f2, f3, m2) = onto_stack(&fx);
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&f1), oid(&f3), &Change::Onto(oid(&m2)), NOW).unwrap();
+
+    let new_f2 = rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == f2)
+        .expect("mid's commit was rewritten")
+        .new
+        .clone();
+    let mid = rewritten
+        .carried
+        .iter()
+        .find(|c| c.name == "refs/heads/mid")
+        .expect("mid sits inside the rewritten range");
+    assert_eq!(mid.old.as_deref(), Some(f2.as_str()), "mid's old end is f2");
+    assert_eq!(
+        mid.new.as_deref(),
+        Some(new_f2.as_str()),
+        "mid's new end is f2's rewrite"
+    );
+
+    assert!(
+        rewritten
+            .carried
+            .iter()
+            .any(|c| c.name == "refs/heads/feature"),
+        "feature is the range's tip and must carry too"
+    );
+}
+
+/// Guards against seeding the rewrite map: the target's new parent must not
+/// be published into it, because `carried` is built by looking every local
+/// head up in that map and a seeded entry would move a branch nobody named.
+#[test]
+fn onto_leaves_a_branch_at_the_old_fork_point_alone() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, c1, f1, _f2, f3, m2) = onto_stack(&fx);
+    fx.git(&["branch", "stay", &c1]);
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&f1), oid(&f3), &Change::Onto(oid(&m2)), NOW).unwrap();
+
+    assert!(
+        rewritten
+            .carried
+            .iter()
+            .all(|c| c.name != "refs/heads/stay"),
+        "stay sits at the old fork point and nobody named it: {:?}",
+        rewritten.carried
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "stay"]).trim(),
+        c1,
+        "stay still reads the old fork point"
+    );
+}
+
+#[test]
+fn onto_conflict_refuses_and_writes_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    // main and feature edit the same line of the same file from the same
+    // base, so replaying f1 over m2 must conflict.
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "two\n");
+    let f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    let m2 = fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let loose_before = loose_objects(&fx);
+
+    let repo = fx.repo();
+    let err = plan(&repo, oid(&f1), oid(&f1), &Change::Onto(oid(&m2)), NOW)
+        .expect_err("replaying a conflicting target must refuse");
+
+    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
+    assert!(
+        err.to_string().contains("f.txt"),
+        "the message must name the path: {err}"
+    );
+    assert_eq!(
+        loose_objects(&fx),
+        loose_before,
+        "a refused rewrite must leave no object on disk"
+    );
+}
+
+#[test]
+fn onto_refuses_a_merge_target() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("one");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("two");
+    fx.write("c.txt", "c\n");
+    let c3 = fx.commit("three");
+    let merge = merge_commit(&fx, &c2, &c3);
+
+    let repo = fx.repo();
+    let err = plan(
+        &repo,
+        oid(&merge),
+        oid(&merge),
+        &Change::Onto(oid(&c1)),
+        NOW,
+    )
+    .expect_err("a merge target must refuse under Onto");
+
+    assert_eq!(err.id(), "rewrite/merge-in-range", "{err}");
+    assert!(err.to_string().contains("is a merge"), "{err}");
+}

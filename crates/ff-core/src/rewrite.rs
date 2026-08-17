@@ -1,8 +1,9 @@
 //! The writing half of the engine [`crate::futures::probe`] simulates: it
 //! re-parents a range of commits — replaying them by three-way merge when the
-//! change moves the target's tree — and writes the rewritten objects, moving
-//! no refs of its own. Every rewrite verb, reword today and absorb and lift
-//! later, aims here rather than forking its own commit-writing logic.
+//! change moves the target's tree or the range's floor onto a different base —
+//! and writes the rewritten objects, moving no refs of its own. Every rewrite
+//! verb, reword today and absorb and lift later, aims here rather than
+//! forking its own commit-writing logic.
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,6 +29,10 @@ pub enum Change {
     /// The target's new tree, already computed by the caller. Descendants
     /// are replayed onto it rather than merely re-parented.
     Tree(gix::ObjectId),
+    /// The target's new first parent. Unlike the other two, this replays the
+    /// target itself rather than only its descendants — which is what moves
+    /// a range's floor onto a different base.
+    Onto(gix::ObjectId),
 }
 
 /// The result of re-parenting `target..tip` after applying a [`Change`] to
@@ -107,14 +112,14 @@ pub fn plan(
         }
     }
 
-    // 5. Rewrite the affected commits. A tree change can conflict, so a dry
-    // run against an in-memory object store must pass first: it raises the
-    // conflict or the merge-commit refusal, writes nothing, and only then
+    // 5. Rewrite the affected commits. A tree-moving change can conflict, so
+    // a dry run against an in-memory object store must pass first: it raises
+    // the conflict or the merge-commit refusal, writes nothing, and only then
     // does the real pass run. A message change moves no tree, so it skips
     // the dry run and keeps today's single pass.
     let (rewrites, map) = match change {
         Change::Message(_) => replay(repo, &ordered, &affected, target, change, now)?,
-        Change::Tree(_) => {
+        Change::Tree(_) | Change::Onto(_) => {
             let memory = repo.clone().with_object_memory();
             replay(&memory, &ordered, &affected, target, change, now)?;
             replay(repo, &ordered, &affected, target, change, now)?
@@ -160,6 +165,31 @@ pub fn plan(
     })
 }
 
+/// The branch's tracking ref — the one git would fetch into, from
+/// `branch.<name>.remote`/`branch.<name>.merge`: `refs/remotes/origin/<name>`
+/// under the default fetch refspec. `None` when the branch has no upstream.
+fn tracking_ref(repo: &gix::Repository, branch: &str) -> Result<Option<gix::refs::FullName>> {
+    let full_name: gix::refs::FullName = format!("refs/heads/{branch}")
+        .as_str()
+        .try_into()
+        .map_err(Error::repo)?;
+    let Some(tracking) =
+        repo.branch_remote_tracking_ref_name(full_name.as_ref(), gix::remote::Direction::Fetch)
+    else {
+        return Ok(None);
+    };
+    let tracking = tracking.map_err(Error::repo)?;
+    Ok(Some(
+        gix::refs::FullName::try_from(tracking.as_bstr()).map_err(Error::repo)?,
+    ))
+}
+
+/// The short name of the tracking ref `published_count` measures against —
+/// `origin/feature`. `None` when the branch has no upstream configured.
+pub fn tracking_name(repo: &gix::Repository, branch: &str) -> Result<Option<String>> {
+    Ok(tracking_ref(repo, branch)?.map(|tracking| tracking.shorten().to_string()))
+}
+
 /// How many of the *old* shas the branch's remote-tracking ref already
 /// contains. Disclosure, not a guard: nothing here refuses a rewrite because
 /// commits are published.
@@ -168,16 +198,9 @@ pub fn published_count(
     branch: &str,
     rewrites: &[Rewrite],
 ) -> Result<usize> {
-    let full_name: gix::refs::FullName = format!("refs/heads/{branch}")
-        .as_str()
-        .try_into()
-        .map_err(Error::repo)?;
-    let Some(tracking) =
-        repo.branch_remote_tracking_ref_name(full_name.as_ref(), gix::remote::Direction::Fetch)
-    else {
+    let Some(tracking) = tracking_ref(repo, branch)? else {
         return Ok(0);
     };
-    let tracking = tracking.map_err(Error::repo)?;
 
     let mut tracking_ref = match repo.find_reference(tracking.as_ref()) {
         Ok(r) => r,
@@ -224,10 +247,12 @@ fn replay(
     change: &Change,
     now: i64,
 ) -> Result<(Vec<Rewrite>, HashMap<gix::ObjectId, gix::ObjectId>)> {
-    // Re-parenting a merge is unambiguous; replaying one is not.
-    if let Change::Tree(_) = change {
+    // Re-parenting a merge is unambiguous; replaying one is not — and
+    // absorb never replays its target, so a merge target is exempt only
+    // under Tree, not under Onto.
+    if matches!(change, Change::Tree(_) | Change::Onto(_)) {
         for &id in ordered {
-            if id == target || !affected.contains(&id) {
+            if (matches!(change, Change::Tree(_)) && id == target) || !affected.contains(&id) {
                 continue;
             }
             let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
@@ -262,25 +287,50 @@ fn replay(
             .iter()
             .map(|hex| gix::ObjectId::from_hex(hex).map_err(Error::repo))
             .collect::<Result<_>>()?;
-        let parents: Vec<gix::ObjectId> = old_parents
-            .iter()
-            .map(|&old| map.get(&old).copied().unwrap_or(old))
-            .collect();
+        let parents: Vec<gix::ObjectId> = if let Change::Onto(onto) = change
+            && id == target
+        {
+            vec![*onto]
+        } else {
+            old_parents
+                .iter()
+                .map(|&old| map.get(&old).copied().unwrap_or(old))
+                .collect()
+        };
         let tree = if id == target {
             match change {
                 Change::Message(_) => {
                     gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?
                 }
                 Change::Tree(new) => *new,
+                Change::Onto(onto) => {
+                    let base = match old_parents.first() {
+                        Some(parent) => tree_of(repo, *parent)?,
+                        None => gix::ObjectId::empty_tree(repo.object_hash()),
+                    };
+                    replayed_tree(repo, id, base, tree_of(repo, *onto)?)?
+                }
             }
         } else {
-            replayed_tree(repo, id, old_parents.first().copied(), &map)?
+            let Some(old_parent0) = old_parents.first().copied() else {
+                return Err(Error::msg(
+                    "a non-target commit in the affected set has no first parent: internal \
+                     ordering error",
+                ));
+            };
+            let new_parent0 = *map.get(&old_parent0).unwrap_or(&old_parent0);
+            replayed_tree(
+                repo,
+                id,
+                tree_of(repo, old_parent0)?,
+                tree_of(repo, new_parent0)?,
+            )?
         };
         let author = commit_ref.author.to_owned().map_err(Error::repo)?;
         let message: BString = if id == target {
             match change {
                 Change::Message(text) => crate::close::normalize_message(text).into(),
-                Change::Tree(_) => commit_ref.message.to_owned(),
+                Change::Tree(_) | Change::Onto(_) => commit_ref.message.to_owned(),
             }
         } else {
             commit_ref.message.to_owned()
@@ -314,32 +364,24 @@ fn replay(
     Ok((rewrites, map))
 }
 
-/// The new tree of a non-target affected commit. When its first parent's
-/// tree did not move, the commit's own tree is carried unchanged and no merge
-/// runs at all; otherwise its tree is replayed onto the rewritten parent, and
-/// an unresolved merge refuses the whole rewrite.
+/// The new tree of a replayed commit, target or descendant. When its first
+/// parent's tree did not move, the commit's own tree is carried unchanged
+/// and no merge runs at all — which is what keeps a reword costing what it
+/// cost before — otherwise its tree is replayed onto the rewritten parent,
+/// and an unresolved merge refuses the whole rewrite.
 fn replayed_tree(
     repo: &gix::Repository,
     id: gix::ObjectId,
-    old_parent0: Option<gix::ObjectId>,
-    map: &HashMap<gix::ObjectId, gix::ObjectId>,
+    base_tree: gix::ObjectId,
+    ours_tree: gix::ObjectId,
 ) -> Result<gix::ObjectId> {
-    let Some(old_parent0) = old_parent0 else {
-        return Err(Error::msg(
-            "a non-target commit in the affected set has no first parent: internal ordering \
-             error",
-        ));
-    };
-    let new_parent0 = *map.get(&old_parent0).unwrap_or(&old_parent0);
-    let base = tree_of(repo, old_parent0)?;
-    let ours = tree_of(repo, new_parent0)?;
-    if base == ours {
+    if base_tree == ours_tree {
         return tree_of(repo, id);
     }
     let their = tree_of(repo, id)?;
     let options = repo.tree_merge_options().map_err(Error::repo)?;
     let mut outcome = repo
-        .merge_trees(base, ours, their, Default::default(), options)
+        .merge_trees(base_tree, ours_tree, their, Default::default(), options)
         .map_err(Error::repo)?;
     let paths = crate::futures::unresolved(&outcome);
     if !paths.is_empty() {

@@ -383,6 +383,7 @@ fn absorb_paths_filter_selects() {
 
     fx.write("a.txt", "a2\n");
     fx.write("b.txt", "b2\n");
+    fx.backdate();
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), vec!["a.txt".into()], NOW);
     let report = match outcome {
         ff_core::AbsorbOutcome::Absorbed(r) => r,
