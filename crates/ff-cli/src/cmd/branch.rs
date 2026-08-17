@@ -4,7 +4,7 @@
 
 use std::ffi::OsString;
 
-use ff_core::{BranchInfo, Error, Result};
+use ff_core::{Error, Result};
 
 use crate::cli::BranchAction;
 use crate::ctx::Ctx;
@@ -88,70 +88,44 @@ fn list(ctx: &Ctx) -> Result<()> {
         crate::machine::emit("branch list", &list)?;
         return Ok(());
     }
-    for info in &list.named {
-        println!("{}", row(info));
-    }
-    if !list.anonymous.is_empty() {
-        if !list.named.is_empty() {
-            println!();
+    crate::render::init_palette(&repo);
+    let colored = crate::pager::color_enabled();
+    // One name column across the whole listing — the widest label, not the
+    // widest name, since sigil and brackets ride the column too — floored
+    // so a listing of short names does not look cramped.
+    let label_width = list
+        .named
+        .iter()
+        .chain(list.anonymous.iter())
+        .map(|info| crate::render::branch_label_width(&info.name))
+        .max()
+        .unwrap_or(14)
+        .max(14);
+    let mut gap = false;
+    for (section, header) in [(&list.named, ""), (&list.anonymous, "anonymous:")] {
+        if section.is_empty() {
+            continue;
         }
-        println!("anonymous:");
-        for info in &list.anonymous {
-            println!("{}", row(info));
+        if !header.is_empty() {
+            if !list.named.is_empty() {
+                println!();
+            }
+            println!("{}", crate::render::paint_dim(header, colored));
+            // The section separator is already the air; never double it.
+            gap = false;
+        }
+        for info in section {
+            if gap {
+                println!();
+            }
+            let lines = crate::render::branch_row(info, label_width, colored);
+            // A row that hung a note gets air beneath it before the next
+            // branch's head line; an all-quiet listing stays single-spaced.
+            gap = lines.len() > 1;
+            for line in lines {
+                println!("{line}");
+            }
         }
     }
     Ok(())
-}
-
-fn row(info: &BranchInfo) -> String {
-    let marker = if info.current { "*" } else { " " };
-    let tip = info
-        .tip
-        .as_deref()
-        .map(|t| &t[..t.len().min(7)])
-        .unwrap_or("-------");
-    let mut line = format!("{marker} {:<24} {tip}", info.name);
-    if let Some(subject) = &info.subject {
-        line.push_str(&format!("  {subject}"));
-    }
-    let mut notes = Vec::new();
-    if info.parked {
-        notes.push("parked change".to_string());
-    }
-    if let Some(desc) = &info.pending_description {
-        notes.push(format!("pending: {desc}"));
-    }
-    if let Some(up) = &info.upstream {
-        if up.gone {
-            notes.push(format!("{} gone", up.r#ref));
-        } else if up.ahead > 0 || up.behind > 0 {
-            notes.push(format!("{}: +{} -{}", up.r#ref, up.ahead, up.behind));
-        }
-    }
-    if let Some(future) = &info.future {
-        let base = &future.against.name;
-        match &future.verdict {
-            ff_core::futures::Verdict::Clean { .. } => {
-                notes.push(format!("{base}: rebases cleanly"));
-            }
-            ff_core::futures::Verdict::Conflict { .. } => {
-                notes.push(format!("{base}: conflicts"));
-            }
-            ff_core::futures::Verdict::FastForward { .. } => {
-                notes.push(format!("{base}: fast-forwards"));
-            }
-            // Terse on purpose: a row that says "nothing to report" is
-            // noise, and the detail belongs to `ff status` and `--json`.
-            // `Gone` cannot reach here — rows carry the base axis only — but
-            // the match is exhaustive so the next verdict added has to think
-            // about this column.
-            ff_core::futures::Verdict::UpToDate { .. }
-            | ff_core::futures::Verdict::Unknown { .. }
-            | ff_core::futures::Verdict::Gone => {}
-        }
-    }
-    if !notes.is_empty() {
-        line.push_str(&format!("  [{}]", notes.join(", ")));
-    }
-    line
 }

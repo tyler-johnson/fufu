@@ -2,8 +2,8 @@
 //! ANSI color when the stream says so (see the palette below).
 
 use ff_core::{
-    ChangeKind, ChangeStat, FileStat, HeadState, InProgress, LogEntry, ReconcileReport, SnapEntry,
-    Status,
+    BranchInfo, ChangeKind, ChangeStat, FileStat, HeadState, InProgress, LogEntry, ReconcileReport,
+    SnapEntry, Status,
 };
 
 /// Render a reconcile pass to stderr, loudly, before any verb output —
@@ -183,6 +183,34 @@ pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<Str
         .collect()
 }
 
+/// `{n} to push[ to <ref>]`, pending work headed for the remote.
+///
+/// `ff branch list` walks every branch and must not pay a merge simulation
+/// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
+/// local counts — and it must spell it in these exact words, so the two
+/// callers read one definition.
+fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
+    let phrase = match toward {
+        Some(ref_name) => format!("{n} to push to {ref_name}"),
+        None => format!("{n} to push"),
+    };
+    paint_ahead(&phrase, colored)
+}
+
+/// `{n} to pull[ from <ref>]`, pending work the remote already has.
+///
+/// `ff branch list` walks every branch and must not pay a merge simulation
+/// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
+/// local counts — and it must spell it in these exact words, so the two
+/// callers read one definition.
+fn to_pull(n: usize, toward: Option<&str>, colored: bool) -> String {
+    let phrase = match toward {
+        Some(ref_name) => format!("{n} to pull from {ref_name}"),
+        None => format!("{n} to pull"),
+    };
+    paint_ahead(&phrase, colored)
+}
+
 /// One axis's phrase, or `None` when `ff sync` would not act on it.
 fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
     use ff_core::futures::{At, Role, Verdict};
@@ -201,10 +229,7 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
     };
     // Push and pull count against a place, so an aliased remote names it
     // inline rather than wearing the `remote <name>` prefix.
-    let toward = |preposition: &str| match role {
-        Role::RemoteAlias => format!(" {preposition} {}", f.against.name),
-        _ => String::new(),
-    };
+    let alias = matches!(role, Role::RemoteAlias).then_some(f.against.name.as_str());
 
     Some(match &f.verdict {
         // Sync never merges you into your base, so unmerged work is a
@@ -214,12 +239,8 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
         // Against the remote the same verdict means the opposite: these are
         // precisely the commits sync will send.
         Verdict::UpToDate { ahead: 0 } => return None,
-        Verdict::UpToDate { ahead } => {
-            paint_ahead(&format!("{ahead} to push{}", toward("to")), colored)
-        }
-        Verdict::FastForward { behind } if !role.is_base() => {
-            paint_ahead(&format!("{behind} to pull{}", toward("from")), colored)
-        }
+        Verdict::UpToDate { ahead } => to_push(*ahead, alias, colored),
+        Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, alias, colored),
         Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
         Verdict::Clean { replayed } => paint_ok(
             &format!(
@@ -710,6 +731,18 @@ fn blank_id(colored: bool) -> String {
     paint(BLANK_ID, DIM, colored)
 }
 
+/// The sha column with nothing to put in it — an unborn branch's missing
+/// tip: one em dash where the sha would start, then the column's remaining
+/// width in spaces. A mark rather than a blank, so the column reads as a
+/// column and not as an accident of indentation; dim, because it is
+/// furniture, not data.
+const BLANK_SHA: &str = "\u{2014}      "; // em dash + 6 spaces = SHA_WIDTH (7)
+
+/// `BLANK_SHA`, dimmed for display.
+fn blank_sha(colored: bool) -> String {
+    paint(BLANK_SHA, DIM, colored)
+}
+
 /// The sigil that leads a branch name on the map.
 const BRANCH_SIGIL: &str = "\u{25b8} ";
 
@@ -740,6 +773,79 @@ fn branch_label(name: &str, current: bool, colored: bool) -> String {
     out.push_str(&paint(name, base.underline(), colored));
     out.push_str(&paint("]", base, colored));
     out
+}
+
+/// The display width of `branch_label`'s output — sigil, brackets, name —
+/// with no escape bytes counted, so a caller can size the column before
+/// painting anything.
+pub fn branch_label_width(name: &str) -> usize {
+    BRANCH_SIGIL.chars().count() + 2 + name.chars().count()
+}
+
+/// One `ff branch list` row (one or two lines, never a trailing empty
+/// string): the map's row grammar laid out as a table — the same
+/// `branch_label`, the same `@` you-are-here glyph, and the note the map
+/// hangs on a second line, so a verdict can never scroll off the right edge
+/// behind a long subject. The note's base half comes from `sync_parts`, the
+/// same renderer `ff status` calls, so the two surfaces cannot word it
+/// differently.
+pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<String> {
+    let marker = if info.current {
+        format!("{} ", paint("@", palette().at, colored))
+    } else {
+        "  ".to_string()
+    };
+    let label = branch_label(&info.name, info.current, colored);
+    // Pad after painting — `col`'s doc comment says why format-width would
+    // count escape bytes.
+    let pad = " ".repeat(label_width.saturating_sub(branch_label_width(&info.name)));
+    let sha = match &info.tip {
+        Some(tip) => col(short7(tip), SHA_WIDTH, palette().sha, colored),
+        None => blank_sha(colored),
+    };
+    let head = format!(
+        "{marker}{label}{pad}  {sha}  {}",
+        info.subject.as_deref().unwrap_or("")
+    );
+
+    // The note line: the base axis first, off the shared renderer —
+    // `sync_parts` returns nothing for a settled base, so silence follows
+    // for free — then the remote axis off the cheap local counts (no probe,
+    // and no ref name here: the row already names the branch), then the
+    // change's own state.
+    let mut notes = sync_parts(
+        &ff_core::futures::Futures {
+            base: info.future.clone(),
+            remote: None,
+        },
+        colored,
+    );
+    if let Some(up) = &info.upstream {
+        if up.gone {
+            // The exact string `axis_phrase` produces for `Verdict::Gone` at
+            // `Role::Remote`.
+            notes.push(paint_warn("remote is gone", colored));
+        } else {
+            if up.ahead > 0 {
+                notes.push(to_push(up.ahead, None, colored));
+            }
+            if up.behind > 0 {
+                notes.push(to_pull(up.behind, None, colored));
+            }
+        }
+    }
+    if info.parked {
+        notes.push(paint_dim("parked change", colored));
+    }
+    if let Some(desc) = &info.pending_description {
+        notes.push(paint_dim(&format!("pending: {desc}"), colored));
+    }
+
+    let mut lines = vec![head.trim_end().to_string()];
+    if !notes.is_empty() {
+        lines.push(format!("    {}", notes.join(" · ")));
+    }
+    lines
 }
 
 /// The `@` row (two lines): the open change. The sha column is the pending
@@ -1020,7 +1126,7 @@ pub fn paint_dim(text: &str, colored: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Palette, palette_for, relative_age, styled_id};
+    use super::{Palette, axis_phrase, palette_for, relative_age, styled_id, to_pull, to_push};
 
     #[test]
     fn ages() {
@@ -1055,6 +1161,31 @@ mod tests {
         assert_eq!(palette_for(Some("VIVID")), Palette::VIVID);
         assert_eq!(palette_for(Some("Terminal")), Palette::TERMINAL);
         assert_eq!(palette_for(Some("muted")), Palette::MUTED);
+    }
+
+    #[test]
+    fn the_row_and_the_axis_word_pending_work_alike() {
+        // The guard against the drift this change fixes: `ff branch list`
+        // spells the remote axis off the cheap upstream counts, `ff status`
+        // off the simulation — the two must never say different words for
+        // the same fact, and a literal on each side keeps a refactor that
+        // changed both from passing.
+        use ff_core::futures::{Future, Role, SyncRef, Verdict};
+        let remote = |verdict| Future {
+            against: SyncRef {
+                name: "origin/main".into(),
+                r#ref: "refs/remotes/origin/main".into(),
+                tip: "0".repeat(40),
+                role: Role::Remote,
+            },
+            verdict,
+        };
+        let push = axis_phrase(&remote(Verdict::UpToDate { ahead: 6 }), false).unwrap();
+        assert_eq!(push, to_push(6, None, false));
+        assert_eq!(push, "6 to push");
+        let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
+        assert_eq!(pull, to_pull(2, None, false));
+        assert_eq!(pull, "2 to pull");
     }
 
     // The OnceLock behind `palette()` is process-global, so a test that sets

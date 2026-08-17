@@ -64,6 +64,24 @@ fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).expect("utf-8 stdout")
 }
 
+/// `line` with its escape sequences stripped — its visible content.
+fn first_visible(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for c in chars.by_ref() {
+                if c == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 // --- Fixture builders ------------------------------------------------------
 
 /// `feature` three commits ahead of `base`, `main` one commit ahead of
@@ -258,6 +276,31 @@ fn both_axes_fixture() -> Fixture {
     let fx = clean_fixture();
     let fork = sha(&fx, "feature~3");
     set_upstream(&fx, "feature", &fork);
+    fx
+}
+
+/// The 200-character subject `long_subject_conflict_fixture` commits with.
+/// Kept away from the word "conflicts": `the_verdict_survives_a_long_subject`
+/// asserts that word stays on the note line, where the verdict lives.
+fn long_subject() -> String {
+    const PREFIX: &str = "feat two — a subject long enough to push the verdict off the right edge ";
+    let subject = format!("{PREFIX}{}", "x".repeat(200 - PREFIX.chars().count()));
+    assert_eq!(subject.chars().count(), 200, "the fixture's guard");
+    subject
+}
+
+/// A conflicting `feature` whose tip subject is 200 characters — the row
+/// shape that used to push the verdict off the right edge.
+fn long_subject_conflict_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.write("shared.txt", "line1\nline2\nline3\n");
+    fx.commit("base");
+    fx.git(&["branch", "feature"]);
+    fx.write("shared.txt", "MAIN\nline2\nline3\n");
+    fx.commit("main edits line1");
+    fx.git(&["switch", "feature"]);
+    fx.write("shared.txt", "FEATURE\nline2\nline3\n");
+    fx.commit(&long_subject());
     fx
 }
 
@@ -477,39 +520,46 @@ fn no_axis_at_all_means_no_sync_line() {
 
 // --- Color per theme -----------------------------------------------------
 
+// Read directly from `Palette`'s three constants (render.rs:434-472):
+// muted/vivid use 256-color codes (`38;5;<n>`), terminal uses the base
+// 16-color codes (30-37 range) via plain SGR params.
+struct ThemeCodes {
+    theme: &'static str,
+    ok: &'static str,
+    warn: &'static str,
+    ahead: &'static str,
+    at: &'static str,
+}
+// `at` and `ok` share a hue in all three palettes — the field is kept
+// because the branch row asserts the `at` code as its own, not because the
+// values ever differ.
+const THEMES: [ThemeCodes; 3] = [
+    ThemeCodes {
+        theme: "muted",
+        ok: "38;5;71",
+        warn: "38;5;173",
+        ahead: "38;5;67",
+        at: "38;5;71",
+    },
+    ThemeCodes {
+        theme: "vivid",
+        ok: "38;5;41",
+        warn: "38;5;208",
+        ahead: "38;5;39",
+        at: "38;5;41",
+    },
+    ThemeCodes {
+        theme: "terminal",
+        ok: "32",
+        warn: "33",
+        ahead: "34",
+        at: "32",
+    },
+];
+
 #[test]
 fn verdict_colors_per_theme() {
-    // Read directly from `Palette`'s three constants (render.rs:434-472):
-    // muted/vivid use 256-color codes (`38;5;<n>`), terminal uses the base
-    // 16-color codes (30-37 range) via plain SGR params.
-    struct ThemeCodes {
-        theme: &'static str,
-        ok: &'static str,
-        warn: &'static str,
-        ahead: &'static str,
-    }
-    let themes = [
-        ThemeCodes {
-            theme: "muted",
-            ok: "38;5;71",
-            warn: "38;5;173",
-            ahead: "38;5;67",
-        },
-        ThemeCodes {
-            theme: "vivid",
-            ok: "38;5;41",
-            warn: "38;5;208",
-            ahead: "38;5;39",
-        },
-        ThemeCodes {
-            theme: "terminal",
-            ok: "32",
-            warn: "33",
-            ahead: "34",
-        },
-    ];
-
-    for t in themes {
+    for t in THEMES {
         let clean = clean_fixture();
         clean.set_config("fufu.theme", t.theme);
         let out = ff_colored(&clean, &["status"]);
@@ -678,11 +728,16 @@ fn branch_row_notes_a_clean_rebase() {
     let out = ff(&fx, &["branch", "list"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    let line = text
-        .lines()
-        .find(|l| l.trim_start().starts_with('*') && l.contains("feature"))
-        .unwrap_or_else(|| panic!("no feature row in {text:?}"));
-    assert!(line.contains("main: rebases cleanly"), "got: {line}");
+    let lines: Vec<&str> = text.lines().collect();
+    let head = lines
+        .iter()
+        .position(|l| l.starts_with('@') && l.contains("feature"))
+        .unwrap_or_else(|| panic!("no feature head line in {text:?}"));
+    let note = *lines
+        .get(head + 1)
+        .unwrap_or_else(|| panic!("no note line under {:?}", lines[head]));
+    assert!(note.starts_with("    "), "note line: {note:?}");
+    assert!(note.contains("base moved — rebases cleanly"), "got: {note}");
 }
 
 #[test]
@@ -691,11 +746,16 @@ fn branch_row_notes_a_conflict() {
     let out = ff(&fx, &["branch", "list"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    let line = text
-        .lines()
-        .find(|l| l.contains("feature"))
-        .unwrap_or_else(|| panic!("no feature row in {text:?}"));
-    assert!(line.contains("main: conflicts"), "got: {line}");
+    let lines: Vec<&str> = text.lines().collect();
+    let head = lines
+        .iter()
+        .position(|l| l.starts_with('@') && l.contains("feature"))
+        .unwrap_or_else(|| panic!("no feature head line in {text:?}"));
+    let note = *lines
+        .get(head + 1)
+        .unwrap_or_else(|| panic!("no note line under {:?}", lines[head]));
+    assert!(note.starts_with("    "), "note line: {note:?}");
+    assert!(note.contains("base moved — conflicts at"), "got: {note}");
 }
 
 #[test]
@@ -704,11 +764,22 @@ fn branch_row_is_silent_when_up_to_date() {
     let out = ff(&fx, &["branch", "list"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    let line = text
-        .lines()
-        .find(|l| l.contains("feature"))
-        .unwrap_or_else(|| panic!("no feature row in {text:?}"));
-    assert!(!line.contains("main:"), "got: {line}");
+    let lines: Vec<&str> = text.lines().collect();
+    let head = lines
+        .iter()
+        .position(|l| l.starts_with('@') && l.contains("feature"))
+        .unwrap_or_else(|| panic!("no feature head line in {text:?}"));
+    // No second line at all: absent, or itself a head line (a note line
+    // would begin with four spaces).
+    let next = lines.get(head + 1).copied();
+    assert!(
+        next.is_none() || !next.unwrap().starts_with("    "),
+        "the feature row has no note line:\n{text}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.starts_with("    ")),
+        "no line begins with four spaces:\n{text}"
+    );
 }
 
 #[test]
@@ -739,12 +810,202 @@ fn branch_and_status_agree_about_the_open_change() {
     let branch_out = ff(&fx, &["branch", "list"]);
     assert!(branch_out.status.success());
     let branch_text = stdout(&branch_out);
-    let line = branch_text
+    assert!(
+        branch_text.contains("conflicts with your open change"),
+        "got: {branch_text}"
+    );
+    assert!(
+        !branch_text.contains("rebases cleanly"),
+        "got: {branch_text}"
+    );
+}
+
+/// The test that would have caught the drift: the row's note line must be
+/// the *same words* `ff status` puts on its header for the same branch —
+/// one dialect, enforced at the byte level.
+#[test]
+fn branch_and_status_use_the_same_words() {
+    let fx = clean_fixture();
+
+    let status_out = ff(&fx, &["status"]);
+    assert!(status_out.status.success());
+    let status_text = stdout(&status_out);
+    let header = status_text.lines().next().expect("a header line");
+    let part = header
+        .split(" · ")
+        .find(|p| p.contains("base moved"))
+        .unwrap_or_else(|| panic!("no base phrase in {header:?}"));
+
+    let branch_out = ff(&fx, &["branch", "list"]);
+    assert!(branch_out.status.success());
+    let branch_text = stdout(&branch_out);
+    let note = branch_text
         .lines()
-        .find(|l| l.contains("feature"))
-        .unwrap_or_else(|| panic!("no feature row in {branch_text:?}"));
-    assert!(line.contains("main: conflicts"), "got: {line}");
-    assert!(!line.contains("rebases cleanly"), "got: {line}");
+        .find(|l| l.starts_with("    "))
+        .unwrap_or_else(|| panic!("no note line in {branch_text:?}"));
+    assert_eq!(
+        note.trim(),
+        part,
+        "the row and the status line word the base axis alike"
+    );
+}
+
+/// Pins the layout regression: a long subject used to push the verdict off
+/// the right edge of the head line. Now the subject may run as long as it
+/// wants — the verdict rides the note line and survives.
+#[test]
+fn the_verdict_survives_a_long_subject() {
+    let fx = long_subject_conflict_fixture();
+    let subject = long_subject();
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    let head = lines
+        .iter()
+        .position(|l| l.starts_with('@') && l.contains("feature"))
+        .unwrap_or_else(|| panic!("no feature head line in {text:?}"));
+    let head_line = lines[head];
+    assert!(
+        head_line.contains(&subject),
+        "the full 200-char subject stays on the head line: {head_line:?}"
+    );
+    assert!(
+        !head_line.contains("conflicts"),
+        "the verdict is off the head line: {head_line:?}"
+    );
+    let note = lines
+        .get(head + 1)
+        .copied()
+        .unwrap_or_else(|| panic!("no note line in {text:?}"));
+    assert!(note.starts_with("    "), "note line: {note:?}");
+    assert!(note.contains("base moved — conflicts at"), "got: {note}");
+}
+
+/// The branch listing spends the same hues `ff status` does, per theme —
+/// including the `at` green on the row you are standing on, in the same
+/// bold + underline + hue run the map pins.
+#[test]
+fn branch_list_colors_per_theme() {
+    for t in THEMES {
+        let clean = clean_fixture();
+        clean.set_config("fufu.theme", t.theme);
+        let out = ff_colored(&clean, &["branch", "list"]);
+        assert!(out.status.success());
+        let text = stdout(&out);
+        let line = text
+            .lines()
+            .find(|l| l.contains("rebases cleanly"))
+            .unwrap_or_else(|| panic!("no clean note line in {text:?}"));
+        assert!(
+            line.contains(&format!("\x1b[{}m", t.ok)),
+            "theme {}: expected ok code {} in {line:?}",
+            t.theme,
+            t.ok
+        );
+
+        let conflicting = conflicting_fixture();
+        conflicting.set_config("fufu.theme", t.theme);
+        let out = ff_colored(&conflicting, &["branch", "list"]);
+        assert!(out.status.success());
+        let text = stdout(&out);
+        let line = text
+            .lines()
+            .find(|l| l.contains("conflicts at"))
+            .unwrap_or_else(|| panic!("no conflict note line in {text:?}"));
+        assert!(
+            line.contains(&format!("\x1b[{}m", t.warn)),
+            "theme {}: expected warn code {} in {line:?}",
+            t.theme,
+            t.warn
+        );
+
+        // Blue is for commits pending against the remote, either direction.
+        let ahead = to_push_fixture();
+        ahead.set_config("fufu.theme", t.theme);
+        let out = ff_colored(&ahead, &["branch", "list"]);
+        assert!(out.status.success());
+        let text = stdout(&out);
+        let line = text
+            .lines()
+            .find(|l| l.contains("to push"))
+            .unwrap_or_else(|| panic!("no to-push note line in {text:?}"));
+        assert!(
+            line.contains(&format!("\x1b[{}m", t.ahead)),
+            "theme {}: expected ahead code {} in {line:?}",
+            t.theme,
+            t.ahead
+        );
+
+        // The current row carries the `at` hue over bold + underline — the
+        // same three-escape run `tests/map.rs` pins for the map.
+        let clean = clean_fixture();
+        clean.set_config("fufu.theme", t.theme);
+        let out = ff_colored(&clean, &["branch", "list"]);
+        assert!(out.status.success());
+        let text = stdout(&out);
+        let line = text
+            .lines()
+            .find(|l| first_visible(l).starts_with('@'))
+            .unwrap_or_else(|| panic!("no current row in {text:?}"));
+        assert!(
+            line.contains(&format!("\x1b[1m\x1b[4m\x1b[{}mfeature", t.at)),
+            "theme {}: expected the at-hue code {} on the current row: {line:?}",
+            t.theme,
+            t.at
+        );
+    }
+}
+
+/// The redundant-encoding contract, mirroring the map's: piped and plain,
+/// the listing still says where you are by shape, not by color.
+#[test]
+fn branch_list_piped_is_plain_and_still_says_where_you_are() {
+    let fx = clean_fixture();
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(!text.contains('\x1b'), "piped output is plain: {text:?}");
+    // Every branch row keeps its sigil and brackets.
+    for name in ["main", "feature"] {
+        assert!(
+            text.contains(&format!("\u{25b8} [{name}]")),
+            "{name} keeps its sigil and brackets with color off: {text:?}"
+        );
+    }
+    let at_rows = text.lines().filter(|l| l.starts_with("@ ")).count();
+    assert_eq!(at_rows, 1, "exactly one you-are-here row:\n{text}");
+    let at_row = text.lines().find(|l| l.starts_with("@ ")).expect("the row");
+    assert!(
+        at_row.contains("feature"),
+        "that row names the branch: {at_row:?}"
+    );
+}
+
+/// An unborn branch has no tip — the sha column says so with the dim em
+/// dash, and the row still lands.
+#[test]
+fn an_unborn_branch_gets_an_em_dash() {
+    let fx = Fixture::new(); // no commits at all
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    let rows: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(rows.len(), 1, "one row in {text:?}");
+    let row = rows[0];
+    assert!(
+        row.starts_with("@ "),
+        "the unborn branch is the one you are on: {row:?}"
+    );
+    assert!(row.contains("\u{25b8} [main]"), "got: {row:?}");
+    assert!(
+        row.contains('\u{2014}'),
+        "em dash where the sha would be: {row:?}"
+    );
 }
 
 /// The verdict rides the header line, not a trailing one. It replaced the
