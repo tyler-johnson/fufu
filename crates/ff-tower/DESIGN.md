@@ -25,8 +25,8 @@ tower is a separate program. Issue tracking is not a version control operation, 
 The contract:
 
 ```
-reads     ff status --json · ff log --json · ff watch (ndjson) · futures
-calls     ff start · ff switch · ff session start/end
+reads     ff status --json · ff log --json · futures
+calls     ff start · ff switch, every call tagged --session <flight>
 stores    refs/tower/log/<author>
 derives   state · progress · conflicts · land order
 writes    nothing under refs/fufu/*, ever
@@ -50,12 +50,12 @@ Tower cannot enforce, only observe and complain. `tower next` prints the bay pat
 
 ## Deconfliction — the earned existence
 
-`merge-tree` is free and side-effect-less, so tower can ask "would these two land on each other?" continuously, about work that has not been committed yet.
+Merge simulation is free and side-effect-less — Phase 3 runs its whole replay inside one object-memory clone and writes nothing, asserted by counting loose objects around a probe — so tower can ask "would these two land on each other?" continuously, about work that has not been committed yet.
 
 Two kinds of blocking, and they differ in kind:
 
 - **declared** — a human said this depends on that. Stored intent. Every tracker has it.
-- **discovered** — merge-tree found two branches inside the same hunk. Nobody typed it, it appeared the moment the second edit happened, and it disappears on its own when one lands.
+- **discovered** — a merge probe found two branches inside the same hunk. Nobody typed it, it appeared the moment the second edit happened, and it disappears on its own when one lands.
 
 From discovered conflicts comes a **land order**: topologically sort in-flight work by pairwise conflict, and say which sequence costs nothing. And once bays make "what is in the air right now" queryable, the check moves to assignment time — tower holds back a flight that would collide with one already flying instead of filing an incident after the fact. Sequencing on approach, not collision reporting.
 
@@ -90,7 +90,7 @@ The team's board stays as coarse as the team wants. The local board is as fine a
 
 ## Held
 
-An agent that hits a real question holds the flight with the question attached: the bay stays warm, the session stays open, the capture chain is intact, and nothing was guessed. Answering resumes it where it stopped.
+An agent that hits a real question holds the flight with the question attached: the bay stays warm, the capture chain is intact and still carries the flight's session tag, and nothing was guessed. Answering resumes it where it stopped — and because a session is a tag rather than something opened, there is no state a hold could leave dangling.
 
 This is fufu's `held` verbatim — nothing was touched and a human decision is required, exit code 3 — and it inherits principle 8 with it: announced at creation, pinned until answered, exits blocked. An agent question that goes quiet is how the whole system rots.
 
@@ -179,7 +179,7 @@ Every one of them is a read plus a local write. Nothing in the column on the rig
 
 Triage asks two questions, and the ordering one is second. First is *what is this and therefore what happens to it*, which is the next section. This one is the ranking that follows, and the two are orthogonal — a review flight can be waiting on you or in the air like any other.
 
-Triage splits on the same line everything else does. Blocked or not — by a declared dependency, a discovered conflict, or a person who has not replied — is a graph query, a merge-tree call, and an upstream read. Cost to start is a warm bay, an existing branch, and which files this week's capture chain touched. What changed since you last looked is a log diff. All of it is computation; none of it is judgment.
+Triage splits on the same line everything else does. Blocked or not — by a declared dependency, a discovered conflict, or a person who has not replied — is a graph query, a merge probe, and an upstream read. Cost to start is a warm bay, an existing branch, and which files this week's capture chain touched. What changed since you last looked is a log diff. All of it is computation; none of it is judgment.
 
 The algorithmic half is most of the value, because the hard part was never ranking. Filtering out everything that cannot be started right now routinely takes thirty items to four, and at four the ordering barely matters. The good-enough algorithm is good enough precisely because it declines to judge importance: filter on readiness, partition into the four sections, sort by upstream priority then readiness then age, and leave importance to whoever set the priority field. A tracker that does not invent its own opinion about what matters is more trustworthy, not less.
 
@@ -314,14 +314,16 @@ Three layers of memory stay apart: a **skill** knows how to drive tower, the **a
 
 Load-bearing and absent from fufu today:
 
-- **Futures (Phase 3)** — every discovered conflict, land order, and assignment-time holdback.
-- **`ff watch` (Phase 2 journal follow)** — the live board and continuous conflict re-checking.
-- **`ff push` (Phase 5)** — `review` and `landed` are the two states tower cannot honestly derive without it.
+Load-bearing and absent from fufu today:
+
+- **A sideways axis for futures.** Phase 3 shipped the simulation itself, and its probe already takes two arbitrary tips, so the machinery is not what is missing. The *axes* are: fufu measures a branch against the base beneath it and the remote copy of itself, and caches a slot per axis. Every discovered conflict, land order, and assignment-time holdback is sibling against sibling, which is a role fufu has no name for and no exposure of.
+- **`ff watch`.** Scheduled for Phase 2 and did not land with it. The live board and continuous re-checking wait on it; polling `ff log --json` is the unglamorous stand-in until then.
+- **Publishing (Phase 4's `ff sync`, its outgoing half in Phase 5).** There is no `ff push` and deliberately never will be — publishing is the outgoing half of lining up, under `fufu.pushOnSync`. `review` and `landed` are the two states tower cannot honestly derive until it exists.
 - **Forge reads** — no longer optional. The `review` procedure stands almost entirely on state the repository cannot see, so the adapter that supplies it is a dependency of a shipped default rather than a nicety.
 
-`ff session` has since shipped, which is the piece briefs, work logs, handoff, and per-flight capture chains all sit on.
+Sessions did not arrive as a verb, and the shape they did arrive in is better for tower than the one this sketch assumed. `--session <name>` rides every fufu command as a global flag, lands as a `fufu-session` trailer on the operation, and serves as the equality test that groups adjacent captures into one `ff undo` step. So there is nothing to open or close: every fufu call tower makes carries `--session <flight>`, per-flight capture chains fall out of the tagging, and one undo steps over a flight's captures rather than one keystroke of them.
 
-What works on today's primitives: the board through `active`, flight-to-branch linkage, the event log store, `ff start <flight>`, sessions, briefs, and holds. That is a real v0 and it is already more automatic than a normal tracker — it just cannot do the deconfliction that is the reason to build it.
+What works on today's primitives — Phases 0 through 3, so capture, the operation log, undo, tree memory, `ff commit`, `ff start`, and futures against base and remote: the board through `active`, flight-to-branch linkage, the event log store, per-flight session tags, briefs, and holds. That is a real v0 and it is already more automatic than a normal tracker. What it still cannot do is the deconfliction that is the reason to build it — not for want of the simulation, which shipped, but for want of one axis pointed sideways.
 
 ## Open questions
 
