@@ -129,9 +129,11 @@ fn main() {
             message,
             branch,
         }) => cmd::start::run(&ctx, target, message, branch),
-        Some(cli::Command::Describe { message, branch }) => {
-            cmd::describe::run(&ctx, message, branch)
-        }
+        Some(cli::Command::Describe {
+            rev,
+            message,
+            branch,
+        }) => cmd::describe::run(&ctx, rev, message, branch),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(&ctx, kind),
         Some(cli::Command::Config {
             key,

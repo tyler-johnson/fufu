@@ -267,13 +267,18 @@ of the very few fufu makes at all.
 -b names the branch you are on instead — the same act whether it is an
 anonymous petname earning a real name or a chosen name being replaced. The
 capture chain, any parked change, and the pending description all come
-along, which is the part a bare `git branch -m` would orphan.";
+along, which is the part a bare `git branch -m` would orphan.
+
+Naming a revision rewords a commit that has already closed instead. Everything
+above it re-parents in the same operation, so any branches sitting inside that
+range come along with it.";
 
 pub const DESCRIBE_EXAMPLES: &str = "\
 Examples:
   ff describe -m \"parser: handle unicode escapes\"
   ff describe                    open $EDITOR on the pending description
-  ff describe -b unicode-cleanup name the branch you are on";
+  ff describe -b unicode-cleanup name the branch you are on
+  ff describe HEAD~2 -m \"fix\"    reword a closed commit, restacking above it";
 
 pub const BRANCH: &str = "\
 Bookkeeping for lines of work: `ff branch list` says what exists and

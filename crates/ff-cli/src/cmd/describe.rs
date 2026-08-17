@@ -1,17 +1,27 @@
-//! `ff describe` — pending description edit, or `-b` to name the branch you
-//! are on (claiming a petname and renaming a chosen name alike). Bare form
-//! opens $EDITOR seeded with the current pending text — a sanctioned spawn,
-//! exactly like git's editor behavior.
+//! `ff describe` — pending description edit, `-b` to name the branch you are
+//! on, or a target revision to reword a commit that has already closed.
+//! Bare form (and a bare `@`) opens $EDITOR seeded with the current pending
+//! text; naming a rev opens it seeded with that commit's message instead —
+//! both are sanctioned spawns, exactly like git's editor behavior.
 
+use ff_core::gix;
+use ff_core::revset::{Rev, Revset};
 use ff_core::{Error, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result<()> {
+pub fn run(
+    ctx: &Ctx,
+    rev: Option<String>,
+    message: Option<String>,
+    branch: Option<String>,
+) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     // Non-interactive gate: when no terminal and no -m, fail early instead
-    // of trying to spawn an editor.
+    // of trying to spawn an editor. A rev with no -m already trips this —
+    // the refusal belongs to the resolved revision, not to whichever
+    // spelling of "the open change" was typed.
     if message.is_none() && branch.is_none() && !crate::machine::interactive() {
         return Err(Error::coded(
             "usage/needs-message",
@@ -50,9 +60,24 @@ pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result
         return Ok(());
     }
 
+    // Resolve the rev: no rev, or one that points at the open change,
+    // both mean the pending-description path below. Anything else is a
+    // closed commit to reword.
+    let target = match &rev {
+        Some(src) => match Revset::parse(src)?.point(&repo)?.rev {
+            Rev::Open => None,
+            Rev::Commit(id) => Some(id.object_id()),
+        },
+        None => None,
+    };
+
+    if let Some(id) = target {
+        return reword(ctx, &repo, id, message);
+    }
+
     let text = match message {
         Some(text) => Some(text),
-        None => edit_in_editor(&repo)?,
+        None => edit_pending(&repo)?,
     };
 
     let (report, verb_ctx) = ff_core::describe::set_pending(
@@ -81,32 +106,129 @@ pub fn run(ctx: &Ctx, message: Option<String>, branch: Option<String>) -> Result
     Ok(())
 }
 
+/// Reword `target`, a commit that has already closed, and restack whatever
+/// sits on top of it.
+fn reword(
+    ctx: &Ctx,
+    repo: &gix::Repository,
+    target: gix::ObjectId,
+    message: Option<String>,
+) -> Result<()> {
+    let text = match message {
+        Some(text) => text,
+        // An empty editor result is not turned into a clear here — core
+        // refuses it with usage/needs-message, so it is passed straight
+        // through and left to raise. One authority for that check.
+        None => edit_reword(repo, target)?,
+    };
+
+    let (report, verb_ctx) = ff_core::describe::reword(
+        repo,
+        target,
+        text,
+        &crate::provenance::pre_ff(ctx),
+        None,
+        std::env::args().collect(),
+    )?;
+    crate::render::init_palette(repo);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
+
+    if ctx.json {
+        let payload = serde_json::json!({
+            "reword": report,
+            "undo": "ff undo",
+        });
+        crate::machine::emit("describe", &payload)?;
+        return Ok(());
+    }
+
+    let colored = crate::pager::color_enabled();
+    let short_new: String = report.new.chars().take(7).collect();
+    println!(
+        "reworded {} on {}: {}",
+        crate::render::paint_sha(&short_new, colored),
+        report.branch,
+        report.subject
+    );
+    if report.restacked > 0 {
+        if report.moved.is_empty() {
+            println!("restacked {} commit(s) above it", report.restacked);
+        } else {
+            println!(
+                "restacked {} commit(s) above it; moved {}",
+                report.restacked,
+                report.moved.join(", ")
+            );
+        }
+    }
+    if report.published > 0 {
+        // Disclosure, not a warning: naming where the rewritten commits
+        // already live, with no "careful" and no suggested fix — a
+        // rewrite is allowed to outrun what has been pushed.
+        let upstream_name = ff_core::upstream(repo)?
+            .map(|u| u.r#ref)
+            .unwrap_or_else(|| "the remote".to_string());
+        println!(
+            "{} of the rewritten commits are already on {}",
+            report.published, upstream_name
+        );
+    }
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+    Ok(())
+}
+
 /// Seed a temp file with the current pending description, open $EDITOR
 /// (fall back to vi), and read the result. Empty result clears.
-fn edit_in_editor(repo: &ff_core::gix::Repository) -> Result<Option<String>> {
-    let head = ff_core::head_state(repo)?;
-    let branch = match &head {
-        ff_core::HeadState::Branch { name, .. } => name.clone(),
-        ff_core::HeadState::Unborn { r#ref } => r#ref
-            .strip_prefix("refs/heads/")
-            .unwrap_or(r#ref)
-            .to_string(),
-        ff_core::HeadState::Detached { .. } => {
-            return Err(Error::coded(
-                "repo/detached",
-                "detached HEAD: there is no change to describe",
-                vec!["ff switch <branch>".into()],
-            ));
-        }
-    };
+fn edit_pending(repo: &gix::Repository) -> Result<Option<String>> {
+    let branch = current_branch_name(repo)?;
     let current = ff_core::branchmeta::read(repo, &branch)?
         .pending_description
         .unwrap_or_default();
-    let path = repo.git_dir().join("FF_DESCRIBE_MSG");
-    let seed = format!(
-        "{current}\n# Describe the open change on {branch}.\n# Lines starting with '#' are dropped; an empty description clears it.\n"
+    let comment = format!(
+        "# Describe the open change on {branch}.\n# Lines starting with '#' are dropped; an empty description clears it.\n"
     );
-    std::fs::write(&path, seed).map_err(Error::repo)?;
+    let text = run_editor(repo, &current, &comment)?;
+    Ok((!text.is_empty()).then_some(text))
+}
+
+/// Seed a temp file with `target`'s current message, open $EDITOR (fall
+/// back to vi), and read the result, trimmed. An empty result is returned
+/// as-is — the caller decides what that means.
+fn edit_reword(repo: &gix::Repository, target: gix::ObjectId) -> Result<String> {
+    let branch = current_branch_name(repo)?;
+    let short: String = target.to_string().chars().take(7).collect();
+    let commit = repo.find_object(target).map_err(Error::repo)?.into_commit();
+    let seed = commit.message_raw().map_err(Error::repo)?.to_string();
+    let comment = format!(
+        "# Reword {short} on {branch}.\n# Lines starting with '#' are dropped; an empty description leaves it alone.\n"
+    );
+    run_editor(repo, &seed, &comment)
+}
+
+/// The current branch's short name, or the house `repo/detached` refusal —
+/// shared by both editor seeders, since neither can name a branch to put
+/// in the comment block without it.
+fn current_branch_name(repo: &gix::Repository) -> Result<String> {
+    match ff_core::head_state(repo)? {
+        ff_core::HeadState::Branch { name, .. } => Ok(name),
+        ff_core::HeadState::Unborn { r#ref } => Ok(r#ref
+            .strip_prefix("refs/heads/")
+            .unwrap_or(&r#ref)
+            .to_string()),
+        ff_core::HeadState::Detached { .. } => Err(Error::coded(
+            "repo/detached",
+            "detached HEAD: there is no change to describe",
+            vec!["ff switch <branch>".into()],
+        )),
+    }
+}
+
+/// Write `seed` plus a trailing comment block to `.git/FF_DESCRIBE_MSG`,
+/// spawn `$VISUAL`/`$EDITOR`/`vi` on it, strip `#` lines, and return the
+/// trimmed result.
+fn run_editor(repo: &gix::Repository, seed: &str, comment: &str) -> Result<String> {
+    let path = repo.git_dir().join("FF_DESCRIBE_MSG");
+    std::fs::write(&path, format!("{seed}\n{comment}")).map_err(Error::repo)?;
 
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
@@ -134,12 +256,11 @@ fn edit_in_editor(repo: &ff_core::gix::Repository) -> Result<Option<String>> {
     }
     let raw = std::fs::read_to_string(&path).map_err(Error::repo)?;
     let _ = std::fs::remove_file(&path);
-    let text: String = raw
+    Ok(raw
         .lines()
         .filter(|line| !line.starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
-        .to_string();
-    Ok((!text.is_empty()).then_some(text))
+        .to_string())
 }

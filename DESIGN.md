@@ -285,6 +285,10 @@ IDs do. Git's own machinery has been converging on the needed primitives for yea
 `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an
 autopilot.
 
+The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does.
+
+**Nothing guards a rewrite of published commits.** Every exit guard sits on the exit: `ff sync` refuses to publish a held rewrite, and raw `git push` is git. A second boundary on the rewrite verb would refuse the most common real case there is — fixing the message on a branch you have already pushed — so the rewrite proceeds and says so, noting when the commits it rewrote are still reachable from the branch's remote. Disclosure rather than obstruction, and the force-with-lease question stays where it belongs, on `ff sync`.
+
 **Mid-stack editing, two reaches.** jj edits a mid-stack commit by traveling to
 it (`jj edit`), which in git terms means detaching HEAD. fufu keeps the reach and
 drops the detachment. The short reach is at a distance: `ff absorb` applies working changes to a commit in memory — `HEAD` unless `--into` aims another — restacks its descendants in memory, and moves refs; you never leave your tip. `ff lift` is the same reach run backwards, taking changes out of a commit and into the open change, and it moves no files at all: the change stays applied and merely stops being committed, so the tip tree loses exactly what the open change gains. A descendant that depends on a lifted change cannot replay without it, and holds like any other rewrite.
@@ -836,9 +840,7 @@ a working development machine.
   home are settled (`ff/<adjective>-<noun>`; JSON under
   `<common-dir>/fufu/branch/`), but a tidy of merged or abandoned anonymous
   branches remains open.
-- **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an
-  entry rewritten outside fufu is invalidated, loudly); pruning cadence and the
-  map's ref representation are not.
+- **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an entry rewritten outside fufu is invalidated, loudly), and the map's home is the operation record, which makes pruning `ff trim`'s job. What is left is the lookup index, deferred until a reader needs one.
 - **Reconciliation triggers** — lazy (rebuild at the next fufu invocation,
   jog-style) versus live (post-commit / reference-transaction hooks). jog's
   no-git-hooks stance is in tension with how fresh the ambient status channel

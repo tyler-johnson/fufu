@@ -87,6 +87,11 @@ pub struct OpRecord {
     pub stash: Vec<StashEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<DescriptionTransition>,
+    /// The rewrite map: old→new for every commit this op rewrote. The log is
+    /// already the authority and already pins the old commits, so undo and
+    /// `ff trim` cover the map for free.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rewrites: Vec<crate::rewrite::Rewrite>,
     /// The operation this one undoes, when the verb is `undo`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_of: Option<String>,
@@ -115,6 +120,7 @@ impl OpRecord {
             refs: Vec::new(),
             stash: Vec::new(),
             description: None,
+            rewrites: Vec::new(),
             undo_of: None,
             undo_cursor: None,
         }

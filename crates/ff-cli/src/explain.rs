@@ -550,6 +550,15 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff op show <op>", "ff op restore <op>", "ff op log"],
     },
     Entry {
+        id: "rewrite/not-in-history",
+        summary: "that commit is not in the history under you",
+        detail: "A rewrite re-parents everything between the commit you named and the branch \
+                 tip, so the commit has to be an ancestor of that tip. This one is not: it sits \
+                 on another line of work, or below a fork you have since left. ff log says what \
+                 is under you, and ff log -r <rev> says where a revision actually sits.",
+        exits: &["ff log", "ff log -r <rev>"],
+    },
+    Entry {
         id: "usage/bad-session",
         summary: "that is not a usable session name",
         detail: "A session name can be any text — spaces, punctuation, and unicode are all fine. \

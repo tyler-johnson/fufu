@@ -309,6 +309,25 @@ pub struct DescribeReport {
     pub new: Option<String>,
 }
 
+/// The result of `ff describe <rev>`: a reword, and the restack it forced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RewordReport {
+    /// The branch the reword ran on.
+    pub branch: String,
+    /// The target commit before the reword.
+    pub old: String,
+    /// The target commit after it.
+    pub new: String,
+    /// The new subject — the first line of the new message.
+    pub subject: String,
+    /// Descendants re-parented behind the target.
+    pub restacked: usize,
+    /// Other local branches carried with the rewrite, short names, sorted.
+    pub moved: Vec<String>,
+    /// How many of the rewritten commits the branch's remote already has.
+    pub published: usize,
+}
+
 /// The result of `ff start` — always mints a fresh branch and parks
 /// whatever was open where it was.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

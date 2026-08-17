@@ -19,6 +19,7 @@ mod refs;
 mod restore;
 mod revert;
 pub mod revset;
+pub mod rewrite;
 pub mod snapid;
 pub mod snapshot;
 mod start;

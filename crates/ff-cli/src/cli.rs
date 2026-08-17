@@ -175,6 +175,9 @@ pub enum Command {
     /// Edit the pending description of the open change
     #[command(alias = "desc", long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
     Describe {
+        /// The revision to reword; omitted describes the open change
+        #[arg(value_name = "rev", conflicts_with = "branch")]
+        rev: Option<String>,
         /// The description text; omitted opens $EDITOR
         #[arg(short = 'm', value_name = "msg")]
         message: Option<String>,
