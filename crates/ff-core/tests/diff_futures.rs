@@ -212,10 +212,18 @@ fn the_open_change_verdict_matches_a_stash_backed_rebase() {
     // though the autostash pop conflicted — the failure of the reapply does
     // not reach the exit code — so only the message and the tree state are
     // asserted.
+    //
+    // Git spells this two ways depending on its version: "Applying autostash
+    // resulted in conflicts." on 2.50 and 2.54, and a longer "Your local
+    // changes are stashed, however applying them / resulted in conflicts."
+    // on what the macOS and Windows CI runners carry. Matching the phrase
+    // both share keeps this about git's behavior rather than git's prose —
+    // and the behavior is the same either way: the conflict is left in the
+    // working tree, which is what the assertion below is really for.
     let out = fx.try_git(&["rebase", "--autostash", "main"]);
     let all = both(&out);
     assert!(
-        all.contains("Applying autostash resulted in conflicts."),
+        all.contains("resulted in conflicts"),
         "git should report the autostash conflict:\n{all}"
     );
     let status = fx.git(&["status", "--porcelain=v2"]);
