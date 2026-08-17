@@ -25,7 +25,10 @@ included — where you left things. It draws the commits that carry shape
 into one `~ N commits` row, because the shape is the answer and the
 commits are how the shape is labeled.
 
-You never type a capture. Every verb takes one first.";
+You never type a capture. Every verb takes one first.
+
+Seven verbs take a short spelling too — st, ci, sw, br, ev, desc, cfg —
+for status, commit, switch, branch, evolog, describe, and config.";
 
 pub const ROOT_EXAMPLES: &str = "\
 Examples:

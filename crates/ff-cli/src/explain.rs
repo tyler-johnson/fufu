@@ -492,6 +492,18 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff branch list", "ff describe -b <name>"],
     },
     Entry {
+        id: "usage/foreign-verb",
+        summary: "that is a git verb fufu answers rather than runs",
+        detail: "A handful of git words name something fufu does differently, so typing one is a \
+                 question rather than a typo and it gets an answer instead of a parse error. \
+                 checkout was two jobs and is two verbs here; diff and stash describe states fufu \
+                 keeps rather than commands you run. pull and rebase are the ones still coming — \
+                 ff sync will line a branch up with its base and its remote in one move, and \
+                 ff restack is the replay underneath it. Until they land the passthrough runs the \
+                 real thing, capture-first, so nothing you do through it can be lost.",
+        exits: &["ff status", "ff git <args>"],
+    },
+    Entry {
         id: "usage/needs-message",
         summary: "a description was needed and there was no terminal to ask on",
         detail: "The bare form of describe opens an editor, which needs a terminal; in a script, \

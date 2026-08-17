@@ -48,7 +48,7 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
         return Err(ff_core::Error::coded(
             "usage/bad-flags",
             "-n and --all are bare ff's branch scope; they do not ride another verb",
-            vec!["ff -n 5".into(), "ff log -n 5".into()],
+            vec!["ff -n 5".into(), "ff map -n 5".into(), "ff log -n 5".into()],
         ));
     }
     ctx::Ctx::new(args)
@@ -97,6 +97,9 @@ fn main() {
 
     let result = match args.command {
         None => cmd::map::run(&ctx, args.branches, args.all),
+        // Spelled out, the map takes its scope after its own name — which is
+        // also why the root flags refuse to ride a verb.
+        Some(cli::Command::Map { branches, all }) => cmd::map::run(&ctx, branches, all),
         Some(cli::Command::Status { .. }) => cmd::status::run(&ctx),
         Some(cli::Command::Log {
             count,
@@ -139,6 +142,12 @@ fn main() {
         Some(cli::Command::Doctor { fix }) => cmd::doctor::run(&ctx, fix),
         Some(cli::Command::Explain { id, list }) => cmd::explain::run(&ctx, id, list),
         Some(cli::Command::Update { check }) => cmd::update::run(&ctx, check),
+        // The foreign verbs answer and stop; none of them reaches a repository.
+        Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),
+        Some(cli::Command::Diff { args }) => cmd::foreign::diff(&args),
+        Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),
+        Some(cli::Command::Pull { args }) => cmd::foreign::pull(&args),
+        Some(cli::Command::Rebase { args }) => cmd::foreign::rebase(&args),
     };
 
     if let Err(err) = result {

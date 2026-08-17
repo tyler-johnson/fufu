@@ -44,8 +44,18 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// The map bare `ff` draws: the local branches as a skeleton
+    #[command(long_about = help::ROOT, after_long_help = help::ROOT_EXAMPLES)]
+    Map {
+        /// Branches to show, newest tip first; 0 means all
+        #[arg(short = 'n', long = "max-count", value_name = "count")]
+        branches: Option<usize>,
+        /// Every local branch
+        #[arg(long)]
+        all: bool,
+    },
     /// Show the working tree status
-    #[command(long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
+    #[command(alias = "st", long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
     Status {
         #[command(flatten)]
         past: Past,
@@ -69,7 +79,7 @@ pub enum Command {
         past: Past,
     },
     /// Show the open change's operations, newest first (the evolution log)
-    #[command(long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
+    #[command(alias = "ev", long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
     Evolog {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
@@ -114,7 +124,7 @@ pub enum Command {
         gone: bool,
     },
     /// Close the open change into a commit (the working tree is the change)
-    #[command(long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
+    #[command(alias = "ci", long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
     Commit {
         /// Describe what is closing; wins over the pending description
         #[arg(short = 'm', value_name = "msg")]
@@ -127,7 +137,7 @@ pub enum Command {
         branch: Option<String>,
     },
     /// Switch branches; a dirty tree is parked, a parked change resumes
-    #[command(long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
+    #[command(alias = "sw", long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
     Switch {
         /// Branch name, or a unique prefix of one
         #[arg(value_name = "branch")]
@@ -163,7 +173,7 @@ pub enum Command {
         branch: Option<String>,
     },
     /// Edit the pending description of the open change
-    #[command(long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
+    #[command(alias = "desc", long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
     Describe {
         /// The description text; omitted opens $EDITOR
         #[arg(short = 'm', value_name = "msg")]
@@ -173,7 +183,7 @@ pub enum Command {
         branch: Option<String>,
     },
     /// Manage lines of work: what exists, and removing one
-    #[command(long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
+    #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
         #[command(subcommand)]
         action: Option<BranchAction>,
@@ -187,7 +197,7 @@ pub enum Command {
         kind: HookKind,
     },
     /// Read and write fufu's settings (plain git config under fufu.*)
-    #[command(long_about = help::CONFIG, after_long_help = help::CONFIG_EXAMPLES)]
+    #[command(alias = "cfg", long_about = help::CONFIG, after_long_help = help::CONFIG_EXAMPLES)]
     Config {
         /// Setting name — case-insensitive, the fufu. prefix optional
         #[arg(value_name = "key")]
@@ -224,6 +234,44 @@ pub enum Command {
         /// Refresh the update cache only (used by the background check)
         #[arg(long)]
         check: bool,
+    },
+
+    // The foreign verbs: git words fufu answers rather than runs. They are
+    // declared for the same reason the retired `-m` and `--ops` are — a word
+    // fufu deliberately does not have is a question, and clap's bare
+    // "unrecognized subcommand" answers a question it never asked. Hidden,
+    // because the command list is what fufu *does*; each one carries its own
+    // arguments so `ff checkout main` reaches the answer instead of dying on
+    // an unexpected argument first.
+    /// git's checkout, split in two: `ff switch` moves, `ff restore` brings files back
+    #[command(hide = true, alias = "co")]
+    Checkout {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff diff`: `ff status` shows the tree, `ff op diff` compares operations
+    #[command(hide = true)]
+    Diff {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff stash`: switching parks the open change and resumes what waits
+    #[command(hide = true)]
+    Stash {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff pull` yet: `ff status` costs it, `ff git pull` runs it capture-first
+    #[command(hide = true)]
+    Pull {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff rebase` yet: `ff status` costs it, `ff git rebase` runs it capture-first
+    #[command(hide = true)]
+    Rebase {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
     },
 }
 
@@ -376,6 +424,7 @@ impl Command {
     /// error rather than a silently mislabeled envelope.
     pub fn name(&self) -> &'static str {
         match self {
+            Command::Map { .. } => "map",
             Command::Status { .. } => "status",
             Command::Log { .. } => "log",
             Command::Evolog { .. } => "evolog",
@@ -400,6 +449,15 @@ impl Command {
             Command::Doctor { .. } => "doctor",
             Command::Explain { .. } => "explain",
             Command::Update { .. } => "update",
+            // A foreign verb only ever fails, and the envelope names what was
+            // typed rather than what fufu would have run: a script reading
+            // `{"cmd":"checkout"}` learns which of its words was the foreign
+            // one, which a fufu verb name would have hidden.
+            Command::Checkout { .. } => "checkout",
+            Command::Diff { .. } => "diff",
+            Command::Stash { .. } => "stash",
+            Command::Pull { .. } => "pull",
+            Command::Rebase { .. } => "rebase",
         }
     }
 
@@ -422,7 +480,11 @@ impl Command {
                 Some(action.as_ref().and_then(BranchAction::past).unwrap_or(past))
             }
             Command::Op { action } => action.past(),
-            Command::Git { .. }
+            // The map declares no past flags, on the same rule as bare `ff`:
+            // reading it as of a past operation would need a past-state view
+            // that does not exist yet.
+            Command::Map { .. }
+            | Command::Git { .. }
             | Command::Trim { .. }
             | Command::Commit { .. }
             | Command::Switch { .. }
@@ -434,7 +496,12 @@ impl Command {
             | Command::Config { .. }
             | Command::Doctor { .. }
             | Command::Explain { .. }
-            | Command::Update { .. } => None,
+            | Command::Update { .. }
+            | Command::Checkout { .. }
+            | Command::Diff { .. }
+            | Command::Stash { .. }
+            | Command::Pull { .. }
+            | Command::Rebase { .. } => None,
         }
     }
 
