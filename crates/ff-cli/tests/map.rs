@@ -50,12 +50,14 @@ fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).expect("utf-8 stdout")
 }
 
-/// Whether any row carries `name` as its final token: that is the position
-/// a branch name takes, and no commit sha can spell a whole token of it.
+/// Whether any row carries `name` as a branch label. The brackets are what
+/// make this exact: a bare name could collide with a word in a subject, and
+/// `[name]` cannot.
 fn a_row_names(lines: &[&str], name: &str) -> bool {
+    let label = format!("[{name}]");
     lines
         .iter()
-        .any(|line| line.split_whitespace().last() == Some(name))
+        .any(|line| line.split_whitespace().any(|token| token == label))
 }
 
 /// The node lines of a map: the glyph column is what a row starts with, and
@@ -159,39 +161,35 @@ fn a_fork_draws_a_second_lane() {
     );
 }
 
-/// Branch names are the row's other typeable token — what `ff switch` takes —
-/// so they wear the same bold that op ids spend on their typeable prefix. The
-/// current branch adds the `at` green on top: bold says you could go here,
-/// green says you are here. That is what makes the map scannable for a
-/// destination rather than just readable.
+/// A branch name is the map's whole point, so it is called out three ways at
+/// once: a leading sigil, brackets, and an underline, over the bold that
+/// already means "what you can type". Two of the three are pure shape, which
+/// is the property that matters — they survive a pipe, `NO_COLOR`, and a
+/// screen reader, so the emphasis is never carried by color alone.
 #[test]
-fn branch_names_are_bold_and_the_current_one_is_also_green() {
+fn branch_names_are_called_out_three_ways_and_two_survive_no_color() {
     let fx = fork_fixture();
-    let text = stdout(&ff_colored(&fx, &[]));
 
-    // Every branch name is wrapped in a bold run.
+    // Uncolored: the sigil and the brackets are still there.
+    let plain = stdout(&ff(&fx, &[]));
     for name in ["main", "feature"] {
         assert!(
-            text.contains(&format!("\u{1b}[1m{name}"))
-                || text.contains(&format!("m{name}\u{1b}[0m")),
-            "{name} is painted, not plain: {text:?}"
+            plain.contains(&format!("\u{25b8} [{name}]")),
+            "{name} keeps its sigil and brackets with color off: {plain:?}"
         );
     }
 
-    // The current branch rides the `@` row and carries the green as well; the
-    // other branch is bold with no color of its own.
+    // Colored: the name itself also carries bold + underline, and the current
+    // branch adds the `at` green on top of that.
+    let text = stdout(&ff_colored(&fx, &[]));
+    assert!(
+        text.contains("\u{1b}[1m\u{1b}[4mfeature\u{1b}[0m"),
+        "a non-current branch is bold + underlined, uncolored: {text:?}"
+    );
     let at_row = text.lines().next().expect("an @ row");
     assert!(
-        at_row.contains("\u{1b}[1m\u{1b}[38;5;71mmain"),
-        "current branch is bold + at-green: {at_row:?}"
-    );
-    let feature_row = text
-        .lines()
-        .find(|line| line.contains("feature"))
-        .expect("a row naming the other branch");
-    assert!(
-        feature_row.contains("\u{1b}[1mfeature\u{1b}[0m"),
-        "a non-current branch is bold and uncolored: {feature_row:?}"
+        at_row.contains("\u{1b}[1m\u{1b}[4m\u{1b}[38;5;71mmain"),
+        "the current branch adds at-green over the same emphasis: {at_row:?}"
     );
 }
 

@@ -696,7 +696,51 @@ const SHA_WIDTH: usize = 7;
 const AGE_WIDTH: usize = 8;
 const KIND_WIDTH: usize = 7;
 const BRANCH_WIDTH: usize = 12;
-const BLANK_ID: &str = "        ";
+/// The op-id column with nothing to put in it: one em dash where the id would
+/// start, then the column's remaining width in spaces. A mark rather than a
+/// blank, so the sha beside it reads as the second column and not as an
+/// accident of indentation; one mark rather than a filled run, so a page of
+/// them stays quiet. Dim, because it is furniture, not data. The absence is
+/// honest either way — on the map there is no chain walk to produce an id, and
+/// in `ff log` it means no snapshot was ever taken on that commit.
+const BLANK_ID: &str = "\u{2014}       ";
+
+/// `BLANK_ID`, dimmed for display.
+fn blank_id(colored: bool) -> String {
+    paint(BLANK_ID, DIM, colored)
+}
+
+/// The sigil that leads a branch name on the map.
+const BRANCH_SIGIL: &str = "\u{25b8} ";
+
+/// A branch name rendered as what it is: a place you could jump to, and the
+/// thing the map exists to help you find.
+///
+/// The palette has no color left to spend here — magenta, blue, cyan and
+/// green are all already on a map row, and the only unused roles mean
+/// *trouble* — so the emphasis is shape and modifiers instead. Three cues
+/// stack, each independent of the others:
+///
+///   * the `BRANCH_SIGIL`, which survives `NO_COLOR`, a pipe, a monochrome
+///     terminal and a screen reader — color is redundant encoding here, never
+///     the only encoding;
+///   * brackets, `git log --decorate`'s own shape, free everywhere;
+///   * an underline on the name, because a branch name is a jump target and
+///     that is what an underline means everywhere else.
+///
+/// Under all three, bold carries "this is what you can type", exactly as it
+/// does on an op id's shortest unique prefix, and the current branch adds the
+/// `at` green on top. Bold reads "you could go here"; green reads "you are
+/// here".
+fn branch_label(name: &str, current: bool, colored: bool) -> String {
+    let base = if current { palette().at } else { BOLD };
+    let mut out = String::new();
+    out.push_str(&paint(BRANCH_SIGIL, base, colored));
+    out.push_str(&paint("[", base, colored));
+    out.push_str(&paint(name, base.underline(), colored));
+    out.push_str(&paint("]", base, colored));
+    out
+}
 
 /// The `@` row (two lines): the open change. The sha column is the pending
 /// commit hash (the change's own identity). Letters id = chain tip (via
@@ -729,7 +773,7 @@ pub fn change_row(
             ID_WIDTH,
             colored,
         ),
-        None => BLANK_ID.to_string(),
+        None => blank_id(colored),
     };
     let pending_short = open.pending.map(short7).unwrap_or_default();
     let sha = col(pending_short, SHA_WIDTH, palette().sha, colored);
@@ -765,7 +809,7 @@ pub fn commit_row(
             ID_WIDTH,
             colored,
         ),
-        None => BLANK_ID.to_string(),
+        None => blank_id(colored),
     };
     let sha = col(short7(entry.id), SHA_WIDTH, palette().sha, colored);
     let age = col_right(
@@ -815,7 +859,7 @@ pub fn map_payload(
                     ID_WIDTH,
                     colored,
                 ),
-                None => BLANK_ID.to_string(),
+                None => blank_id(colored),
             };
             let sha = col(
                 pending.as_deref().map(short7).unwrap_or_default(),
@@ -832,7 +876,7 @@ pub fn map_payload(
             let mut line0 = format!("{letters} {sha} {age}");
             if branch != "@detached" {
                 line0.push_str("  ");
-                line0.push_str(&paint(branch, palette().at, colored));
+                line0.push_str(&branch_label(branch, true, colored));
             }
             if !born {
                 line0.push_str(&format!("  {}", paint("(no commits yet)", DIM, colored)));
@@ -858,14 +902,10 @@ pub fn map_payload(
             // the column stays so the shas line up with the `@` row.
             let sha = col(short7(short_id), SHA_WIDTH, palette().sha, colored);
             let age = col_right(&relative_age(now, *time), AGE_WIDTH, palette().age, colored);
-            let mut line0 = format!("{BLANK_ID} {sha} {age}");
+            let mut line0 = format!("{} {sha} {age}", blank_id(colored));
             for r in refs {
                 line0.push_str("  ");
-                line0.push_str(&if r.current {
-                    paint(&r.name, palette().at, colored)
-                } else {
-                    paint(&r.name, BOLD, colored)
-                });
+                line0.push_str(&branch_label(&r.name, r.current, colored));
                 if let Some(files) = r.parked {
                     let note = if files == 1 {
                         "(+ parked change, 1 file)"

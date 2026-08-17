@@ -718,20 +718,30 @@ fn log_segment_tips_fill_and_blank() {
         "landed row letters match pre-commit snapshot"
     );
 
-    // bare's row: blank letters → sha is first token after ●.
+    // bare's row: no snapshot, so the letters column is the dotted filler and
+    // the sha follows it. The filler is what makes the absence legible — eight
+    // spaces read as indentation rather than as an empty column.
     let bare_row = row_of(&bare);
     let bare_tokens: Vec<&str> = bare_row.split_whitespace().collect();
+    assert_eq!(
+        bare_tokens[1], "—",
+        "bare row's letters column is the empty-id filler: {bare_row:?}"
+    );
     assert!(
-        bare_tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
-        "bare row has blank letters, sha visible: {bare_row:?}"
+        bare_tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        "and the sha follows it: {bare_row:?}"
     );
 
-    // partial's row: blank letters → sha is first token after ●.
+    // partial's row: same, no snapshot answers it.
     let partial_row = row_of(&partial);
     let partial_tokens: Vec<&str> = partial_row.split_whitespace().collect();
+    assert_eq!(
+        partial_tokens[1], "—",
+        "partial row's letters column is the empty-id filler: {partial_row:?}"
+    );
     assert!(
-        partial_tokens[1].chars().all(|c| c.is_ascii_hexdigit()),
-        "partial row has blank letters, sha visible: {partial_row:?}"
+        partial_tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        "and the sha follows it: {partial_row:?}"
     );
 }
 
