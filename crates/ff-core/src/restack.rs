@@ -178,6 +178,22 @@ pub fn restack(
         )
     })?;
 
+    // A session branch sits at the commit it edits, below the branch it
+    // will land on: restacking it — replayed or fast-forwarded — would move
+    // it off that commit, and `ff done` no longer has the content to fold
+    // back. The check sits on the resolved name, so it covers both the bare
+    // verb from inside the session and a named restack from elsewhere.
+    if branchmeta::read(repo, &branch)?.session.is_some() {
+        return Err(Error::coded(
+            "session/open",
+            format!(
+                "{branch} is an editing session: restacking it would move it off the commit \
+                 being edited"
+            ),
+            vec!["ff done".into(), "ff done --abandon".into()],
+        ));
+    }
+
     // 4. The base.
     let (base_name, reaimed) = match onto {
         Some(raw) => {
@@ -310,8 +326,7 @@ pub fn restack(
             None
         };
         match futures::probe_to_depth(repo, base_tip, branch_tip, probe_open, usize::MAX)? {
-            Verdict::Clean { replayed: n } => {
-                replayed = n;
+            Verdict::Clean { .. } => {
                 // Standing mid-stack: the open change belongs to the head
                 // branch's tip, not the target's, so it needs its own probe.
                 // Replaying bases..head_tip is a prefix of the range just
@@ -367,6 +382,7 @@ pub fn restack(
     // 8. Plan, and the new worktree.
     let mut carried: Vec<RefTransition> = Vec::new();
     let mut rewrites: Vec<rewrite::Rewrite> = Vec::new();
+    let mut dropped: Vec<rewrite::Dropped> = Vec::new();
     let mut new_tip = branch_tip;
     let mut published = 0usize;
     let mut new_head_tip: Option<gix::ObjectId> = None;
@@ -380,9 +396,13 @@ pub fn restack(
             &rewrite::Change::Onto(base_tip),
             now,
         )?;
-        published = rewrite::published_count(repo, &branch, &plan.rewrites)?;
+        published = rewrite::published_count(repo, &branch, &plan)?;
+        // The probe and the plan agree by construction, but only one of them
+        // is the thing that ran: the counts come from the plan.
         carried = plan.carried;
         rewrites = plan.rewrites;
+        replayed = rewrites.len();
+        dropped = plan.dropped;
         new_tip = plan.new_tip;
 
         // The head branch's new tip comes out of the carried table either
@@ -602,7 +622,7 @@ pub fn restack(
     let published_on = rewrite::tracking_name(repo, &branch)?;
 
     Ok((
-        RestackOutcome::Restacked(RestackReport {
+        RestackOutcome::Restacked(Box::new(RestackReport {
             branch,
             base: base_name,
             onto: base_tip.to_string(),
@@ -618,7 +638,8 @@ pub fn restack(
             parked,
             files,
             still_open,
-        }),
+            dropped,
+        })),
         ctx,
     ))
 }

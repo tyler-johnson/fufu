@@ -206,9 +206,7 @@ fn close_then_undo_is_identity_and_redo_puts_it_back() {
         &prov(),
     )
     .unwrap();
-    let CommitOutcome::Closed { id, .. } = outcome else {
-        panic!("expected close");
-    };
+    let CommitOutcome::Closed { id, .. } = outcome;
     let after_close = world_state(&fx);
     assert_ne!(before, after_close);
 
@@ -429,9 +427,7 @@ fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
         &prov(),
     )
     .unwrap();
-    let CommitOutcome::Closed { .. } = outcome else {
-        panic!("expected close");
-    };
+    let CommitOutcome::Closed { .. } = outcome;
     assert!(
         ctx.pre_op.is_some(),
         "a no-op capture must still surface the tip as the pre-verb operation"
@@ -631,9 +627,7 @@ fn partial_application_converges_on_rerun() {
         &prov(),
     )
     .unwrap();
-    let CommitOutcome::Closed { id, .. } = outcome else {
-        panic!()
-    };
+    let CommitOutcome::Closed { id, .. } = outcome;
     let repo = fx.repo();
     let landing = ff_core::ops::OpLog::open(&repo)
         .unwrap()

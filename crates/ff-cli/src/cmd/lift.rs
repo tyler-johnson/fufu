@@ -48,12 +48,28 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            let short: String = report.new.chars().take(7).collect();
-            println!(
-                "lifted out of {}: {}",
-                crate::render::paint_sha(&short, colored),
-                report.subject
-            );
+            // `None` is the lift taking everything the commit introduced
+            // out of it: there is no new identity to name, so name the one
+            // it was.
+            let short: String = report
+                .new
+                .as_deref()
+                .unwrap_or(&report.from)
+                .chars()
+                .take(7)
+                .collect();
+            match &report.new {
+                Some(_) => println!(
+                    "lifted out of {}: {}",
+                    crate::render::paint_sha(&short, colored),
+                    report.subject
+                ),
+                None => println!(
+                    "lifted everything out of {} \"{}\": the commit is gone",
+                    crate::render::paint_sha(&short, colored),
+                    report.subject
+                ),
+            }
             if report.restacked > 0 {
                 if report.moved.is_empty() {
                     println!("restacked {} commit(s) above it", report.restacked);
@@ -65,8 +81,10 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
                     );
                 }
             }
-            if report.emptied {
-                println!("that commit is empty now");
+            if let Some(line) =
+                crate::render::dropped_line(&report.dropped, Some(&report.from), colored)
+            {
+                println!("{line}");
             }
             if report.published > 0 {
                 // Disclosure, not a warning, on the same rule as reword.

@@ -213,6 +213,16 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff doctor", "ff op log"],
     },
     Entry {
+        id: "commit/empty",
+        summary: "there is nothing to close: the tree matches HEAD",
+        detail: "The working tree is the open change, so a tree that matches HEAD is a change \
+                 that does not exist — and a description does not make one, because a commit \
+                 that says something while changing nothing is exactly the placeholder state \
+                 fufu refuses to keep. Nothing was written, so a pending description is still \
+                 there, and ff describe -m will park one for the next close.",
+        exits: &["ff status", "ff describe -m <message>"],
+    },
+    Entry {
         id: "ref/contended",
         summary: "another process is holding that ref",
         detail: "Two things tried to move the same ref at once — often a second fufu command, an \
@@ -557,6 +567,17 @@ pub static ENTRIES: &[Entry] = &[
         ],
     },
     Entry {
+        id: "edit/not-in-history",
+        summary: "that commit is not in the branch you are standing on",
+        detail: "An editing session ends by replaying the branch's commits onto the edited one, \
+                 so the commit has to be in that branch's history — one it is not in has nowhere \
+                 to land, because the session would end with the branch you left and the commit \
+                 you edited unable to meet. It sits on another line of work, or below a fork you \
+                 have since left. ff log says what is under you, and ff switch brings a branch \
+                 that contains it into reach.",
+        exits: &["ff log", "ff switch <branch>"],
+    },
+    Entry {
         id: "held/op-revert",
         summary: "the inversion conflicts with work done since",
         detail: "ff op revert takes one change back out while later work stands, which it can \
@@ -608,6 +629,48 @@ pub static ENTRIES: &[Entry] = &[
                  share none have no range to replay. ff log says what each line of work sits \
                  on, so the two can be compared against each other.",
         exits: &["ff log", "ff restack <branch> --onto <base>"],
+    },
+    Entry {
+        id: "session/none",
+        summary: "there is no editing session to finish",
+        detail: "An editing session is what ff edit opens: a branch minted at a commit and \
+                 switched to, so the commit's content can be edited with your whole toolchain, \
+                 and the session is recorded so ff done knows where to land it. You are not \
+                 standing on one right now, so there is nothing to finish or to abandon. \
+                 ff status says whether a session is running, and ff edit <rev> opens one on \
+                 the commit you mean.",
+        exits: &["ff edit <rev>", "ff status"],
+    },
+    Entry {
+        id: "session/open",
+        summary: "you are already inside an editing session",
+        detail: "Sessions do not nest: two at once would each record the other as the branch \
+                 to replay onto, and there is no ordering to say which lands first. The one \
+                 running has to be dealt with first — ff done lands it, ff done --abandon \
+                 drops it, or ff switch moves away and defers it, where it waits until you \
+                 come back.",
+        exits: &["ff done", "ff done --abandon", "ff switch <branch>"],
+    },
+    Entry {
+        id: "session/moved",
+        summary: "the session branch has commits of its own now",
+        detail: "Only a foreign git commit can add one, and landing the session would fold it \
+                 into the amended commit. Its content is already in the working tree and would \
+                 survive the amend, but its message would not, and dropping a message nobody \
+                 asked to lose is the guess fufu will not make. ff done --abandon drops the \
+                 session without landing it, and ff restack is the move to make once you have \
+                 decided what the branch becomes.",
+        exits: &["ff done --abandon", "ff restack"],
+    },
+    Entry {
+        id: "session/unreachable",
+        summary: "the edited commit has left the branch the session lands on",
+        detail: "A session ends by replaying the branch's commits onto the commit it was opened \
+                 on, so that commit has to still be in the branch's history. It is not — \
+                 something moved the branch while the session was open, and landing would have \
+                 nothing to land onto. ff done --abandon drops the session without landing it, \
+                 and ff log says where the branch stands now.",
+        exits: &["ff done --abandon", "ff log"],
     },
     Entry {
         id: "usage/restack-onto-self",

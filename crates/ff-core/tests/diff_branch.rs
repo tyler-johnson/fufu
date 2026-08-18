@@ -93,6 +93,7 @@ fn claim_carries_chain_parked_entry_and_metadata() {
             pending_description: Some("the plan".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .unwrap();
@@ -291,6 +292,7 @@ fn list_segregates_and_annotates() {
             pending_description: Some("todo".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .unwrap();

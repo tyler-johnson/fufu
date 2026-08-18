@@ -227,18 +227,32 @@ fn lift_reports_and_grows_the_open_change() {
     );
 }
 
+/// Lifting a commit's every change leaves nothing for it to introduce, so
+/// the commit is dropped rather than left empty — and the output says so.
 #[test]
-fn lift_everything_says_the_commit_is_empty() {
+fn lift_everything_says_the_commit_is_gone() {
     let fx = repo();
     fx.write("f1.txt", "one\n");
     fx.commit("base");
     fx.write("a.txt", "a\n");
-    fx.commit("c1");
+    let c1 = fx.commit("c1");
 
     let output = ff(&fx, &["lift"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
-    assert!(text.contains("that commit is empty now"), "{text}");
+    assert!(text.contains("the commit is gone"), "{text}");
+
+    // Not merely announced: the commit really is out of the history.
+    let log = fx.git(&["log", "--format=%H", "main"]);
+    assert!(
+        !log.contains(c1.trim()),
+        "c1 must be gone from main, not empty: {log}"
+    );
+    assert_eq!(
+        fx.git(&["rev-list", "--count", "main"]).trim(),
+        "1",
+        "only the base survives"
+    );
 }
 
 #[test]

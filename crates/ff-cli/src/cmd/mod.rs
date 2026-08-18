@@ -4,6 +4,8 @@ pub mod commit;
 pub mod config;
 pub mod describe;
 pub mod doctor;
+pub mod done;
+pub mod edit;
 pub mod evolog;
 pub mod explain;
 pub mod foreign;

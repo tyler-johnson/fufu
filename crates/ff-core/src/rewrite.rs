@@ -21,14 +21,32 @@ pub struct Rewrite {
     pub new: String,
 }
 
+/// A commit a rewrite did not write: its tree matched its new first parent's,
+/// so it introduces nothing, and fufu writes no empty commit. The old
+/// identity is kept so the verb can name what it removed — a drop is
+/// announced, never silent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dropped {
+    /// The commit that was not rewritten, full sha.
+    pub old: String,
+    /// Its subject, so a report can say what went.
+    pub subject: String,
+}
+
 /// What changes about the named commit. Absorb and lift add their variants
 /// here rather than forking the engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     Message(String),
-    /// The target's new tree, already computed by the caller. Descendants
-    /// are replayed onto it rather than merely re-parented.
-    Tree(gix::ObjectId),
+    /// The target's new tree, already computed by the caller, and optionally
+    /// its new message. Descendants are replayed onto it rather than merely
+    /// re-parented. The message rides along because an amend can change both
+    /// at once — a session that edits a commit's content *and* rewords it is
+    /// one act, and splitting it across two `Change`s would land one half.
+    Tree {
+        tree: gix::ObjectId,
+        message: Option<BString>,
+    },
     /// The target's new first parent. Unlike the other two, this replays the
     /// target itself rather than only its descendants — which is what moves
     /// a range's floor onto a different base.
@@ -41,6 +59,8 @@ pub enum Change {
 pub struct RewritePlan {
     /// Every rewritten commit, oldest-first, target first.
     pub rewrites: Vec<Rewrite>,
+    /// Commits the rewrite dropped rather than wrote, oldest-first.
+    pub dropped: Vec<Dropped>,
     /// Local heads sitting inside the rewritten range, sorted by ref name.
     pub carried: Vec<RefTransition>,
     pub new_tip: gix::ObjectId,
@@ -117,9 +137,13 @@ pub fn plan(
     // the conflict or the merge-commit refusal, writes nothing, and only then
     // does the real pass run. A message change moves no tree, so it skips
     // the dry run and keeps today's single pass.
-    let (rewrites, map) = match change {
+    let Replayed {
+        rewrites,
+        dropped,
+        map,
+    } = match change {
         Change::Message(_) => replay(repo, &ordered, &affected, target, change, now)?,
-        Change::Tree(_) | Change::Onto(_) => {
+        Change::Tree { .. } | Change::Onto(_) => {
             let memory = repo.clone().with_object_memory();
             replay(&memory, &ordered, &affected, target, change, now)?;
             replay(repo, &ordered, &affected, target, change, now)?
@@ -160,6 +184,7 @@ pub fn plan(
 
     Ok(RewritePlan {
         rewrites,
+        dropped,
         carried,
         new_tip,
     })
@@ -190,14 +215,12 @@ pub fn tracking_name(repo: &gix::Repository, branch: &str) -> Result<Option<Stri
     Ok(tracking_ref(repo, branch)?.map(|tracking| tracking.shorten().to_string()))
 }
 
-/// How many of the *old* shas the branch's remote-tracking ref already
-/// contains. Disclosure, not a guard: nothing here refuses a rewrite because
-/// commits are published.
-pub fn published_count(
-    repo: &gix::Repository,
-    branch: &str,
-    rewrites: &[Rewrite],
-) -> Result<usize> {
+/// How many of the commits the rewrite removed from the branch as they stood
+/// — rewritten and dropped alike — the branch's remote-tracking ref already
+/// contains: a published commit that is now gone is the one the remote will
+/// miss hardest. Disclosure, not a guard: nothing here refuses a rewrite
+/// because commits are published.
+pub fn published_count(repo: &gix::Repository, branch: &str, plan: &RewritePlan) -> Result<usize> {
     let Some(tracking) = tracking_ref(repo, branch)? else {
         return Ok(0);
     };
@@ -213,8 +236,13 @@ pub fn published_count(
         .detach();
 
     let mut count = 0usize;
-    for r in rewrites {
-        let Ok(old) = gix::ObjectId::from_hex(r.old.as_bytes()) else {
+    for sha in plan
+        .rewrites
+        .iter()
+        .map(|r| r.old.as_bytes())
+        .chain(plan.dropped.iter().map(|d| d.old.as_bytes()))
+    {
+        let Ok(old) = gix::ObjectId::from_hex(sha) else {
             continue;
         };
         if let Ok(bases) = repo.merge_bases_many(old, &[remote_tip])
@@ -235,6 +263,16 @@ pub(crate) fn join_paths(paths: &[String]) -> String {
     }
 }
 
+/// What one replay pass produced. `map` is the load-bearing part: every
+/// descendant reads it for its new parent, `plan` reads it for the carried
+/// heads and for the new tip, and a dropped commit is exactly an entry
+/// pointing at its parent rather than at a commit of its own.
+struct Replayed {
+    rewrites: Vec<Rewrite>,
+    dropped: Vec<Dropped>,
+    map: HashMap<gix::ObjectId, gix::ObjectId>,
+}
+
 /// Rewrite each affected commit in order: the target takes its new tree or
 /// message, and every other affected commit is replayed onto its rewritten
 /// first parent. Under a tree change a merge commit in the range is refused
@@ -246,13 +284,13 @@ fn replay(
     target: gix::ObjectId,
     change: &Change,
     now: i64,
-) -> Result<(Vec<Rewrite>, HashMap<gix::ObjectId, gix::ObjectId>)> {
+) -> Result<Replayed> {
     // Re-parenting a merge is unambiguous; replaying one is not — and
     // absorb never replays its target, so a merge target is exempt only
     // under Tree, not under Onto.
-    if matches!(change, Change::Tree(_) | Change::Onto(_)) {
+    if matches!(change, Change::Tree { .. } | Change::Onto(_)) {
         for &id in ordered {
-            if (matches!(change, Change::Tree(_)) && id == target) || !affected.contains(&id) {
+            if (matches!(change, Change::Tree { .. }) && id == target) || !affected.contains(&id) {
                 continue;
             }
             let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
@@ -275,6 +313,7 @@ fn replay(
     let committer = crate::refs::user_signature(repo, now)?;
     let mut map: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
     let mut rewrites: Vec<Rewrite> = Vec::new();
+    let mut dropped: Vec<Dropped> = Vec::new();
     for &id in ordered {
         if !affected.contains(&id) {
             continue;
@@ -302,7 +341,7 @@ fn replay(
                 Change::Message(_) => {
                     gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?
                 }
-                Change::Tree(new) => *new,
+                Change::Tree { tree, .. } => *tree,
                 Change::Onto(onto) => {
                     let base = match old_parents.first() {
                         Some(parent) => tree_of(repo, *parent)?,
@@ -330,7 +369,16 @@ fn replay(
         let message: BString = if id == target {
             match change {
                 Change::Message(text) => crate::close::normalize_message(text).into(),
-                Change::Tree(_) | Change::Onto(_) => commit_ref.message.to_owned(),
+                // The caller supplies a finished message — an existing
+                // commit's, already in its final form — so it lands
+                // verbatim, unlike the raw user input `Message` takes.
+                Change::Tree {
+                    message: Some(text),
+                    ..
+                } => text.clone(),
+                Change::Tree { message: None, .. } | Change::Onto(_) => {
+                    commit_ref.message.to_owned()
+                }
             }
         } else {
             commit_ref.message.to_owned()
@@ -345,6 +393,29 @@ fn replay(
         }
         let encoding = commit_ref.encoding.map(|e| e.to_owned());
 
+        // fufu writes no empty commit. A commit whose computed tree matches
+        // its new first parent's introduces nothing, so it is not written:
+        // `map` points it at that parent, and every descendant, every local
+        // head sitting on it and `new_tip` follow on their own, because they
+        // all read `map` and nothing else.
+        //
+        // Never a merge — collapsing one onto its first parent would erase
+        // the other side of the history, which is not what "empty" means —
+        // and never a root, which has no parent to collapse onto. Requiring
+        // exactly one parent covers both. Never under `Change::Message`
+        // either: a reword re-parents rather than replays, so every tree it
+        // passes over is one it did not touch.
+        if !matches!(change, Change::Message(_))
+            && parents.len() == 1
+            && tree == tree_of(repo, parents[0])?
+        {
+            map.insert(id, parents[0]);
+            dropped.push(Dropped {
+                old: id.to_string(),
+                subject: subject(repo, id)?,
+            });
+            continue;
+        }
         let commit = gix::objs::Commit {
             tree,
             parents: parents.into(),
@@ -361,7 +432,11 @@ fn replay(
             new: new_id.to_string(),
         });
     }
-    Ok((rewrites, map))
+    Ok(Replayed {
+        rewrites,
+        dropped,
+        map,
+    })
 }
 
 /// The new tree of a replayed commit, target or descendant. When its first
@@ -411,6 +486,13 @@ fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectI
         .tree_id()
         .map_err(Error::repo)?
         .detach())
+}
+
+/// The subject of a commit, through the object handle — the raw `CommitRef`
+/// message has no summary.
+fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
+    let commit = repo.find_object(commit).map_err(Error::repo)?.into_commit();
+    Ok(commit.message().map_err(Error::repo)?.summary().to_string())
 }
 
 /// Iterative post-order DFS from `tip` over parents restricted to `range`,

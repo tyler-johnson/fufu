@@ -22,6 +22,20 @@ pub struct StatusModel {
     /// What syncing would cost, one entry per axis fufu can name: the base
     /// beneath this branch, and the remote copy of it.
     pub futures: ff_core::futures::Futures,
+    /// An editing session running on the branch underfoot, if one is.
+    pub session: Option<SessionStatus>,
+}
+
+/// An editing session running on the branch underfoot.
+#[derive(serde::Serialize)]
+pub struct SessionStatus {
+    /// The session branch — the one HEAD is on.
+    pub branch: String,
+    /// The commit being edited, full sha. It is that branch's own tip.
+    pub editing: String,
+    pub subject: String,
+    /// The branch its commits will replay onto when the session ends.
+    pub onto: String,
 }
 
 /// The open change as serialized by `ff status --json`. `base` and `time`
@@ -121,6 +135,38 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         _ => no_futures,
     };
 
+    // An editing session running on the branch underfoot. A lookup that
+    // cannot run is a missing line, never a failed `ff status` — the same
+    // rule the futures block a few lines above runs.
+    let session = match &status.head {
+        ff_core::HeadState::Branch { name, commit, .. } => {
+            let compute = || -> ff_core::Result<Option<SessionStatus>> {
+                let onto = ff_core::branchmeta::read(&repo, name)?
+                    .session
+                    .map(|s| s.onto)
+                    .ok_or_else(|| ff_core::Error::msg("no editing session on this branch"))?;
+                let tip = ff_core::gix::ObjectId::from_hex(commit.as_bytes())
+                    .map_err(ff_core::Error::repo)?;
+                let subject = repo
+                    .find_object(tip)
+                    .map_err(ff_core::Error::repo)?
+                    .into_commit()
+                    .message()
+                    .map_err(ff_core::Error::repo)?
+                    .summary()
+                    .to_string();
+                Ok(Some(SessionStatus {
+                    branch: name.clone(),
+                    editing: commit.clone(),
+                    subject,
+                    onto,
+                }))
+            };
+            compute().unwrap_or(None)
+        }
+        _ => None,
+    };
+
     // Build the single data model both renderers consume
     let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
     let model = StatusModel {
@@ -156,6 +202,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
                 .collect()
         }),
         futures,
+        session,
     };
 
     let now = now_secs();

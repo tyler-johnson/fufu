@@ -65,6 +65,9 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
                     );
                 }
             }
+            if let Some(line) = crate::render::dropped_line(&report.dropped, None, colored) {
+                println!("{line}");
+            }
             if report.files > 0 {
                 if report.still_open {
                     println!(

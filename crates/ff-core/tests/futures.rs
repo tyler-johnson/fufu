@@ -74,7 +74,13 @@ fn clean_replay_counts_every_commit() {
     let fx = linear_clean();
     let repo = fx.repo();
     let v = futures::probe(&repo, tip(&fx, "main"), tip(&fx, "feature"), None).unwrap();
-    assert_eq!(v, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        v,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -126,7 +132,10 @@ fn conflict_introduced_only_by_the_open_change() {
     // assertion.
     assert_eq!(
         futures::probe(&repo, onto, branch_tip, None).unwrap(),
-        Verdict::Clean { replayed: 1 }
+        Verdict::Clean {
+            replayed: 1,
+            dropped: 0
+        }
     );
 }
 
@@ -142,7 +151,13 @@ fn open_change_equal_to_the_tip_tree_is_skipped() {
         Some(open_tree),
     )
     .unwrap();
-    assert_eq!(v, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        v,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -297,7 +312,10 @@ fn past_the_depth_cap_the_verdict_is_unknown() {
     let repo = fx.repo();
     assert_eq!(
         futures::probe(&repo, onto, branch_tip, None).unwrap(),
-        Verdict::Clean { replayed: 4 }
+        Verdict::Clean {
+            replayed: 4,
+            dropped: 0
+        }
     );
 }
 
@@ -309,7 +327,13 @@ fn a_probe_writes_nothing_to_the_object_database() {
     let before = loose_count(&fx);
     let repo = fx.repo();
     let v = futures::probe(&repo, tip(&fx, "main"), tip(&fx, "feature"), None).unwrap();
-    assert_eq!(v, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        v,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
     let after = loose_count(&fx);
     assert_eq!(
         before, after,
@@ -587,13 +611,25 @@ fn a_warm_call_serves_the_stored_verdict() {
     let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
     // A second call returning the poisoned 999 could not have re-merged.
     poison(&cache_file(&fx, "feature"));
     let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 999 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 999,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -612,7 +648,13 @@ fn cache_invalidates_when_the_base_tip_changes() {
     let f = futures::base_future(&repo, "feature", Some(t), None)
         .unwrap()
         .expect("a future");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -630,7 +672,13 @@ fn cache_invalidates_when_the_branch_tip_changes() {
     let f = futures::base_future(&repo, "feature", Some(tip(&fx, "feature")), None)
         .unwrap()
         .expect("a future");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 4 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 4,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -648,7 +696,13 @@ fn cache_invalidates_when_the_open_tree_changes() {
     let f = futures::base_future(&repo, "feature", Some(t), Some(open))
         .unwrap()
         .expect("a future");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -671,7 +725,13 @@ fn cache_invalidates_when_the_base_ref_changes() {
         .unwrap()
         .expect("a future");
     assert_eq!(f.against.name, "alt");
-    assert_eq!(f.verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        f.verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 }
 
 #[test]
@@ -782,13 +842,25 @@ fn both_axes_cache_independently() {
 
     // First call computes both axes and writes both slots.
     let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
-    assert_eq!(both.base.unwrap().verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        both.base.unwrap().verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
     assert_eq!(both.remote.unwrap().verdict, Verdict::UpToDate { ahead: 0 });
 
     // Poison the base slot only: the remote slot must survive untouched.
     poison(&cache_file(&fx, "feature"));
     let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
-    assert_eq!(both.base.unwrap().verdict, Verdict::Clean { replayed: 999 });
+    assert_eq!(
+        both.base.unwrap().verdict,
+        Verdict::Clean {
+            replayed: 999,
+            dropped: 0
+        }
+    );
     assert_eq!(
         both.remote.unwrap().verdict,
         Verdict::UpToDate { ahead: 0 },
@@ -800,11 +872,17 @@ fn both_axes_cache_independently() {
     let both = futures::futures_for(&repo, "feature", Some(t), None).expect("futures_for");
     assert_eq!(
         both.remote.unwrap().verdict,
-        Verdict::Clean { replayed: 999 }
+        Verdict::Clean {
+            replayed: 999,
+            dropped: 0
+        }
     );
     assert_eq!(
         both.base.unwrap().verdict,
-        Verdict::Clean { replayed: 999 },
+        Verdict::Clean {
+            replayed: 999,
+            dropped: 0
+        },
         "poisoning the remote slot must not clobber the base slot"
     );
 }
@@ -833,6 +911,33 @@ fn a_slash_in_the_branch_name_round_trips() {
 }
 
 #[test]
+fn a_probe_counts_what_the_replay_would_drop() {
+    let fx = Fixture::new();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["branch", "feature"]);
+    // The base already holds a.txt with byte-identical content, so the
+    // commit that adds it introduces nothing over the base.
+    fx.write("a.txt", "same\n");
+    fx.commit("base gains a.txt");
+    fx.git(&["switch", "feature"]);
+    fx.write("a.txt", "same\n");
+    fx.commit("adds a.txt");
+    fx.write("b.txt", "b\n");
+    fx.commit("adds b.txt");
+
+    let repo = fx.repo();
+    let v = futures::probe(&repo, tip(&fx, "main"), tip(&fx, "feature"), None).unwrap();
+    assert_eq!(
+        v,
+        Verdict::Clean {
+            replayed: 1,
+            dropped: 1
+        }
+    );
+}
+
+#[test]
 fn the_replayed_tree_never_becomes_findable() {
     let fx = linear_clean();
     let loose_before = loose_count(&fx);
@@ -840,7 +945,10 @@ fn the_replayed_tree_never_becomes_findable() {
     let repo = fx.repo();
     assert_eq!(
         futures::probe(&repo, tip(&fx, "main"), tip(&fx, "feature"), None).unwrap(),
-        Verdict::Clean { replayed: 3 }
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
     );
     assert_eq!(
         loose_before,

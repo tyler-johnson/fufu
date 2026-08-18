@@ -347,8 +347,10 @@ pub struct AbsorbReport {
     pub branch: String,
     /// The target commit before the absorb.
     pub into: String,
-    /// The target commit after it.
-    pub new: String,
+    /// The target commit after it. `None` when the rewrite dropped the
+    /// commit — it introduces nothing now, and fufu writes no empty commit —
+    /// in which case it is named in `dropped`.
+    pub new: Option<String>,
     /// The target's subject, which an absorb never changes.
     pub subject: String,
     /// Descendants restacked behind the target.
@@ -361,6 +363,9 @@ pub struct AbsorbReport {
     pub paths: Vec<String>,
     /// Whether anything is still open once the absorb has landed.
     pub still_open: bool,
+    /// Commits the rewrite dropped because they introduce nothing — fufu
+    /// writes no empty commit. Oldest-first.
+    pub dropped: Vec<crate::rewrite::Dropped>,
 }
 
 /// The result of `ff restack`: a branch's commits replayed onto a different
@@ -368,8 +373,10 @@ pub struct AbsorbReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RestackOutcome {
-    /// The branch was replayed onto its base.
-    Restacked(RestackReport),
+    /// The branch was replayed onto its base. Boxed because the landed
+    /// report dwarfs the other variant, and an enum sized to its largest
+    /// arm is paid for on every return, landed or not.
+    Restacked(Box<RestackReport>),
     /// Already sitting on its base, and no re-aim was asked for.
     NothingToRestack { branch: String, base: String },
 }
@@ -412,6 +419,9 @@ pub struct RestackReport {
     pub files: usize,
     /// Anything still open once the restack has landed.
     pub still_open: bool,
+    /// Commits the rewrite dropped because they introduce nothing — fufu
+    /// writes no empty commit. Oldest-first.
+    pub dropped: Vec<crate::rewrite::Dropped>,
 }
 
 /// A parked change the restack leaves untouched, disclosed not resolved.
@@ -421,6 +431,95 @@ pub struct Parked {
     pub stash: String,
     /// It still merges onto the branch's new tip.
     pub applies: bool,
+}
+
+/// The result of `ff edit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditOutcome {
+    /// A session was opened on a commit.
+    Opened(EditReport),
+    /// The target named a branch, so the verb was a switch. A kind mismatch
+    /// redirects rather than refuses: `ff edit` targets commits, `ff switch`
+    /// targets branches, and one available reading is taken and announced.
+    Switched(SwitchReport),
+}
+
+/// An editing session that opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EditReport {
+    /// The anonymous branch minted for the session — the session *is* a branch.
+    pub session: String,
+    /// The commit being edited, full sha. It is the session branch's own tip:
+    /// travel happens in ref-space, so nothing is held back.
+    pub editing: String,
+    pub subject: String,
+    /// The branch whose commits wait ahead, and replay when the session ends.
+    pub onto: String,
+    /// How many of its commits wait ahead.
+    pub ahead: usize,
+    /// The stash sha the open change parked under, when the tree was dirty.
+    pub parked: Option<String>,
+}
+
+/// The result of `ff done`: an editing session ended, landed or abandoned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoneOutcome {
+    /// The session landed: the edited commit was amended and what waited
+    /// ahead was replayed onto it.
+    Done(DoneReport),
+    /// The session was dropped without landing.
+    Abandoned(AbandonReport),
+}
+
+/// A session that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DoneReport {
+    /// The session branch that ended, and is now gone.
+    pub session: String,
+    /// The commit that was being edited, full sha.
+    pub editing: String,
+    /// What it became — equal to `editing` when the session changed nothing.
+    /// `None` when the rewrite dropped the commit — it introduces nothing
+    /// now, and fufu writes no empty commit — in which case it is named in
+    /// `dropped`.
+    pub amended: Option<String>,
+    pub subject: String,
+    /// The branch landed back on.
+    pub onto: String,
+    /// Commits replayed ahead of the amended one.
+    pub replayed: usize,
+    /// Other local branches the rewrite carried (not the session, not `onto`).
+    pub moved: Vec<String>,
+    /// `onto`'s new tip, full sha.
+    pub new_tip: String,
+    /// The session made no content change; nothing was rewritten.
+    pub unchanged: bool,
+    /// How many rewritten commits the branch's remote already has.
+    pub published: usize,
+    /// The tracking ref `published` was measured against, e.g. `origin/main`.
+    pub published_on: Option<String>,
+    /// What became of the change `ff edit` parked on `onto`.
+    pub arrival: ArrivalReport,
+    /// Worktree files written or deleted landing back.
+    pub files: usize,
+    /// Commits the rewrite dropped because they introduce nothing — fufu
+    /// writes no empty commit. Oldest-first.
+    pub dropped: Vec<crate::rewrite::Dropped>,
+}
+
+/// A session that was dropped without landing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AbandonReport {
+    pub session: String,
+    pub editing: String,
+    pub subject: String,
+    pub onto: String,
+    /// The stash sha the session's uncommitted edits went to, if any.
+    pub stashed: Option<String>,
+    pub arrival: ArrivalReport,
+    pub files: usize,
 }
 
 /// The result of `ff lift`: paths taken out of a commit and back into the
@@ -441,8 +540,10 @@ pub struct LiftReport {
     pub branch: String,
     /// The target commit before the lift.
     pub from: String,
-    /// The target commit after it.
-    pub new: String,
+    /// The target commit after it. `None` when the rewrite dropped the
+    /// commit — it introduces nothing now, and fufu writes no empty commit —
+    /// in which case it is named in `dropped`.
+    pub new: Option<String>,
     /// The target's subject, which a lift never changes.
     pub subject: String,
     /// Descendants restacked behind the target.
@@ -453,8 +554,9 @@ pub struct LiftReport {
     pub published: usize,
     /// The paths the filter selected; empty means the whole commit.
     pub paths: Vec<String>,
-    /// The target introduces nothing of its own now — an empty commit.
-    pub emptied: bool,
+    /// Commits the rewrite dropped because they introduce nothing — fufu
+    /// writes no empty commit. Oldest-first.
+    pub dropped: Vec<crate::rewrite::Dropped>,
 }
 
 /// The result of `ff start` — always mints a fresh branch and parks
@@ -481,6 +583,10 @@ pub struct BranchInfo {
     /// A parked change is waiting on this branch.
     pub parked: bool,
     pub pending_description: Option<String>,
+    /// The branch this session will replay onto when it ends. `None` unless
+    /// this branch is an unfinished editing session — and an unfinished one
+    /// is worth noticing wherever branches are listed.
+    pub session: Option<String>,
     pub upstream: Option<Upstream>,
     /// What rebasing this branch onto its base would do.
     pub future: Option<crate::futures::Future>,
@@ -556,8 +662,6 @@ pub enum CommitOutcome {
         /// The mandatory pre-verb capture, spelled as an operation id.
         pre_op: Option<String>,
     },
-    /// Clean tree: nothing to close, nothing was written.
-    NothingToClose { branch: String },
 }
 
 /// One ref that moved outside fufu, absorbed by reconciliation.

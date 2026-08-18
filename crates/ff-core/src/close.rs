@@ -1,9 +1,8 @@
 //! `ff commit` — the close. The working tree IS the open change; closing it
 //! builds the `add -A` tree, writes an ordinary commit with the USER's
 //! identity, advances the branch, and rewrites the index to match — the
-//! next edit opens the next change. A clean tree with no message closes
-//! nothing; a message (`-m` or pending description) closes as an empty
-//! commit — no totally-empty commits.
+//! next edit opens the next change. A clean tree closes nothing, whatever
+//! the message — fufu writes no empty commit.
 //!
 //! Ordering is write-ahead: reconcile → capture → hooks → tree + message +
 //! plan → append the operation → mutate (branch axis, ref CAS, index, pending
@@ -38,6 +37,40 @@ pub struct CloseOptions {
     pub argv: Vec<String>,
 }
 
+/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
+/// shortening with a fixed fallback.
+fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
+    id.attach(repo)
+        .shorten()
+        .map(|p| p.to_string())
+        .unwrap_or_else(|_| id.to_string()[..7].to_string())
+}
+
+/// The subject of a commit, through the object handle — the raw `CommitRef`
+/// message has no summary.
+fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
+    let commit = repo.find_object(commit).map_err(Error::repo)?.into_commit();
+    Ok(commit.message().map_err(Error::repo)?.summary().to_string())
+}
+
+/// The clean-tree refusal: no hooks, no commit, nothing written. It happens
+/// before every mutation, so a pending description survives it untouched; a
+/// `-m` does not — it is discarded with the refusal, which is why
+/// `ff describe -m` is one of the exits.
+fn empty_refusal(branch: &str, pending: Option<&str>) -> Error {
+    let mut message = format!(
+        "nothing to close on {branch}: the tree matches HEAD, and fufu writes no empty commit"
+    );
+    if pending.is_some() {
+        message.push_str("; the pending description stays put");
+    }
+    Error::coded(
+        "commit/empty",
+        message,
+        vec!["ff status".into(), "ff describe -m <message>".into()],
+    )
+}
+
 /// Close the open change. `prov` names the mandatory pre-verb capture.
 pub fn close(
     repo: &gix::Repository,
@@ -62,10 +95,37 @@ pub fn close(
         ));
     }
 
+    let head = crate::head::head_state(repo)?;
+
+    // The session guard sits ahead of the capture floor: refusing before the
+    // capture means nothing at all is written to learn that a session is
+    // running. A session branch's whole content is the amendment of the
+    // commit under its feet, and a commit landed on that branch puts fufu in
+    // a state no other verb can describe. `ff commit` inside a session is
+    // `ff done` under another name, which is what the refusal says.
+    if let HeadState::Branch { name, commit, .. } = &head
+        && branchmeta::read(repo, name)?.session.is_some()
+    {
+        let tip = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
+        let short = short(repo, tip);
+        let subject = subject(repo, tip)?;
+        return Err(Error::coded(
+            "session/open",
+            format!(
+                "{name} is an editing session on {short} \"{subject}\": a commit here would land \
+                 somewhere no verb can describe"
+            ),
+            vec![
+                "ff done".into(),
+                "ff done --abandon".into(),
+                "ff switch <branch>".into(),
+            ],
+        ));
+    }
+
     let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
 
-    let head = crate::head::head_state(repo)?;
     let (current_branch, head_commit) = match &head {
         HeadState::Branch { name, commit, .. } => (
             name.clone(),
@@ -91,54 +151,29 @@ pub fn close(
     let meta = branchmeta::read(repo, &current_branch)?;
     let pending = meta.pending_description.clone();
 
-    // Emptiness first (git's order too): a clean tree with no message runs
-    // no hooks and closes nothing.
+    // Emptiness first (git's order too): a clean tree runs no hooks and
+    // closes nothing, whatever the message.
     let mut scan = snaptree::scan(repo)?;
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    let effective = opts
-        .message
-        .clone()
-        .or_else(|| pending.clone())
-        .unwrap_or_default();
-    let has_message = !normalize_message(&effective).is_empty();
-    if scan.is_empty() && !has_message {
-        return Ok((
-            CommitOutcome::NothingToClose {
-                branch: current_branch,
-            },
-            ctx,
-        ));
+    if scan.is_empty() {
+        return Err(empty_refusal(&current_branch, pending.as_deref()));
     }
 
     // Hooks before the tree build — pre-commit hooks format files, so a
     // hook that ran invalidates the scan.
     if !opts.no_verify && hooks::pre_commit(repo)? {
         scan = snaptree::scan(repo)?;
-        if scan.is_empty() && !has_message {
-            return Ok((
-                CommitOutcome::NothingToClose {
-                    branch: current_branch,
-                },
-                ctx,
-            ));
+        if scan.is_empty() {
+            return Err(empty_refusal(&current_branch, pending.as_deref()));
         }
     }
 
-    // The close tree is exact: nothing is size-capped out of a commit.
-    // When the scan is empty but a message exists, skip assemble — the
-    // close tree IS the head tree (empty commit).
-    let (tree_id, _skipped) = if scan.is_empty() {
-        (head_tree, Vec::new())
-    } else {
-        snaptree::assemble(repo, head_tree, &scan, u64::MAX)?
-    };
-    if tree_id == head_tree && !has_message {
-        return Ok((
-            CommitOutcome::NothingToClose {
-                branch: current_branch,
-            },
-            ctx,
-        ));
+    // The close tree is exact: nothing is size-capped out of a commit. An
+    // empty scan already refused above, so a close always assembles a
+    // real tree.
+    let (tree_id, _skipped) = snaptree::assemble(repo, head_tree, &scan, u64::MAX)?;
+    if tree_id == head_tree {
+        return Err(empty_refusal(&current_branch, pending.as_deref()));
     }
 
     // Message: -m beats the pending description; either way the pending

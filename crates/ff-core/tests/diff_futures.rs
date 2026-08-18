@@ -65,7 +65,13 @@ fn a_clean_verdict_means_git_rebase_succeeds() {
     linear_clean(&fx);
     let verdict =
         futures::probe(&fx.repo(), tip(&fx, "main"), tip(&fx, "feature"), None).expect("probe");
-    assert_eq!(verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 
     let out = fx.try_git(&["rebase", "main"]);
     assert!(
@@ -241,7 +247,13 @@ fn git_and_the_simulation_agree_on_a_clean_three_commit_replay_tree() {
     linear_clean(&fx);
     let verdict =
         futures::probe(&fx.repo(), tip(&fx, "main"), tip(&fx, "feature"), None).expect("probe");
-    assert_eq!(verdict, Verdict::Clean { replayed: 3 });
+    assert_eq!(
+        verdict,
+        Verdict::Clean {
+            replayed: 3,
+            dropped: 0
+        }
+    );
 
     let out = fx.try_git(&["rebase", "main"]);
     assert!(

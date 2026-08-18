@@ -4,7 +4,7 @@
 //! their own extension shape). Hooks behave like git's; the pending
 //! description is consumed; `-b` forks and claims.
 
-use ff_core::{CloseOptions, CommitOutcome};
+use ff_core::{CloseOptions, CommitOutcome, Result};
 use ff_testsupport::{Fixture, scenarios};
 
 /// The newest operation's record, read through the public reader.
@@ -25,13 +25,20 @@ fn ident(fx: &Fixture) {
 }
 
 fn close_with(fx: &Fixture, opts: CloseOptions) -> (CommitOutcome, ff_core::ops::VerbContext) {
+    close_result(fx, opts).unwrap()
+}
+
+/// The same call without the unwrap, for scenarios that may refuse.
+fn close_result(
+    fx: &Fixture,
+    opts: CloseOptions,
+) -> Result<(CommitOutcome, ff_core::ops::VerbContext)> {
     let repo = fx.repo();
     ff_core::close(
         &repo,
         &opts,
         &ff_core::Provenance::new("pre", Some("ff commit".into())),
     )
-    .unwrap()
 }
 
 fn default_opts() -> CloseOptions {
@@ -80,16 +87,24 @@ fn matrix_close_matches_git_add_a_commit() {
             continue;
         }
 
-        let (outcome, _ctx) = close_with(&fx_ff, default_opts());
+        let closed = close_result(&fx_ff, default_opts());
 
         fx_git.git(&["add", "-A"]);
-        let git_commit = fx_git.try_git(&["commit", "-q", "--allow-empty", "-m", "close message"]);
+        let git_commit = fx_git.try_git(&["commit", "-q", "-m", "close message"]);
 
-        match outcome {
-            CommitOutcome::NothingToClose { .. } => {
-                panic!("scenario {name}: close with -m never no-ops under the message-aware rule")
+        match closed {
+            Err(err) => {
+                assert_eq!(
+                    err.id(),
+                    "commit/empty",
+                    "scenario {name}: the refusal is the clean-tree one"
+                );
+                assert!(
+                    !git_commit.status.success(),
+                    "scenario {name}: fufu refuses where git commits"
+                );
             }
-            CommitOutcome::Closed { id, .. } => {
+            Ok((CommitOutcome::Closed { id, .. }, _ctx)) => {
                 assert!(
                     git_commit.status.success(),
                     "scenario {name}: close commits where git refuses"
@@ -142,6 +157,7 @@ fn pending_description_is_consumed_by_the_close() {
             pending_description: Some("planned: the pending text".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .unwrap();
@@ -150,9 +166,7 @@ fn pending_description_is_consumed_by_the_close() {
     let mut opts = default_opts();
     opts.message = None; // no -m: the pending description is the message
     let (outcome, _) = close_with(&fx, opts);
-    let CommitOutcome::Closed { id, subject, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { id, subject, .. } = outcome;
     assert_eq!(subject, "planned: the pending text");
     let msg = fx.git(&["log", "--format=%B", "-1", &id]);
     assert_eq!(msg.trim_end(), "planned: the pending text");
@@ -174,14 +188,13 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
             pending_description: Some("stale pending".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .unwrap();
     fx.write("a.txt", "changed\n");
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { subject, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { subject, .. } = outcome;
     assert_eq!(subject, "close message");
     let meta = ff_core::branchmeta::read(&fx.repo(), "main").unwrap();
     assert!(meta.pending_description.is_none(), "still consumed");
@@ -214,9 +227,7 @@ fn pre_commit_hook_changes_are_included_by_the_rescan() {
     );
     fx.write("a.txt", "unformatted\n");
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { id, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { id, .. } = outcome;
     let content = fx.git(&["show", &format!("{id}:a.txt")]);
     assert_eq!(content, "formatted\n", "the hook's formatting is committed");
 }
@@ -266,9 +277,7 @@ fn commit_msg_hook_rewrites_the_message() {
     );
     fx.write("a.txt", "changed\n");
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { subject, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { subject, .. } = outcome;
     assert_eq!(subject, "rewritten: close message");
 }
 
@@ -282,9 +291,7 @@ fn dash_b_fresh_name_forks_and_the_old_branch_stays() {
     let mut opts = default_opts();
     opts.branch = Some("feature".into());
     let (outcome, _) = close_with(&fx, opts);
-    let CommitOutcome::Closed { branch, id, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { branch, id, .. } = outcome;
     assert_eq!(branch, "feature");
     assert_eq!(
         fx.git(&["rev-parse", "refs/heads/main"]).trim(),
@@ -322,10 +329,7 @@ fn dash_b_claims_an_anonymous_branch_carrying_its_chain() {
         branch,
         claimed_from,
         ..
-    } = outcome
-    else {
-        panic!("expected a close");
-    };
+    } = outcome;
     assert_eq!(branch, "real-name");
     assert_eq!(claimed_from.as_deref(), Some("ff/quick-fox"));
     // The old name is gone; the chain followed the claim.
@@ -353,9 +357,7 @@ fn close_journals_one_op_entry_and_reconciles_clean_after() {
     ident(&fx);
     fx.write("a.txt", "changed\n");
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { id, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { id, .. } = outcome;
 
     let repo = fx.repo();
     let record = tip_record(&repo);
@@ -379,9 +381,7 @@ fn unborn_close_writes_the_initial_commit() {
     ident(&fx);
     fx.write("first.txt", "first\n");
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { id, branch, .. } = outcome else {
-        panic!("expected a close");
-    };
+    let CommitOutcome::Closed { id, branch, .. } = outcome;
     assert_eq!(branch, "main");
     let parents = fx.git(&["log", "--format=%P", "-1", &id]);
     assert_eq!(parents.trim(), "", "initial commit has no parents");

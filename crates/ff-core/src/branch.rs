@@ -266,6 +266,7 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
             subject,
             parked: crate::stash::parked_entry(repo, &name)?.is_some(),
             pending_description: meta.pending_description,
+            session: meta.session.as_ref().map(|s| s.onto.clone()),
             upstream,
             future,
         };

@@ -2,7 +2,7 @@
 //! part of the verb's voice: the user should always know where their work
 //! went and where it came back from.
 
-use ff_core::{ArrivalReport, Result, SwitchOptions};
+use ff_core::{ArrivalReport, Result, SwitchOptions, SwitchReport};
 
 use crate::ctx::Ctx;
 
@@ -45,10 +45,16 @@ pub fn run(ctx: &Ctx, target: String) -> Result<()> {
     }
 
     let colored = crate::pager::color_enabled();
+    render_switch(&report, colored);
+    Ok(())
+}
 
+/// The switch's own rendering, shared with `ff edit`'s branch redirect so a
+/// switch reads the same wherever it happens.
+pub(crate) fn render_switch(report: &SwitchReport, colored: bool) {
     if report.from == report.to {
         println!("already on {}", report.to);
-        return Ok(());
+        return;
     }
     if let Some(stash) = &report.parked {
         println!(
@@ -58,7 +64,15 @@ pub fn run(ctx: &Ctx, target: String) -> Result<()> {
         );
     }
     println!("switched to {}", report.to);
-    match &report.arrival {
+    render_arrival(&report.arrival, colored);
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+}
+
+/// The arrival block: what became of the change parked on the target. One
+/// place for the four arms, so a switch and a session landing never drift
+/// apart.
+pub(crate) fn render_arrival(arrival: &ArrivalReport, colored: bool) {
+    match arrival {
         ArrivalReport::None => {}
         ArrivalReport::Restored { files, .. } => {
             println!("resumed the parked change ({} file(s))", files.len());
@@ -80,8 +94,6 @@ pub fn run(ctx: &Ctx, target: String) -> Result<()> {
             );
         }
     }
-    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
-    Ok(())
 }
 
 /// Whether the target denotes a revision. Deliberately quiet about *why* it

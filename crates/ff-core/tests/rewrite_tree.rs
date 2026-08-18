@@ -107,7 +107,10 @@ fn tree_change_replays_descendants() {
         &repo,
         oid(&c1),
         oid(&c2),
-        &Change::Tree(oid(&new_tree)),
+        &Change::Tree {
+            tree: oid(&new_tree),
+            message: None,
+        },
         NOW,
     )
     .unwrap();
@@ -147,7 +150,10 @@ fn tree_change_conflict_refuses_and_writes_nothing() {
         &repo,
         oid(&c1),
         oid(&c2),
-        &Change::Tree(oid(&new_tree)),
+        &Change::Tree {
+            tree: oid(&new_tree),
+            message: None,
+        },
         NOW,
     )
     .expect_err("replaying a conflicting commit must refuse");
@@ -194,7 +200,10 @@ fn merge_commit_refuses_under_tree_change() {
         &repo,
         oid(&c1),
         oid(&merge),
-        &Change::Tree(oid(&tree_of(&fx, &c3))),
+        &Change::Tree {
+            tree: oid(&tree_of(&fx, &c3)),
+            message: None,
+        },
         NOW,
     )
     .expect_err("a merge in the range must refuse under a tree change");
@@ -251,7 +260,10 @@ fn target_not_in_history_still_refuses() {
         &repo,
         oid(&side),
         oid(&c2),
-        &Change::Tree(oid(&tree_of(&fx, &c1))),
+        &Change::Tree {
+            tree: oid(&tree_of(&fx, &c1)),
+            message: None,
+        },
         NOW,
     )
     .expect_err("a target outside the tip's history must refuse");
@@ -480,4 +492,288 @@ fn onto_refuses_a_merge_target() {
 
     assert_eq!(err.id(), "rewrite/merge-in-range", "{err}");
     assert!(err.to_string().contains("is a merge"), "{err}");
+}
+
+#[test]
+fn a_replay_that_empties_a_commit_drops_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let _c0 = fx.commit("root");
+    // The base forks off root and already holds a.txt with byte-identical
+    // content to what c1 adds, so replaying c1 onto it introduces nothing.
+    fx.git(&["switch", "-q", "-c", "trunk"]);
+    fx.write("a.txt", "same\n");
+    let base = fx.commit("base has a.txt");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "same\n");
+    let c1 = fx.commit("adds a.txt");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("adds b.txt");
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&c1), oid(&c2), &Change::Onto(oid(&base)), NOW).unwrap();
+
+    assert_eq!(
+        rewritten.dropped.len(),
+        1,
+        "c1 introduces nothing over the base"
+    );
+    assert_eq!(rewritten.dropped[0].old, c1);
+    assert_eq!(rewritten.dropped[0].subject, "adds a.txt");
+    assert!(
+        rewritten.rewrites.iter().all(|r| r.old != c1),
+        "the dropped commit is not rewritten"
+    );
+    let new_c2 = rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == c2)
+        .expect("c2 was replayed")
+        .new
+        .clone();
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{new_c2}^")]).trim(),
+        base,
+        "c2' hangs off the base the dropped commit collapsed onto"
+    );
+}
+
+/// `Fixture::commit` commits with `--allow-empty`, so a commit with nothing
+/// written before it is a commit that started empty. fufu diverges from git
+/// on purpose here: git keeps such a commit in a rebase unless told to drop
+/// it — fufu never writes an empty commit, whatever it started as.
+#[test]
+fn a_commit_that_started_empty_is_dropped_too() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    let _c1 = fx.commit("one");
+    // The base already holds a.txt plus its own file, so replaying the empty
+    // marker onto it introduces nothing.
+    fx.git(&["switch", "-q", "-c", "trunk"]);
+    fx.write("d.txt", "d\n");
+    let base = fx.commit("base adds d");
+    fx.git(&["switch", "-q", "main"]);
+    let marker = fx.commit("marker"); // nothing written: it started empty
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("adds b.txt");
+
+    let repo = fx.repo();
+    let rewritten = plan(
+        &repo,
+        oid(&marker),
+        oid(&c2),
+        &Change::Onto(oid(&base)),
+        NOW,
+    )
+    .unwrap();
+
+    assert_eq!(
+        rewritten.dropped.len(),
+        1,
+        "an empty commit is dropped like any other"
+    );
+    assert_eq!(rewritten.dropped[0].old, marker);
+    assert_eq!(rewritten.dropped[0].subject, "marker");
+    assert!(
+        rewritten.rewrites.iter().all(|r| r.old != marker),
+        "the dropped commit is not rewritten"
+    );
+    let new_c2 = rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == c2)
+        .expect("c2 was replayed")
+        .new
+        .clone();
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{new_c2}^")]).trim(),
+        base,
+        "c2' hangs off the base the dropped commit collapsed onto"
+    );
+}
+
+#[test]
+fn a_reword_drops_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    let c2 = fx.commit("marker"); // already empty, but a reword keeps it
+    fx.write("b.txt", "b\n");
+    let c3 = fx.commit("two");
+
+    let repo = fx.repo();
+    let rewritten = plan(
+        &repo,
+        oid(&c2),
+        oid(&c3),
+        &Change::Message("reworded".into()),
+        NOW,
+    )
+    .unwrap();
+
+    assert!(
+        rewritten.dropped.is_empty(),
+        "a reword re-parents rather than replays; it drops nothing"
+    );
+    assert!(
+        rewritten.rewrites.iter().any(|r| r.old == c2),
+        "the already-empty commit is rewritten, not dropped"
+    );
+    assert_eq!(
+        rewritten.rewrites.len(),
+        2,
+        "the rewritten range is the same length as the original"
+    );
+}
+
+#[test]
+fn a_merge_target_is_never_dropped() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("two");
+    fx.write("c.txt", "c\n");
+    let c3 = fx.commit("three");
+    let merge = merge_commit(&fx, &c2, &c3);
+
+    // The first parent's tree is precisely the drop condition: without the
+    // merge guard, the target would collapse onto c2.
+    let repo = fx.repo();
+    let rewritten = plan(
+        &repo,
+        oid(&merge),
+        oid(&merge),
+        &Change::Tree {
+            tree: oid(&tree_of(&fx, &c2)),
+            message: None,
+        },
+        NOW,
+    )
+    .unwrap();
+
+    assert!(rewritten.dropped.is_empty(), "a merge is never dropped");
+    let new = rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == merge)
+        .expect("the merge was rewritten, not dropped")
+        .new
+        .clone();
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{new}^1")]).trim(),
+        c2,
+        "the first parent is intact"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{new}^2")]).trim(),
+        c3,
+        "the second parent is intact"
+    );
+}
+
+#[test]
+fn a_branch_on_a_dropped_commit_follows_to_its_parent() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let _c0 = fx.commit("root");
+    // The base forks off root and already holds a.txt with byte-identical
+    // content to what c1 adds, so replaying c1 onto it introduces nothing.
+    fx.git(&["switch", "-q", "-c", "trunk"]);
+    fx.write("a.txt", "same\n");
+    let base = fx.commit("base has a.txt");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "same\n");
+    let c1 = fx.commit("adds a.txt");
+    fx.git(&["branch", "on-dropped", &c1]);
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("adds b.txt");
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&c1), oid(&c2), &Change::Onto(oid(&base)), NOW).unwrap();
+
+    let on_dropped = rewritten
+        .carried
+        .iter()
+        .find(|c| c.name == "refs/heads/on-dropped")
+        .expect("on-dropped sits on the dropped commit");
+    assert_eq!(
+        on_dropped.old.as_deref(),
+        Some(c1.as_str()),
+        "the branch's old end is the dropped commit"
+    );
+    assert_eq!(
+        on_dropped.new.as_deref(),
+        Some(base.as_str()),
+        "it moves to the commit the dropped one collapsed onto"
+    );
+}
+
+#[test]
+fn a_range_that_collapses_entirely_leaves_the_tip_at_the_base() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    let _c0 = fx.commit("one");
+    // The base already holds a.txt plus its own file, so neither of the two
+    // empty commits introduces anything over it.
+    fx.git(&["switch", "-q", "-c", "trunk"]);
+    fx.write("d.txt", "d\n");
+    let base = fx.commit("base adds d");
+    fx.git(&["switch", "-q", "main"]);
+    let c1 = fx.commit("first empty"); // nothing written: empty
+    let c2 = fx.commit("second empty"); // nothing written: empty
+
+    let repo = fx.repo();
+    let rewritten = plan(&repo, oid(&c1), oid(&c2), &Change::Onto(oid(&base)), NOW).unwrap();
+
+    assert!(rewritten.rewrites.is_empty(), "nothing was written");
+    assert_eq!(
+        rewritten.dropped.len(),
+        2,
+        "one entry per commit, oldest-first"
+    );
+    assert_eq!(rewritten.dropped[0].old, c1);
+    assert_eq!(rewritten.dropped[0].subject, "first empty");
+    assert_eq!(rewritten.dropped[1].old, c2);
+    assert_eq!(rewritten.dropped[1].subject, "second empty");
+    assert_eq!(rewritten.new_tip, oid(&base), "the tip is the base itself");
+}
+
+/// The exclusion the drop rule states but nothing else pins: a root commit
+/// has no first parent to collapse onto, so it is written even when its
+/// tree is empty.
+#[test]
+fn a_root_commit_is_never_dropped() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // Nothing written before the commit: an empty root.
+    let root = fx.commit("root");
+
+    let repo = fx.repo();
+    let rewritten = plan(
+        &repo,
+        oid(&root),
+        oid(&root),
+        &Change::Tree {
+            tree: gix::ObjectId::empty_tree(repo.object_hash()),
+            message: None,
+        },
+        NOW,
+    )
+    .unwrap();
+
+    assert!(
+        rewritten.dropped.is_empty(),
+        "a root has no first parent to collapse onto"
+    );
+    assert!(
+        rewritten.rewrites.iter().any(|r| r.old == root),
+        "the root is written even when its tree is empty"
+    );
 }

@@ -190,7 +190,7 @@ fn absorb_into_mid_stack_matches_git() {
 
     let new_c1 = fx_ff.git(&["rev-parse", "main~3"]).trim().to_string();
     assert_eq!(report.into, c1_ff);
-    assert_eq!(report.new, new_c1);
+    assert_eq!(report.new.as_deref(), Some(new_c1.as_str()));
     assert_eq!(report.restacked, 3);
     assert_eq!(report.moved, vec!["mid".to_string()]);
     assert!(!report.still_open);
@@ -254,7 +254,10 @@ fn absorb_overlapping_edit_matches_git() {
     );
 
     assert_eq!(report.into, c1_ff);
-    assert_eq!(report.new, fx_ff.git(&["rev-parse", "main~1"]).trim());
+    assert_eq!(
+        report.new.as_deref(),
+        Some(fx_ff.git(&["rev-parse", "main~1"]).trim())
+    );
     assert_eq!(report.restacked, 1);
     assert!(!report.still_open);
 }
@@ -499,7 +502,14 @@ fn lift_moves_no_files_and_grows_the_open_change() {
         other => panic!("the lift must land, got {other:?}"),
     };
     assert_eq!(report.from, c2);
-    assert!(!report.emptied, "b.txt still introduces its own content");
+    assert!(
+        report.new.is_some(),
+        "b.txt still introduces its own content: the target keeps its own identity"
+    );
+    assert!(
+        !report.dropped.iter().any(|d| d.old == c2),
+        "b.txt still introduces its own content: the target is not dropped"
+    );
 
     // Neither verb writes a file: the worktree is byte-identical, and what
     // real git sees is the reattribution — a.txt, modified and unstaged,
@@ -526,11 +536,11 @@ fn lift_moves_no_files_and_grows_the_open_change() {
 }
 
 #[test]
-fn lift_everything_leaves_an_empty_commit() {
+fn lift_everything_drops_the_commit() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("f0.txt", "base\n");
-    let c0 = fx.commit("base");
+    let _c0 = fx.commit("base");
     fx.write("a.txt", "a1\n");
     let c1 = fx.commit("c1");
 
@@ -540,15 +550,23 @@ fn lift_everything_leaves_an_empty_commit() {
         other => panic!("the lift must land, got {other:?}"),
     };
 
-    // Nothing is dropped silently: the commit stays, as an empty commit.
-    assert!(report.emptied, "a.txt was the commit's only introduction");
-    assert_ne!(report.new, c1);
-    assert_eq!(fx.git(&["cat-file", "-t", &report.new]).trim(), "commit");
+    // A lift that takes the commit's only introduction leaves it introducing
+    // nothing, and fufu writes no empty commit: the commit is gone.
+    assert!(
+        report.new.is_none(),
+        "a.txt was the commit's only introduction"
+    );
     assert_eq!(
-        fx.git(&["rev-parse", &format!("{}^{{tree}}", report.new)])
-            .trim(),
-        fx.git(&["rev-parse", &format!("{c0}^{{tree}}")]).trim(),
-        "the lifted commit's tree must equal its parent's"
+        report.dropped.len(),
+        1,
+        "the lifted commit is named in dropped"
+    );
+    assert_eq!(report.dropped[0].old, c1);
+    assert!(
+        !fx.try_git(&["merge-base", "--is-ancestor", &c1, "main"])
+            .status
+            .success(),
+        "the lifted commit is no longer in the branch's history"
     );
 }
 
@@ -608,7 +626,15 @@ fn absorb_undoes_a_lift() {
     let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
     match outcome {
         ff_core::LiftOutcome::Lifted(r) => {
-            assert!(r.emptied, "a.txt was the commit's only introduction")
+            assert!(r.new.is_none(), "a.txt was the commit's only introduction");
+            assert_eq!(r.dropped.len(), 1, "the lifted commit is named in dropped");
+            assert_eq!(r.dropped[0].old, c1);
+            assert!(
+                !fx.try_git(&["merge-base", "--is-ancestor", &c1, "main"])
+                    .status
+                    .success(),
+                "the lifted commit is no longer in the branch's history"
+            );
         }
         other => panic!("the lift must land, got {other:?}"),
     }
@@ -644,8 +670,11 @@ fn absorb_into_head_is_an_amend() {
     // The target is the tip: no merge runs, and the open change is empty
     // once the absorb lands.
     assert_eq!(report.into, c2);
-    assert_eq!(report.new, fx.git(&["rev-parse", "main"]).trim());
-    assert_ne!(report.new, c2);
+    assert_eq!(
+        report.new.as_deref(),
+        Some(fx.git(&["rev-parse", "main"]).trim())
+    );
+    assert_ne!(report.new.as_deref(), Some(c2.as_str()));
     assert_eq!(report.restacked, 0);
     assert!(report.moved.is_empty());
     assert!(!report.still_open);

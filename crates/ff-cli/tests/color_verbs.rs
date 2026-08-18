@@ -87,16 +87,15 @@ fn switch_output_plain_when_piped() {
 /// property in this file.
 #[test]
 fn verb_output_bytes_unchanged() {
-    // commit_closes_described_empty_change: stdout starts_with "closed "
+    // a close that lands: stdout starts_with "closed "
     {
         let fx = Fixture::new();
         fx.set_config("user.name", "Test User");
         fx.set_config("user.email", "test@user.test");
         fx.write("a.txt", "a\n");
         fx.commit("init");
-        let out = ff(&fx, &["describe", "-m", "planned work"]);
-        assert!(out.status.success());
-        let out = ff(&fx, &["commit"]);
+        fx.write("a.txt", "changed\n");
+        let out = ff(&fx, &["commit", "-m", "planned work"]);
         assert!(out.status.success());
         assert!(
             stdout(&out).starts_with("closed "),
@@ -104,7 +103,7 @@ fn verb_output_bytes_unchanged() {
         );
     }
 
-    // commit_totally_empty_refuses: stdout contains "nothing to close on main"
+    // commit_totally_empty_refuses: stderr contains "nothing to close on main"
     {
         let fx = Fixture::new();
         fx.set_config("user.name", "Test User");
@@ -112,10 +111,15 @@ fn verb_output_bytes_unchanged() {
         fx.write("a.txt", "a\n");
         fx.commit("init");
         let out = ff(&fx, &["commit"]);
-        assert!(out.status.success());
+        assert_eq!(out.status.code(), Some(1), "a clean tree refuses");
+        let err = String::from_utf8_lossy(&out.stderr);
         assert!(
-            stdout(&out).contains("nothing to close on main"),
-            "refusal message preserved"
+            err.contains("nothing to close on main"),
+            "refusal message preserved: {err}"
+        );
+        assert!(
+            !err.as_bytes().contains(&b'\x1b'),
+            "no ANSI escape when piped: {err:?}"
         );
     }
 }

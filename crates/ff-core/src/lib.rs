@@ -4,6 +4,8 @@ pub mod branchmeta;
 mod changestat;
 mod close;
 pub mod describe;
+pub mod done;
+pub mod edit;
 pub mod error;
 mod evolog;
 pub mod futures;

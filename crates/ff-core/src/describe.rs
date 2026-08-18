@@ -194,7 +194,7 @@ pub fn reword(
         ));
     }
 
-    let published = rewrite::published_count(repo, &branch, &plan.rewrites)?;
+    let published = rewrite::published_count(repo, &branch, &plan)?;
 
     // Write-ahead: the planned table is the post-reword world. HEAD does not
     // move — it stays symbolic on the same branch.

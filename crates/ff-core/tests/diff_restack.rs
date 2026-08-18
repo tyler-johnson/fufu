@@ -91,11 +91,25 @@ fn log_of(fx: &Fixture, refs: &[&str]) -> String {
 /// floor explicitly instead of letting git infer it, which is what fufu
 /// does, and it checks the branch out itself so the test needs no switch
 /// beforehand. `--update-refs` is what carries a branch sitting inside the
-/// range.
+/// range. `--no-keep-empty` brings the oracle onto fufu's rule: git by
+/// default keeps a commit that started empty, and fufu never writes an empty
+/// commit — without the flag the two sides would disagree on exactly the
+/// case this file now covers. The flag changes nothing at all on a range
+/// with no empty commits (measured: byte-identical shas with and without
+/// it), which is why every fixture already in this file stays
+/// byte-identically green.
 fn git_oracle_restack(fx: &Fixture, onto: &str, old_base: &str, branch: &str, now: i64) {
     fx.git_env_in(
         &fx.path(),
-        &["rebase", "--update-refs", "--onto", onto, old_base, branch],
+        &[
+            "rebase",
+            "--update-refs",
+            "--no-keep-empty",
+            "--onto",
+            onto,
+            old_base,
+            branch,
+        ],
         &[("GIT_COMMITTER_DATE", &format!("@{now} +0000"))],
     );
 }
@@ -124,6 +138,39 @@ fn stack(fx: &Fixture) -> [String; 6] {
     fx.write("d.txt", "d\n");
     let m2 = fx.commit("m2");
     [c0, c1, f1, f2, f3, m2]
+}
+
+/// The standard stack with one commit of each empty kind in the range:
+/// `dup` replays to an empty diff over `m2`, and `marker` started empty.
+/// Both fufu and the `--no-keep-empty` oracle must drop them — this is the
+/// case the differential asserts on full shas:
+///
+/// ```text
+/// c0 ─ c1 ─────────────────── m2            (main; m2 adds shared.txt)
+///       └─ f1 ─ dup ─ marker ─ f3           (feature, with `mid` at dup)
+/// ```
+///
+/// `dup` and `m2` write byte-identical `shared.txt` on purpose: differing
+/// bytes would make fufu's replay a conflict while git would still drop the
+/// commit by patch-id — a failure with nothing to do with the drop.
+fn empty_stack(fx: &Fixture) -> [String; 3] {
+    fx.write("root.txt", "root\n");
+    let _c0 = fx.commit("c0");
+    fx.write("m.txt", "m\n");
+    let c1 = fx.commit("c1");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let _f1 = fx.commit("f1");
+    fx.write("shared.txt", "shared\n");
+    let dup = fx.commit("dup");
+    fx.git(&["branch", "mid"]);
+    let marker = fx.commit("marker"); // nothing written: it started empty
+    fx.write("c.txt", "c\n");
+    let _f3 = fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("shared.txt", "shared\n");
+    let _m2 = fx.commit("m2");
+    [c1, dup, marker]
 }
 
 #[test]
@@ -414,4 +461,102 @@ fn restack_refusal_leaves_the_world_alone() {
     // appended" is the property that actually holds; the log tip moving is
     // expected, not a failure.
     assert_ne!(tip_record(&repo).verb, "restack");
+}
+
+#[test]
+fn restack_over_an_emptied_commit_matches_git_no_keep_empty() {
+    let fx_ff = Fixture::new();
+    ident(&fx_ff);
+    let [c1_ff, dup_ff, marker_ff] = empty_stack(&fx_ff);
+
+    let fx_git = Fixture::new();
+    ident(&fx_git);
+    let [c1_git, _dup_git, _marker_git] = empty_stack(&fx_git);
+
+    assert_eq!(c1_ff, c1_git, "setup must be lockstep before any rewrite");
+
+    fx_ff.git(&["switch", "-q", "feature"]);
+    let (outcome, _ctx) = restack_call(&fx_ff, Some("feature"), None);
+    let report = match outcome {
+        ff_core::RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    git_oracle_restack(&fx_git, "main", &c1_git, "feature", NOW);
+
+    // `mid` sits on `dup`, the commit both sides drop: checking it here,
+    // rather than in a second near-duplicate test, is what proves a branch
+    // on a dropped commit follows to the surviving parent, on both sides.
+    for branch in ["feature", "mid"] {
+        let ff_sha = fx_ff.git(&["rev-parse", branch]).trim().to_string();
+        let git_sha = fx_git.git(&["rev-parse", branch]).trim().to_string();
+        assert_eq!(ff_sha, git_sha, "{branch} diverged between fufu and git");
+    }
+
+    // Both dropped commits are gone from feature's history on the fufu side.
+    let feature_history = fx_ff.git(&["rev-list", "feature"]);
+    assert!(
+        !feature_history.contains(&dup_ff),
+        "dup must be gone from feature"
+    );
+    assert!(
+        !feature_history.contains(&marker_ff),
+        "marker must be gone from feature"
+    );
+
+    let log_ff = log_of(&fx_ff, &["main", "feature", "mid"]);
+    let log_git = log_of(&fx_git, &["main", "feature", "mid"]);
+    assert_eq!(
+        log_ff, log_git,
+        "every surviving commit must be byte-identical\nfufu:\n{log_ff}\ngit:\n{log_git}"
+    );
+
+    assert_eq!(
+        report.replayed, 2,
+        "f1 and f3 survive; dup and marker are dropped"
+    );
+    assert!(!report.fast_forward);
+    assert!(report.moved.contains(&"mid".to_string()));
+    assert_eq!(
+        report.new_tip,
+        fx_ff.git(&["rev-parse", "feature"]).trim().to_string()
+    );
+}
+
+#[test]
+fn the_restack_report_names_what_it_dropped() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c1, dup, marker] = empty_stack(&fx);
+
+    fx.git(&["switch", "-q", "feature"]);
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), None);
+    let report = match outcome {
+        ff_core::RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert_eq!(
+        report.dropped.len(),
+        2,
+        "one entry per dropped commit, oldest-first"
+    );
+    assert_eq!(report.dropped[0].old, dup);
+    assert_eq!(report.dropped[0].subject, "dup");
+    assert_eq!(report.dropped[1].old, marker);
+    assert_eq!(report.dropped[1].subject, "marker");
+
+    // `replayed` counts only the commits that survived: the dropped ones
+    // are not in it.
+    assert_eq!(
+        report.replayed, 2,
+        "the dropped commits are not counted as replayed"
+    );
+
+    // The branch still ends up where the differential says it does.
+    assert_eq!(
+        report.new_tip,
+        fx.git(&["rev-parse", "feature"]).trim().to_string()
+    );
+    assert!(report.moved.contains(&"mid".to_string()));
 }

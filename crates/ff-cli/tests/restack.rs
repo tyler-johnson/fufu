@@ -307,6 +307,42 @@ fn explain_knows_the_new_ids() {
 }
 
 #[test]
+fn restack_says_what_it_dropped() {
+    // The stack with one commit of each empty kind in `feature`'s range:
+    // `dup` adds the exact same `shared.txt` bytes `main` adds next, and
+    // `marker` started empty — both are dropped by the restack.
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.write("m.txt", "m\n");
+    fx.commit("m");
+
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("shared.txt", "shared\n");
+    let dup = fx.commit("dup");
+    fx.git(&["branch", "mid", &dup]);
+    fx.commit("marker");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("shared.txt", "shared\n");
+    fx.commit("m3");
+
+    fx.git(&["switch", "-q", "feature"]);
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("dropped 2 commit(s) that change nothing"),
+        "the drop must be announced: {text}"
+    );
+}
+
+#[test]
 fn restack_names_the_branchs_own_remote() {
     let fx = repo();
     stack(&fx);

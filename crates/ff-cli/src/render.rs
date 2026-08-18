@@ -108,6 +108,22 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     out.push_str(&status_header(&status, &model.futures, colored));
     out.push('\n');
 
+    // A running session is the most important fact about where you are
+    // standing, so it goes above the change.
+    if let Some(session) = &model.session {
+        let sha = &session.editing[..session.editing.len().min(8)];
+        out.push_str(&format!(
+            "editing {sha_p} \"{subject}\" — lands back on {onto}\n",
+            sha_p = paint_sha(sha, colored),
+            subject = session.subject,
+            onto = session.onto,
+        ));
+        out.push_str(&format!(
+            "    {hint}\n",
+            hint = paint_dim("ff done to finish · ff done --abandon to drop it", colored),
+        ));
+    }
+
     // Open change row
     let change_row_display = ChangeRowDisplay {
         subject: model.open.subject.as_deref(),
@@ -242,13 +258,26 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
         Verdict::UpToDate { ahead } => to_push(*ahead, alias, colored),
         Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, alias, colored),
         Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
-        Verdict::Clean { replayed } => paint_ok(
-            &format!(
-                "{which} moved — rebases cleanly ({replayed} {} replayed)",
-                noun(*replayed, "commit", "commits")
-            ),
-            colored,
-        ),
+        Verdict::Clean { replayed, dropped } => {
+            // Zero dropped stays byte-identical to the line before the
+            // field existed; a drop is named only when the replay would
+            // actually drop.
+            let dropped_clause = (*dropped > 0).then(|| {
+                format!(
+                    ", {} {} dropped as empty",
+                    dropped,
+                    noun(*dropped, "commit", "commits")
+                )
+            });
+            paint_ok(
+                &format!(
+                    "{which} moved — rebases cleanly ({replayed} {} replayed{})",
+                    noun(*replayed, "commit", "commits"),
+                    dropped_clause.as_deref().unwrap_or("")
+                ),
+                colored,
+            )
+        }
         Verdict::Conflict {
             at: At::Commit { subject, .. },
             paths,
@@ -299,6 +328,46 @@ fn truncate_subject(subject: &str) -> String {
     }
     truncated.push('\u{2026}');
     truncated
+}
+
+/// The one line the rewrite verbs print for commits a rewrite dropped —
+/// `None` when nothing was dropped, so the caller prints nothing. Names a
+/// single drop; counts several and shows the first three, the
+/// `rewrite::join_paths` shape.
+///
+/// `already_named` is the commit the caller's own headline has just spoken
+/// about — the target a lift emptied, the anchor a session emptied. Saying
+/// it a second time here would be the same sentence twice, so it is left
+/// out; `None` from a verb whose headline names no commit, like `ff restack`.
+pub(crate) fn dropped_line(
+    dropped: &[ff_core::rewrite::Dropped],
+    already_named: Option<&str>,
+    colored: bool,
+) -> Option<String> {
+    let rest: Vec<&ff_core::rewrite::Dropped> = dropped
+        .iter()
+        .filter(|d| already_named != Some(d.old.as_str()))
+        .collect();
+    let first = rest.first()?;
+    let sha = |d: &&ff_core::rewrite::Dropped| paint_sha(&d.old[..d.old.len().min(7)], colored);
+    if rest.len() == 1 {
+        return Some(format!(
+            "dropped {} \"{}\" — it changes nothing",
+            sha(first),
+            truncate_subject(&first.subject)
+        ));
+    }
+    let names: Vec<String> = rest.iter().take(3).map(&sha).collect();
+    let tail = if rest.len() > 3 {
+        format!(", and {} more", rest.len() - 3)
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "dropped {} commit(s) that change nothing: {}{tail}",
+        rest.len(),
+        names.join(", ")
+    ))
 }
 
 /// Build the header line: branch + what syncing would cost + operation.
@@ -833,6 +902,13 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
                 notes.push(to_pull(up.behind, None, colored));
             }
         }
+    }
+    // An unfinished session is the more urgent fact, so it leads the notes.
+    if let Some(onto) = &info.session {
+        notes.push(paint_dim(
+            &format!("editing session, lands on {onto}"),
+            colored,
+        ));
     }
     if info.parked {
         notes.push(paint_dim("parked change", colored));

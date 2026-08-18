@@ -180,9 +180,9 @@ description left by `ff describe`. -b lands the close on a branch — it
 claims the anonymous branch you are standing on, or forks a fresh one from
 here, leaving the branch you were on where it was.
 
-A described change with no file changes closes as an empty commit, on
-purpose; an undescribed clean tree is simply nothing to do. Every close is
-recorded, so `ff undo` takes it back — tree and refs together.";
+A clean tree has nothing to close either way: a description does not
+make one — it waits for the next close instead. Every close is recorded,
+so `ff undo` takes it back — tree and refs together.";
 
 pub const COMMIT_EXAMPLES: &str = "\
 Examples:
@@ -305,8 +305,9 @@ commit's files they are.
 
 Everything above the target re-parents in the same operation, so a branch
 inside that range comes along with it. If the lift takes everything the
-commit held, the commit is empty. What moves is the commit's identity and
-the stack above it; no file is copied or renamed in the re-point.";
+commit held, the commit is dropped, because fufu writes no empty commit.
+What moves is the commit's identity and the stack above it; no file is
+copied or renamed in the re-point.";
 
 pub const LIFT_EXAMPLES: &str = "\
 Examples:
@@ -332,6 +333,40 @@ Examples:
   ff restack                     replay onto the base this branch sits on
   ff restack feature             restack a branch you are not standing on
   ff restack --onto release-1.2  re-aim this branch and replay onto it";
+
+pub const EDIT: &str = "\
+Opens an editing session on a commit: a branch is minted at the commit and you
+switch to it, so the commit's real content is what gets edited, with your whole
+toolchain pointed at it.
+
+The branch you came from stays exactly where it stands, its commits waiting
+ahead. `ff done` amends the commit with what you changed and replays them onto
+it. A branch name is a switch instead — the one available reading is taken and
+announced. Your open change parks where you stood and comes back when the
+session ends.";
+
+pub const EDIT_EXAMPLES: &str = "\
+Examples:
+  ff edit 3f2a1b                 open a session on that commit
+  ff edit HEAD                   edit the commit you are sitting on
+  ff edit main                   a branch is a switch, not a session";
+
+pub const DONE: &str = "\
+Ends the editing session `ff edit` opened: the commit the session was opened
+on is amended with what the working tree now holds, what waited ahead is
+replayed onto it, and you land back on the branch the session left standing.
+
+A replay that would conflict stops with nothing changed rather than leaving you
+mid-rewrite. `--abandon` drops the session instead of landing it, stashing
+whatever is uncommitted rather than discarding it.
+
+It is one operation — the amend, the replay and the return move together — so
+one `ff undo` takes the whole session back.";
+
+pub const DONE_EXAMPLES: &str = "\
+Examples:
+  ff done                        amend, replay what waited, land back
+  ff done --abandon              drop the session, stash what is open";
 
 pub const BRANCH: &str = "\
 Bookkeeping for lines of work: `ff branch list` says what exists and

@@ -51,6 +51,14 @@ pub struct ParentTransition {
     pub new: Option<String>,
 }
 
+/// An editing session opened or ended on a branch (`None` = absent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTransition {
+    pub branch: String,
+    pub old: Option<crate::branchmeta::Session>,
+    pub new: Option<crate::branchmeta::Session>,
+}
+
 /// The machine record of one operation (`op.json`).
 ///
 /// `pre_snapshot` and `index_tree` are gone from the old journal shape
@@ -97,6 +105,11 @@ pub struct OpRecord {
     pub description: Option<DescriptionTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentTransition>,
+    /// An editing session opened or ended. Spelled `edit_session` to stay
+    /// clear of `VerbOp.session`, which is the provenance tag and an
+    /// unrelated thing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit_session: Option<SessionTransition>,
     /// The rewrite map: old→new for every commit this op rewrote. The log is
     /// already the authority and already pins the old commits, so undo and
     /// `ff trim` cover the map for free.
@@ -131,6 +144,7 @@ impl OpRecord {
             stash: Vec::new(),
             description: None,
             parent: None,
+            edit_session: None,
             rewrites: Vec::new(),
             undo_of: None,
             undo_cursor: None,

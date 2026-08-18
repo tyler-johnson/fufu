@@ -70,9 +70,6 @@ pub fn run(
             );
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
-        CommitOutcome::NothingToClose { branch } => {
-            println!("nothing to close on {branch}: no changes and no description");
-        }
     }
     Ok(())
 }

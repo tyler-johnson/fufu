@@ -414,6 +414,7 @@ fn open_change_reports_pending_description_and_tip() {
             pending_description: Some("fix the frobnicator".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("write meta");
@@ -453,6 +454,7 @@ fn open_change_reports_pending_description_and_tip() {
             pending_description: Some("different plan".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("write meta");
@@ -511,6 +513,7 @@ fn open_change_unborn_and_detached() {
             pending_description: Some("unborn plan".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("write meta");
@@ -527,6 +530,7 @@ fn open_change_unborn_and_detached() {
             pending_description: None,
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("clear meta");
@@ -565,6 +569,7 @@ fn pending_hash_matches_git_commit_tree() {
             pending_description: Some("plan the work".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("write meta");
@@ -616,6 +621,7 @@ fn pending_empty_commit_parent_is_head() {
             pending_description: Some("plan the work".into()),
             forked_from: None,
             parent: None,
+            session: None,
         },
     )
     .expect("write meta");

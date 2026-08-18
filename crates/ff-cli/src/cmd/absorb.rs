@@ -48,12 +48,27 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>) -> Result<()> {
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            let short: String = report.new.chars().take(7).collect();
-            println!(
-                "absorbed into {}: {}",
-                crate::render::paint_sha(&short, colored),
-                report.subject
-            );
+            // `None` is the absorb dropping the commit it aimed at: there is
+            // no new identity to name, so name the one it was.
+            let short: String = report
+                .new
+                .as_deref()
+                .unwrap_or(&report.into)
+                .chars()
+                .take(7)
+                .collect();
+            match &report.new {
+                Some(_) => println!(
+                    "absorbed into {}: {}",
+                    crate::render::paint_sha(&short, colored),
+                    report.subject
+                ),
+                None => println!(
+                    "absorbed into {} \"{}\": the commit introduces nothing now and is gone",
+                    crate::render::paint_sha(&short, colored),
+                    report.subject
+                ),
+            }
             if report.restacked > 0 {
                 if report.moved.is_empty() {
                     println!("restacked {} commit(s) above it", report.restacked);
@@ -64,6 +79,11 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>) -> Result<()> {
                         report.moved.join(", ")
                     );
                 }
+            }
+            if let Some(line) =
+                crate::render::dropped_line(&report.dropped, Some(&report.into), colored)
+            {
+                println!("{line}");
             }
             if report.published > 0 {
                 // Disclosure, not a warning, on the same rule as reword.

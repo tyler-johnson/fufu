@@ -1,7 +1,7 @@
 //! Branch metadata round trips through the durable `jsonfile` writer, the
 //! parent-carrying rename, and `ff start`'s parent recording.
 
-use ff_core::branchmeta::{self, BranchMeta};
+use ff_core::branchmeta::{self, BranchMeta, Session};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_700_000_000;
@@ -26,6 +26,7 @@ fn populated() -> BranchMeta {
         pending_description: Some("wip".into()),
         forked_from: Some("abc1234".into()),
         parent: Some("main".into()),
+        session: None,
     }
 }
 
@@ -49,6 +50,46 @@ fn write_then_read_round_trips_every_field() {
 
     branchmeta::write(&fx.repo(), "base", &meta).unwrap();
     assert_eq!(branchmeta::read(&fx.repo(), "base").unwrap(), meta);
+}
+
+#[test]
+fn a_session_round_trips() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let mut meta = populated();
+    meta.session = Some(Session {
+        onto: "feature".into(),
+        at: "a".repeat(40),
+    });
+
+    branchmeta::write(&fx.repo(), "base", &meta).unwrap();
+    assert_eq!(branchmeta::read(&fx.repo(), "base").unwrap(), meta);
+}
+
+#[test]
+fn a_session_alone_is_not_empty() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let repo = fx.repo();
+    let mut meta = BranchMeta {
+        session: Some(Session {
+            onto: "feature".into(),
+            at: "a".repeat(40),
+        }),
+        ..Default::default()
+    };
+    assert!(!meta.is_empty());
+
+    branchmeta::write(&repo, "base", &meta).unwrap();
+    let path = repo.common_dir().join("fufu/branch").join("base");
+    assert!(path.exists(), "session metadata lives at {path:?}");
+    assert_eq!(branchmeta::read(&repo, "base").unwrap(), meta);
+
+    meta.session = None;
+    branchmeta::write(&repo, "base", &meta).unwrap();
+    assert!(!path.exists(), "clearing the session deleted {path:?}");
 }
 
 #[test]

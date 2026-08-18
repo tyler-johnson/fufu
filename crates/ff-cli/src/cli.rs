@@ -215,6 +215,20 @@ pub enum Command {
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
     },
+    /// Open an editing session on a commit: go there, edit it, come back
+    #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
+    Edit {
+        /// The commit to edit. A branch name is a switch instead
+        #[arg(value_name = "rev")]
+        rev: String,
+    },
+    /// Finish the editing session: amend, replay what waited, land back
+    #[command(long_about = help::DONE, after_long_help = help::DONE_EXAMPLES)]
+    Done {
+        /// Drop the session instead of landing it
+        #[arg(long)]
+        abandon: bool,
+    },
     /// Manage lines of work: what exists, and removing one
     #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
@@ -480,6 +494,8 @@ impl Command {
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
+            Command::Edit { .. } => "edit",
+            Command::Done { .. } => "done",
             Command::Hook { .. } => "hook",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
@@ -531,6 +547,8 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
+            | Command::Edit { .. }
+            | Command::Done { .. }
             | Command::Hook { .. }
             | Command::Config { .. }
             | Command::Doctor { .. }

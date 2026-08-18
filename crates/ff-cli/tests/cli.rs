@@ -1286,11 +1286,11 @@ fn log_pending_hash_stability() {
     );
 }
 
-/// `ff describe -m` sets a description; `ff commit` with no `-m` on a clean
-/// tree mints an empty commit using that description, then the description is
-/// consumed.
+/// `ff commit` on a clean tree with a pending description refuses: the
+/// description does not make a change, nothing is written, and the
+/// description is still there afterwards.
 #[test]
-fn commit_closes_described_empty_change() {
+fn commit_refuses_clean_tree_keeps_the_pending_description() {
     let fx = Fixture::new();
     fx.set_config("user.name", "Test User");
     fx.set_config("user.email", "test@user.test");
@@ -1307,40 +1307,39 @@ fn commit_closes_described_empty_change() {
         .parse()
         .unwrap();
 
-    // Commit without -m should close using the description.
     let out = ff(&fx, &["commit"]);
-    assert!(out.status.success());
-    assert!(stdout(&out).starts_with("closed "));
+    assert_eq!(out.status.code(), Some(1), "a clean tree refuses");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("nothing to close on main"),
+        "stderr names the refusal: {err}"
+    );
+    assert!(
+        err.contains("the pending description stays put"),
+        "stderr reassures the description survives: {err}"
+    );
 
     let after: u32 = fx
         .git(&["rev-list", "--count", "HEAD"])
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(after, before + 1);
+    assert_eq!(after, before, "rev-list count unchanged");
 
-    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "planned work");
-
-    // Empty commit: HEAD tree == HEAD~1 tree.
-    assert_eq!(
-        fx.git(&["rev-parse", "HEAD^{tree}"]).trim(),
-        fx.git(&["rev-parse", "HEAD~1^{tree}"]).trim(),
-        "empty commit — trees match"
-    );
-
-    // Description consumed.
+    // The description is still pending.
     let out = ff(&fx, &["log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
-    assert!(
-        v["data"]["open"]["subject"].is_null(),
-        "subject null after consume"
+    assert_eq!(
+        v["data"]["open"]["subject"].as_str(),
+        Some("planned work"),
+        "subject still pending"
     );
 }
 
-/// `ff commit -m` on a clean tree with no pending description still lands an
-/// empty commit using the flag message.
+/// `ff commit -m` on a clean tree with no pending description refuses: the
+/// flag message is discarded with the refusal, and nothing is written.
 #[test]
-fn commit_clean_with_message_flag_lands_empty() {
+fn commit_refuses_clean_tree_with_message_flag() {
     let fx = Fixture::new();
     fx.set_config("user.name", "Test User");
     fx.set_config("user.email", "test@user.test");
@@ -1354,26 +1353,27 @@ fn commit_clean_with_message_flag_lands_empty() {
         .unwrap();
 
     let out = ff(&fx, &["commit", "-m", "checkpoint"]);
-    assert!(out.status.success());
+    assert_eq!(out.status.code(), Some(1), "a clean tree refuses");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("nothing to close on main"),
+        "stderr names the refusal: {err}"
+    );
+    assert!(
+        !err.contains("the pending description stays put"),
+        "no pending description, so no reassurance clause: {err}"
+    );
 
     let after: u32 = fx
         .git(&["rev-list", "--count", "HEAD"])
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(after, before + 1);
-
-    assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "checkpoint");
-
-    assert_eq!(
-        fx.git(&["rev-parse", "HEAD^{tree}"]).trim(),
-        fx.git(&["rev-parse", "HEAD~1^{tree}"]).trim(),
-        "empty commit — trees match"
-    );
+    assert_eq!(after, before, "rev-list count unchanged");
 }
 
-/// `ff commit` on a clean tree with no description is a no-op: exit 0,
-/// informative stdout, rev-list count unchanged.
+/// `ff commit` on a clean tree with no description refuses: exit 1,
+/// stderr naming the refusal, rev-list count unchanged.
 #[test]
 fn commit_totally_empty_refuses() {
     let fx = Fixture::new();
@@ -1389,11 +1389,11 @@ fn commit_totally_empty_refuses() {
         .unwrap();
 
     let out = ff(&fx, &["commit"]);
-    assert!(out.status.success(), "exit 0 — not an error");
+    assert_eq!(out.status.code(), Some(1), "exit 1 — the refusal");
+    let err = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stdout(&out).contains("nothing to close on main"),
-        "refusal message: {:?}",
-        stdout(&out)
+        err.contains("nothing to close on main"),
+        "refusal message: {err}"
     );
 
     let after: u32 = fx

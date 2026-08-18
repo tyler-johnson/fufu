@@ -27,7 +27,14 @@ pub enum Verdict {
     /// The branch is an ancestor of the base: no replay, just a pointer move.
     FastForward { behind: usize },
     /// Every commit replays without conflict.
-    Clean { replayed: usize },
+    Clean {
+        replayed: usize,
+        /// Commits the replay would drop as empty; `replayed` does not
+        /// include them. Defaulted so a cache file written before the field
+        /// existed still deserializes.
+        #[serde(default)]
+        dropped: usize,
+    },
     /// The replay stops here.
     Conflict { at: At, paths: Vec<String> },
     /// Honest silence — a wrong verdict is worse than none.
@@ -230,6 +237,7 @@ pub fn probe_to_depth(
 
     let mut cursor = tree_of(repo, onto)?;
     let mut replayed = 0usize;
+    let mut dropped = 0usize;
 
     for id in &range {
         let commit = memory.find_object(*id).map_err(Error::repo)?.into_commit();
@@ -258,8 +266,16 @@ pub fn probe_to_depth(
                 paths,
             });
         }
-        cursor = outcome.tree.write().map_err(Error::repo)?.detach();
-        replayed += 1;
+        let merged = outcome.tree.write().map_err(Error::repo)?.detach();
+        // A replay that adds nothing over the cursor is a commit the writing
+        // half would not write at all: it introduces nothing, so it counts as
+        // dropped, not replayed.
+        if merged == cursor {
+            dropped += 1;
+        } else {
+            replayed += 1;
+        }
+        cursor = merged;
     }
 
     // The open change: one more step, so the verdict covers reapplying work
@@ -281,7 +297,7 @@ pub fn probe_to_depth(
         }
     }
 
-    Ok(Verdict::Clean { replayed })
+    Ok(Verdict::Clean { replayed, dropped })
 }
 
 /// The tree the operation log last stated for `branch` — the open change as
@@ -301,6 +317,15 @@ pub fn open_tree(repo: &gix::Repository, branch: &str) -> Result<Option<gix::Obj
 /// Which branch `branch` should be measured against. `None` when fufu cannot
 /// honestly name one.
 pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>> {
+    // An editing session sits below the branch it will land on by
+    // construction: "behind, fast-forwards" is a permanent condition of
+    // being a session, the way being ahead is one — sync never merges the
+    // branch into its base, so the pending state is the branch's condition,
+    // not work to do. The axis is silenced, not answered.
+    if crate::branchmeta::read(repo, branch)?.session.is_some() {
+        return Ok(None);
+    }
+
     // 1. An explicitly recorded parent, when it still resolves.
     let meta = crate::branchmeta::read(repo, branch)?;
     if let Some(parent) = meta.parent.filter(|p| p != branch) {

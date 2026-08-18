@@ -280,10 +280,13 @@ pub fn absorb(
         repo,
         target,
         tip,
-        &rewrite::Change::Tree(new_target_tree),
+        &rewrite::Change::Tree {
+            tree: new_target_tree,
+            message: None,
+        },
         now,
     )?;
-    let published = rewrite::published_count(repo, &branch, &plan.rewrites)?;
+    let published = rewrite::published_count(repo, &branch, &plan)?;
 
     // Write-ahead: the planned table is the post-absorb world. HEAD does not
     // move — it stays symbolic on the same branch.
@@ -374,20 +377,28 @@ pub fn absorb(
         })
         .collect();
 
-    let new_target = plan
-        .rewrites
-        .iter()
-        .find(|r| r.old == target.to_string())
-        .map(|r| r.new.clone())
-        .ok_or_else(|| Error::msg("the target was not in the rewrite plan"))?;
+    // The target's new identity — or the fact that the rewrite dropped it.
+    // Absent from `rewrites` legitimately only when the plan names it in
+    // `dropped`; anywhere else it is an ordering bug, not a drop.
+    let new_target = match plan.rewrites.iter().find(|r| r.old == target.to_string()) {
+        Some(r) => Some(r.new.clone()),
+        None if plan.dropped.iter().any(|d| d.old == target.to_string()) => None,
+        None => return Err(Error::msg("the target was not in the rewrite plan")),
+    };
 
     Ok((
         AbsorbOutcome::Absorbed(AbsorbReport {
             branch,
             into: target.to_string(),
+            // The target is in `rewrites` exactly when it survived, so it is
+            // subtracted from the restack exactly when it is there. Read
+            // before `new_target` is moved into `new`.
+            restacked: plan
+                .rewrites
+                .len()
+                .saturating_sub(usize::from(new_target.is_some())),
             new: new_target,
             subject: target_subject,
-            restacked: plan.rewrites.len().saturating_sub(1),
             moved,
             published,
             paths,
@@ -396,6 +407,7 @@ pub fn absorb(
             // while the exact tree kept it, and comparing the capped tree
             // would report work still open when there is none.
             still_open: open_tree != tree_of(repo, plan.new_tip)?,
+            dropped: plan.dropped.clone(),
         }),
         ctx,
     ))
@@ -454,8 +466,17 @@ pub fn lift(
         ));
     }
 
-    let plan = rewrite::plan(repo, target, tip, &rewrite::Change::Tree(lifted), now)?;
-    let published = rewrite::published_count(repo, &branch, &plan.rewrites)?;
+    let plan = rewrite::plan(
+        repo,
+        target,
+        tip,
+        &rewrite::Change::Tree {
+            tree: lifted,
+            message: None,
+        },
+        now,
+    )?;
+    let published = rewrite::published_count(repo, &branch, &plan)?;
 
     // Write-ahead: the planned table is the post-lift world. HEAD does not
     // move — it stays symbolic on the same branch.
@@ -546,24 +567,32 @@ pub fn lift(
         })
         .collect();
 
-    let new_target = plan
-        .rewrites
-        .iter()
-        .find(|r| r.old == target.to_string())
-        .map(|r| r.new.clone())
-        .ok_or_else(|| Error::msg("the target was not in the rewrite plan"))?;
+    // The target's new identity — or the fact that the rewrite dropped it.
+    // Absent from `rewrites` legitimately only when the plan names it in
+    // `dropped`; anywhere else it is an ordering bug, not a drop.
+    let new_target = match plan.rewrites.iter().find(|r| r.old == target.to_string()) {
+        Some(r) => Some(r.new.clone()),
+        None if plan.dropped.iter().any(|d| d.old == target.to_string()) => None,
+        None => return Err(Error::msg("the target was not in the rewrite plan")),
+    };
 
     Ok((
         LiftOutcome::Lifted(LiftReport {
             branch,
             from: target.to_string(),
+            // The target is in `rewrites` exactly when it survived, so it is
+            // subtracted from the restack exactly when it is there. Read
+            // before `new_target` is moved into `new`.
+            restacked: plan
+                .rewrites
+                .len()
+                .saturating_sub(usize::from(new_target.is_some())),
             new: new_target,
             subject: subject(repo, target)?,
-            restacked: plan.rewrites.len().saturating_sub(1),
             moved,
             published,
             paths,
-            emptied: lifted == parent_tree,
+            dropped: plan.dropped.clone(),
         }),
         ctx,
     ))
