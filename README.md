@@ -81,9 +81,12 @@ $ ff sync                         # line up with base and remote — rebases in 
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 1 commit(s) onto main
-pushed feat to origin/feat
-the push left the machine — ff undo cannot reach it
+1 commit(s) to publish — ff publish
 undo: ff undo
+
+$ ff publish                      # the one thing fufu can't undo, so it's the one you type
+published feat to origin/feat
+the push left the machine — ff undo cannot reach it
 ```
 
 ### Undo anything

@@ -477,7 +477,7 @@ fn sync_without_the_network_never_spawns() {
 
     // No remote configured at all: a fetch would have nowhere to aim.
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-fetch", "--no-push"]);
+    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-fetch"]);
     assert!(
         out.status.success(),
         "sync without the network failed under trap PATH: {}",
@@ -490,10 +490,11 @@ fn sync_without_the_network_never_spawns() {
     );
 }
 
-/// Sync's fetch and push are sanctioned spawns, the mirror of
-/// hook_exec_is_a_sanctioned_spawn_and_distinguished: what makes them
-/// sanctioned rather than a leak is that they are named — the trap proves the
-/// only process fufu started was the one the verb exists to start.
+/// Sync's fetch is a sanctioned spawn, the mirror of
+/// hook_exec_is_a_sanctioned_spawn_and_distinguished: what makes it
+/// sanctioned rather than a leak is that it is named — the trap proves the
+/// only process fufu started was the one the verb exists to start. Publish's
+/// push is the other one, and it is now a different verb entirely.
 #[test]
 fn syncs_fetch_is_a_named_sanctioned_spawn() {
     let fx = Fixture::new();
@@ -517,7 +518,7 @@ fn syncs_fetch_is_a_named_sanctioned_spawn() {
 
     let trap = build_trap();
     // The fake git logs its argv and exits 1, so the fetch cannot run.
-    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-push"]);
+    let out = ff_trapped(&trap, &fx.path(), &["sync"]);
     assert!(
         !out.status.success(),
         "a fetch that could not run is not a sync that succeeded: {}",
@@ -532,4 +533,33 @@ fn syncs_fetch_is_a_named_sanctioned_spawn() {
     // One named call, and no second process hiding behind it.
     let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(lines.len(), 1, "nothing besides fetch origin: {logged:?}");
+}
+
+/// Publish's push is the other sanctioned spawn, and the only one it has:
+/// the verb decides its whole plan from refs and then makes exactly one call.
+#[test]
+fn publishs_push_is_its_one_sanctioned_spawn() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["publish"]);
+    assert!(
+        !out.status.success(),
+        "a push that could not run is not a publish that succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trap.log.exists(), "the sanctioned push spawned git");
+    let logged = std::fs::read_to_string(&trap.log).unwrap();
+    assert!(
+        logged.contains("push"),
+        "the sanctioned spawn is the named call: {logged:?}"
+    );
+    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
 }

@@ -1,7 +1,7 @@
 //! `ff sync` — line this branch up with the base beneath it and the remote
-//! copy of itself, and publish. `ff restack` is one of its two axes; the
-//! other is the network, which this command owns and hands to the core as a
-//! number.
+//! copy of itself. Nothing leaves the machine: sending is `ff publish`.
+//! `ff restack` is one of its two axes; the other is the network, which this
+//! command owns and hands to the core as a number.
 //!
 //! The three steps run in order: read the tracking ref as it stands, fetch,
 //! read it again. The reason for reading it twice is the divergence rule —
@@ -10,24 +10,17 @@
 //! if the operation log accounts for every commit of it; anything it does
 //! not recognize replays too.
 
-use ff_core::{BaseAxis, Publish, RemoteAxis, RestackOutcome, RestackReport, Result};
+use ff_core::{BaseAxis, RemoteAxis, RestackOutcome, RestackReport, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
-    let push = if no_push {
-        Some(false)
-    } else if push {
-        Some(true)
-    } else {
-        None
-    };
 
     // The tracking ref as it stands before anything reaches the network.
-    let before = ff_core::sync::preflight(&repo)?;
+    let before = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync)?;
 
     let cwd = repo
         .workdir()
@@ -50,14 +43,13 @@ pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
 
     // And again afterwards. Re-running preflight is the honest way to read the
     // same ref twice: one function, one definition, two moments.
-    let after = ff_core::sync::preflight(&repo)?;
+    let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync)?;
     let tracking_after = after.tracking.as_ref().and_then(|t| t.tip);
 
     let (report, verb_ctx) = ff_core::sync::sync(
         &repo,
         &before,
         ff_core::sync::SyncOptions {
-            push,
             fetched,
             tracking_after,
             now: None,
@@ -67,18 +59,8 @@ pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
     )?;
     crate::render::reconcile_notice(&verb_ctx.reconcile);
 
-    // The push, before any report line about it: the report says what
-    // happened and not what was planned.
-    let pushed = match &report.publish {
-        ff_core::Publish::Create { .. } | ff_core::Publish::Push { .. } => {
-            crate::net::push(&cwd, &report.branch, &report.publish)?;
-            true
-        }
-        _ => false,
-    };
-
-    // A hold on either axis, or a blocked publish, means a human decision is
-    // required before anything more moves — which is exactly what exit 3 says.
+    // A hold on either axis means a human decision is required before
+    // anything more moves — which is exactly what exit 3 says.
     let blocked = matches!(
         report.remote,
         RemoteAxis::Ran {
@@ -91,12 +73,11 @@ pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
             outcome: RestackOutcome::Held(_),
             ..
         }
-    ) || matches!(report.publish, Publish::Blocked);
+    );
 
     if ctx.json {
         let payload = serde_json::json!({
             "sync": report,
-            "pushed": pushed,
             "undo": "ff undo",
         });
         crate::machine::emit("sync", &payload)?;
@@ -222,87 +203,18 @@ pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
         said = true;
     }
 
-    match &report.publish {
-        // A declined push is disclosed exactly when a push would have sent
-        // something. Unpushed commits are precisely what sync exists to
-        // send, so keeping them deliberately is news; a run with nothing to
-        // send says "nothing to sync" instead — the same single clean phrase
-        // ff status uses for that state — rather than pairing it with an
-        // aside about a publish that had nothing to do anyway.
-        Publish::Off { pending: true } => {
-            println!("{}", crate::render::paint_dim("not pushed", colored));
-            said = true;
-        }
-        Publish::Off { pending: false } => {}
-        Publish::Blocked => {
-            println!(
-                "{}",
-                crate::render::paint_warn(
-                    &format!(
-                        "not pushed: a rewrite is held on {} — the exit stays blocked until it lands",
-                        report.branch
-                    ),
-                    colored
-                )
-            );
-            said = true;
-        }
-        Publish::Gone => {
-            println!(
-                "{}",
-                crate::render::paint_warn(
-                    "not pushed: the remote copy is gone — ff sync --push re-creates it",
-                    colored
-                )
-            );
-            said = true;
-        }
-        Publish::UpToDate => {}
-        Publish::Create {
-            remote,
-            remote_branch,
-            ..
-        } => {
-            println!(
-                "{}",
-                crate::render::paint_ok(
-                    &format!(
-                        "created {remote}/{remote_branch} and set {} to track it",
-                        report.branch
-                    ),
-                    colored
-                )
-            );
-            println!(
-                "{}",
-                crate::render::paint_dim(
-                    "the push left the machine — ff undo cannot reach it",
-                    colored
-                )
-            );
-            said = true;
-        }
-        Publish::Push {
-            remote,
-            remote_branch,
-            ..
-        } => {
-            println!(
-                "{}",
-                crate::render::paint_ok(
-                    &format!("pushed {} to {remote}/{remote_branch}", report.branch),
-                    colored
-                )
-            );
-            println!(
-                "{}",
-                crate::render::paint_dim(
-                    "the push left the machine — ff undo cannot reach it",
-                    colored
-                )
-            );
-            said = true;
-        }
+    // The other half, named but not done. A branch that just lined up and
+    // still holds commits its shared copy does not is exactly when pointing
+    // at `ff publish` is useful — and pointing is all sync does, because
+    // sending is the one thing here that could not be undone.
+    let waiting = match report.pending {
+        ff_core::Pending::NoRemote | ff_core::Pending::Ahead(0) => None,
+        ff_core::Pending::Unpublished => Some("not published yet — ff publish".to_string()),
+        ff_core::Pending::Ahead(n) => Some(format!("{n} commit(s) to publish — ff publish")),
+    };
+    if let Some(line) = waiting {
+        println!("{}", crate::render::paint_dim(&line, colored));
+        said = true;
     }
 
     if !reports.is_empty() {

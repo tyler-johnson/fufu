@@ -231,19 +231,17 @@ pub enum Command {
         onto: Option<String>,
     },
     // agent notice quotes this: `ff sync`
-    /// Line this branch up with its base and its remote, and publish
+    /// Line this branch up with its base and its remote
     #[command(long_about = help::SYNC, after_long_help = help::SYNC_EXAMPLES)]
     Sync {
-        /// Publish once it lines up, whatever fufu.pushOnSync says
-        #[arg(long, conflicts_with = "no_push")]
-        push: bool,
-        /// Do not publish, whatever fufu.pushOnSync says
-        #[arg(long)]
-        no_push: bool,
         /// Skip the fetch: reconcile with what you already have
         #[arg(long)]
         no_fetch: bool,
     },
+    // agent notice quotes this: `ff publish`
+    /// Send this branch to its remote, under a lease
+    #[command(long_about = help::PUBLISH, after_long_help = help::PUBLISH_EXAMPLES)]
+    Publish,
     /// Open an editing session on a commit: go there, edit it, come back
     #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
     Edit {
@@ -344,9 +342,15 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// No `ff pull`: `ff sync` is the whole of lining up, `ff git pull` still runs git's
+    /// No `ff pull`: `ff sync` takes in, `ff git pull` still runs git's
     #[command(hide = true)]
     Pull {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff push`: `ff publish` sends this branch, under a lease
+    #[command(hide = true)]
+    Push {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -533,6 +537,7 @@ impl Command {
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
             Command::Sync { .. } => "sync",
+            Command::Publish => "publish",
             Command::Edit { .. } => "edit",
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
@@ -549,6 +554,7 @@ impl Command {
             Command::Diff { .. } => "diff",
             Command::Stash { .. } => "stash",
             Command::Pull { .. } => "pull",
+            Command::Push { .. } => "push",
             Command::Rebase { .. } => "rebase",
         }
     }
@@ -599,7 +605,9 @@ impl Command {
             | Command::Checkout { .. }
             | Command::Diff { .. }
             | Command::Stash { .. }
+            | Command::Publish
             | Command::Pull { .. }
+            | Command::Push { .. }
             | Command::Rebase { .. } => None,
         }
     }

@@ -1,7 +1,8 @@
-//! `ff sync`, end to end against the real `ff` binary. Every test is
-//! offline — `--no-fetch --no-push` on a repository with no remote — so none
-//! reaches the network. Covers the base-axis replay, the JSON envelope, the
-//! nothing-to-sync state, and `ff pull` now pointing at the verb.
+//! `ff sync` and `ff publish`, end to end against the real `ff` binary.
+//! Every test is offline — `--no-fetch` on a repository with no remote — so
+//! none reaches the network. Covers the base-axis replay, the JSON
+//! envelopes, the nothing-to-sync state, publish with nowhere to send, and
+//! the two git words that now point at the pair.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -85,7 +86,7 @@ fn sync_replays_onto_a_moved_base() {
     moved_base(&fx);
 
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
-    let output = ff(&fx, &["sync", "--no-fetch", "--no-push"]);
+    let output = ff(&fx, &["sync", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("main moved ahead by 2 commit(s)"), "{text}");
@@ -100,14 +101,17 @@ fn the_json_envelope_carries_the_report() {
     let fx = repo();
     moved_base(&fx);
 
-    let output = ff(&fx, &["--json", "sync", "--no-fetch", "--no-push"]);
+    let output = ff(&fx, &["--json", "sync", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
     assert_eq!(v["cmd"], "sync");
     assert_eq!(v["data"]["sync"]["branch"], "feature");
     assert!(v["data"]["sync"].get("remote").is_some());
     assert!(v["data"]["sync"].get("base").is_some());
-    assert_eq!(v["data"]["pushed"], false);
+    // Sync sends nothing, so the envelope carries no `pushed` at all — the
+    // count of what is left for publish is what replaced it.
+    assert!(v["data"].get("pushed").is_none());
+    assert!(v["data"]["sync"].get("pending").is_some());
 }
 
 #[test]
@@ -116,7 +120,7 @@ fn nothing_to_sync_says_so() {
     fx.write("root.txt", "root\n");
     fx.commit("root");
 
-    let output = ff(&fx, &["sync", "--no-fetch", "--no-push"]);
+    let output = ff(&fx, &["sync", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("nothing to sync"), "{text}");
@@ -130,4 +134,67 @@ fn ff_pull_now_points_at_sync() {
     assert_eq!(output.status.code(), Some(2), "{}", out(&output));
     let said = stderr(&output);
     assert!(said.contains("ff sync"), "{said}");
+}
+
+/// The word fufu deliberately does not have, now that the outgoing half is
+/// its own verb: `ff push` is a question, and `ff publish` is the answer.
+#[test]
+fn ff_push_now_points_at_publish() {
+    let fx = repo();
+
+    let output = ff(&fx, &["push"]);
+    assert_eq!(output.status.code(), Some(2), "{}", out(&output));
+    let said = stderr(&output);
+    assert!(said.contains("ff publish"), "{said}");
+    assert!(
+        said.contains("lease"),
+        "the reason it is not git's push: {said}"
+    );
+}
+
+#[test]
+fn publish_with_no_remote_says_so_and_sends_nothing() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+
+    let output = ff(&fx, &["publish"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(stdout(&output).contains("no remote"), "{}", stdout(&output));
+}
+
+#[test]
+fn the_publish_json_envelope_carries_its_own_report() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+
+    let output = ff(&fx, &["--json", "publish"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "publish");
+    assert_eq!(v["data"]["publish"]["branch"], "main");
+    assert_eq!(v["data"]["pushed"], false);
+}
+
+/// Sync names the other half rather than doing it: a branch that just lined
+/// up and still has commits its shared copy lacks says so, and says which
+/// verb sends them.
+#[test]
+fn sync_points_at_publish_when_something_is_waiting() {
+    let fx = repo();
+    moved_base(&fx);
+    // Give feature a shared copy that is one commit behind it.
+    let base = fx.git(&["rev-parse", "feature~1"]).trim().to_string();
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &base]);
+    fx.set_config("branch.feature.remote", "origin");
+    fx.set_config("branch.feature.merge", "refs/heads/feature");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let output = ff(&fx, &["sync", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("to publish"), "{text}");
+    assert!(text.contains("ff publish"), "{text}");
 }

@@ -25,7 +25,7 @@ fn run(cwd: &std::path::Path, args: &[&str]) -> Result<Run> {
             Error::coded(
                 "sync/no-git",
                 "git is not on PATH, and fufu still spawns it to fetch and push",
-                vec!["ff sync --no-fetch --no-push".into()],
+                vec!["ff sync --no-fetch".into()],
             )
         })?;
     Ok(Run {
@@ -103,28 +103,28 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
     }
     if run.code == 128 {
         return Err(Error::coded(
-            "sync/unreachable",
+            "publish/unreachable",
             format!(
                 "could not reach {remote}: {}",
                 first_useful_line(&run.stderr)
             ),
-            vec![format!("ff git push {remote}"), "ff sync --no-push".into()],
+            vec![format!("ff git push {remote}"), "ff status".into()],
         ));
     }
     if run.stderr.contains("stale info") {
         return Err(Error::coded(
-            "sync/lease-refused",
+            "publish/lease-refused",
             format!(
-                "{remote}/{remote_branch} moved since this sync fetched, so nothing \
-                 was pushed — your commits are still here, and the next sync will \
-                 take in what arrived"
+                "{remote}/{remote_branch} moved since you last looked, so nothing \
+                 was pushed — your commits are still here, and ff sync takes in \
+                 what arrived"
             ),
-            vec!["ff sync".into(), "ff status".into()],
+            vec!["ff sync".into(), "ff publish".into()],
         ));
     }
     if run.stderr.contains("[remote rejected]") {
         return Err(Error::coded(
-            "sync/rejected",
+            "publish/rejected",
             format!(
                 "{remote} refused the push: {}",
                 first_useful_line(&run.stderr)
@@ -133,12 +133,12 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
         ));
     }
     Err(Error::coded(
-        "sync/push-failed",
+        "publish/failed",
         format!(
             "git push to {remote} failed: {}",
             first_useful_line(&run.stderr)
         ),
-        vec![format!("ff git push {remote}"), "ff sync --no-push".into()],
+        vec![format!("ff git push {remote}"), "ff status".into()],
     ))
 }
 
@@ -265,7 +265,7 @@ mod tests {
             },
         );
         let err = res.unwrap_err();
-        assert_eq!(err.id(), "sync/lease-refused");
+        assert_eq!(err.id(), "publish/lease-refused");
         assert_eq!(
             git(&clone1, &["rev-parse", "refs/remotes/origin/main"]),
             stale
@@ -288,7 +288,7 @@ mod tests {
                 tip: git(&clone, &["rev-parse", "HEAD"]),
             },
         );
-        assert_eq!(res.unwrap_err().id(), "sync/unreachable");
+        assert_eq!(res.unwrap_err().id(), "publish/unreachable");
         let res = fetch(&clone, "origin");
         assert_eq!(res.unwrap_err().id(), "sync/fetch-failed");
     }
@@ -321,12 +321,7 @@ mod tests {
         let dead = tmp.path().join("nope.git");
         let dead_s = dead.to_string_lossy().into_owned();
         git(&clone, &["remote", "set-url", "origin", &dead_s]);
-        for plan in [
-            Publish::Off { pending: false },
-            Publish::Blocked,
-            Publish::Gone,
-            Publish::UpToDate,
-        ] {
+        for plan in [Publish::NoRemote, Publish::Blocked, Publish::UpToDate] {
             assert!(push(&clone, "main", &plan).is_ok());
         }
     }

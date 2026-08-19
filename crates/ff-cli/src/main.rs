@@ -139,11 +139,8 @@ fn main() {
         Some(cli::Command::Absorb { into, paths }) => cmd::absorb::run(&ctx, into, paths),
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
-        Some(cli::Command::Sync {
-            push,
-            no_push,
-            no_fetch,
-        }) => cmd::sync::run(&ctx, push, no_push, no_fetch),
+        Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
+        Some(cli::Command::Publish) => cmd::publish::run(&ctx),
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
         Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
@@ -162,6 +159,7 @@ fn main() {
         Some(cli::Command::Diff { args }) => cmd::foreign::diff(&args),
         Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),
         Some(cli::Command::Pull { args }) => cmd::foreign::pull(&args),
+        Some(cli::Command::Push { args }) => cmd::foreign::push(&args),
         Some(cli::Command::Rebase { args }) => cmd::foreign::rebase(&args),
     };
 

@@ -1,10 +1,10 @@
-//! Contract for `sync::preflight` and `sync::sync`: the two axes, the
+//! Contract for `sync::sync`: the two axes, the
 //! divergence rule, and the exit — with the fetch's before/after tips
 //! handed in as parameters and the network reached zero times.
 
 use ff_core::gix;
 use ff_core::sync::SyncOptions;
-use ff_core::{BaseAxis, Provenance, Publish, RemoteAxis, RestackOutcome, SyncReport};
+use ff_core::{BaseAxis, Provenance, RemoteAxis, RestackOutcome, SyncReport};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -23,8 +23,7 @@ fn prov() -> Provenance {
 
 fn sync_run(
     repo: &gix::Repository,
-    pre: &ff_core::sync::Preflight,
-    push: Option<bool>,
+    pre: &ff_core::preflight::Preflight,
     fetched: bool,
     after: Option<&str>,
 ) -> SyncReport {
@@ -33,7 +32,6 @@ fn sync_run(
         repo,
         pre,
         SyncOptions {
-            push,
             fetched,
             tracking_after: after,
             now: Some(NOW),
@@ -45,10 +43,10 @@ fn sync_run(
     .0
 }
 
-fn sync_call(fx: &Fixture, push: Option<bool>, fetched: bool, after: Option<&str>) -> SyncReport {
+fn sync_call(fx: &Fixture, fetched: bool, after: Option<&str>) -> SyncReport {
     let repo = fx.repo();
-    let pre = ff_core::sync::preflight(&repo).unwrap();
-    sync_run(&repo, &pre, push, fetched, after)
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+    sync_run(&repo, &pre, fetched, after)
 }
 
 /// A ref's tip, for asserting that one did — or did not — move.
@@ -104,11 +102,11 @@ fn diverged(fx: &Fixture) -> String {
 
 /// The preflight → fetch → sync dance: preflight records where the tracking
 /// ref stood before, the fetch moves it, and sync is handed the after tip.
-fn synced_fetch(fx: &Fixture, push: Option<bool>, after: &str) -> SyncReport {
+fn synced_fetch(fx: &Fixture, after: &str) -> SyncReport {
     let repo = fx.repo();
-    let pre = ff_core::sync::preflight(&repo).unwrap();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
     fx.git(&["update-ref", "refs/remotes/origin/feature", after]);
-    sync_run(&repo, &pre, push, true, Some(after))
+    sync_run(&repo, &pre, true, Some(after))
 }
 
 #[test]
@@ -117,7 +115,7 @@ fn a_fetch_that_moved_the_remote_is_theirs_and_replays() {
     ident(&fx);
     let collab = diverged(&fx);
 
-    let report = synced_fetch(&fx, None, &collab);
+    let report = synced_fetch(&fx, &collab);
 
     let r = match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -155,7 +153,7 @@ fn divergence_that_was_already_there_is_yours() {
     .unwrap();
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, None, true, Some(&f1));
+    let report = sync_call(&fx, true, Some(&f1));
 
     let yours = match report.remote {
         RemoteAxis::Yours { ahead, behind, .. } => (ahead, behind),
@@ -183,7 +181,7 @@ fn no_fetch_does_not_make_a_stranger_commit_yours() {
     fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, None, false, Some(&collab));
+    let report = sync_call(&fx, false, Some(&collab));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -216,7 +214,7 @@ fn a_behind_remote_fast_forwards() {
     fx.git(&["switch", "-q", "feature"]);
     track(&fx, &r2);
 
-    let report = sync_call(&fx, None, true, Some(&r2));
+    let report = sync_call(&fx, true, Some(&r2));
 
     let r = match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -243,7 +241,7 @@ fn the_base_axis_is_a_plain_restack() {
     let _m2 = fx.commit("m2");
     fx.git(&["switch", "-q", "feature"]);
 
-    let report = sync_call(&fx, None, false, None);
+    let report = sync_call(&fx, false, None);
 
     match report.remote {
         RemoteAxis::NoRemote => {}
@@ -261,14 +259,15 @@ fn the_base_axis_is_a_plain_restack() {
     };
     assert_eq!(r.base, "main");
     assert_eq!(r.replayed, 1);
-    match report.publish {
-        Publish::Off { .. } => {}
-        other => panic!("nowhere to send it, got {other:?}"),
-    }
+    assert_eq!(
+        report.pending,
+        ff_core::Pending::NoRemote,
+        "no remote to be ahead of"
+    );
 }
 
 #[test]
-fn a_held_remote_axis_skips_the_base_and_blocks_the_exit() {
+fn a_held_remote_axis_skips_the_base() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
@@ -293,7 +292,7 @@ fn a_held_remote_axis_skips_the_base_and_blocks_the_exit() {
     fx.git(&["switch", "-q", "feature"]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = synced_fetch(&fx, None, &collab);
+    let report = synced_fetch(&fx, &collab);
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -306,95 +305,50 @@ fn a_held_remote_axis_skips_the_base_and_blocks_the_exit() {
         BaseAxis::Skipped => {}
         other => panic!("a hold stops the run, got {other:?}"),
     }
-    match report.publish {
-        Publish::Blocked => {}
-        other => panic!("a held rewrite blocks the exit, got {other:?}"),
-    }
     assert_eq!(tip_of(&fx, "refs/heads/feature"), tip_before);
 }
 
+/// Sync sends nothing, so what it has to say about the outgoing half is what
+/// is left of it. Never published, nothing waiting, and something waiting are
+/// three different answers, and the tail line depends on which.
 #[test]
-fn a_branch_with_no_upstream_is_created_and_tracked() {
+fn sync_counts_what_is_left_for_publish() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
     let _c0 = fx.commit("root");
     fx.git(&["switch", "-q", "-c", "feature"]);
     fx.write("f.txt", "f\n");
-    let _f1 = fx.commit("f1");
+    let f1 = fx.commit("f1");
+    track(&fx, &f1);
+
+    // Before there is a shared copy at all: not a count, a state.
     fx.set_config("remote.origin.url", "/nonexistent/remote.git");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    let fresh = sync_call(&fx, true, None);
+    assert_eq!(
+        fresh.pending,
+        ff_core::Pending::Unpublished,
+        "a branch with no shared copy has everything to publish"
+    );
 
-    let report = sync_call(&fx, None, true, None);
+    let level = sync_call(&fx, true, Some(&f1));
+    assert_eq!(
+        level.pending,
+        ff_core::Pending::Ahead(0),
+        "the remote holds everything"
+    );
 
-    match report.remote {
-        RemoteAxis::NoRemote => {}
-        other => panic!("no upstream is configured, got {other:?}"),
-    }
-    match report.publish {
-        Publish::Create {
-            remote,
-            remote_branch,
-            ..
-        } => {
-            assert_eq!(remote, "origin");
-            assert_eq!(remote_branch, "feature");
-        }
-        other => panic!("the push creates the remote branch, got {other:?}"),
-    }
-}
-
-#[test]
-fn push_off_and_up_to_date() {
-    let fx = Fixture::new();
-    ident(&fx);
-    fx.write("root.txt", "root\n");
-    let _c0 = fx.commit("root");
-    fx.git(&["switch", "-q", "-c", "feature"]);
-    fx.write("f.txt", "f\n");
-    let f1 = fx.commit("f1");
-    track(&fx, &f1);
-
-    let up_to_date = sync_call(&fx, None, true, Some(&f1));
-    match up_to_date.publish {
-        Publish::UpToDate => {}
-        other => panic!("the remote already holds everything, got {other:?}"),
-    }
-    let off = sync_call(&fx, Some(false), true, Some(&f1));
-    match off.publish {
-        // Off wins over UpToDate — the knob is read before anything is sent —
-        // but it still carries what a push would have done, and here that is
-        // nothing.
-        Publish::Off { pending: false } => {}
-        other => panic!("Off wins over UpToDate, with nothing pending, got {other:?}"),
-    }
-}
-
-/// `--no-push` with commits waiting is not an empty run, and must not read
-/// like one. Unpushed commits are precisely what sync exists to send, so a
-/// run that deliberately kept them has something to say — which is why
-/// `Publish::Off` carries whether a push would have sent anything rather than
-/// collapsing every declined publish into one silent answer.
-#[test]
-fn push_off_with_work_waiting_is_pending() {
-    let fx = Fixture::new();
-    ident(&fx);
-    fx.write("root.txt", "root\n");
-    let _c0 = fx.commit("root");
-    fx.git(&["switch", "-q", "-c", "feature"]);
-    fx.write("f.txt", "f\n");
-    let f1 = fx.commit("f1");
-    track(&fx, &f1);
     // One more commit the remote has never seen.
     fx.write("g.txt", "g\n");
     let f2 = fx.commit("f2");
     assert_ne!(f1, f2);
-
-    let off = sync_call(&fx, Some(false), true, Some(&f1));
-    match off.publish {
-        Publish::Off { pending: true } => {}
-        other => panic!("a commit is waiting for the remote, got {other:?}"),
-    }
+    let ahead = sync_call(&fx, true, Some(&f1));
+    assert_eq!(
+        ahead.pending,
+        ff_core::Pending::Ahead(1),
+        "one commit is waiting for the remote"
+    );
 }
 
 /// Their commit arrived in an earlier fetch, so this run's fetch finds
@@ -411,7 +365,7 @@ fn a_commit_from_an_earlier_fetch_is_replayed_not_overwritten() {
     fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, None, true, Some(&collab));
+    let report = sync_call(&fx, true, Some(&collab));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -462,7 +416,7 @@ fn a_recorded_rewrite_is_still_yours_without_a_fetch() {
     .unwrap();
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, None, false, Some(&f1));
+    let report = sync_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Yours { .. } => {}
@@ -520,7 +474,7 @@ fn a_commit_dropped_as_empty_is_accounted_for() {
         "with the only commit dropped, the branch sits on main's tip"
     );
 
-    let report = sync_call(&fx, None, false, Some(&f1));
+    let report = sync_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Yours { .. } => {}
@@ -549,7 +503,7 @@ fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
     let f2 = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
     assert_ne!(f1, f2, "the amend produced a new sha");
 
-    let report = sync_call(&fx, None, false, Some(&f1));
+    let report = sync_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {

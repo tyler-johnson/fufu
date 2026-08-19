@@ -33,8 +33,7 @@ fn prov() -> Provenance {
 
 fn sync_run(
     repo: &gix::Repository,
-    pre: &ff_core::sync::Preflight,
-    push: Option<bool>,
+    pre: &ff_core::preflight::Preflight,
     fetched: bool,
     after: Option<&str>,
 ) -> SyncReport {
@@ -43,7 +42,6 @@ fn sync_run(
         repo,
         pre,
         SyncOptions {
-            push,
             fetched,
             tracking_after: after,
             now: Some(NOW),
@@ -230,8 +228,8 @@ fn the_base_axis_lands_gits_shas() {
     let _fork = base_shape(&fufu);
     let report = {
         let repo = fufu.repo();
-        let pre = ff_core::sync::preflight(&repo).unwrap();
-        sync_run(&repo, &pre, Some(false), false, None)
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+        sync_run(&repo, &pre, false, None)
     };
 
     let oracle = Fixture::new();
@@ -265,9 +263,9 @@ fn the_remote_axis_lands_gits_shas() {
         // preflight records where the tracking ref stood before; the fetch
         // moves it to the collaborator's divergent tip, which is handed in.
         let repo = fufu.repo();
-        let pre = ff_core::sync::preflight(&repo).unwrap();
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
         fufu.git(&["update-ref", "refs/remotes/origin/feature", &after]);
-        sync_run(&repo, &pre, None, true, Some(&after))
+        sync_run(&repo, &pre, true, Some(&after))
     };
 
     let oracle = Fixture::new();
@@ -305,9 +303,9 @@ fn both_axes_land_gits_two_rebases_in_that_order() {
     let after = both_shape(&fufu);
     let report = {
         let repo = fufu.repo();
-        let pre = ff_core::sync::preflight(&repo).unwrap();
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
         fufu.git(&["update-ref", "refs/remotes/origin/feature", &after]);
-        sync_run(&repo, &pre, None, true, Some(&after))
+        sync_run(&repo, &pre, true, Some(&after))
     };
 
     let oracle = Fixture::new();
@@ -357,7 +355,7 @@ fn a_sync_that_holds_moves_nothing() {
     let after = held_shape(&fx);
 
     let repo = fx.repo();
-    let pre = ff_core::sync::preflight(&repo).unwrap();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
     // The fetch, simulated: the tracking ref moves to the collaborator's tip.
     fx.git(&["update-ref", "refs/remotes/origin/feature", &after]);
 
@@ -372,7 +370,7 @@ fn a_sync_that_holds_moves_nothing() {
     ]);
     let tree_before = worktree_files(&fx);
 
-    let report = sync_run(&repo, &pre, None, true, Some(&after));
+    let report = sync_run(&repo, &pre, true, Some(&after));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {

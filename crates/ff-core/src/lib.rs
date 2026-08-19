@@ -20,6 +20,8 @@ pub mod map;
 pub mod model;
 pub mod ops;
 pub mod petname;
+pub mod preflight;
+pub mod publish;
 mod refs;
 pub mod resolve;
 pub mod restack;

@@ -847,6 +847,29 @@ pub struct SyncReport {
     pub fetched: bool,
     pub remote: RemoteAxis,
     pub base: BaseAxis,
+    /// What `ff publish` would still have to do. Sync does not do it — but
+    /// a branch that just lined up and still has something waiting is
+    /// exactly when naming the other half is useful.
+    pub pending: Pending,
+}
+
+/// What the outgoing half has left, as sync sees it. Three states rather
+/// than a count, because "never published" is not zero commits waiting: it
+/// is the case with the most to send and no shared copy to measure against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Pending {
+    /// Nowhere to send it: the repository has no remote.
+    NoRemote,
+    /// A remote, but no shared copy of this branch yet. Publishing creates it.
+    Unpublished,
+    /// Commits the shared copy does not have. Zero is a real answer.
+    Ahead(usize),
+}
+
+/// What `ff publish` reports: one branch, one exit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PublishReport {
+    pub branch: String,
     pub publish: Publish,
 }
 
@@ -889,22 +912,14 @@ pub enum BaseAxis {
     },
 }
 
-/// The exit: whether the branch leaves the machine, and under what.
+/// What `ff publish` did with the branch, or why it did nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Publish {
-    /// `--no-push`, `fufu.pushOnSync=false`, or nowhere to send it.
-    ///
-    /// `pending` says whether a push would have sent anything, and it is what
-    /// keeps a declined publish from reading as an empty run: unpushed
-    /// commits are precisely what sync exists to send, so a run that
-    /// deliberately kept them says so.
-    Off { pending: bool },
+    /// There is no remote at all, so there is nowhere to send anything.
+    NoRemote,
     /// A rewrite is held on this branch. This is the exits-blocked
-    /// discipline, and the one thing sync refuses rather than reports.
+    /// discipline, and the one thing publish refuses rather than reports.
     Blocked,
-    /// The shared copy is gone. Re-creating a branch somebody deleted is a
-    /// decision, not a default; `--push` is how you say it out loud.
-    Gone,
     /// The remote already holds everything this branch does.
     UpToDate,
     /// No upstream: the push creates the remote branch and starts tracking it.
@@ -913,9 +928,11 @@ pub enum Publish {
         remote_branch: String,
         tip: String,
     },
-    /// Send it, under a lease whose expected value is exactly the tip the
-    /// fetch left behind — the same fact the divergence rule is built from,
-    /// spelled once and used twice.
+    /// Send it, under a lease whose expected value is the tracking ref as it
+    /// stands — "what I last saw", which is precisely what publish knows
+    /// without going to the network itself. An empty lease is git's own
+    /// spelling for *must not exist*, and re-creates a shared copy somebody
+    /// deleted.
     Push {
         remote: String,
         remote_branch: String,

@@ -146,17 +146,6 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "caps the walk, not the rows. Suffixes work: 2k.",
             ],
         },
-        Setting {
-            name: "pushOnSync",
-            key: "fufu.pushOnSync",
-            def: "true",
-            kind: SettingKind::Bool,
-            desc: &[
-                "Whether ff sync publishes the branch once it lines up. false keeps every",
-                "sync local; --push and --no-push override it per call. What the knob never",
-                "buys is passage: a held rewrite blocks the push whichever way it is set.",
-            ],
-        },
     ]
 }
 

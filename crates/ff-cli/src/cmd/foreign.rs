@@ -97,14 +97,28 @@ pub fn stash(args: &[OsString]) -> Result<()> {
 
 pub fn pull(args: &[OsString]) -> Result<()> {
     refuse(
-        "there is no ff pull: pulling is half of lining up and ff sync does the whole of it — \
-         fetch, take in what arrived, replay onto your base, and publish under a lease rather \
-         than forcing over anything that moved since it looked"
+        "there is no ff pull: ff sync is the incoming half done properly — fetch, take in what \
+         arrived, replay onto your base — with no merge-versus-rebase question to get wrong. \
+         Sending is ff publish, and it is a separate verb on purpose"
             .into(),
         vec![
             "ff sync".into(),
-            "ff sync --no-push".into(),
+            "ff publish".into(),
             passthrough("pull", args),
+        ],
+    )
+}
+
+pub fn push(args: &[OsString]) -> Result<()> {
+    refuse(
+        "there is no ff push: ff publish sends this branch under a lease, so it refuses rather \
+         than overwrites when the shared copy moved since you last looked. It is the outgoing \
+         half of lining up, and ff sync is the incoming one"
+            .into(),
+        vec![
+            "ff publish".into(),
+            "ff sync".into(),
+            passthrough("push", args),
         ],
     )
 }

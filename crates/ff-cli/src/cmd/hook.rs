@@ -43,7 +43,7 @@ Use `ff`, not `git`, for anything that writes:
 - go back in time: `ff restore --all --at 2h`, or `ff op log --captures` for ids then \
 `ff restore <path> --at-op <id>`
 - fold a fix into an earlier commit: `ff absorb --into <rev>`
-- rebase onto base and publish: `ff sync`
+- take in base and remote: `ff sync` · send it out: `ff publish`
 - anything else git does: `ff git <args…>` — snapshots, then runs git verbatim
 
 Reading with git is fine. `ff status` and `ff log` say more than their git \

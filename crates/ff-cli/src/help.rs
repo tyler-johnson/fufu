@@ -337,29 +337,57 @@ Examples:
 pub const SYNC: &str = "\
 Line this branch up with both things it answers to: the base beneath it and
 the remote copy of itself. Fetch, take in whatever arrived, replay onto the
-base, publish. One verb, because reconciling with either is the same replay,
-and publishing is the outgoing half of lining up rather than a separate act.
+base. One verb for both, because reconciling with either is the same replay.
+
+Nothing leaves the machine. Everything sync does is recorded and undoable,
+which is the whole reason it stops here — `ff publish` is the outgoing half,
+and it is a verb you type on purpose because a push cannot be taken back.
+Sync names what is waiting and leaves it.
 
 Whose divergence it is decides what happens. Divergence this run's fetch
 created is somebody else's, and your commits replay on top of theirs.
 Divergence that was already there is yours only if fufu's own operation log
 accounts for every commit of it — as a rewrite it recorded, or as one it
-dropped as empty — and then it publishes under a lease. Commits the log does
-not recognize are somebody else's however they arrived, and they replay too.
+dropped as empty — and then there is nothing to take in and ff publish is what
+sends it. Commits the log does not recognize are somebody else's however they
+arrived, and they replay too.
 
 Either replay can conflict. The first one that does stops the run and holds:
-nothing moves, and ff resolve picks it up. A held rewrite blocks the push and
-nothing else.
+nothing moves, and ff resolve picks it up.
 
 Sync acts on the branch you are standing on. ff restack takes the name of one
 you are not, and cascading up a stack is one branch at a time.";
 
 pub const SYNC_EXAMPLES: &str = "\
 Examples:
-  ff sync                        fetch, reconcile with both, publish
-  ff sync --no-push              reconcile only; nothing leaves the machine
+  ff sync                        fetch, reconcile with base and remote
   ff sync --no-fetch             reconcile with what you already have
-  ff sync --push                 publish even when fufu.pushOnSync is false";
+  ff publish                     send it, once it lines up";
+
+pub const PUBLISH: &str = "\
+Send this branch to its remote. The outgoing half of lining up, and the one
+thing fufu does that cannot be undone — which is exactly why it is a verb you
+type rather than a default riding along inside another one. `ff sync` takes
+in; this sends.
+
+The push carries a lease: it goes through only if the shared copy still stands
+where you last saw it. If somebody pushed since, nothing is sent and nothing is
+lost — ff sync takes their work in first, and this sends afterwards. A branch
+with no shared copy yet gets one, tracking set up in the same step. One that
+was deleted is put back, under a lease that says it must not exist.
+
+Publish does not fetch, on purpose. The lease is worth something precisely
+because it means the tip you last looked at; refreshing it first would ask git
+to guard you against a change you accepted without reading.
+
+A held rewrite blocks the exit. Nothing is sent while the branch's commits are
+still about to be rewritten out from under.";
+
+pub const PUBLISH_EXAMPLES: &str = "\
+Examples:
+  ff publish                     send this branch, under a lease
+  ff sync                        take in what arrived, first
+  ff status                      what is waiting to go, before you send it";
 
 pub const EDIT: &str = "\
 Opens an editing session on a commit: a branch is minted at the commit and you

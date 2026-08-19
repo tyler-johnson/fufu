@@ -764,13 +764,13 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "sync/no-git",
-        summary: "git is not on PATH, and sync still needs it to reach the network",
-        detail: "Reads and rewrites are native, but fetch and push are still spawned: that is \
-                 where a repository's credential helpers live, and reimplementing them would be \
-                 a worse answer than borrowing git's. Everything sync does locally works \
-                 without it, so --no-fetch --no-push still reconciles with what you already \
-                 have.",
-        exits: &["ff sync --no-fetch --no-push", "ff doctor"],
+        summary: "git is not on PATH, and reaching the network still needs it",
+        detail: "Reads and rewrites are native, but the fetch behind ff sync and the push \
+                 behind ff publish are still spawned: that is where a repository's credential \
+                 helpers live, and reimplementing them would be a worse answer than borrowing \
+                 git's. Everything sync does locally works without it, so --no-fetch still \
+                 reconciles with what you already have.",
+        exits: &["ff sync --no-fetch", "ff doctor"],
     },
     Entry {
         id: "sync/fetch-failed",
@@ -783,51 +783,52 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff git fetch <remote>", "ff sync --no-fetch"],
     },
     Entry {
-        id: "sync/unreachable",
+        id: "publish/unreachable",
         summary: "the remote never answered",
         detail: "git exited 128, which is how it says it did not get as far as talking to the \
                  other side: a bad URL, a host that will not resolve, or credentials it could \
-                 not supply. Nothing was pushed. This is the one failure sync cannot tell apart \
-                 from a network that is simply down, so it reports what git said rather than \
-                 guessing which one it was.",
-        exits: &["ff git push <remote>", "ff sync --no-push"],
+                 not supply. Nothing was pushed. This is the one failure publish cannot tell \
+                 apart from a network that is simply down, so it reports what git said rather \
+                 than guessing which one it was.",
+        exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
-        id: "sync/lease-refused",
-        summary: "the remote moved after this sync looked at it",
-        detail: "Every push sync sends carries a lease: the tip the fetch left behind, offered \
-                 back to the remote as what it expects to find there. Somebody pushed in \
-                 between, so the remote declined and nothing was overwritten — which is the \
-                 lease working, not failing. Your commits are still here. Sync again: the \
-                 second run fetches what arrived, replays on top of it, and only then offers a \
-                 lease that is current.",
-        exits: &["ff sync", "ff status"],
+        id: "publish/lease-refused",
+        summary: "the remote moved since you last looked at it",
+        detail: "Every push carries a lease: the tracking ref as it stands, offered back to the \
+                 remote as what it expects to find there. Somebody pushed in between, so the \
+                 remote declined and nothing was overwritten — which is the lease working, not \
+                 failing. Your commits are still here. Run ff sync first: it fetches what \
+                 arrived and replays on top of it, and the publish afterwards offers a lease \
+                 that is current.",
+        exits: &["ff sync", "ff publish", "ff status"],
     },
     Entry {
-        id: "sync/rejected",
+        id: "publish/rejected",
         summary: "the remote refused the push",
         detail: "The remote answered and said no — a protected branch, a pre-receive hook, or a \
                  permission you do not have. That is a decision on the far side rather than \
                  anything wrong here, so its message is passed along whole. Nothing local \
-                 changed: the branch is exactly where the reconcile left it.",
+                 changed: publish only ever writes to the other side.",
         exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
-        id: "sync/push-failed",
+        id: "publish/failed",
         summary: "the push did not go through",
-        detail: "git failed in a way sync could not classify as unreachable, leased out, or \
+        detail: "git failed in a way publish could not classify as unreachable, leased out, or \
                  refused, so its own message is passed along unedited. Nothing local changed. \
                  Running the push by hand through the passthrough usually says more, since git \
                  prints a fuller transcript when it owns the terminal.",
-        exits: &["ff git push <remote>", "ff sync --no-push"],
+        exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
         id: "sync/ambiguous-remote",
         summary: "more than one remote, and nothing says which one this branch answers to",
         detail: "With several remotes configured and none of them named origin there is no \
                  honest default, and picking one would decide where your work goes on a coin \
-                 flip. Setting the branch's upstream once settles it for every later sync. A \
-                 repository with one remote, or with one called origin, never reaches this.",
+                 flip. Setting the branch's upstream once settles it for every later sync and \
+                 every publish. A repository with one remote, or with one called origin, never \
+                 reaches this.",
         exits: &[
             "ff git remote -v",
             "ff git branch --set-upstream-to <remote>/<branch>",
