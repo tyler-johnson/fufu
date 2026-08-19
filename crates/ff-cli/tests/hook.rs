@@ -130,6 +130,16 @@ fn prompt_notice_once_per_session_marker_first() {
         notice.contains("ff log") && notice.contains("ff restore"),
         "the notice teaches the agent the verbs: {notice:?}"
     );
+    // The notice is the agent's only spelling lesson: a retired or mistyped
+    // form there teaches it to fail. Guard the two that already went wrong.
+    assert!(
+        !notice.contains("ff -m"),
+        "bare -m is retired; the notice must not teach it: {notice:?}"
+    );
+    assert!(
+        !notice.contains("--at <id>") && notice.contains("--at-op <id>"),
+        "an id goes to --at-op; --at takes a time: {notice:?}"
+    );
     let marker = fx.path().join(".git/fufu/claude-session");
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "session-aaa");
     assert_eq!(

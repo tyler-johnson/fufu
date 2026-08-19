@@ -42,6 +42,12 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+// A `// agent notice quotes this` line marks surface that the once-per-session
+// Claude briefing spells out verbatim (`NOTICE` in cmd/hook.rs). That briefing
+// is the only spelling lesson an agent gets, so a retired verb or a renamed
+// flag there teaches it to fail: change one here and fix it there in the same
+// commit. `grep -rn "agent notice" crates/ff-cli/src` finds every site, both
+// directions.
 #[derive(Subcommand)]
 pub enum Command {
     /// The map bare `ff` draws: the local branches as a skeleton
@@ -54,12 +60,14 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+    // agent notice quotes this: `ff status`
     /// Show the working tree status
     #[command(alias = "st", long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
     Status {
         #[command(flatten)]
         past: Past,
     },
+    // agent notice quotes this: `ff log`
     /// Show the timeline: commits wearing the operations that built them
     #[command(long_about = help::LOG, after_long_help = help::LOG_EXAMPLES)]
     Log {
@@ -87,6 +95,7 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    // agent notice quotes this: `ff git <args…>`
     /// Capture-first git passthrough; daily forms translate to ff verbs
     #[command(
         disable_help_flag = true,
@@ -98,6 +107,7 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    // agent notice quotes this: `ff restore <path>`, `--all --at <time>`, `--at-op <id>`
     /// Restore worktree files from the timeline
     #[command(long_about = help::RESTORE, after_long_help = help::RESTORE_EXAMPLES)]
     Restore {
@@ -123,6 +133,7 @@ pub enum Command {
         #[arg(long)]
         gone: bool,
     },
+    // agent notice quotes this: `ff commit -m`
     /// Close the open change into a commit (the working tree is the change)
     #[command(alias = "ci", long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
     Commit {
@@ -136,6 +147,7 @@ pub enum Command {
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
     },
+    // agent notice quotes this: `ff switch <branch>`
     /// Switch branches; a dirty tree is parked, a parked change resumes
     #[command(alias = "sw", long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
     Switch {
@@ -143,6 +155,7 @@ pub enum Command {
         #[arg(value_name = "branch")]
         target: String,
     },
+    // agent notice quotes this: `ff undo`
     /// Step the whole repository back one run of work
     #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
     Undo,
@@ -155,6 +168,7 @@ pub enum Command {
         #[command(subcommand)]
         action: OpAction,
     },
+    // agent notice quotes this: `ff start`
     /// Begin new work on a fresh branch
     #[command(
         visible_alias = "new",
@@ -185,6 +199,7 @@ pub enum Command {
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
     },
+    // agent notice quotes this: `ff absorb --into <rev>`
     /// Fold working changes into a commit that has already closed
     #[command(long_about = help::ABSORB, after_long_help = help::ABSORB_EXAMPLES)]
     Absorb {
@@ -215,6 +230,7 @@ pub enum Command {
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
     },
+    // agent notice quotes this: `ff sync`
     /// Line this branch up with its base and its remote, and publish
     #[command(long_about = help::SYNC, after_long_help = help::SYNC_EXAMPLES)]
     Sync {
@@ -352,6 +368,7 @@ pub enum Command {
 ///
 /// Two flags rather than one is what holds each to a single kind: an id is
 /// never a date, and a date is never an id.
+// agent notice quotes this: `ff restore --all --at <time>`, `--at-op <id>`
 #[derive(clap::Args, Debug, Default)]
 pub struct Past {
     /// Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
@@ -366,6 +383,7 @@ pub struct Past {
 /// (`"op log"`, not `"op"`), so two shapes never share one name.
 #[derive(Subcommand)]
 pub enum OpAction {
+    // agent notice quotes this: `ff op log --captures`
     /// Every operation, newest first, with the ids these verbs take
     #[command(long_about = help::OP_LOG, after_long_help = help::OP_LOG_EXAMPLES)]
     Log {
