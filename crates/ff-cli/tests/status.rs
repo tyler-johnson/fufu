@@ -245,3 +245,43 @@ fn a_standing_hold_says_the_exit_is_blocked() {
     let blocked = text.find("exits are blocked").expect("the blocked note");
     assert!(held < blocked, "the blocked note follows the hold: {text}");
 }
+
+/// `ff status` is `ff log` cropped to two rows, and a crop must not lose a
+/// column. The parent row's first field is the commit's chain-segment anchor
+/// — the capture it was cut from — and both views have to name the same one.
+#[test]
+fn the_parent_row_names_the_same_segment_ff_log_does() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    let commit = ff(&fx, &["commit", "-m", "one"]);
+    assert!(commit.status.success(), "{}", out(&commit));
+
+    let parent = json(&ff(&fx, &["status", "--json"]))["data"]["parent"].clone();
+    let segment = parent["segment"].as_str().unwrap_or_default().to_string();
+    assert_eq!(
+        segment.len(),
+        40,
+        "the parent row carries its anchor, as hex: {segment:?}"
+    );
+
+    // Rather than recompute the letters spelling here, read the column off
+    // both views: what matters is that the crop and the full page name the
+    // same capture, not how either of them spells it.
+    let commit_column = |text: &str| -> String {
+        text.lines()
+            .find(|line| line.starts_with('●'))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .unwrap_or("<no commit row>")
+            .to_string()
+    };
+    let from_status = commit_column(&stdout(&ff(&fx, &["status"])));
+    let from_log = commit_column(&stdout(&ff(&fx, &["log", "-n", "2"])));
+    assert_ne!(
+        from_status, "—",
+        "the parent row printed the empty-column dash over a real anchor"
+    );
+    assert_eq!(
+        from_status, from_log,
+        "status and log disagree about the parent commit's segment"
+    );
+}

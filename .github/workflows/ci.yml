@@ -40,7 +40,7 @@ jobs:
           if ($errs) { $errs; exit 1 }
       # bench needs the release binary but must not rebuild it from scratch.
       - if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ff-linux
           path: target/release/ff
@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ff-linux
           path: target/release
@@ -84,7 +84,7 @@ jobs:
       - run: hyperfine --version
       - run: scripts/bench/run.sh --points 100,1000 --tools ff
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-raw-json
           path: bench-results/raw.json

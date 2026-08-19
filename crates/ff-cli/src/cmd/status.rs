@@ -96,6 +96,11 @@ pub struct ParentStatus {
     pub subject: String,
     /// Unix seconds; `ff log --json` spells the same field the same way.
     pub time: i64,
+    /// The commit's chain-segment anchor: the capture whose base and tree
+    /// this commit repeats, which is the id `ff log` prints in that row's
+    /// first column. `None` when no capture answers to it — an unborn
+    /// repository, or history that arrived from outside fufu.
+    pub segment: Option<String>,
 }
 
 /// One foreign ref change (reconciled motion outside fufu).
@@ -135,13 +140,26 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     .next()
     .transpose()?;
 
-    // Lens map: open change id + parent id for display
+    // The parent row's chain-segment anchor. `ff status` is `ff log` cropped
+    // to two rows, so the column that names a commit's capture belongs on
+    // this row too; a blank here was the crop dropping a column rather than
+    // a considered silence. One anchor for one commit, against a walk the
+    // full `ff log` already pays for a whole page.
+    let parent_segment: Option<String> = match &parent {
+        Some(p) => ff_core::segment_anchors(&repo, std::slice::from_ref(&p.id))?.remove(&p.id),
+        None => None,
+    };
+
+    // Lens map: the ids actually on screen, and only those. Prefixes are
+    // priced over the operation log, so the parent's commit sha never
+    // resolved against it -- its anchor is the id that does, and the id the
+    // row prints.
     let mut ids: Vec<String> = Vec::new();
     if let Some(id) = &open.id {
         ids.push(id.clone());
     }
-    if let Some(ref p) = parent {
-        ids.push(p.id.clone());
+    if let Some(anchor) = &parent_segment {
+        ids.push(anchor.clone());
     }
     let lens = crate::cmd::evolog::displayed_prefix_lens(&repo, &ids)?;
 
@@ -252,6 +270,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
             id: p.id.clone(),
             subject: p.subject.clone(),
             time: p.time,
+            segment: parent_segment.clone(),
         }),
         conflicts: status.conflicts.clone(),
         foreign: foreign.map(|entries| {

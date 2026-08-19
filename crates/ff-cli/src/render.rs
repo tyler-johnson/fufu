@@ -219,7 +219,13 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             subject: &parent.subject,
             time: parent.time,
         };
-        out.push_str(&commit_row(&commit_display, None, lens, now, colored));
+        out.push_str(&commit_row(
+            &commit_display,
+            parent.segment.as_deref(),
+            lens,
+            now,
+            colored,
+        ));
         out.push('\n');
     }
 
