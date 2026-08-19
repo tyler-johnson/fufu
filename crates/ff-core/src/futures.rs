@@ -341,12 +341,17 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>>
     }
 
     // 2. Trunk is the base unless it is the branch underfoot, in which case
-    // there is no base at all: trunk sits on nothing. Ambiguity is swallowed
-    // to None and never propagated: a repository that cannot name its trunk
-    // still gets a working `ff status`.
-    let own_ref = format!("refs/heads/{branch}");
+    // there is no base at all: trunk sits on nothing. Identity is by name and
+    // never by ref: a trunk that lives only on the remote is spelled
+    // `refs/remotes/origin/main` while the branch underfoot is
+    // `refs/heads/main`, so comparing refs calls them two different branches
+    // and hands `main` its own shared copy as a base — one ref wearing both
+    // nouns, which every report then says twice. For a local trunk the two
+    // comparisons are the same test. Ambiguity is swallowed to None and never
+    // propagated: a repository that cannot name its trunk still gets a
+    // working `ff status`.
     let trunk = crate::trunk::trunk(repo).ok();
-    let standing_on_trunk = trunk.as_ref().is_some_and(|t| t.full_ref == own_ref);
+    let standing_on_trunk = trunk.as_ref().is_some_and(|t| t.name == branch);
     if let Some(t) = trunk.as_ref()
         && !standing_on_trunk
         && let Some(tip) = crate::refs::ref_target(repo, &t.full_ref)?
@@ -562,8 +567,17 @@ pub fn futures_for(
     branch_tip: Option<gix::ObjectId>,
     open_tree: Option<gix::ObjectId>,
 ) -> Result<Futures> {
-    Ok(Futures {
-        base: base_future(repo, branch, branch_tip, open_tree)?,
-        remote: remote_future(repo, branch, branch_tip, open_tree)?,
-    })
+    let remote = remote_future(repo, branch, branch_tip, open_tree)?;
+    let remote_ref = remote.as_ref().map(|r| r.against.r#ref.as_str());
+    // One ref is one axis. A branch can be configured to track the very ref
+    // that is also its base — `branch.<name>.merge` pointing at trunk — and
+    // then both axes name the same commits. Reporting it twice tells a person
+    // there are two things to reconcile when there is one. The remote is the
+    // half that survives, because it is the noun that also decides the push.
+    let base = match base_for(repo, branch)? {
+        Some(base) if Some(base.r#ref.as_str()) == remote_ref => None,
+        Some(base) => future_on(repo, branch, base, branch_tip, open_tree, true)?,
+        None => None,
+    };
+    Ok(Futures { base, remote })
 }

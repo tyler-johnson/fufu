@@ -961,3 +961,69 @@ fn the_replayed_tree_never_becomes_findable() {
         "the replayed tree leaked into the odb per count-objects"
     );
 }
+
+/// The shape of a clone: `origin/HEAD` names trunk, so trunk is a
+/// remote-tracking ref even when a local branch of the same name is what you
+/// are standing on. Trunk still sits on nothing.
+#[test]
+fn standing_on_a_remote_only_trunk_has_no_base() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, fx.git(&["rev-parse", "main"]).trim());
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+    // Identity by ref would read `refs/remotes/origin/main` against
+    // `refs/heads/main`, call them different branches, and hand main its own
+    // shared copy as a base — the same ref reported once as the base and
+    // again as the remote.
+    assert!(
+        futures::base_for(&fx.repo(), "main")
+            .expect("base_for")
+            .is_none(),
+        "standing on trunk is standing on trunk however trunk is spelled"
+    );
+}
+
+/// A branch can be configured to track the very ref that is also its base.
+/// Both axes then name one set of commits, and one set of commits is one
+/// thing to reconcile.
+#[test]
+fn an_upstream_that_is_also_the_base_is_one_axis() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let root = fx.commit("base");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &root]);
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "f\n");
+    fx.commit("mine");
+    // `git branch -u origin/main feature`: the upstream is trunk itself.
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    fx.git(&["config", "branch.feature.remote", "origin"]);
+    fx.git(&["config", "branch.feature.merge", "refs/heads/main"]);
+
+    let repo = fx.repo();
+    let head = tip(&fx, "feature");
+    let futures = futures::futures_for(&repo, "feature", Some(head), None).expect("futures_for");
+
+    assert!(
+        futures.base.is_none(),
+        "the base is the half that goes quiet: the remote is the noun that also decides the push"
+    );
+    let remote = futures.remote.expect("the remote axis survives");
+    assert_eq!(remote.against.r#ref, "refs/remotes/origin/main");
+    assert_eq!(remote.against.role, Role::RemoteAlias);
+}
