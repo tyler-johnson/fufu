@@ -871,6 +871,8 @@ pub enum Pending {
 pub struct PublishReport {
     pub branch: String,
     pub publish: Publish,
+    /// True when nothing was written and nothing was sent (dry run).
+    pub dry_run: bool,
 }
 
 /// The remote axis: the shared copy of this same branch.

@@ -140,7 +140,7 @@ fn main() {
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
         Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
-        Some(cli::Command::Publish) => cmd::publish::run(&ctx),
+        Some(cli::Command::Publish { dry_run }) => cmd::publish::run(&ctx, dry_run),
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
         Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),

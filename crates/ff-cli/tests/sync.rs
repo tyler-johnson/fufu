@@ -198,3 +198,48 @@ fn sync_points_at_publish_when_something_is_waiting() {
     assert!(text.contains("to publish"), "{text}");
     assert!(text.contains("ff publish"), "{text}");
 }
+
+/// `--dry-run` says which push this would be and spends nothing. The tail
+/// line is the tell: the real run says the push left the machine, and this
+/// one must not, because it did not.
+#[test]
+fn publish_dry_run_says_would_and_sends_nothing() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    // A real publish here would spawn git and fail against a dead remote.
+    // The dry run must not reach it at all, which is why success is the
+    // assertion that matters.
+    let output = ff(&fx, &["publish", "--dry-run"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("would create"), "{text}");
+    assert!(text.contains("nothing was sent"), "{text}");
+    assert!(
+        !text.contains("left the machine"),
+        "a dry run must not claim the irreversible act: {text}"
+    );
+
+    // -n is the same flag, matching ff trim.
+    let short = ff(&fx, &["publish", "-n"]);
+    assert_eq!(stdout(&short), text, "-n and --dry-run are one flag");
+}
+
+#[test]
+fn the_dry_run_envelope_says_it_sent_nothing() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let output = ff(&fx, &["--json", "publish", "-n"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "publish");
+    assert_eq!(v["data"]["pushed"], false);
+    assert_eq!(v["data"]["publish"]["dry_run"], true);
+}

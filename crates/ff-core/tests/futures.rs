@@ -797,7 +797,7 @@ fn unpushed_commits_are_up_to_date_against_the_remote() {
     let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
         .expect("remote_future")
         .expect("a future");
-    // The surface will spell this "2 to push": up-to-date against the remote
+    // The surface will spell this "2 to publish": up-to-date against the remote
     // means the branch is ahead, not that nothing moved.
     assert_eq!(f.verdict, Verdict::UpToDate { ahead: 2 });
 }

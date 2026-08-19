@@ -275,7 +275,10 @@ pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<Str
         .collect()
 }
 
-/// `{n} to push[ to <ref>]`, pending work headed for the remote.
+/// `{n} to publish[ to <ref>]`, pending work headed for the remote.
+///
+/// The verb, not git's word for it: `ff push` is refused, so a status line
+/// that said "to push" would name the one thing a reader cannot then type.
 ///
 /// `ff branch list` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
@@ -283,8 +286,8 @@ pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<Str
 /// callers read one definition.
 fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
     let phrase = match toward {
-        Some(ref_name) => format!("{n} to push to {ref_name}"),
-        None => format!("{n} to push"),
+        Some(ref_name) => format!("{n} to publish to {ref_name}"),
+        None => format!("{n} to publish"),
     };
     paint_ahead(&phrase, colored)
 }
@@ -1397,7 +1400,7 @@ mod tests {
         };
         let push = axis_phrase(&remote(Verdict::UpToDate { ahead: 6 }), false).unwrap();
         assert_eq!(push, to_push(6, None, false));
-        assert_eq!(push, "6 to push");
+        assert_eq!(push, "6 to publish");
         let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
         assert_eq!(pull, to_pull(2, None, false));
         assert_eq!(pull, "2 to pull");

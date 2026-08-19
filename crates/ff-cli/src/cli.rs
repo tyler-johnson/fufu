@@ -241,7 +241,11 @@ pub enum Command {
     // agent notice quotes this: `ff publish`
     /// Send this branch to its remote, under a lease
     #[command(long_about = help::PUBLISH, after_long_help = help::PUBLISH_EXAMPLES)]
-    Publish,
+    Publish {
+        /// Say which push this would be, without sending it
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+    },
     /// Open an editing session on a commit: go there, edit it, come back
     #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
     Edit {
@@ -537,7 +541,7 @@ impl Command {
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
             Command::Sync { .. } => "sync",
-            Command::Publish => "publish",
+            Command::Publish { .. } => "publish",
             Command::Edit { .. } => "edit",
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
@@ -605,7 +609,7 @@ impl Command {
             | Command::Checkout { .. }
             | Command::Diff { .. }
             | Command::Stash { .. }
-            | Command::Publish
+            | Command::Publish { .. }
             | Command::Pull { .. }
             | Command::Push { .. }
             | Command::Rebase { .. } => None,

@@ -22,10 +22,12 @@ use crate::model::{Publish, PublishReport};
 use crate::preflight::Preflight;
 use crate::{Provenance, Result};
 
-/// The knobs publish does not have. Kept as a struct because `now` and
-/// `argv` are how the operation log stays testable, and because a verb that
-/// grows a flag should grow it here rather than in the signature.
 pub struct PublishOptions {
+    /// Decide the plan, write nothing, send nothing. The one thing worth
+    /// previewing here is which push this would be — creating a shared copy,
+    /// replacing one, or putting back one that was deleted are three
+    /// different acts wearing one verb.
+    pub dry_run: bool,
     pub now: Option<i64>,
     pub argv: Vec<String>,
 }
@@ -35,12 +37,17 @@ pub fn publish(
     pre: &Preflight,
     opts: PublishOptions,
     prov: &Provenance,
-) -> Result<(PublishReport, crate::ops::verb::VerbContext)> {
+) -> Result<(PublishReport, Option<crate::ops::verb::VerbContext>)> {
     // Capture first, like every verb. Publish changes nothing locally, so it
     // records no operation of its own — but the tree is snapshotted and
     // foreign motion is reconciled before anything leaves, which is the
-    // point of the floor.
-    let ctx = crate::ops::verb::begin_verb(repo, prov, opts.now)?;
+    // point of the floor. A dry run reads and writes nothing, so it takes
+    // nothing: same rule as `ff trim -n`.
+    let ctx = if opts.dry_run {
+        None
+    } else {
+        Some(crate::ops::verb::begin_verb(repo, prov, opts.now)?)
+    };
 
     let publish = if crate::held::of(repo, &pre.branch)?.is_some() {
         // The exits-blocked discipline: a held rewrite means the branch's
@@ -83,6 +90,7 @@ pub fn publish(
         PublishReport {
             branch: pre.branch.clone(),
             publish,
+            dry_run: opts.dry_run,
         },
         ctx,
     ))

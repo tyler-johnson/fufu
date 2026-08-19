@@ -381,11 +381,17 @@ because it means the tip you last looked at; refreshing it first would ask git
 to guard you against a change you accepted without reading.
 
 A held rewrite blocks the exit. Nothing is sent while the branch's commits are
-still about to be rewritten out from under.";
+still about to be rewritten out from under.
+
+--dry-run says which push this would be without making it: creating a shared
+copy, replacing one, and putting back one that was deleted are three different
+acts wearing one verb, and this is the only way to tell them apart while the
+answer still costs nothing. It writes nothing and sends nothing.";
 
 pub const PUBLISH_EXAMPLES: &str = "\
 Examples:
   ff publish                     send this branch, under a lease
+  ff publish -n                  which push would this be? send nothing
   ff sync                        take in what arrived, first
   ff status                      what is waiting to go, before you send it";
 

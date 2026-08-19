@@ -18,19 +18,26 @@ fn prov() -> Provenance {
 }
 
 fn publish_call(fx: &Fixture) -> PublishReport {
+    plan(fx, false).0
+}
+
+/// The plan, plus whether a verb context came back — which is how "a dry run
+/// writes nothing" is observable from here: no context means no capture.
+fn plan(fx: &Fixture, dry_run: bool) -> (PublishReport, bool) {
     let repo = fx.repo();
     let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
-    ff_core::publish::publish(
+    let (report, ctx) = ff_core::publish::publish(
         &repo,
         &pre,
         ff_core::publish::PublishOptions {
+            dry_run,
             now: Some(NOW),
             argv: vec!["ff".into(), "publish".into()],
         },
         &prov(),
     )
-    .unwrap()
-    .0
+    .unwrap();
+    (report, ctx.is_some())
 }
 
 /// A branch on `feature`, one commit deep, with origin configured.
@@ -190,4 +197,41 @@ fn a_held_rewrite_blocks_the_exit() {
         Publish::Blocked => {}
         other => panic!("a held rewrite blocks the exit, got {other:?}"),
     }
+}
+
+/// A dry run decides the same plan and writes nothing to get there — no
+/// capture, no operation. Same rule as `ff trim -n`.
+#[test]
+fn a_dry_run_plans_the_same_push_and_writes_nothing() {
+    let fx = Fixture::new();
+    let f1 = feature(&fx);
+    track(&fx, &f1);
+    fx.write("g.txt", "g\n");
+    let f2 = fx.commit("f2");
+
+    let ops_before = fx.git(&[
+        "for-each-ref",
+        "--format=%(refname) %(objectname)",
+        "refs/fufu/",
+    ]);
+    let (report, captured) = plan(&fx, true);
+
+    assert!(report.dry_run, "the report says it sent nothing");
+    assert!(!captured, "a dry run takes no capture");
+    match report.publish {
+        Publish::Push { lease, tip, .. } => {
+            assert_eq!(lease, f1, "the same lease the real run would offer");
+            assert_eq!(tip, f2);
+        }
+        other => panic!("the plan is unchanged by previewing it, got {other:?}"),
+    }
+    assert_eq!(
+        fx.git(&[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/fufu/"
+        ]),
+        ops_before,
+        "a dry run writes nothing under refs/fufu"
+    );
 }
