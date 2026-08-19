@@ -292,7 +292,12 @@ fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
     paint_ahead(&phrase, colored)
 }
 
-/// `{n} to pull[ from <ref>]`, pending work the remote already has.
+/// `{n} to take in[ from <ref>]`, pending work the remote already has.
+///
+/// Sync's own words, one tense earlier: what it reports afterwards is
+/// "took in {n} commit(s) from {ref}". Status predicts and the verb reports,
+/// so they say the same thing — the same pairing `to publish` has with
+/// "published". Not "to pull", which names a verb fufu refuses.
 ///
 /// `ff branch list` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
@@ -300,8 +305,8 @@ fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
 /// callers read one definition.
 fn to_pull(n: usize, toward: Option<&str>, colored: bool) -> String {
     let phrase = match toward {
-        Some(ref_name) => format!("{n} to pull from {ref_name}"),
-        None => format!("{n} to pull"),
+        Some(ref_name) => format!("{n} to take in from {ref_name}"),
+        None => format!("{n} to take in"),
     };
     paint_ahead(&phrase, colored)
 }
@@ -1403,7 +1408,7 @@ mod tests {
         assert_eq!(push, "6 to publish");
         let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
         assert_eq!(pull, to_pull(2, None, false));
-        assert_eq!(pull, "2 to pull");
+        assert_eq!(pull, "2 to take in");
     }
 
     // The OnceLock behind `palette()` is process-global, so a test that sets
