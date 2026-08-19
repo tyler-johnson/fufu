@@ -190,6 +190,65 @@ fn naming_refuses_a_name_already_taken() {
     assert_eq!(current(&fx), "main");
 }
 
+/// A rewrite held on a branch is worth the same notice an unfinished
+/// session is — standing work wherever branches are listed — so the listing
+/// marks the held branch, and a branch with neither stays unmarked.
+#[test]
+fn branch_marks_a_held_branch() {
+    let fx = repo();
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "two\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+
+    // The conflicting restack holds on feature — the branch is not moved.
+    let held = ff(&fx, &["restack", "feature"]);
+    assert_eq!(held.status.code(), Some(3), "{}", stderr(&held));
+
+    let v = json(&ff(&fx, &["branch", "--json"]));
+    let named = v["data"]["named"].as_array().expect("named array");
+    let feature = named
+        .iter()
+        .find(|b| b["name"] == "feature")
+        .expect("the feature row");
+    let main = named
+        .iter()
+        .find(|b| b["name"] == "main")
+        .expect("the main row");
+    assert_eq!(feature["held"], serde_json::Value::Bool(true));
+    assert_eq!(feature["resolving"], serde_json::Value::Bool(false));
+    assert_eq!(main["held"], serde_json::Value::Bool(false));
+    assert_eq!(main["resolving"], serde_json::Value::Bool(false));
+
+    let text = stdout(&ff(&fx, &["branch"]));
+    let lines: Vec<&str> = text.lines().collect();
+    /// The note line under a row, when the row has one — rows carry a sigil
+    /// and the bracketed name, so the bracketed name is what identifies them.
+    fn note_after(lines: &[&str], name: &str) -> Option<String> {
+        let i = lines
+            .iter()
+            .position(|l| l.contains(&format!("[{name}]")))?;
+        lines
+            .get(i + 1)
+            .filter(|l| l.starts_with("    "))
+            .map(|l| l.to_string())
+    }
+    let feature_note = note_after(&lines, "feature").unwrap_or_default();
+    assert!(
+        feature_note.contains("held"),
+        "the held branch's row is marked: {text}"
+    );
+    let main_note = note_after(&lines, "main").unwrap_or_default();
+    assert!(
+        !main_note.contains("held"),
+        "the clean branch's row is not: {text}"
+    );
+}
+
 /// `--at-op` is declared on the read, and declared on both spellings of it:
 /// before the subcommand and after. Either way it is the coded refusal
 /// naming the follow-up, not an unknown argument.

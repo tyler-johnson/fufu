@@ -27,6 +27,8 @@ fn populated() -> BranchMeta {
         forked_from: Some("abc1234".into()),
         parent: Some("main".into()),
         session: None,
+        held: None,
+        resolving: None,
     }
 }
 

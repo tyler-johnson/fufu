@@ -336,6 +336,11 @@ pub struct RewordReport {
 pub enum AbsorbOutcome {
     /// The change was folded into the target and restacked.
     Absorbed(AbsorbReport),
+    /// The replay conflicts, so nothing was written and the rewrite is
+    /// waiting. A hold is an outcome and not an error — something happened,
+    /// and it has a report — even though the caller still exits 3, because a
+    /// human decision is required before anything moves.
+    Held(HeldReport),
     /// A clean tree, or a path filter that selected nothing.
     NothingToAbsorb { branch: String },
 }
@@ -379,6 +384,11 @@ pub enum RestackOutcome {
     Restacked(Box<RestackReport>),
     /// Already sitting on its base, and no re-aim was asked for.
     NothingToRestack { branch: String, base: String },
+    /// The replay conflicts, so nothing was written and the rewrite is
+    /// waiting. A hold is an outcome and not an error — something happened,
+    /// and it has a report — even though the caller still exits 3, because a
+    /// human decision is required before anything moves.
+    Held(HeldReport),
 }
 
 /// A restack that landed.
@@ -462,6 +472,55 @@ pub struct EditReport {
     pub parked: Option<String>,
 }
 
+/// The result of `ff resolve`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum ResolveOutcome {
+    /// The conflicts are in the working tree, waiting for you.
+    Opened(ResolveReport),
+    /// The rewrite no longer conflicts, so there was nothing to resolve: the
+    /// hold is released and the verb that recorded it will land it.
+    Released(ReleasedReport),
+    /// The hold was dropped.
+    Abandoned(AbandonedHold),
+}
+
+/// A resolution session that opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResolveReport {
+    pub branch: String,
+    /// The verb that held.
+    pub verb: String,
+    /// Files carrying conflict markers, sorted.
+    pub files: Vec<String>,
+    /// How many marked regions are waiting.
+    pub regions: usize,
+    /// How many steps the chain ran, and how many the rewrite has in all —
+    /// equal unless a tangle stopped it short.
+    pub steps: usize,
+    pub of: usize,
+    /// The commit the chain stopped before, when two conflicts landed on one
+    /// region and the markers would have interleaved rather than nested.
+    pub tangled: Option<String>,
+    /// The change parked to make room, when the tree was dirty.
+    pub parked: Option<String>,
+}
+
+/// A hold released because the rewrite applies cleanly now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReleasedReport {
+    pub branch: String,
+    pub verb: String,
+}
+
+/// A hold dropped on purpose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AbandonedHold {
+    pub branch: String,
+    pub verb: String,
+    /// Set when a resolution session was open and its markers were thrown away.
+    pub was_resolving: bool,
+}
+
 /// The result of `ff done`: an editing session ended, landed or abandoned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -469,8 +528,35 @@ pub enum DoneOutcome {
     /// The session landed: the edited commit was amended and what waited
     /// ahead was replayed onto it.
     Done(DoneReport),
+    /// The replay conflicts, so nothing was written and the rewrite is
+    /// waiting. A hold is an outcome and not an error — something happened,
+    /// and it has a report — even though the caller still exits 3, because a
+    /// human decision is required before anything moves.
+    Held(HeldReport),
     /// The session was dropped without landing.
     Abandoned(AbandonReport),
+    /// A resolution session ended: the reader's fixes landed, each in the
+    /// step that owned it, and the whole stack moved one time.
+    Resolved(ResolvedReport),
+}
+
+/// A resolution that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResolvedReport {
+    pub branch: String,
+    /// The verb whose rewrite this was.
+    pub verb: String,
+    /// Conflict regions the reader fixed.
+    pub fixed: usize,
+    /// Commits rewritten.
+    pub replayed: usize,
+    pub new_tip: String,
+    /// Set when the landing left more rewrite behind and a fresh hold was
+    /// recorded. A backstop rather than a common path: a landing changes
+    /// every input to the question a hold asks, so asking again almost always
+    /// comes back clean or expired. It is asked anyway, because the cost is
+    /// one simulated replay and the alternative is a rewrite going quiet.
+    pub still_held: Option<HeldReport>,
 }
 
 /// A session that landed.
@@ -522,6 +608,30 @@ pub struct AbandonReport {
     pub files: usize,
 }
 
+/// The result of a rewrite that conflicted: nothing was written, the intent
+/// is waiting, and every status render says so until it is gone. A hold is an
+/// outcome and not an error — something happened, and it has a report — even
+/// though the process still exits 3, because a human decision is required
+/// before anything moves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HeldReport {
+    /// The verb that held: `restack`, `done`, `absorb`, `lift`.
+    pub verb: String,
+    /// The branch the hold stands on.
+    pub branch: String,
+    /// Where the replay stopped: a commit it could not reapply, or the open
+    /// change, which cannot come along. Carried as `futures::At` rather than
+    /// flattened to a sha and a subject, because a report that flattened it
+    /// would have to name the open change by the commit it is sitting on,
+    /// which is not where anything went wrong.
+    pub at: crate::futures::At,
+    /// The paths that stopped it.
+    pub paths: Vec<String>,
+    /// How many commits the rewrite would have replayed in all, so the report
+    /// can say "1 of 5" rather than leaving the size of the stack unsaid.
+    pub of: usize,
+}
+
 /// The result of `ff lift`: paths taken out of a commit and back into the
 /// open change, and the restack it forced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -529,6 +639,11 @@ pub struct AbandonReport {
 pub enum LiftOutcome {
     /// The paths were lifted out of the target and restacked.
     Lifted(LiftReport),
+    /// The replay conflicts, so nothing was written and the rewrite is
+    /// waiting. A hold is an outcome and not an error — something happened,
+    /// and it has a report — even though the caller still exits 3, because a
+    /// human decision is required before anything moves.
+    Held(HeldReport),
     /// The selected paths are not among the ones that commit introduced.
     NothingToLift { from: String },
 }
@@ -587,6 +702,11 @@ pub struct BranchInfo {
     /// this branch is an unfinished editing session — and an unfinished one
     /// is worth noticing wherever branches are listed.
     pub session: Option<String>,
+    /// A rewrite is held on this branch, waiting for `ff resolve`.
+    pub held: bool,
+    /// A resolution is open on this branch: its conflicts are in the working
+    /// tree right now.
+    pub resolving: bool,
     pub upstream: Option<Upstream>,
     /// What rebasing this branch onto its base would do.
     pub future: Option<crate::futures::Future>,

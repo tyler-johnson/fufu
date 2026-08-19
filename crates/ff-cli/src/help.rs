@@ -368,6 +368,28 @@ Examples:
   ff done                        amend, replay what waited, land back
   ff done --abandon              drop the session, stash what is open";
 
+pub const RESOLVE: &str = "\
+A held rewrite is a conflict fufu chose not to interrupt you with — and this
+is where you choose to deal with it, all at once. Every surviving conflict
+region lands in the working tree together, as ordinary labeled markers, in
+one session: fix them, then `ff done` lands the rewrite.
+
+Nothing moves. Your branch does not move and the parked change, if there is
+one, waits where it was — the session is recorded in the branch's own
+metadata, and the hold stays, because it is what the session is resolving.
+If the world has moved and the rewrite applies cleanly now, the hold is
+released instead, and re-running the verb that recorded it lands it.
+
+--abandon drops the hold — and an open session's markers with it — so it is
+also the way out of one. The way back, either way, is one ff undo.";
+
+pub const RESOLVE_EXAMPLES: &str = "\
+Examples:
+  ff resolve                   materialize the hold's conflicts and fix them
+  ff done                      land the fixes, and the rewrite behind them
+  ff resolve --abandon         drop the hold instead
+  ff undo                      take the session back, markers and all";
+
 pub const BRANCH: &str = "\
 Bookkeeping for lines of work: `ff branch list` says what exists and
 `ff branch delete` takes one away. Bare `ff branch` is the list.

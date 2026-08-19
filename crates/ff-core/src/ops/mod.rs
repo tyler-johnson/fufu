@@ -59,8 +59,8 @@ pub use append::{CaptureOutcome, capture, capture_with};
 pub use id::{CommitId, OpId};
 pub use message::SegmentLink;
 pub use record::{
-    DescriptionTransition, OpRecord, ParentTransition, RefTransition, RefsTable, SessionTransition,
-    StashEffect,
+    DescriptionTransition, HeldTransition, OpRecord, ParentTransition, RefTransition, RefsTable,
+    ResolveTransition, SessionTransition, StashEffect,
 };
 pub use verb::{VerbContext, begin_verb, read_ops, read_ops_from, read_ops_of, reconcile};
 pub use walk::{Operation, Run, is_op_commit, run_at};

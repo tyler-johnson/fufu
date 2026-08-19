@@ -8,10 +8,13 @@
 //! change and a commit. The worktree is byte-identical before and after —
 //! only refs, the index, and the operation log move.
 
+use gix::bstr::ByteSlice;
 use gix::prelude::ObjectIdExt;
 
 use crate::error::{Error, Result};
-use crate::model::{AbsorbOutcome, AbsorbReport, HeadState, LiftOutcome, LiftReport};
+use crate::futures::At;
+use crate::held::{self, Held, Intent};
+use crate::model::{AbsorbOutcome, AbsorbReport, HeadState, HeldReport, LiftOutcome, LiftReport};
 use crate::ops::record::observe_refs;
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::refs;
@@ -170,15 +173,163 @@ fn filtered(
 
 /// A three-way tree merge, resolved but not yet written: the caller probes
 /// with a handle that writes nothing, and only then merges for real.
-fn merge_into(
-    repo: &gix::Repository,
+fn merge_into<'a>(
+    repo: &'a gix::Repository,
     base: gix::ObjectId,
     ours: gix::ObjectId,
     theirs: gix::ObjectId,
-) -> Result<gix::merge::tree::Outcome<'_>> {
+    labels: Option<&(String, String)>,
+) -> Result<gix::merge::tree::Outcome<'a>> {
     let options = repo.tree_merge_options().map_err(Error::repo)?;
-    repo.merge_trees(base, ours, theirs, Default::default(), options)
+    let labels = match labels {
+        Some((ours_label, theirs_label)) => gix::merge::blob::builtin_driver::text::Labels {
+            ancestor: None,
+            current: Some(ours_label.as_bytes().as_bstr()),
+            other: Some(theirs_label.as_bytes().as_bstr()),
+        },
+        None => Default::default(),
+    };
+    repo.merge_trees(base, ours, theirs, labels, options)
         .map_err(Error::repo)
+}
+
+/// The labels a fold writes when it conflicts. A conflicted fold is handed
+/// straight to `chain` as step one's tree, so its markers have to be fufu's
+/// own: `regions` and `attribute` only see a block whose closer carries a
+/// step, and a block nobody can attribute is a block that lands inside a
+/// commit.
+fn fold_labels(
+    repo: &gix::Repository,
+    target: gix::ObjectId,
+    tip: gix::ObjectId,
+) -> Result<(String, String)> {
+    let n = rewrite::stack_size(repo, target, tip)?;
+    Ok(rewrite::chain_labels(&subject(repo, target)?, 1, n))
+}
+
+/// A rewrite that conflicts is an outcome, not an error: record the hold the
+/// caller assembled as a slim operation and report it. Nothing moves — no
+/// ref, no file, no futures cache — so the whole path is the operation's
+/// append and the branch's metadata, the way `ff describe` records a pending
+/// description. Shared by `absorb` and `lift`: they differ only in the
+/// `held` they assembled and the report's verb, which is why both travel as
+/// arguments rather than being special-cased.
+fn hold(
+    repo: &gix::Repository,
+    rec: held::Recording<'_>,
+    verb: &str,
+    branch: &str,
+    held: &Held,
+    summary: String,
+    of: usize,
+) -> Result<HeldReport> {
+    let verb_past = match verb {
+        "absorb" => "absorbed",
+        "lift" => "lifted",
+        other => other,
+    };
+    held::refuse_if_held(repo, branch, verb_past)?;
+    held::record(repo, rec, branch, held, summary)?;
+    Ok(HeldReport {
+        verb: verb.to_string(),
+        branch: branch.to_string(),
+        at: held.at.clone(),
+        paths: held.paths.clone(),
+        of,
+    })
+}
+
+/// The target must still sit in the branch's history — a hold recorded
+/// earlier may name a commit a later rewrite has since moved out of reach,
+/// and re-planning it would fold into nothing.
+fn in_history(repo: &gix::Repository, target: gix::ObjectId, tip: gix::ObjectId) -> Result<()> {
+    let bases: Vec<gix::ObjectId> = repo
+        .merge_bases_many(target, &[tip])
+        .map_err(Error::repo)?
+        .into_iter()
+        .map(|id| id.detach())
+        .collect();
+    if !bases.contains(&target) {
+        return Err(Error::coded(
+            "rewrite/not-in-history",
+            format!(
+                "{} is no longer in the branch's history",
+                short(repo, target)
+            ),
+            vec!["ff log".into()],
+        ));
+    }
+    Ok(())
+}
+
+/// The triple an absorb replays: the target takes the open change folded
+/// into it, and its descendants follow.
+///
+/// The fold is computed against the working tree as it stands now, so a hold
+/// re-planned later sees whatever has been done since it was recorded. When
+/// the target is not the tip the fold is a three-way merge that can leave
+/// unresolved paths; the merged tree is returned either way, conflicts and
+/// all. Deciding what a conflicted fold means — holding, refusing, resolving —
+/// is the caller's job, not the replan's.
+pub(crate) fn replan_absorb(
+    repo: &gix::Repository,
+    into: Option<gix::ObjectId>,
+    paths: &[String],
+    open: Option<gix::ObjectId>,
+) -> Result<held::Replan> {
+    let (_branch, tip) = head_branch(repo, "absorb into")?;
+    let target = into.unwrap_or(tip);
+    in_history(repo, target, tip)?;
+    let tip_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
+    // `open`, when given, is the working tree a resolution session recorded
+    // before it wrote the markers over it — the same change this read
+    // otherwise takes from disk.
+    let open_tree = match open {
+        Some(tree) => tree,
+        None => open_tree(repo, tip_tree)?.0,
+    };
+    let theirs = filtered(repo, tip_tree, open_tree, paths)?;
+    let target_tree = tree_of(repo, target)?;
+    let new_target_tree = if target == tip {
+        theirs
+    } else {
+        let labels = fold_labels(repo, target, tip)?;
+        let mut outcome = merge_into(repo, tip_tree, target_tree, theirs, Some(&labels))?;
+        outcome.tree.write().map_err(Error::repo)?.detach()
+    };
+    let change = rewrite::Change::Tree {
+        tree: new_target_tree,
+        message: None,
+    };
+    Ok(held::Replan {
+        target,
+        tip,
+        change,
+    })
+}
+
+/// The triple a lift replays: the target loses the selected paths back to
+/// its parent's content, and its descendants follow.
+pub(crate) fn replan_lift(
+    repo: &gix::Repository,
+    from: Option<gix::ObjectId>,
+    paths: &[String],
+) -> Result<held::Replan> {
+    let (_branch, tip) = head_branch(repo, "lift from")?;
+    let target = from.unwrap_or(tip);
+    in_history(repo, target, tip)?;
+    let target_tree = tree_of(repo, target)?;
+    let parent_tree = parent_tree_of(repo, target)?;
+    let lifted = filtered(repo, target_tree, parent_tree, paths)?;
+    let change = rewrite::Change::Tree {
+        tree: lifted,
+        message: None,
+    };
+    Ok(held::Replan {
+        target,
+        tip,
+        change,
+    })
 }
 
 /// Fold the open change — or the part of it a path filter selected — into a
@@ -191,6 +342,29 @@ pub fn absorb(
     now: Option<i64>,
     argv: Vec<String>,
 ) -> Result<(AbsorbOutcome, verb::VerbContext)> {
+    absorb_with(
+        repo,
+        into,
+        paths,
+        prov,
+        (now, argv),
+        &rewrite::Decided::none(),
+    )
+}
+
+/// `absorb`, with some rewritten commits' trees decided in advance. When the
+/// target's tree is among them the fold itself is decided: the merge that
+/// would fold the open change in, and the conflict check guarding it, are
+/// both skipped.
+pub fn absorb_with(
+    repo: &gix::Repository,
+    into: Option<gix::ObjectId>,
+    paths: Vec<String>,
+    prov: &Provenance,
+    invocation: (Option<i64>, Vec<String>),
+    decided: &rewrite::Decided,
+) -> Result<(AbsorbOutcome, verb::VerbContext)> {
+    let (now, argv) = invocation;
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -240,33 +414,70 @@ pub fn absorb(
     let target_tree = tree_of(repo, target)?;
     let target_subject = subject(repo, target)?;
 
-    // The target's new tree. When the target is the tip, it is `theirs`
-    // directly — no merge runs, and it cannot conflict.
-    let new_target_tree = if target == tip {
-        theirs
-    } else {
+    // The fold itself can conflict before a single descendant is replayed.
+    // `replan_absorb` returns the folded tree either way, so the verb decides
+    // what a conflicted fold means here rather than in the replan. Skipped
+    // when the target's tree is decided: the fold's result is already in
+    // `decided`, so this merge is no longer going to happen.
+    if target != tip && !decided.trees.contains_key(&target) {
         let memory = repo.clone().with_object_memory();
-        let probe = merge_into(&memory, tip_tree, target_tree, theirs)?;
+        let probe = merge_into(&memory, tip_tree, target_tree, theirs, None)?;
         let conflicted = crate::futures::unresolved(&probe);
         if !conflicted.is_empty() {
-            let target_short = short(repo, target);
-            return Err(Error::coded(
-                "held/rewrite-conflict",
-                format!(
-                    "folding your change into {target_short} \"{target_subject}\" conflicts in \
-                     {}: nothing was absorbed",
-                    rewrite::join_paths(&conflicted)
-                ),
-                vec![
-                    "ff status".into(),
-                    "ff absorb --into <rev>".into(),
-                    "ff commit -m <msg>".into(),
-                ],
+            // The fold itself cannot apply the open change to the target —
+            // `at` is the open change, not a commit — and the absorb never
+            // reaches a replay, so `of` is 0: the size of the stack it would
+            // have restacked is unknown here, and we do not invent one.
+            let held = Held {
+                intent: Intent::Absorb {
+                    into: target.to_string(),
+                    paths: paths.clone(),
+                },
+                at: At::OpenChange,
+                paths: conflicted.clone(),
+                time: now,
+            };
+            return Ok((
+                AbsorbOutcome::Held(hold(
+                    repo,
+                    held::Recording {
+                        ctx: &ctx,
+                        prov,
+                        argv,
+                        now,
+                    },
+                    "absorb",
+                    &branch,
+                    &held,
+                    format!("hold absorb into {}", short(repo, target)),
+                    0,
+                )?),
+                ctx,
             ));
         }
-        let mut outcome = merge_into(repo, tip_tree, target_tree, theirs)?;
-        outcome.tree.write().map_err(Error::repo)?.detach()
+    }
+
+    // The target's new tree: a decided landing carries it in `decided` —
+    // `chain` already folded the resolution in — so the fold's merge is
+    // skipped along with its probe above, and only the guard that the target
+    // still sits in the branch's history runs. Otherwise the fold's merge
+    // computes it, the same triple `held::replan` re-derives, so the verb and
+    // the replan cannot disagree.
+    let new_target_tree = if let Some(tree) = decided.trees.get(&target) {
+        in_history(repo, target, tip)?;
+        *tree
+    } else {
+        let replan = replan_absorb(repo, into, &paths, None)?;
+        match &replan.change {
+            rewrite::Change::Tree { tree, .. } => *tree,
+            other => {
+                return Err(Error::msg(format!(
+                    "internal: an absorb replan is not a tree change: {other:?}"
+                )));
+            }
+        }
     };
+    // If the fold changes nothing there is nothing to absorb.
     if new_target_tree == target_tree {
         return Ok((
             AbsorbOutcome::NothingToAbsorb {
@@ -275,17 +486,46 @@ pub fn absorb(
             ctx,
         ));
     }
+    let change = rewrite::Change::Tree {
+        tree: new_target_tree,
+        message: None,
+    };
 
-    let plan = rewrite::plan(
-        repo,
-        target,
-        tip,
-        &rewrite::Change::Tree {
-            tree: new_target_tree,
-            message: None,
-        },
-        now,
-    )?;
+    // Pre-flight the descendant replay with the same `change` `plan` will get:
+    // a conflict is a hold, and after a clean pre-flight `plan` cannot
+    // conflict. Skipped for a decided landing: its trees are already known,
+    // so the replay has nothing left to conflict on.
+    if decided.is_empty()
+        && let Some(conflict) = rewrite::conflict(repo, target, tip, &change)?
+    {
+        let held = Held {
+            intent: Intent::Absorb {
+                into: target.to_string(),
+                paths: paths.clone(),
+            },
+            at: conflict.at.clone(),
+            paths: conflict.paths.clone(),
+            time: now,
+        };
+        return Ok((
+            AbsorbOutcome::Held(hold(
+                repo,
+                held::Recording {
+                    ctx: &ctx,
+                    prov,
+                    argv,
+                    now,
+                },
+                "absorb",
+                &branch,
+                &held,
+                format!("hold absorb into {}", short(repo, target)),
+                conflict.of,
+            )?),
+            ctx,
+        ));
+    }
+    let plan = rewrite::plan_with(repo, target, tip, &change, now, &decided.trees)?;
     let published = rewrite::published_count(repo, &branch, &plan)?;
 
     // Write-ahead: the planned table is the post-absorb world. HEAD does not
@@ -306,6 +546,11 @@ pub fn absorb(
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
+    if let Some(clearing) = &decided.clearing {
+        let (held, resolving) = crate::held::clearing_transitions(clearing);
+        record.held = held;
+        record.resolving = resolving;
+    }
 
     let mut pins: Vec<gix::ObjectId> = plan
         .rewrites
@@ -316,14 +561,24 @@ pub fn absorb(
 
     // Absorb writes no files, so the planned worktree is the one already
     // there, and the index is about to be rewritten to match the new tip.
+    // A resolution landing is the exception: `ff resolve` put the chain's
+    // markers in the working tree, and a chain that stopped at a tangle put
+    // the TARGET's tree there rather than the tip's — so the landing has to
+    // bring the tree to the tip it just wrote, or files the descendants
+    // reintroduce would read as deleted.
+    let new_tip_tree = tree_of(repo, plan.new_tip)?;
     verb::append_op(
         repo,
         OpKind::Op,
         verb::VerbOp {
             record,
             planned,
-            tree: ctx.pre_tree,
-            index_tree: tree_of(repo, plan.new_tip)?,
+            tree: if decided.clearing.is_some() {
+                new_tip_tree
+            } else {
+                ctx.pre_tree
+            },
+            index_tree: new_tip_tree,
             branch: branch.clone(),
             base: Some(tip),
             session: prov.session.clone(),
@@ -362,7 +617,18 @@ pub fn absorb(
         }
     }
 
-    crate::index::write_index_for_tree(repo, tree_of(repo, plan.new_tip)?)?;
+    crate::index::write_index_for_tree(repo, new_tip_tree)?;
+
+    // A resolution landing: bring the working tree to the tip just written —
+    // the markers were standing in it and the reader's fixes are already in
+    // the commits — and clear the hold and the session it resolved, so one
+    // `ff undo` of this op takes the whole resolution back.
+    if let Some(clearing) = &decided.clearing {
+        let everything = |_: &str| true;
+        crate::worktree::apply_tree_transition(repo, open_tree, new_tip_tree, &everything)?;
+        crate::held::set(repo, &clearing.branch, None)?;
+        crate::held::set_resolving(repo, &clearing.branch, None)?;
+    }
 
     let branch_ref = format!("refs/heads/{branch}");
     let moved: Vec<String> = plan
@@ -405,8 +671,10 @@ pub fn absorb(
             // The exact open tree from above, not `ctx.pre_tree`: the
             // capture floor may have size-capped a blob out of `pre_tree`
             // while the exact tree kept it, and comparing the capped tree
-            // would report work still open when there is none.
-            still_open: open_tree != tree_of(repo, plan.new_tip)?,
+            // would report work still open when there is none. A resolution
+            // landing left the tree standing on the new tip, so nothing is
+            // open there by construction.
+            still_open: decided.clearing.is_none() && open_tree != new_tip_tree,
             dropped: plan.dropped.clone(),
         }),
         ctx,
@@ -426,6 +694,29 @@ pub fn lift(
     now: Option<i64>,
     argv: Vec<String>,
 ) -> Result<(LiftOutcome, verb::VerbContext)> {
+    lift_with(
+        repo,
+        from,
+        paths,
+        prov,
+        (now, argv),
+        &rewrite::Decided::none(),
+    )
+}
+
+/// `lift`, with some rewritten commits' trees decided in advance: those
+/// skip the three-way merge and take what they are given, and the pre-flight
+/// — a question about merges that are no longer going to happen — is asked
+/// only when nothing is decided.
+pub fn lift_with(
+    repo: &gix::Repository,
+    from: Option<gix::ObjectId>,
+    paths: Vec<String>,
+    prov: &Provenance,
+    invocation: (Option<i64>, Vec<String>),
+    decided: &rewrite::Decided,
+) -> Result<(LiftOutcome, verb::VerbContext)> {
+    let (now, argv) = invocation;
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -451,12 +742,20 @@ pub fn lift(
 
     let target = from.unwrap_or(tip);
     let target_tree = tree_of(repo, target)?;
-    let parent_tree = parent_tree_of(repo, target)?;
 
-    // The target's new tree: its own, with the selected paths reverted to
-    // the parent's content. No merge runs for the target itself — only its
-    // descendants merge, inside the plan.
-    let lifted = filtered(repo, target_tree, parent_tree, &paths)?;
+    // The triple the lift replays — the same one `held::replan` re-derives, so
+    // the verb and the replan cannot disagree.
+    let replan = replan_lift(repo, from, &paths)?;
+    // The target's new tree: its own, with the selected paths reverted to the
+    // parent's content. If the revert changes nothing there is nothing to lift.
+    let lifted = match &replan.change {
+        rewrite::Change::Tree { tree, .. } => *tree,
+        other => {
+            return Err(Error::msg(format!(
+                "internal: a lift replan is not a tree change: {other:?}"
+            )));
+        }
+    };
     if lifted == target_tree {
         return Ok((
             LiftOutcome::NothingToLift {
@@ -465,17 +764,43 @@ pub fn lift(
             ctx,
         ));
     }
+    let change = replan.change;
 
-    let plan = rewrite::plan(
-        repo,
-        target,
-        tip,
-        &rewrite::Change::Tree {
-            tree: lifted,
-            message: None,
-        },
-        now,
-    )?;
+    // Pre-flight the descendant replay with the same `change` `plan` will get:
+    // a conflict is a hold, and after a clean pre-flight `plan` cannot
+    // conflict. Skipped for a decided landing: its trees are already known,
+    // so the replay has nothing left to conflict on.
+    if decided.is_empty()
+        && let Some(conflict) = rewrite::conflict(repo, target, tip, &change)?
+    {
+        let held = Held {
+            intent: Intent::Lift {
+                from: target.to_string(),
+                paths: paths.clone(),
+            },
+            at: conflict.at.clone(),
+            paths: conflict.paths.clone(),
+            time: now,
+        };
+        return Ok((
+            LiftOutcome::Held(hold(
+                repo,
+                held::Recording {
+                    ctx: &ctx,
+                    prov,
+                    argv,
+                    now,
+                },
+                "lift",
+                &branch,
+                &held,
+                format!("hold lift from {}", short(repo, target)),
+                conflict.of,
+            )?),
+            ctx,
+        ));
+    }
+    let plan = rewrite::plan_with(repo, target, tip, &change, now, &decided.trees)?;
     let published = rewrite::published_count(repo, &branch, &plan)?;
 
     // Write-ahead: the planned table is the post-lift world. HEAD does not
@@ -496,6 +821,11 @@ pub fn lift(
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
+    if let Some(clearing) = &decided.clearing {
+        let (held, resolving) = crate::held::clearing_transitions(clearing);
+        record.held = held;
+        record.resolving = resolving;
+    }
 
     let mut pins: Vec<gix::ObjectId> = plan
         .rewrites
@@ -553,6 +883,15 @@ pub fn lift(
     }
 
     crate::index::write_index_for_tree(repo, tree_of(repo, plan.new_tip)?)?;
+
+    // A resolution landing: clear the hold and the session it resolved, so
+    // one `ff undo` of this op takes the whole resolution back. The tree is
+    // left standing, as every lift leaves it: what the lift took out of the
+    // commit is exactly what is open in it now.
+    if let Some(clearing) = &decided.clearing {
+        crate::held::set(repo, &clearing.branch, None)?;
+        crate::held::set_resolving(repo, &clearing.branch, None)?;
+    }
 
     let branch_ref = format!("refs/heads/{branch}");
     let moved: Vec<String> = plan

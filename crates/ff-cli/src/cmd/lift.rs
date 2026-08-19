@@ -98,6 +98,20 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
             }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
+        LiftOutcome::Held(report) => {
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "lift": serde_json::Value::Null,
+                    "held": report,
+                });
+                crate::machine::emit("lift", &payload)?;
+                crate::exit::held();
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            println!("{}", crate::render::held_block(&report, colored));
+            crate::exit::held();
+        }
         LiftOutcome::NothingToLift { from } => {
             if ctx.json {
                 let payload = serde_json::json!({

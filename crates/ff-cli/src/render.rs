@@ -108,8 +108,68 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     out.push_str(&status_header(&status, &model.futures, colored));
     out.push('\n');
 
-    // A running session is the most important fact about where you are
-    // standing, so it goes above the change.
+    // The resolution outranks the hold, and both outrank the session block:
+    // the more urgent fact about where you are standing goes highest, and a
+    // tree full of markers is the most urgent of the three — a hold is only
+    // waiting, and a session is only editing.
+    if let Some(resolving) = &model.resolving {
+        // Singular keeps the grammar honest: one conflict "is" in the tree.
+        let (noun, be) = if resolving.conflicts == 1 {
+            ("conflict", "is")
+        } else {
+            ("conflicts", "are")
+        };
+        // One painted line, no paint nested inside it — an inner reset would
+        // end the warn colour for the rest of the line.
+        out.push_str(&paint_warn(
+            &format!(
+                "resolving: {} {} from ff {} {} in your working tree",
+                resolving.conflicts, noun, resolving.verb, be,
+            ),
+            colored,
+        ));
+        out.push('\n');
+        out.push_str(&format!(
+            "    {hint}\n",
+            hint = paint_dim(
+                "fix the markers, then ff done · ff resolve --abandon to drop it",
+                colored
+            )
+        ));
+    }
+    if let Some(held) = &model.held {
+        let where_it_stopped = match &held.at {
+            ff_core::futures::At::Commit { id, subject } => format!(
+                "{} \"{}\"",
+                &id[..id.len().min(7)],
+                truncate_subject(subject)
+            ),
+            ff_core::futures::At::OpenChange => "your open change".to_string(),
+        };
+        // One painted line, no paint nested inside it — an inner reset would
+        // end the warn colour for the rest of the line.
+        out.push_str(&paint_warn(
+            &format!(
+                "held: ff {} conflicts at {} in {} {}",
+                held.verb,
+                where_it_stopped,
+                held.paths.len(),
+                noun(held.paths.len(), "file", "files"),
+            ),
+            colored,
+        ));
+        out.push('\n');
+        out.push_str(&format!(
+            "    {hint}\n",
+            hint = paint_dim(
+                "ff resolve to fix them · ff resolve --abandon to drop it",
+                colored
+            )
+        ));
+    }
+
+    // A running session is the least urgent of the three, so it goes below
+    // them and above the change.
     if let Some(session) = &model.session {
         let sha = &session.editing[..session.editing.len().min(8)];
         out.push_str(&format!(
@@ -328,6 +388,61 @@ fn truncate_subject(subject: &str) -> String {
     }
     truncated.push('\u{2026}');
     truncated
+}
+
+/// The block a rewrite verb prints when it holds. A hold reads like a report
+/// and not a refusal, because that is what it is: the intent is recorded, it
+/// survives until it lands or is dropped, and the two ways out are the last
+/// thing on screen.
+pub(crate) fn held_block(report: &ff_core::HeldReport, colored: bool) -> String {
+    let where_it_stopped = match &report.at {
+        ff_core::futures::At::Commit { id, subject } => format!(
+            "replaying {} \"{}\"",
+            &id[..id.len().min(7)],
+            truncate_subject(subject)
+        ),
+        // No verb of its own: a restack replays the open change onto a new
+        // base and an absorb folds it into a commit, and the block would have
+        // to know which. What it conflicts with is the same news either way.
+        ff_core::futures::At::OpenChange => "your open change".to_string(),
+    };
+    let mut out = paint_warn(
+        &format!(
+            "held: {where_it_stopped} conflicts in {}",
+            join_paths(&report.paths)
+        ),
+        colored,
+    );
+    // A fold never reaches a replay, so it has no commit count to give —
+    // saying "of 0 commits" would be answering a question nobody asked.
+    let scale = if report.of == 0 {
+        String::new()
+    } else {
+        format!(" of {} {}", report.of, noun(report.of, "commit", "commits"))
+    };
+    out.push_str(&format!(
+        "\n    the {}{scale} on {} is waiting — nothing was written",
+        report.verb, report.branch,
+    ));
+    out.push_str(&format!(
+        "\n    {}",
+        paint_dim(
+            "ff resolve to fix them, all at once · ff resolve --abandon to drop it",
+            colored
+        )
+    ));
+    out
+}
+
+/// Paths the way the rest of the tool prints them: all of them up to three,
+/// then the first three and a count. Mirrors `rewrite::join_paths`, which is
+/// crate-private to the engine and so cannot be shared.
+fn join_paths(paths: &[String]) -> String {
+    if paths.len() <= 3 {
+        paths.join(", ")
+    } else {
+        format!("{}, and {} more", paths[..3].join(", "), paths.len() - 3)
+    }
 }
 
 /// The one line the rewrite verbs print for commits a rewrite dropped —
@@ -903,7 +1018,15 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
             }
         }
     }
-    // An unfinished session is the more urgent fact, so it leads the notes.
+    // A held rewrite and an open resolution are worth the same notice an
+    // unfinished session is — standing work on that branch — and more
+    // urgent, so they lead the notes; a resolution outranks a hold, the
+    // same ordering `ff status` runs.
+    if info.resolving {
+        notes.push(paint_dim("resolving", colored));
+    } else if info.held {
+        notes.push(paint_dim("held", colored));
+    }
     if let Some(onto) = &info.session {
         notes.push(paint_dim(
             &format!("editing session, lands on {onto}"),

@@ -291,6 +291,8 @@ fn mint_session(
             forked_from: Some(at_short.to_string()),
             parent: None,
             session: Some(session),
+            held: None,
+            resolving: None,
         },
     )?;
     Ok(())

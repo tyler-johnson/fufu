@@ -1,8 +1,10 @@
 //! Per-branch metadata: the pending description (set by `ff new -m` /
 //! `ff describe`, consumed by the close), the fork base (display-only
 //! leaf cache, written once when a branch is minted), the explicit
-//! parent branch a `ff start` forked from, and the editing session the
-//! branch is sitting in, while it is unfinished. Plain files under
+//! parent branch a `ff start` forked from, the editing session the
+//! branch is sitting in while it is unfinished, the rewrite that
+//! conflicted and is waiting on the branch, and the resolution session
+//! open on it. Plain files under
 //! `<common-dir>/fufu/branch/<branch-path>` — the path mirrors the refs
 //! layout, so slashes need no encoding and file/directory conflicts are
 //! impossible for exactly the names git itself allows. Writes go through
@@ -46,6 +48,12 @@ pub struct BranchMeta {
     /// Set iff this branch is an unfinished editing session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<Session>,
+    /// Set iff a rewrite on this branch conflicted and is waiting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<crate::held::Held>,
+    /// Set iff a resolution session is open on this branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolving: Option<crate::held::Resolve>,
 }
 
 impl BranchMeta {
@@ -54,6 +62,8 @@ impl BranchMeta {
             && self.forked_from.is_none()
             && self.parent.is_none()
             && self.session.is_none()
+            && self.held.is_none()
+            && self.resolving.is_none()
     }
 }
 

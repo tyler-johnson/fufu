@@ -229,6 +229,13 @@ pub enum Command {
         #[arg(long)]
         abandon: bool,
     },
+    /// Materialize a held rewrite's conflicts and fix them, all at once
+    #[command(long_about = help::RESOLVE, after_long_help = help::RESOLVE_EXAMPLES)]
+    Resolve {
+        /// Drop the pending rewrite instead of resolving it
+        #[arg(long)]
+        abandon: bool,
+    },
     /// Manage lines of work: what exists, and removing one
     #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
     Branch {
@@ -496,6 +503,7 @@ impl Command {
             Command::Restack { .. } => "restack",
             Command::Edit { .. } => "edit",
             Command::Done { .. } => "done",
+            Command::Resolve { .. } => "resolve",
             Command::Hook { .. } => "hook",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
@@ -549,6 +557,7 @@ impl Command {
             | Command::Restack { .. }
             | Command::Edit { .. }
             | Command::Done { .. }
+            | Command::Resolve { .. }
             | Command::Hook { .. }
             | Command::Config { .. }
             | Command::Doctor { .. }

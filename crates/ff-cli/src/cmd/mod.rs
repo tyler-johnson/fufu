@@ -16,6 +16,7 @@ pub mod lift;
 pub mod log;
 pub mod map;
 pub mod op;
+pub mod resolve;
 pub mod restack;
 pub mod restore;
 pub mod shell;

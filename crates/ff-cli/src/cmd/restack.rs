@@ -103,6 +103,20 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
             }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
+        RestackOutcome::Held(report) => {
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "restack": serde_json::Value::Null,
+                    "held": report,
+                });
+                crate::machine::emit("restack", &payload)?;
+                crate::exit::held();
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            println!("{}", crate::render::held_block(&report, colored));
+            crate::exit::held();
+        }
         RestackOutcome::NothingToRestack { branch, base } => {
             if ctx.json {
                 let payload = serde_json::json!({

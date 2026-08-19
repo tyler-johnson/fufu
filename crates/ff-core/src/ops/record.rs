@@ -59,6 +59,22 @@ pub struct SessionTransition {
     pub new: Option<crate::branchmeta::Session>,
 }
 
+/// A held rewrite recorded or cleared on a branch (`None` = absent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldTransition {
+    pub branch: String,
+    pub old: Option<crate::held::Held>,
+    pub new: Option<crate::held::Held>,
+}
+
+/// A resolution session opened or ended on a branch (`None` = absent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolveTransition {
+    pub branch: String,
+    pub old: Option<crate::held::Resolve>,
+    pub new: Option<crate::held::Resolve>,
+}
+
 /// The machine record of one operation (`op.json`).
 ///
 /// `pre_snapshot` and `index_tree` are gone from the old journal shape
@@ -110,6 +126,16 @@ pub struct OpRecord {
     /// unrelated thing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit_session: Option<SessionTransition>,
+    /// A rewrite held or released. Recorded like a session, and for the same
+    /// reason: undo has to be able to put it back. No `RECORD_VERSION` bump
+    /// for this or `resolving`: both are optional and skipped when absent, so
+    /// a record written before they existed still reads, and one written now
+    /// still reads to an older binary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<HeldTransition>,
+    /// A resolution session opened or ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolving: Option<ResolveTransition>,
     /// The rewrite map: old→new for every commit this op rewrote. The log is
     /// already the authority and already pins the old commits, so undo and
     /// `ff trim` cover the map for free.
@@ -145,6 +171,8 @@ impl OpRecord {
             description: None,
             parent: None,
             edit_session: None,
+            held: None,
+            resolving: None,
             rewrites: Vec::new(),
             undo_of: None,
             undo_cursor: None,

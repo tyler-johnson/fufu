@@ -108,7 +108,12 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
             (Some(commit.clone()), Some(short))
         }
     };
-    let subject = crate::branchmeta::read(repo, &branch)?.pending_description;
+    // The pending description is advisory in a read: a lookup that cannot
+    // run is a missing line, never a failed one — the verbs that consume the
+    // description read it strictly, themselves.
+    let subject = crate::branchmeta::read(repo, &branch)
+        .ok()
+        .and_then(|meta| meta.pending_description);
 
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
     let log = OpLog::open(repo)?;

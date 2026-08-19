@@ -240,6 +240,8 @@ fn mint_branch(
             forked_from: Some(forked_from.to_string()),
             parent: parent.map(str::to_string),
             session: None,
+            held: None,
+            resolving: None,
         },
     )?;
     Ok(())

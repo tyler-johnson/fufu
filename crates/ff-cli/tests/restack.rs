@@ -201,7 +201,7 @@ fn restack_onto_self_is_exit_2() {
 }
 
 #[test]
-fn restack_conflict_is_exit_3() {
+fn restack_conflict_holds_at_exit_3() {
     let fx = repo();
     fx.write("f.txt", "x\nrest\n");
     fx.commit("base");
@@ -216,20 +216,54 @@ fn restack_conflict_is_exit_3() {
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
     let output = ff(&fx, &["restack"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
-    let err = stderr(&output);
-    assert!(
-        err.contains("f.txt"),
-        "the message must name the path: {err}"
-    );
 
-    let v = json(&ff(&fx, &["--json", "restack"]));
-    assert_eq!(v["error"]["id"], "held/rewrite-conflict");
+    // A hold is an outcome, so it reports on stdout — and still owes the
+    // shell a 3, because nothing moved.
+    let so = stdout(&output);
+    assert!(
+        so.contains("held:"),
+        "a hold reports rather than refuses: {so}"
+    );
+    assert!(so.contains("f.txt"), "the report must name the path: {so}");
+    assert!(
+        so.contains("ff resolve"),
+        "the report must name the way out: {so}"
+    );
 
     assert_eq!(
         feature_before,
         fx.git(&["rev-parse", "feature"]).trim(),
         "the tip must not move"
     );
+
+    // The second one meets the standing hold rather than recording another:
+    // one hold per branch, until it lands or is dropped.
+    let again = ff(&fx, &["--json", "restack"]);
+    assert_eq!(again.status.code(), Some(3), "{}", out(&again));
+    assert_eq!(json(&again)["error"]["id"], "held/already-held");
+}
+
+#[test]
+fn a_restack_hold_is_an_outcome_in_json() {
+    let fx = repo();
+    fx.write("f.txt", "x\nrest\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "A\nrest\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "B\nrest\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let output = ff(&fx, &["--json", "restack"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert!(v["error"].is_null(), "a hold is not an error envelope: {v}");
+    assert_eq!(v["data"]["held"]["verb"], "restack");
+    assert_eq!(v["data"]["held"]["branch"], "feature");
+    assert_eq!(v["data"]["held"]["at"]["what"], "commit");
+    assert_eq!(v["data"]["held"]["paths"][0], "f.txt");
 }
 
 #[test]

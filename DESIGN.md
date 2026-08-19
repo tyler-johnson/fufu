@@ -365,18 +365,37 @@ Git's sequential stop-fix-continue rebase exists because each replayed commit
 changes the base of the next. jj escapes it by letting conflicts live inside
 commits and propagate to descendants; fufu runs the same propagation **in
 memory**: each step of the held rewrite replays against the previous step's
-result, unresolved regions carried forward as literal marker content, conflicts
-that later commits resolve anyway vanishing along the way. `ff resolve` then
-presents every *surviving* region in the working tree in one editing session —
-ordinary conflict markers, each labeled with the commit that owns it
-(`<<<<<<< rebasing "add parser options" (3/10)`). `ff done` ends the session:
+result, unresolved regions carried forward as literal marker content, and a
+commit whose own changes land clear of the marks replaying over them untouched.
+jj's conflicts also *simplify* as they propagate, because they are expressions;
+fufu's are text, and text does not simplify itself — what a later commit can do
+is leave a mark alone, not dissolve it. `ff resolve` then presents every
+standing region in the working tree in one editing session — ordinary conflict
+markers, both sides labeled with the step that wrote them
+(`>>>>>>> rebasing "add parser options" (3/10)`), the incoming side carrying the
+commit because that is where git puts it and therefore where a reader already
+looks. Those labels are not decoration: they are the only thing that survives
+into the tree saying which step a region belongs to, and they are what the
+landing attributes each edit against. `ff done` ends the session:
 resolutions are absorbed back into their owning steps (the `ff absorb` machinery
 pointed at the replay), the chain re-runs in memory, and the whole rebased stack
 lands at once: refs move
 one time, every landed commit clean, no conflicted state ever existing in the
-graph. When same-line conflicts chain across commits the carried markers nest —
-jj's notorious ergonomic wart — so `ff resolve --step` keeps the sequential
-per-commit mode available, and fufu recommends it when nesting runs deep.
+graph. When two commits conflict on the same region the carried markers do not
+nest, they interleave — the earlier block stops bracketing anything — which is
+jj's notorious ergonomic wart wearing git's clothes. So the chain stops rather
+than write one: `ff resolve` presents the steps before the tangle, and what is
+left is held again. A stack of tangles unwinds one round at a time, without
+anyone having to know the word. `ff resolve --step` keeps the sequential
+per-commit mode for when that is the shape you want anyway.
+
+What a hold records is the verb's own question — the branch, the target, what it
+was asked to become — and never the plan it could not finish computing. That is
+what makes revalidation a recomputation rather than a comparison: nothing has to
+be pinned, because every input is a ref or the working tree; the pending rewrite
+replaying over whatever you add costs nothing, because the replan sees what you
+added; and a target that has gone, or moved out of history, expires the hold at
+the moment somebody asks rather than at some sweep that has to be scheduled.
 
 Held rewrites obey cache-not-authority: a held intent is revalidated against the
 repository as it is *now* before materializing. If the world moved underneath it —
@@ -402,7 +421,7 @@ disciplines:
 
 Deferred and quiet is how work rots; deferred and loud is the whole trick.
 
-All three disciplines presuppose somewhere for a hold to go. Until `ff resolve` exists there is nowhere, so a conflicting rewrite does not hold — it refuses: exit 3, nothing written, naming the commit it stopped on and the paths that stopped it. That is the answer a hold would eventually give at the same moment. It simply cannot be deferred yet.
+A hold is a thing that happened, so it reports like one: the verb succeeds, says what conflicts and where, and exits 3 — the code that already means nothing was touched and a human decision is required. Blocked exits wait for `ff sync` to have an exit to block; the other two disciplines ship with the hold.
 
 ## Command surface
 
@@ -859,12 +878,17 @@ a working development machine.
   jog-style) versus live (post-commit / reference-transaction hooks). jog's
   no-git-hooks stance is in tension with how fresh the ambient status channel
   can be.
-- **Held-rewrite composition** — multiple holds on one stack: ordering, whether
-  a new operation queues behind a hold or applies to reality beneath it, and
-  expiry/abandon semantics.
-- **Resolution absorb-back edges** — edits outside any marked region during
-  `ff resolve` need an owner (nearest region's step, or ask); when nested
-  markers should trigger the recommendation to fall back to `--step`.
+- **Held-rewrite composition** — one hold per branch is settled: a second
+  *conflicting* rewrite refuses rather than guessing an order, while one that
+  would land cleanly is not competing for anything and goes through. What stays
+  open is ordering across a stack of branches, and whether a hold should ever
+  expire on its own rather than at the next question.
+- **Resolution absorb-back edges** — settled: an edit outside every marked
+  region belongs to the last step, because the marker tree *is* the
+  post-rewrite tip's tree, so nothing lands in a commit the reader never looked
+  at. What stays open is the second round — a tangle is held again rather than
+  materialized, so the reader fixes what they were shown and is told there is
+  more, without being shown it until they ask.
 - **Edit-session boundaries** — fufu's own verbs are settled (close verbs
   attempt `done` land-if-clean; `ff switch` parks the session; explicit
   abandon), but: what a *foreign* switch or commit does to an open session;

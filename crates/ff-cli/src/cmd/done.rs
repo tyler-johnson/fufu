@@ -81,6 +81,20 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
             }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
+        DoneOutcome::Held(report) => {
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "done": serde_json::Value::Null,
+                    "held": report,
+                });
+                crate::machine::emit("done", &payload)?;
+                crate::exit::held();
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            println!("{}", crate::render::held_block(&report, colored));
+            crate::exit::held();
+        }
         DoneOutcome::Abandoned(report) => {
             if ctx.json {
                 let payload = serde_json::json!({
@@ -91,21 +105,74 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            println!(
-                "abandoned the session on {} \"{}\"",
-                crate::render::paint_sha(&report.editing[..report.editing.len().min(8)], colored),
-                report.subject
-            );
-            if let Some(stash) = &report.stashed {
-                // Nothing was lost: say where it went.
+            if report.editing.is_empty() {
+                // A resolution, not an editing session: there is no commit
+                // being edited to name, and saying so with an empty sha and
+                // an empty subject is worse than saying what happened. You
+                // never left the branch either, so there is nothing to say
+                // about coming back to it.
+                println!("abandoned the resolution on {}", report.onto);
                 println!(
-                    "stashed the session's edits ({})",
-                    crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+                    "{}",
+                    crate::render::paint_dim("your open change is open again", colored)
                 );
+            } else {
+                println!(
+                    "abandoned the session on {} \"{}\"",
+                    crate::render::paint_sha(
+                        &report.editing[..report.editing.len().min(8)],
+                        colored
+                    ),
+                    report.subject
+                );
+                if let Some(stash) = &report.stashed {
+                    // Nothing was lost: say where it went.
+                    println!(
+                        "stashed the session's edits ({})",
+                        crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+                    );
+                }
+                println!("back on {}", report.onto);
+                crate::cmd::switch::render_arrival(&report.arrival, colored);
             }
-            println!("back on {}", report.onto);
-            crate::cmd::switch::render_arrival(&report.arrival, colored);
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+        }
+        DoneOutcome::Resolved(report) => {
+            if ctx.json {
+                let mut payload = serde_json::json!({
+                    "done": report,
+                    "undo": "ff undo",
+                });
+                if let Some(held) = &report.still_held {
+                    payload["held"] = serde_json::json!(held);
+                }
+                crate::machine::emit("done", &payload)?;
+                if report.still_held.is_some() {
+                    crate::exit::held();
+                }
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            let fixed = report.fixed;
+            println!(
+                "resolved {} conflict{}; replayed {} commit{}",
+                fixed,
+                if fixed == 1 { "" } else { "s" },
+                report.replayed,
+                if report.replayed == 1 { "" } else { "s" }
+            );
+            println!(
+                "{} is now at {}",
+                report.branch,
+                crate::render::paint_sha(&report.new_tip[..report.new_tip.len().min(8)], colored)
+            );
+            println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+            if let Some(held) = &report.still_held {
+                // A rewrite is still waiting: render the hold and say so to
+                // the shell, the way a plain hold does.
+                println!("{}", crate::render::held_block(held, colored));
+                crate::exit::held();
+            }
         }
     }
     Ok(())

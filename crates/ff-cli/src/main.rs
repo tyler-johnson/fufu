@@ -4,6 +4,7 @@ mod capture;
 mod cli;
 mod cmd;
 mod ctx;
+mod exit;
 mod explain;
 mod graph;
 mod help;
@@ -139,6 +140,7 @@ fn main() {
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
         Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
+        Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(&ctx, kind),
         Some(cli::Command::Config {
             key,
@@ -165,5 +167,7 @@ fn main() {
     // is pure latency. Stdout is flushed explicitly first.
     use std::io::Write;
     let _ = std::io::stdout().flush();
-    std::process::exit(0);
+    // Not always zero: a held rewrite succeeds, reports, and still owes the
+    // shell a 3 — nothing was touched and a human decision is required.
+    std::process::exit(exit::code());
 }

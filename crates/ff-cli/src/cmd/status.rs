@@ -24,6 +24,41 @@ pub struct StatusModel {
     pub futures: ff_core::futures::Futures,
     /// An editing session running on the branch underfoot, if one is.
     pub session: Option<SessionStatus>,
+    /// A rewrite held on the branch underfoot — a conflict that stopped a
+    /// replay and is waiting for `ff resolve`.
+    pub held: Option<HeldStatus>,
+    /// A resolution open on the branch underfoot: the hold's conflicts are
+    /// standing in the working tree right now, waiting for `ff done`.
+    pub resolving: Option<ResolvingStatus>,
+}
+
+/// A rewrite held on the branch underfoot, as `ff status --json` spells it.
+/// Carried, not recomputed: the count and the wording both come from what
+/// the hold recorded, so a status render never replays a chain.
+#[derive(serde::Serialize)]
+pub struct HeldStatus {
+    /// The verb that recorded the hold: restack, done, absorb or lift.
+    pub verb: String,
+    /// Where the replay stopped — the commit it could not reapply, or the
+    /// open change — spelled the way a report spells it.
+    pub at: ff_core::futures::At,
+    /// The files the conflict stands in.
+    pub paths: Vec<String>,
+    /// Unix seconds when it was held.
+    pub time: i64,
+}
+
+/// A resolution open on the branch underfoot, as `ff status --json` spells
+/// it. The conflicts are counted off what the session recorded, not off the
+/// working tree: a status render never runs a chain.
+#[derive(serde::Serialize)]
+pub struct ResolvingStatus {
+    /// The verb whose rewrite the session is resolving.
+    pub verb: String,
+    /// The conflicts standing in the working tree.
+    pub conflicts: usize,
+    /// Each step's subject, oldest-first — what the session will land.
+    pub steps: Vec<String>,
 }
 
 /// An editing session running on the branch underfoot.
@@ -167,6 +202,34 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         _ => None,
     };
 
+    // A rewrite held on the branch underfoot, and the resolution, if one is
+    // open on it. Both read the branch's metadata and nothing else — the
+    // counts are carried, so a status render never replays a chain — and
+    // they follow the session block's rule exactly: a lookup that cannot
+    // run is a missing line, never a failed `ff status`.
+    let (held, resolving) = match &status.head {
+        ff_core::HeadState::Branch { name, .. } => {
+            let compute = || -> ff_core::Result<(Option<HeldStatus>, Option<ResolvingStatus>)> {
+                let meta = ff_core::branchmeta::read(&repo, name)?;
+                Ok((
+                    meta.held.as_ref().map(|h| HeldStatus {
+                        verb: verb_of(&h.intent).to_string(),
+                        at: h.at.clone(),
+                        paths: h.paths.clone(),
+                        time: h.time,
+                    }),
+                    meta.resolving.as_ref().map(|r| ResolvingStatus {
+                        verb: verb_of(&r.hold.intent).to_string(),
+                        conflicts: r.hold.paths.len(),
+                        steps: r.steps.clone(),
+                    }),
+                ))
+            };
+            compute().unwrap_or((None, None))
+        }
+        _ => (None, None),
+    };
+
     // Build the single data model both renderers consume
     let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
     let model = StatusModel {
@@ -203,6 +266,8 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         }),
         futures,
         session,
+        held,
+        resolving,
     };
 
     let now = now_secs();
@@ -226,6 +291,16 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
 
 fn render_json(model: &StatusModel) -> Result<()> {
     crate::machine::emit("status", model)
+}
+
+/// The verb a hold was recorded by, the way a report names it.
+fn verb_of(intent: &ff_core::held::Intent) -> &'static str {
+    match intent {
+        ff_core::held::Intent::Restack { .. } => "restack",
+        ff_core::held::Intent::Done { .. } => "done",
+        ff_core::held::Intent::Absorb { .. } => "absorb",
+        ff_core::held::Intent::Lift { .. } => "lift",
+    }
 }
 
 /// Reconcile (best-effort — status must never fail because the operation log

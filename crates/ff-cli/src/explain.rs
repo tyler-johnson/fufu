@@ -590,11 +590,84 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "held/rewrite-conflict",
         summary: "the rewrite stops at a commit it cannot replay",
-        detail: "The replay reached a commit whose changes cannot be reapplied over the rewrite, \
-                 so nothing was written. Conflicts are not parked yet — there is no half-done \
-                 state to resolve — so the rewrite has to be made smaller, or the change \
-                 committed on its own first and the rewrite run around it.",
-        exits: &["ff status", "ff absorb --into <rev>", "ff commit -m <msg>"],
+        detail: "The replay reached a commit whose changes cannot be reapplied over the \
+                 rewrite, so nothing was written. A verb asks this question before it plans \
+                 and records a hold instead, so this is the engine answering someone who \
+                 did not ask first — which, from the command line, should not happen.",
+        exits: &["ff status", "ff resolve"],
+    },
+    Entry {
+        id: "held/expired",
+        summary: "the held rewrite no longer has a question to answer",
+        detail: "A hold records what you asked for, not the plan it could not finish \
+                 computing, so it is asked again against the repository as it stands rather \
+                 than replayed from what it stored. This time there was no answer: the base \
+                 branch is gone, or the commit it aimed at has left the branch's history, or \
+                 the editing session it was going to land was ended by hand. Nothing was \
+                 written and the hold is still there — dropping it is a decision, and this is \
+                 only the report that it has outlived its meaning.",
+        exits: &["ff resolve --abandon", "ff status", "ff log"],
+    },
+    Entry {
+        id: "held/already-held",
+        summary: "a rewrite is already held on this branch",
+        detail: "One hold per branch. Several holds on one stack would have to agree an \
+                 order — which queues behind which, and what the second one is even \
+                 replaying over — and fufu has not answered that, so a second conflicting \
+                 rewrite refuses rather than guessing. Resolve or drop the one standing and \
+                 the branch is free again. A rewrite that would land cleanly is not refused: \
+                 it is not competing for anything, and the hold re-derives itself the next \
+                 time it is asked.",
+        exits: &["ff resolve", "ff resolve --abandon", "ff status"],
+    },
+    Entry {
+        id: "held/none",
+        summary: "nothing is held on this branch",
+        detail: "ff resolve deals with a held rewrite — a conflict one of the verbs recorded \
+                 instead of interrupting you — and this branch has no such record. It either \
+                 never happened, or was already dealt with: re-running the verb that recorded \
+                 it will land it, and ff status says what is actually open on the branch.",
+        exits: &["ff status", "ff log"],
+    },
+    Entry {
+        id: "held/resolving",
+        summary: "a resolution is already open on this branch",
+        detail: "Re-running ff resolve would materialize the same conflicts again over the \
+                 very edits the open session is collecting, so it refuses instead. The \
+                 markers are in your working tree right now: fix them and the rewrite lands, \
+                 or ff resolve --abandon drops the session and the hold together.",
+        exits: &["ff done", "ff resolve --abandon", "ff status"],
+    },
+    Entry {
+        id: "held/moved",
+        summary: "the repository changed while the resolution was open",
+        detail: "A resolution session is built on the conflicts it was given, and ff done \
+                 re-derives them before it lands anything. This time they came out different: \
+                 a commit landed, a branch moved, or the base changed while the markers were \
+                 in your working tree, so the fixes would land in the wrong place. Nothing \
+                 moved. Re-resolve to look at the conflicts as they stand now, or abandon \
+                 to drop the session and the hold together.",
+        exits: &["ff resolve", "ff resolve --abandon", "ff status"],
+    },
+    Entry {
+        id: "held/unresolved",
+        summary: "conflict markers are still standing in the working tree",
+        detail: "ff done attributes your fixes to the commits that owned each region, and a \
+                 region still carrying its markers is a fix that is not finished — or a fix \
+                 that created a conflict further up the stack. Nothing moved: the branch, \
+                 the hold and the session all stand exactly as they did. Fix what remains, \
+                 then ff done again, or ff resolve --abandon to start from the hold.",
+        exits: &["ff status", "ff resolve --abandon"],
+    },
+    Entry {
+        id: "held/unsupported",
+        summary: "the held rewrite selected paths, and the open change reaches beyond them",
+        detail: "A filtered absorb or lift rewrites only the paths it selected, so the \
+                 markers it lays down would overwrite open changes standing outside that \
+                 filter — work lost, which fufu does not do silently. Commit the change you \
+                 want kept (ff commit), or drop the hold (ff resolve --abandon) and re-run \
+                 the verb with the paths it should actually select.",
+        exits: &["ff commit -m <msg>", "ff resolve --abandon", "ff status"],
     },
     Entry {
         id: "rewrite/merge-in-range",

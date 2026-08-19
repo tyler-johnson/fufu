@@ -137,7 +137,7 @@ fn absorb_nothing_to_absorb_exits_zero() {
 }
 
 #[test]
-fn absorb_conflict_exits_three() {
+fn absorb_conflict_holds_at_exit_3() {
     let fx = repo();
     fx.write("f.txt", "x\nrest\n");
     fx.commit("base");
@@ -156,14 +156,19 @@ fn absorb_conflict_exits_three() {
 
     let output = ff(&fx, &["absorb", "--into", c1.as_str()]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
-    let err = stderr(&output);
-    assert!(
-        err.contains("f.txt"),
-        "the message must name the path: {err}"
-    );
 
-    let v = json(&ff(&fx, &["--json", "absorb", "--into", c1.as_str()]));
-    assert_eq!(v["error"]["id"], "held/rewrite-conflict");
+    // A hold is an outcome: it reports on stdout and still owes the shell a
+    // 3, because nothing moved.
+    let so = stdout(&output);
+    assert!(
+        so.contains("held:"),
+        "a hold reports rather than refuses: {so}"
+    );
+    assert!(so.contains("f.txt"), "the report must name the path: {so}");
+    assert!(
+        so.contains("your open change"),
+        "the fold conflicts with the open change, not with a commit: {so}"
+    );
 
     assert_eq!(
         main_before,
@@ -175,6 +180,11 @@ fn absorb_conflict_exits_three() {
         fx.git(&["rev-parse", "mid"]).trim(),
         "the branch must not move"
     );
+
+    // The second one meets the standing hold rather than recording another.
+    let again = ff(&fx, &["--json", "absorb", "--into", c1.as_str()]);
+    assert_eq!(again.status.code(), Some(3), "{}", out(&again));
+    assert_eq!(json(&again)["error"]["id"], "held/already-held");
 }
 
 #[test]

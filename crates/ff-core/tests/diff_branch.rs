@@ -94,6 +94,8 @@ fn claim_carries_chain_parked_entry_and_metadata() {
             forked_from: None,
             parent: None,
             session: None,
+            held: None,
+            resolving: None,
         },
     )
     .unwrap();
@@ -293,6 +295,8 @@ fn list_segregates_and_annotates() {
             forked_from: None,
             parent: None,
             session: None,
+            held: None,
+            resolving: None,
         },
     )
     .unwrap();

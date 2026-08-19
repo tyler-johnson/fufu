@@ -294,7 +294,7 @@ fn done_on_the_tip_is_an_amend() {
 }
 
 #[test]
-fn a_conflicting_replay_refuses() {
+fn a_conflicting_replay_holds_and_leaves_the_session_open() {
     let fx = Fixture::new();
     ident(&fx);
 
@@ -307,7 +307,7 @@ fn a_conflicting_replay_refuses() {
     fx.write("shared.txt", "line1\nc1-edit\nline3\n");
     let c1 = fx.commit("c1");
     fx.write("shared.txt", "line1\nc2-edit\nline3\n");
-    let _c2 = fx.commit("c2");
+    let c2 = fx.commit("c2");
     fx.write("c3.txt", "c3\n");
     let c3 = fx.commit("c3");
     fx.git(&["branch", "mid", &c1]);
@@ -317,19 +317,50 @@ fn a_conflicting_replay_refuses() {
     fx.write("shared.txt", "line1\nsession-edit\nline3\n");
 
     let before = loose_objects(&fx);
-    let err = done_err(&fx, false, NOW + 100);
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
     let after = loose_objects(&fx);
 
-    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
+    let report = match outcome {
+        DoneOutcome::Held(r) => r,
+        other => panic!("a conflicting replay must hold, got {other:?}"),
+    };
 
-    // The refusal still appends its pre-verb capture and assembles the
-    // exact worktree tree, so the loose count is not the property that
-    // failed — it goes up regardless. What actually proves nothing moved is
-    // below: no ref moved, no `done` op landed, the session is intact.
+    assert_eq!(report.verb, "done");
+    assert_eq!(report.branch, edit_report.session);
+    assert_eq!(
+        report.at,
+        ff_core::futures::At::Commit {
+            id: c2.clone(),
+            subject: "c2".into()
+        },
+        "the report names the commit the replay stopped on"
+    );
+    assert!(
+        report.paths.iter().any(|p| p == "shared.txt"),
+        "the report must name the conflicting path: {:?}",
+        report.paths
+    );
+
+    // The hold still appends its pre-verb capture and assembles the exact
+    // worktree tree, so the loose count goes up regardless. What actually
+    // proves nothing moved is below: no ref moved, no `done` op landed, and
+    // the session is intact.
     assert!(
         after > before,
-        "a refusal still writes its pre-verb capture and the assembled tree"
+        "a hold still writes its pre-verb capture and the assembled tree"
     );
+
+    // The hold is recorded on the session branch — the branch underfoot and
+    // the one `ff resolve` will find — naming the session it landed.
+    let held = ff_core::held::of(&fx.repo(), &edit_report.session)
+        .unwrap()
+        .expect("the hold must stand on the session branch");
+    match &held.intent {
+        ff_core::held::Intent::Done { session } => {
+            assert_eq!(session, &edit_report.session);
+        }
+        other => panic!("the intent must be Done, got {other:?}"),
+    }
 
     assert_eq!(
         fx.git(&["rev-parse", "main"]).trim(),
@@ -349,7 +380,7 @@ fn a_conflicting_replay_refuses() {
             onto: "main".into(),
             at: c1,
         }),
-        "the session branch's metadata must still hold the session"
+        "the session must still be open for ff resolve or a clean retry"
     );
     assert_eq!(
         fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
@@ -357,9 +388,9 @@ fn a_conflicting_replay_refuses() {
         "HEAD must still be on the session branch"
     );
     let ops = ff_core::ops::read_ops(&fx.repo(), 1).unwrap();
-    assert_ne!(
-        ops[0].verb, "done",
-        "no done op may land on a refused replay"
+    assert_eq!(
+        ops[0].verb, "hold",
+        "the newest op must be the hold, not a landed done"
     );
 }
 

@@ -301,7 +301,7 @@ fn absorb_writes_no_files() {
 }
 
 #[test]
-fn absorb_conflict_refuses_with_exit_3() {
+fn a_conflicting_fold_holds_and_moves_nothing() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("f.txt", "x\nrest\n");
@@ -317,20 +317,11 @@ fn absorb_conflict_refuses_with_exit_3() {
     // the open change rewrites it a third way. Folding it into c1 conflicts.
     fx.write("f.txt", "C\nrest\n");
 
-    // Prime the op log: the first fufu call on a fixture bootstraps it from
-    // observed state, which would otherwise masquerade as the refusal's
-    // mutation.
-    ff_core::ops::reconcile(&fx.repo(), NOW).unwrap();
     let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
     let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
-    let count_before: i64 = fx
-        .git(&["rev-list", "--all", "--count"])
-        .trim()
-        .parse()
-        .unwrap();
 
     let repo = fx.repo();
-    let err = ff_core::absorb::absorb(
+    let (outcome, _ctx) = ff_core::absorb::absorb(
         &repo,
         Some(oid(&c1)),
         Vec::new(),
@@ -338,39 +329,52 @@ fn absorb_conflict_refuses_with_exit_3() {
         Some(NOW),
         vec!["ff".into(), "absorb".into()],
     )
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
-    assert!(
-        err.to_string().contains("f.txt"),
-        "the message must name the path: {err}"
-    );
-    assert_eq!(fx.git(&["rev-parse", "main"]).trim(), main_before);
-    assert_eq!(fx.git(&["rev-parse", "mid"]).trim(), mid_before);
+    let report = match outcome {
+        ff_core::AbsorbOutcome::Held(r) => r,
+        other => panic!("a conflicting fold must hold, got {other:?}"),
+    };
 
-    // The refusal itself appends no operation. The count may grow by exactly
-    // one: the capture of the open worktree fufu observed while deciding is
-    // logged for every dirty capture, conflict refusal included (the brief's
-    // "count unchanged" cannot hold — capturing is step 5, the conflict is
-    // step 8, and the capture is a logged fact). The new tip must not be the
-    // absorb.
-    let count_after: i64 = fx
-        .git(&["rev-list", "--all", "--count"])
-        .trim()
-        .parse()
-        .unwrap();
+    assert_eq!(report.verb, "absorb");
     assert_eq!(
-        count_after,
-        count_before + 1,
-        "the only new object is the worktree capture; the refusal appends no op"
+        report.at,
+        ff_core::futures::At::OpenChange,
+        "the fold cannot apply the open change to the target"
     );
-    let tip_subject = fx
-        .git(&["log", "-1", "--format=%s", "refs/fufu/ops"])
-        .trim()
-        .to_string();
     assert!(
-        !tip_subject.starts_with("absorb into"),
-        "the log tip must not be an absorb op: {tip_subject}"
+        report.paths.iter().any(|p| p == "f.txt"),
+        "the report must name the conflicting path: {:?}",
+        report.paths
+    );
+
+    // The hold is recorded on the branch underfoot, naming the target and
+    // carrying the (empty) path filter the user gave.
+    let held = ff_core::held::of(&fx.repo(), "main")
+        .unwrap()
+        .expect("the hold must stand on the branch underfoot");
+    match &held.intent {
+        ff_core::held::Intent::Absorb { into, paths } => {
+            assert_eq!(into, &c1);
+            assert!(paths.is_empty(), "no filter was given");
+        }
+        other => panic!("the intent must be Absorb, got {other:?}"),
+    }
+
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        main_before,
+        "a hold moves no ref"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "mid"]).trim(),
+        mid_before,
+        "a hold moves no ref"
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 1).unwrap();
+    assert_eq!(
+        ops[0].verb, "hold",
+        "the newest op must be the hold, not an absorb"
     );
 }
 
@@ -571,7 +575,7 @@ fn lift_everything_drops_the_commit() {
 }
 
 #[test]
-fn lift_descendant_conflict_refuses() {
+fn a_conflicting_lift_holds_and_moves_nothing() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("f0.txt", "base\n");
@@ -579,17 +583,17 @@ fn lift_descendant_conflict_refuses() {
     fx.write("doc.txt", "v1\n");
     let c1 = fx.commit("c1");
     fx.write("doc.txt", "v2\n");
-    let _c2 = fx.commit("c2");
+    let c2 = fx.commit("c2");
     fx.git(&["branch", "mid"]);
 
     // c2 edited the file c1 created; lifting the file out of c1 would make
-    // c2's edit a modification of nothing — a modify/delete conflict the
-    // restack must refuse.
+    // c2's edit a modification of nothing — a modify/delete conflict that
+    // holds the lift.
     let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
     let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
 
     let repo = fx.repo();
-    let err = ff_core::absorb::lift(
+    let (outcome, _ctx) = ff_core::absorb::lift(
         &repo,
         Some(oid(&c1)),
         vec!["doc.txt".into()],
@@ -597,15 +601,50 @@ fn lift_descendant_conflict_refuses() {
         Some(NOW),
         vec!["ff".into(), "lift".into()],
     )
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
-    assert!(
-        err.to_string().contains("doc.txt"),
-        "the message must name the path: {err}"
+    let report = match outcome {
+        ff_core::LiftOutcome::Held(r) => r,
+        other => panic!("a conflicting lift must hold, got {other:?}"),
+    };
+
+    assert_eq!(report.verb, "lift");
+    assert_eq!(
+        report.at,
+        ff_core::futures::At::Commit {
+            id: c2.clone(),
+            subject: "c2".into()
+        },
+        "the report names the descendant that cannot replay"
     );
-    assert_eq!(fx.git(&["rev-parse", "main"]).trim(), main_before);
-    assert_eq!(fx.git(&["rev-parse", "mid"]).trim(), mid_before);
+
+    // The hold names the target and records the paths that were lifted.
+    let held = ff_core::held::of(&fx.repo(), "main")
+        .unwrap()
+        .expect("the hold must stand on the branch underfoot");
+    match &held.intent {
+        ff_core::held::Intent::Lift { from, paths } => {
+            assert_eq!(from, &c1);
+            assert_eq!(paths, &vec!["doc.txt".to_string()]);
+        }
+        other => panic!("the intent must be Lift, got {other:?}"),
+    }
+
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        main_before,
+        "a hold moves no ref"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "mid"]).trim(),
+        mid_before,
+        "a hold moves no ref"
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 1).unwrap();
+    assert_eq!(
+        ops[0].verb, "hold",
+        "the newest op must be the hold, not a lift"
+    );
 }
 
 #[test]

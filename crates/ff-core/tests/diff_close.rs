@@ -158,6 +158,8 @@ fn pending_description_is_consumed_by_the_close() {
             forked_from: None,
             parent: None,
             session: None,
+            held: None,
+            resolving: None,
         },
     )
     .unwrap();
@@ -189,6 +191,8 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
             forked_from: None,
             parent: None,
             session: None,
+            held: None,
+            resolving: None,
         },
     )
     .unwrap();

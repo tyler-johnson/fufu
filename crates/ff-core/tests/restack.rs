@@ -2,6 +2,7 @@
 //! different base, with the open change carried onto the new tip exactly
 //! when the worktree stands on — or inside — the branch being moved.
 
+use ff_core::futures::At;
 use ff_core::gix;
 use ff_core::{Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
@@ -263,14 +264,14 @@ fn restack_fast_forward_moves_the_ref() {
 }
 
 #[test]
-fn restack_conflict_refuses_and_touches_nothing() {
+fn restack_conflict_holds_and_touches_nothing() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("f.txt", "one\n");
     fx.commit("base");
     fx.git(&["switch", "-q", "-c", "feature"]);
     fx.write("f.txt", "two\n");
-    fx.commit("f1");
+    let f1 = fx.commit("f1");
     fx.git(&["switch", "-q", "main"]);
     fx.write("f.txt", "three\n");
     fx.commit("m1");
@@ -279,24 +280,30 @@ fn restack_conflict_refuses_and_touches_nothing() {
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
     let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
 
-    let repo = fx.repo();
-    let err = ff_core::restack::restack(
-        &repo,
-        None,
-        None,
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "restack".into()],
-    )
-    .expect_err("editing the same line on both sides must refuse");
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("editing the same line on both sides must hold, got {other:?}"),
+    };
 
-    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
+    assert_eq!(report.branch, "feature");
+    assert_eq!(
+        report.at,
+        At::Commit {
+            id: f1.clone(),
+            subject: "f1".into()
+        },
+        "the report names the commit the replay stopped on"
+    );
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
     assert_eq!(fx.git(&["rev-parse", "feature"]).trim(), feature_before);
     assert_eq!(fx.git(&["rev-parse", "main"]).trim(), main_before);
     // `begin_verb` captures before every verb (legitimately writing objects
-    // of its own), so the log tip moving proves nothing; what must not be
-    // there is a restack operation.
-    assert_ne!(tip_record(&fx.repo()).verb, "restack");
+    // of its own), so the log tip moving proves nothing; what must be
+    // there is the hold's own operation.
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "hold");
+    assert!(record.held.is_some_and(|t| t.new.is_some()));
 }
 
 #[test]

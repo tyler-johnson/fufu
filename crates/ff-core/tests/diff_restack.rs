@@ -6,6 +6,7 @@
 //! instead. And a restack of a branch you are not standing on must leave the
 //! worktree untouched: refs and objects only.
 
+use ff_core::futures::At;
 use ff_core::gix;
 use ff_testsupport::Fixture;
 
@@ -413,7 +414,7 @@ fn restack_off_branch_writes_no_file() {
 }
 
 #[test]
-fn restack_refusal_leaves_the_world_alone() {
+fn restack_conflict_holds_and_leaves_the_world_alone() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("f.txt", "1\n2\n3\n4\n5\n");
@@ -422,7 +423,7 @@ fn restack_refusal_leaves_the_world_alone() {
     // Same line, both sides: main's line-3 edit and feature's line-3 edit
     // disagree, so the replay of f1 onto main's new tip conflicts.
     fx.write("f.txt", "1\n2\n3-feature\n4\n5\n");
-    let _f1 = fx.commit("f1");
+    let f1 = fx.commit("f1");
     fx.git(&["branch", "mid"]);
     fx.write("f.txt", "1\n2\n3-feature-again\n4\n5\n");
     let _f2 = fx.commit("f2");
@@ -432,35 +433,45 @@ fn restack_refusal_leaves_the_world_alone() {
     fx.git(&["switch", "-q", "feature"]);
 
     // Prime the op log: the first fufu call on a fixture bootstraps it from
-    // observed state, which would otherwise masquerade as the refusal's own
+    // observed state, which would otherwise masquerade as the hold's own
     // capture.
     ff_core::ops::reconcile(&fx.repo(), NOW).unwrap();
 
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
     let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
 
-    let repo = fx.repo();
-    let err = ff_core::restack::restack(
-        &repo,
-        Some("feature".into()),
-        None,
-        &prov(),
-        Some(NOW),
-        vec![],
-    )
-    .unwrap_err();
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), None);
+    let report = match outcome {
+        ff_core::RestackOutcome::Held(r) => r,
+        other => panic!("the conflicting restack must hold, got {other:?}"),
+    };
 
-    assert_eq!(err.id(), "held/rewrite-conflict", "{err}");
+    assert_eq!(report.branch, "feature");
+    assert_eq!(
+        report.at,
+        At::Commit {
+            id: f1.clone(),
+            subject: "f1".into()
+        },
+        "the replay stops on the first conflicting commit"
+    );
+    assert_eq!(
+        report.of, 2,
+        "both commits were in the stack the report sizes"
+    );
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
     assert_eq!(fx.git(&["rev-parse", "feature"]).trim(), feature_before);
     assert_eq!(fx.git(&["rev-parse", "mid"]).trim(), mid_before);
 
     // `begin_verb` reconciles and captures before every verb runs, and a
     // conflicting restack is necessarily a case where a capture has
     // something to record, so the log legitimately grows by one capture even
-    // though the restack itself did nothing. "No restack operation was
-    // appended" is the property that actually holds; the log tip moving is
-    // expected, not a failure.
-    assert_ne!(tip_record(&repo).verb, "restack");
+    // though the restack itself moved nothing. The hold's own operation is
+    // the property that actually holds; the log tip moving is expected, not
+    // a failure.
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "hold");
+    assert!(record.held.is_some_and(|t| t.new.is_some()));
 }
 
 #[test]
