@@ -342,9 +342,10 @@ and publishing is the outgoing half of lining up rather than a separate act.
 
 Whose divergence it is decides what happens. Divergence this run's fetch
 created is somebody else's, and your commits replay on top of theirs.
-Divergence that was already there is a rewrite of your own, and it is
-published under a lease — so a push is refused rather than forced if the
-remote moved after the fetch looked.
+Divergence that was already there is yours only if fufu's own operation log
+accounts for every commit of it — as a rewrite it recorded, or as one it
+dropped as empty — and then it publishes under a lease. Commits the log does
+not recognize are somebody else's however they arrived, and they replay too.
 
 Either replay can conflict. The first one that does stops the run and holds:
 nothing moves, and ff resolve picks it up. A held rewrite blocks the push and

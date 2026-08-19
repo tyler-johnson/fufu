@@ -859,9 +859,10 @@ pub enum RemoteAxis {
     /// A tracking ref that is configured and absent: the shared copy was
     /// deleted. Sync says so and touches nothing.
     Gone { name: String },
-    /// The branch and its remote diverged and this run's fetch brought
-    /// nothing, so those commits are a rewrite of your own: the axis is
-    /// outgoing, and the publish is what handles it.
+    /// The branch and its remote diverged, this run's fetch brought nothing,
+    /// and the operation log accounts for every commit the remote still
+    /// holds: they are rewrites of your own, so the axis is outgoing and the
+    /// publish is what handles it.
     Yours {
         name: String,
         ahead: usize,

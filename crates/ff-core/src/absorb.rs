@@ -546,6 +546,7 @@ pub fn absorb_with(
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
+    record.dropped = plan.dropped.clone();
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = crate::held::clearing_transitions(clearing);
         record.held = held;
@@ -821,6 +822,7 @@ pub fn lift_with(
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
+    record.dropped = plan.dropped.clone();
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = crate::held::clearing_transitions(clearing);
         record.held = held;

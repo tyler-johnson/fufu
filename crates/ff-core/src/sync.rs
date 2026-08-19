@@ -8,21 +8,30 @@
 //! The one decision that is sync's alone is whose divergence it is. After
 //! any restack your local branch diverges from `origin/<branch>` — so does
 //! a branch a collaborator pushed to. They are the same shape and the
-//! correct answers are opposite: the first wants a force-push, the second
-//! wants a replay onto the remote — and getting it backwards replays your
-//! rebased commits back onto their stale originals, silently undoing the
-//! restack. The rule is:
+//! correct answers are opposite: one wants a force-push, the other a replay
+//! onto the remote, and getting it backwards either replays your rebased
+//! commits onto their stale originals, silently undoing the restack, or
+//! force-pushes over somebody else's work. The rule is:
 //!
-//! > Divergence that this run's fetch created is theirs. Divergence that
-//! > was already there is yours.
+//! > Divergence this run's fetch created is theirs. Divergence your own
+//! > operation log accounts for is yours. Anything else is theirs.
 //!
-//! If the fetch moved the tracking ref and the branch now diverges,
-//! someone else wrote those commits: the axis is **incoming**, and sync
-//! replays onto the new remote tip. If the fetch did not move it, the
-//! divergence can only be a rewrite of your own: the axis is **outgoing**,
-//! there is nothing to take in, and the publish is what handles it.
-//! `--no-fetch` falls out for free: with no fetch nothing new arrived, so
-//! nothing is theirs.
+//! The first clause is free and certain: the fetch moved the tracking ref,
+//! so someone else wrote what arrived, the axis is **incoming**, and sync
+//! replays onto the new remote tip. The second is a lookup rather than an
+//! assumption — every commit the remote has and you do not must appear in
+//! the log as the `old` side of a rewrite, or as one a replay dropped as
+//! empty. Only then is the axis **outgoing**, with nothing to take in and
+//! the publish left to handle it.
+//!
+//! The third clause is why the second is checked. Their commits reach the
+//! tracking ref through *any* fetch: an editor's background one, a manual
+//! `git fetch`, an earlier sync that fetched and then held on a conflict.
+//! This run's fetch then finds nothing new, and reading that silence as
+//! "the divergence is mine" force-pushes over their work under a lease that
+//! cannot catch it — the lease expects the tip the remote already holds, so
+//! it holds. Unrecognized means replay, which never loses work.
+//! `--no-fetch` needs no rule of its own: it reaches the same check.
 //!
 //! The network is somebody else's job. The tracking ref's tip before and
 //! after the fetch is handed in as a parameter — that is what keeps this
@@ -237,9 +246,19 @@ pub fn sync(
                 .collect();
             let diverged = !bases.contains(&after) && !bases.contains(&pre.branch_tip);
             let arrived = opts.fetched && opts.tracking_after != tracking.tip;
-            if diverged && !arrived {
+            // Divergence this run's fetch did not bring in is yours only if
+            // the operation log accounts for every commit the remote holds
+            // and you do not; anything unaccounted for falls to replay.
+            let yours = if diverged && !arrived {
+                let behind = crate::upstream::exclusive(repo, after, &bases)?;
+                let hexes: Vec<String> = behind.iter().map(|id| id.to_string()).collect();
+                let accounted = crate::accounted_for(repo, &hexes)?;
+                (accounted.len() == hexes.len()).then_some(behind.len())
+            } else {
+                None
+            };
+            if let Some(behind) = yours {
                 let ahead = crate::upstream::count_exclusive(repo, pre.branch_tip, &bases)?;
-                let behind = crate::upstream::count_exclusive(repo, after, &bases)?;
                 RemoteAxis::Yours {
                     name: tracking.name.clone(),
                     ahead,

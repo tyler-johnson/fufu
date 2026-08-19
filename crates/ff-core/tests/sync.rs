@@ -170,8 +170,12 @@ fn divergence_that_was_already_there_is_yours() {
     );
 }
 
+/// With no fetch, a divergence is yours only if the log accounts for it.
+/// This one is a collaborator's own commit, which the log has never
+/// touched, so sync must replay our side onto the remote instead of
+/// force-publishing over it.
 #[test]
-fn no_fetch_makes_every_divergence_yours() {
+fn no_fetch_does_not_make_a_stranger_commit_yours() {
     let fx = Fixture::new();
     ident(&fx);
     let collab = diverged(&fx);
@@ -182,12 +186,17 @@ fn no_fetch_makes_every_divergence_yours() {
     let report = sync_call(&fx, None, false, Some(&collab));
 
     match report.remote {
-        RemoteAxis::Yours { .. } => {}
-        other => {
-            panic!("with no fetch nothing new arrived, so the divergence is yours, got {other:?}")
-        }
+        RemoteAxis::Ran { outcome, .. } => match outcome {
+            RestackOutcome::Restacked(_) => {}
+            other => panic!("an unaccounted divergence is replayed, got {other:?}"),
+        },
+        other => panic!("with no fetch, only an accounted divergence is yours, got {other:?}"),
     }
-    assert_eq!(tip_of(&fx, "refs/heads/feature"), tip_before);
+    assert_ne!(
+        tip_of(&fx, "refs/heads/feature"),
+        tip_before,
+        "the replay is what preserves the collaborator's commit"
+    );
 }
 
 #[test]
@@ -385,5 +394,168 @@ fn push_off_with_work_waiting_is_pending() {
     match off.publish {
         Publish::Off { pending: true } => {}
         other => panic!("a commit is waiting for the remote, got {other:?}"),
+    }
+}
+
+/// Their commit arrived in an earlier fetch, so this run's fetch finds
+/// nothing new — but that silence does not make the divergence ours. The
+/// log holds no record of the collaborator's commit, so sync replays our
+/// side on top of theirs instead of force-publishing over it.
+#[test]
+fn a_commit_from_an_earlier_fetch_is_replayed_not_overwritten() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let collab = diverged(&fx);
+    // The earlier fetch already brought the commit in: the tracking ref is
+    // at `collab` before this run's preflight records where it stood.
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
+
+    let tip_before = tip_of(&fx, "refs/heads/feature");
+    let report = sync_call(&fx, None, true, Some(&collab));
+
+    match report.remote {
+        RemoteAxis::Ran { outcome, .. } => match outcome {
+            RestackOutcome::Restacked(_) => {}
+            other => panic!("a commit the log never accounted for is replayed, got {other:?}"),
+        },
+        other => panic!("an unaccounted divergence is replayed, got {other:?}"),
+    }
+    assert_ne!(
+        tip_of(&fx, "refs/heads/feature"),
+        tip_before,
+        "the replay is what keeps the collaborator's commit"
+    );
+    // Ancestry, not just the tip: the collaborator's commit must survive
+    // under the replay even though our commit now rides on top of it.
+    let out = fx.try_git(&["merge-base", "--is-ancestor", &collab, "feature"]);
+    assert!(
+        out.status.success(),
+        "the collaborator's commit is still reachable from the local branch"
+    );
+}
+
+/// The guard against over-correcting into timidity on the `--no-fetch`
+/// path: a divergence the log does account for — a recorded rewrite — is
+/// still ours, and sync does not move the branch to "take in" its own work.
+#[test]
+fn a_recorded_rewrite_is_still_yours_without_a_fetch() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, f1) = pushed_feature(&fx);
+
+    // main moves and the restack rewrites feature's commit — exactly the
+    // real case: the divergence below is fufu's own, and the tracking ref
+    // never moves.
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    let _m2 = fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+    let repo = fx.repo();
+    ff_core::restack::restack(
+        &repo,
+        None,
+        None,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+
+    let tip_before = tip_of(&fx, "refs/heads/feature");
+    let report = sync_call(&fx, None, false, Some(&f1));
+
+    match report.remote {
+        RemoteAxis::Yours { .. } => {}
+        other => panic!("a recorded rewrite is yours even without a fetch, got {other:?}"),
+    }
+    assert_eq!(
+        tip_of(&fx, "refs/heads/feature"),
+        tip_before,
+        "sync must not replay your own rewrite back onto the stale remote"
+    );
+}
+
+/// A commit the replay deliberately dropped as empty is fufu's own removal,
+/// not somebody else's work: a remote still holding it is divergence that
+/// is ours, so the force-publish stands.
+#[test]
+fn a_commit_dropped_as_empty_is_accounted_for() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let _c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("dup.txt", "dup\n");
+    let f1 = fx.commit("dup");
+    track(&fx, &f1);
+
+    // main introduces the same file with the same contents, so the replay
+    // of the feature commit introduces nothing over the new base...
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("dup.txt", "dup\n");
+    let m2 = fx.commit("main dup");
+    fx.git(&["switch", "-q", "feature"]);
+    let repo = fx.repo();
+    ff_core::restack::restack(
+        &repo,
+        None,
+        None,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+
+    // ...and the fixture must actually produce the drop, or the test
+    // proves nothing: the commit is gone from the branch's history and the
+    // branch sits on main's tip.
+    let log = fx.git(&["log", "--format=%H", "feature"]);
+    assert!(
+        !log.lines().any(|h| h.trim() == f1),
+        "the replay dropped the commit that now introduces nothing"
+    );
+    assert_eq!(
+        tip_of(&fx, "refs/heads/feature"),
+        m2,
+        "with the only commit dropped, the branch sits on main's tip"
+    );
+
+    let report = sync_call(&fx, None, false, Some(&f1));
+
+    match report.remote {
+        RemoteAxis::Yours { .. } => {}
+        other => {
+            panic!("a dropped commit is accounted for, so the divergence is yours, got {other:?}")
+        }
+    }
+}
+
+/// The log is the authority on what fufu did, not on history: a rewrite
+/// performed outside fufu leaves no record, so it is unaccounted for, and
+/// sync takes the conservative direction — replay, not force.
+#[test]
+fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, f1) = pushed_feature(&fx);
+
+    // A rewrite with no fufu operation behind it: plain git amends the
+    // pushed commit into a new sha the log has never seen. The amend keeps
+    // to a file the remote's commit does not touch, so the replay the test
+    // is expecting can actually land.
+    fx.write("root.txt", "root amended\n");
+    fx.git(&["add", "-A"]);
+    fx.git(&["commit", "--amend", "-q", "-m", "amended"]);
+    let f2 = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    assert_ne!(f1, f2, "the amend produced a new sha");
+
+    let report = sync_call(&fx, None, false, Some(&f1));
+
+    match report.remote {
+        RemoteAxis::Ran { outcome, .. } => match outcome {
+            RestackOutcome::Restacked(_) => {}
+            other => panic!("a rewrite fufu never recorded is replayed, got {other:?}"),
+        },
+        other => panic!("a rewrite fufu never recorded is replayed, got {other:?}"),
     }
 }

@@ -947,6 +947,7 @@ pub fn done_with(
     record.stash = effects;
     if let Some(plan) = &rewrite_plan {
         record.rewrites = plan.rewrites.clone();
+        record.dropped = plan.dropped.clone();
     }
     record.edit_session = Some(SessionTransition {
         branch: session_branch.clone(),

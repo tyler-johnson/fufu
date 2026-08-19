@@ -783,6 +783,7 @@ pub fn restack_with(
     record.refs = refs_transitions;
     record.stash = stash_effects;
     record.rewrites = rewrites.clone();
+    record.dropped = dropped.clone();
     if parent_changes {
         record.parent = Some(ParentTransition {
             branch: branch.clone(),

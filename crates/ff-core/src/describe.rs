@@ -214,6 +214,7 @@ pub fn reword(
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
+    record.dropped = plan.dropped.clone();
 
     let mut pins: Vec<gix::ObjectId> = plan
         .rewrites

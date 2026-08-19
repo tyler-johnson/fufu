@@ -141,6 +141,12 @@ pub struct OpRecord {
     /// `ff trim` cover the map for free.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rewrites: Vec<crate::rewrite::Rewrite>,
+    /// Commits a replay removed rather than rewrote — their tree matched
+    /// the new first parent's, so nothing was written for them. Kept for
+    /// the same reason the rewrite map is, so a later reader can tell
+    /// fufu's own removals apart from commits it has never seen.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<crate::rewrite::Dropped>,
     /// The operation this one undoes, when the verb is `undo`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_of: Option<String>,
@@ -174,6 +180,7 @@ impl OpRecord {
             held: None,
             resolving: None,
             rewrites: Vec::new(),
+            dropped: Vec::new(),
             undo_of: None,
             undo_cursor: None,
         }

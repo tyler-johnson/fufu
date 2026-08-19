@@ -6,8 +6,9 @@
 //! The three steps run in order: read the tracking ref as it stands, fetch,
 //! read it again. The reason for reading it twice is the divergence rule —
 //! divergence this run's fetch created is somebody else's and your commits
-//! replay on top of theirs; divergence that was already there is a rewrite
-//! of your own and it is published under a lease rather than forced.
+//! replay on top of theirs. Divergence that was already there is only yours
+//! if the operation log accounts for every commit of it; anything it does
+//! not recognize replays too.
 
 use ff_core::{BaseAxis, Publish, RemoteAxis, RestackOutcome, RestackReport, Result};
 
@@ -123,7 +124,7 @@ pub fn run(ctx: &Ctx, push: bool, no_push: bool, no_fetch: bool) -> Result<()> {
         }
         RemoteAxis::Yours { name, behind, .. } => {
             println!(
-                "{name} still holds {behind} commit(s) this branch rewrote; nothing arrived, so they are stale copies of your own"
+                "{name} still holds {behind} commit(s) this branch rewrote; the log accounts for every one, so they are stale copies of your own"
             );
             said = true;
         }

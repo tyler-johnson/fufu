@@ -1,4 +1,5 @@
 pub mod absorb;
+mod accounted;
 pub mod branch;
 pub mod branchmeta;
 mod changestat;
@@ -44,6 +45,7 @@ use std::path::Path;
 /// Re-exported so downstream crates name the exact gix this core was built with.
 pub use gix;
 
+pub use accounted::accounted_for;
 pub use changestat::{change_stat, tree_diff_stat};
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};

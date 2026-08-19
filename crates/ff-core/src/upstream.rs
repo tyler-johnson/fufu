@@ -88,22 +88,32 @@ pub(crate) fn upstream_for(
     }))
 }
 
-/// Count commits reachable from `tip` without crossing any of `bases`.
-pub(crate) fn count_exclusive(
+/// The commits reachable from `tip` without crossing any of `bases`.
+/// One walk, each excluded commit exactly once; callers do not depend
+/// on the order they come out in.
+pub(crate) fn exclusive(
     repo: &gix::Repository,
     tip: gix::ObjectId,
     bases: &[gix::ObjectId],
-) -> Result<usize> {
+) -> Result<Vec<gix::ObjectId>> {
     let walk = repo
         .rev_walk(Some(tip))
         .sorting(Sorting::ByCommitTime(Default::default()))
         .with_boundary(bases.iter().copied())
         .all()
         .map_err(Error::repo)?;
-    let mut count = 0;
+    let mut ids = Vec::new();
     for info in walk {
-        info.map_err(Error::repo)?;
-        count += 1;
+        ids.push(info.map_err(Error::repo)?.id);
     }
-    Ok(count)
+    Ok(ids)
+}
+
+/// Count commits reachable from `tip` without crossing any of `bases`.
+pub(crate) fn count_exclusive(
+    repo: &gix::Repository,
+    tip: gix::ObjectId,
+    bases: &[gix::ObjectId],
+) -> Result<usize> {
+    Ok(exclusive(repo, tip, bases)?.len())
 }
