@@ -217,3 +217,31 @@ fn status_survives_an_unreadable_hold() {
         "the unreadable hold is a missing line: {text:?}"
     );
 }
+
+/// The third of the three held-rewrite disciplines is exits blocked: sync
+/// refuses to publish while a hold stands, and a guard nobody is told about
+/// is a guard that surprises people — so the status says so.
+#[test]
+fn a_standing_hold_says_the_exit_is_blocked() {
+    let fx = repo();
+    held_stack(&fx);
+
+    let output = ff(&fx, &["status"]);
+    assert!(
+        output.status.success(),
+        "status reports, it does not fail: {}",
+        out(&output)
+    );
+    let text = stdout(&output);
+    assert!(
+        text.contains("exits are blocked"),
+        "the exit is named as blocked: {text}"
+    );
+    assert!(
+        text.contains("ff sync will not publish"),
+        "and the verb it will hold back: {text}"
+    );
+    let held = text.find("held:").expect("the hold block");
+    let blocked = text.find("exits are blocked").expect("the blocked note");
+    assert!(held < blocked, "the blocked note follows the hold: {text}");
+}

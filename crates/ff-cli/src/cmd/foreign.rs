@@ -97,10 +97,15 @@ pub fn stash(args: &[OsString]) -> Result<()> {
 
 pub fn pull(args: &[OsString]) -> Result<()> {
     refuse(
-        "there is no ff pull yet: ff status already reports what this branch owes its base and \
-         its remote, and ff git pull runs the real thing capture-first"
+        "there is no ff pull: pulling is half of lining up and ff sync does the whole of it — \
+         fetch, take in what arrived, replay onto your base, and publish under a lease rather \
+         than forcing over anything that moved since it looked"
             .into(),
-        vec!["ff status".into(), passthrough("pull", args)],
+        vec![
+            "ff sync".into(),
+            "ff sync --no-push".into(),
+            passthrough("pull", args),
+        ],
     )
 }
 

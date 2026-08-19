@@ -32,6 +32,7 @@ mod start;
 pub mod stash;
 mod status;
 mod switch;
+pub mod sync;
 mod trim;
 mod trunk;
 mod undo;

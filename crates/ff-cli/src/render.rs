@@ -166,6 +166,16 @@ pub fn status_human(view: &StatusView<'_>) -> String {
                 colored
             )
         ));
+        // The third of the three held-rewrite disciplines is exits blocked:
+        // sync refuses to publish while a hold stands, and a guard nobody is
+        // told about is a guard that surprises people.
+        out.push_str(&format!(
+            "    {note}\n",
+            note = paint_dim(
+                "exits are blocked: ff sync will not publish while this stands",
+                colored
+            )
+        ));
     }
 
     // A running session is the least urgent of the three, so it goes below

@@ -334,6 +334,32 @@ Examples:
   ff restack feature             restack a branch you are not standing on
   ff restack --onto release-1.2  re-aim this branch and replay onto it";
 
+pub const SYNC: &str = "\
+Line this branch up with both things it answers to: the base beneath it and
+the remote copy of itself. Fetch, take in whatever arrived, replay onto the
+base, publish. One verb, because reconciling with either is the same replay,
+and publishing is the outgoing half of lining up rather than a separate act.
+
+Whose divergence it is decides what happens. Divergence this run's fetch
+created is somebody else's, and your commits replay on top of theirs.
+Divergence that was already there is a rewrite of your own, and it is
+published under a lease — so a push is refused rather than forced if the
+remote moved after the fetch looked.
+
+Either replay can conflict. The first one that does stops the run and holds:
+nothing moves, and ff resolve picks it up. A held rewrite blocks the push and
+nothing else.
+
+Sync acts on the branch you are standing on. ff restack takes the name of one
+you are not, and cascading up a stack is one branch at a time.";
+
+pub const SYNC_EXAMPLES: &str = "\
+Examples:
+  ff sync                        fetch, reconcile with both, publish
+  ff sync --no-push              reconcile only; nothing leaves the machine
+  ff sync --no-fetch             reconcile with what you already have
+  ff sync --push                 publish even when fufu.pushOnSync is false";
+
 pub const EDIT: &str = "\
 Opens an editing session on a commit: a branch is minted at the commit and you
 switch to it, so the commit's real content is what gets edited, with your whole

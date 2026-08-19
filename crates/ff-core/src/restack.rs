@@ -85,7 +85,7 @@ fn hold(
     rec: held::Recording<'_>,
     branch: &str,
     at: &At,
-    base_name: &str,
+    base: &Onto,
     paths: &[String],
     of: usize,
 ) -> Result<RestackOutcome> {
@@ -100,7 +100,7 @@ fn hold(
     let held = Held {
         intent: Intent::Restack {
             branch: branch.to_string(),
-            onto: base_name.to_string(),
+            onto: base.full.clone(),
         },
         at: at.clone(),
         paths: paths.to_vec(),
@@ -111,7 +111,7 @@ fn hold(
         rec,
         branch,
         &held,
-        format!("hold restack of {branch} onto {base_name}"),
+        format!("hold restack of {branch} onto {}", base.name),
     )?;
 
     Ok(RestackOutcome::Held(HeldReport {
@@ -121,6 +121,90 @@ fn hold(
         paths: paths.to_vec(),
         of,
     }))
+}
+
+/// A base `--onto` may name: the ref to replay onto, and whether that ref is
+/// a local branch. A bare name resolves to a local branch, and only a local
+/// branch may be re-aimed at — recording a parent is what `--onto` does for
+/// a branch. A `refs/`-prefixed spelling is taken as written, which is how
+/// `ff sync` aims its remote axis at a tracking ref; a tracking ref is never
+/// recorded as a parent, because a branch whose base was its own remote
+/// would answer to itself.
+pub(crate) struct Onto {
+    /// The full ref: `refs/heads/main`, `refs/remotes/origin/feature`.
+    pub(crate) full: String,
+    /// What a person calls it: `main`, `origin/feature`.
+    pub(crate) name: String,
+    /// A local branch, and so something a `--onto` may record as a parent.
+    pub(crate) local: bool,
+    pub(crate) tip: gix::ObjectId,
+}
+
+/// Resolve a base by either spelling. A `refs/`-prefixed spelling is taken
+/// as written — no prefix matching — because the caller knows exactly what
+/// it wants to aim at; anything else is a bare branch name resolved the way
+/// every other verb resolves one, so a hold recorded with the old spelling
+/// still replans.
+pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
+    if let Some(tail) = raw.strip_prefix("refs/") {
+        let tip = refs::ref_target(repo, raw)?.ok_or_else(|| {
+            Error::coded("branch/not-found", format!("no ref named {raw}"), vec![])
+        })?;
+        let name = if let Some(heads) = tail.strip_prefix("heads/") {
+            heads.to_string()
+        } else if let Some(remotes) = tail.strip_prefix("remotes/") {
+            remotes.to_string()
+        } else {
+            raw.to_string()
+        };
+        Ok(Onto {
+            full: raw.to_string(),
+            name,
+            local: raw.starts_with("refs/heads/"),
+            tip,
+        })
+    } else {
+        let name = switch::resolve_branch(repo, raw)?;
+        let full = format!("refs/heads/{name}");
+        let tip = refs::ref_target(repo, &full)?.ok_or_else(|| {
+            Error::coded(
+                "branch/not-found",
+                format!("no branch named {name}"),
+                vec![],
+            )
+        })?;
+        Ok(Onto {
+            full,
+            name,
+            local: true,
+            tip,
+        })
+    }
+}
+
+/// The base `futures` named for this branch, as an `Onto`.
+///
+/// The ref comes from the `SyncRef` rather than from `refs/heads/{name}`,
+/// because a trunk can be remote-tracking only — `origin/HEAD` with no local
+/// branch of that name — and replaying onto a ref the futures probe never
+/// measured against would answer a different question than the one `ff
+/// status` asked. The *name* comes from the `SyncRef` too, so a
+/// remote-qualified trunk still displays as `main`: ref syntax on the screen
+/// is exactly what fufu exists to delete.
+fn onto_from(repo: &gix::Repository, sync_ref: &futures::SyncRef) -> Result<Onto> {
+    let tip = refs::ref_target(repo, &sync_ref.r#ref)?.ok_or_else(|| {
+        Error::coded(
+            "branch/not-found",
+            format!("no branch named {}", sync_ref.name),
+            vec![],
+        )
+    })?;
+    Ok(Onto {
+        full: sync_ref.r#ref.clone(),
+        name: sync_ref.name.clone(),
+        local: sync_ref.r#ref.starts_with("refs/heads/"),
+        tip,
+    })
 }
 
 /// The triple a restack replays: the oldest commit of the branch that is not
@@ -141,13 +225,9 @@ pub(crate) fn replan_restack(
             vec![],
         )
     })?;
-    let base_tip = refs::ref_target(repo, &format!("refs/heads/{onto}"))?.ok_or_else(|| {
-        Error::coded(
-            "branch/not-found",
-            format!("no branch named {onto}"),
-            vec![],
-        )
-    })?;
+    let base = resolve_onto(repo, onto)?;
+    let base_tip = base.tip;
+    let base_name = base.name;
 
     let bases: Vec<gix::ObjectId> = repo
         .merge_bases_many(branch_tip, &[base_tip])
@@ -158,7 +238,9 @@ pub(crate) fn replan_restack(
     if bases.is_empty() {
         return Err(Error::coded(
             "restack/unrelated",
-            format!("{branch} and {onto} have no common ancestor: there is nothing to replay onto"),
+            format!(
+                "{branch} and {base_name} have no common ancestor: there is nothing to replay onto"
+            ),
             vec!["ff log".into()],
         ));
     }
@@ -177,7 +259,7 @@ pub(crate) fn replan_restack(
     range.reverse(); // oldest-first; the target is the first element
     if range.is_empty() {
         return Err(Error::msg(format!(
-            "{branch} already sits on {onto}: there is nothing to restack"
+            "{branch} already sits on {base_name}: there is nothing to restack"
         )));
     }
 
@@ -308,17 +390,18 @@ pub fn restack_with(
     }
 
     // 4. The base.
-    let (base_name, reaimed) = match onto {
+    let reaim_requested = onto.is_some();
+    let base = match onto {
         Some(raw) => {
-            let name = switch::resolve_branch(repo, &raw)?;
-            if name == branch {
+            let base = resolve_onto(repo, &raw)?;
+            if base.full == format!("refs/heads/{branch}") {
                 return Err(Error::coded(
                     "usage/restack-onto-self",
                     format!("{branch} cannot be restacked onto itself"),
                     vec![format!("ff restack {branch} --onto <base>")],
                 ));
             }
-            (name, true)
+            base
         }
         None => {
             let sync_ref = futures::base_for(repo, &branch)?.ok_or_else(|| {
@@ -331,18 +414,16 @@ pub fn restack_with(
                     ],
                 )
             })?;
-            (sync_ref.name, false)
+            onto_from(repo, &sync_ref)?
         }
     };
-
-    let base_tip =
-        refs::ref_target(repo, &format!("refs/heads/{base_name}"))?.ok_or_else(|| {
-            Error::coded(
-                "branch/not-found",
-                format!("no branch named {base_name}"),
-                vec![],
-            )
-        })?;
+    // Only a local branch can be written down as a base, and only `--onto`
+    // asks for one to be: the bare verb replays onto the base already
+    // recorded, and `ff sync`'s remote axis aims at a tracking ref that must
+    // never become a parent.
+    let reaimed = reaim_requested && base.local;
+    let base_tip = base.tip;
+    let base_name = base.name.clone();
 
     let recorded_parent = branchmeta::read(repo, &branch)?.parent;
     let previous_parent = recorded_parent.clone();
@@ -465,7 +546,7 @@ pub fn restack_with(
                             },
                             &branch,
                             &at,
-                            &base_name,
+                            &base,
                             &paths,
                             range.len(),
                         )?,
@@ -485,7 +566,7 @@ pub fn restack_with(
                         },
                         &branch,
                         &at,
-                        &base_name,
+                        &base,
                         &paths,
                         range.len(),
                     )?,
@@ -539,7 +620,7 @@ pub fn restack_with(
     if !up_to_date && !fast_forward {
         // The triple the restack replays — the same one `held::replan`
         // re-derives, so the verb and the replan cannot disagree.
-        let replan = replan_restack(repo, &branch, &base_name)?;
+        let replan = replan_restack(repo, &branch, &base.full)?;
         let plan = rewrite::plan_with(
             repo,
             replan.target,
@@ -612,7 +693,7 @@ pub fn restack_with(
                         },
                         &branch,
                         &At::OpenChange,
-                        &base_name,
+                        &base,
                         &paths,
                         range.len(),
                     )?,
@@ -882,10 +963,19 @@ pub fn restack_with(
         })
         .collect(); // carried is already sorted by ref name
 
-    // The exact open tree, never ctx.pre_tree: the capture floor may have
-    // size-capped a blob out of pre_tree while the exact tree kept it.
-    let still_open = match (open, new_head_tip.map(|id| tree_of(repo, id)).transpose()?) {
-        (Some(open_t), Some(t)) => open_t != t,
+    // What is still open is what the worktree will hold once this lands,
+    // measured against the commit it will then sit on — not the tree the
+    // change stood against before the replay. Comparing the *old* open tree
+    // to the *new* tip answers "did the replay move anything", which is true
+    // of every replay that did its job, and would report a clean tree as
+    // dirty. Both trees here are exact rather than `ctx.pre_tree`: the
+    // capture floor may have size-capped a blob out of pre_tree while the
+    // exact tree kept it.
+    let still_open = match (
+        new_worktree,
+        new_head_tip.map(|id| tree_of(repo, id)).transpose()?,
+    ) {
+        (Some(worktree), Some(tip_tree)) => worktree != tip_tree,
         _ => false,
     };
 

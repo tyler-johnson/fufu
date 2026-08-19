@@ -215,6 +215,19 @@ pub enum Command {
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
     },
+    /// Line this branch up with its base and its remote, and publish
+    #[command(long_about = help::SYNC, after_long_help = help::SYNC_EXAMPLES)]
+    Sync {
+        /// Publish once it lines up, whatever fufu.pushOnSync says
+        #[arg(long, conflicts_with = "no_push")]
+        push: bool,
+        /// Do not publish, whatever fufu.pushOnSync says
+        #[arg(long)]
+        no_push: bool,
+        /// Skip the fetch: reconcile with what you already have
+        #[arg(long)]
+        no_fetch: bool,
+    },
     /// Open an editing session on a commit: go there, edit it, come back
     #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
     Edit {
@@ -315,7 +328,7 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// No `ff pull` yet: `ff status` costs it, `ff git pull` runs it capture-first
+    /// No `ff pull`: `ff sync` is the whole of lining up, `ff git pull` still runs git's
     #[command(hide = true)]
     Pull {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -501,6 +514,7 @@ impl Command {
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
+            Command::Sync { .. } => "sync",
             Command::Edit { .. } => "edit",
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
@@ -555,6 +569,7 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
+            | Command::Sync { .. }
             | Command::Edit { .. }
             | Command::Done { .. }
             | Command::Resolve { .. }

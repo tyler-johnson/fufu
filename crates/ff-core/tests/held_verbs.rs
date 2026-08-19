@@ -272,8 +272,8 @@ fn a_hold_is_written_where_status_will_find_it() {
         ff_core::held::Intent::Restack { branch, onto } => {
             assert_eq!(branch, "feature");
             assert_eq!(
-                onto, "main",
-                "onto records the ref name, not the sha it stood on when held"
+                onto, "refs/heads/main",
+                "onto records the full ref, not the sha it stood on when held"
             );
         }
         other => panic!("the intent must be Restack, got {other:?}"),

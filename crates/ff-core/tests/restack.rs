@@ -176,6 +176,41 @@ fn restack_carries_the_open_change() {
     assert!(report.files > 0);
 }
 
+/// A replay onto a base that moved rewrites the worktree — that is the whole
+/// job — and a clean tree is still clean afterwards.
+///
+/// The bug this guards: measuring `still_open` as "the tree changed" makes it
+/// true of every replay that did anything, so a restack with nothing open
+/// would announce "your change is still open" over a tree git calls clean.
+/// What is open is the difference between the worktree and the commit it now
+/// sits on, and after a clean replay there is none.
+#[test]
+fn a_clean_tree_is_still_clean_after_a_replay() {
+    let fx = Fixture::new();
+    ident(&fx);
+    stack(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert!(
+        report.files > 0,
+        "the replay really did rewrite the worktree"
+    );
+    assert!(
+        !report.still_open,
+        "nothing was open before the replay, so nothing is open after it"
+    );
+    assert_eq!(
+        fx.git(&["status", "--porcelain"]),
+        "",
+        "and git agrees the tree is clean"
+    );
+}
+
 #[test]
 fn restack_off_branch_touches_no_file() {
     let fx = Fixture::new();
@@ -393,4 +428,267 @@ fn restack_without_a_base_refuses() {
     .expect_err("standing on trunk with no recorded parent has nothing to restack onto");
 
     assert_eq!(err.id(), "restack/no-base", "{err}");
+}
+
+#[test]
+fn onto_a_full_local_ref_matches_the_short_name() {
+    let fx = Fixture::new();
+    ident(&fx);
+    stack(&fx);
+
+    // A third local branch ahead of main, the base `--onto` will name in
+    // full.
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["switch", "-q", "-c", "release"]);
+    fx.write("rel.txt", "rel\n");
+    fx.commit("r1");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("refs/heads/release"), NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("a restack onto a full local ref must land, got {other:?}"),
+    };
+    // The display name, not the ref: a full local ref is still a local
+    // branch and still re-aims.
+    assert_eq!(report.base, "release");
+    assert!(report.reaimed);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        Some("release".into())
+    );
+}
+
+/// The landmine's setup: `feature` forks `main`'s first commit with one
+/// commit of its own, and a tracking ref `origin/feature` points at `main`'s
+/// tip — the shape `ff sync`'s remote axis will replay onto.
+fn tracking_stack(fx: &Fixture) {
+    fx.write("f.txt", "one\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature", &c0]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "m\n");
+    let c1 = fx.commit("m");
+    // A fetch would create the tracking ref this way.
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &c1]);
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+#[test]
+fn onto_a_tracking_ref_records_no_parent() {
+    let fx = Fixture::new();
+    ident(&fx);
+    tracking_stack(&fx);
+
+    let (outcome, _ctx) = restack_call(
+        &fx,
+        Some("feature"),
+        Some("refs/remotes/origin/feature"),
+        NOW,
+    );
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("a restack onto a tracking ref must land, got {other:?}"),
+    };
+    assert_eq!(report.base, "origin/feature");
+    // A base that is not a local branch is never recorded as a parent.
+    assert!(!report.reaimed);
+    assert_eq!(report.previous_parent, None);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        None
+    );
+    assert_eq!(report.replayed, 1);
+}
+
+#[test]
+fn a_tracking_ref_base_writes_no_parent_transition() {
+    let fx = Fixture::new();
+    ident(&fx);
+    tracking_stack(&fx);
+
+    let (outcome, _ctx) = restack_call(
+        &fx,
+        Some("feature"),
+        Some("refs/remotes/origin/feature"),
+        NOW,
+    );
+    assert!(
+        matches!(outcome, RestackOutcome::Restacked(_)),
+        "a restack onto a tracking ref must land, got {outcome:?}"
+    );
+
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "restack");
+    assert!(record.parent.is_none());
+    assert!(
+        record.summary.contains("onto origin/feature"),
+        "{:?}",
+        record.summary
+    );
+    assert!(
+        !record.summary.contains("refs/remotes"),
+        "{:?}",
+        record.summary
+    );
+}
+
+#[test]
+fn a_hold_onto_a_tracking_ref_records_the_full_ref_and_replans() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // Both sides edit the same line of the same file, so the replay holds.
+    fx.write("f.txt", "one\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature", &c0]);
+    fx.write("f.txt", "two\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    let c1 = fx.commit("m");
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &c1]);
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(
+        &fx,
+        Some("feature"),
+        Some("refs/remotes/origin/feature"),
+        NOW,
+    );
+    let _report = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("editing the same line on both sides must hold, got {other:?}"),
+    };
+
+    let repo = fx.repo();
+    let held = ff_core::held::of(&repo, "feature").unwrap().unwrap();
+    assert_eq!(
+        held.intent,
+        ff_core::held::Intent::Restack {
+            branch: "feature".into(),
+            onto: "refs/remotes/origin/feature".into()
+        }
+    );
+    // The hold can still be re-asked: the full ref resolves at replan time.
+    ff_core::held::replan(&repo, &held).unwrap();
+}
+
+#[test]
+fn a_hold_that_recorded_a_bare_name_still_replans() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+
+    let h = ff_core::held::Held {
+        intent: ff_core::held::Intent::Restack {
+            branch: "feature".into(),
+            onto: "main".into(),
+        },
+        at: At::Commit {
+            id: "a".repeat(40),
+            subject: "f1".into(),
+        },
+        paths: vec![],
+        time: NOW,
+    };
+    ff_core::held::set(&fx.repo(), "feature", Some(h.clone())).unwrap();
+    ff_core::held::replan(&fx.repo(), &h).unwrap();
+}
+
+#[test]
+fn onto_a_ref_that_is_not_there_is_not_found() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+
+    let repo = fx.repo();
+    let err = ff_core::restack::restack(
+        &repo,
+        Some("feature".into()),
+        Some("refs/remotes/origin/nope".into()),
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .expect_err("a ref that is not there must refuse");
+
+    assert_eq!(err.id(), "branch/not-found", "{err}");
+}
+
+/// A trunk that is remote-tracking only — `origin/HEAD` with no matching
+/// local branch — is still restackable, and still displays as `main`.
+///
+/// Both halves are the point. `futures::base_for` measures against the ref
+/// trunk resolution names, so a replay that quietly substituted
+/// `refs/heads/main` would answer a different question than `ff status`
+/// asked — and would simply fail when no local branch of that name exists.
+/// But ref syntax must not reach the screen: the report and the operation
+/// summary say `main`, not `origin/main`.
+#[test]
+fn a_remote_only_trunk_restacks_and_still_displays_short() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "f\n");
+    fx.commit("f1");
+
+    // Trunk lives only on the remote: origin/main is two commits past the
+    // fork, and there is no local `main` at all.
+    fx.git(&["switch", "-q", "--detach", &c0]);
+    fx.write("m.txt", "m\n");
+    let m1 = fx.commit("m1");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &m1]);
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+    fx.git(&["branch", "-D", "main"]);
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(report) => report,
+        other => panic!("a remote-only trunk is still a base, got {other:?}"),
+    };
+    assert_eq!(
+        report.base, "main",
+        "the base displays as a person says it, never as ref syntax"
+    );
+    assert_eq!(report.replayed, 1);
+    assert!(
+        !report.reaimed,
+        "no parent is recorded for a base that is not local"
+    );
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        None
+    );
+
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    let record = op
+        .record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record");
+    assert_eq!(record.summary, "restack feature onto main");
+    assert!(record.parent.is_none(), "no parent transition rides the op");
 }

@@ -516,10 +516,10 @@ pub static ENTRIES: &[Entry] = &[
                  question rather than a typo and it gets an answer instead of a parse error. \
                  checkout was two jobs and is two verbs here; diff and stash describe states fufu \
                  keeps rather than commands you run. rebase already has an answer — ff restack \
-                 replays a branch onto its base — and pull is the one still coming: ff sync will \
-                 line a branch up with its base and its remote in one move. Until it lands the \
-                 passthrough runs the real thing, capture-first, so nothing you do through it can \
-                 be lost.",
+                 replays a branch onto its base — and so does pull: ff sync lines a branch up \
+                 with its base and its remote in one move and publishes under a lease. The \
+                 passthrough still runs the real thing, capture-first, when you want git's own \
+                 behavior instead.",
         exits: &["ff status", "ff git <args>"],
     },
     Entry {
@@ -761,6 +761,77 @@ pub static ENTRIES: &[Entry] = &[
                  control characters or line breaks, and 128 bytes at most. Names are compared \
                  exactly as given, so nothing is silently rewritten to fit.",
         exits: &[],
+    },
+    Entry {
+        id: "sync/no-git",
+        summary: "git is not on PATH, and sync still needs it to reach the network",
+        detail: "Reads and rewrites are native, but fetch and push are still spawned: that is \
+                 where a repository's credential helpers live, and reimplementing them would be \
+                 a worse answer than borrowing git's. Everything sync does locally works \
+                 without it, so --no-fetch --no-push still reconciles with what you already \
+                 have.",
+        exits: &["ff sync --no-fetch --no-push", "ff doctor"],
+    },
+    Entry {
+        id: "sync/fetch-failed",
+        summary: "git could not fetch from the remote",
+        detail: "The fetch ran and git refused; its own message is quoted. Nothing was \
+                 reconciled and nothing moved, because sync will not decide whose divergence is \
+                 whose against a fetch that did not happen. The passthrough runs the same fetch \
+                 by hand when you want git's full output, and --no-fetch reconciles with the \
+                 tracking refs already here.",
+        exits: &["ff git fetch <remote>", "ff sync --no-fetch"],
+    },
+    Entry {
+        id: "sync/unreachable",
+        summary: "the remote never answered",
+        detail: "git exited 128, which is how it says it did not get as far as talking to the \
+                 other side: a bad URL, a host that will not resolve, or credentials it could \
+                 not supply. Nothing was pushed. This is the one failure sync cannot tell apart \
+                 from a network that is simply down, so it reports what git said rather than \
+                 guessing which one it was.",
+        exits: &["ff git push <remote>", "ff sync --no-push"],
+    },
+    Entry {
+        id: "sync/lease-refused",
+        summary: "the remote moved after this sync looked at it",
+        detail: "Every push sync sends carries a lease: the tip the fetch left behind, offered \
+                 back to the remote as what it expects to find there. Somebody pushed in \
+                 between, so the remote declined and nothing was overwritten — which is the \
+                 lease working, not failing. Your commits are still here. Sync again: the \
+                 second run fetches what arrived, replays on top of it, and only then offers a \
+                 lease that is current.",
+        exits: &["ff sync", "ff status"],
+    },
+    Entry {
+        id: "sync/rejected",
+        summary: "the remote refused the push",
+        detail: "The remote answered and said no — a protected branch, a pre-receive hook, or a \
+                 permission you do not have. That is a decision on the far side rather than \
+                 anything wrong here, so its message is passed along whole. Nothing local \
+                 changed: the branch is exactly where the reconcile left it.",
+        exits: &["ff git push <remote>", "ff status"],
+    },
+    Entry {
+        id: "sync/push-failed",
+        summary: "the push did not go through",
+        detail: "git failed in a way sync could not classify as unreachable, leased out, or \
+                 refused, so its own message is passed along unedited. Nothing local changed. \
+                 Running the push by hand through the passthrough usually says more, since git \
+                 prints a fuller transcript when it owns the terminal.",
+        exits: &["ff git push <remote>", "ff sync --no-push"],
+    },
+    Entry {
+        id: "sync/ambiguous-remote",
+        summary: "more than one remote, and nothing says which one this branch answers to",
+        detail: "With several remotes configured and none of them named origin there is no \
+                 honest default, and picking one would decide where your work goes on a coin \
+                 flip. Setting the branch's upstream once settles it for every later sync. A \
+                 repository with one remote, or with one called origin, never reaches this.",
+        exits: &[
+            "ff git remote -v",
+            "ff git branch --set-upstream-to <remote>/<branch>",
+        ],
     },
     Entry {
         id: "usage/unknown-error-id",

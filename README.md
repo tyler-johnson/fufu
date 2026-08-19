@@ -78,9 +78,11 @@ restacked 1 commit(s) above it
 undo: ff undo
 
 $ ff sync                         # line up with base and remote — rebases in memory, lands only if clean
-base moved to e1c47a2 (4 new commits)
-rebases cleanly — landed (2 commits replayed)
-pushed 2 commits to the remote
+fetching from origin
+main moved ahead by 1 commit(s)
+replayed 1 commit(s) onto main
+pushed feat to origin/feat
+the push left the machine — ff undo cannot reach it
 undo: ff undo
 ```
 

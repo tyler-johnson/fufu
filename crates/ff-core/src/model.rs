@@ -837,3 +837,88 @@ pub struct OpEntry {
     /// The operation this one undid, when the verb is `undo`.
     pub undo_of: Option<String>,
 }
+
+/// What `ff sync` did, one part per axis plus the exit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SyncReport {
+    pub branch: String,
+    /// A fetch ran this invocation. `false` for `--no-fetch`, and for a
+    /// repository with no remote to fetch from.
+    pub fetched: bool,
+    pub remote: RemoteAxis,
+    pub base: BaseAxis,
+    pub publish: Publish,
+}
+
+/// The remote axis: the shared copy of this same branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum RemoteAxis {
+    /// No upstream is configured, so there is nothing to reconcile with and
+    /// publishing is what creates one.
+    NoRemote,
+    /// A tracking ref that is configured and absent: the shared copy was
+    /// deleted. Sync says so and touches nothing.
+    Gone { name: String },
+    /// The branch and its remote diverged and this run's fetch brought
+    /// nothing, so those commits are a rewrite of your own: the axis is
+    /// outgoing, and the publish is what handles it.
+    Yours {
+        name: String,
+        ahead: usize,
+        behind: usize,
+    },
+    /// The axis acted, and this is what `restack` made of it.
+    Ran {
+        name: String,
+        outcome: RestackOutcome,
+    },
+}
+
+/// The base axis: what this work sits on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum BaseAxis {
+    /// Nothing beneath this branch to answer to — standing on trunk, an
+    /// editing session, or a trunk fufu cannot name.
+    NoBase,
+    /// The remote axis held, and the first axis that conflicts stops the run.
+    Skipped,
+    Ran {
+        name: String,
+        outcome: RestackOutcome,
+    },
+}
+
+/// The exit: whether the branch leaves the machine, and under what.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Publish {
+    /// `--no-push`, `fufu.pushOnSync=false`, or nowhere to send it.
+    ///
+    /// `pending` says whether a push would have sent anything, and it is what
+    /// keeps a declined publish from reading as an empty run: unpushed
+    /// commits are precisely what sync exists to send, so a run that
+    /// deliberately kept them says so.
+    Off { pending: bool },
+    /// A rewrite is held on this branch. This is the exits-blocked
+    /// discipline, and the one thing sync refuses rather than reports.
+    Blocked,
+    /// The shared copy is gone. Re-creating a branch somebody deleted is a
+    /// decision, not a default; `--push` is how you say it out loud.
+    Gone,
+    /// The remote already holds everything this branch does.
+    UpToDate,
+    /// No upstream: the push creates the remote branch and starts tracking it.
+    Create {
+        remote: String,
+        remote_branch: String,
+        tip: String,
+    },
+    /// Send it, under a lease whose expected value is exactly the tip the
+    /// fetch left behind — the same fact the divergence rule is built from,
+    /// spelled once and used twice.
+    Push {
+        remote: String,
+        remote_branch: String,
+        lease: String,
+        tip: String,
+    },
+}

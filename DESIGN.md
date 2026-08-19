@@ -279,6 +279,8 @@ files." The user never has to attempt an operation to learn its cost.
 
 The cascade is sequential, and saying so is part of the feature: syncing a branch moves it, which makes *its* children stale against a base that did not exist a moment earlier, so their verdicts are recomputed rather than promised. Only the next step's answer is trustworthy, and a whole-tree "all clean" would be a claim fufu cannot honestly make. `ff restack` is the primitive under all of it — replay these commits onto that base, in memory, hold on conflict — and the rest are aims for it: `ff sync` runs it against both things a branch answers to, with the network in front, `ff restack --onto <branch>` records a new parent before replaying, and `ff done` is restack pointed at an edit session's parent, a session being a branch temporarily inserted beneath one. A branch answers to two: the **base** beneath it, and the **remote** copy of itself. Reconciling with either is a replay that can conflict, which is why one verb covers both and why there is no `ff push` — publishing is the outgoing half of lining up, not a separate act, and `fufu.pushOnSync` (default true, `--push`/`--no-push` per call) is the one knob for it. What that knob never buys is passage: the exit guards are properties of publishing, not a mode, so a held rewrite is refused whichever way it is set.
 
+Which side of a divergence is whose is the one question two axes cannot answer on their own: a branch you restacked and a branch a collaborator pushed to are the same shape, and the correct answers are opposite. So sync reads the tracking ref before its fetch and after — **divergence the fetch created is theirs; divergence that was already there is yours.** Theirs is incoming, and replays onto the new remote tip; yours is outgoing, and publishes under a lease whose expected value is exactly the tip that did not move. That is the same fact `--force-with-lease` is built from, spelled once and used twice, and it is why `--no-fetch` needs no rule of its own: nothing arrived, so nothing is theirs.
+
 A restack replays as deep as the branch goes. The futures probe caps itself because it runs at every prompt; a verb somebody typed pays the real cost instead, a cap there refusing a long branch to save an expense nobody was being charged. The working tree enters the account only when the branch it stands on is one the rewrite carries — restacking a branch you are not on is refs and objects, and moves no file at all — and when it is carried, the open change replays as the last step onto the new tip, so a restack that would conflict in uncommitted work refuses before anything moves: the same answer at the same moment, one step further out than the commits. `--onto`'s parent write rides the operation record beside the ref moves, because undoing the replay while leaving the re-aim standing would point a branch at a base it no longer sits on, which is worse than either half alone.
 
 ### Floor 3 — Rewrite
@@ -421,7 +423,7 @@ disciplines:
 
 Deferred and quiet is how work rots; deferred and loud is the whole trick.
 
-A hold is a thing that happened, so it reports like one: the verb succeeds, says what conflicts and where, and exits 3 — the code that already means nothing was touched and a human decision is required. Blocked exits wait for `ff sync` to have an exit to block; the other two disciplines ship with the hold.
+A hold is a thing that happened, so it reports like one: the verb succeeds, says what conflicts and where, and exits 3 — the code that already means nothing was touched and a human decision is required. The third discipline sits on `ff sync`'s publish and nowhere else: a hold refuses the push and stops nothing local, because a rewrite that cannot leave the machine is still one you can keep working on.
 
 ## Command surface
 
@@ -845,14 +847,17 @@ line with `nothing to sync`, the channel says nothing at all: someone asked
 `ff status` a question, and nobody asked the prompt.
 
 **Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff describe`,
-`ff edit` sessions with `ff done`, `ff sync` with land-if-clean, held rewrites
-and `ff resolve`. The jj-grade workflow lands here, safe because phases 1–3 are
-underneath it.
+`ff edit` sessions with `ff done`, held rewrites and `ff resolve`, and `ff sync` —
+both axes land-if-clean, plus the outgoing half it cannot honestly ship without:
+lease semantics and the held-rewrite guard. The jj-grade workflow lands here, safe
+because phases 1–3 are underneath it.
 
-**Phase 5 — Exits and adoption.** `ff sync`'s outgoing half — lease semantics
-and the held-rewrite guard; the name and packaging sweep. (The `ff git` passthrough and
+**Phase 5 — Adoption.** The name and packaging sweep. (The `ff git` passthrough and
 alias shipped with Phase 1; by here the translation whitelist has grown with
-every verb.) The tool becomes recommendable to someone who isn't its author.
+every verb, and `ff sync`'s outgoing half came forward into Phase 4 — a sync that
+rebases onto a moved trunk and cannot then publish leaves the branch diverged behind
+a plain `git push` that fails, which is the footgun the verb exists to delete.)
+The tool becomes recommendable to someone who isn't its author.
 
 **Phase 6 — Git-free.** The long tail moves native — fetch/push, checkout
 through filters, hooks exec'd by fufu — until the git binary is an optional
@@ -901,12 +906,12 @@ a working development machine.
   an operation that recorded no index — a foreign one, because fufu wasn't
   running, or a capture, because it carries no record — undoes to a clean
   index at that operation's own HEAD tree.
-- **Auto-sync policy surface** — settled that `ff sync` is the single verb and
-  `fufu.pushOnSync` its single knob; open is whether an upstream-tracking branch
-  ever syncs *without* being asked, and on what trigger. Incoming and outgoing
-  differ in kind here in a way the knob does not capture: a pull that
-  fast-forwards can only fail to be useful, while a push leaves the machine and
-  cannot be undone by `ff undo`, so an automatic lane may want to carry only the
+- **Auto-sync policy surface** — the verb, its single knob (`fufu.pushOnSync`)
+  and the divergence rule all shipped; what stays open is whether an
+  upstream-tracking branch ever syncs *without* being asked, and on what trigger.
+  The two halves differ in kind there in a way the knob does not capture: a fetch
+  that fast-forwards can only fail to be useful, while a push leaves the machine
+  and `ff undo` cannot reach it, so an automatic lane may want to carry only the
   half that stays local.
 - **Agent adoption** — the machine surface makes fufu usable by an agent; what
   makes an agent reach for `ff` instead of `git` is a separate question.

@@ -33,8 +33,10 @@ fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
 #[serde(tag = "verb", rename_all = "kebab-case")]
 pub enum Intent {
     /// `ff restack`: replay `branch` onto whatever `onto` resolves to now.
-    /// `onto` is a ref name rather than a sha, because the base moving is the
-    /// ordinary case and re-reading it is the point.
+    /// `onto` is a ref — `refs/heads/main`, or `refs/remotes/origin/feature` —
+    /// resolved fresh at replan time, because the base moving is the ordinary
+    /// case and re-reading it is the point. A bare short name recorded before
+    /// full refs were written still resolves.
     Restack { branch: String, onto: String },
     /// `ff done`: land the editing session on `session`.
     Done { session: String },

@@ -280,8 +280,8 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    // mapDepth joined the registry, so the list has 11 entries.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
+    // pushOnSync joined the registry, so the list has 12 entries.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON

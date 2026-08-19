@@ -190,7 +190,7 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
         ("co", "ff switch"),
         ("diff", "ff status"),
         ("stash", "ff switch"),
-        ("pull", "ff git pull"),
+        ("pull", "ff sync"),
         ("rebase", "ff git rebase"),
     ] {
         let out = ff(&fx, &[verb]);

@@ -453,3 +453,83 @@ fn manual_trim_nudges_gc_even_when_nothing_dropped() {
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
 }
+
+/// Sync's local half is two replays, and both are native: with the network
+/// switched off, sync reaches no process at all — no fetch, no push, nothing
+/// hiding behind them. The assertion that keeps it that way as sync grows.
+#[test]
+fn sync_without_the_network_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    fx.git(&["branch", "feature"]);
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.write("a.txt", "two\n");
+    fx.commit("main one");
+    fx.write("a.txt", "three\n");
+    fx.commit("main two");
+    fx.git(&["switch", "-q", "feature"]);
+    // A disjoint file, so the replays merge cleanly and sync can land: a
+    // conflict here would hold and fail the run, not spawn.
+    fx.write("f.txt", "feature change\n");
+    fx.commit("feature one");
+
+    // No remote configured at all: a fetch would have nowhere to aim.
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-fetch", "--no-push"]);
+    assert!(
+        out.status.success(),
+        "sync without the network failed under trap PATH: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !trap.log.exists(),
+        "sync's local half spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
+/// Sync's fetch and push are sanctioned spawns, the mirror of
+/// hook_exec_is_a_sanctioned_spawn_and_distinguished: what makes them
+/// sanctioned rather than a leak is that they are named — the trap proves the
+/// only process fufu started was the one the verb exists to start.
+#[test]
+fn syncs_fetch_is_a_named_sanctioned_spawn() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    fx.git(&["branch", "feature"]);
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.write("a.txt", "two\n");
+    fx.commit("main one");
+    fx.write("a.txt", "three\n");
+    fx.commit("main two");
+    fx.git(&["switch", "-q", "feature"]);
+    // A disjoint file, so the replays merge cleanly and sync can land: a
+    // conflict here would hold and fail the run, not spawn.
+    fx.write("f.txt", "feature change\n");
+    fx.commit("feature one");
+    // A configured remote, so the sanctioned fetch has somewhere to aim.
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let trap = build_trap();
+    // The fake git logs its argv and exits 1, so the fetch cannot run.
+    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-push"]);
+    assert!(
+        !out.status.success(),
+        "a fetch that could not run is not a sync that succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trap.log.exists(), "the sanctioned fetch spawned git");
+    let logged = std::fs::read_to_string(&trap.log).unwrap();
+    assert!(
+        logged.contains("fetch origin"),
+        "the sanctioned spawn is the named call: {logged:?}"
+    );
+    // One named call, and no second process hiding behind it.
+    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "nothing besides fetch origin: {logged:?}");
+}

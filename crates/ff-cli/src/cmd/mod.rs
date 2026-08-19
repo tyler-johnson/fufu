@@ -23,6 +23,7 @@ pub mod shell;
 pub mod start;
 pub mod status;
 pub mod switch;
+pub mod sync;
 pub mod trim;
 pub mod undo;
 pub mod update;
