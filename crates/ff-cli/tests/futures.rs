@@ -408,7 +408,7 @@ fn a_remote_that_moved_ahead_is_what_there_is_to_pull() {
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("2 to take in"), "got: {text}");
+    assert!(text.contains("2 to sync"), "got: {text}");
 }
 
 #[test]

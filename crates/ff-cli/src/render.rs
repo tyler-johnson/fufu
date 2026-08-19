@@ -279,12 +279,13 @@ pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<Str
 ///
 /// The verb, not git's word for it: `ff push` is refused, so a status line
 /// that said "to push" would name the one thing a reader cannot then type.
+/// `to_sync` is its mirror and carries the rest of the reasoning.
 ///
 /// `ff branch list` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
-fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
+fn to_publish(n: usize, toward: Option<&str>, colored: bool) -> String {
     let phrase = match toward {
         Some(ref_name) => format!("{n} to publish to {ref_name}"),
         None => format!("{n} to publish"),
@@ -292,21 +293,22 @@ fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
     paint_ahead(&phrase, colored)
 }
 
-/// `{n} to take in[ from <ref>]`, pending work the remote already has.
+/// `{n} to sync[ from <ref>]`, pending work the remote already has.
 ///
-/// Sync's own words, one tense earlier: what it reports afterwards is
-/// "took in {n} commit(s) from {ref}". Status predicts and the verb reports,
-/// so they say the same thing — the same pairing `to publish` has with
-/// "published". Not "to pull", which names a verb fufu refuses.
+/// Each half names the verb that handles it — `{n} to sync`, `{n} to publish`
+/// — so a count is always something you can act on. Not "to pull", which
+/// names a verb fufu refuses. The verbs' own output is where "take" and
+/// "send" live: sync says it took commits in, publish says it sent them. A
+/// status line is shorter than a sentence and wants the verb, not the motion.
 ///
 /// `ff branch list` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
-fn to_pull(n: usize, toward: Option<&str>, colored: bool) -> String {
+fn to_sync(n: usize, toward: Option<&str>, colored: bool) -> String {
     let phrase = match toward {
-        Some(ref_name) => format!("{n} to take in from {ref_name}"),
-        None => format!("{n} to take in"),
+        Some(ref_name) => format!("{n} to sync from {ref_name}"),
+        None => format!("{n} to sync"),
     };
     paint_ahead(&phrase, colored)
 }
@@ -339,8 +341,8 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
         // Against the remote the same verdict means the opposite: these are
         // precisely the commits sync will send.
         Verdict::UpToDate { ahead: 0 } => return None,
-        Verdict::UpToDate { ahead } => to_push(*ahead, alias, colored),
-        Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, alias, colored),
+        Verdict::UpToDate { ahead } => to_publish(*ahead, alias, colored),
+        Verdict::FastForward { behind } if !role.is_base() => to_sync(*behind, alias, colored),
         Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
         Verdict::Clean { replayed, dropped } => {
             // Zero dropped stays byte-identical to the line before the
@@ -1035,10 +1037,10 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
             notes.push(paint_warn("remote is gone", colored));
         } else {
             if up.ahead > 0 {
-                notes.push(to_push(up.ahead, None, colored));
+                notes.push(to_publish(up.ahead, None, colored));
             }
             if up.behind > 0 {
-                notes.push(to_pull(up.behind, None, colored));
+                notes.push(to_sync(up.behind, None, colored));
             }
         }
     }
@@ -1349,7 +1351,7 @@ pub fn paint_dim(text: &str, colored: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Palette, axis_phrase, palette_for, relative_age, styled_id, to_pull, to_push};
+    use super::{Palette, axis_phrase, palette_for, relative_age, styled_id, to_publish, to_sync};
 
     #[test]
     fn ages() {
@@ -1404,11 +1406,11 @@ mod tests {
             verdict,
         };
         let push = axis_phrase(&remote(Verdict::UpToDate { ahead: 6 }), false).unwrap();
-        assert_eq!(push, to_push(6, None, false));
+        assert_eq!(push, to_publish(6, None, false));
         assert_eq!(push, "6 to publish");
         let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
-        assert_eq!(pull, to_pull(2, None, false));
-        assert_eq!(pull, "2 to take in");
+        assert_eq!(pull, to_sync(2, None, false));
+        assert_eq!(pull, "2 to sync");
     }
 
     // The OnceLock behind `palette()` is process-global, so a test that sets
