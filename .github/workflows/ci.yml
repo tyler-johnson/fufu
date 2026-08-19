@@ -52,6 +52,9 @@ jobs:
   bench:
     needs: test
     runs-on: ubuntu-latest
+    # Nothing in this job legitimately takes fifteen minutes; the cap exists so
+    # a wedged install can never hold a runner for the six-hour default again.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -59,7 +62,26 @@ jobs:
           name: ff-linux
           path: target/release
       - run: chmod +x target/release/ff
-      - run: sudo apt-get update && sudo apt-get install -y hyperfine
+      # A static binary from the project's own releases, not apt: the Ubuntu
+      # archive mirrors stalled this job twice in two days, and `apt-get
+      # update` has no timeout of its own to fail against. GitHub is already
+      # load-bearing here for checkout and artifacts, so this adds no new
+      # point of failure -- and it drops sudo, dpkg, and dependency
+      # resolution for a 710 KB download. The version is pinned because
+      # run.sh records `hyperfine --version` as provenance in raw.json:
+      # unpinned, the gate's tool version is whatever the runner's archive
+      # happened to serve that morning. 1.18.0 is what apt was serving, so
+      # pinning it keeps the recorded numbers continuous.
+      - name: Install hyperfine
+        env:
+          HYPERFINE_VERSION: 1.18.0
+        run: |
+          mkdir -p "$RUNNER_TEMP/hyperfine"
+          curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
+            "https://github.com/sharkdp/hyperfine/releases/download/v${HYPERFINE_VERSION}/hyperfine-v${HYPERFINE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C "$RUNNER_TEMP/hyperfine"
+          echo "$RUNNER_TEMP/hyperfine" >> "$GITHUB_PATH"
+      - run: hyperfine --version
       - run: scripts/bench/run.sh --points 100,1000 --tools ff
       - if: always()
         uses: actions/upload-artifact@v4
