@@ -20,6 +20,7 @@ mod log;
 pub mod map;
 pub mod model;
 pub mod ops;
+pub mod patch;
 pub mod petname;
 pub mod preflight;
 pub mod publish;
@@ -51,7 +52,7 @@ use std::path::Path;
 pub use gix;
 
 pub use accounted::accounted_for;
-pub use changestat::{change_stat, tree_diff_stat};
+pub use changestat::{DiffOptions, change_diff, change_stat, tree_diff, tree_diff_stat};
 pub use close::{CloseOptions, close};
 pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};

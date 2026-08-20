@@ -97,6 +97,26 @@ pub struct FileStat {
     pub deletions: u32,
     /// Line counts are meaningless — both counts are 0.
     pub binary: bool,
+    /// The patch body, when the caller asked for one. `None` is "nobody
+    /// asked"; `Some(vec![])` on a binary file is "asked, and there is no
+    /// text to show". The whole patch block is skipped when absent, so every
+    /// stat-level payload stays byte-identical to what it emitted before
+    /// content was on offer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hunks: Option<Vec<crate::patch::Hunk>>,
+    /// The file's mode on each side, octal, as git's header spells it —
+    /// `new file mode 100755` is the difference between a patch that
+    /// restores an executable bit and one that quietly drops it. Filled
+    /// only alongside `hunks`, since only the patch header reads them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_mode: Option<String>,
+    /// The blob ids the `index` line names, on the same terms as the modes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_id: Option<String>,
 }
 
 /// The open change as a diffstat: HEAD's tree against the capture chain tip's.
