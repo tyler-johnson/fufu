@@ -4,10 +4,25 @@ use clap::{Parser, Subcommand};
 
 use crate::help;
 
-/// The version line `ff -v` and `ff version` both print, minus the program
-/// name clap prepends to one of them. One constant so the flag and the verb
-/// cannot answer the same question differently.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO"));
+/// The name the tool has, as opposed to the two letters it is typed as. The
+/// version is the one place the full word is worth spending a line on: it is
+/// what somebody searches for, and `ff` is not a searchable string.
+pub const NAME: &str = "fufu";
+
+/// What `ff -v` and `ff version` both print, minus the name clap prepends to
+/// one of them: the release, the commit it was built from, and the project's
+/// home under it. One constant, so the flag and the verb cannot answer the
+/// same question differently.
+///
+/// The URL comes from the manifest rather than from a literal here — there is
+/// already one place that records where this lives, and a second would be a
+/// place to forget.
+pub const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    env!("FF_BUILD_INFO"),
+    "\n",
+    env!("CARGO_PKG_REPOSITORY")
+);
 
 /// Bare `ff` is the map (jj-style): the local branches as a skeleton —
 /// tips, merges, forks — the answer to "where did I leave that idea?".
@@ -23,6 +38,9 @@ pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO
     // there and "Usage: ff hook agent" everywhere else. Subcommands inherit it.
     bin_name = "ff",
     version = VERSION,
+    // The version line's name, and only that: usage lines keep `bin_name`,
+    // which is what you actually type.
+    display_name = NAME,
     // Declared by hand below, for the short letter: clap's own flag is `-V`.
     disable_version_flag = true,
     about = "a friendlier interface to plain git",

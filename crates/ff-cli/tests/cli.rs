@@ -1536,13 +1536,28 @@ fn version_names_the_build() {
     );
 
     let out_str = stdout(&out).trim_end().to_string();
-    let prefix = format!("ff {}", env!("CARGO_PKG_VERSION"));
+    let mut lines = out_str.lines();
+
+    // Line one names the tool by its full name, not by the two letters it is
+    // typed as: `ff` is not a searchable string, and this is the output a bug
+    // report gets pasted from.
+    let first = lines.next().unwrap_or_default();
+    let prefix = format!("fufu {}", env!("CARGO_PKG_VERSION"));
     assert!(
-        out_str.starts_with(&prefix),
+        first.starts_with(&prefix),
         "stdout did not start with \"{prefix}\": {out_str}"
     );
 
-    let rest = &out_str[prefix.len()..];
+    // Line two is where to go next, and it comes from the manifest rather
+    // than from a literal in the source.
+    assert_eq!(
+        lines.next(),
+        Some(env!("CARGO_PKG_REPOSITORY")),
+        "second line is the project's home: {out_str}"
+    );
+    assert_eq!(lines.next(), None, "two lines and no more: {out_str}");
+
+    let rest = &first[prefix.len()..];
 
     if !rest.is_empty() {
         assert!(

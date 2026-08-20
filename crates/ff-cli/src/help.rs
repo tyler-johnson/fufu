@@ -672,10 +672,12 @@ Examples:
   ff doctor --json               the same rows, for machines";
 
 pub const VERSION: &str = "\
-Which fufu this is: the release, and the commit and date it was built
-from. A build made without git available (a source tarball, a crates.io
-vendor, a docker context with no .git) names the release alone — there is
-no commit to name.
+Which fufu this is: the full name, the release, and the commit and date it
+was built from, with the project's home under it. `ff` is two letters and
+not a searchable string, so the name and the URL go where a bug report
+gets pasted from. A build made without git available (a source tarball, a
+crates.io vendor, a docker context with no .git) names the release alone —
+there is no commit to name.
 
 The second half is whether it is the current one. The passive update lane
 already keeps the latest release in a cache on disk, so this reads it
@@ -686,13 +688,13 @@ nothing, because saying it every time teaches people to stop reading.
 --json splits the line into fields — version, commit, date, and the update
 status — so a caller never takes the display string apart.
 
-`ff -v` is the first line and nothing else, for when the question is just
-what am I running.";
+`ff -v` prints the same two lines and stops: the flag answers what am I
+running, and the verb answers and should I still be.";
 
 pub const VERSION_EXAMPLES: &str = "\
 Examples:
   ff version                     the release, the build, the update lane
-  ff -v                          the one line
+  ff -v                          the same, without the update lane
   ff version --json              the same, as fields";
 
 pub const UPDATE: &str = "\
