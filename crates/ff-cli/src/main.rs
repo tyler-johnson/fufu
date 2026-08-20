@@ -187,6 +187,9 @@ fn main() {
         Some(cli::Command::Pull { args }) => cmd::foreign::pull(&args),
         Some(cli::Command::Push { args }) => cmd::foreign::push(&args),
         Some(cli::Command::Rebase { args }) => cmd::foreign::rebase(&args),
+        Some(cli::Command::Merge { args }) => cmd::foreign::merge(&args),
+        Some(cli::Command::Blame { args }) => cmd::foreign::blame(&args),
+        Some(cli::Command::Tag { args }) => cmd::foreign::tag(&args),
     };
 
     if let Err(err) = result {

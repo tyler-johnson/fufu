@@ -133,7 +133,9 @@ fn the_aliases_stay_out_of_the_command_list() {
     }
     // The list is of what fufu does, so a git word it merely answers is not
     // a row either.
-    for foreign in ["checkout", "diff", "stash", "pull", "rebase"] {
+    for foreign in [
+        "checkout", "diff", "stash", "pull", "rebase", "merge", "blame", "tag",
+    ] {
         assert!(
             !rows.contains(&foreign),
             "{foreign} is answered, not offered: {rows:?}"
@@ -192,6 +194,15 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
         ("stash", "ff switch"),
         ("pull", "ff sync"),
         ("rebase", "ff git rebase"),
+        // A position rather than a gap: principle 12 names rebase over
+        // merge, and the replay verbs are what fufu has instead.
+        ("merge", "ff restack"),
+        // Reads stay git's; what earns the entry is the half blame cannot
+        // see, which is the work that is not history yet.
+        ("blame", "ff evolog"),
+        // Making a tag is git's. Losing one is not — refs/tags/ rides every
+        // operation's ref table, so undo is the answer git has not got.
+        ("tag", "ff undo"),
     ] {
         let out = ff(&fx, &[verb]);
         assert_eq!(out.status.code(), Some(2), "ff {verb} exits 2");
@@ -255,7 +266,9 @@ fn foreign_verbs_never_touch_the_repository() {
     let fx = repo();
     fx.write("a.txt", "dirty\n");
     let before = op_count(&fx);
-    for verb in ["checkout", "diff", "stash", "pull", "rebase"] {
+    for verb in [
+        "checkout", "diff", "stash", "pull", "rebase", "merge", "blame", "tag",
+    ] {
         assert!(!ff(&fx, &[verb]).status.success(), "ff {verb} refuses");
     }
     assert_eq!(before, op_count(&fx), "no capture, no operation");

@@ -132,3 +132,58 @@ pub fn rebase(args: &[OsString]) -> Result<()> {
         vec!["ff status".into(), passthrough("rebase", args)],
     )
 }
+
+/// The one on this list that is a *position* rather than a gap: principle 12
+/// names rebase over merge outright, and the replay verbs are what fufu has
+/// instead. So the answer is where the act went, not an apology for a verb
+/// that has not been written.
+pub fn merge(args: &[OsString]) -> Result<()> {
+    refuse(
+        "there is no ff merge: fufu replays rather than merges, so ff restack --onto puts a \
+         branch on top of the work you wanted in and ff sync does that same replay on the way \
+         in. A merge commit is what a forge makes when work lands, not something a branch \
+         collects locally. ff git merge still runs the real thing capture-first"
+            .into(),
+        vec![
+            "ff sync".into(),
+            "ff restack --onto <branch>".into(),
+            passthrough("merge", args),
+        ],
+    )
+}
+
+/// Reads stay git's, and saying so is the answer. What earns the entry is the
+/// second half: blame reads *history*, and the work fufu is holding for you is
+/// the part that is not history yet — so the honest pointer is both.
+pub fn blame(args: &[OsString]) -> Result<()> {
+    refuse(
+        "there is no ff blame: reading history is still git's, and ff git blame runs it \
+         capture-first. What blame cannot see is the part fufu holds — every operation behind \
+         this file since you last committed, which is ff evolog, and the whole worktree at any \
+         one of them, which is ff restore --at-op"
+            .into(),
+        vec![
+            passthrough("blame", args),
+            "ff evolog".into(),
+            "ff restore <path> --at-op <op>".into(),
+        ],
+    )
+}
+
+/// Making a tag is git's; *losing* one is not, and that is the half worth
+/// saying. `refs/tags/` is in `TRACKED_PREFIXES`, so a tag rides every
+/// operation's ref table and `ff undo` puts back one that was deleted.
+pub fn tag(args: &[OsString]) -> Result<()> {
+    refuse(
+        "there is no ff tag: tags are git's to make, and ff git tag makes one capture-first. \
+         fufu records refs/tags/ in every operation's ref table, so a tag you moved or deleted \
+         is on the operation log and ff undo puts it back — which is the half git has no \
+         answer for"
+            .into(),
+        vec![
+            passthrough("tag", args),
+            "ff undo".into(),
+            "ff op log".into(),
+        ],
+    )
+}

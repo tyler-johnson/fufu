@@ -517,9 +517,12 @@ pub static ENTRIES: &[Entry] = &[
                  checkout was two jobs and is two verbs here; diff and stash describe states fufu \
                  keeps rather than commands you run. rebase already has an answer — ff restack \
                  replays a branch onto its base — and so does pull: ff sync lines a branch up \
-                 with its base and its remote in one move and publishes under a lease. The \
-                 passthrough still runs the real thing, capture-first, when you want git's own \
-                 behavior instead.",
+                 with its base and its remote in one move and publishes under a lease. merge is \
+                 the position rather than the gap: fufu replays instead, and a merge commit is \
+                 what a forge makes when work lands. blame and tag stay git's, and each is \
+                 answered for the half git has not got — the operations behind a file since you \
+                 last committed, and putting back a tag that was deleted. The passthrough still \
+                 runs the real thing, capture-first, when you want git's own behavior instead.",
         exits: &["ff status", "ff git <args>"],
     },
     Entry {

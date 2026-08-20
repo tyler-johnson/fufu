@@ -445,6 +445,24 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// No `ff merge`: fufu replays — `ff restack --onto`, `ff sync` — rather than merging
+    #[command(hide = true)]
+    Merge {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff blame`: history reads stay git's; `ff evolog` is the part blame cannot see
+    #[command(hide = true)]
+    Blame {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff tag`: `ff git tag` makes one, and `ff undo` is what puts a lost one back
+    #[command(hide = true)]
+    Tag {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
 }
 
 /// The two context flags, declared per-verb rather than `global = true`.
@@ -648,6 +666,9 @@ impl Command {
             Command::Pull { .. } => "pull",
             Command::Push { .. } => "push",
             Command::Rebase { .. } => "rebase",
+            Command::Merge { .. } => "merge",
+            Command::Blame { .. } => "blame",
+            Command::Tag { .. } => "tag",
         }
     }
 
@@ -711,7 +732,10 @@ impl Command {
             | Command::Publish { .. }
             | Command::Pull { .. }
             | Command::Push { .. }
-            | Command::Rebase { .. } => None,
+            | Command::Rebase { .. }
+            | Command::Merge { .. }
+            | Command::Blame { .. }
+            | Command::Tag { .. } => None,
         }
     }
 
