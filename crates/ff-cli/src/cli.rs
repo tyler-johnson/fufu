@@ -145,7 +145,7 @@ pub enum Command {
         past: Past,
     },
     // agent notice quotes this: `ff git <args…>`
-    /// Capture-first git passthrough; daily forms translate to ff verbs
+    /// Capture-first git passthrough; translation to ff verbs is opt-in
     #[command(
         disable_help_flag = true,
         long_about = help::GIT,

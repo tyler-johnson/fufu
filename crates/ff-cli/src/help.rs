@@ -138,21 +138,23 @@ runs — `alias git='ff git'`, installed by `ff hook shell install` — so
 typed git keeps working exactly as it did, and simply stops being able to
 lose anything.
 
-Invocations whose meaning maps completely onto a fufu verb are translated,
-so muscle memory gets fufu's guarantees without retraining: `git switch`
-engages tree memory, `git commit -m` cuts from the capture stream. The
-whitelist is deliberately strict — any flag or form fufu does not fully
-understand falls through to real git, verbatim and unmodified, still
-capture-first.
+With `ff config translate true`, invocations whose meaning maps completely
+onto a fufu verb are translated, so muscle memory gets fufu's guarantees
+without retraining: `git switch` engages tree memory, `git commit -m` cuts
+from the capture stream. The whitelist is deliberately strict — any flag or
+form fufu does not fully understand falls through to real git, verbatim and
+unmodified, still capture-first. Off (the default), nothing translates:
+every invocation is real git's, snapshot first.
 
 Every flag here belongs to git, including --help. This page is `ff help
 git`.";
 
 pub const GIT_EXAMPLES: &str = "\
 Examples:
-  ff git status                  translated: this is ff status
+  ff git status                  snapshot, then real git status
+  ff config translate true       daily forms become their ff verbs
   ff git commit -m \"…\"           translated: closes the open change
-  ff git rebase -i HEAD~3        not translated: snapshot, then real git
+  ff git rebase -i HEAD~3        never translated: snapshot, then real git
   ff hook shell install          make every typed git command do this";
 
 pub const RESTORE: &str = "\

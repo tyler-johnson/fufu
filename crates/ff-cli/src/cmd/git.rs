@@ -1,6 +1,7 @@
-//! `ff git` — the capture-first passthrough. Invocations whose meaning maps
-//! totally onto a fufu verb are translated (and hinted, once per repo);
-//! everything else execs real git verbatim. The whitelist is deliberately
+//! `ff git` — the capture-first passthrough. By default every invocation
+//! execs real git verbatim, snapshot first. With `fufu.translate` on,
+//! invocations whose meaning maps totally onto a fufu verb are translated
+//! (and hinted, once per repo) instead. The whitelist is deliberately
 //! strict: any token fufu doesn't fully understand falls through to git.
 
 use std::ffi::OsString;
@@ -64,7 +65,6 @@ fn parse_count(text: &str) -> Option<usize> {
 }
 
 pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
-    let translated = translate(&args);
     // Capture before anything runs — translated or not. Loud on failure:
     // the user asked git to do something; a skipped net deserves a notice.
     crate::capture::pre_loud(&crate::provenance::pre_git(ctx, &args));
@@ -75,9 +75,22 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
         crate::autotrim::maybe_trim(repo);
     }
 
+    // Translation is opt-in: without fufu.translate (or outside a repo,
+    // where there is no config to say so), every form is git's verbatim.
+    let translated = repo
+        .as_ref()
+        .filter(|r| {
+            r.config_snapshot()
+                .boolean("fufu.translate")
+                .unwrap_or(false)
+        })
+        .and_then(|_| translate(&args));
+
     match translated {
         Some(verb) => {
-            hint_once(&verb);
+            if let Some(repo) = &repo {
+                hint_once(repo, &verb);
+            }
             // Capture already happened; run the verb's inner body directly.
             // The ctx is `git`'s own, so `--json` is already off in it — the
             // translated verb speaks git's prose, not an envelope.
@@ -135,10 +148,7 @@ fn deferrable(args: &[OsString]) -> bool {
 /// Mention the native spelling once per repository — policy, not nag.
 /// The marker is written before the hint prints, so a crash between the two
 /// can only under-hint, never repeat.
-fn hint_once(verb: &Translated) {
-    let Ok(repo) = ff_core::discover(".") else {
-        return;
-    };
+fn hint_once(repo: &ff_core::gix::Repository, verb: &Translated) {
     let marker = repo.git_dir().join("fufu/hinted");
     if marker.exists() {
         return;

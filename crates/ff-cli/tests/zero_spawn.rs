@@ -155,11 +155,13 @@ fn status_and_log_never_spawn() {
     );
 }
 
-/// A translated `ff git status` never execs git: capture + translation are
-/// fully native. (Verbatim passthrough forms exec by design — not this test.)
+/// With fufu.translate on, a translated `ff git status` never execs git:
+/// capture + translation are fully native. (Verbatim passthrough forms exec
+/// by design — not this test.)
 #[test]
 fn translated_git_status_never_spawns() {
     let fx = Fixture::new();
+    fx.set_config("fufu.translate", "true");
     fx.write("a.txt", "a\n");
     fx.commit("one");
     fx.write("a.txt", "dirty\n");

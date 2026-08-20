@@ -153,10 +153,37 @@ fn outside_repo_passthrough_is_quiet_about_capture() {
     assert!(log.contains("argv: [init] [-q]"));
 }
 
-/// Translated forms with a count map onto `ff log -n`.
+/// Without fufu.translate, a whitelisted form is still git's: `git status`
+/// reaches real git verbatim (capture-first), and no tip prints.
+#[test]
+fn translation_is_off_by_default() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+
+    let fake = fake_git();
+    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "status"], &[]);
+    assert!(out.status.success());
+    let log = std::fs::read_to_string(&fake.log).unwrap();
+    assert!(
+        log.contains("argv: [status]"),
+        "an untranslated whitelisted form must reach git: {log:?}"
+    );
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        !stderr.contains("tip"),
+        "the default passthrough is silent: {stderr:?}"
+    );
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: git status");
+}
+
+/// With fufu.translate on, forms with a count map onto `ff log -n`.
 #[test]
 fn translated_log_with_count() {
     let fx = Fixture::new();
+    fx.set_config("fufu.translate", "true");
     for i in 0..4 {
         fx.write("f.txt", &format!("{i}\n"));
         fx.commit(&format!("c{i}"));

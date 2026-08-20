@@ -125,6 +125,17 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "translate",
+            key: "fufu.translate",
+            def: "false",
+            kind: SettingKind::Bool,
+            desc: &[
+                "Whether ff git translates daily forms (status, log, switch, commit,",
+                "branch) into their fufu verbs. Off, every invocation runs real git",
+                "verbatim, capture-first; the whitelist stays strict either way.",
+            ],
+        },
+        Setting {
             name: "futuresDepth",
             key: "fufu.futuresDepth",
             def: "200",
@@ -274,7 +285,9 @@ fn validate_value(setting: &Setting, value: &str) -> Result<()> {
                 "invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
                     .to_string()
             }
-            SettingKind::Bool => "invalid value for autoUpdate: want true or false".to_string(),
+            SettingKind::Bool => {
+                format!("invalid value for {}: want true or false", setting.name)
+            }
             SettingKind::Branch => format!(
                 "invalid value for {}: want a branch name like main or origin/main",
                 setting.name

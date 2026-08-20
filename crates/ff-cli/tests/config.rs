@@ -39,6 +39,7 @@ fn list_shows_defaults() {
     assert!(text.contains("less"), "missing less");
     assert!(text.contains("updateCheck"), "missing updateCheck");
     assert!(text.contains("autoUpdate"), "missing autoUpdate");
+    assert!(text.contains("translate"), "missing translate");
     assert!(text.contains("(default)"), "missing (default) tag");
     assert!(
         text.contains("Stored as plain git config under fufu."),
@@ -280,8 +281,9 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    // pushOnSync left the registry with the sync/publish split, so 11.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
+    // pushOnSync left the registry with the sync/publish split; translate
+    // joined with the opt-in git translation, so 12.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -486,11 +488,65 @@ fn ambient_rejects_a_non_boolean() {
     let fx = Fixture::new();
     let global = fx.root().join("gitconfig");
 
-    // Exit 2 and a non-empty stderr; the message itself is the shared
-    // hardcoded per-kind string, so no exact-text assertion here.
     let out = ff_cfg(&fx.path(), &["config", "ambient", "maybe"], &global);
     assert_eq!(out.status.code(), Some(2));
-    assert!(!stderr(&out).is_empty(), "stderr must name the failure");
+    assert!(
+        stderr(&out).contains("invalid value for ambient"),
+        "the failure names the setting that failed: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn translate_setting_round_trips() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    // Default: get prints false; the list marks it (default)
+    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "false\n");
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let translate_line = text
+        .lines()
+        .find(|l| l.starts_with("translate  "))
+        .expect("translate line in list output");
+    assert!(
+        translate_line.contains("(default)"),
+        "translate marked (default) before set: {translate_line}"
+    );
+
+    // Set true
+    let out = ff_cfg(&fx.path(), &["config", "translate", "true"], &global);
+    assert!(out.status.success());
+
+    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "true\n");
+
+    // Unset — back to the default
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "translate"], &global);
+    assert!(out.status.success());
+    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "false\n");
+}
+
+#[test]
+fn translate_rejects_a_non_boolean() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "translate", "sometimes"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr(&out).contains("invalid value for translate"),
+        "the failure names the setting that failed: {}",
+        stderr(&out)
+    );
 }
 
 #[test]
