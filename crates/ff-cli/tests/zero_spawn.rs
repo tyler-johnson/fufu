@@ -115,6 +115,8 @@ fn status_and_log_never_spawn() {
         // spelling that reaches it is trapped here.
         &["diff"][..],
         &["diff", "--json"][..],
+        &["show"][..],
+        &["show", "HEAD"][..],
         // The moves rather than the operations, and the same rule: both
         // walks are native.
         &["history"][..],

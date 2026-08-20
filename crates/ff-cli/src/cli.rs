@@ -135,6 +135,16 @@ pub enum Command {
         #[arg(value_name = "path")]
         paths: Vec<String>,
     },
+    /// Show one commit: what it was, and what it did
+    #[command(long_about = help::SHOW, after_long_help = help::SHOW_EXAMPLES)]
+    Show {
+        /// The revision; `@`, the open change, when omitted
+        #[arg(value_name = "rev")]
+        rev: Option<String>,
+        /// Files or directories to limit the patch to; all of them when omitted
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
+    },
     // agent notice quotes this: `ff history`
     /// Where you can go back to: one row per `ff undo` step, with redo above
     #[command(long_about = help::HISTORY, after_long_help = help::HISTORY_EXAMPLES)]
@@ -626,6 +636,7 @@ impl Command {
             Command::Log { .. } => "log",
             Command::History { .. } => "history",
             Command::Diff { .. } => "diff",
+            Command::Show { .. } => "show",
             Command::Evolog { .. } => "evolog",
             Command::Git { .. } => "git",
             Command::Restore { .. } => "restore",
@@ -704,6 +715,7 @@ impl Command {
             // so the flag would be a second spelling for a verb we have.
             Command::History { .. }
             | Command::Diff { .. }
+            | Command::Show { .. }
             | Command::Map { .. }
             | Command::Git { .. }
             | Command::Trim { .. }

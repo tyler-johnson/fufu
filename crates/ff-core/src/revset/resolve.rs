@@ -458,14 +458,23 @@ fn not_a_commit(token: &str) -> Error {
     )
 }
 
+/// The position is named generically on purpose. This resolver is what
+/// `ff log -r`, `ff restore --from` and `ff show` all go through, so a
+/// message that named `-r` was already wrong on two of the three; `ff log
+/// -r` earns a place in the exits instead, which is where a spelling
+/// belongs.
 fn op_in_rev_position(token: &str) -> Error {
     Error::coded(
         "usage/op-in-rev-position",
         format!(
-            "`{token}` is an operation, and `-r` takes revisions. Operations are their own \
-             address space: they are what `--at-op` and `ff op show` read"
+            "`{token}` is an operation, and this position takes revisions. Operations are their \
+             own address space: they are what `--at-op` and `ff op show` read"
         ),
-        vec![format!("ff op show {token}"), "ff op log".into()],
+        vec![
+            format!("ff op show {token}"),
+            "ff op log".into(),
+            "ff log -r <rev>".into(),
+        ],
     )
 }
 

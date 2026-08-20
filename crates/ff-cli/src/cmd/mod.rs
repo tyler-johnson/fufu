@@ -25,6 +25,7 @@ pub mod resolve;
 pub mod restack;
 pub mod restore;
 pub mod shell;
+pub mod show;
 pub mod start;
 pub mod status;
 pub mod switch;
