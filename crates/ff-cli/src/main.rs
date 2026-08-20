@@ -125,6 +125,7 @@ fn main() {
             ops,
             ..
         }) => cmd::log::run(&ctx, count, revisions, commits, ops),
+        Some(cli::Command::History { count }) => cmd::history::run(&ctx, count),
         Some(cli::Command::Evolog { count, .. }) => cmd::evolog::run(&ctx, count),
         Some(cli::Command::Git { args: git_args }) => cmd::git::run(&ctx, git_args),
         Some(cli::Command::Restore {

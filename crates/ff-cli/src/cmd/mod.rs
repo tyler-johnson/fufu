@@ -12,6 +12,7 @@ pub mod explain;
 pub mod foreign;
 pub mod git;
 pub mod git_exec;
+pub mod history;
 pub mod hook;
 pub mod init;
 pub mod lift;

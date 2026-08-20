@@ -927,11 +927,62 @@ pub fn op_row(op: &ff_core::OpEntry, now: i64, colored: bool) -> String {
     )
 }
 
+/// One `ff history` row: `<marker> <letters8> <age> <landing>  <summary>`.
+///
+/// Deliberately `op_row`'s column shape with the kind and branch columns
+/// spent differently — the id, the age, and the styled prefix are in the same
+/// places, so the two views read as siblings rather than as two dialects. What
+/// replaces the kind is the *move*: `now`, `undo`, `redo`, which is the whole
+/// difference between the two views. The marker ahead of it is the same fact
+/// as a number, because "press undo twice" is the thing a person came here to
+/// find out and counting rows to learn it is a tax.
+pub fn history_row(step: &ff_core::history::Step, now: i64, colored: bool) -> String {
+    let marker = match step.distance {
+        0 => "@".to_string(),
+        d if d > 0 => format!("↓{d}"),
+        d => format!("↑{}", -d),
+    };
+    let marker_style = if step.distance == 0 {
+        palette().at
+    } else {
+        DIM
+    };
+    let letters: String = step.id.chars().take(ID_WIDTH).collect();
+    let unique = step.short_id.chars().count();
+    let mut tail = step.summary.clone();
+    // What the keystroke covers, not what the row is: a run of captures is
+    // one undo, and the count is the part that cannot be inferred from a
+    // view that shows one row for it.
+    if step.collapsed > 1 {
+        tail = format!("{tail} · {} captures", step.collapsed);
+    }
+    if let Some(session) = &step.session {
+        tail = format!("{tail} [{session}]");
+    }
+    format!(
+        "{} {}  {}  {}  {}",
+        col(&marker, MARKER_WIDTH, marker_style, colored),
+        styled_id(&letters, unique, ID_WIDTH, colored),
+        col_right(
+            &relative_age(now, step.time),
+            AGE_WIDTH,
+            palette().age,
+            colored
+        ),
+        col(step.landing.as_str(), MOVE_WIDTH, DIM, colored),
+        tail
+    )
+}
+
 fn short7(hex: &str) -> &str {
     &hex[..hex.len().min(7)]
 }
 
 const ID_WIDTH: usize = 8;
+/// `↓12` is the widest marker anyone reaches by hand; past that the column
+/// simply grows and the row still lines up with itself.
+const MARKER_WIDTH: usize = 3;
+const MOVE_WIDTH: usize = 4;
 const SHA_WIDTH: usize = 7;
 const AGE_WIDTH: usize = 8;
 const KIND_WIDTH: usize = 7;

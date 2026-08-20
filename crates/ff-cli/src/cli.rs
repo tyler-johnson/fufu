@@ -127,6 +127,13 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    /// Where you can go back to: one row per `ff undo` step, with redo above
+    #[command(long_about = help::HISTORY, after_long_help = help::HISTORY_EXAMPLES)]
+    History {
+        /// Number of undo steps to show; 0 means unlimited
+        #[arg(short = 'n', long = "max-count", default_value_t = 25)]
+        count: usize,
+    },
     /// Show the open change's operations, newest first (the evolution log)
     #[command(alias = "ev", long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
     Evolog {
@@ -593,6 +600,7 @@ impl Command {
             Command::Map { .. } => "map",
             Command::Status { .. } => "status",
             Command::Log { .. } => "log",
+            Command::History { .. } => "history",
             Command::Evolog { .. } => "evolog",
             Command::Git { .. } => "git",
             Command::Restore { .. } => "restore",
@@ -661,7 +669,11 @@ impl Command {
             // The map declares no past flags, on the same rule as bare `ff`:
             // reading it as of a past operation would need a past-state view
             // that does not exist yet.
-            Command::Map { .. }
+            // `ff history` answers "where can I go from now"; placing that
+            // at a past operation needs the past-state view that does not
+            // exist yet.
+            Command::History { .. }
+            | Command::Map { .. }
             | Command::Git { .. }
             | Command::Trim { .. }
             | Command::Commit { .. }

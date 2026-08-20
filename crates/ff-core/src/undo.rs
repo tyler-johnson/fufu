@@ -560,19 +560,33 @@ fn choose(
 /// only kind skipped here is a note: it marks something that happened rather
 /// than something that was done, and there is no state behind it to put back.
 fn newest_undoable_run(repo: &gix::Repository, tip: OpId) -> Result<crate::ops::Run> {
+    undoable_run_at(repo, tip)?.ok_or_else(|| {
+        Error::coded(
+            "undo/nothing",
+            "nothing to undo on the log yet",
+            vec!["ff op log".into()],
+        )
+    })
+}
+
+/// The same search, with "there is none" as an answer rather than a refusal.
+///
+/// `ff history` walks this repeatedly to list where undo can go, and running
+/// out is the floor rather than a failure — so the error belongs at the one
+/// caller that has nothing else to say.
+pub(crate) fn undoable_run_at(
+    repo: &gix::Repository,
+    tip: OpId,
+) -> Result<Option<crate::ops::Run>> {
     let mut cursor = Some(tip);
     while let Some(id) = cursor {
         let run = walk::run_at(repo, id)?;
         if run.kind != OpKind::Note {
-            return Ok(run);
+            return Ok(Some(run));
         }
         cursor = run.prev;
     }
-    Err(Error::coded(
-        "undo/nothing",
-        "nothing to undo on the log yet",
-        vec!["ff op log".into()],
-    ))
+    Ok(None)
 }
 
 /// Where `ff redo` goes: the value the ops ref held before the newest undo
@@ -589,53 +603,84 @@ fn newest_undoable_run(repo: &gix::Repository, tip: OpId) -> Result<crate::ops::
 /// it, so redo stops offering a path it can no longer take instead of
 /// stepping over something nobody asked it to abandon.
 fn forward_target(repo: &gix::Repository, tip: OpId) -> Result<OpId> {
-    let nothing = |why: &str| {
+    let (path, why) = forward_scan(repo, tip)?;
+    path.first().copied().ok_or_else(|| {
         Error::coded(
             "op/nothing-to-redo",
             format!("nothing to redo: {why}"),
             vec!["ff op log".into(), "ff undo".into()],
         )
-    };
+    })
+}
+
+/// The whole path forward: where redo goes, then where a second redo would,
+/// and so on until the reflog runs out of undos to reverse.
+///
+/// `forward_target` is this list's first element and nothing else, which is
+/// what keeps `ff redo` and `ff history` from describing different futures —
+/// a second walk with the same rules written twice would drift the first time
+/// one of them learned something.
+pub(crate) fn forward_targets(repo: &gix::Repository, tip: OpId) -> Result<Vec<OpId>> {
+    Ok(forward_scan(repo, tip)?.0)
+}
+
+/// The scan itself, and — when the path is empty — the reason it is.
+///
+/// The stack rule is unchanged: every `fufu: redo to` line consumes one
+/// `fufu: undo to` line, and the unconsumed undos are the way forward, oldest
+/// entry last. Anything that is neither ends the path, which is the whole of
+/// the staleness test: work after an undo forks the log rather than
+/// truncating it.
+fn forward_scan(repo: &gix::Repository, tip: OpId) -> Result<(Vec<OpId>, String)> {
     let lines = refs::read_ref_log(repo, OPS_REF)?;
     let mut consumed = 0usize;
+    let mut path: Vec<OpId> = Vec::new();
+    let mut standing = tip;
     for line in lines.iter().rev() {
         if line.message.starts_with(REDO_MOVE) {
             consumed += 1;
             continue;
         }
-        if line.message.starts_with(UNDO_MOVE) {
-            if consumed > 0 {
-                consumed -= 1;
-                continue;
-            }
-            let Some(previous) = line.previous else {
-                return Err(nothing("the undo it would reverse has no recorded origin"));
-            };
-            if !crate::ops::is_op_commit(repo, previous)? {
-                return Err(nothing(
-                    "the operation it would return to is no longer readable",
-                ));
-            }
-            // Trim is what removes an operation from the resolution domain,
-            // and it removes it honestly — the ref goes and its reflog with
-            // it. So this is exactly the test for "the way forward has aged
-            // out", and it costs one index lookup.
-            if !crate::ops::index::contains(repo, crate::ops::index::Kind::Live, previous)? {
-                return Err(nothing(
-                    "the operations it would return to have been trimmed off the log",
-                ));
-            }
-            let target = OpId::new(previous);
-            if target == tip {
-                return Err(nothing("the log is already where the undo came from"));
-            }
-            return Ok(target);
+        if !line.message.starts_with(UNDO_MOVE) {
+            return Ok((
+                path,
+                "work has landed since the last undo, so the log forked rather than rewound".into(),
+            ));
         }
-        return Err(nothing(
-            "work has landed since the last undo, so the log forked rather than rewound",
-        ));
+        if consumed > 0 {
+            consumed -= 1;
+            continue;
+        }
+        let Some(previous) = line.previous else {
+            return Ok((
+                path,
+                "the undo it would reverse has no recorded origin".into(),
+            ));
+        };
+        if !crate::ops::is_op_commit(repo, previous)? {
+            return Ok((
+                path,
+                "the operation it would return to is no longer readable".into(),
+            ));
+        }
+        // Trim is what removes an operation from the resolution domain, and
+        // it removes it honestly — the ref goes and its reflog with it. So
+        // this is exactly the test for "the way forward has aged out", and it
+        // costs one index lookup.
+        if !crate::ops::index::contains(repo, crate::ops::index::Kind::Live, previous)? {
+            return Ok((
+                path,
+                "the operations it would return to have been trimmed off the log".into(),
+            ));
+        }
+        let target = OpId::new(previous);
+        if target == standing || path.contains(&target) {
+            return Ok((path, "the log is already where the undo came from".into()));
+        }
+        path.push(target);
+        standing = target;
     }
-    Err(nothing("no undo has been recorded on this log"))
+    Ok((path, "no undo has been recorded on this log".into()))
 }
 
 /// Move `refs/fufu/ops` to the landing, and every branch pointer the move
