@@ -9,6 +9,18 @@
 //! PATH) from the passive update lane. Test binaries are never official
 //! (FF_OFFICIAL_BUILD unset), so that lane is structurally dead here and
 //! every assertion below still proves full zero-spawn for everything else.
+//!
+//! `ff clone` is the one verb this trap cannot honestly speak for, so it is
+//! stated here instead of asserted. fufu does the clone's protocol, pack and
+//! checkout itself — nothing shells out to `git clone` — but it still reaches
+//! git's *configuration and authentication* surface: gix opens with
+//! `git_binary: true` and runs `git config -l` once per process, so that
+//! `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the
+//! installation config are honored rather than ignored; a credential helper
+//! runs when a remote asks for auth; and `ssh` runs for an ssh URL. Those are
+//! inherited whole rather than reimplemented, the same trade `net.rs` states
+//! for fetch and push. `ff init` makes none of those calls, and is asserted
+//! below like everything else.
 
 // unix-only: the booby-trap is a `#!/bin/sh` script on PATH, which Windows
 // cannot execute — the trap would never spring, proving nothing.
@@ -213,6 +225,36 @@ fn phase2_verbs_never_spawn() {
     assert!(
         !trap.log.exists(),
         "a phase-2 verb spawned git: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
+/// `ff init` spawns nothing — not to create the repository, not to write the
+/// gc guard, not to lay the log's floor. `gix::init` needs no installation
+/// config, which is the whole reason this verb can be in the trapped set when
+/// its sibling `ff clone` cannot.
+#[test]
+fn init_never_spawns() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let fresh = dir.path().join("fresh");
+    std::fs::create_dir(&fresh).unwrap();
+
+    let trap = build_trap();
+    // Creating, then adopting the same place: both shapes, both trapped.
+    for args in [&["init"][..], &["init"][..], &["init", "--json"][..]] {
+        let out = ff_trapped(&trap, &fresh, args);
+        assert!(
+            out.status.success(),
+            "ff {:?} failed under trap PATH: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    // It really built a repository, or the assertion below proves nothing.
+    assert!(fresh.join(".git").is_dir(), "ff init made a repository");
+    assert!(
+        !trap.log.exists(),
+        "ff init spawned a subprocess: {}",
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
 }

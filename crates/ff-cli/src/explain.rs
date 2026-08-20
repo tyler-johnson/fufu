@@ -846,6 +846,73 @@ pub static ENTRIES: &[Entry] = &[
         ],
     },
     Entry {
+        id: "init/bare",
+        summary: "ff init was asked for a bare repository",
+        detail: "A bare repository has no working tree, which is the thing fufu captures — so \
+                 there would be no floor for ff undo to land on and nothing for a capture to \
+                 hold. That is not a repository fufu has anything to add to, so it does not \
+                 pretend otherwise: git makes bare repositories, and ff git init --bare runs \
+                 exactly that.",
+        exits: &["ff git init --bare"],
+    },
+    Entry {
+        id: "init/failed",
+        summary: "the repository could not be created there",
+        detail: "gix creates the directory and everything under .git, so a failure here is the \
+                 filesystem's: a path that is a file, a directory that cannot be written, a \
+                 volume that is full. The message carries what was actually refused. Nothing \
+                 was half-written — fufu arms a repository only once it exists.",
+        exits: &[],
+    },
+    Entry {
+        id: "clone/target-exists",
+        summary: "the directory to clone into already has something in it",
+        detail: "A clone that failed halfway removes the directory it built, so cloning into a \
+                 directory somebody already put files in would put those files at risk of a \
+                 cleanup nobody asked for. git refuses the same case for the same reason. Name \
+                 a different directory, or clone beside it and move what you meant to keep.",
+        exits: &[],
+    },
+    Entry {
+        id: "clone/bad-url",
+        summary: "that is not a URL fufu can address",
+        detail: "fufu speaks the git protocol itself, so the URL is parsed here rather than \
+                 handed to git to complain about: https://, ssh://, git://, file paths, and \
+                 the scp-style user@host:path all work. This also covers a target directory \
+                 that cannot be worked out from the URL, which is what a URL ending in a slash \
+                 and nothing else leaves — name the directory yourself.",
+        exits: &[],
+    },
+    Entry {
+        id: "clone/unreachable",
+        summary: "the remote never answered",
+        detail: "Nothing came back from the far side: no DNS, no route, no listener, a proxy \
+                 that dropped it. Nothing was written and there is nothing to clean up. If the \
+                 URL works in git but not here, the difference is usually installation config \
+                 fufu reads through git — check ff doctor, and ff git ls-remote against the \
+                 same URL says whether git can reach it either.",
+        exits: &["ff doctor"],
+    },
+    Entry {
+        id: "clone/refused",
+        summary: "the remote answered, and said no",
+        detail: "The far side is there and declined: authentication it would not accept, a \
+                 repository that is not there or not yours, or a branch name that matched \
+                 nothing (or matched several). Credentials come from git's own helpers, which \
+                 fufu inherits rather than reimplements, so a clone that git can do and fufu \
+                 cannot is worth reporting.",
+        exits: &[],
+    },
+    Entry {
+        id: "clone/failed",
+        summary: "the pack arrived and the working tree could not be written",
+        detail: "The download finished and the checkout did not: a path the filesystem would \
+                 not take, a name that collides case-insensitively, a disk that filled. The \
+                 half-built directory is removed, so this is a clone to run again rather than \
+                 one to repair.",
+        exits: &[],
+    },
+    Entry {
         id: "usage/unknown-error-id",
         summary: "no error goes by that id",
         detail: "Error ids are stable and namespaced — usage/ for a command line that was wrong, \
@@ -858,8 +925,9 @@ pub static ENTRIES: &[Entry] = &[
         summary: "no git repository here, or in any parent directory",
         detail: "fufu works inside a git repository, and searches upward from the current \
                  directory to find one. Either this is not a working tree, or you are outside \
-                 the one you meant to be in.",
-        exits: &[],
+                 the one you meant to be in. If there is no repository yet, ff init makes one \
+                 with the safety net already on, and ff clone brings one down the same way.",
+        exits: &["ff init", "ff clone <url>"],
     },
     Entry {
         id: "internal",

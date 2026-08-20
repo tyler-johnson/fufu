@@ -404,6 +404,64 @@ Examples:
   ff sync                        take in what arrived, first
   ff status                      what is waiting to go, before you send it";
 
+pub const INIT: &str = "\
+Starts a repository with the safety net already on.
+
+A `git init` leaves a repository whose operation log begins whenever some
+later fufu verb happens to take a floor, and whose gc guard — the config that
+stops `git gc` expiring fufu's own refs — is written at that same
+unpredictable moment. This writes both before you have typed anything else,
+so `ff undo` has somewhere to land from your first command onward.
+
+The default branch is `init.defaultBranch` if you set one, and `main` if you
+did not.
+
+Run inside a repository that already exists, it means turn fufu on here: the
+same two things, and it says so rather than pretending it made anything. That
+is the way to adopt a repository git created, or one you cloned before fufu
+was on the machine.
+
+It does not touch your shell or your agent. Those are yours, not this
+repository's, and `ff hook` installs them when you want them — `ff doctor`
+says what is wired and what is not.";
+
+pub const INIT_EXAMPLES: &str = "\
+Examples:
+  ff init                        here
+  ff init myproject              in a new directory
+  ff init                        again, in a repo git made: adopt it
+  ff doctor                      is the net actually on?
+  ff git init --bare             a bare repository is still git\'s job";
+
+pub const CLONE: &str = "\
+Clones a repository and arms it on arrival: the gc guard written, the
+operation log\'s floor taken, and one line saying what landed.
+
+fufu speaks the git protocol itself here rather than running `git clone` — it
+negotiates the pack, writes it, and checks out the worktree. What it still
+reaches outside the process for is git\'s configuration and authentication
+surface: the installation config (so `url.<base>.insteadOf` and `http.proxy`
+keep working), your credential helper when a remote asks for one, and `ssh`
+for an ssh URL. Those are inherited whole rather than reimplemented.
+
+Ctrl-C leaves nothing behind: a clone that does not finish takes its
+half-built directory with it.
+
+--depth takes only the last N commits. A shallow clone is a smaller download
+and a shorter history; fufu\'s own operations work the same way on one.
+
+The directory is the URL\'s last path segment with .git stripped, unless you
+name one. An existing directory with anything in it is refused rather than
+merged into.";
+
+pub const CLONE_EXAMPLES: &str = "\
+Examples:
+  ff clone git@github.com:you/thing.git
+  ff clone https://github.com/you/thing.git thing
+  ff clone <url> -b release        check out a branch, not the remote HEAD
+  ff clone <url> --depth 1         just the tip
+  ff init                          already have the repository? adopt it";
+
 pub const EDIT: &str = "\
 Opens an editing session on a commit: a branch is minted at the commit and you
 switch to it, so the commit's real content is what gets edited, with your whole

@@ -1,12 +1,27 @@
-//! The network lane: fufu's only reaching for the network is the git binary
-//! spawned on purpose, one call at a time, for a fetch or a push. The write
-//! ladder in DESIGN keeps fetch and push on the binary until native coverage
-//! earns them, and a sanctioned spawn inherits git's credential helpers whole
-//! — every SSH agent, every `gh auth`, every corporate helper — which is not
-//! a thing to reimplement for free. This is the counterpart to `ff trim`'s
-//! `gc --auto`, the other sanctioned spawn, and it differs in one way: a
-//! fetch or a push that fails is not best-effort. It is reported, with a
-//! coded error.
+//! The network lane. Two shapes live here, and they are not the same shape.
+//!
+//! `fetch` and `push` spawn the git binary, one call at a time. The write
+//! ladder in DESIGN keeps them there until native coverage earns them, and a
+//! sanctioned spawn inherits git's credential helpers whole — every SSH
+//! agent, every `gh auth`, every corporate helper — which is not a thing to
+//! reimplement for free. This is the counterpart to `ff trim`'s `gc --auto`,
+//! the other sanctioned spawn, and it differs in one way: a fetch or a push
+//! that fails is not best-effort. It is reported, with a coded error.
+//!
+//! `clone` is the first rung up that ladder. fufu speaks the git protocol
+//! itself there — gix's blocking transport over reqwest and rustls — so the
+//! negotiation, the pack, and the checkout all happen inside this process.
+//! What it still reaches outside for is git's *configuration and
+//! authentication* surface rather than its porcelain: one `git config -l` per
+//! process (without which `url.<base>.insteadOf`, `http.proxy` and
+//! `credential.helper` from the installation config would all be ignored —
+//! exactly the settings that make a clone work behind a corporate proxy), a
+//! credential helper when a remote asks for auth, and `ssh` for an ssh URL.
+//! That is the same trade the two spawns above state, made one layer lower:
+//! inherit git's credential surface whole rather than reimplement it.
+//!
+//! So "native" here is a claim about the protocol, not about the process
+//! table, and `tests/zero_spawn.rs` says the same thing in its preamble.
 
 use ff_core::{Error, Publish, Result};
 
@@ -140,6 +155,128 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
         ),
         vec![format!("ff git push {remote}"), "ff status".into()],
     ))
+}
+
+/// `ff clone`'s whole wire call: negotiate, take the pack, check out.
+///
+/// The three builder settings are exactly gix's, with no shape of our own
+/// layered on top — a surface that is one thing wearing another's name is
+/// how a flag ends up meaning something subtly different from the flag it
+/// was copied from.
+///
+/// `PrepareFetch` deletes the half-built directory when it drops, so a
+/// Ctrl-C anywhere in here leaves nothing behind. The handler that sets the
+/// flag is installed in `main`, before any verb runs.
+pub fn clone(opts: Clone<'_>) -> Result<gix::Repository> {
+    let mut prepare = gix::prepare_clone(opts.url, opts.dir).map_err(bad_url)?;
+    if let Some(branch) = opts.branch {
+        prepare = prepare
+            .with_ref_name(Some(branch))
+            .map_err(|_| bad_ref(branch))?;
+    }
+    if let Some(depth) = opts.depth {
+        prepare = prepare.with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(depth));
+    }
+    prepare = prepare.with_remote_name(opts.remote).map_err(|err| {
+        Error::coded(
+            "clone/bad-url",
+            format!("{} is not a usable remote name: {err}", opts.remote),
+            vec![],
+        )
+    })?;
+
+    // gix takes the progress by value, so the line is taken back off the
+    // terminal through a handle rather than through the bar itself — the
+    // clone's own report has to start on a clean line either way it went.
+    let progress = crate::progress::Bar::new("receiving objects", opts.progress);
+    let line = progress.handle();
+    let fetched = prepare.fetch_then_checkout(progress, &gix::interrupt::IS_INTERRUPTED);
+    line.clear();
+    let (mut checkout, _outcome) = fetched.map_err(|err| classify(opts.url, &err))?;
+
+    let progress = crate::progress::Bar::new("checking out files", opts.progress);
+    let line = progress.handle();
+    let checked_out = checkout.main_worktree(progress, &gix::interrupt::IS_INTERRUPTED);
+    line.clear();
+    let (repo, _outcome) = checked_out.map_err(|err| {
+        Error::coded(
+            "clone/failed",
+            format!("the pack arrived and the working tree could not be written: {err}"),
+            vec![],
+        )
+    })?;
+    Ok(repo)
+}
+
+/// What `ff clone` was asked for. A struct rather than six positional
+/// parameters, because four of them are `Option`s of two types.
+pub struct Clone<'a> {
+    pub url: &'a str,
+    pub dir: &'a std::path::Path,
+    pub branch: Option<&'a str>,
+    pub depth: Option<std::num::NonZeroU32>,
+    pub remote: &'a str,
+    /// Draw the progress line. Off for `--json`, and off again inside the
+    /// renderer when stderr is not a terminal.
+    pub progress: bool,
+}
+
+fn bad_url(err: gix::clone::Error) -> Error {
+    Error::coded(
+        "clone/bad-url",
+        format!("that is not a repository fufu can address: {err}"),
+        vec![],
+    )
+}
+
+fn bad_ref(branch: &str) -> Error {
+    Error::coded(
+        "clone/bad-url",
+        format!("{branch} is not a branch name git would accept"),
+        vec![],
+    )
+}
+
+/// Which of the three ways a clone fails this was. The split is the one
+/// `fetch` and `push` already draw: could not reach it, versus reached it and
+/// was told no.
+fn classify(url: &str, err: &gix::clone::fetch::Error) -> Error {
+    use gix::clone::fetch::Error as Fetch;
+    match err {
+        Fetch::Connect(_) => Error::coded(
+            "clone/unreachable",
+            format!("could not reach {url}: {}", first_useful_line(&chain(err))),
+            vec![format!("ff git ls-remote {url}")],
+        ),
+        Fetch::RefNameMissing { .. } | Fetch::RefNameAmbiguous { .. } => Error::coded(
+            "clone/refused",
+            format!("{url} answered, and {}", first_useful_line(&chain(err))),
+            vec![format!("ff git ls-remote {url}")],
+        ),
+        // Everything the remote itself declined — auth, a repository that is
+        // not there, a protocol the far side would not speak.
+        _ => Error::coded(
+            "clone/refused",
+            format!(
+                "{url} refused the clone: {}",
+                first_useful_line(&chain(err))
+            ),
+            vec![format!("ff git ls-remote {url}"), "ff doctor".into()],
+        ),
+    }
+}
+
+/// A `std::error::Error` chain flattened into the transcript shape
+/// [`first_useful_line`] already knows how to read.
+fn chain(err: &dyn std::error::Error) -> String {
+    let mut out = err.to_string();
+    let mut source = err.source();
+    while let Some(err) = source {
+        out.push('\n');
+        out.push_str(&err.to_string());
+        source = err.source();
+    }
+    out
 }
 
 /// The one line of git's stderr worth putting in an error: the first

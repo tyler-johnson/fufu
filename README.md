@@ -12,6 +12,20 @@ so your tools and your remotes all still work.*
 
 ---
 
+### Get a repository
+
+`ff clone` is fufu's own, not a wrapper: it speaks the git protocol itself, checks out the worktree, and arms the repository on arrival — the gc guard written, and the operation log's floor laid, so `ff undo` has somewhere to land from your very first command. `ff init` does the same for a repository you are starting from nothing, and run inside one that already exists it means *turn fufu on here*.
+
+```console
+$ ff clone https://github.com/tyler-johnson/fufu.git
+cloned into ./fufu — 118 commits on main
+the net is on: ff undo has a floor to land on, and every verb takes one first
+
+$ ff init                         # starting from nothing — or adopting a repo git made
+initialized an empty repository on main
+the net is on: ff undo has a floor to land on, and every verb takes one first
+```
+
 ### Start new work
 
 `ff start` begins new work, always on a fresh branch: it fetches main, forks from the fetched tip, and hands you a clean tree. Nothing to name up front — fufu mints a name and you claim it once the work has earned one.

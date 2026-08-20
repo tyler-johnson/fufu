@@ -445,6 +445,8 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 
 | verb | what it does | what it replaces |
 |---|---|---|
+| `ff init [<dir>]` | start a repository with the net already on: the gc guard written and the operation log's floor taken before you type anything else. Inside a repository that exists it means *turn fufu on here*, and says so | `git init`, then hoping something later remembers to arm it |
+| `ff clone <url> [<dir>]` | that, plus fufu owning the sequence: it speaks the protocol itself, resolves the remote's HEAD, checks out the worktree, and reports in fufu's vocabulary (`247 commits on main`). Also where the shared-copy memory `ff publish` reads starts out true | `git clone`, and a repository with nothing for `ff undo` to land on |
 | `ff` (spelled out, `ff map`) | the map: recent work across every branch, parked changes included — where you left things | `git branch -v`, `git stash list`, and remembering |
 | `ff status` | `ff log` cropped to two rows — the open change and the commit under it — with the diffstat between them, plus futures: held rewrites, "rebases cleanly onto main" | `git status` + attempting things to see if they work |
 | `ff commit` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); interactive form picks hunks — a slice cut from the stream | the `add`/index two-phase ritual (which still works, for those who want it) |
@@ -485,6 +487,16 @@ Both ride every verb that reads repository state, and no others. The line is not
 Two spellings are not two verbs. Seven verbs take a short one as well — `st`, `ci`, `sw`, `br`, `ev`, `desc`, `cfg` — and the set is curated and closed rather than derived: prefix inference would make the accepted spellings a function of the verb list, so `ff sta` would work until the day a verb starting with the same three letters shipped, and a spelling that stops working is worse than one that never worked. Short forms stay out of the command list, which is what fufu *does* rather than how it is typed, and the root page teaches them instead. Bare `ff` also answers to `ff map`, so the word every page uses for it is a word you can type, and the map gets a help page of its own address.
 
 A handful of git words are answered rather than parsed: `checkout` (and `co`), `diff`, `stash`, `pull`, `rebase`. Typing one is a question — how do I do the git thing here? — and "unrecognized subcommand" answers a different one, so each raises a coded refusal naming the verbs that replaced it, with what was typed folded into the exits the way `ff branch <name>` folds it. This is the retired `-m` and `ff log --ops` again: a word fufu chose not to have is worth more than a word it never heard of. They are refusals and nothing else, so they capture nothing — a snapshot taken for a command that does not exist would be a row on the log for something that never ran.
+
+### `ff init` and `ff clone`
+
+The earn is the same for both, and it is the two things `git init` and `git clone` leave undone: the gc guard is written before anything can expire, and the operation log's floor is laid so `ff undo` has somewhere to land from the first command onward rather than from whenever an ff verb first happened to take one. `ff clone` adds fufu owning the sequence — its own protocol, its own checkout, its own report — which is also the moment the shared-copy memory `ff publish` reads starts out true instead of inferred.
+
+Run inside a repository that already exists, `ff init` means *turn fufu on here*: the same work, reported honestly as already done when it was. That is the adopt path for a repository git made, and it is why the verb is not `ff init` in the git sense at all — a `--bare` is refused, naming `ff git init --bare`, because a bare repository has no working tree and therefore nothing for a floor to hold.
+
+These are the only two verbs that capture **last**. Every other verb captures first; these cannot, because there is no repository to capture until the work is done. What they take is not a pre-command snapshot but the log's first entry, and an append before the clone happened would be a claim nothing could falsify — the same shape `ff publish`'s record takes, for the same reason.
+
+Neither pesters about hooks. `~/.claude/settings.json` and shell rc files belong to the user, not to this repository; `ff hook` installs them when asked and `ff doctor` already owns the report.
 
 ### Presentation conventions
 
@@ -644,6 +656,7 @@ semantics; fufu chooses the execution per call-site.**
   stash entries) go native early — jog-proven territory. Disk-materializing
   operations (checkout through filters, rebase, fetch/push with auth) start on
   the git binary and go native as coverage earns it.
+- **The wire is the first rung climbed.** `ff clone` speaks the git protocol itself — gix's blocking transport over reqwest and rustls — so the negotiation, the pack and the checkout all happen in-process, and nothing shells out to `git clone`. What it still reaches outside the process for is git's *configuration and authentication* surface rather than its porcelain: one `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the installation config are honored rather than ignored; a credential helper when a remote asks for auth; and `ssh` for an ssh URL. That is the same trade `ff sync`'s fetch and `ff publish`'s push already make — inherit git's credential surface whole rather than reimplement it — moved one layer down, and it is the rung those two climb next when they earn it. `ff init` reaches nothing at all.
 - **Differential testing is the compatibility contract.** Every native
   operation is checked against git-binary output in CI, permanently. A native
   merge that differs from git's by one edge case silently breaks the invariant;

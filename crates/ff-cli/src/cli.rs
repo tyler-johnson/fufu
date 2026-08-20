@@ -246,6 +246,35 @@ pub enum Command {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
+    /// Start a repository with the safety net already on
+    #[command(long_about = help::INIT, after_long_help = help::INIT_EXAMPLES)]
+    Init {
+        /// Where to create it; the current directory when omitted
+        #[arg(value_name = "dir")]
+        dir: Option<String>,
+        /// Refused: a bare repository has no working tree to capture
+        #[arg(long, hide = true)]
+        bare: bool,
+    },
+    /// Clone a repository, and arm it on arrival
+    #[command(long_about = help::CLONE, after_long_help = help::CLONE_EXAMPLES)]
+    Clone {
+        /// The repository to clone from
+        #[arg(value_name = "url")]
+        url: String,
+        /// Where to put it; the URL's last path segment when omitted
+        #[arg(value_name = "dir")]
+        dir: Option<String>,
+        /// Check out this branch instead of the remote's HEAD
+        #[arg(short = 'b', long, value_name = "name")]
+        branch: Option<String>,
+        /// Shallow: only the last <n> commits
+        #[arg(long, value_name = "n")]
+        depth: Option<std::num::NonZeroU32>,
+        /// Name for the remote
+        #[arg(short = 'o', long, value_name = "name", default_value = "origin")]
+        origin: String,
+    },
     /// Open an editing session on a commit: go there, edit it, come back
     #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
     Edit {
@@ -542,6 +571,8 @@ impl Command {
             Command::Restack { .. } => "restack",
             Command::Sync { .. } => "sync",
             Command::Publish { .. } => "publish",
+            Command::Init { .. } => "init",
+            Command::Clone { .. } => "clone",
             Command::Edit { .. } => "edit",
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
@@ -606,6 +637,10 @@ impl Command {
             | Command::Doctor { .. }
             | Command::Explain { .. }
             | Command::Update { .. }
+            // No past: `--at-op` places a command against an input state, and
+            // these two run before there is one.
+            | Command::Init { .. }
+            | Command::Clone { .. }
             | Command::Checkout { .. }
             | Command::Diff { .. }
             | Command::Stash { .. }

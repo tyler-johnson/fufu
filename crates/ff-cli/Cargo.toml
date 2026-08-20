@@ -13,6 +13,17 @@ path = "src/main.rs"
 
 [dependencies]
 ff-core.workspace = true
+# The wire belongs to the CLI, so the transport feature is declared here
+# rather than on the workspace table: `ff clone` speaks the git protocol
+# itself, over reqwest/rustls. rustls rather than curl — the binary already
+# carries rustls through `ureq`, and libcurl on the windows-11-arm release
+# runner is a build risk with nothing to buy it.
+gix = { workspace = true, features = [
+    "blocking-http-transport-reqwest-rust-tls",
+    # The checkout half of a clone. `ff clone` writes the worktree itself,
+    # which is the difference between owning the sequence and narrating one.
+    "worktree-mutation",
+] }
 clap.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }

@@ -11,6 +11,7 @@ mod help;
 mod machine;
 mod net;
 mod pager;
+mod progress;
 mod provenance;
 mod render;
 mod session;
@@ -144,6 +145,15 @@ fn main() {
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
         Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
         Some(cli::Command::Publish { dry_run }) => cmd::publish::run(&ctx, dry_run),
+        // The two verbs that run before there is a repository to discover.
+        Some(cli::Command::Init { dir, bare }) => cmd::init::run(&ctx, dir, bare),
+        Some(cli::Command::Clone {
+            url,
+            dir,
+            branch,
+            depth,
+            origin,
+        }) => cmd::clone::run(&ctx, url, dir, branch, depth, origin),
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
         Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
