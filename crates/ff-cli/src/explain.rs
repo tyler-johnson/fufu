@@ -1301,8 +1301,16 @@ mod tests {
         if shape {
             return;
         }
-        <crate::cli::Cli as clap::Parser>::try_parse_from(&tokens)
-            .unwrap_or_else(|err| panic!("{whose}: `{exit}` does not parse:\n{err}"));
+        if let Err(err) = <crate::cli::Cli as clap::Parser>::try_parse_from(&tokens) {
+            // Not every non-Ok is a failure: clap reports `-v` and `--help` as
+            // errors carrying the text they printed, which is exactly what
+            // those exits are for. The grammar is what is under test.
+            use clap::error::ErrorKind::{DisplayHelp, DisplayVersion};
+            assert!(
+                matches!(err.kind(), DisplayVersion | DisplayHelp),
+                "{whose}: `{exit}` does not parse:\n{err}"
+            );
+        }
     }
 
     /// What a placeholder becomes once `argv` has filled it.

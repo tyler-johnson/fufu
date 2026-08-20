@@ -259,6 +259,31 @@ fn init_never_spawns() {
     );
 }
 
+/// `ff version` reads the binary and a cache file and nothing else. It is the
+/// one verb that never opens a repository at all, so it runs here outside one
+/// — if it ever reached for `git` to answer "which version am I", the trap
+/// would be the only thing that noticed.
+#[test]
+fn version_never_spawns() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let trap = build_trap();
+
+    for args in [&["version"][..], &["version", "--json"][..], &["-v"][..]] {
+        let out = ff_trapped(&trap, dir.path(), args);
+        assert!(
+            out.status.success(),
+            "ff {:?} failed under trap PATH: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(
+        !trap.log.exists(),
+        "ff version spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
 /// The config write path is native — gix File + config.lock, no `git config` shellout.
 #[test]
 fn config_never_spawns() {

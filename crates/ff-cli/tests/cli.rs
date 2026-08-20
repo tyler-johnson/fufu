@@ -1587,6 +1587,82 @@ fn version_names_the_build() {
     );
 }
 
+/// The three spellings of one question. `-v` and `ff version` must not be
+/// able to drift apart, and `-V` — what almost every other tool spells this —
+/// must be answered rather than met with clap's unknown-argument error.
+#[test]
+fn the_version_is_asked_three_ways_and_answered_once() {
+    let tmp = std::env::temp_dir();
+
+    let long = ff_at(&tmp, &["--version"]);
+    let short = ff_at(&tmp, &["-v"]);
+    let verb = ff_at(&tmp, &["version"]);
+    for out in [&long, &short, &verb] {
+        assert!(out.status.success(), "exit 0: {:?}", out.status);
+    }
+
+    assert_eq!(stdout(&short), stdout(&long), "-v is --version");
+    // The verb may say more underneath, but its first line is the flag's line.
+    let line = stdout(&long);
+    assert!(
+        stdout(&verb).starts_with(line.trim_end()),
+        "ff version does not lead with the flag's line: {:?} vs {line:?}",
+        stdout(&verb)
+    );
+
+    // `-V` is gone as a spelling and present as an answer.
+    let shouted = ff_at(&tmp, &["-V"]);
+    assert!(!shouted.status.success(), "-V no longer prints a version");
+    let err = String::from_utf8_lossy(&shouted.stderr).to_string();
+    assert!(err.contains("ff -v"), "names the spelling: {err}");
+    assert!(err.contains("ff version"), "names the verb: {err}");
+}
+
+/// The envelope carries the line as fields, so a caller never takes the
+/// display string apart.
+#[test]
+fn version_json_splits_the_line_into_fields() {
+    let out = ff_at(&std::env::temp_dir(), &["version", "--json"]);
+    assert!(out.status.success(), "exit 0: {:?}", out.status);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1);
+    assert_eq!(v["cmd"], "version");
+    assert_eq!(v["data"]["version"], env!("CARGO_PKG_VERSION"));
+
+    // Commit and date are both recorded or both null — never one alone, which
+    // is what the build script's "both or neither" rule buys.
+    let commit = &v["data"]["commit"];
+    let date = &v["data"]["date"];
+    assert_eq!(
+        commit.is_null(),
+        date.is_null(),
+        "half a provenance: {commit} / {date}"
+    );
+    if let Some(commit) = commit.as_str() {
+        assert!(
+            commit.len() >= 7 && commit.chars().all(|c| c.is_ascii_hexdigit()),
+            "not a short sha: {commit}"
+        );
+        assert_eq!(date.as_str().map(str::len), Some(10), "not YYYY-MM-DD");
+        // And the display line is built from exactly these two.
+        let line = stdout(&ff_at(&std::env::temp_dir(), &["-v"]));
+        assert!(line.contains(commit), "the line drops the commit: {line}");
+    }
+
+    // The update lane always reports one of its four states, and names a tag
+    // only when there is one to name.
+    let status = v["data"]["update"]["status"].as_str().expect("a status");
+    assert!(
+        ["unofficial", "unchecked", "available", "current"].contains(&status),
+        "unknown update status: {status}"
+    );
+    assert_eq!(
+        v["data"]["update"]["latest"].is_null(),
+        status != "available",
+        "a tag is named exactly when one is available"
+    );
+}
+
 /// `ff config` lists the theme setting and its three values.
 #[test]
 fn config_lists_theme() {

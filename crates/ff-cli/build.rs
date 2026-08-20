@@ -1,8 +1,16 @@
-//! Emit `FF_BUILD_INFO` so `ff --version` can name the commit it came from.
+//! Emit the build provenance so `ff -v` and `ff version` can name the commit
+//! the binary came from.
 //!
-//! The value is either `" (<sha> <date>)"` or the empty string. An empty string
-//! means the binary was built without git available (source tarball, crates.io
-//! vendor, docker context without `.git`).
+//! Three variables, one fact. `FF_BUILD_INFO` is the display half — either
+//! `" (<sha> <date>)"` or the empty string — and `FF_BUILD_SHA` /
+//! `FF_BUILD_DATE` are the same two values on their own, because `ff version
+//! --json` reports them as fields and parsing them back out of the display
+//! string would make that envelope depend on how the line is spelled.
+//!
+//! All three are empty together, never one without the others: the binary was
+//! built without git available (source tarball, crates.io vendor, docker
+//! context without `.git`), and a sha with no date is a half-answer the
+//! envelope has no honest shape for.
 //!
 //! **Rerun directives.** We watch the git state that determines the sha, not
 //! the package files: the value depends on the commit, not on the sources.
@@ -45,13 +53,17 @@ fn main() {
     let sha = run_git(dir, &["rev-parse", "--short=7", "HEAD"]);
     let date = run_git(dir, &["log", "-1", "--format=%cs"]);
 
-    let info = if let (Some(sha), Some(date)) = (sha, date) {
-        format!(" ({} {})", sha, date)
-    } else {
-        String::new()
+    let (sha, date, info) = match (sha, date) {
+        (Some(sha), Some(date)) => {
+            let info = format!(" ({} {})", sha, date);
+            (sha, date, info)
+        }
+        _ => (String::new(), String::new(), String::new()),
     };
 
     println!("cargo::rustc-env=FF_BUILD_INFO={info}");
+    println!("cargo::rustc-env=FF_BUILD_SHA={sha}");
+    println!("cargo::rustc-env=FF_BUILD_DATE={date}");
 }
 
 /// Run a `git` command in `dir`. Returns `None` on any failure instead of

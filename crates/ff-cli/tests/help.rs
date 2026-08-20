@@ -72,7 +72,7 @@ fn every_command_has_a_page() {
     let commands = [
         "map", "status", "log", "evolog", "git", "restore", "trim", "commit", "switch", "undo",
         "redo", "op", "new", "describe", "branch", "hook", "config", "doctor", "update", "resolve",
-        "init", "clone",
+        "init", "clone", "version",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);

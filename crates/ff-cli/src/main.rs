@@ -45,6 +45,17 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
             ],
         ));
     }
+    // `-V` is the version flag every other tool has; here it is lowercase.
+    // Answered rather than parsed, so the person who typed the habit is told
+    // the spelling instead of that the flag does not exist.
+    if args.version_shouted {
+        return Err(ff_core::Error::coded(
+            "usage/bad-flags",
+            "-V is not fufu's spelling: the version flag is lowercase, and the verb \
+             says more than the flag does",
+            vec!["ff -v".into(), "ff version".into()],
+        ));
+    }
     // `-n` and `--all` are the map's branch scope; beside a subcommand they
     // mean nothing, so they are refused rather than silently ignored.
     if args.command.is_some() && (args.branches.is_some() || args.all) {
@@ -166,6 +177,7 @@ fn main() {
         }) => cmd::config::run(&ctx, key, value, unset, global),
         Some(cli::Command::Doctor { fix }) => cmd::doctor::run(&ctx, fix),
         Some(cli::Command::Explain { id, list }) => cmd::explain::run(&ctx, id, list),
+        Some(cli::Command::Version) => cmd::version::run(&ctx),
         Some(cli::Command::Update { check }) => cmd::update::run(&ctx, check),
         // The foreign verbs answer and stop; none of them reaches a repository.
         Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),

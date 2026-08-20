@@ -4,6 +4,11 @@ use clap::{Parser, Subcommand};
 
 use crate::help;
 
+/// The version line `ff -v` and `ff version` both print, minus the program
+/// name clap prepends to one of them. One constant so the flag and the verb
+/// cannot answer the same question differently.
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO"));
+
 /// Bare `ff` is the map (jj-style): the local branches as a skeleton —
 /// tips, merges, forks — the answer to "where did I leave that idea?".
 /// Capture is automatic and every verb takes it first, so `-m` is declared
@@ -17,7 +22,9 @@ use crate::help;
     // "ff.exe" on Windows, so usage lines would read "Usage: ff.exe hook agent"
     // there and "Usage: ff hook agent" everywhere else. Subcommands inherit it.
     bin_name = "ff",
-    version = concat!(env!("CARGO_PKG_VERSION"), env!("FF_BUILD_INFO")),
+    version = VERSION,
+    // Declared by hand below, for the short letter: clap's own flag is `-V`.
+    disable_version_flag = true,
     about = "a friendlier interface to plain git",
     long_about = help::ROOT,
     after_long_help = help::ROOT_EXAMPLES
@@ -35,6 +42,22 @@ pub struct Cli {
     /// Emit machine-readable JSON
     #[arg(long, global = true)]
     pub json: bool,
+    // `-v`, not clap's default `-V`. fufu has no verbose flag to reserve the
+    // lowercase letter for — verbosity here is `--json` or a different verb —
+    // so the shifted spelling bought nothing and cost every person who typed
+    // the lowercase one first. `-V` is gone rather than kept as an alias: a
+    // second spelling for a one-line answer is surface with no reader.
+    /// Print the version and the commit it was built from
+    #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
+    pub version: Option<bool>,
+    /// Retired: the version flag is lowercase `-v`
+    ///
+    /// Declared only to stay hidden, on the same rule as `-m` and `--ops`:
+    /// `-V` is what almost every other tool spells this, so typing it is a
+    /// question rather than a typo, and clap's bare "unexpected argument"
+    /// answers a different one.
+    #[arg(short = 'V', hide = true, action = clap::ArgAction::SetTrue)]
+    pub version_shouted: bool,
     /// Session name for this invocation
     #[arg(long, value_name = "name", global = true)]
     pub session: Option<String>,
@@ -342,6 +365,9 @@ pub enum Command {
         #[arg(long)]
         list: bool,
     },
+    /// Which fufu this is, and whether it is the current one
+    #[command(long_about = help::VERSION, after_long_help = help::VERSION_EXAMPLES)]
+    Version,
     /// Download the latest release and replace this binary
     #[command(long_about = help::UPDATE, after_long_help = help::UPDATE_EXAMPLES)]
     Update {
@@ -580,6 +606,7 @@ impl Command {
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
             Command::Explain { .. } => "explain",
+            Command::Version => "version",
             Command::Update { .. } => "update",
             // A foreign verb only ever fails, and the envelope names what was
             // typed rather than what fufu would have run: a script reading
@@ -637,6 +664,9 @@ impl Command {
             | Command::Doctor { .. }
             | Command::Explain { .. }
             | Command::Update { .. }
+            // The one verb that reads no repository at all: it reports on the
+            // binary, and a past operation has nothing to say about that.
+            | Command::Version
             // No past: `--at-op` places a command against an input state, and
             // these two run before there is one.
             | Command::Init { .. }
