@@ -69,7 +69,7 @@ fn config(dir: &Path, key: &str) -> String {
 /// loaded CI runner does, and it failed this file on Windows once already.
 /// What these tests mean by "the same log" is the same operations.
 fn op_log(dir: &Path) -> Vec<(String, String)> {
-    let body = ok(dir, &["op", "log", "--captures", "--json"]);
+    let body = ok(dir, &["op", "log", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&body).expect("valid op log envelope");
     v["data"]["ops"]
         .as_array()

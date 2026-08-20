@@ -40,8 +40,9 @@ Use `ff`, not `git`, for anything that writes:
 - begin work: `ff start` · move: `ff switch <branch>` (parks and resumes dirty trees)
 - undo the last operation, whole repo: `ff undo`
 - discard edits to a file: `ff restore <path>`
-- go back in time: `ff restore --all --at 2h`, or `ff op log --captures` for ids then \
+- go back in time: `ff restore --all --at 2h`, or `ff op log` for ids then \
 `ff restore <path> --at-op <id>`
+- where you can go back to, one row per undo step: `ff history`
 - fold a fix into an earlier commit: `ff absorb --into <rev>`
 - take in base and remote: `ff sync` · send it out: `ff publish`
 - anything else git does: `ff git <args…>` — snapshots, then runs git verbatim

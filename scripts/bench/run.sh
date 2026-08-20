@@ -699,7 +699,7 @@ record_ff_fixture_state() {
       # operation-typed position and takes letters only. `ff op log --json`
       # is the one view whose ids are already in that spelling, so nothing
       # here has to re-implement the alphabet.
-      "$FF" op log --captures -n 0 --json > "../.oplog.json"
+      "$FF" op log -n 0 --json > "../.oplog.json"
     ); then
         echo "run.sh: fixture build failed — '$FF' exited non-zero during op log; this ff build cannot construct bench fixtures (op log --json is required, usually missing on binaries predating that command)" >&2
         exit 1

@@ -127,6 +127,7 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    // agent notice quotes this: `ff history`
     /// Where you can go back to: one row per `ff undo` step, with redo above
     #[command(long_about = help::HISTORY, after_long_help = help::HISTORY_EXAMPLES)]
     History {
@@ -471,7 +472,7 @@ pub struct Past {
 /// (`"op log"`, not `"op"`), so two shapes never share one name.
 #[derive(Subcommand)]
 pub enum OpAction {
-    // agent notice quotes this: `ff op log --captures`
+    // agent notice quotes this: `ff op log`
     /// Every operation, newest first, with the ids these verbs take
     #[command(long_about = help::OP_LOG, after_long_help = help::OP_LOG_EXAMPLES)]
     Log {
@@ -484,8 +485,8 @@ pub enum OpAction {
         /// Retired: the expression is this verb's argument now
         #[arg(short = 'r', long = "revisions", value_name = "revset", hide = true)]
         revisions: Option<String>,
-        /// Include captures — the machine-rate rows a verb view leaves out
-        #[arg(long)]
+        /// Retired: every operation is shown, and `ff history` is the view
+        #[arg(long, hide = true)]
         captures: bool,
         #[command(flatten)]
         past: Past,

@@ -146,7 +146,7 @@ fn a_clone_lands_armed_and_reports_in_fufus_vocabulary() {
         "never"
     );
     // The floor: one row, and the log's root note.
-    let rows = ok(&clone, &["op", "log", "--captures"]);
+    let rows = ok(&clone, &["op", "log"]);
     let rows: Vec<&str> = rows.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(rows.len(), 1, "exactly the floor: {rows:#?}");
     assert!(rows[0].contains("note"), "{rows:#?}");

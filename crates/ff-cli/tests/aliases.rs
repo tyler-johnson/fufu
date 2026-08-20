@@ -60,7 +60,7 @@ fn repo() -> Fixture {
 /// The ids `ff op log --json` prints, captures included — the whole log, so
 /// a verb that wrote anything at all shows up here.
 fn op_count(fx: &Fixture) -> usize {
-    let out = ff(fx, &["op", "log", "--json", "-n", "0", "--captures"]);
+    let out = ff(fx, &["op", "log", "--json", "-n", "0"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     json(&out)["data"]["ops"]
         .as_array()

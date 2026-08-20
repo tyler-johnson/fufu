@@ -105,8 +105,13 @@ fn status_and_log_never_spawn() {
         &["log", "--json"][..],
         &["log", "-n", "5"][..],
         &["op", "log"][..],
-        &["op", "log", "--captures"][..],
+        // The set language reaches the same rows by another route, and it
+        // must not reach git on the way.
+        &["op", "log", "kind(op)"][..],
         &["evolog"][..],
+        // The moves rather than the operations, and the same rule: both
+        // walks are native.
+        &["history"][..],
         // The ambient prompt hook: piped stdout means the TTY gate fires
         // before any repository work, so this must be zero-spawn too — a
         // `git` subprocess on every prompt would be a permanent, invisible

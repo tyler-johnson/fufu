@@ -343,7 +343,7 @@ fn the_session_verb_is_gone_and_the_tag_rides_the_operation() {
     fx.write("a.txt", "changed\n");
     let out = ff_with_session(&fx, "my-session", &[]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let out = ff(&fx, &["op", "log", "--captures", "--json"]);
+    let out = ff(&fx, &["op", "log", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
     let ops = v["data"]["ops"].as_array().expect("ops array");

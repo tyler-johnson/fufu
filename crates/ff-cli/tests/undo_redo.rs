@@ -157,9 +157,7 @@ fn a_round_trip_writes_nothing_and_the_reflog_shows_the_moves() {
     ok(&fx, &["commit", "-m", "landed"]);
 
     let tip = fx.git(&["rev-parse", "refs/fufu/ops"]);
-    let count = ok(&fx, &["op", "log", "--captures", "-n", "0"])
-        .lines()
-        .count();
+    let count = ok(&fx, &["op", "log", "-n", "0"]).lines().count();
 
     ok(&fx, &["undo"]);
     ok(&fx, &["redo"]);
@@ -170,9 +168,7 @@ fn a_round_trip_writes_nothing_and_the_reflog_shows_the_moves() {
         "back exactly where it started"
     );
     assert_eq!(
-        ok(&fx, &["op", "log", "--captures", "-n", "0"])
-            .lines()
-            .count(),
+        ok(&fx, &["op", "log", "-n", "0"]).lines().count(),
         count,
         "and nothing was appended saying so"
     );
@@ -235,7 +231,7 @@ fn redo_refuses_once_work_has_landed() {
 
     // Nothing was discarded either: the abandoned operation still resolves,
     // and landing on it by id still works.
-    let out = ff(&fx, &["op", "log", "--captures", "--json"]);
+    let out = ff(&fx, &["op", "log", "--json"]);
     assert!(out.status.success());
 }
 

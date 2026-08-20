@@ -85,14 +85,16 @@ fn op_ids(fx: &Fixture, extra: &[&str]) -> Vec<String> {
 fn op_log_lists_verbs_and_captures_on_one_log() {
     let fx = with_ops();
 
-    // Captures outnumber verb operations by more than an order of magnitude,
-    // so the default view leaves them out and --captures puts them back.
-    let verbs = op_ids(&fx, &[]);
-    let everything = op_ids(&fx, &["--captures"]);
+    // Every operation, both kinds, with no flag asked for. Captures
+    // outnumber verb operations by more than an order of magnitude, and the
+    // log reports what happened rather than deciding what is worth reading;
+    // narrowing is the expression's job.
+    let everything = op_ids(&fx, &[]);
+    let verbs = op_ids(&fx, &["kind(op)"]);
     assert!(!verbs.is_empty(), "the close is on the log");
     assert!(
         everything.len() > verbs.len(),
-        "captures are the majority: {} vs {}",
+        "captures are the majority and are shown: {} vs {}",
         everything.len(),
         verbs.len()
     );
@@ -115,7 +117,7 @@ fn op_log_lists_verbs_and_captures_on_one_log() {
 #[test]
 fn addresses_accept_the_suffixes_git_already_has() {
     let fx = with_ops();
-    let ids = op_ids(&fx, &["--captures"]);
+    let ids = op_ids(&fx, &[]);
     assert!(ids.len() >= 4, "enough depth to walk: {ids:?}");
 
     let shown = |spec: &str| {
@@ -185,7 +187,7 @@ fn hex_is_refused_wherever_an_operation_is_taken() {
 #[test]
 fn an_ambiguous_prefix_names_the_candidates() {
     let fx = with_ops();
-    let ids = op_ids(&fx, &["--captures"]);
+    let ids = op_ids(&fx, &[]);
     // One letter cannot be unique across a log this size unless the log is
     // tiny; find a first letter two ids share.
     let mut shared: Option<char> = None;
@@ -216,7 +218,7 @@ fn an_ambiguous_prefix_names_the_candidates() {
 #[test]
 fn op_diff_compares_two_operations_worktrees() {
     let fx = with_ops();
-    let ids = op_ids(&fx, &["--captures"]);
+    let ids = op_ids(&fx, &[]);
 
     let out = ff(&fx, &["op", "diff", &ids[2], &ids[0], "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
@@ -241,7 +243,7 @@ fn op_diff_compares_two_operations_worktrees() {
 #[test]
 fn op_diff_sees_edits_nothing_has_captured_yet() {
     let fx = with_ops();
-    let floor = op_ids(&fx, &["--captures"]).pop().expect("a floor");
+    let floor = op_ids(&fx, &[]).pop().expect("a floor");
 
     // Two dirty files, and no ff verb run since they were written.
     fx.write("a.txt", "edited\n");
@@ -271,7 +273,7 @@ fn op_diff_sees_edits_nothing_has_captured_yet() {
 #[test]
 fn op_restore_rewinds_the_repository_without_appending() {
     let fx = with_ops();
-    let before = op_ids(&fx, &["--captures"]);
+    let before = op_ids(&fx, &[]);
     let head_before = fx.git(&["rev-parse", "HEAD"]);
 
     // Land on the operation before the close.
@@ -284,7 +286,7 @@ fn op_restore_rewinds_the_repository_without_appending() {
     );
 
     // Nothing was appended saying that we navigated.
-    let after = op_ids(&fx, &["--captures"]);
+    let after = op_ids(&fx, &[]);
     assert!(
         after.len() < before.len(),
         "the pointer moved back rather than growing the log: {} → {}",
@@ -314,17 +316,17 @@ fn op_restore_rewinds_the_repository_without_appending() {
 fn op_revert_inverts_one_operation_and_records_itself() {
     let fx = with_ops();
     let head_after_close = fx.git(&["rev-parse", "HEAD"]);
-    let verbs = op_ids(&fx, &[]);
+    let verbs = op_ids(&fx, &["kind(op)"]);
     let close = verbs.first().expect("the close is on the log").clone();
     // Picked before the revert runs: afterwards the log holds the revert and
     // its own pre-capture, and "not among the verbs I saw earlier" would
     // find one of those instead.
-    let a_capture = op_ids(&fx, &["--captures"])
+    let a_capture = op_ids(&fx, &[])
         .into_iter()
         .find(|id| !verbs.contains(id))
         .expect("a capture");
 
-    let before = op_ids(&fx, &["--captures"]).len();
+    let before = op_ids(&fx, &[]).len();
     let out = ff(&fx, &["op", "revert", &close, "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let d = &json(&out)["data"]["revert"];
@@ -338,7 +340,7 @@ fn op_revert_inverts_one_operation_and_records_itself() {
     assert_ne!(fx.git(&["rev-parse", "HEAD"]), head_after_close);
 
     // Unlike a rewind, this one is on the log.
-    let after = op_ids(&fx, &["--captures"]).len();
+    let after = op_ids(&fx, &[]).len();
     assert!(after > before, "revert records itself: {before} → {after}");
 
     // And reverting something with no ref transitions is refused by name.
@@ -352,10 +354,10 @@ fn op_revert_inverts_one_operation_and_records_itself() {
 #[test]
 fn op_log_takes_the_set_language() {
     let fx = with_ops();
-    let all = op_ids(&fx, &["--captures"]);
+    let all = op_ids(&fx, &[]);
 
     let query = |expr: &str| -> Vec<String> {
-        let out = ff(&fx, &["op", "log", expr, "--captures", "-n", "0", "--json"]);
+        let out = ff(&fx, &["op", "log", expr, "-n", "0", "--json"]);
         assert!(out.status.success(), "ff op log {expr}: {}", stderr(&out));
         json(&out)["data"]["ops"]
             .as_array()
@@ -384,12 +386,47 @@ fn op_log_takes_the_set_language() {
     assert!(!query("on_branch(main)").is_empty());
     assert!(query("on_branch(nosuchbranch)").is_empty());
 
-    // The expression composes with --captures rather than replacing it: the
-    // set says which operations, the flag says which kinds of row to render.
-    let out = ff(&fx, &["op", "log", "::@", "-n", "0", "--json"]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
-    let without = json(&out)["data"]["ops"].as_array().expect("ops").len();
-    assert!(without < all.len(), "captures still excluded by default");
+    // One filter, not two. `kind(capture)` returned nothing while the flag
+    // was the other half of the decision — the flag silently overrode the
+    // expression — and with the flag gone the language answers for itself.
+    assert!(
+        !query("kind(capture)").is_empty(),
+        "the set language reaches captures"
+    );
+    assert_eq!(
+        query("::@").len(),
+        all.len(),
+        "the whole log is the whole log"
+    );
+}
+
+/// `--captures` was a bespoke filter for a concept the set language already
+/// owns, and the two contradicted each other — the flag silently overrode the
+/// expression, so `ff op log 'kind(capture)'` returned nothing. The flag is
+/// gone, and typing it is answered with both the expression that narrows and
+/// the verb that answers what it was really being asked for.
+#[test]
+fn the_captures_flag_is_retired_in_favor_of_the_language_and_ff_history() {
+    let fx = with_ops();
+
+    let out = ff(&fx, &["op", "log", "--captures", "--json"]);
+    assert!(!out.status.success(), "the retired flag is refused");
+    let err = json(&out)["error"].clone();
+    assert_eq!(err["id"], "usage/bad-flags");
+    let exits: Vec<String> = err["exits"]
+        .as_array()
+        .expect("exits")
+        .iter()
+        .map(|e| e.as_str().expect("exit").to_string())
+        .collect();
+    assert!(
+        exits.iter().any(|e| e == "ff history"),
+        "the view it was standing in for is named: {exits:?}"
+    );
+    assert!(
+        exits.iter().any(|e| e.starts_with("ff op log")),
+        "and so is the log it narrowed: {exits:?}"
+    );
 }
 
 /// `-r` is a respelling and not a removal, so typing it is answered rather
@@ -444,10 +481,7 @@ fn a_session_is_filtered_by_the_set_language() {
         .expect("spawn ff");
     assert!(out.status.success(), "stderr: {}", stderr(&out));
 
-    let out = ff(
-        &fx,
-        &["op", "log", "session(nightly)", "--captures", "--json"],
-    );
+    let out = ff(&fx, &["op", "log", "session(nightly)", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let ops = json(&out)["data"]["ops"].as_array().expect("ops").clone();
     assert_eq!(ops.len(), 1, "one tagged capture: {ops:?}");
@@ -497,9 +531,9 @@ fn base_crosses_from_operations_to_commits() {
 #[test]
 fn the_context_flags_bound_the_log() {
     let fx = with_ops();
-    let all = op_ids(&fx, &["--captures"]);
+    let all = op_ids(&fx, &[]);
 
-    let bounded = op_ids(&fx, &["--captures", "--at-op", &all[2]]);
+    let bounded = op_ids(&fx, &["--at-op", &all[2]]);
     assert_eq!(bounded[0], all[2], "the walk starts there");
     assert_eq!(bounded.len(), all.len() - 2);
 

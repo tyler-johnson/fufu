@@ -336,7 +336,7 @@ fn the_map_still_captures() {
 
     // The op log is the receipt for the capture-first rule: the dirty tree
     // must land on it as a capture row.
-    let out = ff(&fx, &["op", "log", "--captures", "--json"]);
+    let out = ff(&fx, &["op", "log", "--json"]);
     assert!(
         out.status.success(),
         "{}",

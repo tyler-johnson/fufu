@@ -89,6 +89,9 @@ fn log(
     revisions: Option<String>,
     captures: bool,
 ) -> Result<()> {
+    if captures {
+        return Err(captures_retired());
+    }
     if let Some(expr) = &revisions {
         return Err(revisions_retired(expr));
     }
@@ -125,9 +128,9 @@ fn log(
                         .collect()
                 }
             };
-            ff_core::ops::read_ops_of(&repo, ids.into_iter(), count, captures)?
+            ff_core::ops::read_ops_of(&repo, ids.into_iter(), count, true)?
         }
-        None => ff_core::ops::read_ops_from(&repo, start, count, captures)?,
+        None => ff_core::ops::read_ops_from(&repo, start, count, true)?,
     };
     crate::render::init_palette(&repo);
     let mut out = crate::pager::LogOut::new(&repo, ctx.json);
@@ -150,6 +153,33 @@ fn log(
     })();
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// The log reports what happened, and it now reports all of it.
+///
+/// `--captures` was a bespoke filter for a concept the revset language
+/// already owns, and the two contradicted each other: `ff op log
+/// 'kind(capture)'` returned nothing, because the flag silently overrode the
+/// expression. One filter instead of two settles that.
+///
+/// It was answering the wrong question besides. Captures outnumber verb
+/// operations by more than an order of magnitude, so hiding them made the
+/// default readable — but what a person wants when they open the log is not
+/// "verb operations", it is where they can go back to, and that is `ff
+/// undo`'s granularity rather than the log's. `ff history` is that view, so
+/// the log can afford to be honestly complete.
+fn captures_retired() -> Error {
+    Error::coded(
+        "usage/bad-flags",
+        "--captures is gone: `ff op log` shows every operation now, and which ones is the \
+         expression's job — `ff op log 'kind(capture)'`. What it was really standing in for is \
+         `ff history`, one row per undo step",
+        vec![
+            "ff op log".into(),
+            "ff op log 'kind(op)'".into(),
+            "ff history".into(),
+        ],
+    )
 }
 
 /// A respelling, not a removal: the expression is the same and only its

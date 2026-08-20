@@ -788,9 +788,11 @@ Examples:
 
 pub const OP_LOG: &str = "\
 Every operation, newest first, wearing the ids the `ff op` verbs take.
-Captures are left out by default — they outnumber verb operations by more
-than an order of magnitude, and an unfiltered log is mostly machine noise.
---captures puts them back.
+Every one: captures outnumber verb operations by more than an order of
+magnitude, and the log reports what happened rather than deciding what is
+worth reading. Narrowing is the expression's job — `ff op log 'kind(op)'`
+— and where you can go *back* to is `ff history`, which is a different
+question and has its own verb.
 
 The argument is the set language over operations: the same operators as
 `ff log`, reading the other address space, and positional here for the
@@ -814,9 +816,9 @@ unambiguously, so an id copied from here never lands on an ambiguity.";
 
 pub const OP_LOG_EXAMPLES: &str = "\
 Examples:
-  ff op log                      the last 25 operations
-  ff op log --captures           every row, captures included
+  ff op log                      the last 25 operations, every kind
   ff op log 'kind(op)'           verb operations only
+  ff op log 'kind(capture)'      the machine-rate rows alone
   ff op log 'session(nightly)'   one session's operations
   ff op log '~on_branch(main)'   everything that happened elsewhere
   ff log -r 'base(@)'            the commit the newest operation ran on

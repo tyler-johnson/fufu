@@ -142,7 +142,7 @@ fn a_run_of_captures_is_one_row_and_says_how_many() {
 
     // And the whole log is longer than the list of moves over it — which is
     // the reason this view exists rather than `ff op log` answering it.
-    let ops = ok(&fx, &["op", "log", "--captures", "-n", "0", "--json"]);
+    let ops = ok(&fx, &["op", "log", "-n", "0", "--json"]);
     let ops: serde_json::Value = serde_json::from_str(&ops).expect("valid json");
     assert!(
         ops["data"]["ops"].as_array().expect("ops").len() > steps.len(),
