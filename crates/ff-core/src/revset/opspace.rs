@@ -477,7 +477,7 @@ fn rev_in_op_position(token: &str) -> Error {
              every branch, so narrowing to one is `on_branch()` rather than the branch's name"
         ),
         vec![
-            format!("ff op log -r 'on_branch({token})'"),
+            format!("ff op log 'on_branch({token})'"),
             format!("ff log -r {token}"),
         ],
     )
@@ -488,7 +488,7 @@ fn base_here() -> Error {
         "usage/revset-wrong-space",
         "`base()` returns the commit an operation ran on, and this position takes \
          operations; it is the crossing back to history, so it belongs where revisions do",
-        vec!["ff log -r 'base(@)'".into(), "ff op log -r '@'".into()],
+        vec!["ff log -r 'base(@)'".into(), "ff op log '@'".into()],
     )
 }
 
@@ -500,8 +500,8 @@ fn unknown_function(name: &str) -> Error {
              kind, plus latest, heads and roots"
         ),
         vec![
-            "ff op log -r 'kind(op)'".into(),
-            "ff op log -r 'session(<name>)'".into(),
+            "ff op log 'kind(op)'".into(),
+            "ff op log 'session(<name>)'".into(),
         ],
     )
 }
@@ -510,7 +510,7 @@ fn arity(name: &str, want: usize, got: usize) -> Error {
     Error::coded(
         "usage/revset-arity",
         format!("{name}() takes {want} argument(s), not {got}"),
-        vec!["ff op log -r 'kind(op)'".into()],
+        vec!["ff op log 'kind(op)'".into()],
     )
 }
 
@@ -518,7 +518,7 @@ fn arity_kind(name: &str, want: &str) -> Error {
     Error::coded(
         "usage/revset-arity",
         format!("{name}({want}) was given an argument of the wrong kind"),
-        vec![format!("ff op log -r '{name}({want})'")],
+        vec![format!("ff op log '{name}({want})'")],
     )
 }
 
@@ -527,8 +527,8 @@ fn bad_kind(word: &str) -> Error {
         "usage/revset-arity",
         format!("no operation kind named `{word}`; there are four: capture, op, foreign, note"),
         vec![
-            "ff op log -r 'kind(op)'".into(),
-            "ff op log -r 'kind(capture)'".into(),
+            "ff op log 'kind(op)'".into(),
+            "ff op log 'kind(capture)'".into(),
         ],
     )
 }

@@ -475,11 +475,14 @@ pub enum OpAction {
     /// Every operation, newest first, with the ids these verbs take
     #[command(long_about = help::OP_LOG, after_long_help = help::OP_LOG_EXAMPLES)]
     Log {
+        /// Operations to show, as a revset over the operation log
+        #[arg(value_name = "revset")]
+        revset: Option<String>,
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
-        /// Operations to show, as a revset over the operation log
-        #[arg(short = 'r', long = "revisions", value_name = "revset")]
+        /// Retired: the expression is this verb's argument now
+        #[arg(short = 'r', long = "revisions", value_name = "revset", hide = true)]
         revisions: Option<String>,
         /// Include captures — the machine-rate rows a verb view leaves out
         #[arg(long)]

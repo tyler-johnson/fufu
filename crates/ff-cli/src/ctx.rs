@@ -218,6 +218,7 @@ mod tests {
         };
         assert_eq!(
             name(crate::cli::OpAction::Log {
+                revset: None,
                 count: 25,
                 revisions: None,
                 captures: false,

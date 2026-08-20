@@ -393,9 +393,9 @@ pub static ENTRIES: &[Entry] = &[
                  one argument, which is what lets hex mean commit everywhere and letters mean \
                  operation everywhere with no rule to remember. An operation id typed here is \
                  usually the right id and the wrong verb: `ff op show` reads one, `--at-op` runs \
-                 a read-only command as of one, and `ff op log -r` takes whole expressions over \
+                 a read-only command as of one, and `ff op log` takes whole expressions over \
                  them.",
-        exits: &["ff op show <op>", "ff op log -r '<expr>'"],
+        exits: &["ff op show <op>", "ff op log '<expr>'"],
     },
     Entry {
         id: "usage/rev-in-op-position",
@@ -404,13 +404,13 @@ pub static ENTRIES: &[Entry] = &[
                  first parent is the operation before it, which is why git's own suffixes work \
                  here at all, but every parent past the first leaves the log: slot 2 is the commit \
                  the operation ran on, and the rest are the shas it pinned. It also turns up on a \
-                 branch name inside ff op log -r, where one log spans every branch, so narrowing \
-                 to one is the on_branch() predicate rather than a name. Either way the crossing \
+                 branch name inside an ff op log expression, where one log spans every branch, \
+                 so narrowing to one is the on_branch() predicate rather than a name. Either way the crossing \
                  back to history is spelled base(), so that it is something you asked for rather \
                  than something a suffix did quietly.",
         exits: &[
             "ff op show @",
-            "ff op log -r 'on_branch(<name>)'",
+            "ff op log 'on_branch(<name>)'",
             "ff log -r 'base(@)'",
         ],
     },
@@ -422,7 +422,7 @@ pub static ENTRIES: &[Entry] = &[
                  operation space has on_branch, session and kind, plus the same three set \
                  functions. base() belongs to revision space and takes operations, because it is \
                  the crossing between them.",
-        exits: &["ff log -r 'latest(main)'", "ff op log -r 'kind(op)'"],
+        exits: &["ff log -r 'latest(main)'", "ff op log 'kind(op)'"],
     },
     Entry {
         id: "usage/revset-arity",
@@ -439,11 +439,11 @@ pub static ENTRIES: &[Entry] = &[
         detail: "One grammar spans both address spaces — the same operators and the same functions \
                  over operations instead of over history — but the vocabularies differ, because \
                  each space can only name what it has. on_branch(), session() and kind() are \
-                 questions about operations, so they belong after ff op log -r. base() goes the \
-                 other way: it takes operations and returns the commits they ran on, which makes \
+                 questions about operations, so they belong in an ff op log expression. base() \
+                 goes the other way: it takes operations and returns the commits they ran on, which makes \
                  it a revision-space function with an op-space argument — and the only crossing \
                  between the two.",
-        exits: &["ff op log -r 'kind(op)'", "ff log -r 'base(@)'"],
+        exits: &["ff op log 'kind(op)'", "ff log -r 'base(@)'"],
     },
     Entry {
         id: "usage/revset-empty-set",

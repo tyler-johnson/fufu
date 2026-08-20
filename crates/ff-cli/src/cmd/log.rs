@@ -32,7 +32,7 @@ fn ops_retired() -> Error {
         "usage/bad-flags",
         "--ops is gone: the operation log is its own verb, with the ids the `ff op` \
          family takes and a set language of its own",
-        vec!["ff op log".into(), "ff op log -r 'kind(op)'".into()],
+        vec!["ff op log".into(), "ff op log 'kind(op)'".into()],
     )
 }
 

@@ -233,6 +233,6 @@ fn wrong_space(name: &str) -> Error {
             "`{name}()` reads operations, and `-r` here takes revisions; the two address \
              spaces share a grammar, not a vocabulary"
         ),
-        vec![format!("ff op log -r \"{name}(...)\"")],
+        vec![format!("ff op log \"{name}(...)\"")],
     )
 }

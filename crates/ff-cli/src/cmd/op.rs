@@ -22,11 +22,12 @@ use crate::ctx::{At, Ctx};
 pub fn run(ctx: &Ctx, action: OpAction) -> Result<()> {
     match action {
         OpAction::Log {
+            revset,
             count,
             revisions,
             captures,
             ..
-        } => log(ctx, count, revisions, captures),
+        } => log(ctx, revset, count, revisions, captures),
         OpAction::Show { op, .. } => show(ctx, op),
         OpAction::Diff { a, b, .. } => diff(ctx, a, b),
         OpAction::Restore { op, force } => restore(ctx, op, force),
@@ -81,10 +82,19 @@ fn resolve(
     }
 }
 
-fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Result<()> {
+fn log(
+    ctx: &Ctx,
+    revset: Option<String>,
+    count: usize,
+    revisions: Option<String>,
+    captures: bool,
+) -> Result<()> {
+    if let Some(expr) = &revisions {
+        return Err(revisions_retired(expr));
+    }
     // Parsed before the repository is even opened: the grammar is pure, so a
     // misspelled revset fails the same way in a repo and out of one.
-    let revs = match &revisions {
+    let revs = match &revset {
         Some(src) => Some(ff_core::revset::Revset::parse(src)?),
         None => None,
     };
@@ -95,9 +105,9 @@ fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Re
     // head cut off.
     let start = placed_at(ctx, &repo)?;
     let entries = match &revs {
-        // `-r` replaces where the rows come from and nothing else, so it
-        // composes with --captures and with the context flags: a bounded log
-        // is the set the expression is evaluated against.
+        // The expression replaces where the rows come from and nothing else,
+        // so it composes with the context flags: a bounded log is the set it
+        // is evaluated against.
         Some(revs) => {
             let bound = start;
             let members = revs.evaluate_ops(&repo)?;
@@ -140,6 +150,24 @@ fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Re
     })();
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// A respelling, not a removal: the expression is the same and only its
+/// position moved, so what the caller already typed is folded into the exit
+/// the way `ff branch <name>` folds it.
+///
+/// The warrant is DESIGN's own case for the grammar — every revision argument
+/// goes through one resolver, and the earned existence is uniformity, which
+/// git does not have. A set language that is positional in `ff op show` and
+/// flagged in `ff op log` is that same inconsistency one level up.
+fn revisions_retired(expr: &str) -> Error {
+    Error::coded(
+        "usage/bad-flags",
+        "-r is gone here: an operation set is this verb's argument, the way an operation id is \
+         `ff op show`'s — the position differs only in how many members it accepts. `ff log` \
+         keeps -r, because its own positional slot is spoken for by a path",
+        vec![format!("ff op log '{expr}'"), "ff op log".into()],
+    )
 }
 
 fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {

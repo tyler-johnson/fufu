@@ -501,10 +501,10 @@ pub fn read_ops_from(
 /// The rows for whatever sequence of operations a caller has already chosen,
 /// newest first.
 ///
-/// This is where `ff op log -r` arrives: the set language decides membership
-/// and order, and the display layer does not care how. It stays lazy in the
-/// caller's iterator, so `-r '::@' -n 25` is still twenty-five rows' work at
-/// any depth.
+/// This is where `ff op log <set>` arrives: the set language decides
+/// membership and order, and the display layer does not care how. It stays
+/// lazy in the caller's iterator, so `ff op log '::@' -n 25` is still
+/// twenty-five rows' work at any depth.
 pub fn read_ops_of(
     repo: &gix::Repository,
     ids: impl Iterator<Item = Result<OpId>>,

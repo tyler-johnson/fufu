@@ -355,15 +355,8 @@ fn op_log_takes_the_set_language() {
     let all = op_ids(&fx, &["--captures"]);
 
     let query = |expr: &str| -> Vec<String> {
-        let out = ff(
-            &fx,
-            &["op", "log", "-r", expr, "--captures", "-n", "0", "--json"],
-        );
-        assert!(
-            out.status.success(),
-            "ff op log -r {expr}: {}",
-            stderr(&out)
-        );
+        let out = ff(&fx, &["op", "log", expr, "--captures", "-n", "0", "--json"]);
+        assert!(out.status.success(), "ff op log {expr}: {}", stderr(&out));
         json(&out)["data"]["ops"]
             .as_array()
             .expect("ops")
@@ -391,12 +384,42 @@ fn op_log_takes_the_set_language() {
     assert!(!query("on_branch(main)").is_empty());
     assert!(query("on_branch(nosuchbranch)").is_empty());
 
-    // -r composes with --captures rather than replacing it: the set says
-    // which operations, the flag says which kinds of row to render.
-    let out = ff(&fx, &["op", "log", "-r", "::@", "-n", "0", "--json"]);
+    // The expression composes with --captures rather than replacing it: the
+    // set says which operations, the flag says which kinds of row to render.
+    let out = ff(&fx, &["op", "log", "::@", "-n", "0", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let without = json(&out)["data"]["ops"].as_array().expect("ops").len();
     assert!(without < all.len(), "captures still excluded by default");
+}
+
+/// `-r` is a respelling and not a removal, so typing it is answered rather
+/// than met with a bare "unexpected argument" — and the answer folds in the
+/// expression the caller already typed, the way `ff branch <name>` folds it.
+///
+/// The asymmetry with `ff log`, which keeps `-r`, is deliberate and the
+/// message says so: `ff log`'s positional slot is reserved for a path, and
+/// `ff op log`'s is free because operations are not files.
+#[test]
+fn the_revset_flag_is_retired_in_favor_of_the_argument() {
+    let fx = with_ops();
+
+    let out = ff(&fx, &["op", "log", "-r", "kind(op)", "--json"]);
+    assert!(!out.status.success(), "the retired flag is refused");
+    let err = json(&out)["error"].clone();
+    assert_eq!(err["id"], "usage/bad-flags");
+    let exits: Vec<String> = err["exits"]
+        .as_array()
+        .expect("exits")
+        .iter()
+        .map(|e| e.as_str().expect("exit").to_string())
+        .collect();
+    assert!(
+        exits.iter().any(|e| e == "ff op log 'kind(op)'"),
+        "the way out is what they typed, respelled: {exits:?}"
+    );
+
+    // And the argument does what the flag did.
+    assert!(!op_ids(&fx, &["kind(op)"]).is_empty());
 }
 
 /// A session is a tag, and filtering by one is the set language — the answer
@@ -423,14 +446,7 @@ fn a_session_is_filtered_by_the_set_language() {
 
     let out = ff(
         &fx,
-        &[
-            "op",
-            "log",
-            "-r",
-            "session(nightly)",
-            "--captures",
-            "--json",
-        ],
+        &["op", "log", "session(nightly)", "--captures", "--json"],
     );
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let ops = json(&out)["data"]["ops"].as_array().expect("ops").clone();
