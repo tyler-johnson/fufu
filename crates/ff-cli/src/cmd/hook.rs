@@ -48,7 +48,8 @@ Use `ff`, not `git`, for anything that writes:
 - anything else git does: `ff git <args…>` — snapshots, then runs git verbatim
 
 Reading with git is fine. `ff status` and `ff log` say more than their git \
-counterparts: the open change, and what the next rebase or push will do.
+counterparts: the open change, and what the next rebase or push will do. \
+`ff diff` sees the untracked files `git diff` does not.
 ";
 
 pub fn run(ctx: &Ctx, kind: HookKind) -> Result<()> {

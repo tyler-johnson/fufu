@@ -64,19 +64,6 @@ pub fn checkout(args: &[OsString]) -> Result<()> {
     )
 }
 
-pub fn diff(args: &[OsString]) -> Result<()> {
-    refuse(
-        "there is no ff diff: ff status carries the diff of the open change, and ff op diff \
-         compares the worktrees two operations hold"
-            .into(),
-        vec![
-            "ff status".into(),
-            "ff op diff <a> <b>".into(),
-            passthrough("diff", args),
-        ],
-    )
-}
-
 pub fn stash(args: &[OsString]) -> Result<()> {
     // git stash is a family, and its members do not all land on one verb:
     // listing what is parked is the map, and resuming a parked change is

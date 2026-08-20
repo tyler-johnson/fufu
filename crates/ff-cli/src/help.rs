@@ -52,6 +52,10 @@ pub const STATUS: &str = "\
 Where you are and what is uncommitted: the branch, its upstream, the open
 change, and the files that differ from the commit underneath it.
 
+The files are a diffstat — counts, not content. `ff diff` is the same
+change read down to the line, and it sees the untracked files `git diff`
+does not.
+
 Status is also where drift is loud. Work done behind fufu's back — a plain
 `git commit`, a rebase run by a tool that never heard of fufu — is absorbed
 into the operation log lazily, and status keeps reporting it until the
@@ -60,7 +64,8 @@ next fufu operation, so foreign motion is never silent.";
 pub const STATUS_EXAMPLES: &str = "\
 Examples:
   ff status
-  ff status --json               the same state, for scripts";
+  ff status --json               the same state, for scripts
+  ff diff                        the same change, with content";
 
 pub const LOG: &str = "\
 The changes view, jj-style: the open change (@) sits atop the commit walk
@@ -87,6 +92,32 @@ Examples:
   ff log -r main                 just main's tip — no @ row, it is not in it
   ff log -r 'trunk..@'           what this branch has that trunk does not
   ff op log                      the operation log, in its own address space";
+
+pub const DIFF: &str = "\
+The open change as a patch: what `ff commit` would land, and what it says.
+Every other view here reports `path +N -M`; this is the same tree diff read
+down to the line.
+
+It is the one patch tool that sees the whole change. `git diff` is blind to
+untracked files, and an untracked file is exactly where a wrong commit
+comes from — so the file you just created shows up here with its content,
+without an `ff status` first to make it visible.
+
+The body is git's unified diff, verbatim, because a patch format is not
+fufu's to invent: what comes out of here is what `git apply` takes. The
+diffstat is `ff status`, and this verb deliberately does not reprint it.
+
+Paths narrow it, by the rule `ff restore` speaks: a file, or a directory
+prefix. No globs.";
+
+pub const DIFF_EXAMPLES: &str = "\
+Examples:
+  ff diff                        the whole open change, with content
+  ff diff src/                   just what changed under src/
+  ff diff --json                 hunks and lines as fields
+  ff diff > fix.patch            output git apply reads back
+  ff status                      the same change, as counts
+  ff op diff <a> <b>             the same question between two operations";
 
 pub const HISTORY: &str = "\
 Where you can go back to. `ff op log` answers what happened; this answers

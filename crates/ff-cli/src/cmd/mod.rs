@@ -4,6 +4,7 @@ pub mod clone;
 pub mod commit;
 pub mod config;
 pub mod describe;
+pub mod diff;
 pub mod doctor;
 pub mod done;
 pub mod edit;

@@ -127,6 +127,14 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    // agent notice quotes this: `ff diff`
+    /// Show the open change as a patch — content, not just counts
+    #[command(long_about = help::DIFF, after_long_help = help::DIFF_EXAMPLES)]
+    Diff {
+        /// Files or directories to limit the patch to; all of them when omitted
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
+    },
     // agent notice quotes this: `ff history`
     /// Where you can go back to: one row per `ff undo` step, with redo above
     #[command(long_about = help::HISTORY, after_long_help = help::HISTORY_EXAMPLES)]
@@ -415,12 +423,6 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// No `ff diff`: `ff status` shows the tree, `ff op diff` compares operations
-    #[command(hide = true)]
-    Diff {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
     /// No `ff stash`: switching parks the open change and resumes what waits
     #[command(hide = true)]
     Stash {
@@ -623,6 +625,7 @@ impl Command {
             Command::Status { .. } => "status",
             Command::Log { .. } => "log",
             Command::History { .. } => "history",
+            Command::Diff { .. } => "diff",
             Command::Evolog { .. } => "evolog",
             Command::Git { .. } => "git",
             Command::Restore { .. } => "restore",
@@ -661,7 +664,6 @@ impl Command {
             // `{"cmd":"checkout"}` learns which of its words was the foreign
             // one, which a fufu verb name would have hidden.
             Command::Checkout { .. } => "checkout",
-            Command::Diff { .. } => "diff",
             Command::Stash { .. } => "stash",
             Command::Pull { .. } => "pull",
             Command::Push { .. } => "push",
@@ -697,7 +699,11 @@ impl Command {
             // `ff history` answers "where can I go from now"; placing that
             // at a past operation needs the past-state view that does not
             // exist yet.
+            // `ff diff` is the open change, and the open change as of a past
+            // operation is precisely what `ff op diff <op>` already answers —
+            // so the flag would be a second spelling for a verb we have.
             Command::History { .. }
+            | Command::Diff { .. }
             | Command::Map { .. }
             | Command::Git { .. }
             | Command::Trim { .. }
@@ -727,7 +733,6 @@ impl Command {
             | Command::Init { .. }
             | Command::Clone { .. }
             | Command::Checkout { .. }
-            | Command::Diff { .. }
             | Command::Stash { .. }
             | Command::Publish { .. }
             | Command::Pull { .. }

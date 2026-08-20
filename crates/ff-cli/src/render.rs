@@ -720,6 +720,163 @@ pub(crate) fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
     lines.join("\n")
 }
 
+/// The patch block: every file that carries hunks, in git's unified diff.
+///
+/// The body is git's format verbatim — `diff --git`, `index`, `---`/`+++`,
+/// `@@`, and `+`/`-`/space — because a patch format is not fufu's to spell
+/// and output that `git apply` takes is worth more than a dialect of our
+/// own. What fufu contributes is the *content*: the same tree diff every
+/// stat surface walks, which sees the untracked sweep git's own `diff` is
+/// blind to.
+///
+/// Color rides on top of that format and grows nothing: `+` and `-` lines
+/// spend the palette's existing `ins` and `del`, the `@@` header is dim and
+/// the header block is bold. Dim and bold are modifiers rather than colors,
+/// so DESIGN's one-color-per-meaning rule has nothing new to rule on.
+///
+/// Files whose `hunks` is `None` are skipped: nobody asked for their
+/// content, so there is none to print.
+pub(crate) fn patch_block(files: &[FileStat], colored: bool) -> String {
+    let mut out = String::new();
+    for f in files {
+        let Some(hunks) = &f.hunks else { continue };
+
+        // A rename's two paths; every other kind names one path twice, the
+        // way git does.
+        let old_path = f.from.as_deref().unwrap_or(&f.path);
+        let new_path = f.path.as_str();
+        let mut head = vec![format!("diff --git a/{old_path} b/{new_path}")];
+        match f.kind {
+            ChangeKind::Added | ChangeKind::IntentToAdd => {
+                if let Some(mode) = &f.new_mode {
+                    head.push(format!("new file mode {mode}"));
+                }
+            }
+            ChangeKind::Deleted => {
+                if let Some(mode) = &f.old_mode {
+                    head.push(format!("deleted file mode {mode}"));
+                }
+            }
+            ChangeKind::Renamed | ChangeKind::Copied => {
+                let verb = if f.kind == ChangeKind::Copied {
+                    "copy"
+                } else {
+                    "rename"
+                };
+                head.push(format!("{verb} from {old_path}"));
+                head.push(format!("{verb} to {new_path}"));
+            }
+            ChangeKind::Modified | ChangeKind::TypeChange => {}
+        }
+        // A mode that moved is its own two lines, on any kind where both
+        // sides exist — the executable bit is content as far as a checkout
+        // is concerned.
+        if let (Some(old), Some(new)) = (&f.old_mode, &f.new_mode)
+            && old != new
+        {
+            head.push(format!("old mode {old}"));
+            head.push(format!("new mode {new}"));
+        }
+        if let Some(line) = index_line(f) {
+            head.push(line);
+        }
+        for line in head {
+            out.push_str(&paint(&line, BOLD, colored));
+            out.push('\n');
+        }
+
+        if f.binary {
+            // git's own wording, and its own null-side spelling, so a reader
+            // who has seen one has seen both.
+            let a = match f.kind {
+                ChangeKind::Added | ChangeKind::IntentToAdd => "/dev/null".to_string(),
+                _ => format!("a/{old_path}"),
+            };
+            let b = match f.kind {
+                ChangeKind::Deleted => "/dev/null".to_string(),
+                _ => format!("b/{new_path}"),
+            };
+            out.push_str(&format!("Binary files {a} and {b} differ\n"));
+            continue;
+        }
+
+        // No hunks and not binary: a rename or a mode change that moved no
+        // content. The header already said everything there is to say.
+        if hunks.is_empty() {
+            continue;
+        }
+
+        let minus = match f.kind {
+            ChangeKind::Added | ChangeKind::IntentToAdd => "--- /dev/null".to_string(),
+            _ => format!("--- a/{old_path}"),
+        };
+        let plus = match f.kind {
+            ChangeKind::Deleted => "+++ /dev/null".to_string(),
+            _ => format!("+++ b/{new_path}"),
+        };
+        out.push_str(&paint(&minus, BOLD, colored));
+        out.push('\n');
+        out.push_str(&paint(&plus, BOLD, colored));
+        out.push('\n');
+
+        for hunk in hunks {
+            out.push_str(&paint(&hunk.header, DIM, colored));
+            out.push('\n');
+            for line in &hunk.lines {
+                let (mark, style) = match line.kind {
+                    ff_core::patch::LineKind::Context => (' ', anstyle::Style::new()),
+                    ff_core::patch::LineKind::Insert => ('+', palette().ins),
+                    ff_core::patch::LineKind::Delete => ('-', palette().del),
+                };
+                out.push_str(&paint(&format!("{mark}{}", line.text), style, colored));
+                out.push('\n');
+                if line.no_newline {
+                    out.push_str(&paint("\\ No newline at end of file", DIM, colored));
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    out
+}
+
+/// git's `index <old>..<new> [mode]`. The abbreviation is fufu's one short
+/// length rather than git's, since the line is informational — `git apply`
+/// reads it only for a three-way merge, which needs the objects present.
+/// The mode rides along only when it did not move; git spells a moved mode
+/// on its own two lines instead.
+fn index_line(f: &FileStat) -> Option<String> {
+    let zeros = |len: usize| "0".repeat(len);
+    let (old, new) = match (&f.old_id, &f.new_id) {
+        (Some(old), Some(new)) => (
+            ff_core::sha::short(old).to_string(),
+            ff_core::sha::short(new).to_string(),
+        ),
+        (None, Some(new)) => {
+            let new = ff_core::sha::short(new).to_string();
+            (zeros(new.len()), new)
+        }
+        (Some(old), None) => {
+            let old = ff_core::sha::short(old).to_string();
+            let len = old.len();
+            (old, zeros(len))
+        }
+        (None, None) => return None,
+    };
+    // The mode rides here only when it did not move and both sides exist.
+    // git spells a moved mode on its own two lines, and a created or deleted
+    // file's mode on the `new file mode` / `deleted file mode` line above —
+    // repeating it here would be the one difference from git's own output.
+    let mode = match (&f.old_mode, &f.new_mode) {
+        (Some(old), Some(new)) if old == new => Some(new.clone()),
+        _ => None,
+    };
+    Some(match mode {
+        Some(mode) => format!("index {old}..{new} {mode}"),
+        None => format!("index {old}..{new}"),
+    })
+}
+
 /// The display path for a stat row: "from => path" for renames/copies, else "path".
 fn file_path_for_stat(f: &FileStat) -> String {
     if let Some(from) = &f.from {

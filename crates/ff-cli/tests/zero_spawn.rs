@@ -109,6 +109,12 @@ fn status_and_log_never_spawn() {
         // must not reach git on the way.
         &["op", "log", "kind(op)"][..],
         &["evolog"][..],
+        // The patch surfaces open every changed blob. `prepare_diff()` hands
+        // back an external command when `diff.external` is configured, and
+        // driving it is exactly where a spawn would sneak in — so every
+        // spelling that reaches it is trapped here.
+        &["diff"][..],
+        &["diff", "--json"][..],
         // The moves rather than the operations, and the same rule: both
         // walks are native.
         &["history"][..],

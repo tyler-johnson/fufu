@@ -134,7 +134,7 @@ fn the_aliases_stay_out_of_the_command_list() {
     // The list is of what fufu does, so a git word it merely answers is not
     // a row either.
     for foreign in [
-        "checkout", "diff", "stash", "pull", "rebase", "merge", "blame", "tag",
+        "checkout", "stash", "pull", "rebase", "merge", "blame", "tag",
     ] {
         assert!(
             !rows.contains(&foreign),
@@ -190,7 +190,6 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
     for (verb, expected) in [
         ("checkout", "ff switch"),
         ("co", "ff switch"),
-        ("diff", "ff status"),
         ("stash", "ff switch"),
         ("pull", "ff sync"),
         ("rebase", "ff git rebase"),
@@ -250,10 +249,10 @@ fn a_foreign_verb_carries_what_you_typed_into_its_exits() {
     );
 
     // Where the answer is the passthrough, the whole tail rides along.
-    let out = ff(&fx, &["--json", "diff", "main..HEAD"]);
+    let out = ff(&fx, &["--json", "rebase", "main"]);
     let exits = json(&out)["error"]["exits"].to_string();
     assert!(
-        exits.contains("ff git diff main..HEAD"),
+        exits.contains("ff git rebase main"),
         "the passthrough exit is runnable: {exits}"
     );
 }
@@ -267,7 +266,7 @@ fn foreign_verbs_never_touch_the_repository() {
     fx.write("a.txt", "dirty\n");
     let before = op_count(&fx);
     for verb in [
-        "checkout", "diff", "stash", "pull", "rebase", "merge", "blame", "tag",
+        "checkout", "stash", "pull", "rebase", "merge", "blame", "tag",
     ] {
         assert!(!ff(&fx, &[verb]).status.success(), "ff {verb} refuses");
     }

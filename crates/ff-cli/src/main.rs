@@ -126,6 +126,7 @@ fn main() {
             ..
         }) => cmd::log::run(&ctx, count, revisions, commits, ops),
         Some(cli::Command::History { count }) => cmd::history::run(&ctx, count),
+        Some(cli::Command::Diff { paths }) => cmd::diff::run(&ctx, paths),
         Some(cli::Command::Evolog { count, .. }) => cmd::evolog::run(&ctx, count),
         Some(cli::Command::Git { args: git_args }) => cmd::git::run(&ctx, git_args),
         Some(cli::Command::Restore {
@@ -182,7 +183,6 @@ fn main() {
         Some(cli::Command::Update { check }) => cmd::update::run(&ctx, check),
         // The foreign verbs answer and stop; none of them reaches a repository.
         Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),
-        Some(cli::Command::Diff { args }) => cmd::foreign::diff(&args),
         Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),
         Some(cli::Command::Pull { args }) => cmd::foreign::pull(&args),
         Some(cli::Command::Push { args }) => cmd::foreign::push(&args),
