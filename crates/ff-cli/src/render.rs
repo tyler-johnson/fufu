@@ -29,11 +29,11 @@ pub fn reconcile_notice(report: &ReconcileReport) {
         for change in &report.foreign {
             let what = match (&change.old, &change.new) {
                 (Some(_), Some(new)) => {
-                    let sha = &new[..new.len().min(8)];
+                    let sha = ff_core::sha::short(new.as_str());
                     format!("moved to {}", paint_sha(sha, colored))
                 }
                 (None, Some(new)) => {
-                    let sha = &new[..new.len().min(8)];
+                    let sha = ff_core::sha::short(new.as_str());
                     format!("created at {}", paint_sha(sha, colored))
                 }
                 (Some(_), None) => "deleted".to_string(),
@@ -141,7 +141,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         let where_it_stopped = match &held.at {
             ff_core::futures::At::Commit { id, subject } => format!(
                 "{} \"{}\"",
-                &id[..id.len().min(7)],
+                ff_core::sha::short(id),
                 truncate_subject(subject)
             ),
             ff_core::futures::At::OpenChange => "your open change".to_string(),
@@ -181,7 +181,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     // A running session is the least urgent of the three, so it goes below
     // them and above the change.
     if let Some(session) = &model.session {
-        let sha = &session.editing[..session.editing.len().min(8)];
+        let sha = ff_core::sha::short(session.editing.as_str());
         out.push_str(&format!(
             "editing {sha_p} \"{subject}\" — lands back on {onto}\n",
             sha_p = paint_sha(sha, colored),
@@ -246,7 +246,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         out.push_str("changes made outside fufu (absorbed; ff undo can roll them back):\n");
         for entry in foreign {
             let what = match (&entry.old, &entry.new) {
-                (_, Some(new)) => format!("moved to {}", &new[..new.len().min(8)]),
+                (_, Some(new)) => format!("moved to {}", ff_core::sha::short(new.as_str())),
                 (Some(_), None) => "deleted".to_string(),
                 (None, None) => continue,
             };
@@ -433,7 +433,7 @@ pub(crate) fn held_block(report: &ff_core::HeldReport, colored: bool) -> String 
     let where_it_stopped = match &report.at {
         ff_core::futures::At::Commit { id, subject } => format!(
             "replaying {} \"{}\"",
-            &id[..id.len().min(7)],
+            ff_core::sha::short(id),
             truncate_subject(subject)
         ),
         // No verb of its own: a restack replays the open change onto a new
@@ -499,7 +499,7 @@ pub(crate) fn dropped_line(
         .filter(|d| already_named != Some(d.old.as_str()))
         .collect();
     let first = rest.first()?;
-    let sha = |d: &&ff_core::rewrite::Dropped| paint_sha(&d.old[..d.old.len().min(7)], colored);
+    let sha = |d: &&ff_core::rewrite::Dropped| paint_sha(ff_core::sha::short(&d.old), colored);
     if rest.len() == 1 {
         return Some(format!(
             "dropped {} \"{}\" — it changes nothing",
@@ -530,7 +530,7 @@ fn status_header(status: &Status, futures: &ff_core::futures::Futures, colored: 
         }
         HeadState::Branch { name, .. } => format!("on {name}"),
         HeadState::Detached { commit } => {
-            format!("detached at {}", &commit[..commit.len().min(8)])
+            format!("detached at {}", ff_core::sha::short(commit.as_str()))
         }
     });
     // What the header reports is what `ff sync` would do — which is also what
@@ -878,7 +878,11 @@ pub fn snap_row(
 ) -> String {
     let letters = ff_core::snapid::encode(&snap.id[..snap.id.len().min(8)]);
     let unique = lens.get(&snap.id).copied().unwrap_or(1);
-    let base = snap.base.as_deref().map(short7).unwrap_or_default();
+    let base = snap
+        .base
+        .as_deref()
+        .map(ff_core::sha::short)
+        .unwrap_or_default();
     format!(
         "{} {} {}  {}",
         styled_id(&letters, unique, ID_WIDTH, colored),
@@ -974,16 +978,12 @@ pub fn history_row(step: &ff_core::history::Step, now: i64, colored: bool) -> St
     )
 }
 
-fn short7(hex: &str) -> &str {
-    &hex[..hex.len().min(7)]
-}
-
 const ID_WIDTH: usize = 8;
 /// `↓12` is the widest marker anyone reaches by hand; past that the column
 /// simply grows and the row still lines up with itself.
 const MARKER_WIDTH: usize = 3;
 const MOVE_WIDTH: usize = 4;
-const SHA_WIDTH: usize = 7;
+const SHA_WIDTH: usize = ff_core::sha::SHORT;
 const AGE_WIDTH: usize = 8;
 const KIND_WIDTH: usize = 7;
 const BRANCH_WIDTH: usize = 12;
@@ -1006,7 +1006,7 @@ fn blank_id(colored: bool) -> String {
 /// width in spaces. A mark rather than a blank, so the column reads as a
 /// column and not as an accident of indentation; dim, because it is
 /// furniture, not data.
-const BLANK_SHA: &str = "\u{2014}      "; // em dash + 6 spaces = SHA_WIDTH (7)
+const BLANK_SHA: &str = "\u{2014}       "; // em dash + 7 spaces = SHA_WIDTH (8)
 
 /// `BLANK_SHA`, dimmed for display.
 fn blank_sha(colored: bool) -> String {
@@ -1070,7 +1070,7 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
     // count escape bytes.
     let pad = " ".repeat(label_width.saturating_sub(branch_label_width(&info.name)));
     let sha = match &info.tip {
-        Some(tip) => col(short7(tip), SHA_WIDTH, palette().sha, colored),
+        Some(tip) => col(ff_core::sha::short(tip), SHA_WIDTH, palette().sha, colored),
         None => blank_sha(colored),
     };
     let head = format!(
@@ -1166,7 +1166,7 @@ pub fn change_row(
         ),
         None => blank_id(colored),
     };
-    let pending_short = open.pending.map(short7).unwrap_or_default();
+    let pending_short = open.pending.map(ff_core::sha::short).unwrap_or_default();
     let sha = col(pending_short, SHA_WIDTH, palette().sha, colored);
     let age = col_right(
         &open.time.map(|t| relative_age(now, t)).unwrap_or_default(),
@@ -1202,7 +1202,12 @@ pub fn commit_row(
         ),
         None => blank_id(colored),
     };
-    let sha = col(short7(entry.id), SHA_WIDTH, palette().sha, colored);
+    let sha = col(
+        ff_core::sha::short(entry.id),
+        SHA_WIDTH,
+        palette().sha,
+        colored,
+    );
     let age = col_right(
         &relative_age(now, entry.time),
         AGE_WIDTH,
@@ -1253,7 +1258,10 @@ pub fn map_payload(
                 None => blank_id(colored),
             };
             let sha = col(
-                pending.as_deref().map(short7).unwrap_or_default(),
+                pending
+                    .as_deref()
+                    .map(ff_core::sha::short)
+                    .unwrap_or_default(),
                 SHA_WIDTH,
                 palette().sha,
                 colored,
@@ -1291,7 +1299,7 @@ pub fn map_payload(
             // The letters column is blank by design: it is `ff log`'s
             // chain-segment anchor, earned by a walk the map does not do —
             // the column stays so the shas line up with the `@` row.
-            let sha = col(short7(short_id), SHA_WIDTH, palette().sha, colored);
+            let sha = col(short_id, SHA_WIDTH, palette().sha, colored);
             let age = col_right(&relative_age(now, *time), AGE_WIDTH, palette().age, colored);
             let mut line0 = format!("{} {sha} {age}", blank_id(colored));
             for r in refs {

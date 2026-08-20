@@ -9,8 +9,6 @@
 //! description). A crash after the append is labeled loudly by the next
 //! reconcile.
 
-use gix::prelude::ObjectIdExt;
-
 use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
@@ -35,15 +33,6 @@ pub struct CloseOptions {
     pub now: Option<i64>,
     /// The invoking argv, recorded verbatim.
     pub argv: Vec<String>,
-}
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
 }
 
 /// The subject of a commit, through the object handle — the raw `CommitRef`
@@ -107,7 +96,7 @@ pub fn close(
         && branchmeta::read(repo, name)?.session.is_some()
     {
         let tip = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
-        let short = short(repo, tip);
+        let short = crate::sha::short_oid(tip);
         let subject = subject(repo, tip)?;
         return Err(Error::coded(
             "session/open",
@@ -388,11 +377,7 @@ pub fn close(
     let _ = config::ensure_gc_config(repo);
 
     let files_changed = crate::snapshot::count_file_changes(repo, head_tree, tree_id)?;
-    let short_id = commit_id
-        .attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| commit_id.to_string()[..7].to_string());
+    let short_id = crate::sha::short_oid(commit_id);
     Ok((
         CommitOutcome::Closed {
             id: commit_id.to_string(),

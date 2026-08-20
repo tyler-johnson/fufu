@@ -11,8 +11,6 @@
 //! The branch you came from stays exactly where it stands, its commits
 //! waiting ahead until `ff done`.
 
-use gix::prelude::ObjectIdExt;
-
 use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
@@ -21,15 +19,6 @@ use crate::ops::record::{SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 use crate::revset::{Rev, Revset};
 use crate::snapshot::Provenance;
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
-}
 
 /// The subject of a commit, through the object handle — the raw `CommitRef`
 /// message has no summary.
@@ -109,7 +98,7 @@ pub fn edit(
         }
         Rev::Commit(id) => id.object_id(),
     };
-    let at_short = short(repo, at);
+    let at_short = crate::sha::short_oid(at);
     let at_subject = subject(repo, at)?;
 
     let head = crate::head::head_state(repo)?;
@@ -138,7 +127,7 @@ pub fn edit(
     // is an open design question; refusing is the honest answer until it is
     // settled.
     if branchmeta::read(repo, &current)?.session.is_some() {
-        let tip_short = short(repo, current_tip);
+        let tip_short = crate::sha::short_oid(current_tip);
         let tip_subject = subject(repo, current_tip)?;
         return Err(Error::coded(
             "session/open",
@@ -228,7 +217,7 @@ fn mint_session(
     argv: &[String],
     prov: &Provenance,
 ) -> Result<()> {
-    let at_short = short(repo, at);
+    let at_short = crate::sha::short_oid(at);
     let session = branchmeta::Session {
         onto: onto.to_string(),
         at: at.to_string(),

@@ -11,7 +11,6 @@
 //!
 //! The walk follows `fufu-prev-branch` — a stated link, never a parent slot.
 
-use gix::prelude::ObjectIdExt;
 use std::collections::HashMap;
 
 use crate::error::{Error, Result};
@@ -98,15 +97,10 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
     let branch = chain::chain_name(&head);
     let (base, base_short) = match &head {
         HeadState::Unborn { .. } => (None, None),
-        HeadState::Branch { commit, .. } | HeadState::Detached { commit } => {
-            let id = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
-            let short = id
-                .attach(repo)
-                .shorten()
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| commit.clone());
-            (Some(commit.clone()), Some(short))
-        }
+        HeadState::Branch { commit, .. } | HeadState::Detached { commit } => (
+            Some(commit.clone()),
+            Some(crate::sha::short(commit).to_string()),
+        ),
     };
     // The pending description is advisory in a read: a lookup that cannot
     // run is a missing line, never a failed one — the verbs that consume the

@@ -10,7 +10,6 @@
 //! than replaying something stale. Both records ride on the branch's own
 //! metadata, exactly as an editing session does.
 
-use gix::prelude::ObjectIdExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -18,15 +17,6 @@ use crate::futures::At;
 use crate::ops::record::{HeldTransition, ResolveTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::snapshot::Provenance;
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
-}
 
 /// What a held rewrite was asked to do, in terms that can be asked again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,8 +118,7 @@ pub(crate) fn refuse_if_held(repo: &gix::Repository, branch: &str, verb_past: &s
         let where_held = match &existing.at {
             At::Commit { id, subject } => format!(
                 "{} \"{}\"",
-                short(
-                    repo,
+                crate::sha::short_oid(
                     gix::ObjectId::from_hex(id.as_bytes()).expect("the probe's ids are shas")
                 ),
                 subject

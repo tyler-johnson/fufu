@@ -258,12 +258,15 @@ fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
     if let Some(base) = op.base() {
         println!(
             "  base      {}",
-            crate::render::paint_sha(&base.to_string()[..7], colored)
+            crate::render::paint_sha(ff_core::sha::short(&base.to_string()), colored)
         );
     }
     for t in &refs {
         let what = match (&t.old, &t.new) {
-            (_, Some(new)) => format!("→ {}", crate::render::paint_sha(&new[..7], colored)),
+            (_, Some(new)) => format!(
+                "→ {}",
+                crate::render::paint_sha(ff_core::sha::short(new), colored)
+            ),
             (Some(_), None) => "deleted".to_string(),
             (None, None) => continue,
         };
@@ -361,7 +364,10 @@ fn revert(ctx: &Ctx, op: String) -> Result<()> {
     );
     for t in &report.refs {
         let what = match (&t.old, &t.new) {
-            (_, Some(new)) => format!("→ {}", crate::render::paint_sha(&new[..7], colored)),
+            (_, Some(new)) => format!(
+                "→ {}",
+                crate::render::paint_sha(ff_core::sha::short(new), colored)
+            ),
             (Some(_), None) => "deleted".to_string(),
             (None, None) => continue,
         };

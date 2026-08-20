@@ -64,7 +64,7 @@ fn delete(ctx: &Ctx, target: &str) -> Result<()> {
     println!(
         "deleted {} (was {})",
         report.name,
-        crate::render::paint_sha(&report.tip[..report.tip.len().min(8)], colored)
+        crate::render::paint_sha(ff_core::sha::short(report.tip.as_str()), colored)
     );
     if let Some(trash) = &report.trash_ref {
         println!("  its timeline moved to {trash}");

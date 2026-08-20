@@ -8,7 +8,6 @@
 use std::collections::{HashMap, HashSet};
 
 use gix::bstr::{BString, ByteSlice};
-use gix::prelude::ObjectIdExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
@@ -225,8 +224,8 @@ fn range_of(repo: &gix::Repository, target: gix::ObjectId, tip: gix::ObjectId) -
 
     // 2. `target` must be in range.
     if !range.contains(&target) {
-        let target_short = short(repo, target);
-        let tip_short = short(repo, tip);
+        let target_short = crate::sha::short_oid(target);
+        let tip_short = crate::sha::short_oid(tip);
         return Err(Error::coded(
             "rewrite/not-in-history",
             format!(
@@ -369,7 +368,7 @@ fn replay(
                     format!(
                         "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
                          rewritten",
-                        short(repo, id),
+                        crate::sha::short_oid(id),
                         subject
                     ),
                     vec!["ff log".into()],
@@ -546,7 +545,7 @@ fn replayed_tree(
             "held/rewrite-conflict",
             format!(
                 "replaying {} \"{}\" over the rewrite conflicts in {}: nothing was rewritten",
-                short(repo, id),
+                crate::sha::short_oid(id),
                 subject,
                 join_paths(&paths),
             ),
@@ -605,15 +604,6 @@ fn order_range(
         }
     }
     ordered
-}
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
 }
 
 // ---------------------------------------------------------------------------

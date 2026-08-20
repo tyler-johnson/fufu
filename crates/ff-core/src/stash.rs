@@ -7,8 +7,6 @@
 //! (`git stash drop/pop` outside fufu) demotes the parked ref — never lose
 //! work, never guess.
 
-use gix::prelude::ObjectIdExt;
-
 use crate::error::{Error, Result};
 use crate::model::HeadState;
 use crate::refs::{self, EditOutcome};
@@ -26,7 +24,13 @@ use crate::refs::user_signature;
 
 /// `<short-sha> <subject>` of a commit — the description git bakes into
 /// stash commit messages.
+///
+/// git's own abbreviation, not `crate::sha`: this string is not fufu's to
+/// spell. A park is byte-shaped like `git stash push`, and `diff_stash`
+/// holds the two side by side, so the width here is whatever git would have
+/// written.
 fn describe_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<String> {
+    use gix::prelude::ObjectIdExt;
     let obj = repo.find_object(id).map_err(Error::repo)?;
     let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
     let subject = commit.message().summary().to_string();
@@ -36,7 +40,7 @@ fn describe_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<String> 
         .attach(repo)
         .shorten()
         .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string());
+        .unwrap_or_else(|_| crate::sha::short_oid(id));
     Ok(format!("{short} {subject}"))
 }
 

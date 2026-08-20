@@ -35,7 +35,7 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
             }
             let colored = crate::pager::color_enabled();
             let short =
-                crate::render::paint_sha(&report.editing[..report.editing.len().min(8)], colored);
+                crate::render::paint_sha(ff_core::sha::short(report.editing.as_str()), colored);
             if report.amended.is_none() {
                 // A session that emptied its commit did not leave it
                 // "unamended", so this arm wins over the other two.
@@ -119,17 +119,14 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
             } else {
                 println!(
                     "abandoned the session on {} \"{}\"",
-                    crate::render::paint_sha(
-                        &report.editing[..report.editing.len().min(8)],
-                        colored
-                    ),
+                    crate::render::paint_sha(ff_core::sha::short(report.editing.as_str()), colored),
                     report.subject
                 );
                 if let Some(stash) = &report.stashed {
                     // Nothing was lost: say where it went.
                     println!(
                         "stashed the session's edits ({})",
-                        crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+                        crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
                     );
                 }
                 println!("back on {}", report.onto);
@@ -164,7 +161,7 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
             println!(
                 "{} is now at {}",
                 report.branch,
-                crate::render::paint_sha(&report.new_tip[..report.new_tip.len().min(8)], colored)
+                crate::render::paint_sha(ff_core::sha::short(report.new_tip.as_str()), colored)
             );
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
             if let Some(held) = &report.still_held {

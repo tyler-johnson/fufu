@@ -617,7 +617,7 @@ fn log_at_row_states() {
         "tip letters: {at_line:?}"
     );
     assert!(
-        tokens[2].len() == 7 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        tokens[2].len() == 8 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
         "pending sha: {at_line:?}"
     );
     let dirty_letters = tokens[1].to_string();
@@ -649,7 +649,7 @@ fn log_at_row_states() {
         "clean+described letters: {text:?}"
     );
     assert!(
-        tokens[2].len() == 7 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
+        tokens[2].len() == 8 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
         "clean+described pending sha: {text:?}"
     );
     let clean_letters = tokens[1].to_string();
@@ -1252,7 +1252,7 @@ fn log_pending_hash_stability() {
     let pending_short1 = open1["pending_short"]
         .as_str()
         .expect("pending_short is a string");
-    assert_eq!(pending_short1, &pending1[..7]);
+    assert_eq!(pending_short1, &pending1[..8]);
 
     assert_eq!(
         open2["pending"].as_str().unwrap(),

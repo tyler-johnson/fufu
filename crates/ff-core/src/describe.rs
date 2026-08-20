@@ -6,8 +6,6 @@
 //! commit and restacks what sits on top; the rewriting itself lives in
 //! [`crate::rewrite`].
 
-use gix::prelude::ObjectIdExt;
-
 use crate::branchmeta;
 use crate::close;
 use crate::error::{Error, Result};
@@ -205,7 +203,7 @@ pub fn reword(
         }
     }
 
-    let target_short = short(repo, target);
+    let target_short = crate::sha::short_oid(target);
     let mut record = OpRecord::new(
         "describe",
         format!("reword {target_short} on {branch}: {subject}"),
@@ -298,13 +296,4 @@ pub fn reword(
         },
         ctx,
     ))
-}
-
-/// A short abbreviation of a commit id, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
 }

@@ -50,22 +50,16 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>) -> Result<()> {
             let colored = crate::pager::color_enabled();
             // `None` is the absorb dropping the commit it aimed at: there is
             // no new identity to name, so name the one it was.
-            let short: String = report
-                .new
-                .as_deref()
-                .unwrap_or(&report.into)
-                .chars()
-                .take(7)
-                .collect();
+            let short = ff_core::sha::short(report.new.as_deref().unwrap_or(&report.into));
             match &report.new {
                 Some(_) => println!(
                     "absorbed into {}: {}",
-                    crate::render::paint_sha(&short, colored),
+                    crate::render::paint_sha(short, colored),
                     report.subject
                 ),
                 None => println!(
                     "absorbed into {} \"{}\": the commit introduces nothing now and is gone",
-                    crate::render::paint_sha(&short, colored),
+                    crate::render::paint_sha(short, colored),
                     report.subject
                 ),
             }

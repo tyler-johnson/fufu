@@ -101,9 +101,8 @@ fn members<'r>(repo: &'r gix::Repository, revs: &Revset) -> Result<(bool, Ids<'r
 /// One commit formatted as a log entry — shared by the plain log walk and the
 /// timeline's base rows so both render identically.
 pub(crate) fn entry_for(repo: &gix::Repository, id: gix::ObjectId) -> Result<LogEntry> {
-    use gix::prelude::ObjectIdExt;
     let commit = repo.find_commit(id).map_err(Error::repo)?;
-    let short_id = id.attach(repo).shorten().map_err(Error::repo)?.to_string();
+    let short_id = crate::sha::short_oid(id);
     let author = commit.author().map_err(Error::repo)?;
     // Author time, like `git log %at` (log order is by commit time elsewhere).
     let time = author.time().map_err(Error::repo)?.seconds;

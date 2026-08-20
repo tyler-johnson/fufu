@@ -43,7 +43,7 @@ pub fn run(
         println!(
             "parked the open change on {} ({})",
             report.forked_from,
-            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+            crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }
     println!(

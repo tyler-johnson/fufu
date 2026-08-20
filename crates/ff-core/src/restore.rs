@@ -254,9 +254,7 @@ fn commit_origin(
         RestoreOrigin {
             space: "commit".into(),
             id: id.to_string(),
-            // Seven characters, plain: commit shas get no prefix
-            // highlighting, and 7 is effectively always unique at this scale.
-            short_id: id.to_string().chars().take(7).collect(),
+            short_id: crate::sha::short_oid(id),
             subject,
             time,
         },

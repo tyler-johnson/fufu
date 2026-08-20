@@ -36,12 +36,12 @@ pub fn run(ctx: &Ctx, rev: String) -> Result<()> {
                 println!(
                     "parked the open change on {} ({})",
                     report.onto,
-                    crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+                    crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
                 );
             }
             println!(
                 "editing {} \"{}\" on {}",
-                crate::render::paint_sha(&report.editing[..report.editing.len().min(8)], colored),
+                crate::render::paint_sha(ff_core::sha::short(report.editing.as_str()), colored),
                 report.subject,
                 report.session
             );

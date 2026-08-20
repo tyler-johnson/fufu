@@ -60,7 +60,7 @@ pub(crate) fn render_switch(report: &SwitchReport, colored: bool) {
         println!(
             "parked the open change on {} ({})",
             report.from,
-            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+            crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }
     println!("switched to {}", report.to);
@@ -90,7 +90,7 @@ pub(crate) fn render_arrival(arrival: &ArrivalReport, colored: bool) {
         ArrivalReport::Invalidated { stash } => {
             println!(
                 "note: the parked change ({}) was dropped outside fufu; its entry was cleared",
-                crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+                crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
             );
         }
     }
@@ -143,7 +143,7 @@ fn switch_to_a_revision(ctx: &Ctx, repo: &ff_core::gix::Repository, target: Stri
         println!(
             "parked the open change on {} ({})",
             report.forked_from,
-            crate::render::paint_sha(&stash[..stash.len().min(8)], colored)
+            crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }
     println!(

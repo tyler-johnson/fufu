@@ -22,8 +22,6 @@
 //! commits of its own, or one whose anchor fell out of the landing branch's
 //! history, both fold away without complaint under `--abandon`.
 
-use gix::prelude::ObjectIdExt;
-
 use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
@@ -37,15 +35,6 @@ use crate::rewrite;
 use crate::snapshot::Provenance;
 use crate::snapshot::tree as snaptree;
 use crate::stash::{self, ArrivePlan};
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
-}
 
 /// The subject of a commit, through the object handle — the raw `CommitRef`
 /// message has no summary.
@@ -304,7 +293,7 @@ fn finish_resolution(
             format!(
                 "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working tree \
                  again and re-run ff done",
-                short(repo, id),
+                crate::sha::short_oid(id),
                 subject
             ),
             vec![
@@ -528,7 +517,7 @@ pub(crate) fn replan_done(
             "session/unreachable",
             format!(
                 "{} is no longer in {onto}'s history: this session has nothing to land onto",
-                short(repo, anchor)
+                crate::sha::short_oid(anchor)
             ),
             vec!["ff done --abandon".into(), "ff log".into()],
         ));
@@ -654,7 +643,7 @@ pub fn done_with(
 
     let onto = sess.onto.clone();
     let anchor = gix::ObjectId::from_hex(sess.at.as_bytes()).map_err(Error::repo)?;
-    let anchor_short = short(repo, anchor);
+    let anchor_short = crate::sha::short_oid(anchor);
     let anchor_subject = subject(repo, anchor)?;
 
     // 4a. A commit landed on top of the session — the branch grew — refuses:

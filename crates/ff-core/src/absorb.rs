@@ -9,7 +9,6 @@
 //! only refs, the index, and the operation log move.
 
 use gix::bstr::ByteSlice;
-use gix::prelude::ObjectIdExt;
 
 use crate::error::{Error, Result};
 use crate::futures::At;
@@ -41,15 +40,6 @@ fn head_branch(repo: &gix::Repository, verb_noun: &str) -> Result<(String, gix::
             vec!["ff switch <branch>".into()],
         )),
     }
-}
-
-/// A 7-hex-character-ish abbreviation, git's own minimal-unique-prefix
-/// shortening with a fixed fallback.
-fn short(repo: &gix::Repository, id: gix::ObjectId) -> String {
-    id.attach(repo)
-        .shorten()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| id.to_string()[..7].to_string())
 }
 
 /// The tree of a commit, resolved through whichever repository handle is
@@ -254,7 +244,7 @@ fn in_history(repo: &gix::Repository, target: gix::ObjectId, tip: gix::ObjectId)
             "rewrite/not-in-history",
             format!(
                 "{} is no longer in the branch's history",
-                short(repo, target)
+                crate::sha::short_oid(target)
             ),
             vec!["ff log".into()],
         ));
@@ -449,7 +439,7 @@ pub fn absorb_with(
                     "absorb",
                     &branch,
                     &held,
-                    format!("hold absorb into {}", short(repo, target)),
+                    format!("hold absorb into {}", crate::sha::short_oid(target)),
                     0,
                 )?),
                 ctx,
@@ -519,7 +509,7 @@ pub fn absorb_with(
                 "absorb",
                 &branch,
                 &held,
-                format!("hold absorb into {}", short(repo, target)),
+                format!("hold absorb into {}", crate::sha::short_oid(target)),
                 conflict.of,
             )?),
             ctx,
@@ -537,7 +527,7 @@ pub fn absorb_with(
         }
     }
 
-    let target_short = short(repo, target);
+    let target_short = crate::sha::short_oid(target);
     let mut record = OpRecord::new(
         "absorb",
         format!("absorb into {target_short} on {branch}"),
@@ -795,7 +785,7 @@ pub fn lift_with(
                 "lift",
                 &branch,
                 &held,
-                format!("hold lift from {}", short(repo, target)),
+                format!("hold lift from {}", crate::sha::short_oid(target)),
                 conflict.of,
             )?),
             ctx,
@@ -813,7 +803,7 @@ pub fn lift_with(
         }
     }
 
-    let target_short = short(repo, target);
+    let target_short = crate::sha::short_oid(target);
     let mut record = OpRecord::new(
         "lift",
         format!("lift out of {target_short} on {branch}"),

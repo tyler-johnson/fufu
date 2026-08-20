@@ -91,7 +91,7 @@ pub fn report_move(ctx: &Ctx, report: &ff_core::RewindReport, name: &'static str
     for t in &report.refs {
         let what = match (&t.old, &t.new) {
             (_, Some(new)) => {
-                let sha = &new[..new.len().min(8)];
+                let sha = ff_core::sha::short(new.as_str());
                 format!("→ {}", crate::render::paint_sha(sha, colored))
             }
             (Some(_), None) => "deleted".to_string(),

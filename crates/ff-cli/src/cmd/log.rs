@@ -115,7 +115,7 @@ pub fn run_inner(
                 "time": open.time,
                 "clean": open.clean,
                 "pending": open.pending,
-                "pending_short": open.pending.as_deref().map(|p| &p[..7]),
+                "pending_short": open.pending.as_deref().map(ff_core::sha::short),
             })
         } else {
             serde_json::Value::Null

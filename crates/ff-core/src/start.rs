@@ -88,10 +88,7 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             let parent = point.name.clone();
             let forked_from = match point.name {
                 Some(name) => name,
-                None => {
-                    use gix::prelude::ObjectIdExt;
-                    at.attach(repo).shorten().map_err(Error::repo)?.to_string()
-                }
+                None => crate::sha::short_oid(at),
             };
             Ok(ForkPoint {
                 at,

@@ -51,22 +51,16 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
             // `None` is the lift taking everything the commit introduced
             // out of it: there is no new identity to name, so name the one
             // it was.
-            let short: String = report
-                .new
-                .as_deref()
-                .unwrap_or(&report.from)
-                .chars()
-                .take(7)
-                .collect();
+            let short = ff_core::sha::short(report.new.as_deref().unwrap_or(&report.from));
             match &report.new {
                 Some(_) => println!(
                     "lifted out of {}: {}",
-                    crate::render::paint_sha(&short, colored),
+                    crate::render::paint_sha(short, colored),
                     report.subject
                 ),
                 None => println!(
                     "lifted everything out of {} \"{}\": the commit is gone",
-                    crate::render::paint_sha(&short, colored),
+                    crate::render::paint_sha(short, colored),
                     report.subject
                 ),
             }
@@ -122,7 +116,7 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
                 crate::machine::emit("lift", &payload)?;
                 return Ok(());
             }
-            let short: String = from.chars().take(7).collect();
+            let short = ff_core::sha::short(&from);
             println!("nothing to lift out of {short}");
         }
     }

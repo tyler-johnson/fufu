@@ -9,7 +9,6 @@
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
-use gix::prelude::ObjectIdExt;
 use serde::Serialize;
 
 use crate::branch::is_anonymous;
@@ -369,7 +368,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
             continue;
         }
         let commit = repo.find_commit(id).map_err(Error::repo)?;
-        let short_id = id.attach(repo).shorten().map_err(Error::repo)?.to_string();
+        let short_id = crate::sha::short_oid(id);
         let subject = commit.message().map_err(Error::repo)?.summary().to_string();
         let time = visited[&id].time;
         let mut refs = refs_by_tip.get(&id).cloned().unwrap_or_default();

@@ -143,10 +143,10 @@ fn reword(
     }
 
     let colored = crate::pager::color_enabled();
-    let short_new: String = report.new.chars().take(7).collect();
+    let short_new = ff_core::sha::short(&report.new);
     println!(
         "reworded {} on {}: {}",
-        crate::render::paint_sha(&short_new, colored),
+        crate::render::paint_sha(short_new, colored),
         report.branch,
         report.subject
     );
@@ -196,7 +196,7 @@ fn edit_pending(repo: &gix::Repository) -> Result<Option<String>> {
 /// as-is — the caller decides what that means.
 fn edit_reword(repo: &gix::Repository, target: gix::ObjectId) -> Result<String> {
     let branch = current_branch_name(repo)?;
-    let short: String = target.to_string().chars().take(7).collect();
+    let short = ff_core::sha::short_oid(target);
     let commit = repo.find_object(target).map_err(Error::repo)?.into_commit();
     let seed = commit.message_raw().map_err(Error::repo)?.to_string();
     let comment = format!(
