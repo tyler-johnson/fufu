@@ -98,9 +98,9 @@ branches — because fufu's conveniences accrue per-operation to whoever goes
 through fufu, and cost nothing to whoever doesn't.
 
 The boundary is execution path, not spelling: the recommended shell alias
-(`alias git='ff git'`) moves *typed* git onto the fufu surface, where daily
-forms translate into fufu verbs (see `ff git`, below) — while everything that
-resolves git on PATH stays foreign.
+(`alias git='ff git'`) moves *typed* git onto the fufu surface — capture-first,
+and with `fufu.translate` on, daily forms become fufu verbs (see `ff git`,
+below) — while everything that resolves git on PATH stays foreign.
 
 Automation is not foreign by nature, only by habit. A script, a CI job, or an agent that calls `ff` is inside the surface with everyone else, and gets everything the surface promises. Today they reach for git because fufu gives them nothing better to reach for; the machine surface (below) is the work of making that choice obvious.
 
@@ -471,7 +471,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff restore <path> [--from <rev>]` | pull paths back: bare, from the commit under the open change; `--from` names another revision; `--at-op` reaches a past operation, `--at` the operation that was current at a given time | hoping |
 | `ff trim` | drop operations past the keep window — trash-first, so the last trim is itself undoable; rides an ff command daily, so retention enforces itself | remembering to prune, or quietly never pruning |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
-| `ff git <args>` | capture-first passthrough; daily forms translate to their fufu verbs | raw git without a net |
+| `ff git <args>` | capture-first passthrough; `fufu.translate` turns daily forms into their fufu verbs | raw git without a net |
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
 | `ff version` | which fufu this is: the release, the commit it was built from, and — read from the update lane's cache, without touching the network — whether it is still the current one. `--json` reports the three as fields | `git version`, and a separate trip to find out you are behind |
 | `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
@@ -519,25 +519,30 @@ The log family (`ff log`, `ff evolog`, `ff op log`) pages on a TTY, git-style: `
 ### `ff git` and the alias
 
 Like jog, fufu ships a passthrough and recommends the shell alias
-(`alias git='ff git'`): typed git snapshots first, then runs. But where `jog git`
-is deliberately verb-blind, fufu's passthrough *translates* invocations whose
+(`alias git='ff git'`): typed git snapshots first, then runs, verbatim. That
+is the whole default contract — like `jog git`, the passthrough is verb-blind
+until asked. With `fufu.translate` on, it *translates* invocations whose
 meaning maps totally onto a fufu verb — `git switch x` engages tree memory,
 `git commit -m …` cuts from the capture stream, `git push` meets the exit
-guard. Muscle memory gets fufu's guarantees without retraining. The whitelist
-is conservative: any flag or form fufu doesn't fully understand falls back to
-verbatim passthrough, capture-first, never guessing on someone else's command
-line (`git checkout` alone can mean switch-branch or clobber-file; only the
-unambiguous forms translate).
+guard — so muscle memory gets fufu's guarantees without retraining. The
+whitelist is conservative: any flag or form fufu doesn't fully understand
+falls back to verbatim passthrough, capture-first, never guessing on someone
+else's command line (`git checkout` alone can mean switch-branch or
+clobber-file; only the unambiguous forms translate).
 
 The regime boundary is execution path, not spelling: through the alias, git
 spellings *are* the fufu surface, while scripts, IDEs, and GUIs resolve real
-git on PATH and stay foreign — the same scoping as jog's alias. Hints are
-policy, not nag: fufu can mention the native spelling (`tip: that's ff switch`)
-once per verb, or never. Translation makes the git spelling a permanent
-synonym, not a deprecation.
+git on PATH and stay foreign — the same scoping as jog's alias. Translation is
+opt-in because both readings of a git spelling are legitimate: by default
+`ff git` means exactly git, with a net, and turning the setting on makes the
+git spelling a synonym for the verb — never a deprecation. Hints are policy,
+not nag: the translated path mentions the native spelling
+(`tip: that's ff switch`) once per repository; the untranslated path says
+nothing at all.
 
 On a git-free machine, translated forms keep working — they never needed the
-binary. Verbatim passthrough is the one thing that still requires git.
+binary. Everything else — the default — is verbatim passthrough, which is
+exactly the thing that still requires git.
 
 Much of fufu's presence is not commands at all: the ambient status channel (shell
 integration) speaks at natural pause points — "main moved, rebased you cleanly,
@@ -765,9 +770,10 @@ ff command capturing first; the per-branch timeline
 interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). (Phase 1
 shipped a manual snapshot verb on bare `ff`; it retired when bare `ff` became
 the map, and capture is automatic-only from then on.) The
-`ff git` passthrough with its translation whitelist and the recommended
-alias move up from Phase 5: the translation layer grows with the verbs, and
-anything reaching for git grabs fufu instead from day one. Triggers are the
+`ff git` passthrough with its translation whitelist (opt-in, behind
+`fufu.translate`) and the recommended alias move up from Phase 5: the
+translation layer grows with the verbs, and anything reaching for git grabs
+fufu instead from day one. Triggers are the
 capture-first commands, the alias, and agent hooks (Claude Code); editor
 integration is deferred until a real need shows up. jog's lessons carried
 over, its code not owed. From here on, nothing can be lost.
@@ -869,10 +875,11 @@ lease semantics and the held-rewrite guard. The jj-grade workflow lands here, sa
 because phases 1–3 are underneath it.
 
 **Phase 5 — Adoption.** The name and packaging sweep. (The `ff git` passthrough and
-alias shipped with Phase 1; by here the translation whitelist has grown with
-every verb, and `ff sync`'s outgoing half came forward into Phase 4 — a sync that
-rebases onto a moved trunk and cannot then publish leaves the branch diverged behind
-a plain `git push` that fails, which is the footgun the verb exists to delete.)
+alias shipped with Phase 1; by here the translation whitelist — still opt-in
+behind `fufu.translate` — has grown with every verb, and `ff sync`'s outgoing
+half came forward into Phase 4 — a sync that rebases onto a moved trunk and
+cannot then publish leaves the branch diverged behind a plain `git push` that
+fails, which is the footgun the verb exists to delete.)
 The tool becomes recommendable to someone who isn't its author.
 
 **Phase 6 — Git-free.** The long tail moves native — fetch/push, checkout
@@ -932,7 +939,8 @@ a working development machine.
   makes an agent reach for `ff` instead of `git` is a separate question.
   Candidates: guidance delivered into the agent's own instructions at hook
   install, an MCP server that is simply the path of least resistance, and
-  translating agent-issued git the way the alias translates a person's.
+  turning on `fufu.translate` for agent-issued git the way a person can for
+  the alias — by default both pass through untranslated.
 - **Sessions past a tag** — one tag per operation answers filtering and nothing
   else. Left open until something needs it: whether an operation may carry more
   than one (an agent's inside a person's), and what a tag means once a rewrite
