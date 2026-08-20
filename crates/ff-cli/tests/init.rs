@@ -60,13 +60,27 @@ fn config(dir: &Path, key: &str) -> String {
     String::from_utf8(out.stdout).expect("utf-8").trim().into()
 }
 
-/// The op log's rows, captures included — the floor is a note and the default
-/// view leaves notes' machine-rate company out.
-fn op_log(dir: &Path) -> Vec<String> {
-    ok(dir, &["op", "log", "--captures"])
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(str::to_string)
+/// The op log as `(id, kind)`, captures included — the floor is a note, and
+/// the default view leaves notes' machine-rate company out.
+///
+/// Read from the envelope rather than the rendered rows on purpose: a row
+/// carries a relative age, so two reads of an unchanged log differ the moment
+/// one of them lands a second later than the other. That is a real thing a
+/// loaded CI runner does, and it failed this file on Windows once already.
+/// What these tests mean by "the same log" is the same operations.
+fn op_log(dir: &Path) -> Vec<(String, String)> {
+    let body = ok(dir, &["op", "log", "--captures", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&body).expect("valid op log envelope");
+    v["data"]["ops"]
+        .as_array()
+        .expect("an ops array")
+        .iter()
+        .map(|op| {
+            (
+                op["id"].as_str().unwrap_or_default().to_string(),
+                op["kind"].as_str().unwrap_or_default().to_string(),
+            )
+        })
         .collect()
 }
 
@@ -95,7 +109,7 @@ fn a_fresh_init_lands_on_main_with_the_guard_and_a_floor() {
     // The floor: one operation, and it is the log's root note.
     let rows = op_log(dir);
     assert_eq!(rows.len(), 1, "exactly the floor: {rows:#?}");
-    assert!(rows[0].contains("note"), "the floor is a note: {rows:#?}");
+    assert_eq!(rows[0].1, "note", "the floor is a note: {rows:#?}");
 }
 
 /// A second `ff init` is the adopt case, and says so. It also takes no second
@@ -130,8 +144,8 @@ fn init_adopts_a_repository_git_made() {
     // already on disk before fufu had ever looked.
     let rows = op_log(dir);
     assert_eq!(rows.len(), 2, "floor plus the adopted worktree: {rows:#?}");
-    assert!(rows[0].contains("capture"), "{rows:#?}");
-    assert!(rows[1].contains("note"), "{rows:#?}");
+    assert_eq!(rows[0].1, "capture", "{rows:#?}");
+    assert_eq!(rows[1].1, "note", "{rows:#?}");
 }
 
 /// `ff init <dir>` creates the directory as well as the repository.
