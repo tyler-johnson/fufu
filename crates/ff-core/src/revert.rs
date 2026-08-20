@@ -57,7 +57,7 @@ pub fn revert(
         return Err(Error::coded(
             "undo/not-undoable",
             format!("{id} is a {}: {why}", target.kind().as_str()),
-            vec!["ff op log".into(), "ff restore --at-op <op>".into()],
+            vec!["ff op log".into(), "ff restore --all --at-op <op>".into()],
         ));
     }
 

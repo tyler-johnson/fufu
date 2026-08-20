@@ -80,7 +80,13 @@ impl Ctx {
                     "usage/bad-flags",
                     "--at-op takes an operation id and --at takes a time: they are one \
                      reach with two doors, so naming both says nothing more than either",
-                    vec!["ff --at-op <op> <verb>".into(), "ff --at 2h <verb>".into()],
+                    // After the verb, not before it: the pair is declared per
+                    // verb (the `Past` group), so bare `ff --at-op …` is an
+                    // unknown flag before this refusal is ever reached.
+                    vec![
+                        format!("ff {name} --at-op <op>"),
+                        format!("ff {name} --at 2h"),
+                    ],
                 ));
             }
             (Some(op), None) => Some(At::Op(op.to_string())),

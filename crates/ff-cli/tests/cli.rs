@@ -1766,6 +1766,60 @@ fn error_json_uses_the_envelope() {
     assert!(v.get("data").is_none(), "has no data key");
 }
 
+/// The exits a raise site never wrote down. Most `Error::coded` calls pass
+/// none — the way out belongs to the id, and the registry has held it all
+/// along — so the failure reads what `ff explain` reads. Before this, `no
+/// branch named x` was a dead end, and the next thing tried was git.
+#[test]
+fn a_failure_with_no_exits_of_its_own_borrows_the_registrys() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let out = ff(&fx, &["switch", "nope"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("no branch named nope"), "{stderr}");
+    assert!(stderr.contains("try:"), "{stderr}");
+    assert!(stderr.contains("ff branch list"), "{stderr}");
+}
+
+/// Both surfaces read the one registry, so a machine is told what a terminal
+/// would be.
+#[test]
+fn the_borrowed_exits_reach_the_json_envelope_too() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let out = ff(&fx, &["switch", "nope", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["error"]["id"], "branch/not-found");
+    let exits = v["error"]["exits"].as_array().expect("exits array");
+    assert!(
+        exits.iter().any(|e| e == "ff branch list"),
+        "envelope carries the registry's exits: {exits:?}"
+    );
+}
+
+/// The floor under both: an id whose registry entry has no exits either is
+/// still not a dead end, because the entry itself is the thing to read.
+#[test]
+fn an_id_with_no_exits_anywhere_names_its_own_explanation() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let bare = dir.path().join("bare.git");
+    std::process::Command::new("git")
+        .args(["init", "-q", "--bare"])
+        .arg(&bare)
+        .output()
+        .expect("git init --bare");
+    let out = ff_at(&bare, &["status"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("ff explain repo/bare"),
+        "a coded failure always leaves somewhere to go: {stderr}"
+    );
+}
+
 #[test]
 fn human_error_lists_its_exits() {
     let fx = Fixture::new();

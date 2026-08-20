@@ -31,7 +31,9 @@ pub fn emit_error(cmd: &str, err: &Error) -> Result<()> {
             "error": {
                 "id": err.id(),
                 "message": err.to_string(),
-                "exits": err.exits(),
+                // The same block the human rendering prints, so a machine
+                // reading the envelope is told what a terminal would be.
+                "exits": crate::explain::exits_for(err),
             },
         }),
     )

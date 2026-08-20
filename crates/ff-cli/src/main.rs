@@ -68,9 +68,12 @@ fn report(json: bool, command: &str, err: &ff_core::Error) -> ! {
     } else {
         // Human rendering on stderr
         eprintln!("ff: {err}");
-        if !err.exits().is_empty() {
+        // Not `err.exits()`: a raise site that passed none still has the
+        // registry behind it, and that is where most ids keep their way out.
+        let exits = explain::exits_for(err);
+        if !exits.is_empty() {
             eprintln!("  try:");
-            for hint in err.exits() {
+            for hint in exits {
                 eprintln!("    {hint}");
             }
         }

@@ -423,7 +423,7 @@ disciplines:
 
 Deferred and quiet is how work rots; deferred and loud is the whole trick.
 
-A hold is a thing that happened, so it reports like one: the verb succeeds, says what conflicts and where, and exits 3 — the code that already means nothing was touched and a human decision is required. The third discipline sits on `ff sync`'s publish and nowhere else: a hold refuses the push and stops nothing local, because a rewrite that cannot leave the machine is still one you can keep working on.
+A hold is a thing that happened, so it reports like one: the verb succeeds, says what conflicts and where, and exits 3 — the code that already means nothing was touched and a human decision is required. The third discipline sits on `ff publish` and nowhere else: a hold refuses the push and stops nothing local, because a rewrite that cannot leave the machine is still one you can keep working on.
 
 ## Command surface
 
@@ -576,7 +576,7 @@ Agents make this urgent rather than merely tidy. An agent edits at machine rate,
 
 **One model, every surface.** A verb computes one data model, and the human rendering and the JSON rendering are both consumers of it, never translations of each other. `--json` is therefore not a mirror of the human layout: `ff status` crops to two rows because that is what an eye wants, while its JSON carries the model whole. That is what keeps the two from drifting a release apart, and what makes any further surface — an MCP server, a completion source — a thin shell over one contract rather than a second implementation with its own opinions. The JSON is enveloped and versioned (`{"ff": 1, "cmd": "status", …}`) so a script can assert what it is talking to. Notices belong to the model too, not to the margin beside it: anything fufu would tell a person, a script reads as data.
 
-**Every stop names its exits.** Every error carries a stable id, one line of what happened, and the ways out. Prose gets reworded; ids do not, so a script branches on the id instead of matching a sentence, and `ff explain <id>` turns one back into prose on demand. The exits are the accessibility half — fufu is a workflow shift, and where a newcomer bounces is the first stop whose way out they cannot see.
+**Every stop names its exits.** Every error carries a stable id, one line of what happened, and the ways out. Prose gets reworded; ids do not, so a script branches on the id instead of matching a sentence, and `ff explain <id>` turns one back into prose on demand. The exits belong to the id, so the registry behind `explain` is where they live and a failure that raises no exits of its own prints those — a raise site overrides only when it knows something the id does not, and an id with nothing to suggest names its own explanation rather than stopping dead. The exits are the accessibility half — fufu is a workflow shift, and where a newcomer bounces is the first stop whose way out they cannot see.
 
 Exit codes carry the same verdict at shell resolution: **0** done, or yes; **1** no — it failed, or the check's answer is negative; **2** the command line was wrong; **3** held — nothing was touched and a human decision is required. `3` is the code git has no use for, because only a tool with land-if-clean produces that outcome: `ff sync` exiting 3 is a scriptable "main moved and it needs you."
 
