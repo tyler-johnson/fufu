@@ -4,6 +4,13 @@
 //! (`"op log"`, `"op show"`) rather than the bare family. `ff session` is the
 //! anti-precedent: a listing and a diffstat both went out stamped `session`,
 //! so a consumer had to read the payload to learn which shape it had.
+//!
+//! The three read verbs capture first, like every verb but `init` and
+//! `clone`. That is what makes `@` mean *now* rather than "the newest thing
+//! already written down": without it `ff op diff <a>` documented itself as
+//! reading from there to now and then left uncaptured edits out of the
+//! answer. `op restore` and `op revert` take none, because `ff_core::rewind`
+//! takes its own pre-move capture and a second would double it.
 
 use std::io::Write as _;
 
@@ -81,6 +88,7 @@ fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Re
         Some(src) => Some(ff_core::revset::Revset::parse(src)?),
         None => None,
     };
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     // Bounded at a past operation rather than filtered: operations behind a
     // point never change, so the log as it read then is this log with its
@@ -135,6 +143,7 @@ fn log(ctx: &Ctx, count: usize, revisions: Option<String>, captures: bool) -> Re
 }
 
 fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let id = resolve(ctx, &repo, spec.as_deref())?;
     let log = ff_core::ops::OpLog::open(&repo)?;
@@ -211,6 +220,7 @@ fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
 }
 
 fn diff(ctx: &Ctx, a: String, b: Option<String>) -> Result<()> {
+    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let log = ff_core::ops::OpLog::open(&repo)?;
     let a_id = log.resolve(&a)?;

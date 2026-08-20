@@ -777,6 +777,10 @@ share latest(), heads() and roots(). Filtering to one session is
 so `ff op log --at 2h` is the log as it read two hours ago, and an -r
 alongside them is evaluated against that bounded log.
 
+This verb captures first, like every verb but `ff init` and `ff clone`, so
+on a dirty tree the newest row is this command's own capture — intended,
+and the same note `ff evolog` carries.
+
 The bold prefix on each id is the shortest one these verbs resolve
 unambiguously, so an id copied from here never lands on an ambiguity.";
 

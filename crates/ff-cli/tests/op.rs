@@ -231,6 +231,40 @@ fn op_diff_compares_two_operations_worktrees() {
     assert_eq!(json(&out)["data"]["b"], ids[0]);
 }
 
+/// The `ff op` read verbs capture first, like every other verb but `init`
+/// and `clone`, and that is what makes `@` genuinely mean *now*.
+///
+/// Without it, "from there to now" was a lie: edits nothing had captured yet
+/// were simply absent from the diffstat, and "(no files differed)" is the
+/// worst possible wrong answer to get at the one moment anybody reaches for
+/// this command.
+#[test]
+fn op_diff_sees_edits_nothing_has_captured_yet() {
+    let fx = with_ops();
+    let floor = op_ids(&fx, &["--captures"]).pop().expect("a floor");
+
+    // Two dirty files, and no ff verb run since they were written.
+    fx.write("a.txt", "edited\n");
+    fx.write("uncaptured.txt", "brand new\n");
+
+    let out = ff(&fx, &["op", "diff", &floor, "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let files: Vec<String> = json(&out)["data"]["changes"]
+        .as_array()
+        .expect("changes array")
+        .iter()
+        .map(|c| c["path"].as_str().expect("path").to_string())
+        .collect();
+    assert!(
+        files.iter().any(|f| f == "uncaptured.txt"),
+        "the uncaptured file is in the diff: {files:?}"
+    );
+    assert!(
+        files.iter().any(|f| f == "a.txt"),
+        "the uncaptured edit is in the diff: {files:?}"
+    );
+}
+
 /// `ff op restore` rewinds the whole repository, which is `ff undo` with the
 /// landing named instead of found. It moves the pointer rather than
 /// appending, so a round trip leaves the log exactly as long as it was.
