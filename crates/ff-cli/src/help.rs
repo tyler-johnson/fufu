@@ -182,12 +182,16 @@ That is intended.
 
 Ids are spelled in the letters k–z, never hex digits, so an operation id
 can never be misread as a commit sha. The bold prefix is the shortest one
-`ff op` and `--at-op` resolve unambiguously.";
+`ff op` and `--at-op` resolve unambiguously.
+
+-p prints each row's patch under it — what that one operation changed,
+measured against the capture before it on this branch.";
 
 pub const EVOLOG_EXAMPLES: &str = "\
 Examples:
   ff evolog                      the open change's operations
   ff evolog -n 0                 all of them
+  ff evolog -p                   each row with what it changed, in full
   ff restore src/ --at-op <id>   pull a directory back from one";
 
 pub const GIT: &str = "\
@@ -891,13 +895,17 @@ Bare `ff op show` reads `@`, the newest.
 
 Every operation has a tree, which is what makes this uniform — a capture
 and a close are read the same way, and differ only in whether there are
-ref transitions to list.";
+ref transitions to list.
+
+-p puts the patch under the diffstat rather than in place of it: the same
+unified diff `ff diff` prints, for the operation instead of the tree.";
 
 pub const OP_SHOW_EXAMPLES: &str = "\
 Examples:
   ff op show                     the newest operation
   ff op show @^                  the one before it
   ff op show kqzm                by id
+  ff op show -p @                what it changed, with content
   ff op show --json              the same, for machines";
 
 pub const OP_DIFF: &str = "\
@@ -908,13 +916,17 @@ now\".
 This compares the trees two operations carry, not their ref transitions —
 adjacent operations can sit on different branches, and the diff across
 that seam reads as the whole worktree being replaced, which is literal
-rather than wrong.";
+rather than wrong.
+
+-p puts the patch under the diffstat, the same unified diff `ff diff`
+prints.";
 
 pub const OP_DIFF_EXAMPLES: &str = "\
 Examples:
   ff op diff @^ @                what the newest operation changed
   ff op diff kqzm                from that operation to now
-  ff op diff kqzm kwzq           between two of them";
+  ff op diff kqzm kwzq           between two of them
+  ff op diff -p @^ @             with content, not just counts";
 
 pub const OP_RESTORE: &str = "\
 Rewind the whole repository to an operation: refs, HEAD, the working tree

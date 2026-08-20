@@ -6,11 +6,11 @@
 use std::collections::HashMap;
 use std::io::Write as _;
 
-use ff_core::{Error, EvologOptions, Result};
+use ff_core::{ChangeStat, Error, EvologOptions, Result, SnapEntry};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
+pub fn run(ctx: &Ctx, count: usize, patch: bool) -> Result<()> {
     ctx.refuse_past("ff evolog")?;
     crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
@@ -26,6 +26,19 @@ pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
     // Every row's tag, one targeted message read each — bounded by the rows
     // already fetched, not a second chain walk. Only the machine surface
     // spends it: a tag is a property of the operation, not a view over rows.
+    // Each row's patch is its own tree against the previous capture's on
+    // this branch — assembled here rather than in `EvologOptions`, for the
+    // same reason `session` is: it is a property of the operation, not of
+    // the walk, and the walk has no business growing a field per view.
+    let row_patches: Vec<Option<ChangeStat>> = if patch {
+        let log = ff_core::ops::OpLog::open(&repo)?;
+        rows.iter()
+            .map(|row| row_patch(&repo, &log, row).map(Some))
+            .collect::<Result<_>>()?
+    } else {
+        vec![None; rows.len()]
+    };
+
     let row_sessions: Vec<Option<String>> = if ctx.json {
         rows.iter()
             .map(|row| crate::session::tag_of(&repo, &row.id))
@@ -36,10 +49,18 @@ pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
 
     if ctx.json {
         let mut snapshots = Vec::with_capacity(rows.len());
-        for (row, sess) in rows.iter().zip(&row_sessions) {
+        for ((row, sess), stat) in rows.iter().zip(&row_sessions).zip(&row_patches) {
             let mut value = serde_json::to_value(row).map_err(Error::repo)?;
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert("session".into(), serde_json::json!(sess));
+                if let Some(stat) = stat {
+                    map.insert(
+                        "changes".into(),
+                        serde_json::to_value(&stat.files).map_err(Error::repo)?,
+                    );
+                    map.insert("insertions".into(), serde_json::json!(stat.insertions));
+                    map.insert("deletions".into(), serde_json::json!(stat.deletions));
+                }
             }
             snapshots.push(value);
         }
@@ -60,13 +81,46 @@ pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
-        for row in &rows {
+        for (row, stat) in rows.iter().zip(&row_patches) {
             writeln!(out, "{}", crate::render::snap_row(row, &lens, now, colored))?;
+            // Furniture above, format below — the row, then what it did.
+            let Some(stat) = stat else { continue };
+            if stat.files.is_empty() {
+                continue;
+            }
+            write!(out, "{}", crate::render::patch_block(&stat.files, colored))?;
+            writeln!(out)?;
         }
         Ok(())
     })();
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// What one capture changed: its tree against the previous capture's on the
+/// same branch, or against nothing when it is the first.
+fn row_patch(
+    repo: &ff_core::gix::Repository,
+    log: &ff_core::ops::OpLog<'_>,
+    row: &SnapEntry,
+) -> Result<ChangeStat> {
+    let tree = |hex: &str| -> Result<ff_core::gix::ObjectId> {
+        let oid = ff_core::gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo)?;
+        Ok(log.get(ff_core::OpId::new(oid))?.tree())
+    };
+    let before = match &row.prev {
+        Some(prev) => tree(prev)?,
+        None => ff_core::gix::ObjectId::empty_tree(repo.object_hash()),
+    };
+    ff_core::tree_diff(
+        repo,
+        before,
+        tree(&row.id)?,
+        &ff_core::DiffOptions {
+            hunks: true,
+            paths: Vec::new(),
+        },
+    )
 }
 
 /// Unique-prefix lengths for the ids a view is about to print, or nothing at

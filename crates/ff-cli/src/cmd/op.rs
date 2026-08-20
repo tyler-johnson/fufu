@@ -28,8 +28,8 @@ pub fn run(ctx: &Ctx, action: OpAction) -> Result<()> {
             captures,
             ..
         } => log(ctx, revset, count, revisions, captures),
-        OpAction::Show { op, .. } => show(ctx, op),
-        OpAction::Diff { a, b, .. } => diff(ctx, a, b),
+        OpAction::Show { op, patch, .. } => show(ctx, op, patch),
+        OpAction::Diff { a, b, patch, .. } => diff(ctx, a, b, patch),
         OpAction::Restore { op, force } => restore(ctx, op, force),
         OpAction::Revert { op } => revert(ctx, op),
     }
@@ -200,7 +200,7 @@ fn revisions_retired(expr: &str) -> Error {
     )
 }
 
-fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
+fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let id = resolve(ctx, &repo, spec.as_deref())?;
@@ -214,7 +214,15 @@ fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
         Some(prev) => log.get(prev)?.tree(),
         None => ff_core::gix::ObjectId::empty_tree(repo.object_hash()),
     };
-    let stat = ff_core::tree_diff_stat(&repo, before, op.tree())?;
+    let stat = ff_core::tree_diff(
+        &repo,
+        before,
+        op.tree(),
+        &ff_core::DiffOptions {
+            hunks: patch,
+            paths: Vec::new(),
+        },
+    )?;
     let refs: Vec<_> = op
         .record()?
         .map(|record| record.refs.clone())
@@ -276,17 +284,31 @@ fn show(ctx: &Ctx, spec: Option<String>) -> Result<()> {
         println!("  (the worktree is unchanged across it)");
     } else {
         println!("{}", crate::render::render_diffstat(&stat, colored));
+        // Furniture above, format below: the patch goes under the block it
+        // is the long form of, never in place of it.
+        if patch {
+            println!();
+            print!("{}", crate::render::patch_block(&stat.files, colored));
+        }
     }
     Ok(())
 }
 
-fn diff(ctx: &Ctx, a: String, b: Option<String>) -> Result<()> {
+fn diff(ctx: &Ctx, a: String, b: Option<String>, patch: bool) -> Result<()> {
     crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let log = ff_core::ops::OpLog::open(&repo)?;
     let a_id = log.resolve(&a)?;
     let b_id = resolve(ctx, &repo, b.as_deref())?;
-    let stat = ff_core::tree_diff_stat(&repo, log.get(a_id)?.tree(), log.get(b_id)?.tree())?;
+    let stat = ff_core::tree_diff(
+        &repo,
+        log.get(a_id)?.tree(),
+        log.get(b_id)?.tree(),
+        &ff_core::DiffOptions {
+            hunks: patch,
+            paths: Vec::new(),
+        },
+    )?;
 
     if ctx.json {
         let payload = serde_json::json!({
@@ -313,6 +335,10 @@ fn diff(ctx: &Ctx, a: String, b: Option<String>) -> Result<()> {
         println!("  (no files differed)");
     } else {
         println!("{}", crate::render::render_diffstat(&stat, colored));
+        if patch {
+            println!();
+            print!("{}", crate::render::patch_block(&stat.files, colored));
+        }
     }
     Ok(())
 }

@@ -159,6 +159,9 @@ pub enum Command {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
+        /// Print each row's patch under it — what that operation changed
+        #[arg(short = 'p', long = "patch")]
+        patch: bool,
         #[command(flatten)]
         past: Past,
     },
@@ -527,6 +530,9 @@ pub enum OpAction {
         /// The operation; `@` (the newest) when omitted
         #[arg(value_name = "op")]
         op: Option<String>,
+        /// Print the patch under the diffstat, not just the counts
+        #[arg(short = 'p', long = "patch")]
+        patch: bool,
         #[command(flatten)]
         past: Past,
     },
@@ -539,6 +545,9 @@ pub enum OpAction {
         /// The newer operation; `@` when omitted
         #[arg(value_name = "b")]
         b: Option<String>,
+        /// Print the patch under the diffstat, not just the counts
+        #[arg(short = 'p', long = "patch")]
+        patch: bool,
         #[command(flatten)]
         past: Past,
     },

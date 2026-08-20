@@ -117,6 +117,8 @@ fn status_and_log_never_spawn() {
         &["diff", "--json"][..],
         &["show"][..],
         &["show", "HEAD"][..],
+        &["op", "show", "-p"][..],
+        &["evolog", "-p"][..],
         // The moves rather than the operations, and the same rule: both
         // walks are native.
         &["history"][..],

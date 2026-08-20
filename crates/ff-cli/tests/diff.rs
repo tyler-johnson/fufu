@@ -281,3 +281,74 @@ fn the_foreign_refusal_retired() {
     let page = stdout(&ff_at(&fx.path(), &["help", "status"]));
     assert!(page.contains("ff diff"), "status page names it: {page}");
 }
+
+/// `-p` on the three views that already compute a `ChangeStat`. The flag
+/// only changes the depth of the same read, so the block each view already
+/// printed stays put and the patch goes underneath it — furniture above,
+/// format below.
+#[test]
+fn the_patch_flag_deepens_the_three_views_that_have_a_file_list() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    // A capture, so there are two operations to compare.
+    ff(&fx, &["status"]);
+
+    for args in [
+        &["op", "show", "-p", "@"][..],
+        &["op", "diff", "-p", "@^", "@"][..],
+        &["evolog", "-p"][..],
+    ] {
+        let out = ff(&fx, args);
+        assert!(out.status.success(), "ff {args:?}: {}", stderr(&out));
+        let body = stdout(&out);
+        assert!(
+            body.contains("@@") && body.contains("+two"),
+            "ff {args:?} printed no patch: {body}"
+        );
+    }
+
+    // Without the flag, the same views stay stat-level.
+    for args in [
+        &["op", "show", "@"][..],
+        &["op", "diff", "@^", "@"][..],
+        &["evolog"][..],
+    ] {
+        let body = stdout(&ff(&fx, args));
+        assert!(!body.contains("@@"), "ff {args:?} leaked content: {body}");
+    }
+}
+
+/// And on the machine surface: the flag is a depth, not a rendering, so
+/// `--json` carries the hunks too.
+#[test]
+fn the_patch_flag_reaches_the_machine_surface() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    ff(&fx, &["status"]);
+
+    let v = json(&ff(&fx, &["op", "show", "-p", "@", "--json"]));
+    assert_eq!(
+        v["data"]["changes"][0]["hunks"][0]["header"].as_str(),
+        Some("@@ -1,3 +1,3 @@")
+    );
+
+    let v = json(&ff(&fx, &["op", "diff", "-p", "@^", "@", "--json"]));
+    assert!(v["data"]["changes"][0]["hunks"].is_array(), "{v}");
+
+    // evolog assembles its patches per row, so the hunks ride on the row.
+    let v = json(&ff(&fx, &["evolog", "-p", "--json"]));
+    let row = &v["data"]["snapshots"][0];
+    assert!(row["changes"][0]["hunks"].is_array(), "{row}");
+    assert!(row["insertions"].is_number(), "{row}");
+
+    // Bare, the row carries no patch at all — the payload is what it was.
+    let v = json(&ff(&fx, &["evolog", "--json"]));
+    assert!(
+        v["data"]["snapshots"][0].get("changes").is_none(),
+        "evolog invented a diffstat nobody asked for: {v}"
+    );
+}
