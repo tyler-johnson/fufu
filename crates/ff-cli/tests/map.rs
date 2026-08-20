@@ -239,6 +239,59 @@ fn an_elided_run_reports_its_count() {
 }
 
 #[test]
+fn merges_of_deleted_branches_leave_no_rows() {
+    // A merge-heavy trunk: two side branches merged and deleted, plus one
+    // live topic branch to walk relative to. The merges and the sides'
+    // fork points are history, not branch relations — the map is the two
+    // tips, the fork they share, and one elision along trunk's line.
+    let fx = Fixture::new();
+    fx.write("a.txt", "base\n");
+    fx.commit("base");
+    fx.write("a.txt", "f\n");
+    fx.commit("f");
+    fx.git(&["branch", "feature"]);
+    fx.write("a.txt", "m1\n");
+    fx.commit("m1");
+    for side in ["side1", "side2"] {
+        fx.git(&["switch", "-c", side]);
+        fx.write(&format!("{side}.txt"), "s\n");
+        fx.commit(&format!("work on {side}"));
+        fx.git(&["switch", "main"]);
+        fx.git(&["merge", "--no-ff", "-m", &format!("landed {side}"), side]);
+        fx.git(&["branch", "-D", side]);
+    }
+    fx.write("a.txt", "tip\n");
+    fx.commit("main tip");
+    fx.git(&["switch", "feature"]);
+    fx.write("f.txt", "ft\n");
+    fx.commit("feature one");
+    fx.git(&["switch", "main"]);
+
+    let out = ff(&fx, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(
+        !text.contains("landed"),
+        "a merge of vanished history has no row: {text:?}"
+    );
+    assert_eq!(
+        text.matches('●').count(),
+        3,
+        "two tips and the fork are the only commit rows: {text:?}"
+    );
+    // The elision counts trunk's own line — the merges and m1, not the
+    // side commits they landed.
+    assert!(
+        text.lines().any(|line| line.contains("3 commits")),
+        "the run through the invisible merges is counted: {text:?}"
+    );
+}
+
+#[test]
 fn n_bounds_the_branches_and_all_lifts_it() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");

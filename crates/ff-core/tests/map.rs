@@ -1,7 +1,8 @@
 //! The map: the skeleton rule (one branch is a tip and a frontier), runs of
-//! one shown while longer runs contract, merges and forks staying visible,
-//! the cap and the forced branches, the depth cap, and the unborn and
-//! detached heads.
+//! one shown while longer runs contract, the merges and forks that relate
+//! shown branches staying visible while vanished history's vanish, the cap
+//! and the forced branches, the depth cap, and the unborn and detached
+//! heads.
 
 use ff_core::map::{MapNode, MapOptions};
 use ff_testsupport::Fixture;
@@ -172,7 +173,7 @@ fn a_run_of_five_elides_with_its_count() {
 }
 
 #[test]
-fn a_merge_commit_is_visible() {
+fn a_merge_that_lands_a_shown_branch_is_visible() {
     let fx = Fixture::new();
     fx.commit("f");
     fx.git(&["branch", "feature"]);
@@ -182,10 +183,70 @@ fn a_merge_commit_is_visible() {
     fx.git(&["switch", "main"]);
     fx.git(&["merge", "--no-ff", "-m", "merged", "feature"]);
     let m = map(&fx, &MapOptions::default());
+    // The merge's second parent is feature's tip, a shown branch, and the
+    // merge is what connects that tip to main's line: it gets a row, with
+    // both parents surviving as distinct edges.
     let merged = row_with_subject(&m.rows, "merged").unwrap();
     let parents = &m.rows[merged].parents;
     assert_eq!(parents.len(), 2);
     assert_ne!(parents[0], parents[1]);
+    let x1 = row_with_subject(&m.rows, "x1").unwrap();
+    assert!(parents.contains(&x1));
+}
+
+/// Main carries a merged-and-deleted side branch between its tip and the
+/// fork with a live `feature` branch:
+///
+/// ```text
+/// base ── f ── m1 ───── landed ── m2   [main]
+///          │     ╰ s1 ──╯
+///          ╰ x1   [feature]
+/// ```
+fn merged_side_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.commit("base");
+    fx.commit("f");
+    fx.git(&["branch", "feature"]);
+    fx.commit("m1");
+    fx.git(&["switch", "-c", "side"]);
+    fx.commit("s1");
+    fx.git(&["switch", "main"]);
+    fx.git(&["merge", "--no-ff", "-m", "landed", "side"]);
+    fx.git(&["branch", "-D", "side"]);
+    fx.commit("m2");
+    fx.git(&["switch", "feature"]);
+    fx.commit("x1");
+    fx.git(&["switch", "main"]);
+    fx
+}
+
+#[test]
+fn a_merge_of_vanished_history_is_not_a_row() {
+    let fx = merged_side_fixture();
+    let m = map(&fx, &MapOptions::default());
+    // The side branch is gone, so the merge that landed it relates nothing
+    // shown: no row for it, none for what it brought in.
+    assert!(row_with_subject(&m.rows, "landed").is_none());
+    assert!(row_with_subject(&m.rows, "s1").is_none());
+    // The elision counts the first-parent line through the invisible merge —
+    // landed and m1, two commits, not three: vanished history is not counted.
+    assert_eq!(elisions(&m.rows), vec![Some(2), None]);
+}
+
+#[test]
+fn a_fork_between_branches_is_a_row_a_historical_fork_is_not() {
+    let fx = merged_side_fixture();
+    let m = map(&fx, &MapOptions::default());
+    // The fork where feature parts from main gains reach from both tips: a
+    // join, and a row both tips reach.
+    let fork = row_with_subject(&m.rows, "f").unwrap();
+    let m2 = row_with_subject(&m.rows, "m2").unwrap();
+    let x1 = row_with_subject(&m.rows, "x1").unwrap();
+    assert!(reaches(&m.rows, m2, fork));
+    assert!(reaches(&m.rows, x1, fork));
+    // The deleted side branch's fork point has two children with the same
+    // reach — pure topology, no row.
+    assert!(row_with_subject(&m.rows, "m1").is_none());
 }
 
 /// A base commit, then four branches each taking one commit off it, ending

@@ -1,6 +1,9 @@
 //! The map — a skeleton of the local branches that answers "where did I
-//! leave that idea?": the tips, the merges, the forks, and the roots, with
-//! the linear runs between them contracted into elision nodes. The walk
+//! leave that idea?": the tips, the joins where one shown branch's history
+//! parts from another's, the merges that land a shown branch, and the
+//! roots, with the runs between them contracted into elision nodes. Merges
+//! and forks that relate only vanished history earn no row: the map shows
+//! branches relative to other branches, not the trunk's own past. The walk
 //! stops where the frontier converges on one commit or `fufu.mapDepth` runs
 //! out; it is a pure read and knows nothing about rendering.
 
@@ -75,12 +78,10 @@ pub struct MapRef {
 }
 
 /// One commit the walk read: what ranking, visibility, and contraction need
-/// of it. `children` counts walked children, because a fork point is a
-/// commit that two walked children descend through.
+/// of it.
 struct Visit {
     time: i64,
     parents: Vec<gix::ObjectId>,
-    children: usize,
 }
 
 /// A node of the contracted graph, before its parent list becomes row
@@ -121,14 +122,7 @@ fn read_visit(
         .seconds;
     let parents: Vec<gix::ObjectId> = commit.parent_ids().map(|id| id.detach()).collect();
     order.push(id);
-    visited.insert(
-        id,
-        Visit {
-            time,
-            parents,
-            children: 0,
-        },
-    );
+    visited.insert(id, Visit { time, parents });
     Ok(())
 }
 
@@ -244,6 +238,12 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
     let mut truncated = false;
     let mut order: Vec<gix::ObjectId> = Vec::new();
     let mut visited: HashMap<gix::ObjectId, Visit> = HashMap::new();
+    // A join is a commit that gains reach-bits from more than one child: the
+    // meeting point where one shown branch's history parts from another's.
+    // Collected during mask propagation, which is sound because the heap
+    // pops children (newer) before parents, so each mask a child propagates
+    // is complete — the same clock assumption the convergence test makes.
+    let mut joins: HashSet<gix::ObjectId> = HashSet::new();
     while let Some((_, id_hex)) = heap.peek() {
         if visited.len() >= depth_cap {
             truncated = true;
@@ -262,7 +262,11 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
         let mask = reach[&id];
         let parents = visited[&id].parents.clone();
         for p in parents {
-            *reach.entry(p).or_insert(0) |= mask;
+            let entry = reach.entry(p).or_insert(0);
+            if *entry != 0 && *entry | mask != *entry {
+                joins.insert(p);
+            }
+            *entry |= mask;
             if !visited.contains_key(&p) && !queued.contains(&p) {
                 heap.push((committer_time(repo, p)?, p.to_string()));
                 queued.insert(p);
@@ -270,31 +274,21 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
         }
     }
 
-    // --- 3. Visibility: what is structure in the walked set.
-
-    {
-        let mut children: HashMap<gix::ObjectId, usize> = HashMap::new();
-        for visit in visited.values() {
-            for p in &visit.parents {
-                if visited.contains_key(p) {
-                    *children.entry(*p).or_insert(0) += 1;
-                }
-            }
-        }
-        for (id, count) in children {
-            if let Some(visit) = visited.get_mut(&id) {
-                visit.children = count;
-            }
-        }
-    }
+    // --- 3. Visibility: what relates the shown branches. A row is a
+    // selected tip, a join between shown branches, a merge whose parent is
+    // a shown tip (the merge that lands it — without this the landed tip
+    // would dangle with no incoming edge, since first-parent chains skip
+    // invisible merges), or a root. A merge of vanished history and a
+    // pure-topology fork (two children, identical masks) carry no
+    // branch-relational structure and get none.
 
     let source_set: HashSet<gix::ObjectId> = sources.iter().copied().collect();
     let mut visible: HashSet<gix::ObjectId> = visited
         .iter()
         .filter(|(id, v)| {
             source_set.contains(*id)
-                || v.parents.len() >= 2
-                || v.children >= 2
+                || joins.contains(*id)
+                || (v.parents.len() >= 2 && v.parents.iter().any(|p| source_set.contains(p)))
                 || v.parents.is_empty()
         })
         .map(|(id, _)| *id)
@@ -363,7 +357,10 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
     }
 
     // --- 4b. Contract the runs; nodes are built in walk order, parents in
-    // recorded order, so construction index is deterministic.
+    // recorded order, so construction index is deterministic. A run follows
+    // the first-parent line, straight through invisible merges, so an
+    // elision count reads "N commits along this line" — what a merge of
+    // vanished history brought in is not counted, it is gone.
 
     let mut built: Vec<Built> = Vec::new();
     let mut commit_node: HashMap<gix::ObjectId, usize> = HashMap::new();
