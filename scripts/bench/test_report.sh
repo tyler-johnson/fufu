@@ -37,6 +37,18 @@ case_check "expect-linear.json is not gated"           expect-linear.json      0
 case_check "below-floor.json passes as noise"          below-floor.json        0 "below-floor"
 case_check "below-floor-grows.json fails"              below-floor-grows.json  1 "hidden-scan / chain-depth / ff"
 case_check "missing-floor.json fails"                  missing-floor.json      1 "no-floor"
+# A measurement whose own stddev is 2-3x its mean cannot support any verdict.
+# These are the real restore-at numbers, which passed at 1.31x on one CI run
+# and failed at 5.12x on the next with no code between them. Same ratio as
+# linear.json above, which must still fail -- the difference is measurability,
+# so this row is withheld rather than scored, and is NOT counted as a pass.
+case_check "noisy-measurement.json is withheld"        noisy-measurement.json  0 "[NOISY]"
+case_check "noisy-measurement.json is not a pass"      noisy-measurement.json  0 "NOT MEASURED: 1 flat ff row(s)"
+# Floors are measured per-N, so floor drift alone can manufacture growth in the
+# adjusted numbers. These are the real oplog numbers: the command got FASTER
+# (3.15 -> 3.13ms) while its two floors were measured 0.22ms apart, and the
+# below-floor branch read that as a suspected linear term.
+case_check "floor-drift.json is not cost growth"       floor-drift.json        0 "floor drift, not cost"
 case_check "errored.json is reported, not gated"       errored.json            0 "errored"
 # The gate is per decade of N, not per span: a row growing 1.35x per decade is
 # 1.82x measured across 100 -> 10000, which an endpoint comparison would fail

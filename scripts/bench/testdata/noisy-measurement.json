@@ -1,0 +1,103 @@
+{
+  "meta": {
+    "generated_unix": 1755100000,
+    "host": {
+      "os": "linux",
+      "arch": "aarch64",
+      "kernel": "6.18.39+rpt-rpi-2712",
+      "cpu": "Cortex-A76",
+      "nproc": 4
+    },
+    "versions": {
+      "ff": "ff 0.1.0",
+      "git": "git version 2.50.1",
+      "jj": "jj 0.44.0-af45d57de7163cc5f17f3df178a31577e4951ea3",
+      "hyperfine": "hyperfine 1.18.0"
+    },
+    "ff_binary": "/home/pi/Development/fufu/target/release/ff",
+    "axes": {
+      "chain-depth": {
+        "points": [
+          100,
+          1000
+        ]
+      }
+    },
+    "flat_ratio_max": 1.5,
+    "hyperfine": {
+      "warmup": 3,
+      "min_runs": 10,
+      "max_runs": 50
+    }
+  },
+  "results": [
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 5.0,
+      "stddev_ms": 0.05,
+      "median_ms": 5.0,
+      "min_ms": 4.95,
+      "max_ms": 5.05,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "floor",
+      "row": "floor",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff --version",
+      "mean_ms": 5.0,
+      "stddev_ms": 0.05,
+      "median_ms": 5.0,
+      "min_ms": 4.95,
+      "max_ms": 5.05,
+      "runs": 50,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "restore-at",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 100,
+      "prepare": "-",
+      "command": "ff restore-at",
+      "mean_ms": 8.21,
+      "stddev_ms": 11.96,
+      "median_ms": 8.21,
+      "min_ms": -3.75,
+      "max_ms": 20.17,
+      "runs": 40,
+      "exit_ok": true
+    },
+    {
+      "kind": "row",
+      "row": "restore-at",
+      "axis": "chain-depth",
+      "expect": "flat",
+      "tool": "ff",
+      "n": 1000,
+      "prepare": "-",
+      "command": "ff restore-at",
+      "mean_ms": 21.44,
+      "stddev_ms": 41.84,
+      "median_ms": 21.44,
+      "min_ms": -20.400000000000002,
+      "max_ms": 63.28,
+      "runs": 40,
+      "exit_ok": true
+    }
+  ]
+}

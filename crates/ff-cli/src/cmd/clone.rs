@@ -106,10 +106,16 @@ fn default_dir(url: &str) -> Result<String> {
             vec![],
         )
     })?;
+    // Both separators: a local Windows path arrives as `C:\src\thing.git`
+    // and its parsed path keeps the backslashes, so splitting on `/` alone
+    // makes the "last segment" the whole path — and `ff clone C:\src\thing.git`
+    // would build `C:\src\thing` instead of `thing` here. git treats the two
+    // interchangeably on Windows, and a backslash inside a real URL's path is
+    // pathological enough that following git is the right call.
     let path = parsed.path.to_string();
     let tail = path
-        .trim_end_matches('/')
-        .rsplit('/')
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or_default()
         .trim_end_matches(".git");
@@ -124,10 +130,16 @@ fn default_dir(url: &str) -> Result<String> {
 }
 
 /// `./thing` rather than a bare `thing`, so the report reads as a place on
-/// disk. An absolute or already-relative path is printed as given.
+/// disk. A path that already says where it is keeps its own spelling.
+///
+/// Rootedness is tested by hand as well as by `is_absolute`, because Windows
+/// calls `/tmp/w` *relative* — it names no drive — and prefixing it produced
+/// `.//tmp/w`. A leading separator already says "not here", whatever the
+/// platform thinks of the rest of the path.
 fn display_dir(dir: &std::path::Path) -> String {
     let shown = dir.display().to_string();
-    if dir.is_absolute() || shown.starts_with('.') {
+    let rooted = dir.is_absolute() || shown.starts_with(['/', '\\']);
+    if rooted || shown.starts_with('.') {
         shown
     } else {
         format!("./{shown}")
@@ -165,6 +177,10 @@ mod tests {
         assert_eq!(dir("/srv/git/thing.git"), "thing");
         assert_eq!(dir("ssh://host/~/thing.git"), "thing");
         assert_eq!(dir("./thing"), "thing");
+        // A local Windows path, which is what `ff clone` is handed there.
+        assert_eq!(dir(r"C:\src\thing.git"), "thing");
+        assert_eq!(dir(r"C:\src\thing"), "thing");
+        assert_eq!(dir(r"\\server\share\thing.git"), "thing");
     }
 
     /// A host is not a directory. The naive rule named one after `example.com`
@@ -184,6 +200,9 @@ mod tests {
     fn a_relative_target_is_shown_as_a_place() {
         assert_eq!(display_dir(std::path::Path::new("fufu")), "./fufu");
         assert_eq!(display_dir(std::path::Path::new("./w")), "./w");
+        // Rooted, and left alone — including on Windows, which does not
+        // consider a drive-less path absolute.
         assert_eq!(display_dir(std::path::Path::new("/tmp/w")), "/tmp/w");
+        assert_eq!(display_dir(std::path::Path::new(r"\\srv\w")), r"\\srv\w");
     }
 }

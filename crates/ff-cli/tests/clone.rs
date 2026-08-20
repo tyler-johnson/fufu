@@ -96,6 +96,32 @@ fn ok(dir: &Path, args: &[&str]) -> String {
     stdout(&out)
 }
 
+/// The URL a clone recorded for `remote`, and the URL it was given, both
+/// resolved the same way before they are compared.
+///
+/// gix canonicalizes a file URL before writing it to the config, so the two
+/// are not textually equal wherever the path runs through a symlink — which
+/// is every macOS runner, whose `$TMPDIR` sits under `/var`, a symlink to
+/// `/private/var`. Canonicalizing both sides compares the place rather than
+/// the spelling, and does the same job for Windows' extended-length form.
+fn recorded_url_matches(clone: &Path, remote: &str, given: &str) -> bool {
+    let recorded = git(clone, &["config", "--get", &format!("remote.{remote}.url")]);
+    let resolve = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p));
+    resolve(&recorded) == resolve(given)
+}
+
+/// Whether the clone has this config key at all. `git config --get` exits 1
+/// for a key that is not there, which the asserting `git` helper would take
+/// for a failure.
+fn clone_config_has(clone: &Path, key: &str) -> bool {
+    let mut cmd = Command::new("git");
+    env(cmd.current_dir(clone).args(["config", "--get", key]))
+        .output()
+        .expect("spawn git")
+        .status
+        .success()
+}
+
 fn err_id(out: &Output) -> String {
     let v: serde_json::Value = serde_json::from_str(&stdout(out)).expect("valid json envelope");
     v["error"]["id"].as_str().unwrap_or_default().to_string()
@@ -125,9 +151,9 @@ fn a_clone_lands_armed_and_reports_in_fufus_vocabulary() {
     assert_eq!(rows.len(), 1, "exactly the floor: {rows:#?}");
     assert!(rows[0].contains("note"), "{rows:#?}");
     // And the remote is configured the way anything downstream expects.
-    assert_eq!(
-        git(&clone, &["config", "--get", "remote.origin.url"]),
-        remote.url()
+    assert!(
+        recorded_url_matches(&clone, "origin", &remote.url()),
+        "origin points at the remote it was cloned from"
     );
 }
 
@@ -195,9 +221,13 @@ fn the_remote_can_be_named() {
         &["clone", &remote.url(), "w", "-o", "upstream"],
     );
     let clone = remote.root.join("w");
-    assert_eq!(
-        git(&clone, &["config", "--get", "remote.upstream.url"]),
-        remote.url()
+    assert!(
+        recorded_url_matches(&clone, "upstream", &remote.url()),
+        "the named remote is the one that was cloned from"
+    );
+    assert!(
+        !clone_config_has(&clone, "remote.origin.url"),
+        "and nothing is called origin"
     );
 }
 

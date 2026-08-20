@@ -123,6 +123,10 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
         "gates": expect == "flat" and tool == "ff",
         "always_fail": False,
         "conditional_fail": False,
+        # A measurement too noisy to support any verdict. It does not make a
+        # row pass -- it makes the row's answer unknown, which is reported
+        # rather than scored. See mark_unreliable.
+        "unreliable": False,
         "fails": False,
     }
 
@@ -162,12 +166,27 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
     # A floor whose own stddev rivals its mean means the box was too busy to
     # measure anything on: say so, rather than letting a wild floor quietly
     # reshape every verdict derived from it.
+    #
+    # The same is true one layer up, and used to go unsaid: a *measurement*
+    # whose stddev rivals its mean is unreliable in exactly the same way, and
+    # its number flowed straight into the ratio. `restore-at` was measured at
+    # 6.50+-11.96ms and passed at 1.31x on one run, then 19.04+-41.84ms and
+    # failed at 5.12x on the next, with no code between them -- a gate that
+    # flips on a coin trains people to ignore red. So both sides of the
+    # subtraction get the same test, and an unreliable row is reported as
+    # unknown rather than scored either way.
     for p in (p_min, p_max):
         f = p["floor"]
         if f["mean_ms"] > 0 and f["stddev_ms"] > 0.5 * f["mean_ms"]:
-            g["notes"].append(
-                "noisy floor at n=%d (%.2f+-%.2fms): treat this row as unreliable"
-                % (p["n"], f["mean_ms"], f["stddev_ms"])
+            mark_unreliable(
+                g,
+                "noisy floor at n=%d (%.2f+-%.2fms)" % (p["n"], f["mean_ms"], f["stddev_ms"]),
+            )
+        e = p["elem"]
+        if e["mean_ms"] > 0 and e["stddev_ms"] > 0.5 * e["mean_ms"]:
+            mark_unreliable(
+                g,
+                "noisy measurement at n=%d (%.2f+-%.2fms)" % (p["n"], e["mean_ms"], e["stddev_ms"]),
             )
 
     threshold_min = max(0.05, floor_sd_min)
@@ -182,7 +201,16 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
         # asymmetry alone. Observed doing exactly that: 2.47ms -> 2.24ms
         # reported as a suspected linear term. A cost that did not grow cannot
         # be linear in anything, whatever the floors did.
-        if adj_max > threshold_max and adj_max > adj_min * flat_max:
+        # The raw means are consulted too, and that is not belt-and-braces.
+        # `oplog` was gated at 3.15+-0.07ms -> 3.13+-0.06ms: the command did
+        # not get slower by any reading, but its two floors were measured
+        # 0.22ms apart, and subtracting them turned 0.34ms into 0.54ms and
+        # tripped the "linear term" branch. Floor drift is not cost growth.
+        # The comment below already says a cost that did not grow cannot be
+        # linear in anything -- this is that same rule applied where the
+        # drift actually enters.
+        raw_grew = p_max["elem"]["mean_ms"] > p_min["elem"]["mean_ms"]
+        if raw_grew and adj_max > threshold_max and adj_max > adj_min * flat_max:
             # Small-N cost vanished into the floor, but large-N did not --
             # that shape is a linear term hiding behind a noisy near-zero
             # baseline, not genuine flatness. Fails even though the ratio
@@ -193,6 +221,19 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
                 "adjusted(n=%d)=%.2fms exceeds the floor threshold (>%.2fms) "
                 "-- linear term suspected"
                 % (p_min["n"], adj_min, threshold_min, p_max["n"], adj_max, threshold_max)
+            )
+        elif not raw_grew:
+            g["notes"].append(
+                "adjusted(n=%d)=%.2fms exceeds adjusted(n=%d)=%.2fms, but the raw means "
+                "did not grow (%.2fms -> %.2fms): floor drift, not cost"
+                % (
+                    p_max["n"],
+                    adj_max,
+                    p_min["n"],
+                    adj_min,
+                    p_min["elem"]["mean_ms"],
+                    p_max["elem"]["mean_ms"],
+                )
             )
         else:
             g["notes"].append(
@@ -239,8 +280,24 @@ def analyze_group(axis, row, tool, elems, floors, flat_max):
             + ",".join(str(n) for n in clamped_at)
         )
 
-    g["fails"] = g["always_fail"] or (g["gates"] and g["conditional_fail"])
+    # An unreliable row cannot fail, because it also cannot pass: there is no
+    # number under it. always_fail is untouched -- a run that is structurally
+    # broken (a missing floor, a command that errored) stays broken however
+    # noisy the box was.
+    g["fails"] = g["always_fail"] or (
+        g["gates"] and g["conditional_fail"] and not g["unreliable"]
+    )
     return g
+
+
+def mark_unreliable(g, why):
+    """Record that a row's numbers cannot support a verdict, and say why.
+
+    Loud on purpose: the verdict column shows it, so a row that stops being
+    measurable does not read as a row that passed.
+    """
+    g["unreliable"] = True
+    g["notes"].append(why + ": treat this row as unreliable")
 
 
 def format_point_cell(p):
@@ -302,7 +359,14 @@ def axis_table(axis, group_list):
         cells.append(
             "%.2fx" % g["ratio_per_decade"] if g["ratio_per_decade"] is not None else "n/a"
         )
-        cells.append(g["verdict"] + (" [FAIL]" if g["fails"] else ""))
+        verdict = g["verdict"]
+        if g["fails"]:
+            verdict += " [FAIL]"
+        elif g["unreliable"] and g["gates"]:
+            # Not a pass. The row was not measurable, and the column says so
+            # rather than showing the bare verdict it could not support.
+            verdict += " [NOISY]"
+        cells.append(verdict)
         cells.append("; ".join(g["notes"]))
         lines.append("| " + " | ".join(cells) + " |")
     return lines
@@ -362,10 +426,23 @@ def print_markdown(meta, groups, flat_max, failing, quiet):
 
     if not quiet and not failing:
         gated = [g for g in groups if g["gates"]]
+        # An unreliable row is not a row that passed, and counting it as one
+        # is the failure mode this whole suite exists to prevent: a green
+        # summary standing over a number nobody could measure. It is
+        # subtracted from the pass count and named on its own line.
+        noisy = [g for g in gated if g["unreliable"]]
+        measured = len(gated) - len(noisy)
         if gated:
-            lines.append("PASS: %d flat ff row(s) within %.2fx" % (len(gated), flat_max))
+            lines.append("PASS: %d flat ff row(s) within %.2fx" % (measured, flat_max))
         else:
             lines.append("PASS: no flat rows measured")
+        if noisy:
+            lines.append(
+                "NOT MEASURED: %d flat ff row(s) too noisy to judge -- neither passed nor failed"
+                % len(noisy)
+            )
+            for g in noisy:
+                lines.append("  %s / %s / %s" % (g["row"], g["axis"], g["tool"]))
 
     if not lines:
         return
