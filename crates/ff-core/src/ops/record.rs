@@ -67,6 +67,27 @@ pub struct HeldTransition {
     pub new: Option<crate::held::Held>,
 }
 
+/// One push this repository made, recorded after the fact.
+///
+/// Publish is the one verb whose effect is not a local ref, so there is
+/// nothing to diff a write-ahead claim against — the remote is not
+/// observable without the network. What the row is for is the question
+/// sync and status keep getting wrong on their own: *is the tracking tip a
+/// tip this branch published?* Storing `to` rather than the set of commits
+/// answers it in O(1) and is sound by construction — if the remote stands
+/// exactly where you last sent it, everything reachable from it that you
+/// now lack was yours when you sent it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Published {
+    pub remote: String,
+    pub remote_branch: String,
+    /// The lease: the tracking tip as last seen. `None` is git's "must not
+    /// exist", the spelling that creates or re-creates a shared copy.
+    pub from: Option<String>,
+    /// What the remote holds now.
+    pub to: String,
+}
+
 /// A resolution session opened or ended on a branch (`None` = absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveTransition {
@@ -150,6 +171,12 @@ pub struct OpRecord {
     /// The operation this one undoes, when the verb is `undo`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_of: Option<String>,
+    /// The push this operation made, when the verb is `publish`. Optional
+    /// and skipped when absent, so no `RECORD_VERSION` bump: a record
+    /// written before it existed still reads, and one written now still
+    /// reads to an older binary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published: Option<Published>,
     /// How many ops back the undo stack currently stands. `ff undo` repeats
     /// and `ff redo` walks back up, so the cursor is state the log carries
     /// rather than a file beside it — one authority, one trim.
@@ -183,6 +210,7 @@ impl OpRecord {
             dropped: Vec::new(),
             undo_of: None,
             undo_cursor: None,
+            published: None,
         }
     }
 }

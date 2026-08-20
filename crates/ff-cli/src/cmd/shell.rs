@@ -507,5 +507,7 @@ fn verdict_kind(verdict: &ff_core::futures::Verdict) -> &'static str {
         Verdict::Conflict { .. } => "conflict",
         Verdict::Unknown { .. } => "unknown",
         Verdict::Gone => "gone",
+        Verdict::Unpublished => "unpublished",
+        Verdict::Undone { .. } => "undone",
     }
 }

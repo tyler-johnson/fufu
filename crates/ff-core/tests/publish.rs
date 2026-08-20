@@ -119,7 +119,9 @@ fn a_commit_the_remote_lacks_is_pushed_under_the_last_seen_tip() {
             remote_branch,
             lease,
             tip,
+            shape,
         } => {
+            assert_eq!(shape, ff_core::PushShape::Replace);
             assert_eq!(remote, "origin");
             assert_eq!(remote_branch, "feature");
             assert_eq!(lease, f1, "the lease is the tip as last seen");
@@ -139,15 +141,20 @@ fn a_deleted_shared_copy_is_re_created_under_an_empty_lease() {
     let f1 = feature(&fx);
     track(&fx, &f1);
     fx.git(&["update-ref", "-d", "refs/remotes/origin/feature"]);
+    // Deleted, not never-created: a sibling tracking ref is what says a copy
+    // once stood there, and a clone of a non-empty remote always has some.
+    fx.git(&["update-ref", "refs/remotes/origin/main", &f1]);
 
     match publish_call(&fx).publish {
         Publish::Push {
             remote_branch,
             lease,
+            shape,
             ..
         } => {
             assert_eq!(remote_branch, "feature");
             assert_eq!(lease, "", "must not exist");
+            assert_eq!(shape, ff_core::PushShape::Recreate);
         }
         other => panic!("the branch is put back, got {other:?}"),
     }
@@ -234,4 +241,198 @@ fn a_dry_run_plans_the_same_push_and_writes_nothing() {
         ops_before,
         "a dry run writes nothing under refs/fufu"
     );
+}
+
+// --- The record ------------------------------------------------------------
+//
+// A real bare remote, because an undone publish only exists on the far side
+// of a push and every other test here fakes the remote with `update-ref`.
+
+/// Push `branch` to the fixture's real remote, then record it the way
+/// `ff publish` does: plan, push, record.
+fn publish_for_real(fx: &Fixture, branch: &str) -> PublishReport {
+    let repo = fx.repo();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
+    let (report, ctx) = ff_core::publish::publish(
+        &repo,
+        &pre,
+        ff_core::publish::PublishOptions {
+            dry_run: false,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "publish".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    let spec = format!("{branch}:{branch}");
+    fx.git(&["push", "--force", "origin", &spec]);
+    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
+    report
+}
+
+/// The newest publish row on `branch`, if the log holds one.
+fn published_row(fx: &Fixture, branch: &str) -> Option<ff_core::ops::Published> {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    for op in log.iter_branch(branch) {
+        let op = op.unwrap();
+        if let Some(record) = op.record().unwrap()
+            && let Some(published) = &record.published
+        {
+            return Some(published.clone());
+        }
+    }
+    None
+}
+
+#[test]
+fn a_push_is_recorded_as_a_note_naming_where_it_left_the_remote() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    let one = fx.commit("one");
+    publish_for_real(&fx, "main");
+
+    let row = published_row(&fx, "main").expect("the push is on the log");
+    assert_eq!(row.remote, "origin");
+    assert_eq!(row.remote_branch, "main");
+    assert_eq!(
+        row.from, None,
+        "the first push had nothing to lease against"
+    );
+    assert_eq!(row.to, one);
+
+    // The kind is the whole argument for it: a note is something that
+    // happened, so undo steps over it and revert refuses it.
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let tip = log.branch_tip("main").unwrap().unwrap();
+    assert_eq!(log.get(tip).unwrap().kind(), ff_core::ops::OpKind::Note);
+    assert!(ff_core::published_tip(&repo, "main", &one).unwrap());
+    assert!(ff_core::ever_published(&repo, "main").unwrap());
+}
+
+/// The second push leases against the first: `from` is where the remote
+/// stood, `to` is where it stands now.
+#[test]
+fn the_second_push_records_the_lease_it_went_out_under() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    let one = fx.commit("one");
+    publish_for_real(&fx, "main");
+    fx.write("a.txt", "aa\n");
+    let two = fx.commit("two");
+    publish_for_real(&fx, "main");
+
+    let row = published_row(&fx, "main").expect("the push is on the log");
+    assert_eq!(row.from, Some(one));
+    assert_eq!(row.to, two);
+}
+
+/// A dry run sends nothing, so there is nothing to remember: no note, and no
+/// pointer for the next sync to read.
+#[test]
+fn a_dry_run_records_no_push() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let (report, captured) = plan(&fx, true);
+    assert!(report.dry_run);
+    assert!(!captured);
+    assert!(published_row(&fx, "main").is_none(), "nothing happened");
+    assert!(!ff_core::ever_published(&fx.repo(), "main").unwrap());
+}
+
+/// The memory of a push must outlive `ff undo`, and that is the whole reason
+/// it is a ref beside the note rather than only the note: undo is a pointer
+/// move, so everything above the landing leaves the log — the publish row
+/// with it — and undo is precisely the thing that cannot reach the remote.
+#[test]
+fn undo_rewinds_the_log_past_the_note_and_not_past_the_memory() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    publish_for_real(&fx, "main");
+    fx.write("a.txt", "aa\n");
+    let two = fx.commit("two");
+    publish_for_real(&fx, "main");
+
+    let repo = fx.repo();
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+
+    let repo = fx.repo();
+    assert_ne!(
+        published_row(&fx, "main").map(|r| r.to),
+        Some(two.clone()),
+        "the newest note is above the landing and steps off with it"
+    );
+    assert!(
+        ff_core::published_tip(&repo, "main", &two).unwrap(),
+        "the remote is still where the push left it, and fufu still knows"
+    );
+}
+
+/// A tip that is an ancestor of the shared copy does not send commits, it
+/// takes them off — which is what `ff undo` then `ff publish` does, and the
+/// only way back across the wire fufu has.
+#[test]
+fn a_tip_behind_the_shared_copy_is_a_retraction() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    publish_for_real(&fx, "main");
+    fx.write("a.txt", "aa\n");
+    fx.commit("two");
+    publish_for_real(&fx, "main");
+    fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
+
+    match publish_call(&fx).publish {
+        Publish::Push { shape, .. } => assert_eq!(shape, ff_core::PushShape::Retract),
+        other => panic!("the shared copy is rolled back, got {other:?}"),
+    }
+}
+
+/// The absent tracking ref used to mean one thing. A clone of an empty
+/// remote wears it too, and nothing was lost there.
+#[test]
+fn an_absent_shared_copy_with_no_evidence_is_a_first_push() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    match publish_call(&fx).publish {
+        Publish::Push { lease, shape, .. } => {
+            assert_eq!(lease, "", "must not exist, either way");
+            assert_eq!(shape, ff_core::PushShape::First);
+        }
+        other => panic!("the first copy is created, got {other:?}"),
+    }
+}
+
+/// And with evidence it still means a deletion. Either half of the evidence
+/// does it; this is the log's half, with the remote's refs pruned away.
+#[test]
+fn an_absent_shared_copy_with_a_push_on_record_is_a_re_creation() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    publish_for_real(&fx, "main");
+    fx.remote_git(&["update-ref", "-d", "refs/heads/main"]);
+    fx.git(&["fetch", "--prune", "-q", "origin"]);
+
+    match publish_call(&fx).publish {
+        Publish::Push { lease, shape, .. } => {
+            assert_eq!(lease, "");
+            assert_eq!(shape, ff_core::PushShape::Recreate);
+        }
+        other => panic!("the deleted copy is put back, got {other:?}"),
+    }
 }

@@ -22,6 +22,7 @@ pub mod ops;
 pub mod petname;
 pub mod preflight;
 pub mod publish;
+mod published;
 mod refs;
 pub mod resolve;
 pub mod restack;
@@ -57,6 +58,7 @@ pub use log::{Log, LogOptions, log};
 pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
+pub use published::{ever_published, published_tip};
 /// The `--at` grammar, exported because `ff op log --at` asks the same
 /// question of the same clock and must not grow a second parser for it.
 pub use restore::parse_time as restore_time;

@@ -10,8 +10,15 @@
 //! `--dry-run` is the answer to that line: the only way to see which push
 //! this would be *before* it becomes unrecallable. It writes nothing and
 //! sends nothing, so every sentence below switches to the conditional.
+//!
+//! What `ff undo` cannot reach, `ff publish` can: undo the commit and
+//! publish again, and the lease rolls the shared copy back to where the
+//! branch now stands. That is not erasure — other clones may hold the
+//! commits, CI ran, a webhook fired — which is why the tail line still says
+//! the push left the machine. But it is a way back, and the log recording
+//! the push is what lets fufu stop pointing the other way.
 
-use ff_core::{Publish, Result};
+use ff_core::{Publish, PushShape, Result};
 
 use crate::ctx::Ctx;
 
@@ -28,6 +35,7 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
         .ok_or_else(|| ff_core::Error::msg("no working directory: internal inconsistency"))?
         .to_path_buf();
 
+    let prov = crate::provenance::pre_ff(ctx);
     let (report, verb_ctx) = ff_core::publish::publish(
         &repo,
         &pre,
@@ -36,7 +44,7 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
             now: None,
             argv: std::env::args().collect(),
         },
-        &crate::provenance::pre_ff(ctx),
+        &prov,
     )?;
     if let Some(verb_ctx) = &verb_ctx {
         crate::render::reconcile_notice(&verb_ctx.reconcile);
@@ -52,6 +60,18 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
         }
         _ => false,
     };
+    // Recorded after the wire agreed, not before: publish moves no local ref,
+    // so there is nothing a write-ahead claim could be diffed against and an
+    // append-before would be a claim nothing could falsify.
+    if pushed && let Some(verb_ctx) = &verb_ctx {
+        ff_core::publish::record(&repo, &pre, &report, verb_ctx, &prov).map_err(|err| {
+            ff_core::Error::coded(
+                "publish/unrecorded",
+                format!("the push landed and the operation log could not record it: {err}"),
+                vec!["ff op log".into(), "ff status".into()],
+            )
+        })?;
+    }
     let would = if dry_run { "would " } else { "" };
 
     if ctx.json {
@@ -110,48 +130,41 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
                     colored
                 )
             );
-            println!(
-                "{}",
-                crate::render::paint_dim(left_the_machine(dry_run), colored)
-            );
+            tail(dry_run, colored);
         }
         Publish::Push {
             remote,
             remote_branch,
-            lease,
+            shape,
             ..
         } => {
-            // An empty lease is the re-creation case: the shared copy was
-            // deleted and this put it back. Saying so is the difference
-            // between "sent" and "somebody deleted this and you undid that".
-            if lease.is_empty() {
-                println!(
-                    "{}",
-                    crate::render::paint_ok(
-                        &format!(
-                            "{would}re-create{} {remote}/{remote_branch}, which is gone",
-                            if dry_run { "" } else { "d" }
-                        ),
-                        colored
-                    )
-                );
-            } else {
-                println!(
-                    "{}",
-                    crate::render::paint_ok(
-                        &format!(
-                            "{would}publish{} {} to {remote}/{remote_branch}",
-                            if dry_run { "" } else { "ed" },
-                            report.branch
-                        ),
-                        colored
-                    )
-                );
-            }
-            println!(
-                "{}",
-                crate::render::paint_dim(left_the_machine(dry_run), colored)
-            );
+            // The lease is empty for two of these and only the sentence
+            // differs. It used to be the whole test, which is why a clone of
+            // an empty remote was told its shared copy was gone.
+            let line = match shape {
+                PushShape::Recreate => format!(
+                    "{would}re-create{} {remote}/{remote_branch}, which is gone",
+                    if dry_run { "" } else { "d" }
+                ),
+                PushShape::First => format!(
+                    "{would}create{} {remote}/{remote_branch}",
+                    if dry_run { "" } else { "d" }
+                ),
+                // Not a send at all: the tip is an ancestor of what the
+                // remote holds, so this takes commits off the shared copy.
+                PushShape::Retract => format!(
+                    "{would}roll{} {remote}/{remote_branch} back to {}",
+                    if dry_run { "" } else { "ed" },
+                    report.branch
+                ),
+                PushShape::Replace => format!(
+                    "{would}publish{} {} to {remote}/{remote_branch}",
+                    if dry_run { "" } else { "ed" },
+                    report.branch
+                ),
+            };
+            println!("{}", crate::render::paint_ok(&line, colored));
+            tail(dry_run, colored);
         }
     }
 
@@ -161,12 +174,30 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// The tail line under a push. A dry run has not spent the irreversible act
-/// yet, and saying it did would be the one lie this verb cannot afford.
-fn left_the_machine(dry_run: bool) -> &'static str {
+/// The tail under a push. A dry run has not spent the irreversible act yet,
+/// and saying it did would be the one lie this verb cannot afford — so it
+/// gets the conditional line and nothing else. A real push gets both: what
+/// left the machine, and the way back that is not a way to erase it.
+fn tail(dry_run: bool, colored: bool) {
     if dry_run {
-        "nothing was sent — drop --dry-run to send it"
-    } else {
-        "the push left the machine — ff undo cannot reach it"
+        println!(
+            "{}",
+            crate::render::paint_dim("nothing was sent — drop --dry-run to send it", colored)
+        );
+        return;
     }
+    println!(
+        "{}",
+        crate::render::paint_dim(
+            "the push left the machine — ff undo cannot reach it",
+            colored
+        )
+    );
+    println!(
+        "{}",
+        crate::render::paint_dim(
+            "ff undo then ff publish rolls the shared copy back, under a lease",
+            colored
+        )
+    );
 }

@@ -28,11 +28,26 @@ struct Trap {
 }
 
 fn build_trap() -> Trap {
+    build_trap_with(1)
+}
+
+/// The trap with a fake git that *succeeds*. Needed where the spawn is
+/// sanctioned and the interesting question is what happens after it returns
+/// Ok — a failed push short-circuits the rest of the verb, which would let a
+/// second spawn hide behind the failure.
+fn build_trap_ok() -> Trap {
+    build_trap_with(0)
+}
+
+fn build_trap_with(exit: i32) -> Trap {
     let dir = tempfile::TempDir::new().unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
     let log = dir.path().join("trap.log");
-    let script = format!("#!/bin/sh\necho \"git $*\" >> {}\nexit 1\n", log.display());
+    let script = format!(
+        "#!/bin/sh\necho \"git $*\" >> {}\nexit {exit}\n",
+        log.display()
+    );
     let git = bin.join("git");
     std::fs::write(&git, script).unwrap();
     std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -562,4 +577,31 @@ fn publishs_push_is_its_one_sanctioned_spawn() {
     );
     let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
+}
+
+/// And the record publish writes afterwards adds none. A push that fails
+/// never reaches the append, so the trap's git has to succeed for this to
+/// mean anything — the note and the pointer are both gix writes, and one
+/// stray `git` call for either would be a second line in the log.
+#[test]
+fn recording_the_push_adds_no_second_spawn() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let trap = build_trap_ok();
+    let out = ff_trapped(&trap, &fx.path(), &["publish"]);
+    assert!(
+        out.status.success(),
+        "the fake push succeeded, so the verb must have: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let logged = std::fs::read_to_string(&trap.log).unwrap();
+    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
+    assert!(lines[0].contains("push"), "{logged:?}");
 }

@@ -103,6 +103,18 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
             );
             said = true;
         }
+        RemoteAxis::Undone { name, behind } => {
+            println!(
+                "{}",
+                crate::render::paint_warn(
+                    &format!(
+                        "{name} still holds {behind} commit(s) you undid, so nothing was taken in"
+                    ),
+                    colored
+                )
+            );
+            said = true;
+        }
         RemoteAxis::Yours { name, behind, .. } => {
             println!(
                 "{name} still holds {behind} commit(s) this branch rewrote; the log accounts for every one, so they are stale copies of your own"
@@ -211,6 +223,11 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
         ff_core::Pending::NoRemote | ff_core::Pending::Ahead(0) => None,
         ff_core::Pending::Unpublished => Some("not published yet — ff publish".to_string()),
         ff_core::Pending::Ahead(n) => Some(format!("{n} commit(s) to publish — ff publish")),
+        // The same verb clears it, pointed the other way: publishing rolls
+        // the shared copy back to where the branch now stands.
+        ff_core::Pending::Undone(n) => Some(format!(
+            "{n} commit(s) to take off the shared copy — ff publish"
+        )),
     };
     if let Some(line) = waiting {
         println!("{}", crate::render::paint_dim(&line, colored));

@@ -864,6 +864,10 @@ pub enum Pending {
     Unpublished,
     /// Commits the shared copy does not have. Zero is a real answer.
     Ahead(usize),
+    /// The shared copy still holds commits this branch stepped back from —
+    /// a publish this repository made and then undid. Publishing again
+    /// rolls the shared copy back; syncing would take them straight in.
+    Undone(usize),
 }
 
 /// What `ff publish` reports: one branch, one exit.
@@ -893,6 +897,12 @@ pub enum RemoteAxis {
         ahead: usize,
         behind: usize,
     },
+    /// The tracking ref stands exactly where this branch last published it,
+    /// and the branch has since stepped back from that tip. What the remote
+    /// holds is not somebody else's work arriving — it is yours, still out
+    /// there, and taking it in would reverse the undo that removed it. The
+    /// publish is what rolls the shared copy back.
+    Undone { name: String, behind: usize },
     /// The axis acted, and this is what `restack` made of it.
     Ran {
         name: String,
@@ -933,12 +943,36 @@ pub enum Publish {
     /// Send it, under a lease whose expected value is the tracking ref as it
     /// stands — "what I last saw", which is precisely what publish knows
     /// without going to the network itself. An empty lease is git's own
-    /// spelling for *must not exist*, and re-creates a shared copy somebody
-    /// deleted.
+    /// spelling for *must not exist*, and creates or re-creates a shared
+    /// copy that is not there.
     Push {
         remote: String,
         remote_branch: String,
         lease: String,
         tip: String,
+        /// What this push does to the shared copy. The push is identical in
+        /// every shape; the sentence afterwards is not, and three of these
+        /// used to be told apart by an empty lease alone — which said
+        /// "somebody deleted this" in a fresh clone where nobody had.
+        shape: PushShape,
     },
+}
+
+/// What a push does to the shared copy on the other end. Decided from refs
+/// alone, like everything else publish decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PushShape {
+    /// The shared copy stands where you last saw it, and this replaces it.
+    Replace,
+    /// The tracking ref is absent and something says a copy once stood
+    /// there: it was deleted, and this puts it back.
+    Recreate,
+    /// The tracking ref is absent and nothing says a copy ever stood there —
+    /// a clone of an empty remote, where "gone" would name a loss that never
+    /// happened. This creates the first one.
+    First,
+    /// Your tip is an ancestor of the shared copy: the push rolls the shared
+    /// copy *back*, which is how `ff undo` reaches a push after the fact.
+    Retract,
 }

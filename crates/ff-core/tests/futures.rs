@@ -567,8 +567,10 @@ fn a_configured_but_absent_remote_is_gone() {
     fx.write("a.txt", "a\n");
     fx.commit("base");
     // The empty target skips the update-ref: configured, but the ref is
-    // absent — a gone remote.
+    // absent — a gone remote, provided something says a copy once stood
+    // there. A sibling tracking ref is the cheap half of that evidence.
     set_upstream(&fx, "");
+    fx.git(&["update-ref", "refs/remotes/origin/other", "HEAD"]);
     let got = futures::remote_for(&fx.repo(), "main")
         .expect("remote_for")
         .expect("a remote");
@@ -578,6 +580,111 @@ fn a_configured_but_absent_remote_is_gone() {
         .expect("remote_future")
         .expect("a future");
     assert_eq!(f.verdict, Verdict::Gone);
+}
+
+/// The same shape with no evidence at all: `git clone` of an empty remote
+/// writes `branch.main.merge` and creates no `refs/remotes/*`, so a fresh
+/// clone's very first status used to open by reporting a deletion.
+#[test]
+fn an_absent_remote_with_no_evidence_of_a_copy_is_unpublished() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, "");
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::Unpublished);
+}
+
+/// The other half of the evidence, on its own: every ref under
+/// `refs/remotes/origin/` pruned away, and fufu's own memory of the push the
+/// only thing left saying a copy ever stood there. This is the shape a
+/// single-branch remote wears the moment somebody deletes the branch.
+#[test]
+fn a_push_on_record_is_evidence_enough_for_gone() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    publish_for_real(&fx);
+    fx.remote_git(&["update-ref", "-d", "refs/heads/main"]);
+    fx.git(&["fetch", "--prune", "-q", "origin"]);
+    assert!(
+        fx.git(&["for-each-ref", "refs/remotes/"]).trim().is_empty(),
+        "the cheap half of the evidence must be gone for this to test the other"
+    );
+
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::Gone);
+}
+
+/// The shared copy stands where the branch last published it and the branch
+/// has stepped back from it. Sync would take those commits straight in;
+/// status says whose they are instead.
+#[test]
+fn a_published_tip_the_branch_stepped_back_from_is_undone() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    publish_for_real(&fx);
+    fx.write("a.txt", "aa\n");
+    fx.commit("two");
+    publish_for_real(&fx);
+    fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
+
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::Undone { behind: 1 });
+}
+
+/// The tracking tip has moved off what this branch published, so nothing
+/// says the commits out there are yours — one of them is somebody else's,
+/// and the whole answer reverts to the ordinary probe.
+#[test]
+fn a_tracking_tip_moved_off_the_published_one_is_not_undone() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    publish_for_real(&fx);
+    fx.write("a.txt", "aa\n");
+    fx.commit("two");
+    publish_for_real(&fx);
+    fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
+    // Somebody else pushed on top of what we published.
+    fx.git(&["switch", "-q", "-c", "collab", "origin/main"]);
+    fx.write("collab.txt", "c\n");
+    let collab = fx.commit("collab");
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["update-ref", "refs/remotes/origin/main", &collab]);
+
+    let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("remote_future")
+        .expect("a future");
+    assert_eq!(f.verdict, Verdict::FastForward { behind: 2 });
+}
+
+/// Push `main` to the fixture's real remote and record it, the way
+/// `ff publish` does: plan, push, record.
+fn publish_for_real(fx: &Fixture) {
+    let repo = fx.repo();
+    let prov = ff_core::Provenance::new("pre", Some("ff publish".into()));
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
+    let (report, ctx) = ff_core::publish::publish(
+        &repo,
+        &pre,
+        ff_core::publish::PublishOptions {
+            dry_run: false,
+            now: Some(1_799_999_999),
+            argv: vec!["ff".into(), "publish".into()],
+        },
+        &prov,
+    )
+    .unwrap();
+    fx.git(&["push", "--force", "-q", "origin", "main:main"]);
+    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov).unwrap();
 }
 
 // --- The cache ---
@@ -773,6 +880,7 @@ fn a_gone_remote_writes_no_cache() {
     fx.write("a.txt", "a\n");
     fx.commit("base");
     set_upstream(&fx, "");
+    fx.git(&["update-ref", "refs/remotes/origin/other", "HEAD"]);
     let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
         .expect("remote_future")
         .expect("a future");

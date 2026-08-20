@@ -19,7 +19,9 @@
 //! force-pushes over somebody else's work. The rule is:
 //!
 //! > Divergence this run's fetch created is theirs. Divergence your own
-//! > operation log accounts for is yours. Anything else is theirs.
+//! > operation log accounts for is yours. A tracking tip standing exactly
+//! > where this branch last published it is yours too, and undone. Anything
+//! > else is theirs.
 //!
 //! The first clause is free and certain: the fetch moved the tracking ref,
 //! so someone else wrote what arrived, the axis is **incoming**, and sync
@@ -37,6 +39,17 @@
 //! cannot catch it — the lease expects the tip the remote already holds, so
 //! it holds. Unrecognized means replay, which never loses work.
 //! `--no-fetch` needs no rule of its own: it reaches the same check.
+//!
+//! The undone clause is the one case the third clause used to swallow. An
+//! unmoved tracking ref is silence *unless the log says who put it there*,
+//! and since publish records its pushes it does: a tracking tip equal to the
+//! newest publish row's `to` is a tip this repository sent, so everything
+//! reachable from it that you now lack was yours when you sent it. Undoing
+//! the commit that made it does not reach across the wire, and replaying it
+//! back in would reverse the undo and call it arriving work. The publish is
+//! what rolls the shared copy back. This clause runs *after* the accounted
+//! one, which satisfies both when you publish and then rewrite — and there
+//! "stale copies of your own" is the truer sentence.
 //!
 //! The network is somebody else's job. The tracking ref's tip before and
 //! after the fetch is handed in as a parameter — that is what keeps this
@@ -86,22 +99,40 @@ pub fn sync(
                 .collect();
             let diverged = !bases.contains(&after) && !bases.contains(&pre.branch_tip);
             let arrived = opts.fetched && opts.tracking_after != tracking.tip;
+            // What the remote holds and this branch does not, walked once:
+            // both outgoing answers are measured in exactly these commits.
+            let theirs = crate::upstream::exclusive(repo, after, &bases)?;
+            let behind = theirs.len();
             // Divergence this run's fetch did not bring in is yours only if
             // the operation log accounts for every commit the remote holds
             // and you do not; anything unaccounted for falls to replay.
             let yours = if diverged && !arrived {
-                let behind = crate::upstream::exclusive(repo, after, &bases)?;
-                let hexes: Vec<String> = behind.iter().map(|id| id.to_string()).collect();
+                let hexes: Vec<String> = theirs.iter().map(|id| id.to_string()).collect();
                 let accounted = crate::accounted_for(repo, &hexes)?;
-                (accounted.len() == hexes.len()).then_some(behind.len())
+                (accounted.len() == hexes.len()).then_some(behind)
             } else {
                 None
             };
+            // The tip the log says we last sent. Nothing arrived this run and
+            // the remote has not moved off it, so what it holds that we lack
+            // is work of ours we stepped back from — including the strict
+            // ancestor case, where there is no divergence to account for at
+            // all and the plain fast-forward would take the undo straight
+            // back in.
+            let undone = yours.is_none()
+                && !arrived
+                && behind > 0
+                && crate::published::published_tip(repo, &pre.branch, &after.to_string())?;
             if let Some(behind) = yours {
                 let ahead = crate::upstream::count_exclusive(repo, pre.branch_tip, &bases)?;
                 RemoteAxis::Yours {
                     name: tracking.name.clone(),
                     ahead,
+                    behind,
+                }
+            } else if undone {
+                RemoteAxis::Undone {
+                    name: tracking.name.clone(),
                     behind,
                 }
             } else {
@@ -161,7 +192,15 @@ pub fn sync(
                 .into_iter()
                 .map(|id| id.detach())
                 .collect();
-            Pending::Ahead(crate::upstream::count_exclusive(repo, tip_now, &bases)?)
+            // An undone publish is not a count of commits to send — it is a
+            // count still out there to take off, and the same verb clears it.
+            // Measured again here because the base axis may have moved the
+            // tip since the remote axis decided.
+            if matches!(remote, RemoteAxis::Undone { .. }) {
+                Pending::Undone(crate::upstream::count_exclusive(repo, after, &bases)?)
+            } else {
+                Pending::Ahead(crate::upstream::count_exclusive(repo, tip_now, &bases)?)
+            }
         }
     };
 

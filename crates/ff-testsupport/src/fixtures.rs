@@ -35,6 +35,46 @@ impl Fixture {
         fx
     }
 
+    /// A fresh clone of a fresh bare remote, both under the fixture root:
+    /// `remote.git` beside `repo`, with `origin` configured and
+    /// `branch.main.merge` written exactly the way `git clone` writes it.
+    ///
+    /// The one fixture shape a publish test cannot fake. Everywhere else a
+    /// remote is `update-ref` on `refs/remotes/...` plus a URL nobody
+    /// contacts, which is enough to decide a plan and never enough to *make*
+    /// a push — and an undone publish only exists on the far side of one.
+    /// The remote is a path, so nothing here reaches the network, but this
+    /// does spawn git to push: suites that promise zero spawns must not use
+    /// it.
+    ///
+    /// The clone is of an *empty* remote, which is also the state that used
+    /// to report a shared copy as gone before one had ever existed.
+    pub fn new_cloned() -> Self {
+        let fx = Self::empty();
+        let remote = fx.remote_path().to_string_lossy().into_owned();
+        let clone = fx.path().to_string_lossy().into_owned();
+        fx.git_in(fx.root(), &["init", "-q", "--bare", "-b", "main", &remote]);
+        fx.git_in(fx.root(), &["clone", "-q", &remote, &clone]);
+        fx.pin_config();
+        // gix reads the committer identity from config; git itself takes it
+        // from the hermetic env, so only the fufu side needs this.
+        fx.set_config("user.name", "Fixture Committer");
+        fx.set_config("user.email", "committer@fixture.test");
+        fx
+    }
+
+    /// The bare remote beside the clone. Only meaningful for
+    /// [`Fixture::new_cloned`].
+    pub fn remote_path(&self) -> PathBuf {
+        self.root.path().join("remote.git")
+    }
+
+    /// Run git inside the bare remote — deleting a branch there is how a
+    /// deletion somebody else made is spelled.
+    pub fn remote_git(&self, args: &[&str]) -> String {
+        self.git_in(&self.remote_path(), args)
+    }
+
     /// Pin repo-local config that must not float with the platform: the
     /// differential tests assert byte parity between fufu and git, so eol
     /// conversion has to be identical for both readers on every OS.

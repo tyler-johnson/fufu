@@ -267,6 +267,21 @@ fn gone_remote_fixture() -> Fixture {
     fx.write("a.txt", "a\n");
     fx.commit("base");
     set_upstream(&fx, "main", "");
+    // Gone needs evidence that a copy once stood there, or the honest answer
+    // is that one never did. A sibling tracking ref is the cheap half of it:
+    // a clone of a non-empty remote always has some.
+    fx.git(&["update-ref", "refs/remotes/origin/other", "HEAD"]);
+    fx
+}
+
+/// The same configured-but-absent tracking ref with nothing under
+/// `refs/remotes/origin/` at all — what `git clone` of an empty remote
+/// leaves behind, and what used to be reported as a deletion.
+fn unpublished_remote_fixture() -> Fixture {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    set_upstream(&fx, "main", "");
     fx
 }
 
@@ -418,6 +433,20 @@ fn a_deleted_remote_branch_says_so() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(text.contains("remote is gone"), "got: {text}");
+}
+
+/// A remote that never had a copy is not a loss. `git clone` writes
+/// `branch.main.merge` and creates no `refs/remotes/*`, so the fresh clone
+/// wears the same configured-but-absent shape a deletion does — and only one
+/// of the two is worth a warning.
+#[test]
+fn a_remote_that_never_had_a_copy_says_so_instead() {
+    let fx = unpublished_remote_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("remote has no copy yet"), "got: {text}");
+    assert!(!text.contains("gone"), "nothing was lost: {text}");
 }
 
 #[test]
@@ -709,6 +738,19 @@ fn json_gone_remote_shape() {
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert_eq!(v["data"]["futures"]["remote"]["verdict"]["kind"], "gone");
+}
+
+#[test]
+fn json_unpublished_remote_shape() {
+    let fx = unpublished_remote_fixture();
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(
+        v["data"]["futures"]["remote"]["verdict"]["kind"],
+        "unpublished"
+    );
 }
 
 #[test]

@@ -392,6 +392,15 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
             colored,
         ),
         Verdict::Gone => paint_warn(&format!("{which} is gone"), colored),
+        // A phrase rather than a count-plus-verb, like "is gone" above: what
+        // is out there is not work to take in, and the number is how much of
+        // your own is still standing on the shared copy.
+        Verdict::Undone { behind } => {
+            paint_warn(&format!("{which} holds {behind} you undid"), colored)
+        }
+        // Dim rather than warn: nothing was lost, there has simply never
+        // been a copy. This is a fresh clone's first status line.
+        Verdict::Unpublished => paint_dim(&format!("{which} has no copy yet"), colored),
     })
 }
 

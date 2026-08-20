@@ -264,3 +264,19 @@ pub(crate) fn ref_target(repo: &gix::Repository, name: &str) -> Result<Option<gi
         None => Ok(None),
     }
 }
+
+/// Does this remote hold any tracking ref at all?
+///
+/// The cheap half of "was there ever a shared copy here". A clone of a
+/// non-empty remote always has some ref under `refs/remotes/<remote>/`; a
+/// clone of an empty one has none, which is the fresh-clone case that used
+/// to report a loss nobody had suffered. Any iteration failure answers no,
+/// which routes the caller to the log's own memory rather than to a guess.
+pub(crate) fn any_remote_ref(repo: &gix::Repository, remote: &str) -> Result<bool> {
+    let prefix = format!("refs/remotes/{remote}/");
+    let platform = repo.references().map_err(Error::repo)?;
+    let Ok(mut iter) = platform.prefixed(prefix.as_str()) else {
+        return Ok(false);
+    };
+    Ok(iter.next().is_some())
+}

@@ -822,6 +822,17 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
+        id: "publish/unrecorded",
+        summary: "the push went through and the log could not write it down",
+        detail: "The commits are on the remote. What failed is the note publish appends \
+                 afterwards — the row that lets ff sync and ff status tell your own published \
+                 tip apart from work somebody else pushed. Nothing is lost either way: without \
+                 the row the next sync reads the shared copy as theirs and replays onto it, \
+                 which never drops a commit. Publishing again once the log is writable records \
+                 it, and a contended log usually means another fufu process is mid-operation.",
+        exits: &["ff op log", "ff status"],
+    },
+    Entry {
         id: "sync/ambiguous-remote",
         summary: "more than one remote, and nothing says which one this branch answers to",
         detail: "With several remotes configured and none of them named origin there is no \

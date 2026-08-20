@@ -39,9 +39,20 @@ pub enum Verdict {
     Conflict { at: At, paths: Vec<String> },
     /// Honest silence — a wrong verdict is worse than none.
     Unknown { reason: UnknownReason },
-    /// The tracking ref is configured but the ref is not there — the shared
-    /// copy was deleted. Only ever produced for a remote.
+    /// The tracking ref is configured but the ref is not there, and
+    /// something says a copy once stood there — the shared copy was deleted.
+    /// Only ever produced for a remote.
     Gone,
+    /// The tracking ref is configured, the ref is not there, and nothing
+    /// says a copy ever was: a clone of an empty remote wears exactly this
+    /// shape, and calling it `Gone` reported a loss on a repository's first
+    /// status line. Only ever produced for a remote.
+    Unpublished,
+    /// The shared copy stands exactly where this branch last published it,
+    /// and the branch has since stepped back from that tip. What is out
+    /// there is yours and undone, not somebody else's work arriving — and
+    /// `ff publish` is what rolls it back. Only ever produced for a remote.
+    Undone { behind: usize },
 }
 
 /// Where a conflict lands.
@@ -550,14 +561,76 @@ pub fn remote_future(
         return Ok(None);
     };
     // A configured-but-absent tracking ref has nothing to simulate against
-    // and nothing worth remembering: the answer is the fact itself.
+    // and nothing worth remembering: the answer is the fact itself. Which
+    // fact it is turns on evidence — `git clone` of an empty remote writes
+    // `branch.<n>.merge` and creates no `refs/remotes/*`, so "deleted" and
+    // "never created" wear the same shape and only one of them is a loss.
     if against.tip.is_empty() {
+        let verdict = if ever_copied(repo, &against, branch)? {
+            Verdict::Gone
+        } else {
+            Verdict::Unpublished
+        };
+        return Ok(Some(Future { against, verdict }));
+    }
+    // The tracking tip is one this branch published and the branch has
+    // stepped back from it: the commits out there are yours, undone, and
+    // sync would take them straight back in. Answered before the cache the
+    // way `Gone` is — and safely, because the cache keys on the same pair
+    // this reads, `against_tip` and `branch_tip`.
+    if let Some(tip) = branch_tip
+        && let Some(behind) = undone_behind(repo, &against, branch, tip)?
+    {
         return Ok(Some(Future {
             against,
-            verdict: Verdict::Gone,
+            verdict: Verdict::Undone { behind },
         }));
     }
     future_on(repo, branch, against, branch_tip, open_tree, false)
+}
+
+/// Whether anything says this branch ever had a copy on this remote, and how
+/// many commits back: any ref under `refs/remotes/<remote>/` (a clone of a
+/// non-empty remote always has some) or the log's own memory of a push.
+/// Checked in that order, cheapest first.
+fn ever_copied(repo: &gix::Repository, against: &SyncRef, branch: &str) -> Result<bool> {
+    if let Some(remote) = remote_of(&against.r#ref)
+        && crate::refs::any_remote_ref(repo, remote)?
+    {
+        return Ok(true);
+    }
+    crate::published::ever_published(repo, branch)
+}
+
+/// The commits the shared copy holds and this branch does not, when that
+/// copy stands exactly where the branch last published it. `None` when the
+/// branch is not behind it, or when the log has no such row.
+fn undone_behind(
+    repo: &gix::Repository,
+    against: &SyncRef,
+    branch: &str,
+    tip: gix::ObjectId,
+) -> Result<Option<usize>> {
+    let against_tip = gix::ObjectId::from_hex(against.tip.as_bytes()).map_err(Error::repo)?;
+    let bases: Vec<gix::ObjectId> = repo
+        .merge_bases_many(tip, &[against_tip])
+        .map_err(Error::repo)?
+        .into_iter()
+        .map(|id| id.detach())
+        .collect();
+    let behind = crate::upstream::count_exclusive(repo, against_tip, &bases)?;
+    if behind == 0 {
+        return Ok(None);
+    }
+    Ok(crate::published::published_tip(repo, branch, &against.tip)?.then_some(behind))
+}
+
+/// The remote's name out of a tracking ref: `refs/remotes/origin/x` → `origin`.
+fn remote_of(r#ref: &str) -> Option<&str> {
+    r#ref
+        .strip_prefix("refs/remotes/")
+        .and_then(|rest| rest.split_once('/'))
+        .map(|(remote, _)| remote)
 }
 
 /// Both axes, for the callers that report both.

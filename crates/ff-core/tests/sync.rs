@@ -513,3 +513,127 @@ fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
         other => panic!("a rewrite fufu never recorded is replayed, got {other:?}"),
     }
 }
+
+// --- The undone clause -----------------------------------------------------
+//
+// A real bare remote, because a published-then-undone tracking tip only
+// exists on the far side of a push, and the shape it wears — local a strict
+// *ancestor* of the tracking ref — never reaches the accounted-for check at
+// all. It took the plain fast-forward path and put the undo straight back.
+
+/// Push `main` to the fixture's real remote and record it, the way
+/// `ff publish` does: plan, push, record.
+fn publish_for_real(fx: &Fixture) {
+    let repo = fx.repo();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
+    let (report, ctx) = ff_core::publish::publish(
+        &repo,
+        &pre,
+        ff_core::publish::PublishOptions {
+            dry_run: false,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "publish".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    fx.git(&["push", "--force", "-q", "origin", "main:main"]);
+    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
+}
+
+/// Two commits published, then the second undone: the shared copy stands one
+/// commit ahead of a branch that is a strict ancestor of it.
+fn published_then_undone(fx: &Fixture) -> (String, String) {
+    fx.write("a.txt", "a\n");
+    let one = fx.commit("one");
+    publish_for_real(fx);
+    fx.write("a.txt", "aa\n");
+    let two = fx.commit("two");
+    publish_for_real(fx);
+    fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
+    (one, two)
+}
+
+#[test]
+fn a_published_then_undone_tip_is_undone_and_not_a_fast_forward() {
+    let fx = Fixture::new_cloned();
+    let (one, two) = published_then_undone(&fx);
+
+    let report = sync_call(&fx, false, Some(&two));
+
+    match report.remote {
+        RemoteAxis::Undone { behind, .. } => assert_eq!(behind, 1),
+        other => panic!("the remote holds what you undid, got {other:?}"),
+    }
+    assert_eq!(
+        tip_of(&fx, "refs/heads/main"),
+        one,
+        "nothing may be taken in: the fast-forward would reverse the undo"
+    );
+    assert_eq!(report.pending, ff_core::Pending::Undone(1));
+}
+
+/// The guard is all-or-nothing, exactly as it is for the accounted clause: a
+/// colleague's commit on top of your published tip means the tracking ref no
+/// longer stands where you left it, so the whole answer reverts to replay.
+#[test]
+fn a_colleague_on_top_of_your_published_tip_is_still_theirs() {
+    let fx = Fixture::new_cloned();
+    let (_one, _two) = published_then_undone(&fx);
+    // Somebody else pushed on top of what we published. From here the only
+    // visible difference is that the tracking ref moved off our tip.
+    fx.git(&["switch", "-q", "-c", "collab", "origin/main"]);
+    fx.write("collab.txt", "c\n");
+    let collab = fx.commit("collab");
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["update-ref", "refs/remotes/origin/main", &collab]);
+
+    let tip_before = tip_of(&fx, "refs/heads/main");
+    let report = sync_call(&fx, false, Some(&collab));
+
+    match report.remote {
+        RemoteAxis::Ran { .. } => {}
+        other => panic!("a tip we did not publish is theirs, got {other:?}"),
+    }
+    assert_ne!(
+        tip_of(&fx, "refs/heads/main"),
+        tip_before,
+        "their commit is what the replay preserves"
+    );
+}
+
+/// Publish then rewrite satisfies both outgoing clauses, and the accounted
+/// one runs first: "stale copies of your own" is the truer sentence there
+/// than "you undid this".
+#[test]
+fn publish_then_rewrite_is_still_yours_with_its_own_message() {
+    let fx = Fixture::new_cloned();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("b.txt", "b\n");
+    fx.commit("two");
+    publish_for_real(&fx);
+    let published = fx.git(&["rev-parse", "main"]).trim().to_string();
+
+    // A rewrite fufu records: reword the tip through the operation log, so
+    // the old sha is the `old` side of a rewrite the log accounts for.
+    let repo = fx.repo();
+    let target = gix::ObjectId::from_hex(published.as_bytes()).unwrap();
+    ff_core::describe::reword(
+        &repo,
+        target,
+        "two, reworded".into(),
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "describe".into()],
+    )
+    .unwrap();
+
+    let report = sync_call(&fx, false, Some(&published));
+
+    match report.remote {
+        RemoteAxis::Yours { behind, .. } => assert_eq!(behind, 1),
+        other => panic!("an accounted rewrite is yours, got {other:?}"),
+    }
+}

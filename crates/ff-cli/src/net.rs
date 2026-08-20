@@ -236,6 +236,7 @@ mod tests {
                 remote_branch: "main".into(),
                 lease,
                 tip: tip.clone(),
+                shape: ff_core::PushShape::Replace,
             },
         );
         assert!(res.is_ok(), "{res:?}");
@@ -262,6 +263,7 @@ mod tests {
                 remote_branch: "main".into(),
                 lease: stale.clone(),
                 tip: git(&clone1, &["rev-parse", "HEAD"]),
+                shape: ff_core::PushShape::Replace,
             },
         );
         let err = res.unwrap_err();
@@ -286,6 +288,7 @@ mod tests {
                 remote_branch: "main".into(),
                 lease: git(&clone, &["rev-parse", "refs/remotes/origin/main"]),
                 tip: git(&clone, &["rev-parse", "HEAD"]),
+                shape: ff_core::PushShape::Replace,
             },
         );
         assert_eq!(res.unwrap_err().id(), "publish/unreachable");
