@@ -830,3 +830,41 @@ pub enum HookVerb {
         name: Option<String>,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::{CommandFactory, Parser};
+
+    /// Windows hands a process's main thread 1 MiB of stack; Linux and macOS
+    /// hand it 8. `build.rs` reserves 8 on Windows too, so the three agree —
+    /// but the reason that reserve exists is that the derived builder below
+    /// grew past 1 MiB in one frame, and every `ff` invocation on Windows
+    /// died with `STATUS_STACK_OVERFLOW` while all three platforms had been
+    /// green a commit earlier.
+    ///
+    /// This is the guard for the next time. It builds the whole command tree
+    /// and parses through it on a deliberately small thread, so growth is
+    /// caught here, on every platform, rather than by a Windows-only CI leg
+    /// after the fact. The budget is half of what is reserved: a tree that
+    /// needs more than that has room to finish the release it is in, and a
+    /// deliberate decision to make before the next one.
+    const STACK_BUDGET: usize = 4 * 1024 * 1024;
+
+    #[test]
+    fn the_command_tree_fits_a_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(STACK_BUDGET)
+            .spawn(|| {
+                // Both halves: constructing the tree, and walking it. The
+                // derive splits those across different generated functions,
+                // and either one is where the frame would grow.
+                let mut root = super::Cli::command();
+                root.build();
+                assert!(root.find_subcommand("diff").is_some());
+                super::Cli::try_parse_from(["ff", "diff", "src/"]).expect("parses");
+            })
+            .expect("spawn")
+            .join()
+            .expect("the command tree overflowed a small stack — see build.rs");
+    }
+}

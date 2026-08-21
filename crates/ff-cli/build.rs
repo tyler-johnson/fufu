@@ -33,7 +33,30 @@
 
 use std::process::Command;
 
+/// The main thread's stack reserve on Windows, in bytes — 8 MiB, which is
+/// what Linux and macOS hand a process by default.
+///
+/// Windows reserves 1 MiB instead, and that is the whole difference. Nothing
+/// here recurses; the stack goes on `Cli::command()`, whose derived builder
+/// constructs every subcommand and every argument in a single frame that the
+/// debug profile does not get to inline away. That frame grew past 1 MiB the
+/// day `ff diff` and `ff show` were declared, and every `ff` invocation on
+/// Windows died with `STATUS_STACK_OVERFLOW` — `ff --version` included, on a
+/// tree where all three platforms' tests were green a commit earlier.
+///
+/// So this is not a workaround for a bug: it is the one platform whose
+/// default disagrees with the other two, restated. Reserved address space is
+/// not committed memory, so the process pays nothing for the headroom.
+///
+/// The guard that keeps this honest is `cli::tests::the_command_tree_fits_a
+/// _small_stack`, which builds the tree on a deliberately 1 MiB thread — it
+/// runs on every platform, so the next verb to approach the cliff is caught
+/// on Linux rather than by a Windows-only CI leg.
+const WINDOWS_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 fn main() {
+    reserve_windows_stack();
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let dir = std::path::Path::new(&manifest_dir);
 
@@ -64,6 +87,29 @@ fn main() {
     println!("cargo::rustc-env=FF_BUILD_INFO={info}");
     println!("cargo::rustc-env=FF_BUILD_SHA={sha}");
     println!("cargo::rustc-env=FF_BUILD_DATE={date}");
+}
+
+/// Ask the linker for [`WINDOWS_STACK_BYTES`] on Windows targets, and say
+/// nothing anywhere else.
+///
+/// Both the binary and the test harnesses get it: `cargo test` links the bin
+/// crate a second time as its own executable, and a unit test run with
+/// `--test-threads=1` executes on that harness's main thread.
+///
+/// The release matrix builds MSVC on both Windows runners, so `/STACK` is the
+/// spelling that ships; the GNU arm is here because a local `windows-gnu`
+/// build silently ignoring an MSVC flag would reintroduce exactly the failure
+/// this prevents.
+fn reserve_windows_stack() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let arg = match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+        Ok("msvc") => format!("/STACK:{WINDOWS_STACK_BYTES}"),
+        _ => format!("-Wl,--stack,{WINDOWS_STACK_BYTES}"),
+    };
+    println!("cargo::rustc-link-arg-bins={arg}");
+    println!("cargo::rustc-link-arg-tests={arg}");
 }
 
 /// Run a `git` command in `dir`. Returns `None` on any failure instead of
