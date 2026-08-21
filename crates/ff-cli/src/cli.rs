@@ -124,6 +124,9 @@ pub enum Command {
         /// Retired: the operation log is `ff op log`
         #[arg(long, hide = true, conflicts_with = "commits")]
         ops: bool,
+        /// Files or directories to limit the log to; all of them when omitted
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
         #[command(flatten)]
         past: Past,
     },

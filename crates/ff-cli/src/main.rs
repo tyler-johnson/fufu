@@ -123,8 +123,9 @@ fn main() {
             revisions,
             commits,
             ops,
+            paths,
             ..
-        }) => cmd::log::run(&ctx, count, revisions, commits, ops),
+        }) => cmd::log::run(&ctx, count, revisions, commits, ops, paths),
         Some(cli::Command::History { count }) => cmd::history::run(&ctx, count),
         Some(cli::Command::Diff { paths }) => cmd::diff::run(&ctx, paths),
         Some(cli::Command::Show { rev, paths }) => cmd::show::run(&ctx, rev, paths),

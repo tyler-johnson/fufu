@@ -66,7 +66,7 @@ pub use published::{ever_published, published_tip};
 /// The `--at` grammar, exported because `ff op log --at` asks the same
 /// question of the same clock and must not grow a second parser for it.
 pub use restore::parse_time as restore_time;
-pub use restore::{RestoreOptions, RestoreSource, restore};
+pub use restore::{RestoreOptions, RestoreSource, path_exists, restore};
 pub use revert::{OpVerbOptions, revert};
 pub use snapshot::{Provenance, TakeOptions};
 pub use start::{StartOptions, start};

@@ -178,6 +178,36 @@ pub(crate) fn path_selected(path: &str, selectors: &[String]) -> bool {
     })
 }
 
+/// Whether a selector names anything this repository can see: something on
+/// disk, or an entry in HEAD's tree.
+///
+/// The rule is "disk or HEAD" rather than disk alone because a path staged
+/// for deletion is gone from the worktree but still in HEAD, and asking
+/// about it is a fair question. A path that is in neither is a typo, which
+/// is the refusal the caller is looking for.
+pub fn path_exists(repo: &gix::Repository, selector: &str) -> Result<bool> {
+    let sel = selector.trim_end_matches('/');
+    if sel.is_empty() {
+        // The trimmed selector is the repository root, which always exists.
+        return Ok(true);
+    }
+    // A broken symlink still names something on disk; a bare repository has
+    // no worktree and skips this half.
+    if let Some(dir) = repo.workdir()
+        && std::fs::symlink_metadata(dir.join(sel)).is_ok()
+    {
+        return Ok(true);
+    }
+    // An unborn HEAD gives the empty tree, which looks nothing up.
+    let id = repo.head_tree_id_or_empty().map_err(Error::repo)?;
+    Ok(repo
+        .find_tree(id)
+        .map_err(Error::repo)?
+        .lookup_entry_by_path(sel)
+        .map_err(Error::repo)?
+        .is_some())
+}
+
 /// Resolve a source to the tree it offers, and to the row describing it.
 ///
 /// Every operation-space exit is identity-guarded by the resolver it goes

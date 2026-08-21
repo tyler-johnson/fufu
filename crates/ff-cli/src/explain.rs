@@ -500,6 +500,20 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
+        id: "usage/no-such-path",
+        summary: "that path names nothing here",
+        detail: "A path has to name something the repository can see — a file or directory on \
+                 disk, or an entry in the last commit. Neither, and it is a typo, so the command \
+                 is refused rather than answered with an empty log: an empty log for a \
+                 misspelled path is the worst kind of wrong answer, because it looks like an \
+                 answer. Paths go in the positional and revisions go behind -r, so no `--` \
+                 separator is needed and none is accepted — `ff log main` is a question about \
+                 the path main, even where a branch called main exists. A whole sentence in the \
+                 path slot is usually a forgotten -m, which is why the exits say so when the \
+                 token has spaces in it.",
+        exits: &["ff status", "ff log"],
+    },
+    Entry {
         id: "usage/unknown-subcommand",
         summary: "that family does not have that subcommand",
         detail: "A verb that groups subcommands answers an unknown one itself rather than letting \

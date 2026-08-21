@@ -119,6 +119,10 @@ fn status_and_log_never_spawn() {
         &["show", "HEAD"][..],
         &["op", "show", "-p"][..],
         &["evolog", "-p"][..],
+        // A rename boundary in the path walk runs a tree diff — the patch
+        // layer's blob platform again, the one place a `diff.external`
+        // spawn could reappear.
+        &["log", "a.txt"][..],
         // The moves rather than the operations, and the same rule: both
         // walks are native.
         &["history"][..],
