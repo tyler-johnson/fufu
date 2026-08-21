@@ -1,8 +1,36 @@
+//! A path on a log is a question about the tree, not the diff: a commit
+//! touches a selector when the entry the selector names in the commit's tree
+//! differs from the entry it names in the first parent's tree, and a merge
+//! is measured against its first parent only — so a merge that changed the
+//! path against the branch it landed on is a row. git's default hides that
+//! one: with a pathspec it simplifies history, dropping any merge equal to
+//! some parent and following only that parent. fufu measures against the
+//! first parent everywhere, which is what `ff show` already prints, and one
+//! rule stated plainly beats a simplification nobody can recite. That rule
+//! and
+//! [`crate::restore::path_selected`]'s agree on what a selector means, and
+//! the agreement is stated rather than relied on silently: a directory is
+//! itself a tree entry, so `src/` differs exactly when something under it
+//! changed — the same set `ff restore src/` writes.
+//!
+//! Following renames needs the walk topological — `DateOrder`, not
+//! commit-time — because following is stateful, and a stateful tracker is
+//! only sound when no parent is ever visited before its children. Git's own
+//! `--follow` is documented as a poor-man's implementation for exactly this
+//! reason.
+//!
+//! Following applies to a path naming a blob, never a directory: git tracks
+//! no such thing as a directory rename. And a revset filters but does not
+//! follow: a set has no line of descent to carry a name along, and its
+//! members arrive in the set's order, not an ancestry order a tracker could
+//! trust.
+
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
+use gix::traverse::commit::topo;
 
 use crate::error::{Error, Result};
-use crate::model::{HeadState, LogEntry};
+use crate::model::{ChangeKind, HeadState, LogEntry};
 use crate::revset::{Rev, Revset};
 
 #[derive(Debug, Clone, Default)]
@@ -12,6 +40,10 @@ pub struct LogOptions {
     /// `-r`: the set the rows come from. `None` is the walk from HEAD, which
     /// is what every caller that predates the revset language means.
     pub revs: Option<Revset>,
+    /// Restrict the rows to commits that touch these paths. Empty means every
+    /// commit. The rule is [`crate::restore::path_selected`]'s — a file path or
+    /// a directory prefix, no globs.
+    pub paths: Vec<String>,
 }
 
 /// A log: the commit rows, plus whether the open change belongs to the set
@@ -33,22 +65,36 @@ pub struct Log<'repo> {
 /// them costs an object read.
 type Ids<'r> = Box<dyn Iterator<Item = Result<gix::ObjectId>> + 'r>;
 
-/// A lazy walk of the commit history, newest commit time first: from HEAD by
-/// default, or over `opts.revs` when a revset was given. An unborn HEAD yields
-/// an empty iterator — that is a fact, not an error.
+/// A lazy walk of the commit history, newest first: from HEAD by default, or
+/// over `opts.revs` when a revset was given. An unborn HEAD yields an empty
+/// iterator — that is a fact, not an error.
 pub fn log<'repo>(repo: &'repo mut gix::Repository, opts: &LogOptions) -> Result<Log<'repo>> {
     repo.object_cache_size_if_unset(4 * 1024 * 1024);
     let repo: &gix::Repository = repo;
 
+    // A path filter carries tracked names, and those are only sound when no
+    // parent is ever visited before its children — a promise only the
+    // topological walk makes. A revset never gets it: it filters, and stops.
     let (open, ids) = match &opts.revs {
-        None => (true, head_walk(repo)?),
+        None => (
+            true,
+            if opts.paths.is_empty() {
+                head_walk(repo)?
+            } else {
+                head_topo_walk(repo)?
+            },
+        ),
         Some(revs) => members(repo, revs)?,
     };
 
+    let ids = path_filter(repo, ids, &opts.paths, opts.revs.is_none());
+
     // The limit bounds the commit rows and nothing else — `@` is not one of
-    // them, so `-n 25` means the same twenty-five commits it has always meant.
-    // Taking before the map also keeps `-n` honest about cost: rows nobody
-    // asked for are never read out of the object database.
+    // them, so `-n 25` means the same twenty-five commits it has always
+    // meant. It sits after the path filter, so `-n 25` is twenty-five
+    // matching rows, not twenty-five walked ones. Taking before
+    // the map also keeps `-n` honest about cost: rows nobody asked for are
+    // never read out of the object database.
     let ids: Ids<'repo> = match opts.limit {
         Some(n) => Box::new(ids.take(n)),
         None => ids,
@@ -75,6 +121,141 @@ fn head_walk(repo: &gix::Repository) -> Result<Ids<'_>> {
         .map_err(Error::repo)?;
 
     Ok(Box::new(walk.map(|info| Ok(info.map_err(Error::repo)?.id))))
+}
+
+/// The walk a path filter rides on: from HEAD, newest first, with the
+/// topological promise `head_walk` does not carry — no parent is ever
+/// visited before its children, which is what the rename tracker needs.
+fn head_topo_walk(repo: &gix::Repository) -> Result<Ids<'_>> {
+    let commit_hex = match crate::head::head_state(repo)? {
+        HeadState::Unborn { .. } => return Ok(Box::new(std::iter::empty())),
+        HeadState::Branch { commit, .. } | HeadState::Detached { commit } => commit,
+    };
+    let head_id = gix::ObjectId::from_hex(commit_hex.as_bytes()).map_err(Error::repo)?;
+
+    let walk = topo::Builder::from_iters(&repo.objects, Some(head_id), None::<Vec<gix::ObjectId>>)
+        .sorting(topo::Sorting::DateOrder)
+        .build()
+        .map_err(Error::repo)?;
+
+    Ok(Box::new(walk.map(|info| Ok(info.map_err(Error::repo)?.id))))
+}
+
+/// The path axis: the ids of the commits that touch any of `paths`, in the
+/// order they arrive. An empty `paths` passes the stream through untouched,
+/// and `follow` off is the same touch rule with the names never advanced.
+fn path_filter<'r>(
+    repo: &'r gix::Repository,
+    ids: Ids<'r>,
+    paths: &[String],
+    follow: bool,
+) -> Ids<'r> {
+    if paths.is_empty() {
+        return ids;
+    }
+    // Normalized once here, the way `path_selected` normalizes its selectors,
+    // so `src/` and `src` are one selector for every commit.
+    let mut names: Vec<String> = paths
+        .iter()
+        .map(|path| path.trim_end_matches('/').to_string())
+        .collect();
+    Box::new(ids.filter_map(move |res| {
+        let id = match res {
+            Ok(id) => id,
+            Err(err) => return Some(Err(err)),
+        };
+        match touch(repo, id, &mut names, follow) {
+            Ok(true) => Some(Ok(id)),
+            Ok(false) => None,
+            Err(err) => Some(Err(err)),
+        }
+    }))
+}
+
+/// One commit against the tracked names: whether it is a row, and — when
+/// `follow` is on — which of the names it renamed, each replaced by the name
+/// the file wore before this commit.
+fn touch(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+    names: &mut [String],
+    follow: bool,
+) -> Result<bool> {
+    let commit = repo.find_commit(id).map_err(Error::repo)?;
+    let tree_id = commit.tree_id().map_err(Error::repo)?.detach();
+    let tree = commit.tree().map_err(Error::repo)?;
+    let first_parent = commit.parent_ids().next().map(|parent| parent.detach());
+
+    let parent = match first_parent {
+        Some(parent) => Some(repo.find_commit(parent).map_err(Error::repo)?),
+        None => None,
+    };
+    let parent_tree = match &parent {
+        Some(commit) => Some(commit.tree().map_err(Error::repo)?),
+        None => None,
+    };
+    let parent_tree_id = match &parent {
+        Some(commit) => Some(commit.tree_id().map_err(Error::repo)?.detach()),
+        None => None,
+    };
+
+    let mut touched = false;
+    for name in names.iter_mut() {
+        let this = entry_at(&tree, name)?;
+        // `None` means no first parent; `Some(None)` means the path is not
+        // in the first parent's tree. The two are not the same fact.
+        let in_parent = match &parent_tree {
+            Some(tree) => Some(entry_at(tree, name)?),
+            None => None,
+        };
+        touched |=
+            this.map(|(oid, _)| oid) != in_parent.and_then(|entry| entry.map(|(oid, _)| oid));
+
+        // The rename boundary: a blob name that is here and absent in the
+        // first parent. A root commit has no parent and so no boundary to
+        // test, and a directory is never followed.
+        if follow
+            && matches!(in_parent, Some(None))
+            && this.map(|(_, is_tree)| !is_tree) == Some(true)
+            && let Some(parent_tree_id) = parent_tree_id
+            && let Some(source) = rename_source(repo, parent_tree_id, tree_id, name)?
+        {
+            *name = source;
+        }
+    }
+    Ok(touched)
+}
+
+/// The entry a selector names in a tree — its id, and whether it is a
+/// directory — or `None` when the path is not in this tree.
+fn entry_at(tree: &gix::Tree<'_>, selector: &str) -> Result<Option<(gix::ObjectId, bool)>> {
+    Ok(tree
+        .lookup_entry_by_path(selector)
+        .map_err(Error::repo)?
+        .map(|entry| (entry.id().detach(), entry.mode().is_tree())))
+}
+
+/// The name the file at `selector` wore in the parent tree, when this commit
+/// is what renamed it; `None` when the commit created the file.
+fn rename_source(
+    repo: &gix::Repository,
+    parent_tree_id: gix::ObjectId,
+    tree_id: gix::ObjectId,
+    selector: &str,
+) -> Result<Option<String>> {
+    let diff = crate::changestat::tree_diff(
+        repo,
+        parent_tree_id,
+        tree_id,
+        &crate::changestat::DiffOptions::default(),
+    )?;
+    Ok(diff
+        .files
+        .iter()
+        .find(|stat| {
+            stat.path == selector && matches!(stat.kind, ChangeKind::Renamed | ChangeKind::Copied)
+        })
+        .and_then(|stat| stat.from.clone()))
 }
 
 /// The set's members, split into the `@` row and the commit rows.

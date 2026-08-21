@@ -65,7 +65,14 @@ pub fn run_inner(
     let ff_core::Log {
         open: open_in_set,
         entries,
-    } = ff_core::log(&mut repo, &LogOptions { limit, revs })?;
+    } = ff_core::log(
+        &mut repo,
+        &LogOptions {
+            limit,
+            revs,
+            paths: Vec::new(),
+        },
+    )?;
     let commits: Vec<ff_core::LogEntry> = entries.collect::<Result<_>>()?;
     let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
     let segments = ff_core::segment_anchors(&repo, &ids)?;
@@ -186,7 +193,15 @@ fn commits_view(
     // Commits only, so the set's `open` membership has nothing to render
     // here — `--commits` is the plain history view of whatever set it is
     // given, and the open change has no commit to put in it.
-    let entries = ff_core::log(repo, &LogOptions { limit, revs })?.entries;
+    let entries = ff_core::log(
+        repo,
+        &LogOptions {
+            limit,
+            revs,
+            paths: Vec::new(),
+        },
+    )?
+    .entries;
     if json {
         let commits: Vec<_> = entries.collect::<Result<_>>()?;
         // Envelope object so future fields can be added without breaking consumers.

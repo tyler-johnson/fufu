@@ -134,6 +134,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         &ff_core::LogOptions {
             limit: Some(1),
             revs: None,
+            paths: Vec::new(),
         },
     )?
     .entries
