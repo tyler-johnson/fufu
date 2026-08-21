@@ -416,3 +416,129 @@ fn branch_scope_flags_do_not_ride_a_verb() {
         );
     }
 }
+
+/// A fixture whose commits are fufu's, so the operation log has captures for
+/// the anchor walk to find — `Fixture::commit` is raw git and leaves none.
+fn captured_repo() -> Fixture {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Map Tester");
+    fx.set_config("user.email", "map@test.test");
+    fx
+}
+
+fn ff_commit(fx: &Fixture, msg: &str) {
+    let out = ff(fx, &["commit", "-m", msg]);
+    assert!(
+        out.status.success(),
+        "ff commit -m {msg}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The op-id column on the map's commit rows is the same chain-segment
+/// anchor `ff log` prints for that commit — the sibling surface is the
+/// oracle, because "one operation, one spelling, whichever surface asks" is
+/// the whole claim. The map used to leave this column blank.
+#[test]
+fn commit_rows_carry_their_operation_id() {
+    let fx = captured_repo();
+    fx.write("a.txt", "a\n");
+    ff_commit(&fx, "one");
+    fx.write("a.txt", "b\n");
+    ff_commit(&fx, "two");
+
+    let out = ff(&fx, &["log", "--json"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    let tip_sha = v["data"]["commits"][0]["short_id"]
+        .as_str()
+        .expect("a short id")
+        .to_string();
+
+    let map_text = stdout(&ff(&fx, &[]));
+    let log_text = stdout(&ff(&fx, &["log"]));
+    let on_map = letters_beside(&map_text, &tip_sha);
+    let in_log = letters_beside(&log_text, &tip_sha);
+    assert_ne!(
+        on_map, "\u{2014}",
+        "the map's letters column is filled: {map_text:?}"
+    );
+    assert_eq!(
+        on_map, in_log,
+        "map and log spell the same commit's operation the same way:\n{map_text}\n{log_text}"
+    );
+}
+
+/// The token in the op-id column of the row carrying `sha` — the one
+/// immediately before the sha, both surfaces sharing the column order.
+fn letters_beside(text: &str, sha: &str) -> String {
+    let row = text
+        .lines()
+        .find(|line| line.split_whitespace().any(|token| token == sha))
+        .unwrap_or_else(|| panic!("a row names {sha}: {text:?}"));
+    let tokens: Vec<&str> = row.split_whitespace().collect();
+    let at = tokens
+        .iter()
+        .position(|token| *token == sha)
+        .expect("the sha is a token");
+    assert!(at > 0, "something precedes the sha: {row:?}");
+    tokens[at - 1].to_string()
+}
+
+/// With nothing open, the map's `@` row says what `ff status` and `ff log`
+/// say — and keeps the branch name, which is the map's whole point. It used
+/// to show the chain tip's operation instead: the same id the `●` row below
+/// it carries, printed twice, on a row about nothing.
+#[test]
+fn a_clean_open_change_says_no_changes_and_keeps_its_branch() {
+    let fx = captured_repo();
+    fx.write("a.txt", "a\n");
+    ff_commit(&fx, "one");
+
+    let text = stdout(&ff(&fx, &[]));
+    let lines: Vec<&str> = text.lines().collect();
+    let rows = node_lines(&text);
+    let open = rows.first().expect("an open row").to_string();
+    assert!(
+        open.contains("no changes"),
+        "the clean open row says so: {text:?}"
+    );
+    assert!(
+        a_row_names(&lines, "main"),
+        "and still names the branch: {text:?}"
+    );
+    // The tip's operation belongs to the tip's row, and nowhere else.
+    let tip = rows
+        .iter()
+        .find(|row| row.starts_with('\u{25cf}'))
+        .expect("a commit row");
+    let letters = tip
+        .split_whitespace()
+        .nth(1)
+        .expect("the tip's op-id column");
+    assert_ne!(
+        letters, "\u{2014}",
+        "the tip carries an operation: {text:?}"
+    );
+    assert!(
+        !open.contains(letters),
+        "which the open row does not repeat: {text:?}"
+    );
+
+    // Conditional, not a deletion: dirty the tree and the full row is back.
+    fx.write("a.txt", "dirty\n");
+    let text = stdout(&ff(&fx, &[]));
+    let open = node_lines(&text).first().expect("an open row").to_string();
+    assert!(
+        !open.contains("no changes"),
+        "an open change is not nothing: {text:?}"
+    );
+    assert!(
+        a_row_names(&text.lines().collect::<Vec<_>>(), "main"),
+        "the branch survives either way: {text:?}"
+    );
+}

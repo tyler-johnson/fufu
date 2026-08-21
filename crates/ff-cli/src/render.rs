@@ -1148,10 +1148,15 @@ const BRANCH_WIDTH: usize = 12;
 /// start, then the column's remaining width in spaces. A mark rather than a
 /// blank, so the sha beside it reads as the second column and not as an
 /// accident of indentation; one mark rather than a filled run, so a page of
-/// them stays quiet. Dim, because it is furniture, not data. The absence is
-/// honest either way — on the map there is no chain walk to produce an id, and
-/// in `ff log` it means no snapshot was ever taken on that commit.
+/// them stays quiet. Dim, because it is furniture, not data. It means one
+/// thing on every surface that draws the column: no capture ever recorded
+/// that commit's content, so there is nothing to drill into.
 const BLANK_ID: &str = "\u{2014}       ";
+
+/// The letters, sha and age columns taken together — what `no changes` fills
+/// on the map's `@` row, so the branch label beside it lands in the column
+/// every other row puts it in.
+const QUIET_WIDTH: usize = ID_WIDTH + 1 + SHA_WIDTH + 1 + AGE_WIDTH;
 
 /// `BLANK_ID`, dimmed for display.
 fn blank_id(colored: bool) -> String {
@@ -1290,6 +1295,34 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
     lines
 }
 
+/// The open change with nothing to say: born, clean, and undescribed. Every
+/// surface that draws an `@` row collapses on exactly this, so the rule is
+/// read from one place rather than restated per surface — the map restating
+/// it is how it came to be the only one that never collapsed.
+fn open_is_quiet(born: bool, clean: bool, subject: Option<&str>) -> bool {
+    born && clean && subject.is_none()
+}
+
+/// The op-id column: the letters spelling of an operation, styled so its
+/// shortest-unique prefix is what you can type, or the blank mark when no
+/// operation answers. Shared by `ff log`'s commit rows and the map's, which
+/// must never disagree about the same commit.
+fn letters_col(
+    anchor: Option<&str>,
+    lens: &std::collections::HashMap<String, usize>,
+    colored: bool,
+) -> String {
+    match anchor {
+        Some(id) => styled_id(
+            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
+            lens.get(id).copied().unwrap_or(1),
+            ID_WIDTH,
+            colored,
+        ),
+        None => blank_id(colored),
+    }
+}
+
 /// The `@` row (two lines): the open change. The sha column is the pending
 /// commit hash (the change's own identity). Letters id = chain tip (via
 /// `lens`), age = tip snapshot time. Clean + undescribed collapses to
@@ -1308,7 +1341,7 @@ pub fn change_row(
     };
 
     // Born + clean + no description: collapsed "no changes" line.
-    if open.born && open.clean && open.subject.is_none() {
+    if open_is_quiet(open.born, open.clean, open.subject) {
         let head = format!("{sym}  {}", paint("no changes", DIM, colored));
         return format!("{}\n{rail}  {subject}", head.trim_end());
     }
@@ -1350,15 +1383,7 @@ pub fn commit_row(
     now: i64,
     colored: bool,
 ) -> String {
-    let letters = match segment {
-        Some(id) => styled_id(
-            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
-            lens.get(id).copied().unwrap_or(1),
-            ID_WIDTH,
-            colored,
-        ),
-        None => blank_id(colored),
-    };
+    let letters = letters_col(segment, lens, colored);
     let sha = col(
         ff_core::sha::short(entry.id),
         SHA_WIDTH,
@@ -1386,9 +1411,12 @@ pub struct MapPayload {
 
 /// The map's columns are `ff log`'s, so the two surfaces read as siblings;
 /// the glyph and the rail the lines hang from are the graph renderer's, not
-/// ours. `lens` prices the one op id the map shows — the Open row's.
+/// ours. `segments` is the commit → anchor-operation map `ff log` builds for
+/// its own letters column, and `lens` prices every id in it plus the Open
+/// row's.
 pub fn map_payload(
     node: &ff_core::MapNode,
+    segments: &std::collections::HashMap<String, String>,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
@@ -1401,19 +1429,33 @@ pub fn map_payload(
             pending,
             time,
             born,
-            clean: _,
+            clean,
         } => {
-            // The map never collapses to "no changes": the branch name has to
-            // land in its column on every row.
-            let letters = match id {
-                Some(id) => styled_id(
-                    &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
-                    lens.get(id).copied().unwrap_or(1),
-                    ID_WIDTH,
-                    colored,
-                ),
-                None => blank_id(colored),
+            // The branch label rides the end of the first line either way,
+            // so it is built once and appended to whichever line0 wins.
+            let label = if branch == "@detached" {
+                String::new()
+            } else {
+                format!("  {}", branch_label(branch, true, colored))
             };
+
+            // Nothing open: the same two words `ff status` and `ff log` print,
+            // filling the three columns at once so the branch name still lands
+            // where every other row puts it. Showing the chain tip's operation
+            // here instead would print the same id the `●` row below already
+            // carries — one operation, twice, on a row about nothing.
+            if open_is_quiet(*born, *clean, subject.as_deref()) {
+                let line0 = format!("{}{label}", col("no changes", QUIET_WIDTH, DIM, colored));
+                return MapPayload {
+                    glyph: paint("@", palette().at, colored),
+                    lines: vec![
+                        line0.trim_end().to_string(),
+                        paint("(no description)", DIM, colored),
+                    ],
+                };
+            }
+
+            let letters = letters_col(id.as_deref(), lens, colored);
             let sha = col(
                 pending
                     .as_deref()
@@ -1429,11 +1471,7 @@ pub fn map_payload(
                 palette().age,
                 colored,
             );
-            let mut line0 = format!("{letters} {sha} {age}");
-            if branch != "@detached" {
-                line0.push_str("  ");
-                line0.push_str(&branch_label(branch, true, colored));
-            }
+            let mut line0 = format!("{letters} {sha} {age}{label}");
             if !born {
                 line0.push_str(&format!("  {}", paint("(no commits yet)", DIM, colored)));
             }
@@ -1447,18 +1485,22 @@ pub fn map_payload(
             }
         }
         ff_core::MapNode::Commit {
-            id: _,
+            id,
             short_id,
             subject,
             time,
             refs,
         } => {
-            // The letters column is blank by design: it is `ff log`'s
-            // chain-segment anchor, earned by a walk the map does not do —
-            // the column stays so the shas line up with the `@` row.
+            // The same chain-segment anchor `ff log` and `ff status` put on
+            // this commit — one operation, one spelling, whichever surface
+            // asks. Blank when the walk found none: `segment_anchors` reads
+            // the current chain's operation log, so a commit whose captures
+            // happened while HEAD sat on another chain has no anchor here.
+            // That is already the answer `ff log -r <other-branch>` gives.
+            let letters = letters_col(segments.get(id).map(String::as_str), lens, colored);
             let sha = col(short_id, SHA_WIDTH, palette().sha, colored);
             let age = col_right(&relative_age(now, *time), AGE_WIDTH, palette().age, colored);
-            let mut line0 = format!("{} {sha} {age}", blank_id(colored));
+            let mut line0 = format!("{letters} {sha} {age}");
             for r in refs {
                 line0.push_str("  ");
                 line0.push_str(&branch_label(&r.name, r.current, colored));
