@@ -142,3 +142,39 @@ fn json_keeps_its_shape_with_fewer_rows() {
     assert!(data["commits"].is_array());
     assert!(data["open"].is_null());
 }
+
+/// A reader that walks away ends the log, it does not crash it. `ff log
+/// --commits` printed through `println!`, which panics when the pipe closes
+/// — so `ff log --commits | head` died with "failed printing to stdout"
+/// instead of exiting the way git does. Closing the read end before the
+/// child writes a byte reproduces it every time; the other log views never
+/// had it, because they already write through the pager's writer.
+#[test]
+fn a_closed_pipe_ends_the_log_rather_than_crashing_it() {
+    let fx = fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(fx.path())
+        .args(["log", "--commits", "-n", "0"])
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ff");
+
+    // The reader leaves: every write from here on hits a closed pipe.
+    drop(child.stdout.take());
+    let out = child.wait_with_output().expect("wait for ff");
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+
+    assert!(
+        !err.contains("panicked"),
+        "a closed pipe panicked the log:\n{err}"
+    );
+    assert!(
+        out.status.success(),
+        "a closed pipe should exit clean, got {:?}:\n{err}",
+        out.status.code()
+    );
+}

@@ -244,20 +244,55 @@ fn commits_view(
     // Commits only, so the set's `open` membership has nothing to render
     // here — `--commits` is the plain history view of whatever set it is
     // given, and the open change has no commit to put in it.
-    let entries = ff_core::log(repo, &LogOptions { limit, revs, paths })?.entries;
     if json {
+        let entries = ff_core::log(repo, &LogOptions { limit, revs, paths })?.entries;
         let commits: Vec<_> = entries.collect::<Result<_>>()?;
         // Envelope object so future fields can be added without breaking consumers.
         let payload = serde_json::json!({ "commits": commits });
-        crate::machine::emit("log", &payload)?;
-    } else {
-        let now = now_secs();
-        for entry in entries {
-            let entry = entry?;
-            println!("{}", crate::render::log_row(&entry, now));
+        return crate::machine::emit("log", &payload);
+    }
+
+    // Through the log family's writer, not `println!`, for the two reasons
+    // the other four views already have one. It pages on a TTY, which
+    // `ff log` promises and this view was quietly not doing; and a closed
+    // pipe comes back as an error instead of a panic, so
+    // `ff log --commits | head` ends the way every other log does. The bytes
+    // are unchanged — `log_row` takes no color, so paged, piped and direct
+    // all render identically.
+    //
+    // The writer is built before the walk because `entries` borrows the
+    // repository for its whole lifetime, and the walk stays lazy: collecting
+    // it here to dodge that would make `--commits -n 0` read every commit in
+    // the repository before printing the first row.
+    use std::io::Write as _;
+    let now = now_secs();
+    let mut out = crate::pager::LogOut::new(repo, false);
+    let entries = ff_core::log(repo, &LogOptions { limit, revs, paths })?.entries;
+
+    // The row error and the write error stay separate kinds: a bad row is
+    // this command's failure and keeps its code, while a closed pipe is the
+    // reader's business and is not a failure at all.
+    let mut wrote: std::io::Result<()> = Ok(());
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                out.finish();
+                return Err(err);
+            }
+        };
+        if let Err(err) = writeln!(out, "{}", crate::render::log_row(&entry, now)) {
+            wrote = Err(err);
+            break;
         }
     }
-    Ok(())
+    out.finish();
+    // `head` closing the pipe is the ordinary end of a piped log, so it exits
+    // clean the way git does; any other write error still is one.
+    match wrote {
+        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => Err(Error::repo(err)),
+        _ => Ok(()),
+    }
 }
 
 fn now_secs() -> i64 {
