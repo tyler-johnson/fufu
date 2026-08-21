@@ -18,7 +18,7 @@ so your tools and your remotes all still work.*
 
 ```console
 $ ff clone https://github.com/tyler-johnson/fufu.git
-cloned into ./fufu — 118 commits on main
+cloned into ./fufu — 145 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 
 $ ff init                         # starting from nothing — or adopting a repo git made
@@ -28,20 +28,19 @@ the net is on: ff undo has a floor to land on, and every verb takes one first
 
 ### Start new work
 
-`ff start` begins new work, always on a fresh branch: it fetches main, forks from the fetched tip, and hands you a clean tree. Nothing to name up front — fufu mints a name and you claim it once the work has earned one.
+`ff start` begins new work, always on a fresh branch: it forks from trunk and hands you a clean tree, parking whatever you were in the middle of. Nothing to name up front — fufu mints a name and you claim it once the work has earned one.
 
 ```console
 $ ff start                        # begin new work — a fresh tree off main, nothing to name yet
-fetched origin: main is at 5b7a90e
-minted ff/quiet-lake (forked from main)
-open change on ff/quiet-lake
+minted ff/pale-thicket (forked from main)
+open change on ff/pale-thicket
 undo: ff undo
 
 $ ff describe -m "parser: handle unicode escapes"    # name the change while you work on it
-pending description on ff/quiet-lake: parser: handle unicode escapes
+pending description on ff/pale-thicket: parser: handle unicode escapes
 
 $ ff commit                       # close it — no add, no staging, no -m: the tree was the commit
-closed 2c9ea49 on ff/quiet-lake: parser: handle unicode escapes (3 file(s))
+closed 9c873d66 on ff/pale-thicket: parser: handle unicode escapes (3 file(s))
 undo: ff undo
 ```
 
@@ -51,56 +50,61 @@ Forgot where you left that idea? Bare `ff` is the map: recent work on every bran
 
 ```console
 $ ff                              # where did I leave that idea?
-@  xvvvrvlz d5d43cb   1m ago  JIRA-1234/some-feature-im-adding
+@  otnkwlkl f14734ed   1m ago  ▸ [JIRA-1234/some-feature-im-adding]
 │  api: surface rate-limit errors
-●           c35c701   1h ago
+●  vvurpzrm 1783983f   1h ago
 │  api: retry with backoff
-│ ●           6b78881   3d ago  ff/quiet-lake  (+ parked change, 1 file)
+│ ●  —        c22fb0f8   3d ago  ▸ [ff/pale-thicket]  (+ parked change, 1 file)
+│ │  parser: keep the lexer honest
+│ ●  —        9c873d66   3d ago
 ├─╯  parser: handle unicode escapes
-●           aa86694   2h ago  main
-   release: cut v0.4.1
+●  —        dacae370   5d ago  ▸ [main]
+│  release: cut v0.4.1
+~
 
-$ ff switch ff/quiet-lake         # mid-edit is fine: this one parks, that one resumes
-parked the open change on JIRA-1234/some-feature-im-adding (84db9582)
-switched to ff/quiet-lake
+$ ff switch ff/pale-thicket       # mid-edit is fine: this one parks, that one resumes
+parked the open change on JIRA-1234/some-feature-im-adding (ebcc7dff)
+switched to ff/pale-thicket
 resumed the parked change (1 file(s))
 undo: ff undo
 
 $ ff describe -b unicode-cleanup    # it's real now — claim the name
-claimed ff/quiet-lake as unicode-cleanup
+claimed ff/pale-thicket as unicode-cleanup
 undo: ff undo
 ```
 
 ### Maintenance on autopilot
 
-The busywork between commits — fixup commits, autosquash dances, rebasing onto main — flies itself. `ff status` answers questions git makes you find out the hard way, `absorb` folds a review fix into the commit you name and restacks everything above it without moving a file on disk, and `sync` lands you on main only when it's safe.
+The busywork between commits — fixup commits, autosquash dances, rebasing onto main — flies itself. `ff status` answers questions git makes you find out the hard way, `absorb` folds a review fix into the commit you name and restacks everything above it without moving a file on disk, and `sync` replays onto main only when it's safe. Sync takes in; `publish` sends. They are two verbs because everything sync does is undoable and a push is not.
 
 ```console
 $ ff status                       # futures, not just facts: fufu already knows the rebase is safe
-on unicode-cleanup · base moved — rebases cleanly (2 commits replayed) · 2 to push
-@  qzrtmvwk a3c7e91   2m ago
+on unicode-cleanup · base moved — rebases cleanly (2 commits replayed)
+@  nquyppwp 2e9cb947   2m ago
 │  (no description)
-│  M src/parser/escape.rs  +5  -2  ++++--
-│  M src/parser/lexer.rs  +18  -4  ++++++++++++++++----
-│    2 files              +23  -6
-●           2c9ea49   3d ago
-│  parser: handle unicode escapes
+│  M src/parser/escape.rs +1  -0  ++++++++++++++++++++
+│  M src/parser/mod.rs    +1  -0  ++++++++++++++++++++
+│    2 files              +2  -0
+●  usqppxtv c22fb0f8   3d ago
+│  parser: keep the lexer honest
 
-$ ff absorb --into 2c9ea49        # the fix belongs to that commit, not to a new one
-absorbed into 8f1d3ba: parser: handle unicode escapes
+$ ff absorb --into 9c873d66       # the fix belongs to that commit, not to a new one
+absorbed into 410fdaba: parser: handle unicode escapes
 restacked 1 commit(s) above it
 undo: ff undo
 
-$ ff sync                         # line up with base and remote — rebases in memory, lands only if clean
+$ ff sync                         # line up with base and remote — replays in memory, lands only if clean
 fetching from origin
 main moved ahead by 1 commit(s)
-replayed 1 commit(s) onto main
-1 commit(s) to publish — ff publish
+replayed 2 commit(s) onto main
+updated the working tree (1 file(s))
+not published yet — ff publish
 undo: ff undo
 
 $ ff publish                      # the one thing fufu can't undo, so it's the one you type
-published feat to origin/feat
+created origin/unicode-cleanup and set unicode-cleanup to track it
 the push left the machine — ff undo cannot reach it
+ff undo then ff publish rolls the shared copy back, under a lease
 ```
 
 ### Undo anything
@@ -108,14 +112,17 @@ the push left the machine — ff undo cannot reach it
 fufu snapshots the repository around every operation — including the ones it didn't make. So when an agent (or you) runs something destructive with raw git, one `ff undo` brings back refs and working tree together.
 
 ```console
-$ git reset --hard HEAD~3         # an overeager agent, 4pm on a Friday
-HEAD is now at 9f3d2c1 api: retry with backoff
+$ git reset --hard HEAD~2         # an overeager agent, 4pm on a Friday
+HEAD is now at 03a98e3 api: clamp retry ceiling
 
 $ ff undo                         # fufu snapshotted first — nothing was ever at risk
-undid 84f0c2d1 (a change made outside fufu): reset: moving to HEAD~3
-  JIRA-1234/some-feature-im-adding → 1f4c2d7
-  5 worktree file(s) restored
-redo: ff undo
+ff: absorbed changes made outside fufu:
+  refs/heads/unicode-cleanup moved to 03a98e33 (reset: moving to HEAD~2)
+undid (a change made outside fufu): absorbed 1 foreign ref change(s)
+  now at rrntqnkwqrkr (published unicode-cleanup to origin/unicode-cleanup)
+  refs/heads/unicode-cleanup → 1bc4a38c
+  3 worktree file(s) restored
+back: ff redo
 ```
 
 ## Install
