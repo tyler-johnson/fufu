@@ -219,6 +219,9 @@ pub enum Command {
         /// Branch to land the close on: claim an anonymous one, or fork here
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
+        /// Files or directories to close, leaving the rest open; all of it when omitted
+        #[arg(value_name = "path")]
+        paths: Vec<String>,
     },
     // agent notice quotes this: `ff switch <branch>`
     /// Switch branches; a dirty tree is parked, a parked change resumes

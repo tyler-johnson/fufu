@@ -103,7 +103,7 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
                 // the capture above) and their operation.
                 Translated::Switch { target } => crate::cmd::switch::run(ctx, target),
                 Translated::Commit { message } => {
-                    crate::cmd::commit::run(ctx, message, false, None)
+                    crate::cmd::commit::run(ctx, message, false, None, Vec::new())
                 }
                 Translated::Branch => crate::cmd::branch::run(ctx, None),
             };

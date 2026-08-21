@@ -10,6 +10,7 @@ pub fn run(
     message: Option<String>,
     no_verify: bool,
     branch: Option<String>,
+    paths: Vec<String>,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
     // The close's own mandatory pre-capture bypasses `capture::pre_best_effort`
@@ -23,6 +24,7 @@ pub fn run(
             message,
             no_verify,
             branch,
+            paths,
             now: None,
             argv: std::env::args().collect(),
         },

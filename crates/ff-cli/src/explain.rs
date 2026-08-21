@@ -219,7 +219,9 @@ pub static ENTRIES: &[Entry] = &[
                  that does not exist — and a description does not make one, because a commit \
                  that says something while changing nothing is exactly the placeholder state \
                  fufu refuses to keep. Nothing was written, so a pending description is still \
-                 there, and ff describe -m will park one for the next close.",
+                 there, and ff describe -m will park one for the next close. Naming paths \
+                 narrows the question to those paths, so a clean slice refuses the same way a \
+                 clean tree does — the same rule, a narrower scope.",
         exits: &["ff status", "ff describe -m <message>"],
     },
     Entry {

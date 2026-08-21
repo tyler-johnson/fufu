@@ -261,7 +261,8 @@ mod tests {
             Command::Commit {
                 message: None,
                 no_verify: false,
-                branch: None
+                branch: None,
+                paths: Vec::new(),
             }
             .past()
             .is_none()

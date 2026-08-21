@@ -29,6 +29,10 @@ pub struct CloseOptions {
     /// `-b`: placeholder branch → claim-rename; fresh name → the close
     /// lands on a new branch forked here, the old branch stays.
     pub branch: Option<String>,
+    /// `<paths>`: close only what lies under these, leaving the rest open.
+    /// The rule is [`crate::restore::path_selected`]'s — a file path or a
+    /// directory prefix, no globs. Empty closes the whole open change.
+    pub paths: Vec<String>,
     /// Clock injection for tests.
     pub now: Option<i64>,
     /// The invoking argv, recorded verbatim.
@@ -46,17 +50,43 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
 /// before every mutation, so a pending description survives it untouched; a
 /// `-m` does not — it is discarded with the refusal, which is why
 /// `ff describe -m` is one of the exits.
-fn empty_refusal(branch: &str, pending: Option<&str>) -> Error {
-    let mut message = format!(
-        "nothing to close on {branch}: the tree matches HEAD, and fufu writes no empty commit"
-    );
+fn empty_refusal(branch: &str, pending: Option<&str>, paths: &[String]) -> Error {
+    let (mut message, exits) = if paths.is_empty() {
+        (
+            format!(
+                "nothing to close on {branch}: the tree matches HEAD, and fufu writes no empty commit"
+            ),
+            vec!["ff status".into(), "ff describe -m <message>".into()],
+        )
+    } else {
+        (
+            format!(
+                "nothing to close under {} on {branch}: those paths match HEAD, and fufu writes no \
+                 empty commit",
+                paths.join(", ")
+            ),
+            vec!["ff diff <path>".into(), "ff status".into()],
+        )
+    };
     if pending.is_some() {
         message.push_str("; the pending description stays put");
     }
+    Error::coded("commit/empty", message, exits)
+}
+
+/// A path that names nothing on disk or in HEAD: refused, not committed with a
+/// hole in it. A sentence in the path slot is almost always a forgotten `-m`,
+/// so the exits then lead with the flag-shaped one.
+fn no_such_path(token: &str) -> Error {
+    let exits = if token.chars().any(char::is_whitespace) {
+        vec![format!("ff commit -m {token:?}"), "ff status".into()]
+    } else {
+        vec!["ff status".into(), "ff commit".into()]
+    };
     Error::coded(
-        "commit/empty",
-        message,
-        vec!["ff status".into(), "ff describe -m <message>".into()],
+        "usage/no-such-path",
+        format!("no path here goes by {token:?}: `ff commit` takes file and directory paths"),
+        exits,
     )
 }
 
@@ -112,6 +142,16 @@ pub fn close(
         ));
     }
 
+    // A path that names nothing is a typo or a forgotten -m, not a commit
+    // with a hole in it. Refuse before the capture floor so nothing at all
+    // is written to learn it; the bare/mid-operation/session refusals above
+    // still lead.
+    for path in &opts.paths {
+        if !crate::restore::path_exists(repo, path)? {
+            return Err(no_such_path(path));
+        }
+    }
+
     let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
 
@@ -140,30 +180,54 @@ pub fn close(
     let meta = branchmeta::read(repo, &current_branch)?;
     let pending = meta.pending_description.clone();
 
-    // Emptiness first (git's order too): a clean tree runs no hooks and
-    // closes nothing, whatever the message.
-    let mut scan = snaptree::scan(repo)?;
+    // Emptiness first (git's order too): a clean slice runs no hooks and
+    // closes nothing, whatever the message. Emptiness is judged on the
+    // narrowed scan — a clean slice refuses the way a clean tree does.
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    if scan.is_empty() {
-        return Err(empty_refusal(&current_branch, pending.as_deref()));
+    let mut scan_full = snaptree::scan(repo)?;
+    let mut scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
+    if scan_slice.is_empty() {
+        return Err(empty_refusal(
+            &current_branch,
+            pending.as_deref(),
+            &opts.paths,
+        ));
     }
 
     // Hooks before the tree build — pre-commit hooks format files, so a
-    // hook that ran invalidates the scan.
+    // hook that ran invalidates the scan. Re-take both, and re-narrow.
     if !opts.no_verify && hooks::pre_commit(repo)? {
-        scan = snaptree::scan(repo)?;
-        if scan.is_empty() {
-            return Err(empty_refusal(&current_branch, pending.as_deref()));
+        scan_full = snaptree::scan(repo)?;
+        scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
+        if scan_slice.is_empty() {
+            return Err(empty_refusal(
+                &current_branch,
+                pending.as_deref(),
+                &opts.paths,
+            ));
         }
     }
 
     // The close tree is exact: nothing is size-capped out of a commit. An
-    // empty scan already refused above, so a close always assembles a
+    // empty slice already refused above, so a close always assembles a
     // real tree.
-    let (tree_id, _skipped) = snaptree::assemble(repo, head_tree, &scan, u64::MAX)?;
-    if tree_id == head_tree {
-        return Err(empty_refusal(&current_branch, pending.as_deref()));
+    let (commit_tree, _skipped) = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?;
+    if commit_tree == head_tree {
+        return Err(empty_refusal(
+            &current_branch,
+            pending.as_deref(),
+            &opts.paths,
+        ));
     }
+    // The working tree keeps what the close did not take. With no paths the
+    // two are the one tree, as before; a second identical assembly on that
+    // common path is pure cost, so only a real slice assembles the
+    // remainder.
+    let worktree_tree = if opts.paths.is_empty() {
+        commit_tree
+    } else {
+        snaptree::assemble(repo, head_tree, &scan_full, u64::MAX)?.0
+    };
 
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
@@ -210,7 +274,7 @@ pub fn close(
     let sig = refs::user_signature(repo, now)?;
     let parents: Vec<gix::ObjectId> = head_commit.into_iter().collect();
     let commit = gix::objs::Commit {
-        tree: tree_id,
+        tree: commit_tree,
         parents: parents.into(),
         author: sig.clone(),
         committer: sig.clone(),
@@ -283,11 +347,18 @@ pub fn close(
         verb::VerbOp {
             record,
             planned,
-            // The close writes the tree it just built into a commit and leaves
-            // the working tree holding exactly that content, and rewrites the
-            // index to match: one tree, all three roles.
-            tree: tree_id,
-            index_tree: tree_id,
+            // No paths: all three roles hold the one tree, as before.
+            // Paths: `tree` is the working directory the close leaves behind,
+            // still holding the unselected edits, while `index_tree` is the
+            // commit the index is rewritten to — so the remainder survives as
+            // the open change. Swapping the two would make `ff undo` restore
+            // a tree that never existed. And it closes a loop: HEAD carries
+            // the slice, the next capture records the working tree, so
+            // `change_stat` — HEAD against the newest operation's tree — is
+            // exactly the unselected changes. The open change survives the
+            // close, minus the slice, with no new machinery.
+            tree: worktree_tree,
+            index_tree: commit_tree,
             // A claim renames the branch, and the rename carries its pointer
             // into the log over to the new name; recording under the new name
             // would create that pointer first and collide. A fresh `-b` name
@@ -357,7 +428,7 @@ pub fn close(
 
     // The index becomes the new tree: nothing staged, next edit opens the
     // next change.
-    crate::index::write_index_for_tree(repo, tree_id)?;
+    crate::index::write_index_for_tree(repo, commit_tree)?;
 
     // Consume the pending description.
     if pending.is_some() {
@@ -376,7 +447,7 @@ pub fn close(
     // history through refs/fufu/*).
     let _ = config::ensure_gc_config(repo);
 
-    let files_changed = crate::snapshot::count_file_changes(repo, head_tree, tree_id)?;
+    let files_changed = crate::snapshot::count_file_changes(repo, head_tree, commit_tree)?;
     let short_id = crate::sha::short_oid(commit_id);
     Ok((
         CommitOutcome::Closed {

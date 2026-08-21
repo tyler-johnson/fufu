@@ -38,6 +38,47 @@ impl Scan {
             && self.untracked.is_empty()
             && self.wt_deletes.is_empty()
     }
+
+    /// The same scan, restricted to the entries
+    /// [`crate::restore::path_selected`] picks out of `paths`. Empty `paths`
+    /// return it untouched.
+    ///
+    /// This works without touching [`assemble`]: that reads whatever `Scan` it
+    /// is handed and commits one bucket apart from another anyway, so narrowing
+    /// is a property of the scan, not a new assembly mode.
+    pub(crate) fn narrowed(self, paths: &[String]) -> Scan {
+        if paths.is_empty() {
+            return self;
+        }
+        let picked = |path: &str| crate::restore::path_selected(path, paths);
+        Scan {
+            staged_upserts: self
+                .staged_upserts
+                .into_iter()
+                .filter(|(path, ..)| picked(path))
+                .collect(),
+            staged_deletes: self
+                .staged_deletes
+                .into_iter()
+                .filter(|path| picked(path))
+                .collect(),
+            rehash: self
+                .rehash
+                .into_iter()
+                .filter(|path| picked(path))
+                .collect(),
+            untracked: self
+                .untracked
+                .into_iter()
+                .filter(|path| picked(path))
+                .collect(),
+            wt_deletes: self
+                .wt_deletes
+                .into_iter()
+                .filter(|path| picked(path))
+                .collect(),
+        }
+    }
 }
 
 fn entry_kind(mode: gix::index::entry::Mode) -> Result<gix::objs::tree::EntryKind> {
