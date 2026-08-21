@@ -39,6 +39,19 @@ impl Scan {
             && self.wt_deletes.is_empty()
     }
 
+    /// Every path this scan touches, in no particular order — the union of
+    /// all five buckets. What the worktree has that HEAD does not, whichever
+    /// way the difference runs.
+    pub(crate) fn paths(&self) -> impl Iterator<Item = &str> {
+        self.staged_upserts
+            .iter()
+            .map(|(path, ..)| path.as_str())
+            .chain(self.staged_deletes.iter().map(String::as_str))
+            .chain(self.rehash.iter().map(String::as_str))
+            .chain(self.untracked.iter().map(String::as_str))
+            .chain(self.wt_deletes.iter().map(String::as_str))
+    }
+
     /// The same scan, restricted to the entries
     /// [`crate::restore::path_selected`] picks out of `paths`. Empty `paths`
     /// return it untouched.

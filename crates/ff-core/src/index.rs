@@ -20,10 +20,36 @@ use crate::error::{Error, Result};
 /// `index.lock` (fail-fast, atomic rename), honoring the repository's real
 /// `index.skipHash` — not the read-path override this library opens with.
 pub fn write_index_for_tree(repo: &gix::Repository, tree: gix::ObjectId) -> Result<()> {
+    write_index_for_tree_except(repo, tree, &[])
+}
+
+/// [`write_index_for_tree`], for the case where the worktree is *known* not
+/// to match the tree: `worktree_differs` names the paths where it does not,
+/// and their entries keep zeroed stats so the next status must hash them.
+///
+/// Carrying stat data over is only sound when the file on disk really is the
+/// entry being written, which every caller but one can take for granted —
+/// they write an index for the tree they just put in the worktree. A partial
+/// `ff commit <paths>` is the exception: it writes the index to the commit
+/// while deliberately leaving the unselected edits on disk. For those paths
+/// the previous index and the new entry agree (both hold HEAD's blob, which
+/// the slice did not touch), so the id-and-mode test matches and the *stale*
+/// stat rides along. The next status then trusts that stat and never opens
+/// the file, and the remainder silently stops being the open change.
+///
+/// Filesystem timestamp resolution decides whether that is visible: on ext4
+/// the carried mtime differs from the edited file's and gix rehashes anyway,
+/// which is why this was invisible on Linux and macOS and lost the open
+/// change on Windows every time.
+pub fn write_index_for_tree_except(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+    worktree_differs: &[String],
+) -> Result<()> {
     let mut file = repo.index_from_tree(&tree).map_err(Error::repo)?;
 
     if let Some(prev) = repo.try_index().map_err(Error::repo)? {
-        carry_over_stats(&mut file, &prev);
+        carry_over_stats(&mut file, &prev, worktree_differs);
     }
 
     let skip_hash = repo
@@ -87,10 +113,26 @@ fn write_locked(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// Copy stat data for every entry whose (path, id, mode) match the previous
-/// index at stage 0. Everything else keeps zeroed stats and will be rehashed
-/// by the next status — correct, just slower.
-fn carry_over_stats(next: &mut gix::index::File, prev: &gix::index::File) {
+/// index at stage 0, except the paths the caller says the worktree differs
+/// on. Everything else keeps zeroed stats and will be rehashed by the next
+/// status — correct, just slower, and the only safe answer when the file on
+/// disk is not the entry being written.
+fn carry_over_stats(
+    next: &mut gix::index::File,
+    prev: &gix::index::File,
+    worktree_differs: &[String],
+) {
     for (entry, path) in next.entries_mut_with_paths() {
+        // The id-and-mode test below cannot see this: for a path the slice
+        // left behind, the previous index and the new entry hold the same
+        // blob and only the worktree has moved on.
+        if !worktree_differs.is_empty()
+            && worktree_differs
+                .iter()
+                .any(|p| p.as_bytes() == AsRef::<[u8]>::as_ref(path))
+        {
+            continue;
+        }
         if let Some(old) = prev.entry_by_path(path)
             && old.stage() == gix::index::entry::Stage::Unconflicted
             && old.id == entry.id

@@ -229,6 +229,22 @@ pub fn close(
         snaptree::assemble(repo, head_tree, &scan_full, u64::MAX)?.0
     };
 
+    // What the close is leaving on disk: everything the scan saw that the
+    // slice did not take. The index is about to be written to `commit_tree`,
+    // which for these paths is HEAD's blob rather than what the worktree
+    // holds — so their stat data must not be carried over, or the next
+    // status trusts it and the remainder stops being the open change. See
+    // `index::write_index_for_tree_except`.
+    let worktree_differs: Vec<String> = if opts.paths.is_empty() {
+        Vec::new()
+    } else {
+        scan_full
+            .paths()
+            .filter(|path| !crate::restore::path_selected(path, &opts.paths))
+            .map(String::from)
+            .collect()
+    };
+
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
     let mut message = opts
@@ -426,9 +442,10 @@ pub fn close(
         }
     }
 
-    // The index becomes the new tree: nothing staged, next edit opens the
-    // next change.
-    crate::index::write_index_for_tree(repo, commit_tree)?;
+    // The index becomes the commit: nothing staged, next edit opens the next
+    // change. The remainder keeps zeroed stats so it stays visible as the
+    // open change rather than being trusted clean.
+    crate::index::write_index_for_tree_except(repo, commit_tree, &worktree_differs)?;
 
     // Consume the pending description.
     if pending.is_some() {

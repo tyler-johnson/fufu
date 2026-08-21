@@ -242,3 +242,60 @@ fn skip_hash_config_is_honored() {
         fx.git(&["ls-files", "--stage"]);
     }
 }
+
+/// A partial close leaves the unselected edits on disk, so the index it
+/// writes deliberately does *not* describe the worktree — and the stat data
+/// for those paths must not be carried over from the old index.
+///
+/// It would be carried without help: for a path the slice did not touch, the
+/// old index and the new entry hold the same blob, so the id-and-mode test
+/// matches and the stale stat rides along. The next status then trusts the
+/// stat, never opens the file, and the remainder stops being the open change.
+///
+/// The symptom only shows where filesystem timestamps are coarse enough for
+/// the stale mtime to compare equal — it was invisible on ext4 and lost the
+/// open change on Windows every time — so this asserts the mechanism rather
+/// than the symptom, and fails on any platform.
+#[test]
+fn a_partial_close_zeroes_stats_for_what_it_leaves_behind() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Index Tester");
+    fx.set_config("user.email", "index@test.test");
+    fx.write("a.txt", "a1\n");
+    fx.write("b.txt", "b1\n");
+    fx.commit("first");
+    fx.write("a.txt", "a2\n");
+    fx.write("b.txt", "b2\n");
+
+    // The carry-over has something to carry: b.txt's entry is stat'd from
+    // the commit above. Without this the test could pass on a zeroed index
+    // while proving nothing.
+    let before = fx.repo().index_or_empty().unwrap();
+    let b_before = before.entry_by_path("b.txt".into()).expect("b.txt staged");
+    assert_ne!(
+        b_before.stat.mtime.secs, 0,
+        "precondition: b.txt starts with real stat data to carry over"
+    );
+    drop(before);
+
+    let repo = fx.repo();
+    ff_core::close(
+        &repo,
+        &ff_core::CloseOptions {
+            message: Some("a: second".into()),
+            paths: vec!["a.txt".into()],
+            argv: Vec::new(),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", Some("ff commit".into())),
+    )
+    .expect("partial close");
+
+    let after = fx.repo().index_or_empty().unwrap();
+    let b_after = after.entry_by_path("b.txt".into()).expect("b.txt in index");
+    assert_eq!(
+        b_after.stat.mtime.secs, 0,
+        "b.txt was left dirty in the worktree, so its stat must be zeroed \
+         and rehashed rather than trusted"
+    );
+}
