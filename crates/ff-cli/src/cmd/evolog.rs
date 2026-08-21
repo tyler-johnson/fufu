@@ -12,7 +12,6 @@ use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, count: usize, patch: bool) -> Result<()> {
     ctx.refuse_past("ff evolog")?;
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let limit = if count == 0 { None } else { Some(count) };
     let rows = ff_core::evolog(

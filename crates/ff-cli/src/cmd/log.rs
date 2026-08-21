@@ -22,9 +22,8 @@ pub fn run(
         return Err(ops_retired());
     }
     // The past-state view is what `--at-op` would need here, and it does not
-    // exist yet; refuse before capturing, so a refused command writes nothing.
+    // exist yet.
     ctx.refuse_past("ff log")?;
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     run_inner(ctx, count, revisions, commits, paths)
 }
 

@@ -18,7 +18,6 @@ use ff_core::{Error, Result};
 use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let steps = ff_core::history::history(&repo, count)?;
 

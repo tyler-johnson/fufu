@@ -800,10 +800,6 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     }
     rows.push(update_row());
 
-    if let Some(repo) = &repo {
-        crate::selfupdate::notify::maybe_spawn_check(repo);
-    }
-
     render(&rows, fix, ctx.json, colored);
 
     Ok(())

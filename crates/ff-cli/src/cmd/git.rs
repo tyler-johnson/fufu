@@ -109,7 +109,7 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
             };
             if let Some(repo) = &repo
                 && let Some(notice) =
-                    crate::selfupdate::notify::pending(repo, env!("CARGO_PKG_VERSION"))
+                    crate::selfupdate::notify::pending(repo, env!("CARGO_PKG_VERSION"), true)
             {
                 eprintln!("{notice}");
                 crate::selfupdate::notify::mark_notified();
@@ -117,9 +117,9 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
             result
         }
         None => {
-            let notice = repo
-                .as_ref()
-                .and_then(|r| crate::selfupdate::notify::pending(r, env!("CARGO_PKG_VERSION")));
+            let notice = repo.as_ref().and_then(|r| {
+                crate::selfupdate::notify::pending(r, env!("CARGO_PKG_VERSION"), true)
+            });
             match notice {
                 // A notice is pending and the verb tolerates child-mode: run git as a
                 // child so ff regains control to speak after git's own output.

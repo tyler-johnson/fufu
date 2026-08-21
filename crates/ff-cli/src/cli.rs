@@ -596,6 +596,16 @@ impl OpAction {
             OpAction::Restore { .. } | OpAction::Revert { .. } => None,
         }
     }
+
+    /// The family holds both readers and mutators, so the action decides:
+    /// the reads capture at the CLI, the writes let the core's mandatory
+    /// capture stand alone.
+    fn lanes(&self) -> Lanes {
+        match self {
+            OpAction::Log { .. } | OpAction::Show { .. } | OpAction::Diff { .. } => Lanes::READ,
+            OpAction::Restore { .. } | OpAction::Revert { .. } => Lanes::MUTATOR,
+        }
+    }
 }
 
 /// `ff branch` — the branch family, and it does not name anything. Naming
@@ -638,6 +648,74 @@ impl BranchAction {
             BranchAction::Delete { .. } | BranchAction::Other(_) => None,
         }
     }
+
+    fn lanes(&self) -> Lanes {
+        match self {
+            // Bare `ff branch` is the list, and `Other` is a refusal that
+            // renders like one: both read.
+            BranchAction::List { .. } | BranchAction::Other(_) => Lanes::READ,
+            // `ff_core::branch::delete` runs `begin_verb`, whose capture is
+            // the mandatory pre-verb one — a second CLI capture would be a
+            // full extra worktree diff.
+            BranchAction::Delete { .. } => Lanes::MUTATOR,
+        }
+    }
+}
+
+/// The ambient lanes: what rides an invocation besides the verb itself —
+/// the pre-command capture, the passive update lane (cache refresh,
+/// auto-install, the one-line notice), and the daily auto-trim. One table on
+/// `Command` decides them all, so a verb is in it by construction rather than
+/// by somebody remembering to call three functions at the bottom of its
+/// `run`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Lanes {
+    /// Take the pre-command snapshot at the CLI.
+    pub capture: bool,
+    /// Refresh the update cache in the background, and let an auto-install fire.
+    pub update: bool,
+    /// Print the "vX.Y.Z available" line on stderr when one is pending.
+    pub notice: bool,
+    /// Let the daily auto-trim ride this invocation.
+    pub trim: bool,
+}
+
+impl Lanes {
+    /// Nothing at all: the verbs that run before there is a repository, the
+    /// detached `update` child, `git` and `hook` (each already carries its
+    /// own lanes on purpose), and the foreign redirects (they print and stop).
+    pub const NONE: Lanes = Lanes {
+        capture: false,
+        update: false,
+        notice: false,
+        trim: false,
+    };
+
+    /// A reader: the snapshot is the only pre-work it owes.
+    pub const READ: Lanes = Lanes {
+        capture: true,
+        update: true,
+        notice: true,
+        trim: true,
+    };
+
+    /// A mutator: the core already captures, so a second one at the CLI
+    /// would be a full extra worktree diff on the most expensive commands.
+    pub const MUTATOR: Lanes = Lanes {
+        capture: false,
+        update: true,
+        notice: true,
+        trim: true,
+    };
+
+    /// `version`: the update lane with its voice removed — it prints its own
+    /// "available" line, and it has no repository in its answer.
+    pub const QUIET_UPDATE: Lanes = Lanes {
+        capture: false,
+        update: true,
+        notice: false,
+        trim: false,
+    };
 }
 
 impl Command {
@@ -781,6 +859,98 @@ impl Command {
             self,
             Command::Git { .. } | Command::Hook { .. } | Command::Update { .. }
         )
+    }
+
+    /// The ambient lanes this verb rides. It lives beside the variant, so a
+    /// verb added without deciding its lanes is a compile error rather than a
+    /// lane that silently never fires — the same rule `name()` and `past()`
+    /// already state.
+    pub fn lanes(&self) -> Lanes {
+        match self {
+            // These ride nothing: `init` and `clone` capture last, by design
+            // — there is no repository to capture until their work is done;
+            // `update`'s detached child must touch nothing and must not
+            // recurse; `git` and `hook` already carry their own lanes, in
+            // their own order (git's notice is deliberately deferred past
+            // git's output); and the foreign redirects print a redirect and
+            // stop — a snapshot for a command that does not exist would be a
+            // row on the log for something that never ran.
+            Command::Init { .. }
+            | Command::Clone { .. }
+            | Command::Update { .. }
+            | Command::Git { .. }
+            | Command::Hook { .. }
+            | Command::Checkout { .. }
+            | Command::Stash { .. }
+            | Command::Pull { .. }
+            | Command::Push { .. }
+            | Command::Rebase { .. }
+            | Command::Merge { .. }
+            | Command::Blame { .. }
+            | Command::Tag { .. } => Lanes::NONE,
+            Command::Version => Lanes::QUIET_UPDATE,
+            // No repository in its answer either, but it takes the generic
+            // notice — one arm is not a const.
+            Command::Explain { .. } => Lanes {
+                capture: false,
+                update: true,
+                notice: true,
+                trim: false,
+            },
+            // The core runs `ops::verb::begin_verb` for every one of these
+            // (and for `restore`), whose capture is the mandatory pre-verb
+            // one: a second CLI capture in front of it would be a full extra
+            // worktree diff on the most expensive commands, and a real
+            // regression against the bench gates.
+            Command::Commit { .. }
+            | Command::Switch { .. }
+            | Command::Undo
+            | Command::Redo
+            | Command::Start { .. }
+            | Command::Describe { .. }
+            | Command::Absorb { .. }
+            | Command::Lift { .. }
+            | Command::Restack { .. }
+            | Command::Sync { .. }
+            | Command::Publish { .. }
+            | Command::Done { .. }
+            | Command::Resolve { .. }
+            | Command::Edit { .. }
+            | Command::Restore { .. } => Lanes::MUTATOR,
+            // `update_row()` already reports the available release in
+            // doctor's own voice, so the generic notice would say it twice.
+            Command::Doctor { .. } => Lanes {
+                capture: true,
+                update: true,
+                notice: false,
+                trim: true,
+            },
+            // A dry run deliberately does not stamp; if the auto-trim rode
+            // the same invocation it would find the stamp due and perform a
+            // real trim — the precise surprise a dry run exists to prevent.
+            Command::Trim { .. } => Lanes {
+                capture: true,
+                update: true,
+                notice: true,
+                trim: false,
+            },
+            // The readers: they have a repository, and the snapshot is the
+            // only pre-work they owe.
+            Command::Map { .. }
+            | Command::Status { .. }
+            | Command::Log { .. }
+            | Command::History { .. }
+            | Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Evolog { .. }
+            | Command::Config { .. } => Lanes::READ,
+            // The two families hold both readers and mutators, so the action
+            // decides.
+            Command::Op { action } => action.lanes(),
+            Command::Branch { action, .. } => {
+                action.as_ref().map_or(Lanes::READ, BranchAction::lanes)
+            }
+        }
     }
 }
 

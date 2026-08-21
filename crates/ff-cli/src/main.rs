@@ -8,6 +8,7 @@ mod exit;
 mod explain;
 mod graph;
 mod help;
+mod lanes;
 mod machine;
 mod net;
 mod pager;
@@ -112,6 +113,15 @@ fn main() {
         Err(err) => report(args.json, "map", &err),
     };
 
+    // The lanes are decided from the command line, before anything
+    // dispatches, so every verb is in the table by construction. Bare `ff`
+    // is the map, and the map is a reader.
+    let lane_set = args
+        .command
+        .as_ref()
+        .map_or(cli::Lanes::READ, |cmd| cmd.lanes());
+    let repo = lanes::preflight(&ctx, &lane_set);
+
     let result = match args.command {
         None => cmd::map::run(&ctx, args.branches, args.all),
         // Spelled out, the map takes its scope after its own name — which is
@@ -198,6 +208,11 @@ fn main() {
     if let Err(err) = result {
         report(ctx.json, ctx.command, &err);
     }
+
+    // The error path exits through `report()`, so it never reaches the
+    // trailer — which matches today: the map's trailer never ran on a
+    // failure either.
+    lanes::trailer(&lane_set, repo.as_ref());
 
     // Exit without unwinding: skips munmap/thread teardown of the repo, which
     // is pure latency. Stdout is flushed explicitly first.

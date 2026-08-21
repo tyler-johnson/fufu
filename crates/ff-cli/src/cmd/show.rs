@@ -24,7 +24,6 @@ pub fn run(ctx: &Ctx, rev: Option<String>, paths: Vec<String>) -> Result<()> {
     // needs the same capture `ff diff` needs. A commit read does not, but it
     // is the same verb and a capture-first floor that depended on which
     // argument you typed would be a floor with a hole in it.
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
 
     let raw = rev.as_deref().unwrap_or("@");

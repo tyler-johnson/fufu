@@ -337,6 +337,118 @@ fn a_manual_trim_resets_the_clock() {
     );
 }
 
+// ── The lane moved from the map to the table on `Command` ────────────────
+
+/// A plain reader carries the auto-trim lane: it is no longer the map's.
+#[test]
+fn a_read_verb_carries_the_lane() {
+    let fx = due_fixture();
+    let out = ff(&fx, &["status"]);
+    assert!(
+        out.status.success(),
+        "ff status succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trash_exists(&fx), "trash ref exists after ff status");
+}
+
+/// A mutator carries it too, though its own capture comes from the core.
+#[test]
+fn a_mutator_carries_the_lane() {
+    let fx = due_fixture();
+    // The runner strips the git identity env vars, and `due_fixture` leaves
+    // a dirty worktree to commit — give the commit an identity of its own
+    // rather than fighting the runner.
+    fx.set_config("user.name", "fufu test");
+    fx.set_config("user.email", "fufu@test");
+    let out = ff(&fx, &["commit", "-m", "lane"]);
+    assert!(
+        out.status.success(),
+        "ff commit succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trash_exists(&fx), "trash ref exists after ff commit");
+}
+
+/// The log read carries it as well.
+#[test]
+fn a_log_read_carries_the_lane() {
+    let fx = due_fixture();
+    let out = ff(&fx, &["log"]);
+    assert!(
+        out.status.success(),
+        "ff log succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trash_exists(&fx), "trash ref exists after ff log");
+}
+
+/// The capture lane rides `ff config` too: the ops ref is the receipt.
+#[test]
+fn config_carries_the_capture_lane() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // One bare ff so the ops ref exists.
+    fx.write("a.txt", "dirty\n");
+    let out = ff(&fx, &[]);
+    assert!(
+        out.status.success(),
+        "snapshot one: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let before = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    assert!(before.status.success(), "ops ref exists before");
+
+    // Dirty the tree, then read it: a capture should land and move the ref.
+    fx.write("a.txt", "dirtier\n");
+    let out = ff(&fx, &["config", "keep"]);
+    assert!(
+        out.status.success(),
+        "ff config keep: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let after = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    assert!(after.status.success(), "ops ref exists after");
+    assert_ne!(
+        String::from_utf8_lossy(&before.stdout),
+        String::from_utf8_lossy(&after.stdout),
+        "the ops ref moved: a capture landed"
+    );
+}
+
+/// The capture lane rides `ff doctor` too. `doctor` exits 1 when it has
+/// findings — a normal outcome — so the receipt is the ops ref, not the code.
+#[test]
+fn doctor_carries_the_capture_lane() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    // One bare ff so the ops ref exists.
+    fx.write("a.txt", "dirty\n");
+    let out = ff(&fx, &[]);
+    assert!(
+        out.status.success(),
+        "snapshot one: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let before = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    assert!(before.status.success(), "ops ref exists before");
+
+    // Dirty the tree, then run doctor: a capture should land and move the ref.
+    fx.write("a.txt", "dirtier\n");
+    let _out = ff(&fx, &["doctor"]);
+    let after = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    assert!(after.status.success(), "ops ref exists after");
+    assert_ne!(
+        String::from_utf8_lossy(&before.stdout),
+        String::from_utf8_lossy(&after.stdout),
+        "the ops ref moved: a capture landed"
+    );
+}
+
 /// `ff config autoTrim` writes through to the cached cadence in the stamp.
 #[test]
 fn config_writes_through_to_the_cached_cadence() {

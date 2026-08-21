@@ -101,7 +101,6 @@ fn log(
         Some(src) => Some(ff_core::revset::Revset::parse(src)?),
         None => None,
     };
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     // Bounded at a past operation rather than filtered: operations behind a
     // point never change, so the log as it read then is this log with its
@@ -201,7 +200,6 @@ fn revisions_retired(expr: &str) -> Error {
 }
 
 fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let id = resolve(ctx, &repo, spec.as_deref())?;
     let log = ff_core::ops::OpLog::open(&repo)?;
@@ -295,7 +293,6 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
 }
 
 fn diff(ctx: &Ctx, a: String, b: Option<String>, patch: bool) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let log = ff_core::ops::OpLog::open(&repo)?;
     let a_id = log.resolve(&a)?;

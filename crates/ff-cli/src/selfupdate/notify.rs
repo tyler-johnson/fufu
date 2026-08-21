@@ -193,6 +193,27 @@ pub(crate) fn compute_due(
     })
 }
 
+/// The pending() notice, minus all IO. None = nothing to say to the caller.
+pub(crate) fn notice_for(
+    due: &Due,
+    want_notice: bool,
+    current_version: &str,
+    brew: bool,
+) -> Option<String> {
+    if !due.notice || !want_notice {
+        return None;
+    }
+    let suffix = if brew {
+        " — update with: brew upgrade fufu"
+    } else {
+        " — update with: ff update"
+    };
+    Some(format!(
+        "ff: {} is available (running v{}){}",
+        due.latest, current_version, suffix
+    ))
+}
+
 /// Background cache-refresh spawn. Never errors, returns ().
 pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
     if !gates_open() {
@@ -241,7 +262,14 @@ pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
 
 /// Check whether a release notice or auto-install is pending.
 /// Returns a notice string if something should be printed.
-pub fn pending(repo: &ff_core::gix::Repository, current_version: &str) -> Option<String> {
+///
+/// The auto-install half always runs; `want_notice` decides only whether a
+/// caller is handed a string to print.
+pub fn pending(
+    repo: &ff_core::gix::Repository,
+    current_version: &str,
+    want_notice: bool,
+) -> Option<String> {
     if !gates_open() {
         return None;
     }
@@ -285,19 +313,7 @@ pub fn pending(repo: &ff_core::gix::Repository, current_version: &str) -> Option
     }
 
     // Notice path.
-    if due.notice {
-        let suffix = if brew {
-            " — update with: brew upgrade fufu"
-        } else {
-            " — update with: ff update"
-        };
-        return Some(format!(
-            "ff: {} is available (running v{}){}",
-            due.latest, current_version, suffix
-        ));
-    }
-
-    None
+    notice_for(&due, want_notice, current_version, brew)
 }
 
 /// Mark the current latest as notified — a release announces at most once, ever.
@@ -586,6 +602,60 @@ mod tests {
     fn compute_due_latest_unparseable() {
         let state = state_builder(Some("not-a-version"), None, 0);
         assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+    }
+
+    #[test]
+    fn notice_for_unwanted_is_silent() {
+        // Due for a notice, but the caller does not want one: nothing.
+        let due = Due {
+            notice: true,
+            auto: false,
+            latest: "v0.2.0".into(),
+        };
+        assert!(notice_for(&due, false, "0.1.0", false).is_none());
+    }
+
+    #[test]
+    fn notice_for_not_due_is_silent() {
+        // The caller wants one, but the release is not due: nothing.
+        let due = Due {
+            notice: false,
+            auto: true,
+            latest: "v0.2.0".into(),
+        };
+        assert!(notice_for(&due, true, "0.1.0", false).is_none());
+    }
+
+    #[test]
+    fn notice_for_binary_install() {
+        let due = Due {
+            notice: true,
+            auto: false,
+            latest: "v0.2.0".into(),
+        };
+        // `latest` is the tag (v-prefixed); `current_version` is the bare
+        // CARGO_PKG_VERSION — the format string supplies its v.
+        let notice = notice_for(&due, true, "0.1.0", false).expect("notice");
+        assert!(notice.contains("v0.2.0"), "the tag: {notice}");
+        assert!(
+            notice.contains("running v0.1.0"),
+            "running + current: {notice}"
+        );
+        assert!(notice.ends_with(" — update with: ff update"), "{notice}");
+    }
+
+    #[test]
+    fn notice_for_brew_install() {
+        let due = Due {
+            notice: true,
+            auto: false,
+            latest: "v0.2.0".into(),
+        };
+        let notice = notice_for(&due, true, "0.1.0", true).expect("notice");
+        assert!(
+            notice.ends_with(" — update with: brew upgrade fufu"),
+            "{notice}"
+        );
     }
 
     // ------------------------------------------------------------------

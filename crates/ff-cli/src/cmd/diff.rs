@@ -22,7 +22,6 @@ pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
     // operation is invisible until something captures it. Without this line
     // `ff diff` would report a clean tree on a file you just wrote — the
     // same bug `ff op diff` carried until 3b7a7fca.
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     let stat = ff_core::change_diff(&repo, &DiffOptions { hunks: true, paths })?;
 

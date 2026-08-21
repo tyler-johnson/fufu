@@ -12,7 +12,6 @@ use ff_core::{Result, TrimOptions};
 use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let report = ff_core::trim(

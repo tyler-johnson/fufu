@@ -3,8 +3,9 @@
 //! I leave that idea?".
 //!
 //! Capture still comes first, like every other verb: what retired is
-//! *typing* a snapshot, not taking one, and this command line is still the
-//! one that carries the auto-trim lane.
+//! *typing* a snapshot, not taking one. The auto-trim lane no longer rides
+//! this command line specially — the table on `Command` decides which
+//! command lines carry it, and this one is just a row in it.
 
 use ff_core::{Error, Result};
 
@@ -12,12 +13,10 @@ use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx, branches: Option<usize>, all: bool) -> Result<()> {
     // The past-state view is what `--at-op` would need here, and it does not
-    // exist yet; refuse before capturing, so a refused command writes nothing.
+    // exist yet.
     // Bare `ff` declares no `--at` flags today, so this cannot fire yet — it
     // is here so the day the root grows them the refusal is already correct.
     ctx.refuse_past("ff")?;
-    // Capture stays: bare `ff` captures first like every other verb.
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     let repo = ff_core::discover(".")?;
     // 0 means all; `--all` is the same wish spelled out.
     let limit = if all {
@@ -35,14 +34,6 @@ pub fn run(ctx: &Ctx, branches: Option<usize>, all: bool) -> Result<()> {
         crate::machine::emit("map", &map)?;
     } else {
         human(&repo, &map)?;
-    }
-    // The trailer is bare ff's, unchanged: auto-trim rides this command
-    // line, and dropping it would silently switch retention off.
-    crate::selfupdate::notify::maybe_spawn_check(&repo);
-    crate::autotrim::maybe_trim(&repo);
-    if let Some(notice) = crate::selfupdate::notify::pending(&repo, env!("CARGO_PKG_VERSION")) {
-        eprintln!("{notice}");
-        crate::selfupdate::notify::mark_notified();
     }
     Ok(())
 }

@@ -113,10 +113,9 @@ pub struct ForeignEntry {
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     // Rendering the two-row picture as of a past operation needs that
-    // operation's ref table threaded through `head_state` and `ref_target`;
-    // refuse before capturing, so a refused command writes nothing.
+    // operation's ref table threaded through `head_state` and `ref_target` —
+    // a past-state view that does not exist yet.
     ctx.refuse_past("ff status")?;
-    crate::capture::pre_best_effort(&crate::provenance::pre_ff(ctx));
     run_inner(ctx)
 }
 
