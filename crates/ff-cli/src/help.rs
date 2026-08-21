@@ -808,13 +808,14 @@ nothing, because saying it every time teaches people to stop reading.
 --json splits the line into fields — version, commit, date, and the update
 status — so a caller never takes the display string apart.
 
-`ff -v` prints the same two lines and stops: the flag answers what am I
-running, and the verb answers and should I still be.";
+There is one answer and two ways to type it: `ff -v` is the verb, spelled
+as a flag — it reads the update cache, says the \"available\" line, and takes
+--json exactly as the verb does.";
 
 pub const VERSION_EXAMPLES: &str = "\
 Examples:
   ff version                     the release, the build, the update lane
-  ff -v                          the same, without the update lane
+  ff -v                          the same, spelled as a flag
   ff version --json              the same, as fields";
 
 pub const UPDATE: &str = "\

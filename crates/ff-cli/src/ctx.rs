@@ -46,12 +46,15 @@ impl Ctx {
     /// at once.
     pub fn new(args: &Cli) -> Result<Self> {
         let env = std::env::var_os("FF_SESSION").map(|raw| raw.to_string_lossy().into_owned());
-        Self::resolve(
-            args.json,
-            args.session.as_deref(),
-            env.as_deref(),
-            &args.command,
-        )
+        // `ff -v` is the version verb spelled as a flag, so it settles as that
+        // verb and not as the map.
+        let synthesized = (args.version && args.command.is_none()).then_some(Command::Version);
+        let command = if synthesized.is_some() {
+            &synthesized
+        } else {
+            &args.command
+        };
+        Self::resolve(args.json, args.session.as_deref(), env.as_deref(), command)
     }
 
     /// All of `new` except reading the process environment, so the

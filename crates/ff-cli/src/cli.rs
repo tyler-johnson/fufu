@@ -9,10 +9,10 @@ use crate::help;
 /// what somebody searches for, and `ff` is not a searchable string.
 pub const NAME: &str = "fufu";
 
-/// What `ff -v` and `ff version` both print, minus the name clap prepends to
-/// one of them: the release, the commit it was built from, and the project's
-/// home under it. One constant, so the flag and the verb cannot answer the
-/// same question differently.
+/// What `ff -v` and `ff version` both print: the release, the commit it was
+/// built from, and the project's home under it. Both spellings go through the
+/// verb, which prepends the name by hand — clap no longer prints this. One
+/// constant, so the spellings cannot answer the same question differently.
 ///
 /// The URL comes from the manifest rather than from a literal here — there is
 /// already one place that records where this lives, and a second would be a
@@ -66,8 +66,8 @@ pub struct Cli {
     // the lowercase one first. `-V` is gone rather than kept as an alias: a
     // second spelling for a one-line answer is surface with no reader.
     /// Print the version and the commit it was built from
-    #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
-    pub version: Option<bool>,
+    #[arg(short = 'v', long = "version", action = clap::ArgAction::SetTrue)]
+    pub version: bool,
     /// Retired: the version flag is lowercase `-v`
     ///
     /// Declared only to stay hidden, on the same rule as `-m` and `--ops`:

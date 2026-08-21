@@ -7,9 +7,11 @@
 //! `--json` reports the version, the commit, and the build date as fields
 //! rather than as one line a caller has to take apart.
 //!
-//! `ff -v` prints the same two lines and stops. What the verb adds is the
-//! update lane: the flag answers "what am I running", and the verb answers
-//! "and should I still be".
+//! There is one answer now, and two ways to type it: `-v` is the verb,
+//! spelled as a flag. So the flag reads the update cache, prints the
+//! "available" line when there is one, rides the passive lane's auto-install,
+//! and takes `--json` for the same fields — the answer never changes with
+//! the spelling.
 
 use ff_core::Result;
 
@@ -43,9 +45,9 @@ pub fn run(ctx: &Ctx) -> Result<()> {
         return crate::machine::emit("version", &payload);
     }
 
-    // The same text `ff -v` prints, name and all, so the two spellings are
-    // diffable against each other rather than merely similar. clap prepends
-    // the name to its half; this does it by hand.
+    // The name goes on by hand. Nothing else prepends it any more — `-v`
+    // reaches this same line rather than clap's, which is what makes the two
+    // spellings one answer instead of two that have to be kept in step.
     println!("{} {}", crate::cli::NAME, crate::cli::VERSION);
 
     // Only news gets a second line. "Up to date" is the expected state, and a

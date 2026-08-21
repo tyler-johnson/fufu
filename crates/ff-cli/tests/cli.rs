@@ -1602,9 +1602,10 @@ fn version_names_the_build() {
     );
 }
 
-/// The three spellings of one question. `-v` and `ff version` must not be
-/// able to drift apart, and `-V` — what almost every other tool spells this —
-/// must be answered rather than met with clap's unknown-argument error.
+/// The three spellings of one question. `-v` is the verb itself, so it
+/// cannot drift from `ff version`, and `-V` — what almost every other tool
+/// spells this — must be answered rather than met with clap's
+/// unknown-argument error.
 #[test]
 fn the_version_is_asked_three_ways_and_answered_once() {
     let tmp = std::env::temp_dir();
@@ -1617,7 +1618,7 @@ fn the_version_is_asked_three_ways_and_answered_once() {
     }
 
     assert_eq!(stdout(&short), stdout(&long), "-v is --version");
-    // The verb may say more underneath, but its first line is the flag's line.
+    // The flag is the verb, so the spellings match line for line.
     let line = stdout(&long);
     assert!(
         stdout(&verb).starts_with(line.trim_end()),
@@ -1630,6 +1631,33 @@ fn the_version_is_asked_three_ways_and_answered_once() {
     assert!(!shouted.status.success(), "-V no longer prints a version");
     let err = String::from_utf8_lossy(&shouted.stderr).to_string();
     assert!(err.contains("ff -v"), "names the spelling: {err}");
+    assert!(err.contains("ff version"), "names the verb: {err}");
+}
+
+/// The envelope names the verb that ran. `ff -v --json` settles as the
+/// version verb and not as the map, so the flag cannot answer a different
+/// question from the verb it spells.
+#[test]
+fn the_version_flag_takes_the_envelope() {
+    let out = ff_at(&std::env::temp_dir(), &["-v", "--json"]);
+    assert!(out.status.success(), "exit 0: {:?}", out.status);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["ff"], 1);
+    assert_eq!(
+        v["cmd"], "version",
+        "the flag settled as the verb, not the map"
+    );
+    assert_eq!(v["data"]["version"], env!("CARGO_PKG_VERSION"));
+}
+
+/// The flag does not ride another verb: `-v status` is two commands on one
+/// line, refused with the two spellings that would each be right alone.
+#[test]
+fn the_version_flag_does_not_ride_another_verb() {
+    let out = ff_at(&std::env::temp_dir(), &["-v", "status"]);
+    assert_eq!(out.status.code(), Some(2), "usage error: {:?}", out.status);
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(err.contains("ff -v"), "names the flag: {err}");
     assert!(err.contains("ff version"), "names the verb: {err}");
 }
 

@@ -52,8 +52,17 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
     if args.version_shouted {
         return Err(ff_core::Error::coded(
             "usage/bad-flags",
-            "-V is not fufu's spelling: the version flag is lowercase, and the verb \
-             says more than the flag does",
+            "-V is not fufu's spelling: the version flag is lowercase, and it is the \
+             verb — the same answer either way",
+            vec!["ff -v".into(), "ff version".into()],
+        ));
+    }
+    // `-v` is the version verb spelled as a flag, and a verb does not ride
+    // another verb: both on one line is two commands, not a flag and its verb.
+    if args.version && args.command.is_some() {
+        return Err(ff_core::Error::coded(
+            "usage/bad-flags",
+            "-v is the version verb spelled as a flag; it does not ride another verb",
             vec!["ff -v".into(), "ff version".into()],
         ));
     }
@@ -115,14 +124,17 @@ fn main() {
 
     // The lanes are decided from the command line, before anything
     // dispatches, so every verb is in the table by construction. Bare `ff`
-    // is the map, and the map is a reader.
-    let lane_set = args
-        .command
-        .as_ref()
-        .map_or(cli::Lanes::READ, |cmd| cmd.lanes());
+    // is the map, and the map is a reader; bare `ff -v` is the version verb
+    // spelled as a flag, so it takes that verb's lane instead.
+    let lane_set = match args.command.as_ref() {
+        None if args.version => cli::Lanes::QUIET_UPDATE,
+        None => cli::Lanes::READ,
+        Some(cmd) => cmd.lanes(),
+    };
     let repo = lanes::preflight(&ctx, &lane_set);
 
     let result = match args.command {
+        None if args.version => cmd::version::run(&ctx),
         None => cmd::map::run(&ctx, args.branches, args.all),
         // Spelled out, the map takes its scope after its own name — which is
         // also why the root flags refuse to ride a verb.
