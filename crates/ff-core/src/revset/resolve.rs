@@ -43,7 +43,14 @@ pub struct Leaf {
     /// The short branch name, when the base canonicalized to
     /// `refs/heads/<name>` and no suffix followed. A suffix means the token
     /// no longer names that branch's tip, so it no longer earns the name.
+    ///
+    /// Local branches only, and deliberately: callers read this to mean "this
+    /// token names a branch that exists here", and a tracking ref does not.
     pub name: Option<String>,
+    /// The canonical ref the base resolved to, under the same no-suffix rule.
+    /// A superset of `name` — a tracking ref earns this and never earns that
+    /// — for the callers that want the ref rather than the local branch.
+    pub full_ref: Option<String>,
 }
 
 /// The canonical base — the only three shapes gix is ever shown.
@@ -75,6 +82,7 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
         return Ok(Leaf {
             rev: Rev::Open,
             name: None,
+            full_ref: None,
         });
     }
     // `@{…}` is gitrevisions, not fufu's `@`: `@{` is not a legal ref name,
@@ -112,13 +120,18 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
         return Err(op_in_rev_position(token));
     }
 
-    let name = match (&canonical, suffix.is_empty()) {
-        (Some(Base::Ref(full)), true) => full.strip_prefix("refs/heads/").map(str::to_string),
+    let full_ref = match (&canonical, suffix.is_empty()) {
+        (Some(Base::Ref(full)), true) => Some(full.clone()),
         _ => None,
     };
+    let name = full_ref
+        .as_deref()
+        .and_then(|full| full.strip_prefix("refs/heads/"))
+        .map(str::to_string);
     Ok(Leaf {
         rev: Rev::Commit(ops::CommitId::new(id)),
         name,
+        full_ref,
     })
 }
 

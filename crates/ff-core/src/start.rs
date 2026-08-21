@@ -35,9 +35,9 @@ struct ForkPoint {
     at: gix::ObjectId,
     /// A branch name when the fork point came from one, else a short sha.
     forked_from: String,
-    /// The local branch the user explicitly forked from, when the target
-    /// named one. `None` for a bare (trunk) start and for a target that
-    /// resolved to a bare commit.
+    /// The branch the user explicitly forked from, when the target named one
+    /// — local, or someone else's by way of a tracking ref. `None` for a bare
+    /// (trunk) start and for a target that resolved to a bare commit.
     parent: Option<String>,
 }
 
@@ -82,14 +82,21 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             // commit it landed on, in the spelling `ff log` prints. The
             // resolver decides which — it already knows whether the whole
             // expression was one branch's tip.
-            // `point.name` is already exactly a local branch name (None for
-            // a sha, tag, or compound expression); clone it before the match
-            // below consumes it.
-            let parent = point.name.clone();
-            let forked_from = match point.name {
-                Some(name) => name,
-                None => crate::sha::short_oid(at),
-            };
+            //
+            // `point.name` is exactly a *local* branch name; a tracking ref
+            // earns only `full_ref`, and it earns a name here too. Forking
+            // from someone else's branch records them as the parent, so the
+            // minted branch has a base to be measured against — shortened to
+            // `origin/feature`, which is how every report spells it.
+            let named = point.name.clone().or_else(|| {
+                point
+                    .full_ref
+                    .as_deref()
+                    .and_then(|full| full.strip_prefix("refs/remotes/"))
+                    .map(str::to_string)
+            });
+            let parent = named.clone();
+            let forked_from = named.unwrap_or_else(|| crate::sha::short_oid(at));
             Ok(ForkPoint {
                 at,
                 forked_from,
@@ -156,11 +163,20 @@ pub fn start(
 
     finish_with_description(repo, &name, opts, prov)?;
 
+    // The park line names where the change *was*, which is the switch's
+    // `from` and not the fork source: standing on `alpha` and forking from
+    // `main`, what got parked was alpha's.
+    let parked_from = switch_report
+        .parked
+        .is_some()
+        .then(|| switch_report.from.clone());
+
     Ok((
         StartReport {
             minted: name,
             forked_from: fork.forked_from,
             parked: switch_report.parked,
+            parked_from,
         },
         ctx,
     ))
@@ -307,6 +323,20 @@ mod tests {
                 fork.forked_from
             );
         }
+    }
+
+    /// Someone else's branch is a fork point with a name, and a parent: a
+    /// branch minted from a tracking ref has a base to be measured against,
+    /// where a short sha would have left it answering to trunk.
+    #[test]
+    fn a_tracking_ref_reports_and_records_the_remote_name() {
+        let (fx, sha) = one_commit();
+        fx.git(&["update-ref", "refs/remotes/origin/feature", &sha]);
+        let repo = fx.repo();
+        let fork = resolve_fork_point(&repo, Some("origin/feature")).expect("resolves");
+        assert_eq!(fork.at.to_string(), sha);
+        assert_eq!(fork.forked_from, "origin/feature");
+        assert_eq!(fork.parent.as_deref(), Some("origin/feature"));
     }
 
     /// The precedence this routing exists to delete: a name that is both a

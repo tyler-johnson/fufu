@@ -39,10 +39,11 @@ pub fn run(
 
     let colored = crate::pager::color_enabled();
 
-    if let Some(stash) = &report.parked {
+    // `parked_from`, never `forked_from`: what parked was the change open on
+    // the branch underfoot, which is not the branch this forked from.
+    if let (Some(stash), Some(from)) = (&report.parked, &report.parked_from) {
         println!(
-            "parked the open change on {} ({})",
-            report.forked_from,
+            "parked the open change on {from} ({})",
             crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }

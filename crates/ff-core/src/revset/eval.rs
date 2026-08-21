@@ -110,12 +110,13 @@ pub(super) enum Plan {
     },
 }
 
-/// A bound expression: the plan, plus the name the resolver used when the
-/// whole expression was one revision leaf. The name rides along because
-/// recomputing it would mean resolving that leaf a second time.
+/// A bound expression: the plan, plus what the resolver called the leaf when
+/// the whole expression was one. Both spellings ride along because
+/// recomputing either would mean resolving that leaf a second time.
 pub(super) struct Bound {
     pub plan: Plan,
     pub name: Option<String>,
+    pub full_ref: Option<String>,
 }
 
 /// Stage two. Resolves every leaf, raises every refusal, walks nothing.
@@ -125,11 +126,13 @@ pub(super) fn bind(repo: &gix::Repository, expr: &Expr) -> Result<Bound> {
         return Ok(Bound {
             plan: Plan::Set(vec![member_of(repo, leaf.rev)?]),
             name: leaf.name,
+            full_ref: leaf.full_ref,
         });
     }
     Ok(Bound {
         plan: plan_of(repo, expr)?,
         name: None,
+        full_ref: None,
     })
 }
 

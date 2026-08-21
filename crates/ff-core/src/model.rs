@@ -704,6 +704,10 @@ pub struct StartReport {
     pub forked_from: String,
     /// The stash sha the open change parked under, when the tree was dirty.
     pub parked: Option<String>,
+    /// The branch the parked change was open on — not the fork source, which
+    /// is a different branch whenever the target names one. `Some` exactly
+    /// when `parked` is: the two travel together.
+    pub parked_from: Option<String>,
 }
 
 /// One branch row for `ff branch`.

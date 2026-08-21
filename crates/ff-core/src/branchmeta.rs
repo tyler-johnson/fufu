@@ -41,8 +41,9 @@ pub struct BranchMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<String>,
     /// The branch this one was explicitly forked from, when `ff start` was
-    /// given a target that named a local branch. Display-only and advisory:
-    /// a parent that no longer resolves is simply ignored.
+    /// given a target that named a branch — local, or someone else's spelled
+    /// as a tracking ref (`origin/feature`). Advisory: a parent that no
+    /// longer resolves is simply ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
     /// Set iff this branch is an unfinished editing session.

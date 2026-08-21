@@ -265,6 +265,22 @@ pub(crate) fn ref_target(repo: &gix::Repository, name: &str) -> Result<Option<gi
     }
 }
 
+/// The ref a branch-ish name denotes, with its target: `refs/heads/<name>`
+/// first, then `refs/remotes/<name>`. Two lookups rather than gix's full
+/// partial-name ladder, because the callers here hold a name they already
+/// know is a branch's — someone else's counts, a tag does not.
+pub(crate) fn branchish(
+    repo: &gix::Repository,
+    name: &str,
+) -> Result<Option<(String, gix::ObjectId)>> {
+    for full in [format!("refs/heads/{name}"), format!("refs/remotes/{name}")] {
+        if let Some(id) = ref_target(repo, &full)? {
+            return Ok(Some((full, id)));
+        }
+    }
+    Ok(None)
+}
+
 /// Does this remote hold any tracking ref at all?
 ///
 /// The cheap half of "was there ever a shared copy here". A clone of a

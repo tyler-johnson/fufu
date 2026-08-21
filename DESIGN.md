@@ -211,14 +211,10 @@ fetched tip — no local trunk branch is required or created.
 
 **Someone else's branch.** Reviewing work that isn't yours is arriving at a
 branch that already exists — `ff switch`'s job, not `ff start`'s, which
-would fork a branch of your own beginning at their tip. The
-`<branch>@<remote>` spelling is both address and freshness request:
-`ff switch feature-x@origin` fetches, then lands you there. Switch may
-create a branch, never move one: a name that resolves only on the remote is
-fetched and created here, while a branch already local stays offline and
-untouched. `@<remote>` is the opt-in that permits moving it — fast-forwarding
-where the remote fully contains it, stopping to name the commits where it
-doesn't, rather than discarding work no snapshot took.
+forks a branch of your own beginning at their tip and records them as its
+base. Their branch is addressed the way git spells it, `origin/feature`: a
+tracking ref is what the last fetch left there, and fetching is `ff sync`'s
+job and `ff clone`'s, never an address's.
 
 **Branches without ceremony.** Every head is a real ref under `refs/heads/`
 from the moment it exists — HEAD never detaches, and branches auto-move as
@@ -454,7 +450,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff commit [<paths>]` | close the open change: commit the working tree (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); `<paths>` closes a slice and leaves the rest open, and the interactive form picks hunks — a slice cut from the stream, chosen at the close rather than kept between closes | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` names the branch you are on, petname or chosen alike, and is the only verb that does; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
 | `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
-| `ff switch <branch>[@<remote>]` | branch switch with tree memory; `@<remote>` fetches first and lands you on a synced copy | `stash` dances, `fetch` + `switch -c --track` |
+| `ff switch <branch>` | branch switch with tree memory | `stash` dances |
 | `ff branch <list\|delete>` | the bookkeeping left over once naming lives on `ff describe -b`: what exists, and taking one away — recorded, undoable, parked-entry-aware | `git branch` bookkeeping |
 | `ff absorb [<paths>]` | fold working changes into a past commit — `HEAD`, or `--into <rev>` — and restack its descendants in memory | `commit --fixup` + `rebase -i --autosquash` |
 | `ff lift [<paths>]` | the counterpart: take changes back out of a past commit (`HEAD`, or `--from <rev>`) into the open change, restacking descendants. Only ownership moves; no file does | nothing |
@@ -607,7 +603,7 @@ Exit codes carry the same verdict at shell resolution: **0** done, or yes; **1**
 
 Tagged operations need not be contiguous. Two agents working at once interleave, and a session is the *set* of operations carrying its tag, never the range between two points. Filtering is the whole purpose (`ff op log 'session(<id>)'`): it buys a question nothing answers today — what did that entire stretch of work change? — and staying a tag is what leaves room to grow later, instead of committing now to boundaries the model would then have to defend. Setting a session is a flag; asking about one is the grammar. `--session` and `FF_SESSION` say what to *tag* — an instruction about what happens next, which no expression can carry — while `session(<name>)` selects the operations already carrying a tag, and rides the same language everything else does. The two never overlap, which is why the flag does not double as a filter: one word doing both jobs would leave `ff op log --session x` ambiguous about whether it was narrowing the log or labelling the capture it takes on the way in. The id rides a trailer on the operation's commit — git objects, legible to anyone who reads them — with a per-repo index as the usual rebuildable cache.
 
-**Two address spaces, and only two.** History has revisions; the log of what fufu did has operations. They never mix in one argument. A revision is a commit sha, a branch name including an anonymous one, a tag, `<branch>@<remote>`, `@` for the open change, `trunk`, or any of those wearing a git suffix. An operation is a letters-spelled id or `@`, and it appears in exactly two places: as the argument to an `ff op` verb, and after `--at-op`.
+**Two address spaces, and only two.** History has revisions; the log of what fufu did has operations. They never mix in one argument. A revision is a commit sha, a branch name including an anonymous one — a tracking ref is already a branch name in git's spelling — a tag, `@` for the open change, `trunk`, or any of those wearing a git suffix. An operation is a letters-spelled id or `@`, and it appears in exactly two places: as the argument to an `ff op` verb, and after `--at-op`.
 
 **One grammar spans both spaces.** Operations are commits, so the set language reads them too — the same operators, the same functions, over operations instead of over history. What does not carry across is what has nothing to name: no branches, no tags, no `trunk`. `@` is spelled alike in both and means the same thing in each, the newest thing there is.
 

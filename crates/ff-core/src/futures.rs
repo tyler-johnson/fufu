@@ -337,18 +337,28 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>>
         return Ok(None);
     }
 
-    // 1. An explicitly recorded parent, when it still resolves.
+    // 1. An explicitly recorded parent, when it still resolves — by ref and
+    // displayed by name, because a parent may be someone else's branch and a
+    // tracking ref is where that one lives. Hardcoding `refs/heads/` here
+    // would drop it silently to trunk, the same shape as the trunk bug this
+    // file already carries a paragraph about.
+    //
+    // One parent is refused rather than reported: the base axis and the
+    // remote axis must never aim at the same ref. That is reachable only
+    // when a minted branch is later renamed onto the name it forked from —
+    // `ff start origin/x` then `ff describe -b x` — whose own tracking ref is
+    // then the parent it recorded.
     let meta = crate::branchmeta::read(repo, branch)?;
-    if let Some(parent) = meta.parent.filter(|p| p != branch) {
-        let full_ref = format!("refs/heads/{parent}");
-        if let Some(tip) = crate::refs::ref_target(repo, &full_ref)? {
-            return Ok(Some(SyncRef {
-                name: parent,
-                r#ref: full_ref,
-                tip: tip.to_string(),
-                role: Role::Parent,
-            }));
-        }
+    if let Some(parent) = meta.parent.filter(|p| p != branch)
+        && let Some((full_ref, tip)) = crate::refs::branchish(repo, &parent)?
+        && !remote_for(repo, branch)?.is_some_and(|own| own.r#ref == full_ref)
+    {
+        return Ok(Some(SyncRef {
+            name: parent,
+            r#ref: full_ref,
+            tip: tip.to_string(),
+            role: Role::Parent,
+        }));
     }
 
     // 2. Trunk is the base unless it is the branch underfoot, in which case

@@ -76,6 +76,36 @@ fn bare_forks_trunk_and_opens_clean() {
     assert!(report.parked.is_some());
 }
 
+/// The park line names the branch the change was open on, which is not the
+/// branch the fork came from: standing on `feature` and forking trunk parks
+/// feature's work. `main` in the assertion is what the old code said.
+#[test]
+fn the_park_names_the_branch_the_change_was_on() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["branch", "feature"]);
+    fx.git(&["checkout", "-q", "feature"]);
+    ident(&fx);
+    fx.write("a.txt", "dirty on feature\n");
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+
+    assert!(report.parked.is_some(), "a dirty tree parks");
+    assert_eq!(report.forked_from, "main", "the fork came from trunk");
+    assert_eq!(
+        report.parked_from.as_deref(),
+        Some("feature"),
+        "the park was of feature's work, whatever the fork source was"
+    );
+}
+
 #[test]
 fn bare_parks_the_open_change_retrievably() {
     let fx = Fixture::new();

@@ -425,6 +425,85 @@ fn a_parent_that_no_longer_resolves_falls_through_to_trunk() {
     );
 }
 
+/// A parent may be someone else's branch, which lives on a tracking ref: the
+/// parent is resolved by ref and displayed by name, so `ff status` says
+/// `base origin/feature` rather than falling through to trunk in silence.
+#[test]
+fn a_tracking_ref_parent_is_a_base() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    let root = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &root]);
+    fx.git(&["branch", "mine"]);
+    ff_core::branchmeta::write(
+        &fx.repo(),
+        "mine",
+        &ff_core::branchmeta::BranchMeta {
+            parent: Some("origin/feature".into()),
+            ..Default::default()
+        },
+    )
+    .expect("write metadata");
+    let got = futures::base_for(&fx.repo(), "mine")
+        .expect("base_for")
+        .expect("a base");
+    assert_eq!(
+        got,
+        futures::SyncRef {
+            name: "origin/feature".into(),
+            r#ref: "refs/remotes/origin/feature".into(),
+            tip: root,
+            role: Role::Parent,
+        }
+    );
+}
+
+/// The one thing the old local-only rule was protecting: the base axis and
+/// the remote axis must never aim at one ref. Reachable only by renaming a
+/// minted branch onto the name it forked from — `ff start origin/feature`
+/// then `ff describe -b feature` — after which `origin/feature` is both the
+/// recorded parent and this branch's own shared copy.
+#[test]
+fn a_parent_that_is_this_branchs_own_remote_is_not_a_base() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    let root = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &root]);
+    fx.git(&["branch", "feature"]);
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    fx.git(&["config", "branch.feature.remote", "origin"]);
+    fx.git(&["config", "branch.feature.merge", "refs/heads/feature"]);
+    ff_core::branchmeta::write(
+        &fx.repo(),
+        "feature",
+        &ff_core::branchmeta::BranchMeta {
+            parent: Some("origin/feature".into()),
+            ..Default::default()
+        },
+    )
+    .expect("write metadata");
+    let got = futures::base_for(&fx.repo(), "feature")
+        .expect("base_for")
+        .expect("a base");
+    assert_eq!(
+        got,
+        futures::SyncRef {
+            name: "main".into(),
+            r#ref: "refs/heads/main".into(),
+            tip: tip(&fx, "main").to_string(),
+            role: Role::Trunk,
+        },
+        "the collided parent is dropped, and trunk is the base underneath it"
+    );
+}
+
 #[test]
 fn a_branch_measures_against_trunk() {
     let fx = Fixture::new();

@@ -69,8 +69,14 @@ pub struct Revset {
 pub struct Point {
     pub rev: Rev,
     /// The short branch name, when the whole expression was one revision leaf
-    /// that canonicalized to `refs/heads/<name>`. `None` otherwise.
+    /// that canonicalized to `refs/heads/<name>`. `None` otherwise — a
+    /// tracking ref included, so a caller reading this reads "a branch that
+    /// exists here".
     pub name: Option<String>,
+    /// The canonical ref that leaf resolved to, tracking refs and tags
+    /// included. `None` under the same conditions `name` is, minus the
+    /// local-branch narrowing.
+    pub full_ref: Option<String>,
 }
 
 impl Revset {
@@ -122,6 +128,7 @@ impl Revset {
         Ok(Point {
             rev: first.rev,
             name: bound.name,
+            full_ref: bound.full_ref,
         })
     }
 }

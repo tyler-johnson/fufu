@@ -406,10 +406,12 @@ pub fn restack_with(
             onto_from(repo, &sync_ref)?
         }
     };
-    // Only a local branch can be written down as a base, and only `--onto`
-    // asks for one to be: the bare verb replays onto the base already
-    // recorded, and `ff sync`'s remote axis aims at a tracking ref that must
-    // never become a parent.
+    // Only `--onto` asks for a base to be written down: the bare verb replays
+    // onto the base already recorded, which `ff start` wrote and which may
+    // name someone else's branch. What survives of the old local-only rule is
+    // narrower and still load-bearing — the base axis and the remote axis
+    // must never aim at the same ref — and `--onto` keeps it by resolving
+    // branches by name through its own path, which refuses a tracking ref.
     let reaimed = reaim_requested && base.local;
     let base_tip = base.tip;
     let base_name = base.name.clone();

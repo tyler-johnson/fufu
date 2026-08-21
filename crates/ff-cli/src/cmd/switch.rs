@@ -139,10 +139,11 @@ fn switch_to_a_revision(ctx: &Ctx, repo: &ff_core::gix::Repository, target: Stri
     }
 
     let colored = crate::pager::color_enabled();
-    if let Some(stash) = &report.parked {
+    // The same pairing `ff start` prints: what parked was the change open on
+    // the branch underfoot, never the revision this forked at.
+    if let (Some(stash), Some(from)) = (&report.parked, &report.parked_from) {
         println!(
-            "parked the open change on {} ({})",
-            report.forked_from,
+            "parked the open change on {from} ({})",
             crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }

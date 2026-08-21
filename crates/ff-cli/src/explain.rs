@@ -26,9 +26,9 @@ pub static ENTRIES: &[Entry] = &[
         id: "branch/not-found",
         summary: "no branch here goes by that name",
         detail: "Names resolve against local branches, so a branch that exists on the remote but \
-                 not here will not be found. Adding @<remote> fetches it and lands you on a copy. \
-                 ff branch list says what is local.",
-        exits: &["ff branch list", "ff switch <branch>@origin"],
+                 not here will not be found. Its tracking ref does have a name — origin/<branch> \
+                 — and ff start forks your own branch from it. ff branch list says what is local.",
+        exits: &["ff branch list", "ff start origin/<branch>"],
     },
     Entry {
         id: "branch/ambiguous",
