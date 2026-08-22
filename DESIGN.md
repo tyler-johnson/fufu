@@ -659,9 +659,9 @@ semantics; fufu chooses the execution per call-site.**
   cached by (base, ours, theirs), so futures recompute only when a ref moves.
 - **Writes climb a ladder as trust grows.** Object writes (capture snapshots,
   stash entries) go native early — jog-proven territory. Disk-materializing
-  operations (checkout through filters, rebase, fetch/push with auth) start on
-  the git binary and go native as coverage earns it.
-- **The wire is the first rung climbed.** `ff clone` speaks the git protocol itself — gix's blocking transport over reqwest and rustls — so the negotiation, the pack and the checkout all happen in-process, and nothing shells out to `git clone`. What it still reaches outside the process for is git's *configuration and authentication* surface rather than its porcelain: one `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the installation config are honored rather than ignored; a credential helper when a remote asks for auth; and `ssh` for an ssh URL. That is the same trade `ff sync`'s fetch and `ff publish`'s push already make — inherit git's credential surface whole rather than reimplement it — moved one layer down, and it is the rung those two climb next when they earn it. `ff init` reaches nothing at all.
+  operations (checkout through filters, rebase, push with auth) start on the
+  git binary and go native as coverage earns it.
+- **The wire is climbed, except for sending.** `ff clone` and `ff sync`'s fetch speak the git protocol themselves — gix's blocking transport over reqwest and rustls — so the negotiation, the pack and clone's checkout happen in-process, and no porcelain is spawned to do it. What they still reach outside the process for is git's *configuration and authentication* surface rather than its porcelain: one `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the installation config are honored rather than ignored; a credential helper when a remote asks for auth; `ssh` for an ssh URL; and `git-upload-pack` for a filesystem remote, because a local transport *is* a spawned upload-pack, in git no less than here. Native is therefore a claim about the protocol and the porcelain, not about the process table: over http(s) the whole conversation is fufu's. `ff publish`'s push is the one that stays spawned, and not for want of trust — gix speaks the half of the protocol that receives a pack and nothing that sends one, so there is no rung there to climb yet. `ff init` reaches nothing at all.
 - **Differential testing is the compatibility contract.** Every native
   operation is checked against git-binary output in CI, permanently. A native
   merge that differs from git's by one edge case silently breaks the invariant;
@@ -880,10 +880,11 @@ cannot then publish leaves the branch diverged behind a plain `git push` that
 fails, which is the footgun the verb exists to delete.)
 The tool becomes recommendable to someone who isn't its author.
 
-**Phase 6 — Git-free.** The long tail moves native — fetch/push, checkout
-through filters, hooks exec'd by fufu — until the git binary is an optional
-neighbor rather than a dependency. Done when a machine with only `ff` on it is
-a working development machine.
+**Phase 6 — Git-free.** The long tail moves native — push, checkout through
+filters, hooks exec'd by fufu — until the git binary is an optional neighbor
+rather than a dependency. Fetch landed early, with clone; push waits on gix
+growing a send-pack, which is the one item here fufu cannot finish alone. Done
+when a machine with only `ff` on it is a working development machine.
 
 ## Open questions
 

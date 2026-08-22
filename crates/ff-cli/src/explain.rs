@@ -782,14 +782,14 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
-        id: "sync/no-git",
-        summary: "git is not on PATH, and reaching the network still needs it",
-        detail: "Reads and rewrites are native, but the fetch behind ff sync and the push \
-                 behind ff publish are still spawned: that is where a repository's credential \
-                 helpers live, and reimplementing them would be a worse answer than borrowing \
-                 git's. Everything sync does locally works without it, so --no-fetch still \
-                 reconciles with what you already have.",
-        exits: &["ff sync --no-fetch", "ff doctor"],
+        id: "publish/no-git",
+        summary: "git is not on PATH, and pushing still needs it",
+        detail: "Reads, rewrites, and now the fetch behind ff sync all run in this process. The \
+                 push behind ff publish does not: gix speaks the half of the git protocol that \
+                 receives a pack and nothing that sends one, so there is no native push to use \
+                 yet. Everything else works without git on PATH — your commits are safe here \
+                 either way, and they are what a later publish sends.",
+        exits: &["ff git push", "ff doctor"],
     },
     Entry {
         id: "sync/fetch-failed",

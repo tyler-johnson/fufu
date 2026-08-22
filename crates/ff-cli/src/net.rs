@@ -1,34 +1,33 @@
 //! The network lane. Two shapes live here, and they are not the same shape.
 //!
-//! `fetch` and `push` spawn the git binary, one call at a time. The write
-//! ladder in DESIGN keeps them there until native coverage earns them, and a
-//! sanctioned spawn inherits git's credential helpers whole — every SSH
-//! agent, every `gh auth`, every corporate helper — which is not a thing to
-//! reimplement for free. This is the counterpart to `ff trim`'s `gc --auto`,
-//! the other sanctioned spawn, and it differs in one way: a fetch or a push
-//! that fails is not best-effort. It is reported, with a coded error.
+//! `fetch` and `clone` speak the git protocol themselves — gix's blocking
+//! transport over reqwest and rustls — so the negotiation and the pack happen
+//! inside this process, and clone's checkout with them. What they still reach
+//! outside for is git's *configuration and authentication* surface rather
+//! than its porcelain: one `git config -l` per process (without which
+//! `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the
+//! installation config would all be ignored — exactly the settings that make
+//! a fetch work behind a corporate proxy), a credential helper when a remote
+//! asks for auth, and `ssh` for an ssh URL. Inherit git's credential surface
+//! whole rather than reimplement it.
 //!
-//! `clone` is the first rung up that ladder. fufu speaks the git protocol
-//! itself there — gix's blocking transport over reqwest and rustls — so the
-//! negotiation, the pack, and the checkout all happen inside this process.
-//! What it still reaches outside for is git's *configuration and
-//! authentication* surface rather than its porcelain: one `git config -l` per
-//! process (without which `url.<base>.insteadOf`, `http.proxy` and
-//! `credential.helper` from the installation config would all be ignored —
-//! exactly the settings that make a clone work behind a corporate proxy), a
-//! credential helper when a remote asks for auth, and `ssh` for an ssh URL.
-//! That is the same trade the two spawns above state, made one layer lower:
-//! inherit git's credential surface whole rather than reimplement it.
+//! `push` still spawns the git binary, one call at a time, and not because
+//! the ladder has not reached it: gix ships the fetch half of the protocol
+//! and nothing that sends a pack, so there is no native push to climb to.
+//! That is a fact about the dependency, worth writing down so nobody
+//! rediscovers it. The spawn is the counterpart to `ff trim`'s `gc --auto`,
+//! the other sanctioned one, and differs in a way that matters: a push that
+//! fails is not best-effort. It is reported, with a coded error.
 //!
 //! So "native" here is a claim about the protocol, not about the process
 //! table, and `tests/zero_spawn.rs` says the same thing in its preamble.
 
 use ff_core::{Error, Publish, Result};
 
-/// Run one `git` invocation, capturing stderr so a failure can be classified
-/// rather than merely observed. Progress bars are the only thing capturing
-/// costs — git draws none when stderr is not a terminal, and its summary
-/// lines come through either way.
+/// Run one `git` invocation — `push` and nothing else now — capturing stderr
+/// so a failure can be classified rather than merely observed. Progress bars
+/// are the only thing capturing costs: git draws none when stderr is not a
+/// terminal, and its summary lines come through either way.
 fn run(cwd: &std::path::Path, args: &[&str]) -> Result<Run> {
     let output = std::process::Command::new("git")
         .current_dir(cwd)
@@ -38,9 +37,10 @@ fn run(cwd: &std::path::Path, args: &[&str]) -> Result<Run> {
         .output()
         .map_err(|_| {
             Error::coded(
-                "sync/no-git",
-                "git is not on PATH, and fufu still spawns it to fetch and push",
-                vec!["ff sync --no-fetch".into()],
+                "publish/no-git",
+                "git is not on PATH, and fufu still spawns it to push — \
+                 fetching no longer needs it",
+                vec!["ff git push".into()],
             )
         })?;
     Ok(Run {
@@ -58,25 +58,67 @@ struct Run {
     stderr: String,
 }
 
-/// `git fetch <remote>` — every branch, no refspec and no `--prune`. Sync's
-/// job is the branch underfoot, and quietly deleting every stale tracking ref
-/// in the repository is a repository-wide mutation nobody asked this verb for.
+/// The repository as the wire needs it: git's own configuration and
+/// authentication surface switched on.
+///
+/// Every other verb opens through `ff_core::discover`, which leaves
+/// `git_binary` off and so never reaches outside this process — that is what
+/// `tests/zero_spawn.rs` proves, and it must keep being true. The wire is the
+/// one place where ignoring git's installation config would be wrong rather
+/// than merely different: `url.<base>.insteadOf`, `http.proxy` and
+/// `credential.helper` live there, and a fetch that skipped them would fail
+/// exactly where a corporate proxy or a credential helper is the thing making
+/// it work. So this handle costs one `git config -l` per process, which is
+/// the trade `ff clone` already makes one function down.
+fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
+    let mut options = gix::open::Options::default();
+    options.permissions.config.git_binary = true;
+    gix::open_opts(cwd, options).map_err(|err| {
+        Error::coded(
+            "sync/fetch-failed",
+            format!("could not open the repository to fetch from: {err}"),
+            vec!["ff doctor".into()],
+        )
+    })
+}
+
+/// Fetch from `remote` — every branch its configured refspecs name, no
+/// `--prune`. Sync's job is the branch underfoot, and quietly deleting every
+/// stale tracking ref in the repository is a repository-wide mutation nobody
+/// asked this verb for.
+///
+/// Native since the rung was climbed: the negotiation and the pack happen in
+/// this process, over the same blocking transport `ff clone` uses. What is
+/// still borrowed from git is its config and credential surface, which
+/// [`wire_repo`] explains — so this is a claim about the protocol, not about
+/// the process table.
 pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
-    let run = run(cwd, &["fetch", remote])?;
-    if run.ok {
-        return Ok(());
-    }
-    Err(Error::coded(
-        "sync/fetch-failed",
-        format!(
-            "git fetch {remote} failed: {}",
-            first_useful_line(&run.stderr)
-        ),
-        vec![
-            format!("ff git fetch {remote}"),
-            "ff sync --no-fetch".into(),
-        ],
-    ))
+    let repo = wire_repo(cwd)?;
+    let failed = |err: &dyn std::error::Error| {
+        Error::coded(
+            "sync/fetch-failed",
+            format!(
+                "fetching from {remote} failed: {}",
+                first_useful_line(&chain(err))
+            ),
+            vec![
+                format!("ff git fetch {remote}"),
+                "ff sync --no-fetch".into(),
+            ],
+        )
+    };
+
+    let remote_handle = repo.find_remote(remote).map_err(|err| failed(&err))?;
+    let connection = remote_handle
+        .connect(gix::remote::Direction::Fetch)
+        .map_err(|err| failed(&err))?;
+    let prepared = connection
+        .prepare_fetch(gix::progress::Discard, Default::default())
+        .map_err(|err| failed(&err))?;
+    prepared
+        .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
+        .map_err(|err| failed(&err))?;
+    Ok(())
 }
 
 /// `git push`, in the one of two shapes the plan calls for. A branch with no

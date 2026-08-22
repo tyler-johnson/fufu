@@ -89,6 +89,26 @@ fn ff_trapped(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
         .expect("spawn ff")
 }
 
+/// Like [`ff_trapped`], but with the real PATH still behind the trap, so
+/// `git` resolves to the booby trap while helper binaries under other names
+/// — `git-upload-pack`, which every local transport spawns — still resolve.
+/// For verbs where the question is *which* git invocation happens rather than
+/// whether any does.
+fn ff_trapped_keeping_path(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
+    let real = std::env::var("PATH").unwrap_or_default();
+    let path = format!("{}:{real}", trap.bin.display());
+    Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(dir)
+        .args(args)
+        .env("PATH", path)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env_remove("CI")
+        .output()
+        .expect("spawn ff")
+}
+
 #[test]
 fn status_and_log_never_spawn() {
     let fx = Fixture::new();
@@ -593,13 +613,22 @@ fn sync_without_the_network_never_spawns() {
     );
 }
 
-/// Sync's fetch is a sanctioned spawn, the mirror of
-/// hook_exec_is_a_sanctioned_spawn_and_distinguished: what makes it
-/// sanctioned rather than a leak is that it is named — the trap proves the
-/// only process fufu started was the one the verb exists to start. Publish's
-/// push is the other one, and it is now a different verb entirely.
+/// Sync's fetch used to be a sanctioned spawn — a named `git fetch origin`,
+/// and this test proved it was the *only* process fufu started. The rung is
+/// climbed, so the contract inverts: no porcelain runs, and a remote fufu
+/// cannot reach fails as fufu's own coded error rather than as git's exit
+/// code read back through stderr.
+///
+/// Nothing at all is spawned here, config read included: the trapped
+/// environment pins `GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM`, so there
+/// is no installation config left for `git_binary` to go asking about. The
+/// case where it does ask is `a_fetch_speaks_the_protocol_itself`, which is
+/// also the case where a fetch has somewhere real to aim.
+///
+/// Publish's push remains the sanctioned spawn, and is now a different verb
+/// entirely — gix sends no packs, so there is nothing to climb to.
 #[test]
-fn syncs_fetch_is_a_named_sanctioned_spawn() {
+fn syncs_fetch_fails_natively_and_spawns_nothing() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
@@ -620,22 +649,22 @@ fn syncs_fetch_is_a_named_sanctioned_spawn() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     let trap = build_trap();
-    // The fake git logs its argv and exits 1, so the fetch cannot run.
     let out = ff_trapped(&trap, &fx.path(), &["sync"]);
     assert!(
         !out.status.success(),
-        "a fetch that could not run is not a sync that succeeded: {}",
+        "a remote that is not there is not a sync that succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(trap.log.exists(), "the sanctioned fetch spawned git");
-    let logged = std::fs::read_to_string(&trap.log).unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        logged.contains("fetch origin"),
-        "the sanctioned spawn is the named call: {logged:?}"
+        stderr.contains("fetching from origin failed"),
+        "the failure is fufu's own, not git's read back: {stderr}"
     );
-    // One named call, and no second process hiding behind it.
-    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert_eq!(lines.len(), 1, "nothing besides fetch origin: {logged:?}");
+    assert!(
+        !trap.log.exists(),
+        "the fetch spawned git: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
 }
 
 /// Publish's push is the other sanctioned spawn, and the only one it has:
@@ -692,4 +721,72 @@ fn recording_the_push_adds_no_second_spawn() {
     let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
     assert!(lines[0].contains("push"), "{logged:?}");
+}
+
+/// The fetch behind `ff sync` runs the protocol itself: a commit that has
+/// never existed in this repository arrives while every `git` invocation
+/// fails.
+///
+/// Two things are deliberately *not* asserted, and both are the honest shape
+/// of the claim rather than slack in the test.
+///
+/// `git config -l` still runs: `net::wire_repo` opens with `git_binary` on,
+/// without which `url.insteadOf`, `http.proxy` and `credential.helper` would
+/// be ignored — exactly where a fetch behind a corporate proxy stops working.
+///
+/// And the real `git-upload-pack` is left reachable on PATH, because this
+/// fixture's remote is a filesystem path, and a local transport *is* a spawned
+/// upload-pack — in git as much as in gix. The in-process case is http(s),
+/// where gix's reqwest/rustls transport carries the whole conversation. So
+/// what this proves is the thing that changed: no `git fetch` porcelain runs,
+/// and the negotiation and pack are fufu's own. `ff clone` has the same shape.
+#[test]
+fn a_fetch_speaks_the_protocol_itself() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+
+    // A second clone is where the commit this repository has never seen comes
+    // from — a bare remote has no worktree to make one in.
+    let other = fx.root().join("other");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &other.to_string_lossy(),
+        ],
+    );
+    fx.git_in(&other, &["config", "user.name", "Other"]);
+    fx.git_in(&other, &["config", "user.email", "other@spawn.test"]);
+    std::fs::write(other.join("b.txt"), "b\n").unwrap();
+    fx.git_in(&other, &["add", "-A"]);
+    fx.git_in(&other, &["commit", "-q", "-m", "theirs"]);
+    fx.git_in(&other, &["push", "-q", "origin", "main"]);
+    let theirs = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
+    assert!(
+        fx.try_git(&["cat-file", "-e", &theirs]).status.code() != Some(0),
+        "test fixture: the commit must be one this repository has never seen"
+    );
+
+    let trap = build_trap();
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    assert!(
+        out.status.success(),
+        "ff sync failed under trap PATH: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
+        theirs,
+        "the tracking ref must carry what the remote advertised"
+    );
+
+    let log = std::fs::read_to_string(&trap.log).unwrap_or_default();
+    assert!(
+        !log.contains("fetch"),
+        "the fetch was spawned rather than spoken: {log}"
+    );
 }
