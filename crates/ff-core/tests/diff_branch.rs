@@ -334,3 +334,151 @@ fn petnames_mint_unused_names() {
     assert_ne!(name, second);
     let _ = head;
 }
+
+#[test]
+fn rename_carries_the_upstream_like_git_branch_m() {
+    let make = || {
+        let fx = Fixture::new();
+        fx.write("a.txt", "a\n");
+        fx.commit("one");
+        fx.git(&["checkout", "-q", "-b", "side"]);
+        ident(&fx);
+        fx.set_config("branch.side.remote", "origin");
+        fx.set_config("branch.side.merge", "refs/heads/side");
+        fx
+    };
+    let ours = make();
+    let control = make();
+
+    let repo = ours.repo();
+    ff_core::branch::rename(&repo, "side", "renamed", NOW).unwrap();
+    control.git(&["branch", "-m", "side", "renamed"]);
+
+    // fufu appends the renamed section where git renames it in place, so
+    // file order may differ — this is about the content carried, not the
+    // layout; compare sorted.
+    let lines = |fx: &Fixture| -> Vec<String> {
+        let mut lines: Vec<String> = fx
+            .git(&["config", "--get-regexp", r"^branch\."])
+            .lines()
+            .map(str::to_string)
+            .collect();
+        lines.sort();
+        lines
+    };
+    assert_eq!(
+        lines(&ours),
+        lines(&control),
+        "same upstream carried across the rename"
+    );
+    let ours_lines = lines(&ours);
+    assert!(ours_lines.contains(&"branch.renamed.remote origin".into()));
+    assert!(
+        ours_lines.contains(&"branch.renamed.merge refs/heads/side".into()),
+        "merge names the remote side, which this rename did not touch"
+    );
+    assert!(
+        !ours_lines.iter().any(|l| l.ends_with("refs/heads/renamed")),
+        "merge not rewritten to the new name"
+    );
+    assert!(
+        !ours_lines.iter().any(|l| l.starts_with("branch.side.")),
+        "no stale section under the old name"
+    );
+}
+
+#[test]
+fn rename_replaces_a_stale_section_under_the_new_name() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    ident(&fx);
+    fx.set_config("branch.side.remote", "origin");
+    fx.set_config("branch.side.merge", "refs/heads/side");
+    // A leftover section under the new name: rename already refused a
+    // branch of that name, so it can only be stale config.
+    fx.set_config("branch.renamed.remote", "ghost");
+
+    let repo = fx.repo();
+    ff_core::branch::rename(&repo, "side", "renamed", NOW).unwrap();
+
+    let remotes = fx.git(&["config", "--get-all", "branch.renamed.remote"]);
+    let lines: Vec<&str> = remotes.lines().collect();
+    assert_eq!(
+        lines,
+        vec!["origin"],
+        "stale section replaced, no duplicate key"
+    );
+}
+
+#[test]
+fn rename_without_an_upstream_leaves_the_config_untouched() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    ident(&fx);
+    let config = fx.path().join(".git/config");
+    let before = std::fs::read(&config).unwrap();
+
+    let repo = fx.repo();
+    ff_core::branch::rename(&repo, "side", "renamed", NOW).unwrap();
+
+    assert_eq!(
+        std::fs::read(&config).unwrap(),
+        before,
+        "no upstream, no write"
+    );
+}
+
+#[test]
+fn a_renamed_branch_keeps_its_remote_axis() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    ident(&fx);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.side.remote", "origin");
+    fx.set_config("branch.side.merge", "refs/heads/side");
+    fx.git(&["update-ref", "refs/remotes/origin/side", &sha]);
+
+    let repo = fx.repo();
+    ff_core::branch::rename(&repo, "side", "renamed", NOW).unwrap();
+
+    // A fresh handle: gix serves the config it had at open time, so the
+    // old one would not see the rename's write.
+    let repo = fx.repo();
+    let remote = ff_core::futures::remote_for(&repo, "renamed")
+        .unwrap()
+        .expect("the renamed branch kept its remote axis");
+    assert_eq!(remote.r#ref, "refs/remotes/origin/side");
+}
+
+/// `branch.<n>.merge` is legitimately multi-valued — git spells an octopus
+/// upstream as repeated keys — and the section move has to carry the values
+/// once each. Collecting names per occurrence and values per name squares
+/// them, which is what this pins.
+#[test]
+fn rename_carries_a_multi_valued_key_once() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    ident(&fx);
+    fx.set_config("branch.side.remote", "origin");
+    fx.set_config("branch.side.merge", "refs/heads/one");
+    fx.git(&["config", "--add", "branch.side.merge", "refs/heads/two"]);
+
+    let repo = fx.repo();
+    ff_core::branch::rename(&repo, "side", "renamed", NOW).unwrap();
+
+    let merges: Vec<String> = fx
+        .git(&["config", "--get-all", "branch.renamed.merge"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges, vec!["refs/heads/one", "refs/heads/two"]);
+}

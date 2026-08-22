@@ -80,9 +80,9 @@ pub struct RenameEffects {
     pub head_moved: Option<(String, String)>,
 }
 
-/// Rename `old` to `new`, carrying the snap chain, parked entry, and
-/// metadata. This is the mechanism beneath `ff describe -b` and the `-b`
-/// placeholder claims on `ff commit` and `ff start`.
+/// Rename `old` to `new`, carrying the snap chain, parked entry, metadata,
+/// and the branch's upstream. This is the mechanism beneath `ff describe -b`
+/// and the `-b` placeholder claims on `ff commit` and `ff start`.
 pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<RenameEffects> {
     validate_name(new)?;
     let old_ref = heads_ref(old);
@@ -176,7 +176,11 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
     // 5. Metadata file follows.
     crate::branchmeta::rename(repo, old, new)?;
 
-    // 6. Old branch ref goes last: a crash anywhere above leaves both
+    // 6. The branch's upstream follows: git's own rename carries this
+    //    section, and fufu's used to drop it.
+    crate::snapshot::config::rename_branch_section(repo, old, new)?;
+
+    // 7. Old branch ref goes last: a crash anywhere above leaves both
     //    names resolvable.
     refs::delete_ref(repo, &old_ref, target, now)?;
     effects.transitions.push(RefTransition {

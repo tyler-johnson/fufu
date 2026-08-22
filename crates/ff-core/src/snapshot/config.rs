@@ -146,6 +146,61 @@ pub fn force_gc_config(repo: &gix::Repository) -> Result<()> {
     write_config_file(&path, &file)
 }
 
+/// Carry a branch's upstream across a rename: the `[branch "<old>"]`
+/// section's keys and values move verbatim to `[branch "<new>"]` and the
+/// old section is removed, so nothing is left naming a branch that no
+/// longer exists. `merge` rides across unchanged because it names the
+/// branch on the remote side, which this rename did not touch — the
+/// renamed branch keeps the shared copy it already had. A branch with no
+/// section (the common case: the anonymous claims of `ff commit -b` and
+/// `ff start -b`) returns without writing the file at all.
+pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Result<()> {
+    let path = repo.common_dir().join("config");
+    let mut file = load_config_file(&path, gix::config::Source::Local)?;
+
+    // Collect the old section's contents into owned data so this borrow on
+    // `file` ends before the mutations below.
+    let moved: Vec<(String, gix::bstr::BString)> = match file.section("branch", Some(old.into())) {
+        Ok(section) => {
+            // The names are collapsed first: `value_names` yields one entry
+            // per *occurrence* while `values` answers with every value under
+            // a name, so a key written twice — which `merge` legitimately is,
+            // for an octopus upstream — would otherwise come out squared.
+            let mut names: Vec<String> = Vec::new();
+            for name in section.value_names() {
+                let name = name.as_ref().to_string();
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            names
+                .into_iter()
+                .flat_map(|name| {
+                    section
+                        .values(&name)
+                        .into_iter()
+                        .map(move |value| (name.clone(), value.into_owned()))
+                })
+                .collect()
+        }
+        Err(_) => return Ok(()),
+    };
+
+    // Any section already under the new name can only be stale — the
+    // rename refused a branch of that name — so replace it rather than
+    // appending into it, which would leave duplicate keys.
+    let _ = file.remove_section("branch", Some(new.into()));
+    let mut section = file
+        .section_mut_or_create_new("branch", Some(new.into()))
+        .map_err(Error::repo)?;
+    for (name, value) in moved {
+        section.push(name.try_into().map_err(Error::repo)?, Some(value.as_ref()));
+    }
+    let _ = file.remove_section("branch", Some(old.into()));
+
+    write_config_file(&path, &file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_keep;
