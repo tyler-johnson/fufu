@@ -26,9 +26,16 @@ pub static ENTRIES: &[Entry] = &[
         id: "branch/not-found",
         summary: "no branch here goes by that name",
         detail: "Names resolve against local branches, so a branch that exists on the remote but \
-                 not here will not be found. Its tracking ref does have a name — origin/<branch> \
-                 — and ff start forks your own branch from it. ff branch list says what is local.",
-        exits: &["ff branch list", "ff start origin/<branch>"],
+                 not here will not be found. Its tracking ref does have a name — the remote's, \
+                 then the branch's — and ff start forks a local branch from that. The remote is \
+                 not spelled origin here because it is only usually called that, and an exit that \
+                 guessed wrong would send you to a ref that does not exist: ff git remote -v says \
+                 what yours is called, and ff branch list says what is local.",
+        exits: &[
+            "ff branch list",
+            "ff git remote -v",
+            "ff start <remote>/<branch>",
+        ],
     },
     Entry {
         id: "branch/ambiguous",
