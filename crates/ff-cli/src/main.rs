@@ -182,7 +182,9 @@ fn main() {
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
         Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
-        Some(cli::Command::Publish { dry_run }) => cmd::publish::run(&ctx, dry_run),
+        Some(cli::Command::Publish { dry_run, to }) => {
+            cmd::publish::run(&ctx, dry_run, to.as_deref())
+        }
         // The two verbs that run before there is a repository to discover.
         Some(cli::Command::Init { dir, bare }) => cmd::init::run(&ctx, dir, bare),
         Some(cli::Command::Clone {

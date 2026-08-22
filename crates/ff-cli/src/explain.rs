@@ -852,14 +852,44 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff op log", "ff status"],
     },
     Entry {
+        id: "publish/unknown-remote",
+        summary: "--to named a remote this repository does not have",
+        detail: "--to says which of the remotes you already have a branch answers to, and \
+                 nothing more — it does not add one, because a name and a URL are two \
+                 different facts and only one of them was given. A typo is the usual cause, \
+                 and ff git remote -v is the list the name was checked against. A remote that \
+                 is genuinely missing gets added once, by name and URL, and then there is \
+                 something for --to to name.",
+        exits: &["ff git remote -v", "ff git remote add <name> <url>"],
+    },
+    Entry {
+        id: "publish/retarget",
+        summary: "the branch already answers to a different remote",
+        detail: "A branch has one shared copy, and everything fufu knows about publishing is \
+                 keyed to that: the lease is the tracking ref as you last saw it, and the \
+                 record of where this repository last left the copy names the branch rather \
+                 than the remote. Sending the same branch to a second remote would leave two \
+                 copies drifting apart with one memory between them, and the next lease would \
+                 be offered against a tip the other remote never held. So --to gives a branch \
+                 an upstream and will not move one it already has. ff publish sends to the \
+                 remote it answers to now; re-pointing it is a deliberate act, and git's own \
+                 set-upstream is where that lives until fufu has a verb for it.",
+        exits: &[
+            "ff publish",
+            "ff git branch --set-upstream-to <remote>/<branch>",
+        ],
+    },
+    Entry {
         id: "sync/ambiguous-remote",
         summary: "more than one remote, and nothing says which one this branch answers to",
         detail: "With several remotes configured and none of them named origin there is no \
                  honest default, and picking one would decide where your work goes on a coin \
                  flip. Setting the branch's upstream once settles it for every later sync and \
-                 every publish. A repository with one remote, or with one called origin, never \
+                 every publish, and ff publish --to <remote> is how to set it and send in the \
+                 same breath. A repository with one remote, or with one called origin, never \
                  reaches this.",
         exits: &[
+            "ff publish --to <remote>",
             "ff git remote -v",
             "ff git branch --set-upstream-to <remote>/<branch>",
         ],

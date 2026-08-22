@@ -68,7 +68,13 @@ pub struct Tracking {
     pub tip: Option<gix::ObjectId>,
 }
 
-pub fn preflight(repo: &gix::Repository, verb: Verb) -> Result<Preflight> {
+/// The preflight facts, with the remote named outright when `to` carries
+/// one: an explicit name wins over both the branch's configured upstream
+/// and the repository default, so the ambiguity refusal never runs. A `to`
+/// that names a remote the branch already answers to is accepted and
+/// changes nothing; a branch answering elsewhere is refused, because
+/// pointing it at a second remote would open a second shared copy.
+pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Result<Preflight> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -140,32 +146,71 @@ pub fn preflight(repo: &gix::Repository, verb: Verb) -> Result<Preflight> {
     let branch_tip = branch_tip(repo, &branch)?;
     let held = crate::held::of(repo, &branch)?.is_some();
 
-    // The remote this branch answers to: the branch's own `remote` first,
-    // then the repository default, and only then the refusal.
-    let named = repo.branch_remote_name(branch.as_str(), gix::remote::Direction::Fetch);
-    let remote = named
-        .as_ref()
-        .and_then(|name| name.as_symbol())
-        .map(|name| name.to_string())
-        .or_else(|| {
-            repo.remote_default_name(gix::remote::Direction::Fetch)
-                .map(|name| name.to_string())
-        });
-    let remote = match remote {
-        Some(name) => Some(name),
-        None if repo.remote_names().is_empty() => None,
-        None => {
+    // The remote this branch answers to: an explicit `to` first — it names
+    // the remote outright, so neither the branch's own `remote` nor the
+    // repository default gets a say, and the ambiguity refusal never runs —
+    // then the branch's own `remote`, then the repository default, and only
+    // then the refusal.
+    let remote = if let Some(name) = to {
+        if !repo
+            .remote_names()
+            .iter()
+            .any(|remote| remote.to_string() == name)
+        {
             return Err(Error::coded(
-                "sync/ambiguous-remote",
-                format!(
-                    "{} remotes are configured and none is named origin: fufu will not guess which one {branch} answers to",
-                    repo.remote_names().len()
-                ),
+                "publish/unknown-remote",
+                format!("no remote named {name}: fufu will not invent one to publish to"),
                 vec![
                     "ff git remote -v".into(),
+                    "ff git remote add <name> <url>".into(),
+                ],
+            ));
+        }
+        let existing = repo
+            .branch_remote_name(branch.as_str(), gix::remote::Direction::Fetch)
+            .as_ref()
+            .and_then(|name| name.as_symbol())
+            .map(|name| name.to_string());
+        if let Some(existing) = existing.filter(|existing| existing != name) {
+            return Err(Error::coded(
+                "publish/retarget",
+                format!(
+                    "{branch} already answers to {existing}: publishing to {name} as well would open a second shared copy"
+                ),
+                vec![
+                    "ff publish".into(),
                     "ff git branch --set-upstream-to <remote>/<branch>".into(),
                 ],
             ));
+        }
+        Some(name.to_string())
+    } else {
+        let named = repo.branch_remote_name(branch.as_str(), gix::remote::Direction::Fetch);
+        let remote = named
+            .as_ref()
+            .and_then(|name| name.as_symbol())
+            .map(|name| name.to_string())
+            .or_else(|| {
+                repo.remote_default_name(gix::remote::Direction::Fetch)
+                    .map(|name| name.to_string())
+            });
+        match remote {
+            Some(name) => Some(name),
+            None if repo.remote_names().is_empty() => None,
+            None => {
+                return Err(Error::coded(
+                    "sync/ambiguous-remote",
+                    format!(
+                        "{} remotes are configured and none is named origin: fufu will not guess which one {branch} answers to",
+                        repo.remote_names().len()
+                    ),
+                    vec![
+                        "ff publish --to <remote>".into(),
+                        "ff git remote -v".into(),
+                        "ff git branch --set-upstream-to <remote>/<branch>".into(),
+                    ],
+                ));
+            }
         }
     };
 
@@ -201,6 +246,11 @@ pub fn preflight(repo: &gix::Repository, verb: Verb) -> Result<Preflight> {
         tracking,
         held,
     })
+}
+
+/// The preflight facts with no remote named: `preflight_to` with `to` unset.
+pub fn preflight(repo: &gix::Repository, verb: Verb) -> Result<Preflight> {
+    preflight_to(repo, verb, None)
 }
 
 /// The branch's tip by short name. Every caller has already heard from

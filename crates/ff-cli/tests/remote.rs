@@ -214,3 +214,60 @@ fn the_tail_names_the_recovery_beside_the_irreversibility() {
         "{text}"
     );
 }
+
+/// `--to` sends to a remote the branch has never answered to, and records
+/// that it does now: the bare `ff sync` that could not run before runs after.
+#[test]
+fn publishing_to_a_named_remote_records_it() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let tip = fx.git(&["rev-parse", "main"]).trim().to_string();
+
+    // Two remotes and no `origin`, and the upstream `git clone` wrote is
+    // gone: there is nothing for `ff sync` to name.
+    fx.git(&["remote", "rename", "origin", "one"]);
+    let second = fx.root().join("second.git");
+    fx.git_in(
+        fx.root(),
+        &["init", "-q", "--bare", "-b", "main", "second.git"],
+    );
+    fx.git(&["remote", "add", "two", &second.to_string_lossy()]);
+    fx.git(&["config", "--unset", "branch.main.remote"]);
+    fx.git(&["config", "--unset", "branch.main.merge"]);
+
+    let out = ff(&fx, &["--json", "sync"]);
+    assert!(
+        !out.status.success(),
+        "a sync with two remotes and no upstream is not a success: {}",
+        both(&out)
+    );
+    // The id rides the envelope, not the human line.
+    let v = json(&out);
+    assert_eq!(
+        v["error"]["id"], "sync/ambiguous-remote",
+        "the refusal is the ambiguity, not some other state: {v}"
+    );
+
+    let text = ok(&ff(&fx, &["publish", "--to", "two"]));
+    assert!(text.contains("two/main"), "{text}");
+
+    assert_eq!(fx.git(&["config", "branch.main.remote"]).trim(), "two");
+    assert_eq!(
+        fx.git(&["config", "branch.main.merge"]).trim(),
+        "refs/heads/main"
+    );
+    assert_eq!(
+        fx.git_in(&second, &["rev-parse", "refs/heads/main"]).trim(),
+        tip,
+        "the commit must have arrived on the far side"
+    );
+
+    // The payoff: the sync that was ambiguous is now the branch's own.
+    let out = ff(&fx, &["sync"]);
+    assert!(
+        out.status.success(),
+        "the payoff: a bare ff sync that needed --to a moment ago now names the remote itself: {}",
+        both(&out)
+    );
+}

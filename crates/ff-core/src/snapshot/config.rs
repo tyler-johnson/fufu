@@ -201,6 +201,36 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
     write_config_file(&path, &file)
 }
 
+/// Give a branch an upstream: `remote` and `merge` under
+/// `[branch "<branch>"]` and nothing else. The remote side is always
+/// `refs/heads/<branch>` — the shared copy lives under the branch's own
+/// name — so it is derived here rather than taken as an argument. The
+/// section is removed and created fresh, not appended into: appending into
+/// a stale section would leave a second `merge` and the config reader would
+/// silently pick one of the two. The `value_names()`/`values()` squaring
+/// trap documented above cannot arise here — this writes two known keys
+/// instead of carrying an unknown set across.
+pub fn set_branch_upstream(repo: &gix::Repository, branch: &str, remote: &str) -> Result<()> {
+    let path = repo.common_dir().join("config");
+    let mut file = load_config_file(&path, gix::config::Source::Local)?;
+
+    let _ = file.remove_section("branch", Some(branch.into()));
+    let mut section = file
+        .section_mut_or_create_new("branch", Some(branch.into()))
+        .map_err(Error::repo)?;
+    section.push(
+        "remote".try_into().map_err(Error::repo)?,
+        Some(gix::bstr::BStr::new(remote.as_bytes())),
+    );
+    let merge = format!("refs/heads/{branch}");
+    section.push(
+        "merge".try_into().map_err(Error::repo)?,
+        Some(gix::bstr::BStr::new(merge.as_bytes())),
+    );
+
+    write_config_file(&path, &file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_keep;

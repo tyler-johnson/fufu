@@ -22,12 +22,12 @@ use ff_core::{Publish, PushShape, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
 
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish)?;
+    let pre = ff_core::preflight::preflight_to(&repo, ff_core::preflight::Verb::Publish, to)?;
     let cwd = repo
         .workdir()
         // Uncoded on purpose: preflight already refused a bare repository, so
@@ -55,6 +55,14 @@ pub fn run(ctx: &Ctx, dry_run: bool) -> Result<()> {
     // those differ, and it says "would" throughout rather than pretending.
     let pushed = match &report.publish {
         Publish::Create { .. } | Publish::Push { .. } if !dry_run => {
+            // Named before the wire agrees: a push that fails to an
+            // unreachable URL still leaves `ff sync` working. Only when there
+            // was no upstream at all — a branch that already tracks this
+            // remote is set correctly, and rewriting it could clobber a
+            // legitimately multi-valued `merge`.
+            if let Some(remote) = to.filter(|_| pre.tracking.is_none()) {
+                ff_core::snapshot::config::set_branch_upstream(&repo, &report.branch, remote)?;
+            }
             crate::net::push(&cwd, &report.branch, &report.publish)?;
             true
         }

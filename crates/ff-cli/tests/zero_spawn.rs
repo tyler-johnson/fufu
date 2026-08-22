@@ -790,3 +790,32 @@ fn a_fetch_speaks_the_protocol_itself() {
         "the fetch was spawned rather than spoken: {log}"
     );
 }
+
+/// `--to` adds no spawn of its own: the upstream it records is a gix write,
+/// and a second `git` line here would be the regression.
+#[test]
+fn publishing_to_a_named_remote_is_still_one_spawn() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("base");
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["publish", "--to", "origin"]);
+    assert!(
+        !out.status.success(),
+        "a push that could not run is not a publish that succeeded: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(trap.log.exists(), "the sanctioned push spawned git");
+    let logged = std::fs::read_to_string(&trap.log).unwrap();
+    assert!(
+        logged.contains("push"),
+        "the sanctioned spawn is the named call: {logged:?}"
+    );
+    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
+}

@@ -511,6 +511,11 @@ to guard you against a change you accepted without reading.
 A held rewrite blocks the exit. Nothing is sent while the branch's commits are
 still about to be rewritten out from under.
 
+--to <remote> names where to send a branch that does not answer to one yet, and
+records the answer, so the next ff sync and ff status need no flag. It is
+refused for a branch that already answers somewhere else: one branch, one
+shared copy. With a single remote, or one named origin, you never need it.
+
 --dry-run says which push this would be without making it: creating a shared
 copy, replacing one, putting back one that was deleted, and rolling one back
 are four different acts wearing one verb, and this is the only way to tell
@@ -521,6 +526,7 @@ pub const PUBLISH_EXAMPLES: &str = "\
 Examples:
   ff publish                     send this branch, under a lease
   ff publish -n                  which push would this be? send nothing
+  ff publish --to upstream       send to a named remote, and remember it
   ff sync                        take in what arrived, first
   ff status                      what is waiting to go, before you send it";
 

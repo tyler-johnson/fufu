@@ -321,6 +321,9 @@ pub enum Command {
         /// Say which push this would be, without sending it
         #[arg(short = 'n', long)]
         dry_run: bool,
+        /// Send to this remote, and record that the branch answers to it
+        #[arg(long, value_name = "remote")]
+        to: Option<String>,
     },
     /// Start a repository with the safety net already on
     #[command(long_about = help::INIT, after_long_help = help::INIT_EXAMPLES)]

@@ -482,3 +482,81 @@ fn rename_carries_a_multi_valued_key_once() {
         .collect();
     assert_eq!(merges, vec!["refs/heads/one", "refs/heads/two"]);
 }
+
+#[test]
+fn setting_an_upstream_matches_git_set_upstream_to() {
+    let make = || {
+        let fx = Fixture::new();
+        fx.write("a.txt", "a\n");
+        let sha = fx.commit("one");
+        fx.git(&["checkout", "-q", "-b", "side"]);
+        ident(&fx);
+        fx.set_config("remote.origin.url", "file:///nonexistent");
+        fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+        // git's `branch --set-upstream-to` refuses a tracking ref that is
+        // not there, so the control side needs it.
+        fx.git(&["update-ref", "refs/remotes/origin/side", &sha]);
+        fx
+    };
+    let ours = make();
+    let control = make();
+
+    let repo = ours.repo();
+    ff_core::snapshot::config::set_branch_upstream(&repo, "side", "origin").unwrap();
+    control.git(&["branch", "--set-upstream-to", "origin/side", "side"]);
+
+    // One appends, the other rewrites in place: the claim is the content,
+    // not the layout, so compare sorted.
+    let lines = |fx: &Fixture| -> Vec<String> {
+        let mut lines: Vec<String> = fx
+            .git(&["config", "--get-regexp", r"^branch\."])
+            .lines()
+            .map(str::to_string)
+            .collect();
+        lines.sort();
+        lines
+    };
+    assert_eq!(
+        lines(&ours),
+        lines(&control),
+        "the same upstream git would write"
+    );
+    assert_eq!(
+        lines(&ours),
+        vec![
+            "branch.side.merge refs/heads/side".to_string(),
+            "branch.side.remote origin".to_string(),
+        ],
+        "remote and merge, and nothing else"
+    );
+}
+
+#[test]
+fn setting_an_upstream_replaces_a_stale_section() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "side"]);
+    ident(&fx);
+    // A stale section with a different remote and a doubled merge — the
+    // state an octopus upstream leaves behind.
+    fx.set_config("branch.side.remote", "elsewhere");
+    fx.set_config("branch.side.merge", "refs/heads/stale");
+    fx.git(&["config", "--add", "branch.side.merge", "refs/heads/older"]);
+
+    let repo = fx.repo();
+    ff_core::snapshot::config::set_branch_upstream(&repo, "side", "origin").unwrap();
+
+    let merges: Vec<String> = fx
+        .git(&["config", "--get-all", "branch.side.merge"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(
+        merges,
+        vec!["refs/heads/side"],
+        "the section is replaced, not appended into"
+    );
+    let remote = fx.git(&["config", "--get", "branch.side.remote"]);
+    assert_eq!(remote.trim(), "origin", "the stale remote is gone");
+}

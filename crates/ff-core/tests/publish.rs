@@ -436,3 +436,125 @@ fn an_absent_shared_copy_with_a_push_on_record_is_a_re_creation() {
         other => panic!("the deleted copy is put back, got {other:?}"),
     }
 }
+
+/// Two remotes, neither named origin — the state that puts the
+/// `sync/ambiguous-remote` refusal on the table, because the ladder has no
+/// branch upstream to fall back on.
+fn two_remotes(fx: &Fixture) {
+    ident(fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.set_config("remote.one.url", "/nonexistent/one.git");
+    fx.set_config("remote.one.fetch", "+refs/heads/*:refs/remotes/one/*");
+    fx.set_config("remote.two.url", "/nonexistent/two.git");
+    fx.set_config("remote.two.fetch", "+refs/heads/*:refs/remotes/two/*");
+}
+
+#[test]
+fn an_explicit_remote_resolves_past_the_ambiguity() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+
+    // `Preflight` does not derive `Debug`, so `unwrap_err` is not an option;
+    // the expectation carries the claim.
+    let err = ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Publish)
+        .err()
+        .expect("two remotes, no origin: the ladder has to refuse");
+    assert_eq!(
+        err.id(),
+        "sync/ambiguous-remote",
+        "with no upstream set, the default path still refuses to guess"
+    );
+
+    let pre = ff_core::preflight::preflight_to(
+        &fx.repo(),
+        ff_core::preflight::Verb::Publish,
+        Some("two"),
+    )
+    .unwrap();
+    assert_eq!(
+        pre.remote,
+        Some("two".to_string()),
+        "naming the remote settles what the ladder would not"
+    );
+}
+
+#[test]
+fn an_unknown_remote_is_refused() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+
+    let err = ff_core::preflight::preflight_to(
+        &fx.repo(),
+        ff_core::preflight::Verb::Publish,
+        Some("nope"),
+    )
+    .err()
+    .expect("a remote that does not exist has to be refused");
+    assert_eq!(
+        err.id(),
+        "publish/unknown-remote",
+        "fufu will not invent a remote to publish to"
+    );
+}
+
+#[test]
+fn a_branch_that_answers_elsewhere_refuses_the_retarget() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+    fx.set_config("branch.main.remote", "one");
+
+    let err = ff_core::preflight::preflight_to(
+        &fx.repo(),
+        ff_core::preflight::Verb::Publish,
+        Some("two"),
+    )
+    .err()
+    .expect("a branch already answering elsewhere has to be refused");
+    assert_eq!(
+        err.id(),
+        "publish/retarget",
+        "a branch already answering to one remote is not pointed at a second"
+    );
+}
+
+#[test]
+fn naming_the_remote_already_tracked_changes_nothing() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+    let sha = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.set_config("branch.main.remote", "one");
+    fx.set_config("branch.main.merge", "refs/heads/main");
+    fx.git(&["update-ref", "refs/remotes/one/main", &sha]);
+
+    let plain =
+        ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Publish).unwrap();
+    let named = ff_core::preflight::preflight_to(
+        &fx.repo(),
+        ff_core::preflight::Verb::Publish,
+        Some("one"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        named.remote, plain.remote,
+        "naming the remote the branch already answers to changes nothing"
+    );
+    // `Tracking` derives neither `PartialEq` nor `Debug`, so the claim is
+    // spelled out per field.
+    let tracked = |p: &ff_core::preflight::Preflight| {
+        p.tracking.as_ref().map(|t| {
+            (
+                t.full.clone(),
+                t.name.clone(),
+                t.remote_branch.clone(),
+                t.tip,
+            )
+        })
+    };
+    assert_eq!(
+        tracked(&named),
+        tracked(&plain),
+        "… and neither does the shared copy it points at"
+    );
+}
