@@ -530,6 +530,25 @@ Examples:
   ff sync                        take in what arrived, first
   ff status                      what is waiting to go, before you send it";
 
+pub const REMOTE: &str = "\
+What the remotes here are called, and where each one points.
+
+fufu's own verbs name a remote rather than assume one — ff publish --to takes
+a name, ff sync fetches from the one this branch answers to, and a refusal
+that could not tell which remote you meant sends you here. So the list those
+verbs are checked against is worth having inside fufu rather than borrowed
+from git. One row per remote, its fetch URL beside it.
+
+A read and nothing more. Adding a remote is a name and a URL, two facts fufu
+has no verb for yet: ff git remote add <name> <url> is where that lives.";
+
+pub const REMOTE_EXAMPLES: &str = "\
+Examples:
+  ff remote                      what the remotes here are called
+  ff remote --json               the same, for a machine
+  ff publish --to origin         send a branch to one of them, by name
+  ff branch list                 what those remotes are holding";
+
 pub const INIT: &str = "\
 Starts a repository with the safety net already on.
 
@@ -662,18 +681,37 @@ pub const BRANCH_LIST: &str = "\
 Named branches first, then the anonymous ones fufu minted, kept apart so a
 petname never reads as something you chose. Each row carries its tip, the
 subject there, and what is hanging off it: a parked change, a pending
-description, and how it stands against its upstream.";
+description, and how it stands against its upstream.
+
+Then what a remote is holding that is not here: the branches a clone or a
+fetch left a tracking ref for and no local branch of yours tracks. Those rows
+wear the sigil without the brackets, because the brackets mean a name you can
+type at ff switch and switch resolves local names only — ff start
+origin/<branch> is the verb that forks one of these into a branch here. The
+section is bounded the way the map is, with a dim count standing for the
+rest; --all is that bound spelled off.";
 
 pub const BRANCH_LIST_EXAMPLES: &str = "\
 Examples:
   ff branch list                 what exists, and what is still anonymous
-  ff branch list --json          the same, for a machine";
+  ff branch list --all           every remote branch too, unbounded
+  ff branch list --json          the same, for a machine
+  ff start origin/spike          fork a branch here from one of theirs
+  ff remote                      what the remotes are called";
 
 pub const BRANCH_DELETE: &str = "\
 The branch's pointer into the log moves to trash rather than evaporating,
 its parked change is demoted to an ordinary stash entry, and the tip stays
-pinned by the operation — so nothing is lost and there is no merged-check
-to argue with. `ff undo` brings the branch and its timeline back.
+pinned by the operation — so nothing local is lost and there is no
+merged-check to argue with. `ff undo` brings the branch and its timeline
+back.
+
+A published branch is more than the name, though: there is a copy on the
+remote, and a tracking ref and upstream pointing at it. A plain delete
+leaves all three standing and says so — undo has to be exact, and it
+cannot reach any of them. `--shared` deletes the copy too, under a lease,
+and takes the tracking ref and upstream down with it. That half left the
+machine; the branch still comes back, and the copy does not.
 
 The branch's operations themselves stay on the log either way; what goes
 is the way in through this name.";
@@ -681,8 +719,9 @@ is the way in through this name.";
 pub const BRANCH_DELETE_EXAMPLES: &str = "\
 Examples:
   ff branch delete old-experiment
-  ff branch delete ff/misty-owl  an anonymous one you are done with
-  ff undo                        put it back";
+  ff branch delete ff/misty-owl    an anonymous one you are done with
+  ff branch delete spike --shared  the copy on the remote goes too
+  ff undo                          put the branch back";
 
 pub const HOOK: &str = "\
 Everything that feeds the capture floor is a hook, under one grammar:

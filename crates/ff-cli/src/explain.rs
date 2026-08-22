@@ -27,15 +27,13 @@ pub static ENTRIES: &[Entry] = &[
         summary: "no branch here goes by that name",
         detail: "Names resolve against local branches, so a branch that exists on the remote but \
                  not here will not be found. Its tracking ref does have a name — the remote's, \
-                 then the branch's — and ff start forks a local branch from that. The remote is \
-                 not spelled origin here because it is only usually called that, and an exit that \
-                 guessed wrong would send you to a ref that does not exist: ff git remote -v says \
-                 what yours is called, and ff branch list says what is local.",
-        exits: &[
-            "ff branch list",
-            "ff git remote -v",
-            "ff start <remote>/<branch>",
-        ],
+                 then the branch's — and ff start forks a local branch from that. ff branch list \
+                 shows those under remote only, spelled exactly as ff start takes them, so the \
+                 name to type is on the screen rather than reconstructed. The remote is not \
+                 spelled origin here because it is only usually called that, and an exit that \
+                 guessed wrong would send you to a ref that does not exist: ff remote says what \
+                 yours is called.",
+        exits: &["ff branch list", "ff remote", "ff start <remote>/<branch>"],
     },
     Entry {
         id: "branch/ambiguous",
@@ -70,6 +68,28 @@ pub static ENTRIES: &[Entry] = &[
                  fufu carries its own and reports which worktree holds it. Switch that worktree \
                  away, or remove it, and try again.",
         exits: &["git worktree list"],
+    },
+    Entry {
+        id: "branch/aliased-copy",
+        summary: "the copy that branch tracks wears another branch's name",
+        detail: "--shared removes the shared copy of the branch you are deleting, and this \
+                 branch's upstream points somewhere that is not it: branch.<n>.merge names one \
+                 branch and the branch itself is called another. fufu will not send a delete to \
+                 a ref it cannot say is yours, because the copy it would take down is somebody \
+                 else's. The plain delete still works, and leaves everything on the remote \
+                 standing.",
+        exits: &["ff branch list", "ff remote"],
+    },
+    Entry {
+        id: "branch/shared-lease-refused",
+        summary: "the shared copy moved since you last looked, so it was not deleted",
+        detail: "Every push fufu makes is leased: it says what it last saw the remote standing \
+                 at, and the remote refuses when that is no longer true. Somebody pushed to the \
+                 shared copy after your last fetch, so it is still there and holding commits you \
+                 have not seen — which is exactly the case where deleting it would lose work. \
+                 The local half of the delete did happen and is undoable, so ff undo brings the \
+                 branch back; look at what arrived before deciding the copy should go.",
+        exits: &["ff undo", "ff branch list"],
     },
     Entry {
         id: "repo/bare",
@@ -864,10 +884,10 @@ pub static ENTRIES: &[Entry] = &[
         detail: "--to says which of the remotes you already have a branch answers to, and \
                  nothing more — it does not add one, because a name and a URL are two \
                  different facts and only one of them was given. A typo is the usual cause, \
-                 and ff git remote -v is the list the name was checked against. A remote that \
-                 is genuinely missing gets added once, by name and URL, and then there is \
-                 something for --to to name.",
-        exits: &["ff git remote -v", "ff git remote add <name> <url>"],
+                 and ff remote is the list the name was checked against — the same config \
+                 fufu read to refuse. A remote that is genuinely missing gets added once, by \
+                 name and URL, and then there is something for --to to name.",
+        exits: &["ff remote", "ff git remote add <name> <url>"],
     },
     Entry {
         id: "publish/retarget",
@@ -893,11 +913,11 @@ pub static ENTRIES: &[Entry] = &[
                  honest default, and picking one would decide where your work goes on a coin \
                  flip. Setting the branch's upstream once settles it for every later sync and \
                  every publish, and ff publish --to <remote> is how to set it and send in the \
-                 same breath. A repository with one remote, or with one called origin, never \
-                 reaches this.",
+                 same breath. ff remote is the list to pick that name from. A repository with \
+                 one remote, or with one called origin, never reaches this.",
         exits: &[
             "ff publish --to <remote>",
-            "ff git remote -v",
+            "ff remote",
             "ff git branch --set-upstream-to <remote>/<branch>",
         ],
     },

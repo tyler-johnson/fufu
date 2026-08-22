@@ -10,6 +10,8 @@
 //! values are equal, which the transaction machinery drops), and the first
 //! replayed line's previous-value column is null.
 
+use std::collections::HashSet;
+
 use crate::error::{Error, Result};
 use crate::model::HeadState;
 use crate::ops::record::observe_refs;
@@ -216,14 +218,22 @@ pub(crate) fn retarget_head(repo: &gix::Repository, full_ref: &str, now: i64) ->
     }
 }
 
-/// List branches for `ff branch list`: named and anonymous segregated, each with
-/// its tip, parked marker, pending description, and upstream annotation.
-pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
+/// List branches for `ff branch list`: three buckets — named branches and
+/// anonymous ones segregated, each with its tip, parked marker, pending
+/// description, and upstream annotation, and beside them the branches that
+/// exist on a remote and no local branch tracks.
+pub fn list(
+    repo: &gix::Repository,
+    opts: &crate::model::BranchListOptions,
+) -> Result<crate::model::BranchList> {
     use crate::model::BranchInfo;
     let head = crate::head::head_state(repo)?;
     let current = crate::snapshot::chain::chain_name(&head);
     let mut named = Vec::new();
     let mut anonymous = Vec::new();
+    // The tracking refs a local branch stands on, so the remote walk can
+    // subtract them by ref — a branch's name is the wrong axis.
+    let mut tracked: HashSet<String> = HashSet::new();
     let mut names = crate::switch::branch_names(repo)?;
     // An unborn current branch has no ref yet; show it anyway.
     if matches!(head, HeadState::Unborn { .. }) && !names.contains(&current) {
@@ -250,6 +260,9 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
             }
             None => None,
         };
+        if let Some(upstream) = upstream.as_ref() {
+            tracked.insert(upstream.r#ref.clone());
+        }
         // Only the row we are standing on carries the open change into the
         // simulation: another branch's row must not react to work sitting in
         // this one's tree. Errors degrade to None — one row's failed
@@ -282,7 +295,52 @@ pub fn list(repo: &gix::Repository) -> Result<crate::model::BranchList> {
             named.push(info);
         }
     }
-    Ok(crate::model::BranchList { named, anonymous })
+    // The third bucket: what a remote holds that no local branch tracks.
+    let mut remote_only: Vec<crate::model::RemoteBranch> = refs::remote_branches(repo)?
+        .into_iter()
+        .filter(|r| !tracked.contains(&r.name))
+        .map(|r| {
+            // Degrade, never fail: a tracking ref whose object is missing
+            // still gets a row, with the fields its commit cannot give left
+            // empty.
+            let (subject, tip_time) = match repo.find_commit(r.tip) {
+                Ok(obj) => (
+                    gix::objs::CommitRef::from_bytes(&obj.data)
+                        .ok()
+                        .map(|commit| commit.message().summary().to_string()),
+                    obj.committer()
+                        .ok()
+                        .and_then(|ident| ident.time().ok())
+                        .map(|time| time.seconds)
+                        .unwrap_or(0),
+                ),
+                Err(_) => (None, 0),
+            };
+            crate::model::RemoteBranch {
+                name: r.name,
+                remote: r.remote,
+                tip: r.tip.to_string(),
+                subject,
+                tip_time,
+            }
+        })
+        .collect();
+    // Newest tip first; equal tips keep name order — the map's rule for
+    // equal committer times.
+    remote_only.sort_by(|a, b| {
+        b.tip_time
+            .cmp(&a.tip_time)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    let total = remote_only.len();
+    let kept = opts.remote_limit.map_or(total, |limit| total.min(limit));
+    remote_only.truncate(kept);
+    Ok(crate::model::BranchList {
+        named,
+        anonymous,
+        remote_only,
+        remote_more: total.saturating_sub(kept),
+    })
 }
 
 /// Name the current branch, recorded — `ff describe -b`, the one verb that
@@ -402,12 +460,75 @@ pub fn rename_current(
     ))
 }
 
+/// The shared copy `name` answered to, or `None` when it answered to
+/// nothing. Reads the tracking ref and config; never refuses and never
+/// guesses a remote. Callers use it to decide `--shared` before anything is
+/// deleted.
+pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::model::SharedCopy>> {
+    let Some(sync_ref) = crate::futures::remote_for(repo, name)? else {
+        return Ok(None);
+    };
+    let Some(remote) = repo
+        .branch_remote_name(name, gix::remote::Direction::Fetch)
+        .as_ref()
+        .and_then(|n| n.as_symbol())
+        .map(|n| n.to_string())
+    else {
+        return Ok(None);
+    };
+    let full: gix::refs::FullName = format!("refs/heads/{name}")
+        .as_str()
+        .try_into()
+        .map_err(Error::repo)?;
+    let remote_branch = repo
+        .branch_remote_ref_name(full.as_ref(), gix::remote::Direction::Fetch)
+        .and_then(|n| n.ok())
+        .map(|n| n.as_ref().shorten().to_string())
+        .unwrap_or_else(|| name.to_string());
+    Ok(Some(crate::model::SharedCopy {
+        remote,
+        name: sync_ref.name,
+        r#ref: sync_ref.r#ref,
+        remote_branch,
+        tip: sync_ref.tip,
+        aliased: sync_ref.role == crate::futures::Role::RemoteAlias,
+    }))
+}
+
+/// The three local traces of the shared copy, removed at once: the tracking
+/// ref, the `[branch "<name>"]` section, and the published note. This runs
+/// only after the wire delete returned `Ok`, and none of the three is under
+/// `TRACKED_PREFIXES`, so this is deliberately the one direction `ff undo`
+/// cannot walk back — and it is correct, because the shared copy is gone and
+/// there is nothing left for any of them to point at. Step one is tolerant
+/// of an absent ref because git's delete push already prunes the tracking
+/// ref, and a hard delete there would fail the verb after the wire act
+/// landed.
+pub fn forget_shared(
+    repo: &gix::Repository,
+    name: &str,
+    tracking_ref: &str,
+    now: i64,
+) -> Result<()> {
+    if let Some(tip) = refs::ref_target(repo, tracking_ref)? {
+        refs::delete_ref(repo, tracking_ref, tip, now)?;
+    }
+    crate::snapshot::config::remove_branch_section(repo, name)?;
+    let published = format!("{}{name}", crate::published::PUBLISHED_PREFIX);
+    if let Some(tip) = refs::ref_target(repo, &published)? {
+        refs::delete_ref(repo, &published, tip, now)?;
+    }
+    Ok(())
+}
+
 /// `ff branch delete <name>` — delete a branch, recorded. The branch's pointer
 /// into the log moves to trash (trim's one-deep pattern) rather than being
 /// dropped, the parked entry is demoted (its stash entry survives), and the
 /// tip stays pinned by the operation — so the deletion is undoable, which is
 /// why there is no merged-check: nothing is lost. The branch's operations
-/// themselves stay on the log; only the way in through this name goes.
+/// themselves stay on the log; only the way in through this name goes. What
+/// the branch answered to on a remote is read out and reported, and it
+/// survives the delete.
 pub fn delete(
     repo: &gix::Repository,
     name: &str,
@@ -435,6 +556,10 @@ pub fn delete(
         )
     })?;
     guard_other_worktrees(repo, name)?;
+    // Read the shared copy now, while the tracking ref and config are still
+    // readable: the delete keeps both, and this report is the only thing
+    // that will name them.
+    let shared = shared_copy(repo, name)?;
 
     let parked = crate::stash::parked_entry(repo, name)?;
     let mut planned = observe_refs(repo)?;
@@ -506,6 +631,7 @@ pub fn delete(
             tip: tip.to_string(),
             trash_ref: trash,
             parked_demoted: parked.map(|p| p.to_string()),
+            shared,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,

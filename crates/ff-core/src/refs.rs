@@ -296,3 +296,55 @@ pub(crate) fn any_remote_ref(repo: &gix::Repository, remote: &str) -> Result<boo
     };
     Ok(iter.next().is_some())
 }
+
+/// One branch a remote holds: the name every other surface uses for it, and
+/// the remote it lives on.
+pub(crate) struct RemoteRef {
+    /// `origin/feature` — gix's own `shorten()`, the spelling every other
+    /// surface uses.
+    pub name: String,
+    /// `origin`
+    pub remote: String,
+    pub tip: gix::ObjectId,
+}
+
+/// The branches a remote holds, as the tracking refs under `refs/remotes/`.
+///
+/// Every clone leaves one more ref behind, `<remote>/HEAD`, which is
+/// symbolic and is not a branch. The walk must skip it by its target — and
+/// cannot ask `branchish` or `ref_target` to do so, because both raise on a
+/// symbolic ref where this walk must answer "skip". A name that does not
+/// split into a remote and a branch is not a branch either.
+pub(crate) fn remote_branches(repo: &gix::Repository) -> Result<Vec<RemoteRef>> {
+    let platform = repo.references().map_err(Error::repo)?;
+    let Ok(iter) = platform.prefixed("refs/remotes/") else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for reference in iter {
+        let reference = reference.map_err(|err| {
+            Error::coded(
+                "op/unreadable",
+                format!("ref iteration failed: {err}"),
+                vec![],
+            )
+        })?;
+        let target = reference.target();
+        if target.try_name().is_some() {
+            continue;
+        }
+        let Some(tip) = target.try_id() else {
+            continue;
+        };
+        let name = reference.name().shorten().to_string();
+        let Some(remote) = name.split_once('/').map(|(remote, _)| remote.to_string()) else {
+            continue;
+        };
+        out.push(RemoteRef {
+            name,
+            remote,
+            tip: tip.to_owned(),
+        });
+    }
+    Ok(out)
+}

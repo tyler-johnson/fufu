@@ -26,6 +26,7 @@ pub mod preflight;
 pub mod publish;
 mod published;
 mod refs;
+pub mod remote;
 pub mod resolve;
 pub mod restack;
 mod restore;

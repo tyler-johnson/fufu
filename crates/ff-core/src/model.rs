@@ -736,11 +736,44 @@ pub struct BranchInfo {
     pub future: Option<crate::futures::Future>,
 }
 
-/// `ff branch` listing: named branches and anonymous ones, segregated.
+/// One branch that exists on a remote and nowhere here.
+///
+/// A sibling of `BranchInfo` rather than a variant of it: eight of that
+/// struct's twelve fields are structurally false or null for a branch that
+/// is not local, and emitting them would imply states that cannot occur.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RemoteBranch {
+    /// `origin/feature-two` — the name `ff start` takes verbatim.
+    pub name: String,
+    /// The remote it lives on.
+    pub remote: String,
+    pub tip: String,
+    pub subject: Option<String>,
+    /// Committer time of the tip, seconds since the epoch: what the ranking
+    /// is done on, carried so a machine reader can rank it the same way.
+    pub tip_time: i64,
+}
+
+/// `ff branch` listing: named branches and anonymous ones, segregated, and
+/// the branches that exist only on a remote.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BranchList {
     pub named: Vec<BranchInfo>,
     pub anonymous: Vec<BranchInfo>,
+    /// Branches on a remote that no local branch tracks, newest tip first.
+    pub remote_only: Vec<RemoteBranch>,
+    /// How many remote-only branches the bound left out. Zero when nothing
+    /// was left out. The count is data, not a rendering artifact: the human
+    /// listing's `~ N more` row and this field are the same fact.
+    pub remote_more: usize,
+}
+
+/// What `branch::list` is asked for. The local buckets are never bounded —
+/// a listing whose job is "what exists" must not hide your own work.
+#[derive(Debug, Clone, Default)]
+pub struct BranchListOptions {
+    /// How many remote-only rows to carry; `None` is every one.
+    pub remote_limit: Option<usize>,
 }
 
 /// The result of claiming an anonymous branch.
@@ -749,6 +782,23 @@ pub struct ClaimReport {
     pub from: String,
     pub to: String,
     pub pre_op: Option<String>,
+}
+
+/// The shared copy a deleted branch answered to, as the delete found it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SharedCopy {
+    /// The remote it lives on: `origin`.
+    pub remote: String,
+    /// What a person calls it: `origin/shared`.
+    pub name: String,
+    /// The full tracking ref: `refs/remotes/origin/shared`.
+    pub r#ref: String,
+    /// The branch's name on the remote side, from `branch.<n>.merge`.
+    pub remote_branch: String,
+    /// The tracking tip; the empty string when configured and absent.
+    pub tip: String,
+    /// True when the tracking ref wears another branch's name.
+    pub aliased: bool,
 }
 
 /// The result of deleting a branch.
@@ -760,6 +810,9 @@ pub struct BranchDeleteReport {
     pub trash_ref: Option<String>,
     /// The parked stash entry left behind in the stash stack, if any.
     pub parked_demoted: Option<String>,
+    /// The shared copy this branch answered to, left standing. `None` when
+    /// the branch answered to nothing.
+    pub shared: Option<SharedCopy>,
     pub pre_op: Option<String>,
 }
 

@@ -273,3 +273,85 @@ fn at_op_is_takeable_on_either_side_of_the_subcommand() {
         );
     }
 }
+
+/// The remote row keeps the sigil and drops the brackets: the brackets
+/// promise a name `ff switch` takes, and `switch` resolves local names
+/// only. The local rows keep theirs — the differing spellings on one
+/// screen are the whole claim.
+#[test]
+fn remote_only_branches_are_listed_without_the_brackets() {
+    let fx = repo();
+    let head = fx.git(&["rev-parse", "HEAD"]);
+    let sha = head.trim();
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.main.remote", "origin");
+    fx.set_config("branch.main.merge", "refs/heads/main");
+    fx.git(&["update-ref", "refs/remotes/origin/main", sha]);
+    fx.git(&["update-ref", "refs/remotes/origin/spike", sha]);
+    fx.git(&["update-ref", "refs/remotes/origin/other", sha]);
+
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("remote only:"), "{text}");
+    assert!(text.contains("▸ origin/spike"), "{text}");
+    assert!(
+        !text.contains("[origin/spike]"),
+        "no brackets on a remote name: {text}"
+    );
+    assert!(
+        text.contains("[main]"),
+        "the local rows keep their brackets: {text}"
+    );
+}
+
+#[test]
+fn the_remote_section_is_bounded_and_says_what_it_left_out() {
+    let fx = repo();
+    let head = fx.git(&["rev-parse", "HEAD"]);
+    let sha = head.trim();
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    for i in 1..=12 {
+        fx.git(&["update-ref", &format!("refs/remotes/origin/b{i:02}"), sha]);
+    }
+
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
+    assert_eq!(rows, 10, "the bound shows ten: {text}");
+    assert!(text.contains("~ 2 more"), "{text}");
+
+    let out = ff(&fx, &["branch", "list", "--all"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
+    assert_eq!(rows, 12, "`--all` unbounds the section: {text}");
+    assert!(!text.contains("more"), "nothing was left out: {text}");
+}
+
+#[test]
+fn json_carries_the_third_bucket_and_the_count() {
+    let fx = repo();
+    let head = fx.git(&["rev-parse", "HEAD"]);
+    let sha = head.trim();
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    for i in 1..=12 {
+        fx.git(&["update-ref", &format!("refs/remotes/origin/b{i:02}"), sha]);
+    }
+
+    let out = ff(&fx, &["branch", "list", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&out);
+    assert_eq!(v["data"]["remote_only"].as_array().map(Vec::len), Some(10));
+    assert_eq!(v["data"]["remote_more"], 2);
+
+    let out = ff(&fx, &["branch", "list", "--all", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&out);
+    assert_eq!(v["data"]["remote_only"].as_array().map(Vec::len), Some(12));
+    assert_eq!(v["data"]["remote_more"], 0);
+}

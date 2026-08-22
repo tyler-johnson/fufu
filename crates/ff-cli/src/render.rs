@@ -1295,6 +1295,64 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
     lines
 }
 
+/// A remote branch's name: `branch_label`'s shape with the brackets
+/// removed, and the removal is the point. The brackets promise a name
+/// `ff switch` moves you to, and `switch::resolve_branch` resolves local
+/// names only — typed there, a remote name is read as a revision and mints
+/// an anonymous branch at it, which is `ff start`'s job spelled the long
+/// way (switch says so itself, and names `ff start`). So the brackets would
+/// promise the wrong verb. The one that takes this name verbatim is
+/// `ff start <remote>/<branch>`, and bold alone carries "a verb takes this".
+fn remote_label(name: &str, colored: bool) -> String {
+    let mut out = String::new();
+    out.push_str(&paint(BRANCH_SIGIL, BOLD, colored));
+    out.push_str(&paint(name, BOLD.underline(), colored));
+    out
+}
+
+/// The display width of `remote_label`'s output — sigil and name — with no
+/// escape bytes counted, so a caller can size the column before painting
+/// anything: `branch_label_width` minus the two brackets.
+pub fn remote_label_width(name: &str) -> usize {
+    BRANCH_SIGIL.chars().count() + name.chars().count()
+}
+
+/// One `ff branch list` row for a branch that exists only on a remote:
+/// `branch_row`'s head line with a blank marker, and nothing hung beneath —
+/// a branch that is not local has no base axis and no upstream, so the note
+/// line would be silence, and the row is one line, always. A tracking ref
+/// is never unborn, so the tip always exists.
+pub fn remote_branch_row(
+    info: &ff_core::RemoteBranch,
+    label_width: usize,
+    colored: bool,
+) -> String {
+    let label = remote_label(&info.name, colored);
+    // Pad after painting — `col`'s doc comment says why format-width would
+    // count escape bytes.
+    let pad = " ".repeat(label_width.saturating_sub(remote_label_width(&info.name)));
+    let sha = col(
+        ff_core::sha::short(&info.tip),
+        SHA_WIDTH,
+        palette().sha,
+        colored,
+    );
+    format!(
+        "  {label}{pad}  {sha}  {}",
+        info.subject.as_deref().unwrap_or("")
+    )
+    .trim_end()
+    .to_string()
+}
+
+/// The section's elision row — the map's own `~ N commits` grammar saying
+/// the same thing about rows instead of commits — with the two leading
+/// spaces that put it under the marker column, in line with the rows above
+/// it.
+pub fn remote_more_row(count: usize, colored: bool) -> String {
+    paint_dim(&format!("  ~ {count} more"), colored)
+}
+
 /// The open change with nothing to say: born, clean, and undescribed. Every
 /// surface that draws an `@` row collapses on exactly this, so the rule is
 /// read from one place rather than restated per surface — the map restating

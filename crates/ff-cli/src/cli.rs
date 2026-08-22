@@ -325,6 +325,9 @@ pub enum Command {
         #[arg(long, value_name = "remote")]
         to: Option<String>,
     },
+    /// What the remotes here are called, and where each one points
+    #[command(long_about = help::REMOTE, after_long_help = help::REMOTE_EXAMPLES)]
+    Remote,
     /// Start a repository with the safety net already on
     #[command(long_about = help::INIT, after_long_help = help::INIT_EXAMPLES)]
     Init {
@@ -621,6 +624,9 @@ pub enum BranchAction {
     /// Named branches and anonymous ones, kept apart
     #[command(long_about = help::BRANCH_LIST, after_long_help = help::BRANCH_LIST_EXAMPLES)]
     List {
+        /// Every remote-only branch, not just the newest few
+        #[arg(long)]
+        all: bool,
         #[command(flatten)]
         past: Past,
     },
@@ -630,6 +636,9 @@ pub enum BranchAction {
         /// The branch to delete, by its full name
         #[arg(value_name = "branch")]
         target: String,
+        /// Remove the copy on the remote too — that half `ff undo` cannot reach
+        #[arg(long)]
+        shared: bool,
     },
     /// Anything else — most often the retired `ff branch <name>` claim.
     #[command(external_subcommand)]
@@ -647,7 +656,7 @@ impl BranchAction {
 
     fn past(&self) -> Option<&Past> {
         match self {
-            BranchAction::List { past } => Some(past),
+            BranchAction::List { past, .. } => Some(past),
             BranchAction::Delete { .. } | BranchAction::Other(_) => None,
         }
     }
@@ -755,6 +764,7 @@ impl Command {
             Command::Restack { .. } => "restack",
             Command::Sync { .. } => "sync",
             Command::Publish { .. } => "publish",
+            Command::Remote => "remote",
             Command::Init { .. } => "init",
             Command::Clone { .. } => "clone",
             Command::Edit { .. } => "edit",
@@ -830,6 +840,7 @@ impl Command {
             | Command::Resolve { .. }
             | Command::Hook { .. }
             | Command::Config { .. }
+            | Command::Remote
             | Command::Doctor { .. }
             | Command::Explain { .. }
             | Command::Update { .. }
@@ -946,7 +957,8 @@ impl Command {
             | Command::Diff { .. }
             | Command::Show { .. }
             | Command::Evolog { .. }
-            | Command::Config { .. } => Lanes::READ,
+            | Command::Config { .. }
+            | Command::Remote => Lanes::READ,
             // The two families hold both readers and mutators, so the action
             // decides.
             Command::Op { action } => action.lanes(),

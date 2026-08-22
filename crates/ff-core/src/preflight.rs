@@ -160,10 +160,7 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
             return Err(Error::coded(
                 "publish/unknown-remote",
                 format!("no remote named {name}: fufu will not invent one to publish to"),
-                vec![
-                    "ff git remote -v".into(),
-                    "ff git remote add <name> <url>".into(),
-                ],
+                vec!["ff remote".into(), "ff git remote add <name> <url>".into()],
             ));
         }
         let existing = repo
@@ -206,7 +203,7 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
                     ),
                     vec![
                         "ff publish --to <remote>".into(),
-                        "ff git remote -v".into(),
+                        "ff remote".into(),
                         "ff git branch --set-upstream-to <remote>/<branch>".into(),
                     ],
                 ));

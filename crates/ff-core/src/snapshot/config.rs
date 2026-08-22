@@ -201,6 +201,20 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
     write_config_file(&path, &file)
 }
 
+/// The counterpart to [`rename_branch_section`]: the `[branch "<name>"]`
+/// section simply goes away. It runs only once the shared copy is gone, when
+/// the section names a branch that no longer exists on either side. A branch
+/// with no section returns without writing the file at all.
+pub fn remove_branch_section(repo: &gix::Repository, name: &str) -> Result<()> {
+    let path = repo.common_dir().join("config");
+    let mut file = load_config_file(&path, gix::config::Source::Local)?;
+    if file.section("branch", Some(name.into())).is_err() {
+        return Ok(());
+    }
+    file.remove_section("branch", Some(name.into()));
+    write_config_file(&path, &file)
+}
+
 /// Give a branch an upstream: `remote` and `merge` under
 /// `[branch "<branch>"]` and nothing else. The remote side is always
 /// `refs/heads/<branch>` — the shared copy lives under the branch's own

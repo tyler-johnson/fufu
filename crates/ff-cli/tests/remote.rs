@@ -271,3 +271,188 @@ fn publishing_to_a_named_remote_records_it() {
         both(&out)
     );
 }
+
+/// `ff remote` answers both halves of the question the publish and sync
+/// refusals used to deflect: the name, and where it points — from the config
+/// fufu already reads.
+#[test]
+fn remote_names_the_remote_and_where_it_points() {
+    let fx = Fixture::new_cloned();
+    let text = ok(&ff(&fx, &["remote"]));
+    assert!(text.contains("origin"), "{text}");
+    // The final path component, so a temp-dir prefix cannot make this brittle.
+    let tail = fx
+        .remote_path()
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    assert!(
+        tail.as_deref().is_some_and(|tail| text.contains(tail)),
+        "the row says where origin points: {text}"
+    );
+}
+
+/// `--json` carries the same fact as fields, under a named array the
+/// envelope can grow into.
+#[test]
+fn remote_json_carries_the_name_and_the_url() {
+    let fx = Fixture::new_cloned();
+    let v = json(&ff(&fx, &["remote", "--json"]));
+    let remotes = v["data"]["remotes"].as_array().expect("a remotes array");
+    assert_eq!(remotes.len(), 1, "{v}");
+    assert_eq!(remotes[0]["name"], "origin", "{v}");
+    let url = remotes[0]["fetch_url"]
+        .as_str()
+        .expect("a fetch_url string");
+    assert!(
+        url.contains("remote.git"),
+        "the url is where origin points: {url}"
+    );
+}
+
+/// A repository with no remote is a state, not a failure: the listing says
+/// so and exits 0, in both surfaces.
+#[test]
+fn a_repository_with_no_remotes_says_so() {
+    let fx = Fixture::new();
+    let text = ok(&ff(&fx, &["remote"]));
+    assert!(text.contains("no remotes configured"), "{text}");
+
+    let v = json(&ff(&fx, &["remote", "--json"]));
+    assert!(
+        v["data"]["remotes"]
+            .as_array()
+            .expect("a remotes array")
+            .is_empty(),
+        "{v}"
+    );
+}
+
+/// The shape `--shared` deletes: `main` published, a second branch `shared`
+/// with a commit of its own, published too, standing on `main` again.
+fn published_branches() -> Fixture {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    ok(&ff(&fx, &["publish"]));
+    fx.git(&["checkout", "-q", "-b", "shared"]);
+    fx.write("b.txt", "b\n");
+    fx.commit("two");
+    ok(&ff(&fx, &["publish"]));
+    fx.git(&["checkout", "-q", "main"]);
+    fx
+}
+
+/// `--shared` deletes the copy on the remote and all three local traces —
+/// the tracking ref, the `[branch "shared"]` section, and the published
+/// note — and says both halves.
+#[test]
+fn shared_delete_removes_the_copy_and_the_traces() {
+    let fx = published_branches();
+    let text = ok(&ff(&fx, &["branch", "delete", "shared", "--shared"]));
+
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(
+        !heads.lines().any(|l| l.contains("shared")),
+        "the copy on the remote is gone: {heads}"
+    );
+    let remotes = fx.git(&["for-each-ref", "refs/remotes"]);
+    assert!(
+        !remotes.lines().any(|l| l.contains("shared")),
+        "the tracking ref is gone: {remotes}"
+    );
+    // Exits 1 when there is no match, so this reads the raw output instead.
+    let config = fx.try_git(&["config", "--get-regexp", "^branch\\.shared\\."]);
+    assert!(
+        String::from_utf8_lossy(&config.stdout).trim().is_empty(),
+        "the [branch \"shared\"] section is gone: {}",
+        String::from_utf8_lossy(&config.stdout)
+    );
+    let fufu = fx.git(&["for-each-ref", "refs/fufu"]);
+    assert!(
+        !fufu.lines().any(|l| l.contains("published/shared")),
+        "the published note is gone: {fufu}"
+    );
+
+    assert!(
+        text.contains("removed the shared copy origin/shared"),
+        "{text}"
+    );
+    assert!(text.contains("the delete left the machine"), "{text}");
+}
+
+/// A plain delete touches none of the three local traces and leaves the
+/// copy on the remote standing — the shape `--shared` exists to change.
+#[test]
+fn a_plain_delete_removes_none_of_them() {
+    let fx = published_branches();
+    let text = ok(&ff(&fx, &["branch", "delete", "shared"]));
+
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(
+        heads.lines().any(|l| l.contains("shared")),
+        "the copy stands: {heads}"
+    );
+    let remotes = fx.git(&["for-each-ref", "refs/remotes"]);
+    assert!(
+        remotes.lines().any(|l| l.contains("shared")),
+        "the tracking ref survives: {remotes}"
+    );
+    let config = fx.try_git(&["config", "--get-regexp", "^branch\\.shared\\."]);
+    assert!(
+        config.status.success()
+            && String::from_utf8_lossy(&config.stdout).contains("branch.shared.remote"),
+        "the section survives: {}",
+        String::from_utf8_lossy(&config.stdout)
+    );
+    let fufu = fx.git(&["for-each-ref", "refs/fufu"]);
+    assert!(
+        fufu.lines().any(|l| l.contains("published/shared")),
+        "the published note survives: {fufu}"
+    );
+
+    assert!(
+        text.contains("the shared copy origin/shared is still there"),
+        "{text}"
+    );
+    assert!(text.contains("undo: ff undo"), "{text}");
+}
+
+/// A copy that moved since the last look refuses the leased delete, and the
+/// far side stands where it moved to — the stale lease is the wire's own
+/// refusal, not fufu's.
+#[test]
+fn a_moved_copy_refuses_and_leaves_the_far_side_standing() {
+    let fx = published_branches();
+
+    // The move, behind fufu's back: a second clone commits on `shared` and
+    // pushes it. No fetch afterwards — the stale tracking ref is the point.
+    let mover = fx.root().join("mover");
+    fx.git_in(
+        fx.root(),
+        &["clone", "-q", &fx.remote_path().to_string_lossy(), "mover"],
+    );
+    fx.git_in(&mover, &["checkout", "-q", "shared"]);
+    std::fs::write(mover.join("c.txt"), "c\n").expect("write in the mover");
+    fx.git_in(&mover, &["add", "-A"]);
+    fx.git_in(&mover, &["commit", "-q", "-m", "move"]);
+    fx.git_in(&mover, &["push", "origin", "shared"]);
+
+    let out = ff(&fx, &["--json", "branch", "delete", "shared", "--shared"]);
+    assert!(
+        !out.status.success(),
+        "the stale lease is refused: {}",
+        both(&out)
+    );
+    // The id rides the envelope, not the human line.
+    let v = json(&out);
+    assert_eq!(
+        v["error"]["id"], "branch/shared-lease-refused",
+        "the refusal is the lease, not some other state: {v}"
+    );
+
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(
+        heads.lines().any(|l| l.contains("shared")),
+        "the far side stands where it moved: {heads}"
+    );
+}

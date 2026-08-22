@@ -199,6 +199,65 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
     ))
 }
 
+/// The delete half of the same wire: `git push --force-with-lease=<branch>:<lease>
+/// <remote> :<branch>`. The lease value is the tip the tracking ref stood at
+/// last — what we last saw — and git honors it on a delete push. The
+/// stale-lease case gets its own id because `publish/lease-refused` says
+/// "your commits are still here, and ff sync takes in what arrived," which
+/// is wrong here: the branch is already deleted locally, and the way back
+/// is `ff undo`, not a sync.
+pub fn push_delete(
+    cwd: &std::path::Path,
+    remote: &str,
+    remote_branch: &str,
+    lease: &str,
+) -> Result<()> {
+    let lease_arg = format!("--force-with-lease={remote_branch}:{lease}");
+    let spec = format!(":{remote_branch}");
+    let run = run(cwd, &["push", lease_arg.as_str(), remote, spec.as_str()])?;
+    if run.ok {
+        return Ok(());
+    }
+    if run.code == 128 {
+        return Err(Error::coded(
+            "publish/unreachable",
+            format!(
+                "could not reach {remote}: {}",
+                first_useful_line(&run.stderr)
+            ),
+            vec![format!("ff git push {remote}"), "ff status".into()],
+        ));
+    }
+    if run.stderr.contains("stale info") {
+        return Err(Error::coded(
+            "branch/shared-lease-refused",
+            format!(
+                "{remote}/{remote_branch} moved since you last looked, so the shared copy \
+                 is still there — the branch here is deleted, and ff undo brings it back"
+            ),
+            vec!["ff undo".into(), "ff branch list".into()],
+        ));
+    }
+    if run.stderr.contains("[remote rejected]") {
+        return Err(Error::coded(
+            "publish/rejected",
+            format!(
+                "{remote} refused the push: {}",
+                first_useful_line(&run.stderr)
+            ),
+            vec![format!("ff git push {remote}"), "ff status".into()],
+        ));
+    }
+    Err(Error::coded(
+        "publish/failed",
+        format!(
+            "git push to {remote} failed: {}",
+            first_useful_line(&run.stderr)
+        ),
+        vec![format!("ff git push {remote}"), "ff status".into()],
+    ))
+}
+
 /// `ff clone`'s whole wire call: negotiate, take the pack, check out.
 ///
 /// The three builder settings are exactly gix's, with no shape of our own

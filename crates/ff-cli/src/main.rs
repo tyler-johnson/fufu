@@ -185,6 +185,7 @@ fn main() {
         Some(cli::Command::Publish { dry_run, to }) => {
             cmd::publish::run(&ctx, dry_run, to.as_deref())
         }
+        Some(cli::Command::Remote) => cmd::remote::run(&ctx),
         // The two verbs that run before there is a repository to discover.
         Some(cli::Command::Init { dir, bare }) => cmd::init::run(&ctx, dir, bare),
         Some(cli::Command::Clone {

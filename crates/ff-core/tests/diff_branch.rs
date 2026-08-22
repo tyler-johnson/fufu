@@ -279,6 +279,76 @@ fn delete_refuses_current_and_unknown() {
 }
 
 #[test]
+fn delete_report_names_the_shared_copy() {
+    // Pins that a plain delete reports the tracking ref it leaves behind —
+    // fully named — and that the tracking ref survives the delete.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    ident(&fx);
+    fx.git(&["branch", "shared"]);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.shared.remote", "origin");
+    fx.set_config("branch.shared.merge", "refs/heads/shared");
+    fx.git(&["update-ref", "refs/remotes/origin/shared", &sha]);
+
+    let (report, _ctx) =
+        ff_core::branch::delete(&fx.repo(), "shared", &prov(), Some(NOW), Vec::new()).unwrap();
+    let shared = report.shared.expect("shared must be named in the report");
+    assert_eq!(shared.remote, "origin");
+    assert_eq!(shared.name, "origin/shared");
+    assert_eq!(shared.r#ref, "refs/remotes/origin/shared");
+    assert_eq!(shared.remote_branch, "shared");
+    assert_eq!(shared.tip, sha);
+    assert!(!shared.aliased);
+
+    // The reported copy is left standing: it is reported, not removed.
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/shared"]).trim(),
+        sha
+    );
+}
+
+#[test]
+fn delete_without_an_upstream_reports_no_shared_copy() {
+    // Pins that a branch answering to nothing reports `shared: None`.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    ident(&fx);
+    fx.git(&["branch", "shared"]);
+
+    let (report, _ctx) =
+        ff_core::branch::delete(&fx.repo(), "shared", &prov(), Some(NOW), Vec::new()).unwrap();
+    assert!(report.shared.is_none());
+}
+
+#[test]
+fn delete_flags_an_aliased_tracking_ref() {
+    // Pins that a tracking ref wearing another branch's name is reported as
+    // aliased, not named as the branch's own copy.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    ident(&fx);
+    fx.git(&["branch", "shared"]);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.shared.remote", "origin");
+    fx.set_config("branch.shared.merge", "refs/heads/other");
+    fx.git(&["update-ref", "refs/remotes/origin/other", &sha]);
+
+    let (report, _ctx) =
+        ff_core::branch::delete(&fx.repo(), "shared", &prov(), Some(NOW), Vec::new()).unwrap();
+    let shared = report.shared.expect("shared must be named in the report");
+    assert!(shared.aliased);
+    assert_eq!(shared.remote_branch, "other");
+    assert_eq!(shared.name, "origin/other");
+    assert_ne!(shared.remote_branch, "shared");
+}
+
+#[test]
 fn list_segregates_and_annotates() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
@@ -305,7 +375,7 @@ fn list_segregates_and_annotates() {
     let head = ff_core::head_state(&repo).unwrap();
     ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
 
-    let list = ff_core::branch::list(&fx.repo()).unwrap();
+    let list = ff_core::branch::list(&fx.repo(), &ff_core::BranchListOptions::default()).unwrap();
     let names: Vec<&str> = list.named.iter().map(|b| b.name.as_str()).collect();
     assert_eq!(names, vec!["main", "named"]);
     let anon: Vec<&str> = list.anonymous.iter().map(|b| b.name.as_str()).collect();
@@ -315,6 +385,99 @@ fn list_segregates_and_annotates() {
     assert!(main.parked, "parked annotation");
     let named = &list.named[1];
     assert_eq!(named.pending_description.as_deref(), Some("todo"));
+}
+
+#[test]
+fn list_shows_branches_that_exist_only_on_the_remote() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    ident(&fx);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.main.remote", "origin");
+    fx.set_config("branch.main.merge", "refs/heads/main");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &sha]);
+    fx.git(&["update-ref", "refs/remotes/origin/spike", &sha]);
+    fx.git(&["update-ref", "refs/remotes/origin/other", &sha]);
+
+    let list = ff_core::branch::list(&fx.repo(), &ff_core::BranchListOptions::default()).unwrap();
+    // origin/main is tracked, so the bucket holds the other two only.
+    let names: Vec<&str> = list.remote_only.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, vec!["origin/other", "origin/spike"]);
+    for row in &list.remote_only {
+        assert_eq!(row.remote, "origin");
+        assert_eq!(row.tip, sha);
+    }
+    assert_eq!(list.remote_more, 0);
+}
+
+#[test]
+fn remote_head_is_not_a_branch() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    ident(&fx);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &sha]);
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+
+    // A symbolic <remote>/HEAD must be skipped, not raised on — the listing
+    // comes back Ok and without a row for it.
+    let list = ff_core::branch::list(&fx.repo(), &ff_core::BranchListOptions::default())
+        .expect("a symbolic origin/HEAD must not fail the listing");
+    assert!(!list.remote_only.iter().any(|b| b.name == "origin/HEAD"));
+}
+
+#[test]
+fn a_local_branch_hides_the_ref_it_tracks_whatever_it_is_called() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("one");
+    ident(&fx);
+    fx.git(&["checkout", "-q", "-b", "mine"]);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.mine.remote", "origin");
+    fx.set_config("branch.mine.merge", "refs/heads/other");
+    fx.git(&["update-ref", "refs/remotes/origin/other", &sha]);
+    fx.git(&["update-ref", "refs/remotes/origin/spike", &sha]);
+
+    // mine and other differ in name, so only the tracking ref subtracts.
+    let list = ff_core::branch::list(&fx.repo(), &ff_core::BranchListOptions::default()).unwrap();
+    let names: Vec<&str> = list.remote_only.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, vec!["origin/spike"]);
+}
+
+#[test]
+fn the_bound_reports_what_it_left_out() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "one\n");
+    let one = fx.commit("one");
+    fx.write("a.txt", "two\n");
+    let two = fx.commit("two");
+    fx.write("a.txt", "three\n");
+    let three = fx.commit("three");
+    ident(&fx);
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.git(&["update-ref", "refs/remotes/origin/a", &one]);
+    fx.git(&["update-ref", "refs/remotes/origin/b", &two]);
+    fx.git(&["update-ref", "refs/remotes/origin/c", &three]);
+
+    let opts = ff_core::BranchListOptions {
+        remote_limit: Some(2),
+    };
+    let list = ff_core::branch::list(&fx.repo(), &opts).unwrap();
+    assert_eq!(list.remote_only.len(), 2);
+    assert_eq!(list.remote_more, 1);
+    let names: Vec<&str> = list.remote_only.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, vec!["origin/c", "origin/b"]);
 }
 
 #[test]

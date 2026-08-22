@@ -254,6 +254,9 @@ fn phase2_verbs_never_spawn() {
         &["redo"][..],
         &["new", "-m", "next change"][..],
         &["start", "-m", "next change"][..],
+        // The plain delete stays spawn-free even though it now reads the
+        // branch's remote axis.
+        &["branch", "delete", "other"][..],
     ] {
         let out = ff_trapped(&trap, &fx.path(), args);
         assert!(
@@ -266,6 +269,36 @@ fn phase2_verbs_never_spawn() {
     assert!(
         !trap.log.exists(),
         "a phase-2 verb spawned git: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+}
+
+/// `ff remote` reads the remotes through the ordinary `discover` handle and
+/// so spawns nothing — even with a remote configured, which is the state
+/// that would tempt a `git remote -v` detour. `find_remote`'s other call
+/// site runs on the wire's handle, whose `git_binary: true` is the one that
+/// spawns `git config -l`; this test pins that `ff remote` is not it.
+#[test]
+fn remote_never_spawns() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    let trap = build_trap();
+    for args in [&["remote"][..], &["remote", "--json"][..]] {
+        let out = ff_trapped(&trap, &fx.path(), args);
+        assert!(
+            out.status.success(),
+            "ff {:?} failed under trap PATH: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    assert!(
+        !trap.log.exists(),
+        "ff remote spawned git: {}",
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
 }
