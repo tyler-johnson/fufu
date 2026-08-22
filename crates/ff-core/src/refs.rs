@@ -281,6 +281,19 @@ pub(crate) fn branchish(
     Ok(None)
 }
 
+/// Is a ref symbolic — does its target name another ref rather than an
+/// object? A ref that does not exist is not symbolic. `ref_target` and
+/// `branchish` both raise on a symbolic ref, where a caller may only want
+/// to know "not a branch"; this one answers instead of raising.
+/// `<remote>/HEAD` is the ref that makes that necessary: every clone leaves
+/// one behind, and it is symbolic.
+pub(crate) fn is_symbolic(repo: &gix::Repository, name: &str) -> Result<bool> {
+    match repo.try_find_reference(name).map_err(Error::repo)? {
+        Some(reference) => Ok(reference.target().try_name().is_some()),
+        None => Ok(false),
+    }
+}
+
 /// Does this remote hold any tracking ref at all?
 ///
 /// The cheap half of "was there ever a shared copy here". A clone of a

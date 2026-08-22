@@ -175,7 +175,10 @@ fn a_held_rewrite_blocks_the_exit() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     // Both sides rewrite the same line, so replaying onto the shared copy
-    // cannot succeed and the rewrite is held.
+    // cannot succeed and the rewrite is held. Aiming at the shared copy is
+    // `ff sync`'s remote axis, which this stands in for, so the call is
+    // spelled the way sync spells it: `Aim::Settled`, which is what the
+    // refusal `--onto` owes a person does not apply to.
     fx.git(&["switch", "-q", "-c", "collab"]);
     fx.write("shared.txt", "theirs\n");
     let collab = fx.commit("collab");
@@ -186,13 +189,14 @@ fn a_held_rewrite_blocks_the_exit() {
     fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
 
     let repo = fx.repo();
-    let (outcome, _) = ff_core::restack::restack(
+    let (outcome, _) = ff_core::restack::restack_with(
         &repo,
         None,
         Some("refs/remotes/origin/feature".to_string()),
         &prov(),
-        Some(NOW),
-        vec!["ff".into(), "restack".into()],
+        (Some(NOW), vec!["ff".into(), "restack".into()]),
+        &ff_core::rewrite::Decided::none(),
+        ff_core::Aim::Settled,
     )
     .unwrap();
     assert!(

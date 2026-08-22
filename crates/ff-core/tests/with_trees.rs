@@ -71,6 +71,7 @@ fn restack_with_call(
         &prov(),
         (Some(now), vec!["ff".into(), "restack".into()]),
         decided,
+        ff_core::restack::Aim::Asked,
     )
     .unwrap()
 }

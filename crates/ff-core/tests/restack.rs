@@ -39,6 +39,23 @@ fn restack_call(
     .unwrap()
 }
 
+/// `restack_call` for the refusal path: the error, panicking with the
+/// outcome if the restack unexpectedly lands.
+fn restack_err(fx: &Fixture, branch: Option<&str>, onto: Option<&str>, now: i64) -> ff_core::Error {
+    let repo = fx.repo();
+    match ff_core::restack::restack(
+        &repo,
+        branch.map(String::from),
+        onto.map(String::from),
+        &prov(),
+        Some(now),
+        vec!["ff".into(), "restack".into()],
+    ) {
+        Ok(outcome) => panic!("the restack must refuse, but it landed: {outcome:?}"),
+        Err(err) => err,
+    }
+}
+
 /// Every worktree file as (repo-relative path, bytes), sorted by path.
 fn worktree_files(fx: &Fixture) -> Vec<(String, Vec<u8>)> {
     let root = fx.path();
@@ -461,9 +478,10 @@ fn onto_a_full_local_ref_matches_the_short_name() {
     );
 }
 
-/// The landmine's setup: `feature` forks `main`'s first commit with one
-/// commit of its own, and a tracking ref `origin/feature` points at `main`'s
-/// tip — the shape `ff sync`'s remote axis will replay onto.
+/// The setup: `feature` forks `main`'s first commit with one commit of its
+/// own, and a tracking ref `origin/feature` points at `main`'s tip. No
+/// upstream is configured, so this is not the branch's own copy — as far as
+/// fufu can tell, someone else's branch.
 fn tracking_stack(fx: &Fixture) {
     fx.write("f.txt", "one\n");
     let c0 = fx.commit("root");
@@ -479,7 +497,7 @@ fn tracking_stack(fx: &Fixture) {
 }
 
 #[test]
-fn onto_a_tracking_ref_records_no_parent() {
+fn onto_someone_elses_tracking_ref_records_it_as_the_parent() {
     let fx = Fixture::new();
     ident(&fx);
     tracking_stack(&fx);
@@ -495,20 +513,21 @@ fn onto_a_tracking_ref_records_no_parent() {
         other => panic!("a restack onto a tracking ref must land, got {other:?}"),
     };
     assert_eq!(report.base, "origin/feature");
-    // A base that is not a local branch is never recorded as a parent.
-    assert!(!report.reaimed);
+    // No upstream config: as far as fufu can tell this is someone else's
+    // branch, so `--onto` records it as the parent.
+    assert!(report.reaimed);
     assert_eq!(report.previous_parent, None);
     assert_eq!(
         ff_core::branchmeta::read(&fx.repo(), "feature")
             .unwrap()
             .parent,
-        None
+        Some("origin/feature".into())
     );
     assert_eq!(report.replayed, 1);
 }
 
 #[test]
-fn a_tracking_ref_base_writes_no_parent_transition() {
+fn a_tracking_ref_base_records_the_parent_transition() {
     let fx = Fixture::new();
     ident(&fx);
     tracking_stack(&fx);
@@ -526,7 +545,12 @@ fn a_tracking_ref_base_writes_no_parent_transition() {
 
     let record = tip_record(&fx.repo());
     assert_eq!(record.verb, "restack");
-    assert!(record.parent.is_none());
+    let parent = record
+        .parent
+        .expect("a tracking-ref base records the parent transition");
+    assert_eq!(parent.branch, "feature");
+    assert_eq!(parent.old, None);
+    assert_eq!(parent.new.as_deref(), Some("origin/feature"));
     assert!(
         record.summary.contains("onto origin/feature"),
         "{:?}",
@@ -537,6 +561,197 @@ fn a_tracking_ref_base_writes_no_parent_transition() {
         "{:?}",
         record.summary
     );
+}
+
+/// `tracking_stack`'s shape, but the remote holds `main`: a branch that
+/// exists only as a tracking ref.
+fn remote_main_stack(fx: &Fixture) {
+    fx.write("f.txt", "one\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature", &c0]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "m\n");
+    let c1 = fx.commit("m");
+    // A fetch would create the tracking ref this way.
+    fx.git(&["update-ref", "refs/remotes/origin/main", &c1]);
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+#[test]
+fn onto_a_remote_branch_by_its_short_name_replays_and_records_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    remote_main_stack(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("origin/main"), NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("a restack onto a remote branch must land, got {other:?}"),
+    };
+    assert_eq!(report.base, "origin/main");
+    assert!(report.reaimed);
+    assert_eq!(report.replayed, 1);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        Some("origin/main".into())
+    );
+
+    // Move the remote forward one more commit: the bare verb must resolve
+    // the recorded parent through `base_for` and land on the new tip.
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    let c2 = fx.commit("m2");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &c2]);
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the bare verb must replay onto the recorded parent, got {other:?}"),
+    };
+    assert_eq!(report.base, "origin/main");
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", &c2, "feature"])
+            .status
+            .success(),
+        "feature must sit on the new origin/main tip"
+    );
+}
+
+#[test]
+fn both_spellings_of_a_remote_base_do_the_same_thing() {
+    let short = Fixture::new();
+    ident(&short);
+    remote_main_stack(&short);
+    let (outcome, _ctx) = restack_call(&short, Some("feature"), Some("origin/main"), NOW);
+    let a = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the short spelling must land, got {other:?}"),
+    };
+
+    let long = Fixture::new();
+    ident(&long);
+    remote_main_stack(&long);
+    let (outcome, _ctx) = restack_call(
+        &long,
+        Some("feature"),
+        Some("refs/remotes/origin/main"),
+        NOW,
+    );
+    let b = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the long spelling must land, got {other:?}"),
+    };
+
+    assert_eq!(a.base, b.base);
+    assert_eq!(a.reaimed, b.reaimed);
+    assert_eq!(a.replayed, b.replayed);
+    // Both arms name it the way a person types it.
+    assert_eq!(a.base, "origin/main");
+    for fx in [&short, &long] {
+        assert_eq!(
+            ff_core::branchmeta::read(&fx.repo(), "feature")
+                .unwrap()
+                .parent,
+            Some("origin/main".into())
+        );
+    }
+}
+
+#[test]
+fn onto_this_branchs_own_shared_copy_is_refused() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "one\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature", &c0]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    // The branch's own shared copy, with the upstream config that says so.
+    fx.git(&["update-ref", "refs/remotes/origin/feature", &f1]);
+    fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
+    fx.git(&[
+        "config",
+        "remote.origin.fetch",
+        "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+    fx.git(&["config", "branch.feature.remote", "origin"]);
+    fx.git(&["config", "branch.feature.merge", "refs/heads/feature"]);
+
+    let err = restack_err(&fx, Some("feature"), Some("origin/feature"), NOW);
+    assert_eq!(err.id(), "restack/own-remote", "{err}");
+
+    // The long spelling of the same ref is refused the same way: the two
+    // spellings of a base must mean the same thing.
+    let err = restack_err(
+        &fx,
+        Some("feature"),
+        Some("refs/remotes/origin/feature"),
+        NOW,
+    );
+    assert_eq!(err.id(), "restack/own-remote", "{err}");
+
+    // A refusal writes nothing.
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        None
+    );
+}
+
+#[test]
+fn a_local_prefix_still_resolves_and_does_not_reach_across_namespaces() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature", &c0]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "m\n");
+    let c1 = fx.commit("m");
+    fx.git(&["switch", "-q", "-c", "release", &c1]);
+    // A tracking ref with no local branch of the name `or` would reach.
+    fx.git(&["update-ref", "refs/remotes/origin/oak", &c1]);
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("ma"), NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("a restack onto a local prefix must land, got {other:?}"),
+    };
+    assert_eq!(report.base, "main");
+
+    // A local not-found must not fall through to `origin/oak`.
+    let err = restack_err(&fx, Some("feature"), Some("or"), NOW);
+    assert_eq!(err.id(), "branch/not-found", "{err}");
+}
+
+#[test]
+fn onto_a_remote_head_is_not_found_not_a_crash() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("m.txt", "m\n");
+    let c0 = fx.commit("root");
+    // The shape every clone leaves behind: one remote branch and its
+    // symbolic HEAD.
+    fx.git(&["update-ref", "refs/remotes/origin/main", &c0]);
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+
+    let err = restack_err(&fx, Some("main"), Some("origin/HEAD"), NOW);
+    assert_eq!(err.id(), "branch/not-found", "{err}");
+    // The not-found, not the symbolic-ref error a direct lookup would raise.
+    assert!(!err.to_string().contains("symbolic"), "{err}");
 }
 
 #[test]

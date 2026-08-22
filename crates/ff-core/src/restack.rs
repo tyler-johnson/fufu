@@ -21,6 +21,7 @@ use crate::snapshot::Provenance;
 use crate::snapshot::tree as snaptree;
 use crate::stash::{self, ArrivePlan};
 use crate::switch;
+use serde::Serialize;
 
 /// The tree of a commit, resolved through whichever repository handle is
 /// given.
@@ -112,28 +113,43 @@ fn hold(
     }))
 }
 
-/// A base `--onto` may name: the ref to replay onto, and whether that ref is
-/// a local branch. A bare name resolves to a local branch, and only a local
-/// branch may be re-aimed at — recording a parent is what `--onto` does for
-/// a branch. A `refs/`-prefixed spelling is taken as written, which is how
-/// `ff sync` aims its remote axis at a tracking ref; a tracking ref is never
-/// recorded as a parent, because a branch whose base was its own remote
-/// would answer to itself.
+/// A base `--onto` may name: the ref to replay onto, and what to call it.
+/// A bare name resolves to a local branch first, then to the tracking ref
+/// under the same name — `origin/main` is a base, and `--onto`
+/// records it as a parent whatever namespace it lives in. What refuses the
+/// aim is not the namespace but the branch's own shared copy: a branch whose
+/// base was its own remote would answer to itself. A `refs/`-prefixed
+/// spelling is taken as written, which is how `ff sync` aims its remote axis
+/// at a tracking ref.
 pub(crate) struct Onto {
     /// The full ref: `refs/heads/main`, `refs/remotes/origin/feature`.
     pub(crate) full: String,
     /// What a person calls it: `main`, `origin/feature`.
     pub(crate) name: String,
-    /// A local branch, and so something a `--onto` may record as a parent.
-    pub(crate) local: bool,
     pub(crate) tip: gix::ObjectId,
+}
+
+/// Who aimed this restack. It settles exactly one question — whether aiming
+/// a branch at its own shared copy is refused. A person who typed `--onto`
+/// just now meant a different base to sit on, so the refusal is owed to
+/// them. Machinery — `ff sync`'s remote axis, or a hold being resumed —
+/// aimed at that ref on purpose: reconciling with the remote is its whole
+/// job, and its aim was settled when the sync or the hold was recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Aim {
+    /// A person typed `--onto`.
+    Asked,
+    /// Machinery aimed this: `ff sync`'s remote axis, or a hold being resumed.
+    Settled,
 }
 
 /// Resolve a base by either spelling. A `refs/`-prefixed spelling is taken
 /// as written — no prefix matching — because the caller knows exactly what
-/// it wants to aim at; anything else is a bare branch name resolved the way
-/// every other verb resolves one, so a hold recorded with the old spelling
-/// still replans.
+/// it wants to aim at. Anything else is a local branch name first, resolved
+/// the way every other verb resolves one, and only a bare not-found falls
+/// through to the tracking ref under the same name — so `origin/main` and
+/// `refs/remotes/origin/main` mean the same base, and a hold recorded with
+/// either spelling still replans.
 pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
     if let Some(tail) = raw.strip_prefix("refs/") {
         let tip = refs::ref_target(repo, raw)?.ok_or_else(|| {
@@ -149,11 +165,33 @@ pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
         Ok(Onto {
             full: raw.to_string(),
             name,
-            local: raw.starts_with("refs/heads/"),
             tip,
         })
     } else {
-        let name = switch::resolve_branch(repo, raw)?;
+        // A local name wins over a same-named tracking ref, and a local
+        // ambiguity is a real ambiguity: it stays an error rather than
+        // falling through to a remote guess. Only a bare not-found falls
+        // through, to the tracking ref under the same name — the spelling a
+        // person types, and the one that lands on the screen and in the
+        // recorded parent.
+        let name = match switch::resolve_branch(repo, raw) {
+            Ok(name) => name,
+            Err(err) if err.id() != "branch/not-found" => return Err(err),
+            Err(err) => {
+                // `<remote>/HEAD` is symbolic and not a branch: hand back
+                // the not-found instead of the symbolic-ref error a lookup
+                // would raise.
+                if refs::is_symbolic(repo, &format!("refs/remotes/{raw}"))? {
+                    return Err(err);
+                }
+                let (full, tip) = refs::branchish(repo, raw)?.ok_or(err)?;
+                return Ok(Onto {
+                    full,
+                    name: raw.to_string(),
+                    tip,
+                });
+            }
+        };
         let full = format!("refs/heads/{name}");
         let tip = refs::ref_target(repo, &full)?.ok_or_else(|| {
             Error::coded(
@@ -162,12 +200,7 @@ pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
                 vec![],
             )
         })?;
-        Ok(Onto {
-            full,
-            name,
-            local: true,
-            tip,
-        })
+        Ok(Onto { full, name, tip })
     }
 }
 
@@ -191,7 +224,6 @@ fn onto_from(repo: &gix::Repository, sync_ref: &futures::SyncRef) -> Result<Onto
     Ok(Onto {
         full: sync_ref.r#ref.clone(),
         name: sync_ref.name.clone(),
-        local: sync_ref.r#ref.starts_with("refs/heads/"),
         tip,
     })
 }
@@ -276,13 +308,16 @@ pub fn restack(
         prov,
         (now, argv),
         &rewrite::Decided::none(),
+        Aim::Asked,
     )
 }
 
-/// `restack`, with some rewritten commits' trees decided in advance: those
-/// skip the three-way merge and take what they are given, and the pre-flight
-/// probe — a question about merges that are no longer going to happen — is
-/// asked only when nothing is decided.
+/// `restack`, with the things the plain verb decides for you settled by the
+/// caller: some rewritten commits' trees — those skip the three-way merge
+/// and take what they are given, and the pre-flight probe, a question about
+/// merges that are no longer going to happen, is asked only when nothing is
+/// decided — and the aim, which settles whether aiming at the branch's own
+/// shared copy is refused.
 pub fn restack_with(
     repo: &gix::Repository,
     branch: Option<String>,
@@ -290,6 +325,7 @@ pub fn restack_with(
     prov: &Provenance,
     invocation: (Option<i64>, Vec<String>),
     decided: &rewrite::Decided,
+    aim: Aim,
 ) -> Result<(RestackOutcome, verb::VerbContext)> {
     let (now, argv) = invocation;
     // 1. Guards.
@@ -380,7 +416,7 @@ pub fn restack_with(
 
     // 4. The base.
     let reaim_requested = onto.is_some();
-    let base = match onto {
+    let (base, own_copy) = match onto {
         Some(raw) => {
             let base = resolve_onto(repo, &raw)?;
             if base.full == format!("refs/heads/{branch}") {
@@ -390,7 +426,26 @@ pub fn restack_with(
                     vec![format!("ff restack {branch} --onto <base>")],
                 ));
             }
-            base
+            // Aiming a branch at its own shared copy is reconciling with the
+            // remote, not picking a base — refused only when a person typed
+            // it: `ff sync`'s remote axis aims exactly there on purpose, and
+            // a resumed hold may well be one.
+            let own_copy =
+                futures::remote_for(repo, &branch)?.is_some_and(|own| own.r#ref == base.full);
+            if own_copy && aim == Aim::Asked {
+                return Err(Error::coded(
+                    "restack/own-remote",
+                    format!(
+                        "{branch} cannot be restacked onto its own shared copy, {}",
+                        base.name
+                    ),
+                    vec![
+                        "ff sync".into(),
+                        format!("ff restack {branch} --onto <base>"),
+                    ],
+                ));
+            }
+            (base, own_copy)
         }
         None => {
             let sync_ref = futures::base_for(repo, &branch)?.ok_or_else(|| {
@@ -403,16 +458,17 @@ pub fn restack_with(
                     ],
                 )
             })?;
-            onto_from(repo, &sync_ref)?
+            // `base_for` refuses the branch's own shared copy itself, so the
+            // bare verb never aims at one.
+            (onto_from(repo, &sync_ref)?, false)
         }
     };
-    // Only `--onto` asks for a base to be written down: the bare verb replays
-    // onto the base already recorded, which `ff start` wrote and which may
-    // name someone else's branch. What survives of the old local-only rule is
-    // narrower and still load-bearing — the base axis and the remote axis
-    // must never aim at the same ref — and `--onto` keeps it by resolving
-    // branches by name through its own path, which refuses a tracking ref.
-    let reaimed = reaim_requested && base.local;
+    // `--onto` records a parent whatever namespace the base lives in: `ff
+    // start origin/x` already writes one, and `base_for` already resolves
+    // one. What survives of the old local-only rule is the invariant
+    // `base_for` enforces — the base axis and the remote axis must never aim
+    // at the same ref — and being a local branch never was that test.
+    let reaimed = reaim_requested && !own_copy;
     let base_tip = base.tip;
     let base_name = base.name.clone();
 

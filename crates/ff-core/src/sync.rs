@@ -57,7 +57,7 @@
 
 use crate::model::{BaseAxis, Pending, RemoteAxis, RestackOutcome, SyncReport};
 use crate::preflight::Preflight;
-use crate::restack::restack;
+use crate::restack::{Aim, restack, restack_with};
 use crate::{Error, Provenance, Result};
 
 /// The facts sync cannot learn for itself, handed in by whoever ran the
@@ -136,13 +136,14 @@ pub fn sync(
                     behind,
                 }
             } else {
-                let (outcome, _) = restack(
+                let (outcome, _) = restack_with(
                     repo,
                     None,
                     Some(tracking.full.clone()),
                     prov,
-                    Some(ctx.now),
-                    opts.argv.clone(),
+                    (Some(ctx.now), opts.argv.clone()),
+                    &crate::rewrite::Decided::none(),
+                    Aim::Settled,
                 )?;
                 RemoteAxis::Ran {
                     name: tracking.name.clone(),

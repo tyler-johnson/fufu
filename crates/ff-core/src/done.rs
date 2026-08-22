@@ -351,6 +351,7 @@ fn finish_resolution(
                 rec.prov,
                 (Some(rec.now), rec.argv.clone()),
                 &decided,
+                crate::restack::Aim::Settled,
             )?;
             match outcome {
                 crate::RestackOutcome::Restacked(report) => Landed {

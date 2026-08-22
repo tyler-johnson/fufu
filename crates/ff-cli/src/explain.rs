@@ -742,6 +742,15 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff restack <branch> --onto <base>", "ff status"],
     },
     Entry {
+        id: "restack/own-remote",
+        summary: "a branch cannot be restacked onto its own shared copy",
+        detail: "A branch's shared copy is not a base it sits on — it is the same branch \
+                 somewhere else, and replaying onto it is reconciling with the remote, \
+                 which is what ff sync does: it fetches, takes in what arrived, and \
+                 replays. --onto is for naming a different branch to sit on.",
+        exits: &["ff sync", "ff restack <branch> --onto <base>"],
+    },
+    Entry {
         id: "restack/unrelated",
         summary: "the branch and its base share no history",
         detail: "A replay measures its range from a common ancestor, and two histories that \

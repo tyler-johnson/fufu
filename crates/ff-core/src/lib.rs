@@ -64,6 +64,7 @@ pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 pub use published::{ever_published, published_tip};
+pub use restack::Aim;
 /// The `--at` grammar, exported because `ff op log --at` asks the same
 /// question of the same clock and must not grow a second parser for it.
 pub use restore::parse_time as restore_time;
