@@ -285,3 +285,65 @@ fn the_parent_row_names_the_same_segment_ff_log_does() {
         "status and log disagree about the parent commit's segment"
     );
 }
+
+/// Two remotes, neither named `origin`, and a branch whose own section names
+/// none of them: `ff status` says the remote cannot be named, and does not
+/// let the empty remote axis read as settled. It still exits 0 — status
+/// reports, it never adopts a verb's exit code.
+#[test]
+fn status_says_the_remote_cannot_be_named() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+
+    // Two remotes, neither `origin` — the shape that leaves `for_branch`
+    // with nothing to name.
+    fx.set_config("remote.one.url", "/nonexistent/one.git");
+    fx.set_config("remote.one.fetch", "+refs/heads/*:refs/remotes/one/*");
+    fx.set_config("remote.two.url", "/nonexistent/two.git");
+    fx.set_config("remote.two.fetch", "+refs/heads/*:refs/remotes/two/*");
+
+    let output = ff(&fx, &["status"]);
+    assert!(
+        output.status.success(),
+        "status reports, it does not fail: {}",
+        out(&output)
+    );
+    let text = stdout(&output);
+    assert!(
+        text.contains("remote unnamed"),
+        "the unnameable remote is said: {text}"
+    );
+    assert!(
+        !text.contains("nothing to sync"),
+        "an empty axis never reads as settled: {text}"
+    );
+}
+
+/// One remote named `origin` that the branch's own section points at is a
+/// named, settled remote: the `remote unnamed` part never appears.
+#[test]
+fn a_settled_remote_still_says_nothing_to_sync() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+
+    fx.set_config("remote.origin.url", "/nonexistent/origin.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.feature.remote", "origin");
+    fx.set_config("branch.feature.merge", "refs/heads/feature");
+
+    let output = ff(&fx, &["status"]);
+    assert!(
+        output.status.success(),
+        "status reports, it does not fail: {}",
+        out(&output)
+    );
+    let text = stdout(&output);
+    assert!(
+        !text.contains("remote unnamed"),
+        "a named remote is not unnameable: {text}"
+    );
+}

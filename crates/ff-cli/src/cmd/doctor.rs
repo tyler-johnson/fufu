@@ -114,7 +114,7 @@ fn summary_text(findings: usize, fixable: usize, fix: bool) -> String {
     } else {
         let mut s = format!("{findings} finding(s)");
         if fixable > 0 && !fix {
-            s.push_str(" — `ff doctor --fix` repairs the gc config");
+            s.push_str(&format!(" — `ff doctor --fix` repairs {fixable} of them"));
         }
         s
     }
@@ -155,6 +155,29 @@ fn tip_time(repo: &ff_core::gix::Repository, id: ff_core::gix::ObjectId) -> Resu
     let obj = repo.find_object(id).map_err(Error::repo)?;
     let commit = ff_core::gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
     Ok(commit.committer.time().map_err(Error::repo)?.seconds)
+}
+
+/// Whether the shared copy of `branch` still exists on its remote: `None`
+/// when no tracking ref can even be named (no upstream, or a section that
+/// names one without a `merge`), `Some(true)`/`Some(false)` for present
+/// once it can. The two remote-floor rows both ask this question, so it is
+/// derived once — the same way `ff_core::upstream` does — rather than twice.
+fn tracking_state(repo: &ff_core::gix::Repository, branch: &str) -> Result<Option<bool>> {
+    let full: ff_core::gix::refs::FullName = format!("refs/heads/{branch}")
+        .as_str()
+        .try_into()
+        .map_err(Error::repo)?;
+    let Some(tracking) =
+        repo.branch_remote_tracking_ref_name(full.as_ref(), ff_core::gix::remote::Direction::Fetch)
+    else {
+        return Ok(None);
+    };
+    let tracking = tracking.map_err(Error::repo)?;
+    match repo.try_find_reference(tracking.as_ref()) {
+        Ok(Some(_)) => Ok(Some(true)),
+        Ok(None) => Ok(Some(false)),
+        Err(err) => Err(Error::repo(err)),
+    }
 }
 
 /// Loose objects and packs, counted where `git count-objects` counts them:
@@ -782,6 +805,153 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                     format!(
                         "last ran {} (at most every {at_display})",
                         crate::render::relative_age(now, at_state.trimmed_at)
+                    ),
+                ));
+            }
+        }
+
+        // The remote floor: which local branches can name a remote, what their
+        // `[branch "<n>"]` sections point at, and whether the shared copy those
+        // sections promise still exists. All three need `repo`, which only
+        // exists in this block.
+        let local_branches: Vec<String> = {
+            let platform = repo.references().map_err(Error::repo)?;
+            let iter = platform.prefixed("refs/heads/").map_err(Error::repo)?;
+            let mut out = Vec::new();
+            for reference in iter {
+                let reference = reference.map_err(|err| {
+                    Error::coded(
+                        "op/unreadable",
+                        format!("ref iteration failed: {err}"),
+                        vec![],
+                    )
+                })?;
+                out.push(reference.name().shorten().to_string());
+            }
+            out.sort();
+            out
+        };
+
+        // remotes — a local-only repository has no remote floor and no
+        // finding; otherwise every branch must be able to name a remote.
+        {
+            let remotes = repo.remote_names();
+            if !remotes.is_empty() {
+                let ambiguous: Vec<String> = local_branches
+                    .iter()
+                    .filter(|name| {
+                        matches!(
+                            ff_core::remote::for_branch(repo, name),
+                            ff_core::remote::RemoteChoice::Ambiguous { .. }
+                        )
+                    })
+                    .cloned()
+                    .collect();
+                if !ambiguous.is_empty() {
+                    let list = ambiguous.join(", ");
+                    rows.push(Row::warn(
+                        "remotes",
+                        format!(
+                            "no nameable remote for {list} — `ff sync` and `ff publish` both refuse; `ff publish --to <remote>` chooses one"
+                        ),
+                    ));
+                } else {
+                    let mut names: Vec<String> = remotes.iter().map(|n| n.to_string()).collect();
+                    names.sort();
+                    rows.push(Row::ok(
+                        "remotes",
+                        format!(
+                            "{} configured ({}) — every branch names one",
+                            names.len(),
+                            names.join(", ")
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // upstreams — `[branch "<n>"]` sections naming branches that are not
+        // here. A plain `ff branch delete` of a published branch deliberately
+        // keeps both the section and its tracking ref, and says so, so that
+        // undo stays exact — that residue is `info`, not a warning. Only a
+        // section whose shared copy is *also* gone is repairable, and only
+        // under `--fix`, via `remove_branch_section` and nothing else.
+        {
+            let config_path = repo.common_dir().join("config");
+            let file = ff_core::snapshot::config::load_config_file(
+                &config_path,
+                ff_core::gix::config::Source::Local,
+            )?;
+            let mut surviving = Vec::new();
+            let mut gone = Vec::new();
+            for section in file.sections_by_name("branch").into_iter().flatten() {
+                let Some(subsection) = section.header().subsection_name() else {
+                    continue;
+                };
+                let name = subsection.to_string();
+                if local_branches.contains(&name) {
+                    continue;
+                }
+                match tracking_state(repo, &name)? {
+                    Some(true) => surviving.push(name),
+                    // `None` (no ref can even be named) and `Some(false)`
+                    // (the ref is gone) both mean the section points at nothing.
+                    _ => gone.push(name),
+                }
+            }
+            surviving.sort();
+            gone.sort();
+            if !surviving.is_empty() {
+                let list = surviving.join(", ");
+                rows.push(Row::info(
+                    "upstreams",
+                    format!(
+                        "config for {list} names no branch here — the shared copy is still on the remote, which is what `ff branch delete` leaves behind"
+                    ),
+                ));
+            }
+            if !gone.is_empty() {
+                let list = gone.join(", ");
+                if fix {
+                    for name in &gone {
+                        ff_core::snapshot::config::remove_branch_section(repo, name)?;
+                    }
+                    rows.push(Row::ok(
+                        "upstreams",
+                        format!(
+                            "removed {} config section(s) that named nothing: {list}",
+                            gone.len()
+                        ),
+                    ));
+                } else {
+                    rows.push(Row::warn_fixable(
+                        "upstreams",
+                        format!(
+                            "config for {list} names no branch here and no tracking ref either — `ff doctor --fix` removes the section"
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // tracking — branches that exist but whose upstream's shared copy is
+        // gone. `info`, not `warn`: `ff status` already reports it as `remote
+        // is gone` for the branch underfoot, so telling the person repo-wide
+        // is news, not a problem. Disjoint from `upstreams` by construction —
+        // here the branch is here, there it is not.
+        {
+            let mut missing = Vec::new();
+            for name in &local_branches {
+                if matches!(tracking_state(repo, name)?, Some(false)) {
+                    missing.push(name.clone());
+                }
+            }
+            if !missing.is_empty() {
+                let list = missing.join(", ");
+                rows.push(Row::info(
+                    "tracking",
+                    format!(
+                        "{list}: upstream configured, tracking ref absent — the shared copy is gone"
                     ),
                 ));
             }

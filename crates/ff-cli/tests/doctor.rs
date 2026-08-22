@@ -279,7 +279,7 @@ fn gc_missing_warns_and_fix_repairs() {
         "gc config warn:\n{out_text}"
     );
     assert!(
-        out_text.contains("1 finding(s) — `ff doctor --fix` repairs the gc config"),
+        out_text.contains("1 finding(s) — `ff doctor --fix` repairs 1 of them"),
         "summary with fix hint:\n{out_text}"
     );
 
@@ -688,5 +688,189 @@ fn ambient_row_never_warns() {
     assert!(
         !out_text.contains("WARN  ambient"),
         "installed fixture:\n{out_text}"
+    );
+}
+
+/// Two remotes, neither named `origin`, and a branch whose section names none
+/// of them: doctor calls the remote floor a finding and names the way out.
+#[test]
+fn ambiguous_remotes_are_a_finding() {
+    let fx = Fixture::new();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    ff_init(&fx);
+
+    // Two remotes, neither `origin` — the shape that leaves `for_branch`
+    // with nothing to name for the branch underfoot.
+    fx.set_config("remote.one.url", "/nonexistent/one.git");
+    fx.set_config("remote.one.fetch", "+refs/heads/*:refs/remotes/one/*");
+    fx.set_config("remote.two.url", "/nonexistent/two.git");
+    fx.set_config("remote.two.fetch", "+refs/heads/*:refs/remotes/two/*");
+
+    let out = doctor(&fx, &[]);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(1), "exit 1 with a finding:\n{text}");
+    assert!(
+        text.contains("WARN  remotes"),
+        "the remotes finding:\n{text}"
+    );
+    assert!(
+        text.contains("no nameable remote for"),
+        "the refusal is named:\n{text}"
+    );
+}
+
+/// A plain `ff branch delete` of a published branch keeps its section and
+/// tracking ref on purpose, so doctor reports it as `info`, not a warning,
+/// and the run stays green.
+#[test]
+fn a_plain_delete_of_a_published_branch_is_not_a_finding() {
+    let fx = Fixture::new_cloned();
+    // The gc guard a first snapshot would write — the first ops here are
+    // publish/delete (no snapshot), so no close has written it yet.
+    fx.set_config("gc.refs/fufu/*.reflogExpire", "never");
+    fx.set_config("gc.refs/fufu/*.reflogExpireUnreachable", "never");
+
+    // Publish `main`, then a second branch `shared`, then delete `shared` —
+    // the state a real publish-then-delete leaves.
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    let pub_main = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    assert!(
+        pub_main.status.success(),
+        "first publish of main succeeds: {}",
+        String::from_utf8_lossy(&pub_main.stderr)
+    );
+
+    fx.git(&["switch", "-q", "-c", "shared"]);
+    fx.write("shared.txt", "shared\n");
+    fx.commit("shared");
+    let pub_shared = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    assert!(
+        pub_shared.status.success(),
+        "publish of shared succeeds: {}",
+        String::from_utf8_lossy(&pub_shared.stderr)
+    );
+
+    // Delete `shared` from under `main` — `ff branch delete` refuses the
+    // current branch, so stand on `main`.
+    fx.git(&["switch", "-q", "main"]);
+    let del = doctor_env(
+        &fx.path(),
+        &["branch", "delete", "shared"],
+        &fx.root().join("home"),
+    );
+    assert!(
+        del.status.success(),
+        "branch delete of the published shared succeeds: {}",
+        String::from_utf8_lossy(&del.stderr)
+    );
+
+    // Initialize captures + the operation log + the gc guard, and wire the
+    // bash alias so the unrelated rows stay green.
+    ff_init(&fx);
+    let alias = doctor_env(
+        &fx.path(),
+        &["hook", "shell", "install", "bash"],
+        &fx.root().join("home"),
+    );
+    assert!(
+        alias.status.success(),
+        "alias install succeeded: {}",
+        String::from_utf8_lossy(&alias.stderr)
+    );
+
+    let out = doctor(&fx, &[]);
+    let text = stdout(&out);
+    assert!(
+        text.contains("info  upstreams"),
+        "the deliberate residue is info:\n{text}"
+    );
+    assert!(
+        !text.contains("WARN  upstreams"),
+        "a plain published-delete is not a finding:\n{text}"
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "exit 0 when nothing is a finding:\n{text}"
+    );
+}
+
+/// A `[branch "<n>"]` section naming a branch that is not here *and* whose
+/// shared copy is also gone is repairable: `--fix` removes exactly that
+/// section.
+#[test]
+fn a_section_pointing_at_nothing_is_fixable() {
+    let fx = Fixture::new_cloned();
+    // The gc guard a first snapshot would write — the first ops here are
+    // publish/delete (no snapshot), so no close has written it yet.
+    fx.set_config("gc.refs/fufu/*.reflogExpire", "never");
+    fx.set_config("gc.refs/fufu/*.reflogExpireUnreachable", "never");
+
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    let pub_main = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    assert!(
+        pub_main.status.success(),
+        "first publish of main succeeds: {}",
+        String::from_utf8_lossy(&pub_main.stderr)
+    );
+
+    fx.git(&["switch", "-q", "-c", "shared"]);
+    fx.write("shared.txt", "shared\n");
+    fx.commit("shared");
+    let pub_shared = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    assert!(
+        pub_shared.status.success(),
+        "publish of shared succeeds: {}",
+        String::from_utf8_lossy(&pub_shared.stderr)
+    );
+
+    fx.git(&["switch", "-q", "main"]);
+    let del = doctor_env(
+        &fx.path(),
+        &["branch", "delete", "shared"],
+        &fx.root().join("home"),
+    );
+    assert!(
+        del.status.success(),
+        "branch delete of the published shared succeeds: {}",
+        String::from_utf8_lossy(&del.stderr)
+    );
+
+    // Now the shared copy is gone too: the section points at nothing.
+    fx.git(&["update-ref", "-d", "refs/remotes/origin/shared"]);
+
+    ff_init(&fx);
+    let alias = doctor_env(
+        &fx.path(),
+        &["hook", "shell", "install", "bash"],
+        &fx.root().join("home"),
+    );
+    assert!(
+        alias.status.success(),
+        "alias install succeeded: {}",
+        String::from_utf8_lossy(&alias.stderr)
+    );
+
+    let out = doctor(&fx, &[]);
+    let text = stdout(&out);
+    assert_eq!(out.status.code(), Some(1), "exit 1 with a finding:\n{text}");
+    assert!(
+        text.contains("WARN  upstreams"),
+        "the dead section is a finding:\n{text}"
+    );
+
+    let fixed = doctor(&fx, &["--fix"]);
+    let fixed_text = stdout(&fixed);
+    assert!(
+        fixed.status.success(),
+        "--fix repairs and stays green: {fixed_text}"
+    );
+    let remaining = fx.try_git(&["config", "--get", "branch.shared.remote"]);
+    assert!(
+        !remaining.status.success(),
+        "the section is gone after --fix:\n{fixed_text}"
     );
 }

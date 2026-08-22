@@ -474,7 +474,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
 | `ff version` | which fufu this is: the release, the commit it was built from, and — read from the update lane's cache, without touching the network — whether it is still the current one. `--json` reports the three as fields | `git version`, and a separate trip to find out you are behind |
 | `ff update` | move this binary to the latest release: verified download, atomic swap; a passive lane checks ~daily and auto-installs, or prints a one-line notice | re-running installers, stale binaries |
-| `ff doctor` | verify the net: chains, identity, reflogs, gc guard, objects, wiring, update — `--fix` repairs exactly the gc keys | "is this thing even on?" doubt |
+| `ff doctor` | verify the net: chains, identity, reflogs, gc guard, objects, the remote floor, wiring, update — `--fix` repairs the gc keys and config left naming a branch gone from both sides | "is this thing even on?" doubt |
 | `ff explain <id>` | what an error id means, and the ways out of it | searching the message text |
 | `ff watch` | stream operations as they land, newline-delimited JSON | polling `git status` in a loop |
 | `ff completions <shell>` | shell completion, with branches, revs, and op ids resolved live | hand-rolled dotfile fragments |

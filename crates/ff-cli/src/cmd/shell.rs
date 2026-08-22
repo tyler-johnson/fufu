@@ -401,6 +401,7 @@ fn run_trigger(repo: &ff_core::gix::Repository) -> Result<()> {
         _ => ff_core::futures::Futures {
             base: None,
             remote: None,
+            remote_unnamed: false,
         },
     };
 

@@ -264,15 +264,21 @@ pub fn status_human(view: &StatusView<'_>) -> String {
 /// What `ff sync` would do, in the two nouns a person learns once: the
 /// **base** this work sits on, and the **remote** copy of this same branch.
 /// One part per axis, in that order; an axis sync would not act on
-/// contributes nothing. `ff status` and the ambient shell channel share this
-/// renderer, so a prompt can never word a verdict differently from the
-/// command.
+/// contributes nothing. When the remote axis is unnameable — remotes exist
+/// but none of them answers to this branch — a third part, `remote unnamed`,
+/// stands in for the missing axis so an empty axis never reads as a settled
+/// one. `ff status` and the ambient shell channel share this renderer, so a
+/// prompt can never word a verdict differently from the command.
 pub fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<String> {
-    [futures.base.as_ref(), futures.remote.as_ref()]
+    let mut parts: Vec<String> = [futures.base.as_ref(), futures.remote.as_ref()]
         .into_iter()
         .flatten()
         .filter_map(|f| axis_phrase(f, colored))
-        .collect()
+        .collect();
+    if futures.remote_unnamed {
+        parts.push(paint_warn("remote unnamed", colored));
+    }
+    parts
 }
 
 /// `{n} to publish[ to <ref>]`, pending work headed for the remote.
@@ -1249,6 +1255,7 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
         &ff_core::futures::Futures {
             base: info.future.clone(),
             remote: None,
+            remote_unnamed: false,
         },
         colored,
     );

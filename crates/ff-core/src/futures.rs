@@ -492,6 +492,12 @@ pub mod cache {
 pub struct Futures {
     pub base: Option<Future>,
     pub remote: Option<Future>,
+    /// True when remotes exist and none can be named for this branch — the
+    /// state `ff sync` refuses on. It distinguishes `remote: None` meaning
+    /// *there is no remote axis, and that is fine* from `remote: None`
+    /// meaning *there is something to say and fufu declined to guess*.
+    #[serde(default)]
+    pub remote_unnamed: bool,
 }
 
 /// The future of `branch` along one axis, served from cache when all four
@@ -662,5 +668,16 @@ pub fn futures_for(
         Some(base) => future_on(repo, branch, base, branch_tip, open_tree, true)?,
         None => None,
     };
-    Ok(Futures { base, remote })
+    // A branch with a remote future has its remote named by definition, so
+    // the flag can only ever be true when the axis came back empty.
+    let remote_unnamed = remote.is_none()
+        && matches!(
+            crate::remote::for_branch(repo, branch),
+            crate::remote::RemoteChoice::Ambiguous { .. }
+        );
+    Ok(Futures {
+        base,
+        remote,
+        remote_unnamed,
+    })
 }

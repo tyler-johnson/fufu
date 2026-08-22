@@ -814,12 +814,15 @@ pub const DOCTOR: &str = "\
 A safety net you cannot inspect is not trustworthy, and every floor of
 this one can degrade quietly: a log moved by something that is not fufu,
 a reflog that never got created, the gc guard deleted out of local config,
-hooks never installed, a stale binary. Doctor reads the whole net in one
-pass — the engine (the operation log and its age, the fufu identity on its
-tip, reflogs, the gc guard, log health and pending foreign drift,
-settings validated through the readers' own parsers, a trim preview and
-the auto-trim clock), the wiring (agent hooks, the shell alias, and a
-warning when nothing at all feeds capture), and the update lane.
+a branch that answers to no remote anything can name, hooks never
+installed, a stale binary. Doctor reads the whole net in one pass — the
+engine (the operation log and its age, the fufu identity on its tip,
+reflogs, the gc guard, log health and pending foreign drift, settings
+validated through the readers' own parsers, a trim preview and the
+auto-trim clock), the remote floor (whether every branch can name the
+remote it answers to, config left naming branches that are not here, and
+tracking refs that have gone), the wiring (agent hooks, the shell alias,
+and a warning when nothing at all feeds capture), and the update lane.
 
 Rows come at three levels: ok counts nothing, info is news rather than a
 problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1
@@ -828,12 +831,15 @@ machines.
 
 Read-only by design: doctor reports the drift the log will absorb and
 never absorbs it, takes no snapshot, reconciles nothing. --fix is the one
-consented write, and it repairs exactly the two gc reflog-expiry keys.";
+consented write, and it repairs exactly two things: the gc reflog-expiry
+keys, and a config section left naming a branch that is gone from both
+sides. It never touches a section whose shared copy is still standing —
+that one is `ff branch delete` doing its job, not drift.";
 
 pub const DOCTOR_EXAMPLES: &str = "\
 Examples:
   ff doctor                      read the net
-  ff doctor --fix                repair the gc keys (the only write)
+  ff doctor --fix                repair the gc keys and dead config (the only write)
   ff doctor --json               the same rows, for machines";
 
 pub const VERSION: &str = "\

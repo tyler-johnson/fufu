@@ -3,6 +3,7 @@
 
 use ff_core::futures::{self, At, Role, UnknownReason, Verdict};
 use ff_core::gix;
+use ff_core::remote::{self, RemoteChoice};
 use ff_testsupport::Fixture;
 
 fn oid(hex: &str) -> gix::ObjectId {
@@ -1213,4 +1214,101 @@ fn an_upstream_that_is_also_the_base_is_one_axis() {
     let remote = futures.remote.expect("the remote axis survives");
     assert_eq!(remote.against.r#ref, "refs/remotes/origin/main");
     assert_eq!(remote.against.role, Role::RemoteAlias);
+}
+
+/// Two remotes, neither named origin: remotes exist and none can be named.
+fn two_remotes(fx: &Fixture) {
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.set_config("remote.one.url", "/nonexistent/one.git");
+    fx.set_config("remote.one.fetch", "+refs/heads/*:refs/remotes/one/*");
+    fx.set_config("remote.two.url", "/nonexistent/two.git");
+    fx.set_config("remote.two.fetch", "+refs/heads/*:refs/remotes/two/*");
+}
+
+/// The branch's own `branch.<name>.remote` is the top rung of the ladder.
+#[test]
+fn for_branch_names_the_branchs_own_remote() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("branch.main.remote", "origin");
+
+    assert_eq!(
+        remote::for_branch(&fx.repo(), "main"),
+        RemoteChoice::Named("origin".into()),
+        "the branch's own setting outranks the repository default"
+    );
+}
+
+/// With no branch setting, the repository default is the rung below it.
+#[test]
+fn for_branch_falls_back_to_the_repository_default() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+    fx.set_config("remote.origin.url", "file:///nonexistent");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+
+    assert_eq!(
+        remote::for_branch(&fx.repo(), "main"),
+        RemoteChoice::Named("origin".into()),
+        "a named default answers for a branch that names nothing itself"
+    );
+}
+
+/// A purely local repository has no remote axis, and that is not a finding.
+#[test]
+fn for_branch_is_silent_with_no_remotes_at_all() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+
+    assert_eq!(
+        remote::for_branch(&fx.repo(), "main"),
+        RemoteChoice::NoneConfigured,
+        "no remotes at all is silence, not a refusal"
+    );
+}
+
+/// Remotes exist and none can be named: the answer is "ambiguous, this many".
+#[test]
+fn for_branch_refuses_to_guess_between_two() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+
+    assert_eq!(
+        remote::for_branch(&fx.repo(), "main"),
+        RemoteChoice::Ambiguous { count: 2 },
+        "the decision carries the count, so whatever refuses can name the field"
+    );
+}
+
+/// The same two facts over one axis: `futures_for` reports without refusing.
+#[test]
+fn futures_marks_the_unnameable_remote() {
+    let fx = Fixture::new();
+    two_remotes(&fx);
+    let futures = futures::futures_for(&fx.repo(), "main", Some(tip(&fx, "main")), None)
+        .expect("futures_for");
+
+    assert!(
+        futures.remote.is_none(),
+        "the axis comes back empty: fufu declined to guess"
+    );
+    assert!(
+        futures.remote_unnamed,
+        "but the marker says there is something to say"
+    );
+
+    let local = Fixture::new();
+    local.write("a.txt", "a\n");
+    local.commit("root");
+    let local = futures::futures_for(&local.repo(), "main", Some(tip(&local, "main")), None)
+        .expect("futures_for");
+    assert!(
+        !local.remote_unnamed,
+        "no remotes at all is silence, not a declined guess"
+    );
 }

@@ -172,6 +172,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     let no_futures = ff_core::futures::Futures {
         base: None,
         remote: None,
+        remote_unnamed: false,
     };
     let futures = match &status.head {
         ff_core::HeadState::Branch { commit, .. } => {

@@ -147,10 +147,9 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
     let held = crate::held::of(repo, &branch)?.is_some();
 
     // The remote this branch answers to: an explicit `to` first — it names
-    // the remote outright, so neither the branch's own `remote` nor the
-    // repository default gets a say, and the ambiguity refusal never runs —
-    // then the branch's own `remote`, then the repository default, and only
-    // then the refusal.
+    // the remote outright, so the ladder below never gets a say and the
+    // ambiguity refusal never runs — then `remote::for_branch` decides:
+    // named, none configured, or ambiguous and the refusal lands here.
     let remote = if let Some(name) = to {
         if !repo
             .remote_names()
@@ -182,24 +181,15 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
         }
         Some(name.to_string())
     } else {
-        let named = repo.branch_remote_name(branch.as_str(), gix::remote::Direction::Fetch);
-        let remote = named
-            .as_ref()
-            .and_then(|name| name.as_symbol())
-            .map(|name| name.to_string())
-            .or_else(|| {
-                repo.remote_default_name(gix::remote::Direction::Fetch)
-                    .map(|name| name.to_string())
-            });
-        match remote {
-            Some(name) => Some(name),
-            None if repo.remote_names().is_empty() => None,
-            None => {
+        match crate::remote::for_branch(repo, &branch) {
+            crate::remote::RemoteChoice::Named(name) => Some(name),
+            crate::remote::RemoteChoice::NoneConfigured => None,
+            crate::remote::RemoteChoice::Ambiguous { count } => {
                 return Err(Error::coded(
                     "sync/ambiguous-remote",
                     format!(
                         "{} remotes are configured and none is named origin: fufu will not guess which one {branch} answers to",
-                        repo.remote_names().len()
+                        count
                     ),
                     vec![
                         "ff publish --to <remote>".into(),
