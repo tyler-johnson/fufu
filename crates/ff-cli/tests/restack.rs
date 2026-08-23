@@ -127,6 +127,47 @@ fn restack_replays_and_reports() {
     assert_ne!(feature_before, feature_after, "the tip must move");
 }
 
+/// `ff restack` moves only the branch it was asked to move. `git rebase
+/// --update-refs` would have carried `mid` along with `feature` out of the
+/// rewritten range; fufu diverges deliberately, leaving a branch — one another
+/// worktree may be standing on — where it stood and naming it.
+#[test]
+fn restack_leaves_descendants_where_they_stand() {
+    let fx = repo();
+    stack(&fx);
+
+    let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
+    let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+
+    let feature_after = fx.git(&["rev-parse", "feature"]).trim().to_string();
+    assert_ne!(
+        feature_before, feature_after,
+        "feature moved to the rewritten tip"
+    );
+
+    // The load-bearing assertion: the branch partway up the rewritten range
+    // did not move.
+    let mid_after = fx.git(&["rev-parse", "mid"]).trim().to_string();
+    assert_eq!(
+        mid_before, mid_after,
+        "mid sits where it stood before the restack"
+    );
+
+    // And the command names it, saying what it now sits on.
+    assert!(
+        text.contains("mid"),
+        "the divergence line names mid: {text}"
+    );
+    assert!(
+        text.contains("now sits on commits this restack replaced"),
+        "the divergence line says what mid now sits on: {text}"
+    );
+}
+
 #[test]
 fn restack_json_envelope() {
     let fx = repo();

@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::Duration;
 
 use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
@@ -313,6 +314,110 @@ fn a_pre_worktree_log_is_carried_with_its_reflog() {
         redo_rows(&fx),
         redo,
         "the redo path is the same after the carry — the point of the test"
+    );
+}
+
+/// The agent-deleted-my-bay case. The chain lives in the shared ref namespace
+/// so it outlives the worktree's gitdir, and the id space is global so
+/// `ff restore --at-op` reaches a dead bay's captures with no new verb to
+/// learn: the work an agent deleted comes back from a chain whose worktree no
+/// longer exists.
+#[test]
+fn a_removed_bay_keeps_its_work_reachable() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = bay(&fx);
+    let bay_str = bay.to_str().unwrap();
+
+    // The bay's chain tip, if any.
+    let bay_tip = || match fx.try_git(&["rev-parse", "--verify", "refs/fufu/wt/bay/ops"]) {
+        o if o.status.success() => Some(String::from_utf8_lossy(&o.stdout).trim().to_string()),
+        _ => None,
+    };
+
+    // The bay does its work on its own chain, and a capture lands there.
+    std::fs::write(bay.join("bay.txt"), "the bay's work\n").expect("write bay file");
+    let before = bay_tip();
+    ok_at(&bay, &["status"]);
+    let after = bay_tip().expect("a capture landed on the bay's chain");
+    assert!(
+        before.as_deref() != Some(after.as_str()),
+        "the bay's chain ref moved when the capture landed"
+    );
+
+    // An id for that capture, in fufu's letters not hex.
+    let log_out = ff_at(&bay, &["op", "log", "--json"]);
+    assert!(log_out.status.success(), "{}", out(&log_out));
+    let id = json(&log_out)["data"]["ops"][0]["id"]
+        .as_str()
+        .expect("an op id on the bay's log")
+        .to_string();
+
+    // The bay goes away — but its chain does not.
+    fx.git(&["worktree", "remove", "--force", bay_str]);
+    assert!(!bay.exists(), "the worktree directory is gone");
+
+    // From the main worktree: the chain outlived the worktree, and its
+    // captures are still reachable by the id taken before the removal.
+    let chain = fx.try_git(&["rev-parse", "--verify", "refs/fufu/wt/bay/ops"]);
+    assert!(
+        chain.status.success(),
+        "the bay's chain ref survived the worktree removal"
+    );
+    ok(&fx, &["restore", "bay.txt", "--at-op", &id]);
+    let written =
+        std::fs::read_to_string(fx.path().join("bay.txt")).expect("read the restored file");
+    assert_eq!(
+        written, "the bay's work\n",
+        "the bay's version of the file came back into main's worktree"
+    );
+}
+
+/// Retention must reach a chain nobody is standing in, or a removed bay's log
+/// lives forever: `ff trim` from the main worktree ages the orphan out and
+/// names it, rather than the sweep skipping what no worktree holds.
+#[test]
+fn an_orphan_chain_ages_out_on_the_keep_window() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = bay(&fx);
+    let bay_str = bay.to_str().unwrap();
+
+    // A few operations in the bay, then the bay goes away.
+    std::fs::write(bay.join("bay.txt"), "op one\n").expect("write bay file");
+    ok_at(&bay, &["status"]);
+    std::fs::write(bay.join("bay.txt"), "op two\n").expect("write bay file");
+    ok_at(&bay, &["status"]);
+    let bay_tip = fx
+        .git(&["rev-parse", "refs/fufu/wt/bay/ops"])
+        .trim()
+        .to_string();
+
+    fx.git(&["worktree", "remove", "--force", bay_str]);
+    assert!(!bay.exists(), "the worktree directory is gone");
+
+    // A keep window of zero drops everything older than the trim's clock.
+    fx.set_config("fufu.keep", "0s");
+    // wall_clock is whole seconds and an op is kept while `time >= cutoff`;
+    // cross a boundary so the bay's operations are strictly past it.
+    std::thread::sleep(Duration::from_millis(1200));
+
+    let output = ff(&fx, &["trim"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("bay: removed worktree — dropped"),
+        "the orphan row names the bay and says removed worktree: {text}"
+    );
+
+    // The operations actually aged out rather than merely being reported:
+    // the bay's chain ref is gone, or at least no longer where it was.
+    let after = fx.try_git(&["rev-parse", "--verify", "refs/fufu/wt/bay/ops"]);
+    assert!(
+        !after.status.success() || String::from_utf8_lossy(&after.stdout).trim() != bay_tip,
+        "the bay's chain ref moved or went away: {text}"
     );
 }
 
