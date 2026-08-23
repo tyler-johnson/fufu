@@ -439,6 +439,21 @@ pub(crate) fn migrate(repo: &gix::Repository, now: i64) -> Result<Vec<String>> {
 /// nothing is read back. "fufu never silently destroys history" is a promise
 /// worth keeping true even where the history is being abandoned on purpose.
 pub(crate) fn park_legacy(repo: &gix::Repository, now: i64) -> Result<Vec<String>> {
+    // A chain anywhere in the repository means the cutover is behind us, and
+    // what sits under `refs/fufu/snap/` is a live pointer into some
+    // worktree's log rather than a pre-cutover relic.
+    //
+    // This guard is what one-chain-per-worktree made necessary. "No log"
+    // used to mean "fufu has never run here", because there was one log; it
+    // now means "no log *for this worktree*", which a second worktree's very
+    // first command satisfies in a repository fufu has been running in for
+    // months. Without the guard that command parks every other worktree's
+    // branch pointer under `refs/fufu/legacy/`, orphaning pointers into
+    // chains that are still being written.
+    if !crate::ops::chain_ids(repo)?.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let mut warnings = Vec::new();
     let mut parked: Vec<String> = Vec::new();
 
