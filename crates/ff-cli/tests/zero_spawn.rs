@@ -530,7 +530,7 @@ fn auto_trim_never_spawns() {
     let dir = fx.path().join(".git/fufu");
     std::fs::create_dir_all(&dir).ok();
     std::fs::write(
-        dir.join("autotrim.json"),
+        dir.join("autotrim-main.json"),
         r#"{"trimmed_at":0,"interval_secs":0}"#,
     )
     .expect("write due stamp");

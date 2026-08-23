@@ -62,17 +62,26 @@ pub(crate) enum Wait {
     Briefly,
 }
 
-/// Take the log's write lock, or `None` when another writer holds it.
-pub(crate) fn acquire(repo: &gix::Repository, wait: Wait) -> Result<Option<Guard>> {
+/// Take the write lock on one chain, or `None` when another writer holds it.
+pub(crate) fn acquire_chain(
+    repo: &gix::Repository,
+    chain: &str,
+    wait: Wait,
+) -> Result<Option<Guard>> {
     let dir = repo.common_dir().join("fufu");
     let mode = match wait {
         Wait::Never => gix::lock::acquire::Fail::Immediately,
         Wait::Briefly => gix::lock::acquire::Fail::AfterDurationWithBackoff(VERB_WAIT),
     };
-    let name = format!("oplog-{}", crate::ops::chain_id(repo));
+    let name = format!("oplog-{chain}");
     match gix::lock::Marker::acquire_to_hold_resource(dir.join(name), mode, Some(dir)) {
         Ok(marker) => Ok(Some(Guard(marker))),
         Err(gix::lock::acquire::Error::PermanentlyLocked { .. }) => Ok(None),
         Err(err) => Err(Error::repo(err)),
     }
+}
+
+/// Take this worktree's log write lock, or `None` when another writer holds it.
+pub(crate) fn acquire(repo: &gix::Repository, wait: Wait) -> Result<Option<Guard>> {
+    acquire_chain(repo, &crate::ops::chain_id(repo), wait)
 }

@@ -1,13 +1,13 @@
 //! The automatic trim. Snapshots age out of the `fufu.keep` window whether or
 //! not anyone remembers `ff trim`, so retention rides the commands that
 //! already run: at most once per `fufu.autoTrim` (daily by default), per
-//! repository, a trim runs inline — no child process, because the engine is
+//! worktree, a trim runs inline — no child process, because the engine is
 //! native and fufu does not spawn. The hot path pays one file read to decide
 //! nothing is due; config is consulted only when the stamp says it might be.
 
 use serde::{Deserialize, Serialize};
 
-/// autotrim.json — `trimmed_at` is when a trim last ran (or when the lane last
+/// autotrim-<chain>.json — `trimmed_at` is when a trim last ran (or when the lane last
 /// noticed it was disabled). `interval_secs` caches the parsed `fufu.autoTrim`
 /// so staleness is decided from the file alone: 0 = never read (default
 /// cadence), -1 = disabled, else seconds.
@@ -18,9 +18,13 @@ pub struct TrimState {
     pub interval_secs: i64,
 }
 
-/// Path to the per-repo auto-trim state file.
+/// Path to this worktree's auto-trim state file. One stamp per chain, so a
+/// bay's commands do not consume main's daily budget or vice versa.
 fn state_path(repo: &ff_core::gix::Repository) -> std::path::PathBuf {
-    repo.common_dir().join("fufu").join("autotrim.json")
+    let chain = ff_core::ops::chain_id(repo);
+    repo.common_dir()
+        .join("fufu")
+        .join(format!("autotrim-{chain}.json"))
 }
 
 /// Load the auto-trim state from the repo.
@@ -39,7 +43,11 @@ fn save(repo: &ff_core::gix::Repository, state: &TrimState) -> std::io::Result<(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_file_name("autotrim.json.ff-tmp");
+    // One temp file per destination: two worktrees share the `fufu`
+    // directory, and a shared temp name would let one rename steal the
+    // other's half-written stamp.
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    let tmp = path.with_file_name(format!("{name}.ff-tmp"));
     let body = serde_json::to_string(state)?;
     std::fs::write(&tmp, &body)?;
     std::fs::rename(&tmp, path)?;

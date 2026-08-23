@@ -255,6 +255,16 @@ pub struct TrimLog {
     pub deleted: bool,
 }
 
+/// One chain's retention within a trim pass.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrimOrphan {
+    pub chain: String,
+    pub dropped: usize,
+    pub kept: usize,
+    pub trash_ref: Option<String>,
+    pub deleted: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TrimReport {
     /// One row per branch pointer into the log. The counts are that
@@ -263,6 +273,11 @@ pub struct TrimReport {
     pub pointers: Vec<TrimPointer>,
     /// The one log's retention; `None` when no log exists yet.
     pub log: Option<TrimLog>,
+    /// The chains whose worktree is gone. A chain outliving its worktree is
+    /// deliberate — it is why the log survives `git worktree remove` at all —
+    /// and ageing it out on the normal cadence is what keeps it from living
+    /// forever.
+    pub orphans: Vec<TrimOrphan>,
     /// True when nothing was written (dry run).
     pub dry_run: bool,
 }

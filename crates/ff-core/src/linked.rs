@@ -100,6 +100,24 @@ pub fn holders(repo: &gix::Repository) -> Result<Vec<Holder>> {
     Ok(out)
 }
 
+/// Every live worktree's id, this one included — whatever its HEAD is
+/// doing.
+///
+/// Distinct from [`holders`] on purpose. A holder is a worktree standing on
+/// a *branch*, which is the question exclusivity asks; this is the question
+/// retention asks, and a worktree with a detached HEAD holds no branch while
+/// being every bit as alive. Sweeping its chain as an orphan would trim a
+/// log out from under a running tree.
+pub fn worktree_ids(repo: &gix::Repository) -> Result<Vec<String>> {
+    let mut out = vec![MAIN_ID.to_string()];
+    for proxy in repo.worktrees().map_err(Error::repo)? {
+        out.push(proxy.id().to_string());
+    }
+    out.sort();
+    out.dedup();
+    Ok(out)
+}
+
 /// The holder of one branch, if another worktree has it.
 pub fn holder_of(repo: &gix::Repository, branch: &str) -> Result<Option<Holder>> {
     Ok(holders(repo)?.into_iter().find(|h| h.branch == branch))

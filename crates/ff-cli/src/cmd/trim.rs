@@ -71,6 +71,14 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
                 pointer.branch
             );
         }
+        for orphan in report.orphans.iter().filter(|o| o.dropped > 0) {
+            println!(
+                "  {}: removed worktree — dropped {} of {} operations",
+                orphan.chain,
+                orphan.dropped,
+                orphan.dropped + orphan.kept
+            );
+        }
         if anything_dropped && !dry_run {
             println!("dropped data frees after gc");
         }

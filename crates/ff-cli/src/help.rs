@@ -272,7 +272,7 @@ byte-for-byte — only parent slots relink — and the reflog is replayed with
 the original times, so `--at 2h` stays truthful afterwards.
 
 You rarely need to run this. A trim rides an ff command at most once per
-fufu.autoTrim (daily by default), per repository. This is the hand-run
+fufu.autoTrim (daily by default), per worktree. This is the hand-run
 form, and the only one that nudges git's own gc when it dropped something.";
 
 pub const TRIM_EXAMPLES: &str = "\

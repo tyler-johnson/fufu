@@ -31,9 +31,9 @@ fn ff(fx: &Fixture, args: &[&str]) -> Output {
         .expect("spawn ff")
 }
 
-/// Load the autotrim.json stamp (default if missing/corrupt).
+/// Load the autotrim-main.json stamp (default if missing/corrupt).
 fn load_stamp(fx: &Fixture) -> serde_json::Value {
-    let path = fx.path().join(".git/fufu/autotrim.json");
+    let path = fx.path().join(".git/fufu/autotrim-main.json");
     if path.exists() {
         let data = std::fs::read_to_string(&path).expect("read stamp");
         serde_json::from_str(&data).expect("stamp is json")
@@ -47,7 +47,7 @@ fn write_due_stamp(fx: &Fixture) {
     let dir = fx.path().join(".git/fufu");
     std::fs::create_dir_all(&dir).ok();
     std::fs::write(
-        dir.join("autotrim.json"),
+        dir.join("autotrim-main.json"),
         r#"{"trimmed_at":0,"interval_secs":0}"#,
     )
     .expect("write due stamp");
@@ -233,7 +233,7 @@ fn ci_skips_the_lane() {
     let fx = due_fixture();
 
     // Record the stamp bytes before the run.
-    let stamp_path = fx.path().join(".git/fufu/autotrim.json");
+    let stamp_path = fx.path().join(".git/fufu/autotrim-main.json");
     let stamp_before = std::fs::read(&stamp_path).expect("read stamp before");
 
     // Run with CI set.

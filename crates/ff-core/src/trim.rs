@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use gix::refs::transaction::PreviousValue;
 
 use crate::error::{Error, Result};
-use crate::model::{TrimLog, TrimPointer, TrimReport};
+use crate::model::{TrimLog, TrimOrphan, TrimPointer, TrimReport};
 use crate::ops::message::{self, SegmentLink};
 use crate::ops::record::observe_refs;
 use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, walk};
@@ -70,9 +70,84 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     let mut report = TrimReport {
         pointers: Vec::new(),
         log: None,
+        orphans: Vec::new(),
         dry_run: opts.dry_run,
     };
 
+    let mine = crate::ops::chain_id(repo);
+    let outcome = trim_chain(repo, &mine, opts, now, cutoff)?;
+    let dropped = outcome.log.as_ref().map(|log| log.dropped).unwrap_or(0);
+    report.pointers = outcome.pointers;
+    report.log = outcome.log;
+
+    if outcome.rewrote {
+        // The pass has released its lock, and the note is an ordinary
+        // append that takes the log lock for itself — running it under the
+        // pass's guard would deadlock against our own writer. A capture
+        // landing in the gap appends onto the replayed tip, which is
+        // exactly what it would have done anyway.
+        //
+        // The trim itself becomes a note — non-pinning by design: pinning
+        // trim's own pre-state would defeat retention. The trash ref stays
+        // its one-deep undo.
+        let table = observe_refs(repo)?;
+        let head = crate::head::head_state(repo)?;
+        let record = OpRecord::new("trim", format!("trim: dropped {dropped} operation(s)"), now);
+        let tree = crate::ops::verb::worktree_or_head(repo)?;
+        crate::ops::verb::append_op(
+            repo,
+            OpKind::Note,
+            crate::ops::verb::VerbOp {
+                record,
+                planned: table,
+                tree,
+                index_tree: crate::index::tree_from_index(repo)?,
+                branch: crate::snapshot::chain::chain_name(&head),
+                base: crate::snapshot::chain::base_commit(&head)?,
+                session: None,
+                pins: &[],
+            },
+            now,
+        )?;
+    }
+
+    for chain in orphan_chains(repo, &mine)? {
+        let outcome = trim_chain(repo, &chain, opts, now, cutoff)?;
+        if let Some(log) = outcome.log {
+            report.orphans.push(TrimOrphan {
+                chain,
+                dropped: log.dropped,
+                kept: log.kept,
+                trash_ref: log.trash_ref,
+                deleted: log.deleted,
+            });
+        }
+    }
+
+    Ok(report)
+}
+
+/// The result of one chain's retention pass.
+struct ChainOutcome {
+    log: Option<TrimLog>,
+    pointers: Vec<TrimPointer>,
+    /// True only when the chain was actually rebuilt — the one case that
+    /// earns a note.
+    rewrote: bool,
+}
+
+/// One chain's retention pass: lock, tip, walk, decide, park to trash,
+/// rebuild, pointer replay. It never appends the trim note — a note is an
+/// ordinary append on this worktree's chain, which the driver makes for this
+/// chain's pass alone once the pass has let go of its lock; an orphan's pass
+/// earns none at all.
+fn trim_chain(
+    repo: &gix::Repository,
+    chain: &str,
+    opts: &TrimOptions,
+    now: i64,
+    cutoff: i64,
+) -> Result<ChainOutcome> {
     // Trim rewrites the log by deleting the ref and replaying it, so a
     // capture arriving mid-pass would see no log at all and start a second
     // one. The lock closes that window as well as the CAS one — see
@@ -80,7 +155,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     let held = if opts.dry_run {
         None
     } else {
-        match crate::ops::lock::acquire(repo, crate::ops::lock::Wait::Briefly)? {
+        match crate::ops::lock::acquire_chain(repo, chain, crate::ops::lock::Wait::Briefly)? {
             Some(guard) => Some(guard),
             None => {
                 return Err(Error::coded(
@@ -92,15 +167,19 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         }
     };
 
-    let ops_ref = crate::ops::ops_ref_of(repo);
-    let ops_trash_ref = crate::ops::ops_trash_ref_of(repo);
+    let ops_ref = crate::ops::ops_ref(chain);
+    let ops_trash_ref = crate::ops::ops_trash_ref(chain);
 
     // Collect pointers first: ref iteration must not overlap ref edits.
     let all_pointers = branch_pointers(repo)?;
     let Some(tip) = crate::refs::ref_target(repo, &ops_ref)? else {
         // No log: the only thing that could exist is a stray pointer, and a
         // pointer with nothing behind it is not this pass's business.
-        return Ok(report);
+        return Ok(ChainOutcome {
+            log: None,
+            pointers: Vec::new(),
+            rewrote: false,
+        });
     };
 
     let entries = walk_log(repo, tip)?;
@@ -144,6 +223,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     // Which branches lose their pointer outright: `--gone` ones, and any
     // whose every operation aged out.
     let mut gone_branches: Vec<String> = Vec::new();
+    let mut rows: Vec<TrimPointer> = Vec::new();
     for (ref_name, branch, _) in &pointers {
         let (kept_here, dropped_here) = per_branch.get(branch).copied().unwrap_or((0, 0));
         let branch_gone = opts.gone
@@ -155,7 +235,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         if branch_gone {
             gone_branches.push(branch.clone());
         }
-        report.pointers.push(TrimPointer {
+        rows.push(TrimPointer {
             r#ref: ref_name.clone(),
             branch: branch.clone(),
             // A `--gone` branch drops nothing from the log. You cannot excise
@@ -173,8 +253,11 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
 
     if opts.dry_run || (dropped == 0 && gone_branches.is_empty()) {
         log_row.trash_ref = None;
-        report.log = Some(log_row);
-        return Ok(report);
+        return Ok(ChainOutcome {
+            log: Some(log_row),
+            pointers: rows,
+            rewrote: false,
+        });
     }
 
     if dropped == 0 {
@@ -186,8 +269,11 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
             }
         }
         log_row.trash_ref = None;
-        report.log = Some(log_row);
-        return Ok(report);
+        return Ok(ChainOutcome {
+            log: Some(log_row),
+            pointers: rows,
+            rewrote: false,
+        });
     }
 
     {
@@ -208,8 +294,11 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         for (ref_name, _, pointer) in &pointers {
             delete_ref(repo, ref_name, *pointer, now)?;
         }
-        report.log = Some(log_row);
-        return Ok(report);
+        return Ok(ChainOutcome {
+            log: Some(log_row),
+            pointers: rows,
+            rewrote: false,
+        });
     }
 
     // Rebuild oldest-survivor→newest. Filled in survivor order so that by the
@@ -315,32 +404,30 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     // replayed tip, which is exactly what it would have done anyway.
     drop(held);
 
-    // The trim itself becomes a note — non-pinning by design: pinning trim's
-    // own pre-state would defeat retention. The trash ref stays its one-deep
-    // undo.
-    let table = observe_refs(repo)?;
-    let head = crate::head::head_state(repo)?;
-    let record = OpRecord::new("trim", format!("trim: dropped {dropped} operation(s)"), now);
-    let tree = crate::ops::verb::worktree_or_head(repo)?;
-    crate::ops::verb::append_op(
-        repo,
-        OpKind::Note,
-        crate::ops::verb::VerbOp {
-            record,
-            planned: table,
-            tree,
-            index_tree: crate::index::tree_from_index(repo)?,
-            branch: crate::snapshot::chain::chain_name(&head),
-            base: crate::snapshot::chain::base_commit(&head)?,
-            session: None,
-            pins: &[],
-        },
-        now,
-    )?;
-
     log_row.trash_ref = trash_ref;
-    report.log = Some(log_row);
-    Ok(report)
+    Ok(ChainOutcome {
+        log: Some(log_row),
+        pointers: rows,
+        rewrote: true,
+    })
+}
+
+/// The chains a retention pass must sweep for nobody else: every chain that
+/// is neither this worktree's nor a worktree that still exists. A live
+/// worktree's chain is left alone because it has a process of its own, and
+/// its lock is not this pass's to wait on — an orphan's lock, by contrast,
+/// will not be waited on by anyone, which is what makes the sweep safe.
+fn orphan_chains(repo: &gix::Repository, mine: &str) -> Result<Vec<String>> {
+    // Every live worktree, not merely every worktree standing on a branch:
+    // a detached HEAD holds no branch and is still a running tree, and
+    // trimming its chain from another process would age out a log nobody
+    // agreed to lose.
+    let live: std::collections::HashSet<String> =
+        crate::linked::worktree_ids(repo)?.into_iter().collect();
+    Ok(crate::ops::chain_ids(repo)?
+        .into_iter()
+        .filter(|id| id != mine && !live.contains(id))
+        .collect())
 }
 
 /// Replay a ref's history one single-ref transaction at a time, oldest first,
