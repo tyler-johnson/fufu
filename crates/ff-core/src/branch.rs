@@ -45,31 +45,18 @@ pub fn validate_name(branch: &str) -> Result<()> {
 }
 
 /// Refuse when `branch` is checked out in another worktree — git guards
-/// this on rename/delete; gix has no such check, so fufu carries its own.
+/// this on rename/delete and on opening a branch; gix has neither check, so
+/// fufu carries its own.
 pub fn guard_other_worktrees(repo: &gix::Repository, branch: &str) -> Result<()> {
-    let full = heads_ref(branch);
-    for proxy in repo.worktrees().map_err(Error::repo)? {
-        let head_path = repo
-            .common_dir()
-            .join("worktrees")
-            .join(proxy.id().to_string())
-            .join("HEAD");
-        let Ok(contents) = std::fs::read_to_string(&head_path) else {
-            continue;
-        };
-        if let Some(target) = contents.trim().strip_prefix("ref:")
-            && target.trim() == full
-        {
-            let place = proxy
-                .base()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| proxy.id().to_string());
-            return Err(Error::coded(
-                "branch/checked-out-elsewhere",
-                format!("{branch} is checked out in another worktree ({place}); refusing"),
-                vec![],
-            ));
-        }
+    if let Some(holder) = crate::linked::holder_of(repo, branch)? {
+        return Err(Error::coded(
+            "branch/checked-out-elsewhere",
+            format!(
+                "'{branch}' is already used by worktree at '{}'",
+                holder.path.display()
+            ),
+            vec![],
+        ));
     }
     Ok(())
 }

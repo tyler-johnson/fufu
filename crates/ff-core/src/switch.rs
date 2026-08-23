@@ -109,6 +109,9 @@ pub fn switch(
             ctx,
         ));
     }
+    // Opening a branch another worktree holds would leave two trees on one
+    // branch — a state git refuses to create.
+    branch::guard_other_worktrees(repo, &target)?;
     let target_ref = format!("refs/heads/{target}");
     let target_commit = crate::refs::ref_target(repo, &target_ref)?.ok_or_else(|| {
         Error::coded(
