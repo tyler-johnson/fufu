@@ -6,6 +6,7 @@ mod cmd;
 mod ctx;
 mod exit;
 mod explain;
+mod ext;
 mod graph;
 mod help;
 mod lanes;
@@ -20,6 +21,7 @@ mod session;
 mod selfupdate;
 
 use clap::Parser;
+use clap::error::{ContextKind, ContextValue, ErrorKind};
 
 /// The pre-dispatch gate: refuse the one flag combination clap used to
 /// refuse for us, then build the context the verbs run against.
@@ -110,7 +112,21 @@ fn main() {
     // signals; the engine itself never installs handlers.
     let _interrupt = unsafe { ff_core::gix::interrupt::init_handler(1, || {}) };
 
-    let args = cli::Cli::parse();
+    // Parse first, PATH second: a builtin verb always wins, and an
+    // extension is only considered once clap has declined the word. The
+    // miss path falls through to clap's own error, byte for byte.
+    let args = match cli::Cli::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            if e.kind() == ErrorKind::InvalidSubcommand
+                && let Some(ContextValue::String(name)) = e.get(ContextKind::InvalidSubcommand)
+                && let Some(_path) = ext::resolve(name)
+            {
+                ext::dispatch(name, ext::rest_argv(name));
+            }
+            e.exit()
+        }
+    };
 
     // Whatever must be settled before dispatch: the flag combinations clap
     // no longer refuses, and the invocation context every verb reads.

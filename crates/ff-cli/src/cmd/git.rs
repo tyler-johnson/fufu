@@ -124,14 +124,14 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
                 // A notice is pending and the verb tolerates child-mode: run git as a
                 // child so ff regains control to speak after git's own output.
                 Some(notice) if deferrable(&args) => {
-                    let code = super::git_exec::run_wait(args);
+                    let code = super::git_exec::run_wait("git", args);
                     eprintln!("{notice}");
                     crate::selfupdate::notify::mark_notified();
                     std::process::exit(code);
                 }
                 // No notice (or a non-deferrable verb): the exec fast path, exactly as
                 // before. The notice, if any, waits for a future command.
-                _ => super::git_exec::exec(args),
+                _ => super::git_exec::exec("git", args),
             }
         }
     }

@@ -20,6 +20,20 @@ pub fn pre_ff(ctx: &Ctx) -> Provenance {
     prov.with_session(ctx.session.clone())
 }
 
+/// `pre: ff <name> <args…>` for a PATH-dispatched extension. Takes the
+/// session directly because the command line failed to parse, so no `Ctx`
+/// exists when it is called.
+pub fn pre_ext(session: Option<String>) -> Provenance {
+    let args: Vec<String> = std::env::args().collect();
+    let mut summary = String::from("ff");
+    for arg in args.iter().skip(1) {
+        summary.push(' ');
+        summary.push_str(arg);
+    }
+    let prov = Provenance::new("pre", Some(summary));
+    prov.with_session(session)
+}
+
 /// `pre: git <args>` for the passthrough.
 pub fn pre_git(ctx: &Ctx, args: &[OsString]) -> Provenance {
     let mut summary = String::from("git");
