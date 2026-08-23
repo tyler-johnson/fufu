@@ -230,6 +230,11 @@ const TRACKED_PREFIXES: [&str; 3] = ["refs/heads/", "refs/tags/", "refs/fufu/par
 /// Read the current tracked-ref state. Symbolic branch refs (rare) and tag
 /// refs are recorded by their direct target.
 ///
+/// Excludes branch-keyed state this worktree does not own: refs under a
+/// branch held by another worktree (the branch itself and its parked state)
+/// are somebody else's and an undo here must not be expected to move them.
+/// Tags and `refs/stash` stay — one stack for the whole repository.
+///
 /// Deliberately off the capture path: a capture inherits its predecessor's
 /// table instead of observing one. See [`super::append::commit_op`].
 pub fn observe_refs(repo: &gix::Repository) -> Result<RefsTable> {
@@ -240,6 +245,7 @@ pub fn observe_refs(repo: &gix::Repository) -> Result<RefsTable> {
         gix::head::Kind::Detached { target, peeled } => peeled.unwrap_or(target).to_string(),
         gix::head::Kind::Symbolic(reference) => format!("ref:{}", reference.name.as_bstr()),
     };
+    let held = crate::linked::held_branches(repo)?;
     let platform = repo.references().map_err(Error::repo)?;
     for prefix in TRACKED_PREFIXES {
         let iter = platform.prefixed(prefix).map_err(Error::repo)?;
@@ -252,6 +258,9 @@ pub fn observe_refs(repo: &gix::Repository) -> Result<RefsTable> {
                 )
             })?;
             let name = reference.name().as_bstr().to_string();
+            if crate::linked::owned_elsewhere(&name, &held) {
+                continue;
+            }
             if let Some(id) = reference.target().try_id() {
                 table.refs.insert(name, id.to_string());
             }

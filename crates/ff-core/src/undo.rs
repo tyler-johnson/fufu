@@ -183,8 +183,16 @@ pub fn rewind(
     // observed present.
     let observed = crate::ops::record::observe_refs(repo)?;
     let mut transitions: Vec<RefTransition> = Vec::new();
-    let names: std::collections::BTreeSet<&String> =
-        observed.refs.keys().chain(to_table.refs.keys()).collect();
+    // The landing's table may predate this narrowing and carry branches this
+    // worktree does not own; without the same filter on the union, such a
+    // branch would reappear as a create, reviving it at an old position.
+    let held = crate::linked::held_branches(repo)?;
+    let names: std::collections::BTreeSet<&String> = observed
+        .refs
+        .keys()
+        .chain(to_table.refs.keys())
+        .filter(|name| !crate::linked::owned_elsewhere(name, &held))
+        .collect();
     for name in names {
         let from = observed.refs.get(name);
         let to = to_table.refs.get(name);

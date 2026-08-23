@@ -110,6 +110,26 @@ pub fn held_branches(repo: &gix::Repository) -> Result<std::collections::HashSet
     Ok(holders(repo)?.into_iter().map(|h| h.branch).collect())
 }
 
+/// Whether a ref is branch-keyed state belonging to a branch held by another
+/// worktree.
+///
+/// `name` is a full ref name; `held` is the short names from
+/// [`held_branches`]. Git allows a branch in at most one worktree, which is
+/// what makes branch-keyed state worktree-exclusive: the branch itself and
+/// the parked state keyed by it cannot lawfully move under a worktree that
+/// does not hold it. Pass the set once per operation rather than resolving
+/// it per ref — it is the same for every name in the table.
+pub fn owned_elsewhere(name: &str, held: &std::collections::HashSet<String>) -> bool {
+    let branch = match name.strip_prefix("refs/heads/") {
+        Some(short) => short,
+        None => match name.strip_prefix(crate::stash::PARKED_PREFIX) {
+            Some(short) => short,
+            None => return false,
+        },
+    };
+    held.contains(branch)
+}
+
 /// The branch a worktree HEAD file names, short form. `None` when the file
 /// is missing, unreadable, or detached — none of which is a branch anyone
 /// holds.

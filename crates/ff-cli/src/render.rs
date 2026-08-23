@@ -6,6 +6,16 @@ use ff_core::{
     SnapEntry, Status,
 };
 
+/// A ref table value for display. Shas shorten to eight characters; a
+/// `ref:<full-name>` value — a symbolic or unborn HEAD — is a ref, not a sha,
+/// and shows the branch it names, untruncated (`ref:` and, when present,
+/// `refs/heads/` stripped). `None` marks a real sha, the case the caller
+/// handles with `ff_core::sha::short`.
+fn ref_display(value: &str) -> Option<String> {
+    let rest = value.strip_prefix("ref:")?;
+    Some(rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string())
+}
+
 /// Render a reconcile pass to stderr, loudly, before any verb output —
 /// silent when there is nothing to say. Foreign motion is a fact the user
 /// deserves to see exactly once per absorption (and pinned in `ff status`
@@ -28,14 +38,20 @@ pub fn reconcile_notice(report: &ReconcileReport) {
         eprintln!("ff: absorbed changes made outside fufu:");
         for change in &report.foreign {
             let what = match (&change.old, &change.new) {
-                (Some(_), Some(new)) => {
-                    let sha = ff_core::sha::short(new.as_str());
-                    format!("moved to {}", paint_sha(sha, colored))
-                }
-                (None, Some(new)) => {
-                    let sha = ff_core::sha::short(new.as_str());
-                    format!("created at {}", paint_sha(sha, colored))
-                }
+                (Some(_), Some(new)) => match ref_display(new) {
+                    Some(name) => format!("moved to {name}"),
+                    None => format!(
+                        "moved to {}",
+                        paint_sha(ff_core::sha::short(new.as_str()), colored)
+                    ),
+                },
+                (None, Some(new)) => match ref_display(new) {
+                    Some(name) => format!("created at {name}"),
+                    None => format!(
+                        "created at {}",
+                        paint_sha(ff_core::sha::short(new.as_str()), colored)
+                    ),
+                },
                 (Some(_), None) => "deleted".to_string(),
                 (None, None) => "changed".to_string(),
             };
@@ -246,7 +262,10 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         out.push_str("changes made outside fufu (absorbed; ff undo can roll them back):\n");
         for entry in foreign {
             let what = match (&entry.old, &entry.new) {
-                (_, Some(new)) => format!("moved to {}", ff_core::sha::short(new.as_str())),
+                (_, Some(new)) => match ref_display(new) {
+                    Some(name) => format!("moved to {name}"),
+                    None => format!("moved to {}", ff_core::sha::short(new.as_str())),
+                },
                 (Some(_), None) => "deleted".to_string(),
                 (None, None) => continue,
             };
