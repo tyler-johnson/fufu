@@ -5,7 +5,8 @@
 
 use ff_core::{HeadState, InProgress};
 use ff_testsupport::Fixture;
-use ff_testsupport::porcelain::assert_status_matches;
+use ff_testsupport::capture::assert_snapshot_matches_at;
+use ff_testsupport::porcelain::{assert_status_matches, assert_status_matches_at};
 
 #[test]
 fn unborn() {
@@ -249,4 +250,68 @@ fn production_discover_smoke() {
     let repo = ff_core::discover(fx.path()).unwrap();
     let head = ff_core::head_state(&repo).unwrap();
     assert!(matches!(head, HeadState::Branch { .. }));
+}
+
+/// A *verb* inside a linked worktree, not merely a capture.
+///
+/// `linked_worktree` above reads head state and `diff_snapshot`'s covers a
+/// capture, and both are the passive half. This one mutates from inside the
+/// bay — closing a change there moves that worktree's branch, its index and
+/// its tree — and then asks real git whether the result is what git would
+/// have produced. The verb runs against the bay's own chain, which is the
+/// thing worth checking: fufu's view of a worktree it is standing in has to
+/// match git's whether or not the main worktree exists.
+#[test]
+fn a_verb_inside_a_linked_worktree_matches_git() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.set_config("user.name", "A B");
+    fx.set_config("user.email", "a@b.c");
+
+    let bay = fx.root().join("bay");
+    fx.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "bay-branch",
+        bay.to_str().unwrap(),
+    ]);
+
+    std::fs::write(bay.join("a.txt"), "changed in the bay\n").unwrap();
+    std::fs::write(bay.join("new.txt"), "born in the bay\n").unwrap();
+
+    let repo = ff_core::discover_isolated(&bay).unwrap();
+    let (_outcome, _ctx) = ff_core::close(
+        &repo,
+        &ff_core::CloseOptions {
+            message: Some("closed inside the bay".into()),
+            no_verify: false,
+            branch: None,
+            paths: Vec::new(),
+            now: Some(1_700_000_000),
+            argv: vec!["ff".into(), "commit".into()],
+        },
+        &ff_core::Provenance::new("pre", Some("ff commit".into())),
+    )
+    .expect("close inside the linked worktree");
+    drop(repo);
+
+    // The commit landed on the bay's branch, and only on it.
+    let bay_tip = fx
+        .git_in(&bay, &["rev-parse", "refs/heads/bay-branch"])
+        .trim()
+        .to_string();
+    let main_tip = fx.git(&["rev-parse", "refs/heads/main"]).trim().to_string();
+    assert_ne!(bay_tip, main_tip, "the bay's commit must not move main");
+    assert_eq!(
+        fx.git_in(&bay, &["log", "-1", "--format=%s"]).trim(),
+        "closed inside the bay"
+    );
+
+    // And fufu's view of the bay still agrees with git's, verb and all.
+    assert_status_matches_at(&fx, &bay);
+    assert_snapshot_matches_at(&fx, &bay);
+    assert_status_matches(&fx);
 }
