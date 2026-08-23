@@ -14,15 +14,20 @@ jobs:
         with:
           command: check licenses
 
-  # Windows is sharded four ways and macOS two, in proportion to a cost that
-  # was measured on the runners rather than guessed at. Creating a process
-  # costs 0.59ms on Linux, ~3ms on macOS and ~6.6ms on Windows; this suite
-  # spawns a real `git` per assertion, so that tax is most of the wall clock
-  # on both non-Linux legs. It is the platform and not the host -- real
-  # Windows hardware pays the same 6.2ms -- so the only lever is more cores
-  # to pay it with concurrently, which is what a shard is. Disk was measured
-  # not to be the problem: fsync latency on the Windows runner is 1.0x Linux
-  # and bulk throughput 1.2x, and macOS beats Linux at both.
+  # Windows is sharded four ways because of a cost measured on the runners
+  # rather than guessed at: creating a process costs 0.59ms on Linux and
+  # 6.6ms on Windows, and this suite spawns a real `git` per assertion, so
+  # that tax is most of the wall clock. It is the platform and not the host
+  # -- real Windows hardware pays the same 6.2ms -- so the only lever is
+  # more cores to pay it with concurrently, which is what a shard is. Disk
+  # was measured not to be the problem: fsync latency on the Windows runner
+  # is 1.0x Linux and bulk throughput 1.2x.
+  #
+  # macOS pays the same tax at ~5x Linux and would shard just as well, but
+  # deliberately does not. Windows gates the run at ~5m45s, so a macOS leg
+  # finishing in 110s rather than 172s buys nothing at all -- while a second
+  # macOS job repeats the build on the platform that bills at ten times the
+  # Linux rate. Shard it only if it ever becomes the leg the run waits on.
   test:
     strategy:
       fail-fast: false
@@ -34,8 +39,7 @@ jobs:
           # both on one shard is what made shard 1 the straggler at 9m28s
           # against its siblings' 5m05s.
           - { os: ubuntu-latest, name: linux, shard: 1, shards: 1, lints: true, saves: true }
-          - { os: macos-latest, name: macos 1/2, shard: 1, shards: 2, lints: true, saves: false }
-          - { os: macos-latest, name: macos 2/2, shard: 2, shards: 2, lints: false, saves: true }
+          - { os: macos-latest, name: macos, shard: 1, shards: 1, lints: true, saves: true }
           - { os: windows-latest, name: windows 1/4, shard: 1, shards: 4, lints: true, saves: false }
           - { os: windows-latest, name: windows 2/4, shard: 2, shards: 4, lints: false, saves: true }
           - { os: windows-latest, name: windows 3/4, shard: 3, shards: 4, lints: false, saves: false }
