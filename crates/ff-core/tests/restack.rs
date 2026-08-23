@@ -147,10 +147,10 @@ fn restack_replays_onto_the_moved_base() {
 }
 
 #[test]
-fn restack_carries_an_inner_branch() {
+fn restack_leaves_an_inner_branch_diverged() {
     let fx = Fixture::new();
     ident(&fx);
-    stack(&fx);
+    let (_c0, _c1, _f1, f2, _f3, _m2) = stack(&fx);
 
     let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
     let report = match outcome {
@@ -159,9 +159,19 @@ fn restack_carries_an_inner_branch() {
     };
 
     assert!(
-        report.moved.contains(&"mid".to_string()),
-        "mid sits inside the range and must be carried: {:?}",
+        !report.moved.contains(&"mid".to_string()),
+        "mid is not the branch restack was asked to move, so it must not be carried: {:?}",
         report.moved
+    );
+    assert!(
+        report.diverged.contains(&"mid".to_string()),
+        "mid sits inside the rewritten range and was left where it stood: {:?}",
+        report.diverged
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "mid"]).trim(),
+        f2,
+        "mid's ref must not move: it was left exactly where it stood"
     );
 }
 
@@ -250,11 +260,14 @@ fn restack_off_branch_touches_no_file() {
         feature_before,
         "feature must move"
     );
-    assert_ne!(
+    // `mid` is not the branch restack was asked to move: it is left exactly
+    // where it stood, reported as diverged rather than carried.
+    assert_eq!(
         fx.git(&["rev-parse", "mid"]).trim(),
         mid_before,
-        "mid must move"
+        "mid must not move"
     );
+    assert!(report.diverged.contains(&"mid".to_string()));
     assert_eq!(report.files, 0);
 
     let after = worktree_files(&fx);

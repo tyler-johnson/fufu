@@ -65,6 +65,26 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
                     );
                 }
             }
+            // Divergence is a warning rather than a disclosure: something the
+            // user did not ask for is now true of a branch they were not
+            // thinking about.
+            if !report.diverged.is_empty() {
+                let sits = if report.diverged.len() == 1 {
+                    "sits"
+                } else {
+                    "sit"
+                };
+                println!(
+                    "{}",
+                    crate::render::paint_warn(
+                        &format!(
+                            "{} now {sits} on commits this restack replaced",
+                            report.diverged.join(", ")
+                        ),
+                        colored
+                    )
+                );
+            }
             if let Some(line) = crate::render::dropped_line(&report.dropped, None, colored) {
                 println!("{line}");
             }

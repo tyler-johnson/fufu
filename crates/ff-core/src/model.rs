@@ -451,6 +451,10 @@ pub struct RestackReport {
     pub new_tip: String,
     /// Other local branches carried with the rewrite, short names, sorted.
     pub moved: Vec<String>,
+    /// Branches that sit inside the rewritten range and were left where they
+    /// stood, so they now point at commits the rewrite replaced. Short
+    /// names, sorted.
+    pub diverged: Vec<String>,
     /// How many of the rewritten commits the branch's remote already has.
     pub published: usize,
     /// The tracking ref `published` was measured against — `origin/feature`.

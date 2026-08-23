@@ -178,7 +178,7 @@ fn empty_stack(fx: &Fixture) -> [String; 3] {
 fn restack_matches_git_rebase() {
     let fx_ff = Fixture::new();
     ident(&fx_ff);
-    let [_c0, c1_ff, _f1, _f2, _f3, _m2] = stack(&fx_ff);
+    let [_c0, c1_ff, _f1, f2_ff, _f3, _m2] = stack(&fx_ff);
 
     let fx_git = Fixture::new();
     ident(&fx_git);
@@ -195,25 +195,43 @@ fn restack_matches_git_rebase() {
 
     git_oracle_restack(&fx_git, "main", &c1_git, "feature", NOW);
 
-    // `mid` sits inside the replayed range at f2: checking it here, rather
-    // than in a second near-duplicate test, is what proves --update-refs
-    // carried an inner branch along with the tip.
-    for branch in ["feature", "mid"] {
-        let ff_sha = fx_ff.git(&["rev-parse", branch]).trim().to_string();
-        let git_sha = fx_git.git(&["rev-parse", branch]).trim().to_string();
-        assert_eq!(ff_sha, git_sha, "{branch} diverged between fufu and git");
-    }
+    // `feature` is the branch fufu was asked to move: it must still land on
+    // the exact commit `git rebase --update-refs` produces.
+    let ff_sha = fx_ff.git(&["rev-parse", "feature"]).trim().to_string();
+    let git_sha = fx_git.git(&["rev-parse", "feature"]).trim().to_string();
+    assert_eq!(ff_sha, git_sha, "feature diverged between fufu and git");
 
-    let log_ff = log_of(&fx_ff, &["main", "feature", "mid"]);
-    let log_git = log_of(&fx_git, &["main", "feature", "mid"]);
+    let log_ff = log_of(&fx_ff, &["main", "feature"]);
+    let log_git = log_of(&fx_git, &["main", "feature"]);
     assert_eq!(
         log_ff, log_git,
         "every replayed commit must be byte-identical\nfufu:\n{log_ff}\ngit:\n{log_git}"
     );
 
+    // `mid` sits inside the replayed range at f2. `git rebase --update-refs`
+    // carries it along with the tip — real git's side moved it, checked
+    // above via `git_oracle_restack`'s own `--update-refs` flag and
+    // confirmed here. fufu deliberately does not: `ff restack` moves only
+    // the branch it was asked to move, so `mid` is left exactly where it
+    // stood and reported as diverged rather than carried. This is the one
+    // point in the file where fufu's replay is not the same operation as
+    // git's, on purpose.
+    assert_eq!(
+        fx_git.git(&["rev-parse", "mid"]).trim(),
+        fx_git.git(&["rev-parse", "feature^"]).trim(),
+        "the oracle's own --update-refs must have carried mid, or this test is not proving what \
+         its comment claims"
+    );
+    assert_eq!(
+        fx_ff.git(&["rev-parse", "mid"]).trim(),
+        f2_ff,
+        "fufu must leave mid exactly where it stood"
+    );
+    assert!(!report.moved.contains(&"mid".to_string()));
+    assert!(report.diverged.contains(&"mid".to_string()));
+
     assert_eq!(report.replayed, 3);
     assert!(!report.fast_forward);
-    assert!(report.moved.contains(&"mid".to_string()));
     assert_eq!(
         report.new_tip,
         fx_ff.git(&["rev-parse", "feature"]).trim().to_string()
@@ -409,7 +427,10 @@ fn restack_off_branch_writes_no_file() {
     assert_eq!(files_before, files_after);
 
     assert_ne!(fx.git(&["rev-parse", "feature"]).trim(), feature_before);
-    assert_ne!(fx.git(&["rev-parse", "mid"]).trim(), mid_before);
+    // `mid` is not the branch restack was asked to move: it is left exactly
+    // where it stood, reported as diverged rather than carried.
+    assert_eq!(fx.git(&["rev-parse", "mid"]).trim(), mid_before);
+    assert!(report.diverged.contains(&"mid".to_string()));
     assert_eq!(report.files, 0);
 }
 
@@ -495,14 +516,11 @@ fn restack_over_an_emptied_commit_matches_git_no_keep_empty() {
 
     git_oracle_restack(&fx_git, "main", &c1_git, "feature", NOW);
 
-    // `mid` sits on `dup`, the commit both sides drop: checking it here,
-    // rather than in a second near-duplicate test, is what proves a branch
-    // on a dropped commit follows to the surviving parent, on both sides.
-    for branch in ["feature", "mid"] {
-        let ff_sha = fx_ff.git(&["rev-parse", branch]).trim().to_string();
-        let git_sha = fx_git.git(&["rev-parse", branch]).trim().to_string();
-        assert_eq!(ff_sha, git_sha, "{branch} diverged between fufu and git");
-    }
+    // `feature` is the branch fufu was asked to move: it must still land on
+    // the exact commit `git rebase --update-refs` produces.
+    let ff_sha = fx_ff.git(&["rev-parse", "feature"]).trim().to_string();
+    let git_sha = fx_git.git(&["rev-parse", "feature"]).trim().to_string();
+    assert_eq!(ff_sha, git_sha, "feature diverged between fufu and git");
 
     // Both dropped commits are gone from feature's history on the fufu side.
     let feature_history = fx_ff.git(&["rev-list", "feature"]);
@@ -515,19 +533,39 @@ fn restack_over_an_emptied_commit_matches_git_no_keep_empty() {
         "marker must be gone from feature"
     );
 
-    let log_ff = log_of(&fx_ff, &["main", "feature", "mid"]);
-    let log_git = log_of(&fx_git, &["main", "feature", "mid"]);
+    let log_ff = log_of(&fx_ff, &["main", "feature"]);
+    let log_git = log_of(&fx_git, &["main", "feature"]);
     assert_eq!(
         log_ff, log_git,
         "every surviving commit must be byte-identical\nfufu:\n{log_ff}\ngit:\n{log_git}"
     );
+
+    // `mid` sits on `dup`, the commit both sides drop. `git rebase
+    // --update-refs` follows a ref on a dropped commit to the nearest
+    // surviving ancestor — real git's side moved it off `dup`, checked below.
+    // fufu deliberately does not: `ff restack` moves only the branch it was
+    // asked to move, so `mid` is left exactly where it stood, still pointing
+    // at the original (now unreachable from `feature`) `dup` commit, and
+    // reported as diverged rather than carried.
+    assert_ne!(
+        fx_git.git(&["rev-parse", "mid"]).trim(),
+        dup_ff,
+        "the oracle's own --update-refs must have moved mid off the dropped commit, or this \
+         test is not proving what its comment claims"
+    );
+    assert_eq!(
+        fx_ff.git(&["rev-parse", "mid"]).trim(),
+        dup_ff,
+        "fufu must leave mid exactly where it stood, pointing at the dropped commit"
+    );
+    assert!(!report.moved.contains(&"mid".to_string()));
+    assert!(report.diverged.contains(&"mid".to_string()));
 
     assert_eq!(
         report.replayed, 2,
         "f1 and f3 survive; dup and marker are dropped"
     );
     assert!(!report.fast_forward);
-    assert!(report.moved.contains(&"mid".to_string()));
     assert_eq!(
         report.new_tip,
         fx_ff.git(&["rev-parse", "feature"]).trim().to_string()
@@ -569,5 +607,8 @@ fn the_restack_report_names_what_it_dropped() {
         report.new_tip,
         fx.git(&["rev-parse", "feature"]).trim().to_string()
     );
-    assert!(report.moved.contains(&"mid".to_string()));
+    // `mid` is not the branch restack was asked to move: it is left exactly
+    // where it stood, reported as diverged rather than carried.
+    assert!(!report.moved.contains(&"mid".to_string()));
+    assert!(report.diverged.contains(&"mid".to_string()));
 }

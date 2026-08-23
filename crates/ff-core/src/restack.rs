@@ -657,6 +657,7 @@ pub fn restack_with(
 
     // 8. Plan, and the new worktree.
     let mut carried: Vec<RefTransition> = Vec::new();
+    let mut diverged: Vec<String> = Vec::new();
     let mut rewrites: Vec<rewrite::Rewrite> = Vec::new();
     let mut dropped: Vec<rewrite::Dropped> = Vec::new();
     let mut new_tip = branch_tip;
@@ -679,24 +680,45 @@ pub fn restack_with(
         published = rewrite::published_count(repo, &branch, &plan)?;
         // The probe and the plan agree by construction, but only one of them
         // is the thing that ran: the counts come from the plan.
-        carried = plan.carried;
+        //
+        // `ff restack` moves only the branch it was asked to move: every
+        // other local head the rewrite map touched is left where it stood,
+        // divergent, rather than carried out from under whatever worktree —
+        // this one included — is standing on it.
+        let branch_ref = format!("refs/heads/{branch}");
+        let (kept, left): (Vec<RefTransition>, Vec<RefTransition>) =
+            plan.carried.into_iter().partition(|t| t.name == branch_ref);
+        carried = kept;
+        diverged = left
+            .into_iter()
+            .map(|t| {
+                t.name
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(&t.name)
+                    .to_string()
+            })
+            .collect(); // plan.carried is sorted by ref name, and partition preserves order
         rewrites = plan.rewrites;
         replayed = rewrites.len();
         dropped = plan.dropped;
         new_tip = plan.new_tip;
 
         // The head branch's new tip comes out of the carried table either
-        // way, so there is one code path for head and non-head.
-        if head_carried && let Some(hb) = head_branch.as_deref() {
-            let hb_ref = format!("refs/heads/{hb}");
+        // way, so there is one code path for head and non-head — but the
+        // table now holds only the acted-on branch's entry, so this can only
+        // resolve when HEAD is standing on that same branch. When HEAD sits
+        // mid-stack on a different, now-divergent branch, its ref is not
+        // moving and neither is its worktree.
+        if head_carried && head_branch.as_deref() == Some(branch.as_str()) {
             let entry = carried
                 .iter()
-                .find(|t| t.name == hb_ref)
-                .ok_or_else(|| Error::msg(format!("{hb_ref} was not carried: internal error")))?;
-            let new_hex = entry
-                .new
-                .as_deref()
-                .ok_or_else(|| Error::msg(format!("{hb_ref} has no new end: internal error")))?;
+                .find(|t| t.name == branch_ref)
+                .ok_or_else(|| {
+                    Error::msg(format!("{branch_ref} was not carried: internal error"))
+                })?;
+            let new_hex = entry.new.as_deref().ok_or_else(|| {
+                Error::msg(format!("{branch_ref} has no new end: internal error"))
+            })?;
             new_head_tip = Some(gix::ObjectId::from_hex(new_hex.as_bytes()).map_err(Error::repo)?);
         }
 
@@ -1041,6 +1063,7 @@ pub fn restack_with(
             fast_forward,
             new_tip: new_tip.to_string(),
             moved,
+            diverged,
             published,
             published_on,
             parked,
