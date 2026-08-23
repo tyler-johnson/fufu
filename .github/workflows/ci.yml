@@ -28,13 +28,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, name: linux, shard: 1, shards: 1 }
-          - { os: macos-latest, name: macos 1/2, shard: 1, shards: 2 }
-          - { os: macos-latest, name: macos 2/2, shard: 2, shards: 2 }
-          - { os: windows-latest, name: windows 1/4, shard: 1, shards: 4 }
-          - { os: windows-latest, name: windows 2/4, shard: 2, shards: 4 }
-          - { os: windows-latest, name: windows 3/4, shard: 3, shards: 4 }
-          - { os: windows-latest, name: windows 4/4, shard: 4, shards: 4 }
+          # `lints` and `saves` are spread across different shards on
+          # purpose: clippy costs ~93s and writing the cache back ~48s, and
+          # the whole run is gated on whichever job finishes last, so putting
+          # both on one shard is what made shard 1 the straggler at 9m28s
+          # against its siblings' 5m05s.
+          - { os: ubuntu-latest, name: linux, shard: 1, shards: 1, lints: true, saves: true }
+          - { os: macos-latest, name: macos 1/2, shard: 1, shards: 2, lints: true, saves: false }
+          - { os: macos-latest, name: macos 2/2, shard: 2, shards: 2, lints: false, saves: true }
+          - { os: windows-latest, name: windows 1/4, shard: 1, shards: 4, lints: true, saves: false }
+          - { os: windows-latest, name: windows 2/4, shard: 2, shards: 4, lints: false, saves: true }
+          - { os: windows-latest, name: windows 3/4, shard: 3, shards: 4, lints: false, saves: false }
+          - { os: windows-latest, name: windows 4/4, shard: 4, shards: 4, lints: false, saves: false }
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
@@ -58,16 +63,16 @@ jobs:
       # rustup on the runners picks the toolchain up from rust-toolchain.toml.
       # The shards share one cache rather than filling the repository's cache
       # budget with four copies of the same Windows target directory, and
-      # only the first shard writes it back.
+      # exactly one of them writes it back.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}
-          save-if: ${{ matrix.shard == 1 }}
+          save-if: ${{ matrix.saves }}
 
       - if: runner.os == 'Linux'
         run: cargo fmt --all --check
       # One shard's worth: the lint answer does not differ between shards.
-      - if: matrix.shard == 1
+      - if: matrix.lints
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - uses: taiki-e/install-action@v2
@@ -76,7 +81,7 @@ jobs:
       # nextest is what makes `--partition` possible, and it also packs every
       # test into one scheduling pool instead of running 90 binaries end to
       # end with a ragged tail on each.
-      - run: cargo nextest run --workspace --partition count:${{ matrix.shard }}/${{ matrix.shards }}
+      - run: cargo nextest run --workspace --partition hash:${{ matrix.shard }}/${{ matrix.shards }}
       # nextest does not run doctests. There are none today, and this is what
       # keeps that true rather than silently skipped.
       - if: runner.os == 'Linux'
@@ -85,7 +90,7 @@ jobs:
       # The installers can't run in CI, but they can at least parse.
       - if: runner.os == 'Linux'
         run: sh -n install.sh
-      - if: matrix.os == 'windows-latest' && matrix.shard == 1
+      - if: matrix.os == 'windows-latest' && matrix.lints
         shell: pwsh
         run: |
           $errs = $null
