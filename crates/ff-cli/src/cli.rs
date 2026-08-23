@@ -101,6 +101,17 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Which branches in flight would collide with each other
+    Collide {
+        /// Branches to compare; omitted means the ones the map would rank
+        names: Vec<String>,
+        /// Branches to rank in, newest tip first; 0 means all
+        #[arg(short = 'n', long = "max-count", value_name = "count")]
+        branches: Option<usize>,
+        /// Every local branch
+        #[arg(long)]
+        all: bool,
+    },
     // agent notice quotes this: `ff status`
     /// Show the working tree status
     #[command(alias = "st", long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
@@ -737,6 +748,7 @@ impl Command {
     pub fn name(&self) -> &'static str {
         match self {
             Command::Map { .. } => "map",
+            Command::Collide { .. } => "collide",
             Command::Status { .. } => "status",
             Command::Log { .. } => "log",
             Command::History { .. } => "history",
@@ -823,6 +835,7 @@ impl Command {
             | Command::Diff { .. }
             | Command::Show { .. }
             | Command::Map { .. }
+            | Command::Collide { .. }
             | Command::Git { .. }
             | Command::Trim { .. }
             | Command::Commit { .. }
@@ -951,6 +964,7 @@ impl Command {
             // The readers: they have a repository, and the snapshot is the
             // only pre-work they owe.
             Command::Map { .. }
+            | Command::Collide { .. }
             | Command::Status { .. }
             | Command::Log { .. }
             | Command::History { .. }

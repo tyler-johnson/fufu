@@ -1,6 +1,7 @@
 pub mod absorb;
 pub mod branch;
 pub mod clone;
+pub mod collide;
 pub mod commit;
 pub mod config;
 pub mod describe;

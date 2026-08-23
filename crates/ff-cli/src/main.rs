@@ -139,6 +139,11 @@ fn main() {
         // Spelled out, the map takes its scope after its own name — which is
         // also why the root flags refuse to ride a verb.
         Some(cli::Command::Map { branches, all }) => cmd::map::run(&ctx, branches, all),
+        Some(cli::Command::Collide {
+            names,
+            branches,
+            all,
+        }) => cmd::collide::run(&ctx, names, branches, all),
         Some(cli::Command::Status { .. }) => cmd::status::run(&ctx),
         Some(cli::Command::Log {
             count,
