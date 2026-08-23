@@ -15,16 +15,32 @@ fn tip(fx: &Fixture, rev: &str) -> gix::ObjectId {
 }
 
 /// Loose objects on disk, counted as files by a stack walk over the odb.
+/// Loose objects, and strictly those: a two-hex fanout directory holding a
+/// thirty-eight-hex name.
+///
+/// Counting every file under `.git/objects` instead is what this used to do,
+/// and it made the assertion measure more than it claimed. `pack/`, `info/`,
+/// a `commit-graph`, a `.lock` and git's `tmp_obj_*` staging files all live
+/// there, none of them is a loose object, and any of them appearing or being
+/// cleaned up between the two counts moves the number for reasons the probe
+/// had nothing to do with. That is not hypothetical: CI caught it once, and
+/// the count had gone *down* by one -- the opposite of the leak the message
+/// names, and impossible for the thing being tested to cause.
 fn loose_count(fx: &Fixture) -> usize {
     let mut count = 0;
     let objects = fx.path().join(".git/objects");
-    let mut stack = vec![objects];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                stack.push(entry.path());
-            } else {
+    for entry in std::fs::read_dir(objects).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        for object in std::fs::read_dir(entry.path()).unwrap() {
+            let object = object.unwrap();
+            let name = object.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if name.len() == 38 && name.chars().all(|c| c.is_ascii_hexdigit()) {
                 count += 1;
             }
         }
