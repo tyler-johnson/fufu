@@ -14,33 +14,99 @@ jobs:
         with:
           command: check licenses
 
+  # Windows is sharded four ways and macOS two, in proportion to a cost that
+  # was measured on the runners rather than guessed at. Creating a process
+  # costs 0.59ms on Linux, ~3ms on macOS and ~6.6ms on Windows; this suite
+  # spawns a real `git` per assertion, so that tax is most of the wall clock
+  # on both non-Linux legs. It is the platform and not the host -- real
+  # Windows hardware pays the same 6.2ms -- so the only lever is more cores
+  # to pay it with concurrently, which is what a shard is. Disk was measured
+  # not to be the problem: fsync latency on the Windows runner is 1.0x Linux
+  # and bulk throughput 1.2x, and macOS beats Linux at both.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, name: linux, shard: 1, shards: 1 }
+          - { os: macos-latest, name: macos 1/2, shard: 1, shards: 2 }
+          - { os: macos-latest, name: macos 2/2, shard: 2, shards: 2 }
+          - { os: windows-latest, name: windows 1/4, shard: 1, shards: 4 }
+          - { os: windows-latest, name: windows 2/4, shard: 2, shards: 4 }
+          - { os: windows-latest, name: windows 3/4, shard: 3, shards: 4 }
+          - { os: windows-latest, name: windows 4/4, shard: 4, shards: 4 }
+    name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      # Worth somewhere between 1.1x and 1.7x on `git` spawns across two
+      # probe runs -- the win is real but the runner's own variance is the
+      # same order, so do not read a precise figure into it. It goes before
+      # the cache restore so that unpacking the target directory is not
+      # scanned either. Disabling real-time protection outright measured no
+      # better than excluding these paths, so this is the whole dose.
+      - name: Exclude the build from Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE"
+          Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP"
+          Add-MpPreference -ExclusionPath "$env:USERPROFILE\.cargo"
+          Add-MpPreference -ExclusionProcess "git.exe"
+
       # rustup on the runners picks the toolchain up from rust-toolchain.toml.
+      # The shards share one cache rather than filling the repository's cache
+      # budget with four copies of the same Windows target directory, and
+      # only the first shard writes it back.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}
+          save-if: ${{ matrix.shard == 1 }}
+
       - if: runner.os == 'Linux'
         run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo build --release
+      # One shard's worth: the lint answer does not differ between shards.
+      - if: matrix.shard == 1
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # nextest is what makes `--partition` possible, and it also packs every
+      # test into one scheduling pool instead of running 90 binaries end to
+      # end with a ragged tail on each.
+      - run: cargo nextest run --workspace --partition count:${{ matrix.shard }}/${{ matrix.shards }}
+      # nextest does not run doctests. There are none today, and this is what
+      # keeps that true rather than silently skipped.
+      - if: runner.os == 'Linux'
+        run: cargo test --workspace --doc
+
       # The installers can't run in CI, but they can at least parse.
       - if: runner.os == 'Linux'
         run: sh -n install.sh
-      - if: runner.os == 'Windows'
+      - if: matrix.os == 'windows-latest' && matrix.shard == 1
         shell: pwsh
         run: |
           $errs = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errs)
           if ($errs) { $errs; exit 1 }
-      # bench needs the release binary but must not rebuild it from scratch.
-      - if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+
+  # The release profile is fat-LTO and single-codegen-unit, so it is built
+  # once, here, rather than on all three platforms in the test matrix: the
+  # Windows copy alone cost 228s and produced nothing anyone downloads.
+  # release.yml builds all six shipping targets at tag time, which is the
+  # build whose output is real. This job exists because bench needs a release
+  # binary and must not build one from scratch.
+  release-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-build
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v7
         with:
           name: ff-linux
           path: target/release/ff
@@ -50,7 +116,7 @@ jobs:
   # points, ff alone, no jj); the full 10 000-point comparison matrix is
   # local-only, this job exists purely as the ratio gate.
   bench:
-    needs: test
+    needs: release-build
     runs-on: ubuntu-latest
     # Nothing in this job legitimately takes fifteen minutes; the cap exists so
     # a wedged install can never hold a runner for the six-hour default again.
