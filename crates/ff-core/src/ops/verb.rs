@@ -16,7 +16,7 @@ use crate::model::{ForeignChange, ReconcileReport};
 use crate::ops::append::{self, Append, OpDraft};
 use crate::ops::id::OpId;
 use crate::ops::record::{OpRecord, RefTransition, RefsTable, observe_refs};
-use crate::ops::{BRANCH_PREFIX, OPS_REF, OpKind, OpLog};
+use crate::ops::{BRANCH_PREFIX, LEGACY_OPS_REF, LEGACY_OPS_TRASH_REF, OpKind, OpLog};
 use crate::refs;
 use crate::snapshot::{Provenance, TakeOptions};
 
@@ -170,6 +170,11 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
         warnings: Vec::new(),
     };
 
+    // Before the tip is read, not after: a repository whose log still sits at
+    // the old repository-wide name has to be carrying it before anything
+    // decides the log is absent and lays a fresh floor over it.
+    report.warnings.extend(migrate(repo, now)?);
+
     let log = OpLog::open(repo)?;
     let tip = log.tip()?;
     let last_seen: Option<RefsTable> = match tip {
@@ -180,19 +185,19 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
                 // Unreadable tip: park the whole log, then re-init. The old
                 // chain stays reachable (and inspectable) from trash.
                 report.reinitialized = true;
+                let trash = log.ops_trash_ref();
                 report.warnings.push(format!(
-                    "operation log tip unreadable ({err}); log parked at {}",
-                    crate::ops::OPS_TRASH_REF
+                    "operation log tip unreadable ({err}); log parked at {trash}"
                 ));
                 refs::write_ref(
                     repo,
-                    crate::ops::OPS_TRASH_REF,
+                    &trash,
                     id.object_id(),
                     gix::refs::transaction::PreviousValue::Any,
                     now,
                     "reconcile: parked unreadable operation log",
                 )?;
-                refs::delete_ref(repo, OPS_REF, id.object_id(), now)?;
+                refs::delete_ref(repo, &log.ops_ref(), id.object_id(), now)?;
                 None
             }
         },
@@ -340,6 +345,81 @@ fn append_observed_with_pins(
     )
 }
 
+/// Carry a repository-wide log onto the main worktree's chain.
+///
+/// The log was always worktree-scoped; `refs/fufu/ops` is what that name
+/// looked like when a repository had exactly one worktree, and the moment it
+/// has two the single chain becomes one undo pointer for two trees. So the
+/// old name moves to `refs/fufu/wt/main/ops` on first touch, and the trash
+/// ref beside it.
+///
+/// **The reflog moves with it.** [`crate::undo`]'s forward scan reads the
+/// chain ref's own reflog to find the way forward, so a migration that
+/// dropped it would drop `ff redo` along with it. The carry is the same
+/// replay [`crate::branch::rename`] performs on a branch's pointer.
+///
+/// Runs before anything reads the tip, and costs one ref lookup once the old
+/// name is gone — which is after the first invocation, forever.
+pub(crate) fn migrate(repo: &gix::Repository, now: i64) -> Result<Vec<String>> {
+    let mut warnings = Vec::new();
+    for (old, new) in [
+        (LEGACY_OPS_REF, crate::ops::ops_ref(crate::linked::MAIN_ID)),
+        (
+            LEGACY_OPS_TRASH_REF,
+            crate::ops::ops_trash_ref(crate::linked::MAIN_ID),
+        ),
+    ] {
+        let Some(tip) = refs::ref_target(repo, old)? else {
+            continue;
+        };
+        if refs::ref_target(repo, &new)?.is_some() {
+            // Both names hold a chain. Moving would destroy one of them, and
+            // fufu does not silently destroy history — say so and leave the
+            // old name exactly where it is.
+            warnings.push(format!(
+                "{old} and {new} both exist; the pre-worktree log was left in place rather than                  overwriting the current one"
+            ));
+            continue;
+        }
+        let lines = refs::read_ref_log(repo, old)?;
+        refs::create_ref_with_log(
+            repo,
+            &new,
+            tip,
+            &lines,
+            now,
+            "worktrees: carried the repository-wide log onto the main worktree's chain",
+        )?;
+        refs::delete_ref(repo, old, tip, now)?;
+    }
+
+    // The id index is derived, so losing it costs a rebuild rather than
+    // data — but its header names the tip, which migration does not move, so
+    // carrying the file is free and the first read afterwards stays flat.
+    for kind in [
+        crate::ops::index::Kind::Live,
+        crate::ops::index::Kind::Trash,
+    ] {
+        let from = repo.common_dir().join("fufu/ops").join(match kind {
+            crate::ops::index::Kind::Live => "live",
+            crate::ops::index::Kind::Trash => "trash",
+        });
+        if !from.is_file() {
+            continue;
+        }
+        let to = crate::ops::index::chain_path(repo, crate::linked::MAIN_ID, kind);
+        if to.exists() {
+            continue;
+        }
+        if let Some(parent) = to.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::rename(&from, &to);
+    }
+
+    Ok(warnings)
+}
+
 /// The receipt.
 ///
 /// `BRANCH_PREFIX` is deliberately the namespace the old capture chains used,
@@ -384,7 +464,7 @@ pub(crate) fn park_legacy(repo: &gix::Repository, now: i64) -> Result<Vec<String
                 // emphatically not legacy: reinitialization writes it moments
                 // before this runs, and parking it would move the very thing
                 // that was just saved.
-                if name == crate::ops::OPS_TRASH_REF {
+                if name == LEGACY_OPS_TRASH_REF || name.starts_with(crate::ops::WT_PREFIX) {
                     continue;
                 }
                 let Some(tip) = reference.target().try_id().map(|id| id.to_owned()) else {

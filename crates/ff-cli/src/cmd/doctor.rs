@@ -470,7 +470,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
             // `ff redo` walks forward along and what keeps an abandoned
             // branch of the log addressable.
             let has_reflog = match repo
-                .try_find_reference(ff_core::ops::OPS_REF)
+                .try_find_reference(ff_core::ops::ops_ref_of(repo).as_str())
                 .map_err(Error::repo)?
             {
                 None => false,

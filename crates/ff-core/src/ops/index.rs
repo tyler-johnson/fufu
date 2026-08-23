@@ -21,6 +21,15 @@
 //! the constant is the whole point. The accepted consequence of one global
 //! id space is that unique prefixes lengthen from three or four letters to
 //! about five.
+//!
+//! **One file per chain, one resolution domain across all of them.** A
+//! worktree writes only its own chain's file, which is what keeps a bay's
+//! appends from invalidating main's index and sending every `ff log` there
+//! into a rebuild. Resolution reads every chain's file and takes the union,
+//! so ids stay unique across the repository and a removed worktree's
+//! operations still resolve — `ff op show` and `ff restore --at-op` reach a
+//! dead bay's captures with no new grammar, which is the whole reason the
+//! domain is global rather than per-chain.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -28,7 +37,6 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
-use crate::ops::{OPS_REF, OPS_TRASH_REF};
 
 const HEADER_LEN: usize = 50;
 const RECORD_LEN: usize = 41;
@@ -53,10 +61,11 @@ impl Kind {
         }
     }
 
-    fn ref_name(self) -> &'static str {
+    /// The ref one chain keeps this domain's tip on.
+    fn ref_name(self, chain: &str) -> String {
         match self {
-            Kind::Live => OPS_REF,
-            Kind::Trash => OPS_TRASH_REF,
+            Kind::Live => crate::ops::ops_ref(chain),
+            Kind::Trash => crate::ops::ops_trash_ref(chain),
         }
     }
 }
@@ -92,20 +101,28 @@ pub enum Status {
     Absent,
 }
 
-/// The on-disk path for a domain's id index file.
+/// The on-disk path for this worktree's chain's id index file.
 pub fn path(repo: &gix::Repository, kind: Kind) -> PathBuf {
-    repo.common_dir().join("fufu/ops").join(kind.file())
+    chain_path(repo, &crate::ops::chain_id(repo), kind)
+}
+
+/// The on-disk path for any chain's id index file.
+pub fn chain_path(repo: &gix::Repository, chain: &str, kind: Kind) -> PathBuf {
+    repo.common_dir()
+        .join("fufu/ops")
+        .join(chain)
+        .join(kind.file())
 }
 
 /// Open the index for a domain, catching it up in memory if the tip moved.
 /// IO errors are swallowed — the worst case is an in-memory index, which is
 /// the behavior of a repository that has never written one.
-fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
-    let Some(tip) = crate::refs::ref_target(repo, kind.ref_name())? else {
+fn ensure(repo: &gix::Repository, chain: &str, kind: Kind) -> Result<Index> {
+    let Some(tip) = crate::refs::ref_target(repo, &kind.ref_name(chain))? else {
         return Ok(Index::default());
     };
     let tip_str = tip.to_string();
-    let file_path = path(repo, kind);
+    let file_path = chain_path(repo, chain, kind);
 
     // In sync: the common case, and it costs 50 bytes and a stat.
     if let Ok(idx) = try_open_verified(&file_path, &tip_str) {
@@ -124,7 +141,7 @@ fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
     }
 
     // Out of reach: rebuild from the log walk.
-    let mut sorted = domain_ids(repo, kind)?;
+    let mut sorted = domain_ids(repo, chain, kind)?;
     sorted.sort_unstable();
     let _ = write_index(&file_path, &tip_str, &sorted);
     let len = sorted.len();
@@ -147,14 +164,15 @@ fn ensure(repo: &gix::Repository, kind: Kind) -> Result<Index> {
 /// it once here keeps the flat rows flat. Best effort and silent, like every
 /// other write to a derived cache.
 pub fn refresh(repo: &gix::Repository, kind: Kind) {
-    let Ok(Some(tip)) = crate::refs::ref_target(repo, kind.ref_name()) else {
+    let chain = crate::ops::chain_id(repo);
+    let Ok(Some(tip)) = crate::refs::ref_target(repo, &kind.ref_name(&chain)) else {
         return;
     };
-    let Ok(mut ids) = domain_ids(repo, kind) else {
+    let Ok(mut ids) = domain_ids(repo, &chain, kind) else {
         return;
     };
     ids.sort_unstable();
-    let _ = write_index(&path(repo, kind), &tip.to_string(), &ids);
+    let _ = write_index(&chain_path(repo, &chain, kind), &tip.to_string(), &ids);
 }
 
 /// Every op id a domain resolves — the materialized form of exactly the set
@@ -171,13 +189,14 @@ pub fn refresh(repo: &gix::Repository, kind: Kind) {
 /// so a dropped operation leaves the domain as well as the walk. Each seed
 /// walk stops the moment it meets an id already collected, so the total work
 /// is the size of the domain and not the number of seeds times its depth.
-fn domain_ids(repo: &gix::Repository, kind: Kind) -> Result<Vec<String>> {
+fn domain_ids(repo: &gix::Repository, chain: &str, kind: Kind) -> Result<Vec<String>> {
+    let name = kind.ref_name(chain);
     let mut seeds: Vec<gix::ObjectId> = Vec::new();
-    if let Some(tip) = crate::refs::ref_target(repo, kind.ref_name())? {
+    if let Some(tip) = crate::refs::ref_target(repo, &name)? {
         seeds.push(tip);
     }
     if kind == Kind::Live {
-        for line in crate::refs::read_ref_log(repo, kind.ref_name())? {
+        for line in crate::refs::read_ref_log(repo, &name)? {
             seeds.push(line.new);
         }
     }
@@ -457,18 +476,45 @@ fn common_prefix(a: &str, b: &str) -> usize {
 /// per-character map, so a prefix length computed over hex is the same
 /// number of letters, and the file stays greppable with git's own ids.
 pub fn prefix_lens(repo: &gix::Repository, ids: &[String]) -> Result<HashMap<String, usize>> {
-    let mut live = ensure(repo, Kind::Live)?;
-    let mut trash = ensure(repo, Kind::Trash)?;
+    let mut open = domain(repo)?;
 
     let mut lens = HashMap::with_capacity(ids.len());
     for id in ids {
         if lens.contains_key(id) {
             continue;
         }
-        let shared = live.longest_common(id).max(trash.longest_common(id));
+        let shared = open
+            .iter_mut()
+            .map(|index| index.longest_common(id))
+            .max()
+            .unwrap_or(0);
         lens.insert(id.clone(), (shared + 1).min(id.len().max(1)));
     }
     Ok(lens)
+}
+
+/// Every chain's index files, live and trash, opened once.
+///
+/// The union of these is the resolution domain, and taking the maximum
+/// shared prefix across them is the same answer as sorting that union — the
+/// nearest neighbour in a union is whichever per-file neighbour is closer.
+/// Bounded by the number of chains the repository has ever had, which is the
+/// number of worktrees, so this is a handful of binary searches rather than
+/// anything that grows with history.
+fn domain(repo: &gix::Repository) -> Result<Vec<Index>> {
+    let mut chains = crate::ops::chain_ids(repo)?;
+    // A chain with no refs yet is still the one we are standing in, and
+    // `ensure` on an absent ref is free.
+    let me = crate::ops::chain_id(repo);
+    if !chains.iter().any(|c| c == &me) {
+        chains.push(me);
+    }
+    let mut out = Vec::with_capacity(chains.len() * 2);
+    for chain in &chains {
+        out.push(ensure(repo, chain, Kind::Live)?);
+        out.push(ensure(repo, chain, Kind::Trash)?);
+    }
+    Ok(out)
 }
 
 /// Every op id (live and trashed) starting with `prefix`, as raw hex.
@@ -477,12 +523,10 @@ pub fn prefix_lens(repo: &gix::Repository, ids: &[String]) -> Result<HashMap<Str
 /// the caller's identity guard is what makes any candidate safe, and a stale
 /// index can only ever produce a candidate that then fails that guard.
 pub fn prefix_matches(repo: &gix::Repository, prefix: &str) -> Result<Vec<gix::ObjectId>> {
-    let mut live = ensure(repo, Kind::Live)?;
-    let mut trash = ensure(repo, Kind::Trash)?;
-
     let mut seen = Vec::new();
-    collect_matches(&mut live, prefix, &mut seen);
-    collect_matches(&mut trash, prefix, &mut seen);
+    for index in domain(repo)?.iter_mut() {
+        collect_matches(index, prefix, &mut seen);
+    }
 
     let mut candidates = Vec::new();
     for id_str in seen {
@@ -497,10 +541,20 @@ pub fn prefix_matches(repo: &gix::Repository, prefix: &str) -> Result<Vec<gix::O
 /// "old" from "trimmed", and it costs a binary search rather than a walk.
 pub fn contains(repo: &gix::Repository, kind: Kind, id: gix::ObjectId) -> Result<bool> {
     let hex = id.to_string();
-    let mut index = ensure(repo, kind)?;
-    let mut found = Vec::new();
-    collect_matches(&mut index, &hex, &mut found);
-    Ok(found.contains(&hex))
+    let mut chains = crate::ops::chain_ids(repo)?;
+    let me = crate::ops::chain_id(repo);
+    if !chains.iter().any(|c| c == &me) {
+        chains.push(me);
+    }
+    for chain in &chains {
+        let mut index = ensure(repo, chain, kind)?;
+        let mut found = Vec::new();
+        collect_matches(&mut index, &hex, &mut found);
+        if found.contains(&hex) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn collect_matches(index: &mut Index, prefix: &str, out: &mut Vec<String>) {
@@ -610,7 +664,7 @@ pub fn status(repo: &gix::Repository) -> Result<Status> {
     };
     // A file whose log is gone is stale by the same rule that governs
     // everything else here: it does not describe the ref it names.
-    let Some(tip) = crate::refs::ref_target(repo, OPS_REF)? else {
+    let Some(tip) = crate::refs::ref_target(repo, &crate::ops::ops_ref_of(repo))? else {
         return Ok(Status::Stale);
     };
     Ok(match verify(&mut file, &tip.to_string()) {

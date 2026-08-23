@@ -1,7 +1,7 @@
 //! The write path: one `commit_op` for all four kinds, and the capture that
 //! rides it at machine rate.
 //!
-//! Two refs move together in one transaction — the log tip and the branch's
+//! Two refs move together in one transaction — the chain tip and the branch's
 //! own pointer — so the pointer can never name an op the log has not got, or
 //! lag one it has. The journal moved one ref and the snapshot chain moved
 //! another, and nothing made the pair atomic; a crash between them left a
@@ -20,7 +20,7 @@ use crate::ops::id::OpId;
 use crate::ops::message::{self, Skeleton};
 use crate::ops::record::{OpRecord, RefsTable};
 use crate::ops::walk;
-use crate::ops::{BRANCH_PREFIX, OPS_REF, OpKind, lock};
+use crate::ops::{BRANCH_PREFIX, OpKind, lock};
 use crate::refs::{self, EditOutcome};
 use crate::snapshot::{Provenance, TakeOptions};
 
@@ -82,6 +82,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         ));
     }
     let branch_ref = format!("{BRANCH_PREFIX}{}", draft.branch);
+    let ops_ref = crate::ops::ops_ref_of(repo);
     let attempts = if draft.kind == OpKind::Capture {
         1
     } else {
@@ -104,7 +105,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
             break;
         };
 
-        let prev = refs::ref_target(repo, OPS_REF)?;
+        let prev = refs::ref_target(repo, ops_ref.as_str())?;
         let prev_on_branch = refs::ref_target(repo, branch_ref.as_str())?;
 
         let mut skeleton = Skeleton::new(draft.kind);
@@ -140,7 +141,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
 
         // Slot 1 belongs to the chain, and the log's root has no chain behind
         // it — so the root carries no base parent either, and `git log
-        // --first-parent refs/fufu/ops` stops at it instead of stepping onto
+        // --first-parent <chain>` stops at it instead of stepping onto
         // the base commit and walking out through the user's own history.
         // That last part is the bug the journal shipped with, and putting the
         // base at slot 1 "only on the first entry" would have reproduced it
@@ -166,7 +167,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
 
         let reflog = message::clean_subject(&draft.subject, message::MAX_SUBJECT);
         let edits = [
-            refs::update_edit(OPS_REF, commit_id, expect(prev), &reflog)?,
+            refs::update_edit(ops_ref.as_str(), commit_id, expect(prev), &reflog)?,
             refs::update_edit(
                 branch_ref.as_str(),
                 commit_id,
@@ -211,7 +212,7 @@ pub(crate) fn retryable(
     repo: &gix::Repository,
     cas_against: Option<gix::ObjectId>,
 ) -> Result<bool> {
-    let tip = refs::ref_target(repo, OPS_REF)?;
+    let tip = refs::ref_target(repo, &crate::ops::ops_ref_of(repo))?;
     if tip == cas_against {
         return Ok(true);
     }
@@ -476,7 +477,13 @@ pub fn capture_with(
     // and it has to precede the read of `prev_on_branch` below, which would
     // otherwise fail to decode an old snapshot commit.
     let mut warnings = Vec::new();
-    let virgin = crate::refs::ref_target(repo, OPS_REF)?.is_none();
+    // The carry from the repository-wide log, before the read that decides
+    // whether this repository has one at all.
+    warnings.extend(crate::ops::verb::migrate(
+        repo,
+        opts.now.unwrap_or_else(wall_clock),
+    )?);
+    let virgin = crate::refs::ref_target(repo, &crate::ops::ops_ref_of(repo))?.is_none();
     if virgin {
         warnings.extend(crate::ops::verb::park_legacy(
             repo,
@@ -537,7 +544,7 @@ pub fn capture_with(
     // creating refs. Reconciling first means the log's root is always the
     // parentless `init` note, so every capture has a predecessor and its
     // parents are always `[prev, base]` — the shape that keeps `git log
-    // --first-parent refs/fufu/ops` from stepping onto a base commit and
+    // --first-parent <chain>` from stepping onto a base commit and
     // walking out through the user's own history.
     if virgin {
         warnings.extend(crate::ops::verb::reconcile(repo, now)?.warnings);

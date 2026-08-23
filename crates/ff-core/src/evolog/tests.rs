@@ -238,7 +238,7 @@ fn strip_pointers_from_oldest(
     }
     let tip = prev_new.expect("the log is non-empty");
     for name in [
-        crate::ops::OPS_REF.to_string(),
+        crate::ops::ops_ref_of(repo),
         format!("{}{branch}", crate::ops::BRANCH_PREFIX),
     ] {
         crate::refs::write_ref(

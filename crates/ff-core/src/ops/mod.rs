@@ -67,19 +67,95 @@ pub use walk::{Operation, Run, is_op_commit, run_at};
 
 use append::{Append, OpDraft};
 
-/// The one log. Every operation of every kind lands here.
+/// Where every worktree's chain lives. One namespace, one chain per
+/// worktree, all of them in the *shared* ref store rather than under
+/// `refs/worktree/` — verified on git 2.50.1: `git gc` from the main
+/// worktree collects objects pinned only by a linked worktree's
+/// `refs/worktree/*`, and reachability is fufu's entire gc pin. The same
+/// fact is what makes a chain outlive the worktree it belongs to, which is
+/// the whole point of keeping it after `git worktree remove`.
+pub const WT_PREFIX: &str = "refs/fufu/wt/";
+
+/// The per-branch pointer into the log: the newest op on that branch.
 ///
-/// [`BRANCH_PREFIX`] is deliberately the namespace the capture chain used,
-/// because it means the same thing — the newest thing fufu wrote on this
-/// branch. A repository that still holds pre-cutover chains there has them
-/// parked under `refs/fufu/legacy/` before the log is created, so the first
+/// Branch-keyed and therefore worktree-exclusive already, because git allows
+/// a branch in at most one worktree — and [`crate::linked`] is what makes
+/// fufu enforce that rather than assume it.
+///
+/// The namespace is deliberately the one the capture chain used, because it
+/// means the same thing — the newest thing fufu wrote on this branch. A
+/// repository that still holds pre-cutover chains there has them parked
+/// under `refs/fufu/legacy/` before the log is created, so the first
 /// invocation cannot CAS one of them away; see
 /// [`verb::park_legacy`](crate::ops::verb::park_legacy).
-pub const OPS_REF: &str = "refs/fufu/ops";
-/// Where trim parks the pre-trim tip — the last trim's own undo.
-pub const OPS_TRASH_REF: &str = "refs/fufu/trash/@ops";
-/// The per-branch pointer into the log: the newest op on that branch.
 pub const BRANCH_PREFIX: &str = "refs/fufu/snap/";
+
+/// The pre-worktree names, kept only so [`verb::migrate`] can find them.
+pub(crate) const LEGACY_OPS_REF: &str = "refs/fufu/ops";
+pub(crate) const LEGACY_OPS_TRASH_REF: &str = "refs/fufu/trash/@ops";
+
+/// The id of the chain this repository handle writes to.
+///
+/// The log was always worktree-scoped; with one worktree the repository and
+/// the worktree were the same object, and the ref name said so. Two
+/// worktrees sharing one chain share one undo pointer, which is a state git
+/// itself refuses to create.
+pub fn chain_id(repo: &gix::Repository) -> String {
+    crate::linked::id(repo)
+}
+
+/// One chain's tip ref.
+pub fn ops_ref(chain: &str) -> String {
+    format!("{WT_PREFIX}{chain}/ops")
+}
+
+/// Where trim parks that chain's pre-trim tip — the last trim's own undo.
+pub fn ops_trash_ref(chain: &str) -> String {
+    format!("{WT_PREFIX}{chain}/trash/@ops")
+}
+
+/// This worktree's chain tip ref.
+pub fn ops_ref_of(repo: &gix::Repository) -> String {
+    ops_ref(&chain_id(repo))
+}
+
+/// This worktree's chain trash ref.
+pub fn ops_trash_ref_of(repo: &gix::Repository) -> String {
+    ops_trash_ref(&chain_id(repo))
+}
+
+/// Every chain id the repository holds refs for, sorted.
+///
+/// Wider than the set of live worktrees on purpose: a chain outlives the
+/// worktree it belonged to, and the operations on it stay addressable —
+/// `ff op show` and `ff restore --at-op` reach a dead worktree's captures
+/// through the one global id space, with no new grammar to learn.
+pub fn chain_ids(repo: &gix::Repository) -> Result<Vec<String>> {
+    let platform = repo.references().map_err(Error::repo)?;
+    let iter = platform.prefixed(WT_PREFIX).map_err(Error::repo)?;
+    let mut out: Vec<String> = Vec::new();
+    for reference in iter {
+        let reference = reference.map_err(|err| {
+            Error::coded(
+                "op/unreadable",
+                format!("ref iteration failed: {err}"),
+                vec![],
+            )
+        })?;
+        let name = reference.name().as_bstr().to_string();
+        let Some(rest) = name.strip_prefix(WT_PREFIX) else {
+            continue;
+        };
+        let Some((id, _)) = rest.split_once('/') else {
+            continue;
+        };
+        if !out.iter().any(|seen| seen == id) {
+            out.push(id.to_string());
+        }
+    }
+    out.sort();
+    Ok(out)
+}
 
 /// The fixed identity every op commit bears as both author and committer.
 /// Unchanged from what snapshots carry today, so the cutover moves no bytes
@@ -144,23 +220,45 @@ impl OpKind {
 /// named by the compiler.
 pub struct OpLog<'r> {
     repo: &'r gix::Repository,
+    /// The worktree whose chain this handle reads and writes. Resolved once
+    /// at open, so the ~55 call sites that hand over a repository and ask
+    /// for the log keep saying exactly that.
+    chain: String,
 }
 
 impl<'r> OpLog<'r> {
     pub fn open(repo: &'r gix::Repository) -> Result<Self> {
-        Ok(OpLog { repo })
+        Ok(OpLog {
+            repo,
+            chain: chain_id(repo),
+        })
+    }
+
+    /// The chain this handle is open on.
+    pub fn chain(&self) -> &str {
+        &self.chain
+    }
+
+    /// This chain's tip ref.
+    pub fn ops_ref(&self) -> String {
+        ops_ref(&self.chain)
+    }
+
+    /// This chain's trash ref.
+    pub fn ops_trash_ref(&self) -> String {
+        ops_trash_ref(&self.chain)
     }
 
     /// The newest operation, if the log exists.
     pub fn tip(&self) -> Result<Option<OpId>> {
-        Ok(crate::refs::ref_target(self.repo, OPS_REF)?.map(OpId::new))
+        Ok(crate::refs::ref_target(self.repo, &self.ops_ref())?.map(OpId::new))
     }
 
     /// The newest operation trim parked, if it has parked any. Trimmed
     /// operations are still objects and still resolve, so this is a real
     /// reading surface rather than bookkeeping.
     pub fn trash_tip(&self) -> Result<Option<OpId>> {
-        Ok(crate::refs::ref_target(self.repo, OPS_TRASH_REF)?.map(OpId::new))
+        Ok(crate::refs::ref_target(self.repo, &self.ops_trash_ref())?.map(OpId::new))
     }
 
     /// The newest operation on one branch — the per-branch pointer.

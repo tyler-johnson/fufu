@@ -23,10 +23,15 @@
 //! now as the second line rather than the first, catching a foreign writer
 //! or a stale plan that the lock has nothing to say about.
 //!
-//! The lock is fufu's own file rather than `refs/fufu/ops.lock`: gix takes
-//! that one itself inside the transaction, and a writer holding it would
-//! deadlock against its own append. Nothing outside fufu writes the log, so
-//! a lock only fufu observes loses nothing.
+//! The lock is fufu's own file rather than the chain ref's own `.lock`: gix
+//! takes that one itself inside the transaction, and a writer holding it
+//! would deadlock against its own append. Nothing outside fufu writes the
+//! log, so a lock only fufu observes loses nothing.
+//!
+//! One lock per chain, not per repository. Two worktrees write two chains
+//! and have nothing to exclude each other from — serializing them would make
+//! a bay's capture wait on main's, which is a cost with no correctness
+//! behind it.
 
 use std::time::Duration;
 
@@ -64,7 +69,8 @@ pub(crate) fn acquire(repo: &gix::Repository, wait: Wait) -> Result<Option<Guard
         Wait::Never => gix::lock::acquire::Fail::Immediately,
         Wait::Briefly => gix::lock::acquire::Fail::AfterDurationWithBackoff(VERB_WAIT),
     };
-    match gix::lock::Marker::acquire_to_hold_resource(dir.join("oplog"), mode, Some(dir)) {
+    let name = format!("oplog-{}", crate::ops::chain_id(repo));
+    match gix::lock::Marker::acquire_to_hold_resource(dir.join(name), mode, Some(dir)) {
         Ok(marker) => Ok(Some(Guard(marker))),
         Err(gix::lock::acquire::Error::PermanentlyLocked { .. }) => Ok(None),
         Err(err) => Err(Error::repo(err)),

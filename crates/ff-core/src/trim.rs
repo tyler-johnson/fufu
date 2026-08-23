@@ -5,7 +5,7 @@
 //! chain and the journal — each with its own walk, its own trash ref, its own
 //! parent-relinking rules and its own reflog replay, and the two could
 //! disagree about what "90 days" had left behind. The pre-trim tip goes to
-//! `refs/fufu/trash/@ops` BEFORE anything moves (trim's one-deep undo), the
+//! the chain's own trash ref BEFORE anything moves (trim's one-deep undo), the
 //! log is rebuilt oldest-survivor→newest, and then **every** branch pointer's
 //! reflog is replayed with the original dates, because `ff restore --at @{n}`
 //! and `--at <date>` read exactly those lines. A crash mid-replay leaves a
@@ -26,7 +26,7 @@ use crate::error::{Error, Result};
 use crate::model::{TrimLog, TrimPointer, TrimReport};
 use crate::ops::message::{self, SegmentLink};
 use crate::ops::record::observe_refs;
-use crate::ops::{BRANCH_PREFIX, OPS_REF, OPS_TRASH_REF, OpKind, OpRecord, walk};
+use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, walk};
 use crate::refs::{delete_ref, write_ref};
 use crate::snapshot::config;
 
@@ -92,9 +92,12 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         }
     };
 
+    let ops_ref = crate::ops::ops_ref_of(repo);
+    let ops_trash_ref = crate::ops::ops_trash_ref_of(repo);
+
     // Collect pointers first: ref iteration must not overlap ref edits.
-    let pointers = branch_pointers(repo)?;
-    let Some(tip) = crate::refs::ref_target(repo, OPS_REF)? else {
+    let all_pointers = branch_pointers(repo)?;
+    let Some(tip) = crate::refs::ref_target(repo, &ops_ref)? else {
         // No log: the only thing that could exist is a stray pointer, and a
         // pointer with nothing behind it is not this pass's business.
         return Ok(report);
@@ -119,13 +122,24 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         }
     }
 
-    let trash_ref = (dropped > 0 && !opts.dry_run).then(|| OPS_TRASH_REF.to_string());
+    let trash_ref = (dropped > 0 && !opts.dry_run).then(|| ops_trash_ref.clone());
     let mut log_row = TrimLog {
         dropped,
         kept,
         trash_ref: trash_ref.clone(),
         deleted: kept == 0 && dropped > 0,
     };
+
+    // Only the branches this chain actually carries. A pointer whose
+    // operations live on another worktree's chain is that worktree's to
+    // rebuild: this pass has no replay for it, so deleting it here would
+    // delete it for good. One chain per worktree is what makes the ownership
+    // question answerable at all — before that, every pointer belonged to
+    // the one log and this filter was the identity.
+    let pointers: Vec<(String, String, gix::ObjectId)> = all_pointers
+        .into_iter()
+        .filter(|(_, branch, _)| per_branch.contains_key(branch))
+        .collect();
 
     // Which branches lose their pointer outright: `--gone` ones, and any
     // whose every operation aged out.
@@ -181,7 +195,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         // before a single ref moves.
         write_ref(
             repo,
-            OPS_TRASH_REF,
+            &ops_trash_ref,
             tip,
             PreviousValue::Any,
             now,
@@ -190,7 +204,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
     }
 
     if kept == 0 && dropped > 0 {
-        delete_ref(repo, OPS_REF, tip, now)?;
+        delete_ref(repo, &ops_ref, tip, now)?;
         for (ref_name, _, pointer) in &pointers {
             delete_ref(repo, ref_name, *pointer, now)?;
         }
@@ -250,7 +264,7 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         // Slot 1 is the chain's, and the base rides at slot 2 behind it — so
         // the survivor that becomes the new root loses its base *parent* along
         // with the prev it no longer has. Keeping it would put a user commit
-        // at slot 1 and send `git log --first-parent refs/fufu/ops` walking
+        // at slot 1 and send `git log --first-parent` on the chain walking
         // out through the user's history, which is the shape this whole log
         // exists to avoid; the trailer still records what the base was.
         // Everything after slot 2 — the record commit, every pin — is
@@ -282,8 +296,8 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
 
     // Delete each ref (its reflog goes with it), then replay one single-ref
     // transaction per survivor with the original dates.
-    delete_ref(repo, OPS_REF, tip, now)?;
-    replay_ref(repo, OPS_REF, &replay)?;
+    delete_ref(repo, &ops_ref, tip, now)?;
+    replay_ref(repo, &ops_ref, &replay)?;
 
     for (ref_name, branch, pointer) in &pointers {
         delete_ref(repo, ref_name, *pointer, now)?;

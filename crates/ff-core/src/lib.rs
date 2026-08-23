@@ -17,6 +17,7 @@ pub mod history;
 mod hooks;
 pub mod index;
 mod jsonfile;
+pub mod linked;
 mod log;
 pub mod map;
 pub mod model;

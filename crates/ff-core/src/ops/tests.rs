@@ -191,7 +191,7 @@ fn the_two_refs_move_together_and_neither_moves_alone() {
     // rather than the capture landing half-applied.
     assert!(outcome.is_err(), "a pointer that is not an op is refused");
     assert_eq!(
-        crate::refs::ref_target(&repo, OPS_REF).unwrap(),
+        crate::refs::ref_target(&repo, &crate::ops::ops_ref_of(&repo)).unwrap(),
         Some(id.object_id()),
         "the log tip must not move when its partner edit cannot"
     );
@@ -527,7 +527,7 @@ fn a_rewind_keeps_an_op_addressable_and_a_trim_does_not() {
     // A rewind: the ref moves and the reflog remembers where it stood.
     crate::refs::write_ref(
         &repo,
-        OPS_REF,
+        &crate::ops::ops_ref_of(&repo),
         ids[18].object_id(),
         gix::refs::transaction::PreviousValue::Any,
         NOW,
@@ -542,10 +542,16 @@ fn a_rewind_keeps_an_op_addressable_and_a_trim_does_not() {
     );
 
     // A trim: the ref goes, and its reflog with it.
-    crate::refs::delete_ref(&repo, OPS_REF, ids[18].object_id(), NOW).unwrap();
+    crate::refs::delete_ref(
+        &repo,
+        &crate::ops::ops_ref_of(&repo),
+        ids[18].object_id(),
+        NOW,
+    )
+    .unwrap();
     crate::refs::write_ref(
         &repo,
-        OPS_REF,
+        &crate::ops::ops_ref_of(&repo),
         ids[18].object_id(),
         gix::refs::transaction::PreviousValue::MustNotExist,
         NOW,

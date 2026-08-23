@@ -15,7 +15,7 @@
 //! operation, and `ff redo` reads the ref's own reflog to walk forward again.
 //! Implementing them separately is how they drift.
 //!
-//! **The move is a pointer move, not an append.** `refs/fufu/ops` steps to the
+//! **The move is a pointer move, not an append.** This worktree's chain steps to the
 //! landing rather than growing an entry saying that it did, so the log records
 //! work and never navigation, and undoing an undo is not something anyone has
 //! to reason about. What the pointer steps off stays reachable — the reflog
@@ -32,7 +32,7 @@ use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::RewindReport;
 use crate::ops::{
-    OPS_REF, OpId, OpKind, OpLog, Operation, RefTransition, RefsTable, StashEffect, verb, walk,
+    OpId, OpKind, OpLog, Operation, RefTransition, RefsTable, StashEffect, verb, walk,
 };
 use crate::refs;
 use crate::snapshot::Provenance;
@@ -632,7 +632,7 @@ pub(crate) fn forward_targets(repo: &gix::Repository, tip: OpId) -> Result<Vec<O
 /// the staleness test: work after an undo forks the log rather than
 /// truncating it.
 fn forward_scan(repo: &gix::Repository, tip: OpId) -> Result<(Vec<OpId>, String)> {
-    let lines = refs::read_ref_log(repo, OPS_REF)?;
+    let lines = refs::read_ref_log(repo, &crate::ops::ops_ref_of(repo))?;
     let mut consumed = 0usize;
     let mut path: Vec<OpId> = Vec::new();
     let mut standing = tip;
@@ -683,7 +683,7 @@ fn forward_scan(repo: &gix::Repository, tip: OpId) -> Result<(Vec<OpId>, String)
     Ok((path, "no undo has been recorded on this log".into()))
 }
 
-/// Move `refs/fufu/ops` to the landing, and every branch pointer the move
+/// Move this worktree's chain to the landing, and every branch pointer the move
 /// invalidated with it, in one transaction.
 ///
 /// Both refs move together for the same reason the append moves them
@@ -726,7 +726,7 @@ fn move_pointer(
 
     let message = format!("{}{target}", if forward { REDO_MOVE } else { UNDO_MOVE });
     let mut edits = vec![refs::update_edit(
-        OPS_REF,
+        &crate::ops::ops_ref_of(repo),
         target.object_id(),
         gix::refs::transaction::PreviousValue::MustExistAndMatch(gix::refs::Target::Object(
             tip.object_id(),
