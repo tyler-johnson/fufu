@@ -74,7 +74,7 @@ fn fresh_repo_with_no_log_warns() {
         "log warn present:\n{out_text}"
     );
     assert!(
-        out_text.contains("no refs/fufu/ops — the engine has never run here"),
+        out_text.contains("no refs/fufu/wt/main/ops — the engine has never run here"),
         "log detail:\n{out_text}"
     );
     assert!(
@@ -132,7 +132,7 @@ fn all_green_after_snapshot_and_wiring() {
     // they are, pointers into it.
     assert!(out_text.contains("ok    log"), "log ok:\n{out_text}");
     assert!(
-        out_text.contains("refs/fufu/ops"),
+        out_text.contains("refs/fufu/wt/main/ops"),
         "the log names its ref:\n{out_text}"
     );
     assert!(
@@ -352,7 +352,7 @@ fn a_moved_log_tip_warns_identity() {
     // Point the log at HEAD — a user commit, not a fufu operation. The guard
     // is `is_op_commit` and not "does it bear the fufu identity", because a
     // record commit bears the identity too.
-    fx.git(&["update-ref", "refs/fufu/ops", "HEAD"]);
+    fx.git(&["update-ref", "refs/fufu/wt/main/ops", "HEAD"]);
 
     let out = doctor(&fx, &[]);
     assert_eq!(out.status.code(), Some(1), "exit 1 with identity warning");

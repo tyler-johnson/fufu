@@ -13,8 +13,31 @@ use crate::fixtures::{Fixture, index_bytes_at};
 
 pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/// The one operation log.
-pub const OPS_REF: &str = "refs/fufu/ops";
+/// The operation chain for `dir`'s worktree — one per worktree, the id the
+/// gitdir's basename — derived independently via real git.
+pub fn ops_ref_via_git(fx: &Fixture, dir: &Path) -> String {
+    let git_dir = fx
+        .git_in(dir, &["rev-parse", "--absolute-git-dir"])
+        .trim()
+        .to_string();
+    let common_dir = fx
+        .git_in(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .trim()
+        .to_string();
+    let id = if git_dir == common_dir {
+        "main".to_string()
+    } else {
+        Path::new(&git_dir)
+            .file_name()
+            .expect("gitdir has a final component")
+            .to_string_lossy()
+            .to_string()
+    };
+    format!("refs/fufu/wt/{id}/ops")
+}
 
 /// The branch pointer fufu should be moving for `dir`'s HEAD state, derived
 /// independently via real git.
@@ -126,15 +149,16 @@ fn is_op(commit: &RawCommit) -> bool {
 }
 
 /// Read the operation log through real git only: first-parent walk from
-/// `refs/fufu/ops` while commits bear the fufu identity. Newest first; empty
-/// when no log exists.
+/// `dir`'s own worktree chain while commits bear the fufu identity. Newest
+/// first; empty when no log exists.
 ///
 /// First-parent is the log and nothing else — that is the shape's whole
 /// promise, and the reason this helper can be this short. The journal's slot 1
 /// held a pin on its first entry, so the same two lines against it ran off the
 /// root and into the user's own history.
 pub fn chain_via_git(fx: &Fixture, dir: &Path) -> Vec<String> {
-    let tip = fx.try_git_in(dir, &["rev-parse", "--verify", "--quiet", OPS_REF]);
+    let ops_ref = ops_ref_via_git(fx, dir);
+    let tip = fx.try_git_in(dir, &["rev-parse", "--verify", "--quiet", &ops_ref]);
     if !tip.status.success() {
         return Vec::new();
     }
@@ -192,7 +216,8 @@ pub fn assert_snapshot_matches_at(fx: &Fixture, dir: &Path) {
     // Parent 1 is the previous operation anywhere on the log, and the branch
     // pointer is a pointer INTO that log — so the two are read separately, and
     // it is the log's tip that the parent slot has to match.
-    let prev_log_tip: Option<String> = rev(OPS_REF);
+    let ops_ref = ops_ref_via_git(fx, dir);
+    let prev_log_tip: Option<String> = rev(&ops_ref);
     let prev_tip: Option<String> = rev(&chain_ref);
     let head: Option<String> = rev("HEAD");
 
@@ -214,7 +239,7 @@ pub fn assert_snapshot_matches_at(fx: &Fixture, dir: &Path) {
     match outcome {
         ff_core::CaptureOutcome::Created { id, .. } => {
             let id = id.hex();
-            let log_tip = fx.git_in(dir, &["rev-parse", OPS_REF]).trim().to_string();
+            let log_tip = fx.git_in(dir, &["rev-parse", &ops_ref]).trim().to_string();
             assert_eq!(log_tip, id, "the log must point at the new operation");
             let tip = fx
                 .git_in(dir, &["rev-parse", &chain_ref])

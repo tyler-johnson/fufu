@@ -405,7 +405,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
             let age = crate::render::relative_age(now, tip_time(repo, tip)?);
             rows.push(Row::ok(
                 "log",
-                format!("refs/fufu/ops, newest operation {age}"),
+                format!("{}, newest operation {age}", ff_core::ops::ops_ref_of(repo)),
             ));
 
             // identity — `is_op_commit` and not "does it bear the fufu
@@ -530,7 +530,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         } else {
             rows.push(Row::warn(
             "log",
-            "no refs/fufu/ops — the engine has never run here (run `ff`, or any git command via the alias)".into(),
+            format!("no {} — the engine has never run here (run `ff`, or any git command via the alias)", ff_core::ops::ops_ref_of(repo)),
         ));
         }
 
@@ -538,7 +538,9 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         {
             let mut trash_parts: Vec<String> = Vec::new();
             let platform = repo.references().map_err(Error::repo)?;
-            let iter = platform.prefixed("refs/fufu/trash/").map_err(Error::repo)?;
+            let iter = platform
+                .prefixed(ff_core::ops::WT_PREFIX)
+                .map_err(Error::repo)?;
             for reference in iter {
                 let reference = reference.map_err(|err| {
                     Error::coded(
@@ -548,12 +550,17 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                     )
                 })?;
                 let name = reference.name().as_bstr().to_string();
+                let Some(chain) = name
+                    .strip_prefix(ff_core::ops::WT_PREFIX)
+                    .and_then(|rest| rest.strip_suffix("/trash/@ops"))
+                else {
+                    continue;
+                };
                 let Some(tip) = reference.target().try_id().map(|id| id.to_owned()) else {
                     continue;
                 };
-                let short = name.strip_prefix("refs/fufu/trash/").unwrap_or(&name);
                 let age = crate::render::relative_age(now, tip_time(repo, tip)?);
-                trash_parts.push(format!("{short} {age}"));
+                trash_parts.push(format!("{chain} {age}"));
             }
             if !trash_parts.is_empty() {
                 rows.push(Row::info(
