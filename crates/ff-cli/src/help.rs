@@ -265,9 +265,9 @@ Examples:
   ff restore src/ --from main~2  the same paths, from history instead";
 
 pub const TRIM: &str = "\
-Retention with an undo. The log's pre-trim tip is written to
-refs/fufu/trash/@ops before a single ref moves, so the last trim is itself
-recoverable. Survivors keep their trees, messages, and dates
+Retention with an undo. The log's pre-trim tip is written to the chain's own
+trash ref, refs/fufu/wt/<worktree>/trash/@ops, before a single ref moves, so
+the last trim is itself recoverable. Survivors keep their trees, messages, and dates
 byte-for-byte — only parent slots relink — and the reflog is replayed with
 the original times, so `--at 2h` stays truthful afterwards.
 

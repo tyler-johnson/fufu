@@ -273,7 +273,10 @@ fn restack_up_to_date_appends_no_operation() {
     let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
     assert!(matches!(outcome, RestackOutcome::Restacked(_)));
 
-    let ops_tip_before = fx.git(&["rev-parse", "refs/fufu/ops"]).trim().to_string();
+    let ops_tip_before = fx
+        .git(&["rev-parse", "refs/fufu/wt/main/ops"])
+        .trim()
+        .to_string();
     let (outcome, _ctx) = restack_call(&fx, None, None, NOW + 100);
     match outcome {
         RestackOutcome::NothingToRestack { branch, base } => {
@@ -282,7 +285,10 @@ fn restack_up_to_date_appends_no_operation() {
         }
         other => panic!("the second restack must be a no-op, got {other:?}"),
     }
-    let ops_tip_after = fx.git(&["rev-parse", "refs/fufu/ops"]).trim().to_string();
+    let ops_tip_after = fx
+        .git(&["rev-parse", "refs/fufu/wt/main/ops"])
+        .trim()
+        .to_string();
     assert_eq!(
         ops_tip_before, ops_tip_after,
         "up to date with no re-aim must append nothing"

@@ -1501,7 +1501,7 @@ fn uncolored_views_do_not_build_the_id_index() {
     assert!(ff(&fx, &[]).status.success());
 
     // One log means one index file, not one per branch.
-    let index = fx.path().join(".git/fufu/ops/live");
+    let index = fx.path().join(".git/fufu/ops/main/live");
     std::fs::remove_file(&index).expect("remove index");
 
     // stdout here is a pipe, so anstream resolves color to never.

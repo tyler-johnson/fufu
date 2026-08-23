@@ -156,14 +156,14 @@ fn a_round_trip_writes_nothing_and_the_reflog_shows_the_moves() {
     fx.write("a.txt", "work\n");
     ok(&fx, &["commit", "-m", "landed"]);
 
-    let tip = fx.git(&["rev-parse", "refs/fufu/ops"]);
+    let tip = fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     let count = ok(&fx, &["op", "log", "-n", "0"]).lines().count();
 
     ok(&fx, &["undo"]);
     ok(&fx, &["redo"]);
 
     assert_eq!(
-        fx.git(&["rev-parse", "refs/fufu/ops"]),
+        fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]),
         tip,
         "back exactly where it started"
     );
@@ -175,7 +175,7 @@ fn a_round_trip_writes_nothing_and_the_reflog_shows_the_moves() {
 
     // Where the pointer has been is recorded where git already keeps such
     // things.
-    let reflog = fx.git(&["reflog", "show", "refs/fufu/ops"]);
+    let reflog = fx.git(&["reflog", "show", "refs/fufu/wt/main/ops"]);
     assert!(reflog.contains("fufu: undo to"), "{reflog}");
     assert!(reflog.contains("fufu: redo to"), "{reflog}");
 }

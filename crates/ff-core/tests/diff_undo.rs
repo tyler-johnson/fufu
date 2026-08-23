@@ -270,18 +270,18 @@ fn moving_appends_nothing_and_the_reflog_records_where_it_stood() {
     .unwrap();
 
     let before = ff_core::ops::read_ops(&fx.repo(), 0).unwrap().len();
-    let tip_before = fx.git(&["rev-parse", "refs/fufu/ops"]);
+    let tip_before = fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     run_undo(&fx);
     run_redo(&fx, NOW + 101);
     let after = ff_core::ops::read_ops(&fx.repo(), 0).unwrap().len();
     assert_eq!(before, after, "a round trip wrote no operation");
     assert_eq!(
         tip_before,
-        fx.git(&["rev-parse", "refs/fufu/ops"]),
+        fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]),
         "and landed exactly back where it started"
     );
 
-    let reflog = fx.git(&["reflog", "show", "refs/fufu/ops"]);
+    let reflog = fx.git(&["reflog", "show", "refs/fufu/wt/main/ops"]);
     assert!(reflog.contains("fufu: undo to"), "{reflog}");
     assert!(reflog.contains("fufu: redo to"), "{reflog}");
 }

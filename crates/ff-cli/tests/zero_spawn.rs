@@ -548,7 +548,7 @@ fn auto_trim_never_spawns() {
 
     // The trim really ran — without this the test proves nothing.
     assert!(
-        fx.try_git(&["rev-parse", "--verify", "refs/fufu/trash/@ops"])
+        fx.try_git(&["rev-parse", "--verify", "refs/fufu/wt/main/trash/@ops"])
             .status
             .success(),
         "trash ref exists — trim actually ran"

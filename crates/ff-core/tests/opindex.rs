@@ -2,8 +2,8 @@
 //! reproduce the walk-based answer in every case, and self-heal when corrupted.
 //!
 //! The domain is one log now rather than one chain per branch, so the walk the
-//! index has to reproduce is the whole of `refs/fufu/ops` plus whatever trim
-//! parked at `refs/fufu/trash/@ops`.
+//! index has to reproduce is the whole of `refs/fufu/wt/main/ops` plus whatever trim
+//! parked at `refs/fufu/wt/main/trash/@ops`.
 
 use std::collections::HashMap;
 use std::thread::scope;
@@ -12,7 +12,7 @@ use ff_core::ops::index::{self, Kind};
 use ff_core::{CaptureOutcome, Provenance, TakeOptions};
 use ff_testsupport::Fixture;
 
-const OPS_REF: &str = "refs/fufu/ops";
+const OPS_REF: &str = "refs/fufu/wt/main/ops";
 
 /// Which of the two domains to walk.
 #[derive(Clone, Copy)]

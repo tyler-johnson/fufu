@@ -54,10 +54,10 @@ fn write_due_stamp(fx: &Fixture) {
 }
 
 /// Check whether `refs/fufu/trash/main` exists.
-/// One log, one trash ref: trim parks the pre-trim tip of `refs/fufu/ops`,
+/// One log, one trash ref: trim parks the pre-trim tip of `refs/fufu/wt/main/ops`,
 /// not one chain per branch.
 fn trash_exists(fx: &Fixture) -> bool {
-    fx.try_git(&["rev-parse", "--verify", "refs/fufu/trash/@ops"])
+    fx.try_git(&["rev-parse", "--verify", "refs/fufu/wt/main/trash/@ops"])
         .status
         .success()
 }
@@ -398,7 +398,7 @@ fn config_carries_the_capture_lane() {
         "snapshot one: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let before = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    let before = fx.try_git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     assert!(before.status.success(), "ops ref exists before");
 
     // Dirty the tree, then read it: a capture should land and move the ref.
@@ -409,7 +409,7 @@ fn config_carries_the_capture_lane() {
         "ff config keep: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let after = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    let after = fx.try_git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     assert!(after.status.success(), "ops ref exists after");
     assert_ne!(
         String::from_utf8_lossy(&before.stdout),
@@ -434,13 +434,13 @@ fn doctor_carries_the_capture_lane() {
         "snapshot one: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let before = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    let before = fx.try_git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     assert!(before.status.success(), "ops ref exists before");
 
     // Dirty the tree, then run doctor: a capture should land and move the ref.
     fx.write("a.txt", "dirtier\n");
     let _out = ff(&fx, &["doctor"]);
-    let after = fx.try_git(&["rev-parse", "refs/fufu/ops"]);
+    let after = fx.try_git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     assert!(after.status.success(), "ops ref exists after");
     assert_ne!(
         String::from_utf8_lossy(&before.stdout),

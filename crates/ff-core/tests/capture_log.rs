@@ -134,7 +134,12 @@ fn one_pointer_per_branch_and_detached() {
         assert!(out.status.success(), "missing branch pointer {r}");
     }
     // And all three point into one log.
-    let log = fx.git(&["rev-list", "--count", "--first-parent", "refs/fufu/ops"]);
+    let log = fx.git(&[
+        "rev-list",
+        "--count",
+        "--first-parent",
+        "refs/fufu/wt/main/ops",
+    ]);
     assert_eq!(
         log.trim(),
         "5",
@@ -197,7 +202,7 @@ fn noop_without_a_log_creates_nothing() {
     // The floor is laid only when a capture is actually going to write. A
     // clean tree writes nothing at all, refs included — which is what lets a
     // read command behave like one.
-    for r in ["refs/fufu/snap/main", "refs/fufu/ops"] {
+    for r in ["refs/fufu/snap/main", "refs/fufu/wt/main/ops"] {
         let out = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
         assert!(!out.status.success(), "clean tree must not create {r}");
     }

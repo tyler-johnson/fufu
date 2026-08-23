@@ -20,10 +20,17 @@
 //! `Lanes::READ`, so an ordinary `ff status` in another terminal — or an
 //! agent's capture hook — can rewrite the entire log underneath a live
 //! watch. And both the trim path and the reconcile-nuke path park the old
-//! tip to the same ref, `refs/fufu/trash/@ops`. That one ref moving is
-//! therefore a single sufficient signal for "everything you hold is gone",
-//! which is why it is tested first: the operations trim replays would
+//! tip to the same ref — this worktree's own `refs/fufu/wt/<id>/trash/@ops`,
+//! reached through [`OpLog::trash_tip`] rather than named here. That one ref
+//! moving is therefore a single sufficient signal for "everything you hold is
+//! gone", which is why it is tested first: the operations trim replays would
 //! otherwise read as a burst of ordinary appends.
+//!
+//! It has to be *this* chain's trash ref rather than any chain's, or one
+//! worktree's trim would end another worktree's stream. A watch is scoped to
+//! the tree it was started in; a supervisor wanting the fleet needs a
+//! repo-wide watch with a worktree field per event, which is a separate
+//! thing and does not exist yet.
 //!
 //! **Landmine: ancestry here is the `fufu-prev` chain and nothing else.** An
 //! operation commit's parent 2 is the base commit — a real commit from the

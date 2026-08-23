@@ -242,7 +242,7 @@ fn a_deleted_ops_ref_is_a_reset() {
     let anchor = tip(&fx);
     let parked = trash(&fx);
 
-    fx.git(&["update-ref", "-d", "refs/fufu/ops"]);
+    fx.git(&["update-ref", "-d", "refs/fufu/wt/main/ops"]);
 
     let seen = classify(&fx, anchor, parked, &Filter::default());
 

@@ -105,7 +105,12 @@ fn dry_run_writes_nothing() {
     assert_eq!(log.trash_ref, None, "a dry run parks nothing");
     let tip = fx.git(&["rev-parse", "refs/fufu/snap/main"]);
     assert_eq!(tip.trim(), snaps[3], "the log is untouched");
-    let trash = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/trash/@ops"]);
+    let trash = fx.try_git(&[
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "refs/fufu/wt/main/trash/@ops",
+    ]);
     assert!(!trash.status.success(), "no trash written on dry run");
 }
 
@@ -121,7 +126,7 @@ fn trim_drops_suffix_preserving_survivors() {
     assert!(!report.pointers[0].deleted);
 
     // Trash = the pre-trim log tip, written before anything moved.
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
+    let trash = fx.git(&["rev-parse", "refs/fufu/wt/main/trash/@ops"]);
     assert_eq!(trash.trim(), snaps[3]);
 
     // The rebuilt log: two survivors under the trim's own note.
@@ -240,11 +245,11 @@ fn all_dropped_moves_the_log_to_trash_and_deletes_every_ref() {
     assert!(report.pointers[0].deleted);
     assert!(report.log.as_ref().unwrap().deleted);
 
-    for r in ["refs/fufu/snap/main", "refs/fufu/ops"] {
+    for r in ["refs/fufu/snap/main", "refs/fufu/wt/main/ops"] {
         let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", r]);
         assert!(!gone.status.success(), "{r} deleted");
     }
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
+    let trash = fx.git(&["rev-parse", "refs/fufu/wt/main/trash/@ops"]);
     assert_eq!(trash.trim(), old_snap, "trash holds the whole log");
 }
 
@@ -283,14 +288,14 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
     let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/doomed"]);
     assert!(!gone.status.success(), "the pointer is deleted");
     assert!(
-        fx.git(&["rev-list", "refs/fufu/ops"])
+        fx.git(&["rev-list", "refs/fufu/wt/main/ops"])
             .lines()
             .any(|l| l == doomed_snap),
         "the operation itself stays on the log"
     );
     // And nothing was rewritten: the log's tip is exactly where it was.
     assert_eq!(
-        fx.git(&["rev-parse", "refs/fufu/ops"]).trim(),
+        fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]).trim(),
         doomed_snap,
         "--gone rebuilds nothing, so no operation changes its sha"
     );

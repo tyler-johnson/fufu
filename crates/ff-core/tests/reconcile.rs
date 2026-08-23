@@ -42,7 +42,7 @@ fn bootstrap_then_clean_pass_writes_nothing() {
 }
 
 /// The floor is parentless, and that is what keeps `git log --first-parent
-/// refs/fufu/ops` inside the log. Putting the base commit at slot 1 — which is
+/// refs/fufu/wt/main/ops` inside the log. Putting the base commit at slot 1 — which is
 /// where it lands when there is no previous operation to occupy it — is the
 /// bug the journal shipped with.
 #[test]
@@ -235,7 +235,12 @@ fn the_log_is_legible_to_git_log_first_parent_and_terminates() {
     let repo = fx.repo();
     reconcile(&repo, now(&fx) + 1).unwrap();
 
-    let log = fx.git(&["log", "--first-parent", "--format=%s", "refs/fufu/ops"]);
+    let log = fx.git(&[
+        "log",
+        "--first-parent",
+        "--format=%s",
+        "refs/fufu/wt/main/ops",
+    ]);
     let lines: Vec<&str> = log.lines().collect();
     assert!(lines[0].starts_with("absorbed "), "{lines:?}");
     assert!(
@@ -258,7 +263,12 @@ fn the_log_is_legible_to_git_log_first_parent_and_terminates() {
     );
 
     // The author column proves every row is fufu's, root included.
-    let authors = fx.git(&["log", "--first-parent", "--format=%an", "refs/fufu/ops"]);
+    let authors = fx.git(&[
+        "log",
+        "--first-parent",
+        "--format=%an",
+        "refs/fufu/wt/main/ops",
+    ]);
     assert!(
         authors.lines().all(|line| line == "fufu"),
         "every row on the first-parent walk is fufu's: {authors:?}"
@@ -276,7 +286,7 @@ fn unreadable_tip_parks_the_log_and_reinitializes() {
 
     // Point the log at a commit that is not an operation.
     let head = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
-    fx.git(&["update-ref", "refs/fufu/ops", &head]);
+    fx.git(&["update-ref", "refs/fufu/wt/main/ops", &head]);
 
     let repo = fx.repo();
     let report = reconcile(&repo, now(&fx) + 1).unwrap();
@@ -285,7 +295,7 @@ fn unreadable_tip_parks_the_log_and_reinitializes() {
     assert!(!report.warnings.is_empty());
 
     // The unreadable log is parked and a fresh floor is in place.
-    let trash = fx.git(&["rev-parse", "refs/fufu/trash/@ops"]);
+    let trash = fx.git(&["rev-parse", "refs/fufu/wt/main/trash/@ops"]);
     assert_eq!(trash.trim(), head);
     let log = OpLog::open(&repo).unwrap();
     let tip = log.tip().unwrap().unwrap();

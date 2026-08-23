@@ -581,7 +581,7 @@ fn ambiguous_prefix_errors_with_both_ids() {
     }
 }
 
-/// Trim moves the pre-cutoff suffix of the log to `refs/fufu/trash/@ops` —
+/// Trim moves the pre-cutoff suffix of the log to `refs/fufu/wt/main/trash/@ops` —
 /// those ids no longer live on the live log at all. Prefix resolution must
 /// still find them there.
 #[test]
@@ -626,7 +626,7 @@ fn trash_ids_still_resolve() {
     )
     .expect("trim");
 
-    // Now only reachable via refs/fufu/trash/@ops, not the live log.
+    // Now only reachable via refs/fufu/wt/main/trash/@ops, not the live log.
     let report = restore_at_op(&fx, &op(&old_id)[..8]);
     assert_eq!(report.origin.id, old_id);
 }

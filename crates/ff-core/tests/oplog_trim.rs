@@ -64,7 +64,10 @@ fn journal_expires_on_the_same_keep_cutoff() {
     let log = report.log.expect("the log was trimmed");
     assert!(log.dropped >= 3, "{log:?}");
     assert!(log.kept >= 1, "{log:?}");
-    assert_eq!(log.trash_ref.as_deref(), Some("refs/fufu/trash/@ops"));
+    assert_eq!(
+        log.trash_ref.as_deref(),
+        Some("refs/fufu/wt/main/trash/@ops")
+    );
 
     // The surviving log is well-formed: the newest close, its prev rewritten
     // to nothing, plus the trim note appended on top.
@@ -85,7 +88,7 @@ fn journal_expires_on_the_same_keep_cutoff() {
 #[test]
 fn trim_dry_run_writes_nothing_to_the_log() {
     let fx = aged_fixture();
-    let tip_before = fx.git(&["rev-parse", "refs/fufu/ops"]);
+    let tip_before = fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]);
     let repo = fx.repo();
     let report = ff_core::trim(
         &repo,
@@ -99,11 +102,16 @@ fn trim_dry_run_writes_nothing_to_the_log() {
     .unwrap();
     let log = report.log.expect("reported");
     assert!(log.dropped >= 3, "{log:?}");
-    assert_eq!(fx.git(&["rev-parse", "refs/fufu/ops"]), tip_before);
+    assert_eq!(fx.git(&["rev-parse", "refs/fufu/wt/main/ops"]), tip_before);
     assert!(
-        !fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/trash/@ops"])
-            .status
-            .success(),
+        !fx.try_git(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "refs/fufu/wt/main/trash/@ops"
+        ])
+        .status
+        .success(),
         "a dry run must not even park a trash tip"
     );
 }
@@ -123,7 +131,7 @@ fn whole_log_expiry_deletes_the_ref_and_rebootstraps() {
     .unwrap();
     let log = report.log.unwrap();
     assert!(log.deleted);
-    for gone in ["refs/fufu/ops", "refs/fufu/snap/main"] {
+    for gone in ["refs/fufu/wt/main/ops", "refs/fufu/snap/main"] {
         assert!(
             !fx.try_git(&["rev-parse", "--verify", "--quiet", gone])
                 .status
