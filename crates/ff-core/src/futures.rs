@@ -154,7 +154,7 @@ pub(crate) fn unresolved(outcome: &gix::merge::tree::Outcome<'_>) -> Vec<String>
 }
 
 /// The tree of a commit, resolved through whichever repository handle is given.
-fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
+pub(crate) fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
     Ok(repo
         .find_object(commit)
         .map_err(Error::repo)?
