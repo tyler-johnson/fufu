@@ -147,6 +147,17 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "watchInterval",
+            key: "fufu.watchInterval",
+            def: "200",
+            kind: SettingKind::Size,
+            desc: &[
+                "How often ff watch re-reads the operation log's tip, in milliseconds.",
+                "A tick reads two refs and nothing else, so the default costs well under",
+                "a millisecond five times a second. Suffixes work: 1k.",
+            ],
+        },
+        Setting {
             name: "mapDepth",
             key: "fufu.mapDepth",
             def: "1000",

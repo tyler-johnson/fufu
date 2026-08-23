@@ -36,3 +36,4 @@ pub mod trim;
 pub mod undo;
 pub mod update;
 pub mod version;
+pub mod watch;

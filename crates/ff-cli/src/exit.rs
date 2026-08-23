@@ -20,6 +20,16 @@ pub(crate) fn held() {
     CODE.store(3, Ordering::Relaxed);
 }
 
+/// A watch ended because the log was rewritten under it. Same shape as a
+/// held rewrite: an outcome, not an error. It has a report, the report went
+/// to stdout like every other line the stream wrote, and an error envelope
+/// after it would contradict the line it just emitted — but the shell still
+/// has to be told, because every id the subscriber holds has stopped
+/// resolving and it must reconnect rather than carry on.
+pub(crate) fn rewritten() {
+    CODE.store(1, Ordering::Relaxed);
+}
+
 /// The code `main` exits with when no verb returned an error.
 pub(crate) fn code() -> i32 {
     CODE.load(Ordering::Relaxed)

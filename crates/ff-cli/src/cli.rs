@@ -403,6 +403,21 @@ pub enum Command {
         #[command(subcommand)]
         kind: HookKind,
     },
+    /// Stream operations as they land, one JSON object per line
+    Watch {
+        /// Replay from this operation before tailing
+        #[arg(long, value_name = "op")]
+        since: Option<String>,
+        /// Only operations of this kind: capture, op, foreign, note
+        #[arg(long, value_name = "kind")]
+        kind: Option<String>,
+        /// Only operations tagged with this session
+        #[arg(long, value_name = "name")]
+        session: Option<String>,
+        /// Stop after this many events, counting the opening one; 0 means never
+        #[arg(short = 'n', long = "max-count", value_name = "count")]
+        count: Option<usize>,
+    },
     /// Read and write fufu's settings (plain git config under fufu.*)
     #[command(alias = "cfg", long_about = help::CONFIG, after_long_help = help::CONFIG_EXAMPLES)]
     Config {
@@ -783,6 +798,7 @@ impl Command {
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
             Command::Hook { .. } => "hook",
+            Command::Watch { .. } => "watch",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
             Command::Explain { .. } => "explain",
@@ -836,6 +852,7 @@ impl Command {
             | Command::Show { .. }
             | Command::Map { .. }
             | Command::Collide { .. }
+            | Command::Watch { .. }
             | Command::Git { .. }
             | Command::Trim { .. }
             | Command::Commit { .. }
@@ -876,15 +893,20 @@ impl Command {
         }
     }
 
-    /// Whether `--json` means anything here. Three verbs own their stream
+    /// Whether `--json` means anything here. Four verbs own their stream
     /// rather than emit an envelope on it: `git` passes real git's output
     /// through (often by exec'ing it), `hook` speaks the agent client's
-    /// protocol on stdout, and `update` narrates a download to a person. For
+    /// protocol on stdout, `update` narrates a download to a person, and
+    /// `watch` emits a *stream* of envelopes rather than one, so a flag
+    /// asking for JSON would be describing what it already always does. For
     /// those the flag is ignored, not honored with an empty envelope.
     pub fn json_capable(&self) -> bool {
         !matches!(
             self,
-            Command::Git { .. } | Command::Hook { .. } | Command::Update { .. }
+            Command::Git { .. }
+                | Command::Hook { .. }
+                | Command::Update { .. }
+                | Command::Watch { .. }
         )
     }
 
@@ -915,6 +937,14 @@ impl Command {
             | Command::Merge { .. }
             | Command::Blame { .. }
             | Command::Tag { .. } => Lanes::NONE,
+            // `watch` must ride nothing, and neither half of that is
+            // optional. `Lanes::READ` sets `capture: true`, and the capture
+            // fires in `lanes::preflight` *before* dispatch — so a watch on
+            // READ would append an operation and then stream an event about
+            // its own startup. READ also carries the daily auto-trim, which
+            // rewrites every id on the log: a watch would be triggering, on
+            // its own trailer, the one motion that ends the stream.
+            Command::Watch { .. } => Lanes::NONE,
             Command::Version => Lanes::QUIET_UPDATE,
             // No repository in its answer either, but it takes the generic
             // notice — one arm is not a const.

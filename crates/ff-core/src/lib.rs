@@ -46,6 +46,7 @@ mod trim;
 mod trunk;
 mod undo;
 mod upstream;
+pub mod watch;
 mod worktree;
 
 use std::path::Path;
@@ -80,6 +81,7 @@ pub use trim::{TrimOptions, trim};
 pub use trunk::{Trunk, TrunkKind, TrunkSource, trunk};
 pub use undo::{Landing, RewindOptions, redo, rewind, undo};
 pub use upstream::upstream;
+pub use watch::{Filter, Motion, Rewrite, Watched, classify};
 
 /// Verifying the index trailer SHA-1 on every read costs ~2ms on a 5k-file
 /// repo (gix hashes in software); a read-only tool skips it — structural

@@ -282,8 +282,9 @@ fn json_shapes() {
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
     // pushOnSync left the registry with the sync/publish split; translate
-    // joined with the opt-in git translation, so 12.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
+    // joined with the opt-in git translation, and watchInterval with ff
+    // watch, so 13.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 13);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
