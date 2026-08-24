@@ -24,7 +24,7 @@ pub fn run(ctx: &Ctx, action: Option<WorktreeAction>) -> Result<()> {
     }
 }
 
-fn add(ctx: &Ctx, path: &Path, branch: Option<&str>) -> Result<()> {
+pub(crate) fn add(ctx: &Ctx, path: &Path, branch: Option<&str>) -> Result<()> {
     let repo = ff_core::discover(".")?;
     let (report, verb_ctx) = ff_core::add_worktree(
         &repo,

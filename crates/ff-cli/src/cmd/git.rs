@@ -13,10 +13,20 @@ use crate::ctx::Ctx;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Translated {
     Status,
-    Log { limit: Option<usize> },
-    Switch { target: String },
-    Commit { message: Option<String> },
+    Log {
+        limit: Option<usize>,
+    },
+    Switch {
+        target: String,
+    },
+    Commit {
+        message: Option<String>,
+    },
     Branch,
+    WorktreeAdd {
+        path: String,
+        branch: Option<String>,
+    },
 }
 
 /// The translation table. Pure argv inspection, no repo access.
@@ -55,6 +65,21 @@ pub fn translate(args: &[OsString]) -> Option<Translated> {
             message: Some(msg.to_string()),
         }),
         (&"branch", []) => Some(Translated::Branch),
+        // `git worktree remove` does not translate: fufu's removal captures
+        // first, and a translation that silently did more than the command
+        // asked would be the wrong kind of helpful.
+        (&"worktree", ["add", path]) if !path.starts_with('-') => Some(Translated::WorktreeAdd {
+            path: path.to_string(),
+            branch: None,
+        }),
+        (&"worktree", ["add", path, branch])
+            if !path.starts_with('-') && !branch.starts_with('-') =>
+        {
+            Some(Translated::WorktreeAdd {
+                path: path.to_string(),
+                branch: Some(branch.to_string()),
+            })
+        }
         _ => None,
     }
 }
@@ -106,6 +131,9 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
                     crate::cmd::commit::run(ctx, message, false, None, Vec::new())
                 }
                 Translated::Branch => crate::cmd::branch::run(ctx, None),
+                Translated::WorktreeAdd { path, branch } => {
+                    crate::cmd::worktree::add(ctx, std::path::Path::new(&path), branch.as_deref())
+                }
             };
             if let Some(repo) = &repo
                 && let Some(notice) =
@@ -167,6 +195,7 @@ fn hint_once(repo: &ff_core::gix::Repository, verb: &Translated) {
         Translated::Switch { .. } => "ff switch",
         Translated::Commit { .. } => "ff commit",
         Translated::Branch => "ff branch",
+        Translated::WorktreeAdd { .. } => "ff worktree add",
     };
     eprintln!("ff: tip: that's {spelling}");
 }
@@ -236,5 +265,32 @@ mod tests {
         assert_eq!(t(&["branch"]), Some(Translated::Branch));
         assert_eq!(t(&["branch", "-d", "x"]), None);
         assert_eq!(t(&["branch", "new-name"]), None);
+    }
+
+    #[test]
+    fn worktree_add_translates_the_bare_forms() {
+        assert_eq!(
+            t(&["worktree", "add", "p"]),
+            Some(Translated::WorktreeAdd {
+                path: "p".into(),
+                branch: None
+            })
+        );
+        assert_eq!(
+            t(&["worktree", "add", "p", "b"]),
+            Some(Translated::WorktreeAdd {
+                path: "p".into(),
+                branch: Some("b".into())
+            })
+        );
+    }
+
+    #[test]
+    fn worktree_add_falls_through_with_flags() {
+        // Flags, list, and remove are git's business.
+        assert_eq!(t(&["worktree", "add", "--detach", "x"]), None);
+        assert_eq!(t(&["worktree", "add", "-b", "b", "p"]), None);
+        assert_eq!(t(&["worktree", "list"]), None);
+        assert_eq!(t(&["worktree", "remove", "p"]), None);
     }
 }
