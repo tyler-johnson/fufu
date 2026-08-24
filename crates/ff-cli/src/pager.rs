@@ -2,10 +2,9 @@
 //! git/jj-style: a pager spawns only when stdout is a real TTY and the view
 //! is human (never `--json`), so pipes and scripts see plain direct bytes.
 //! Pager choice: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then
-//! `less` — whitespace-split, no shell quoting. `LESS=FRX` and
+//! `less` — whitespace-split, no shell quoting. `LESS=FR` and
 //! `LESSCHARSET=utf-8` are provided when unset (quit-if-one-screen, keep
-//! ANSI colors, don't clear the screen). Any spawn failure falls back to
-//! direct printing, silently.
+//! ANSI colors). Any spawn failure falls back to direct printing, silently.
 
 use std::io::{IsTerminal, Write};
 use std::process::{Child, Command, Stdio};
@@ -54,7 +53,15 @@ impl LogOut {
         let mut cmd = Command::new(program);
         cmd.args(parts).stdin(Stdio::piped());
         if std::env::var_os("LESS").is_none() {
-            cmd.env("LESS", "FRX");
+            // No `X`, which git sets and we deliberately do not. `-X`
+            // suppresses the terminal init string, so less never enters the
+            // alternate screen, and a terminal only routes wheel events to a
+            // program that is on it — the wheel scrolls the terminal's own
+            // scrollback and the pager never sees it. git's `-X` works around
+            // pre-530 less painting one-screen output and then wiping it with
+            // the deinit string; less 530 fixed that at the source in 2018, so
+            // the flag now costs scrolling and buys nothing.
+            cmd.env("LESS", "FR");
         }
         if std::env::var_os("LESSCHARSET").is_none() {
             cmd.env("LESSCHARSET", "utf-8");
