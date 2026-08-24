@@ -6,6 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
+use crate::ops::record::observe_refs;
+use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 
 /// A linked worktree fufu created.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +70,154 @@ pub fn create(repo: &gix::Repository, path: &Path, branch: &str, now: i64) -> Re
             Err(err)
         }
     }
+}
+
+/// Make a linked worktree as a recorded operation.
+///
+/// The earn over `git worktree add`, in two parts: the new worktree gets its
+/// chain floor immediately, so `ff undo` works in it from its first command;
+/// and the operation is appended to the chain of the worktree the command
+/// ran in, where the undo for it belongs.
+pub fn add_worktree(
+    repo: &gix::Repository,
+    path: &Path,
+    branch: Option<&str>,
+    prov: &crate::snapshot::Provenance,
+    now: Option<i64>,
+    argv: Vec<String>,
+) -> Result<(
+    crate::model::WorktreeAddReport,
+    crate::ops::verb::VerbContext,
+)> {
+    let ctx = verb::begin_verb(repo, prov, now)?;
+    let now = ctx.now;
+    let head = crate::head::head_state(repo)?;
+    let unborn = || {
+        Error::coded(
+            "worktree/unborn",
+            "this repository has no commits yet, so there is nothing to check out",
+            vec!["ff commit -m <message>".into()],
+        )
+    };
+
+    // The branch is decided before the layout is written. A name that
+    // resolves is used as-is; one that does not is validated and created at
+    // HEAD; an unnamed destination takes the directory's name, or a minted
+    // petname when that name would not stand as a branch or is already one.
+    let named = branch.map(str::to_string);
+    let (branch_name, created_branch) = if named.as_deref().is_some_and(|name| {
+        crate::refs::ref_target(repo, &format!("refs/heads/{name}"))
+            .is_ok_and(|target| target.is_some())
+    }) {
+        (named.expect("a name was offered"), false)
+    } else {
+        let name = match named {
+            Some(name) => {
+                crate::branch::validate_name(&name)?;
+                name
+            }
+            None => match path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+            {
+                Some(candidate)
+                    if crate::branch::validate_name(&candidate).is_ok()
+                        && crate::refs::ref_target(repo, &format!("refs/heads/{candidate}"))?
+                            .is_none() =>
+                {
+                    candidate
+                }
+                _ => crate::petname::mint(repo)?,
+            },
+        };
+        let at = crate::snapshot::chain::base_commit(&head)?.ok_or_else(unborn)?;
+        crate::branch::create_at(repo, &name, at, now, "branch: created for a new worktree")?;
+        (name, true)
+    };
+
+    // The primitive refuses a non-empty destination and a branch another
+    // worktree holds, so neither check is repeated here.
+    let created = create(repo, path, &branch_name, now)?;
+
+    // Lay the new worktree's chain floor. Reconciliation is the existing
+    // bootstrap: it writes the chain's first operation when there is no log.
+    // A failure here does not unwind the checkout — the worktree exists and
+    // works, and its first command would lay the floor anyway — so the error
+    // is carried as a warning rather than discarding a checkout that already
+    // succeeded.
+    let mut warnings = Vec::new();
+    let floor = repo
+        .worktrees()
+        .ok()
+        .and_then(|proxies| proxies.into_iter().find(|proxy| proxy.id() == created.id))
+        .and_then(|proxy| proxy.into_repo().ok())
+        .map(|wt| verb::reconcile(&wt, now));
+    if let Some(Err(err)) = floor {
+        warnings.push(format!(
+            "the new worktree's chain floor could not be laid: {err}"
+        ));
+    }
+
+    // Write-ahead is inverted here on purpose: every other verb appends the
+    // op before the work it names, but the effect records an id that `create`
+    // picks, so the checkout has to happen first. A crash between the two
+    // leaves a worktree git knows about and fufu did not record; the next
+    // `ff worktree list` shows it as an ordinary row, because the layout is
+    // git's own.
+    let chain = crate::snapshot::chain::chain_name(&head);
+    let mut planned = observe_refs(repo)?;
+    let mut transitions = Vec::new();
+    if created_branch {
+        let full = format!("refs/heads/{branch_name}");
+        planned.refs.insert(full.clone(), created.head.to_string());
+        transitions.push(RefTransition {
+            name: full,
+            old: None,
+            new: Some(created.head.to_string()),
+        });
+    }
+    let mut record = OpRecord::new(
+        "worktree",
+        format!("add worktree {} on {}", created.id, branch_name),
+        now,
+    );
+    record.argv = argv;
+    record.refs = transitions;
+    record.worktree = vec![crate::ops::record::WorktreeEffect::Add {
+        id: created.id.clone(),
+        path: created.path.display().to_string(),
+        branch: branch_name.clone(),
+    }];
+    let pins = vec![created.head];
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // Adding a worktree leaves this worktree untouched.
+            tree: ctx.pre_tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            branch: chain,
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
+
+    Ok((
+        crate::model::WorktreeAddReport {
+            id: created.id.clone(),
+            path: created.path,
+            branch: branch_name,
+            created_branch,
+            head: created.head.to_string(),
+            chain: crate::ops::ops_ref(&created.id),
+            warnings,
+        },
+        ctx,
+    ))
 }
 
 /// The destination is free: no file, and no directory holding anything. An

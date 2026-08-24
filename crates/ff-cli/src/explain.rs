@@ -1025,6 +1025,31 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff worktree list"],
     },
     Entry {
+        id: "worktree/unborn",
+        summary: "no commits to check out yet",
+        detail: "A worktree is a checkout of a commit, and a repository with no commits has \
+                 none to check out. The first commit is what gives it something to stand on; \
+                 make it, and the worktree can be made.",
+        exits: &["ff worktree list"],
+    },
+    Entry {
+        id: "worktree/is-current",
+        summary: "that is the worktree you are standing in",
+        detail: "Removing it would delete the directory the command is running from. Run it \
+                 from another worktree, and the one you are in becomes a target like any \
+                 other.",
+        exits: &["ff worktree list"],
+    },
+    Entry {
+        id: "worktree/busy",
+        summary: "something is running in that worktree",
+        detail: "fufu captures a worktree before removing it, so the work survives the \
+                 removal. A locked operation log means another fufu command is mid-flight \
+                 there, and capturing under it would race. Nothing was removed; wait for the \
+                 other command to finish and try again.",
+        exits: &["ff worktree list"],
+    },
+    Entry {
         id: "usage/unknown-error-id",
         summary: "no error goes by that id",
         detail: "Error ids are stable and namespaced — usage/ for a command line that was wrong, \

@@ -63,6 +63,8 @@ pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
 pub use history::{Step, history};
+pub use linked::add::add_worktree;
+pub use linked::remove::remove_worktree;
 pub use linked::survey::survey;
 pub use log::{Log, LogOptions, log};
 pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};

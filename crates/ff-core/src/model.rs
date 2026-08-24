@@ -881,6 +881,34 @@ pub struct BranchDeleteReport {
     pub pre_op: Option<String>,
 }
 
+/// The result of making a linked worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorktreeAddReport {
+    pub id: String,
+    pub path: PathBuf,
+    pub branch: String,
+    /// The branch did not exist and this operation made it.
+    pub created_branch: bool,
+    pub head: String,
+    /// The chain the new worktree's operations will land on.
+    pub chain: String,
+    /// Non-fatal problems — a floor that could not be laid, and nothing else
+    /// so far.
+    pub warnings: Vec<String>,
+}
+
+/// The result of removing a linked worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorktreeRemoveReport {
+    pub id: String,
+    pub path: Option<PathBuf>,
+    pub branch: Option<String>,
+    /// The capture taken before the tree was destroyed, letters spelling.
+    pub capture: Option<String>,
+    /// The chain that stays behind, addressable after the worktree is gone.
+    pub chain: String,
+}
+
 /// How an arrival (resuming a parked change) went.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]

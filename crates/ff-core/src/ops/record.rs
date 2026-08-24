@@ -35,6 +35,36 @@ pub enum StashEffect {
     Drop { branch: String, stash: String },
 }
 
+/// A worktree an operation made or took away.
+///
+/// This is the only effect fufu records whose inverse touches the filesystem
+/// outside `.git`: every other undo restores files fufu already holds, and
+/// this one must create a checkout or delete one. The removal arm carries a
+/// capture id precisely so the inverse has something to re-materialize from —
+/// the tree stood on the removed worktree's own chain, and the id is the door
+/// into it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeEffect {
+    Add {
+        id: String,
+        path: String,
+        branch: String,
+    },
+    Remove {
+        id: String,
+        /// The checkout path, empty when the entry no longer named one — a
+        /// stale entry whose checkout is already gone is still removed, and
+        /// the effect must say so without a path to name.
+        path: String,
+        branch: Option<String>,
+        /// The capture taken before the tree was torn down, on the removed
+        /// tree's own chain. `None` only when that tree had nothing to
+        /// capture and no operations of its own.
+        capture: Option<String>,
+    },
+}
+
 /// A pending-description change (old/new text, `None` = absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DescriptionTransition {
@@ -138,6 +168,11 @@ pub struct OpRecord {
     pub refs: Vec<RefTransition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stash: Vec<StashEffect>,
+    /// A worktree the op made or took away. Optional and skipped when absent,
+    /// so no `RECORD_VERSION` bump: a record written before it existed still
+    /// reads, and one written now still reads to an older binary.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktree: Vec<WorktreeEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<DescriptionTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +236,7 @@ impl OpRecord {
             head: None,
             refs: Vec::new(),
             stash: Vec::new(),
+            worktree: Vec::new(),
             description: None,
             parent: None,
             edit_session: None,
