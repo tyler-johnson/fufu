@@ -32,7 +32,8 @@ use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::RewindReport;
 use crate::ops::{
-    OpId, OpKind, OpLog, Operation, RefTransition, RefsTable, StashEffect, verb, walk,
+    OpId, OpKind, OpLog, Operation, RefTransition, RefsTable, StashEffect, WorktreeEffect, verb,
+    walk,
 };
 use crate::refs;
 use crate::snapshot::Provenance;
@@ -259,7 +260,88 @@ pub fn rewind(
         target_wt_tree = from_tree; // force path: leave the tree alone rather than fail
     }
 
-    // 1. Stash effects, in the order the move makes them true: everything
+    // 1. Worktree effects, first, because the one refusal in the whole move
+    //    lives here: a worktree with a running fufu command cannot be
+    //    captured, and a move that cannot capture must not destroy.
+    //    Everything after this point is refs and files, none of which can
+    //    refuse.
+    for (op, replay) in replay_order(&back, &fwd) {
+        let Some(op_record) = op.record()? else {
+            continue; // a capture performs no worktree effect, by invariant
+        };
+        let effects: Vec<&WorktreeEffect> = if replay {
+            op_record.worktree.iter().collect()
+        } else {
+            op_record.worktree.iter().rev().collect()
+        };
+        for effect in effects {
+            // Entering replays the effect as it was; leaving inverts it.
+            let revive_it = matches!(
+                (effect, replay),
+                (WorktreeEffect::Add { .. }, true) | (WorktreeEffect::Remove { .. }, false)
+            );
+            if revive_it {
+                let (id, path, branch, capture) = match effect {
+                    WorktreeEffect::Add { id, path, branch } => {
+                        (id, path, Some(branch.as_str()), None)
+                    }
+                    WorktreeEffect::Remove {
+                        id,
+                        path,
+                        branch,
+                        capture,
+                    } => (id, path, branch.as_deref(), capture.as_deref()),
+                };
+                // A worktree removed while detached has no branch to stand it
+                // on, and guessing one would be worse than saying it stayed
+                // away.
+                let Some(branch) = branch else {
+                    warnings.push(format!("worktree {id} was detached; cannot put it back"));
+                    continue;
+                };
+                match crate::linked::revive(
+                    repo,
+                    id,
+                    std::path::Path::new(path),
+                    branch,
+                    capture,
+                    now,
+                ) {
+                    Ok(()) => {}
+                    // The path is occupied: the likeliest of the failures
+                    // here, and the one that must not read as a success.
+                    Err(err) if err.id() == "worktree/exists" => {
+                        warnings.push(format!(
+                            "{path} is not empty; worktree {id} was not put back"
+                        ));
+                    }
+                    Err(err) => warnings.push(format!("could not revive worktree {id}: {err}")),
+                }
+            } else {
+                let id = match effect {
+                    WorktreeEffect::Add { id, .. } => id,
+                    WorktreeEffect::Remove { id, .. } => id,
+                };
+                match crate::linked::retire(repo, id, now) {
+                    Ok(_) => {}
+                    // The one refusal, and it fires before any ref has moved.
+                    Err(err) if err.id() == "worktree/busy" => return Err(err),
+                    Err(err) => warnings.push(format!("could not retire worktree {id}: {err}")),
+                }
+            }
+        }
+    }
+
+    // Reviving a worktree hands a branch back to it, and retiring one hands
+    // a branch back to us — so which refs this worktree may move is a
+    // different answer after step 1 than it was before. Re-derive it and drop
+    // the transitions that are no longer ours. Without this, undoing a
+    // removal would put the bay back and then delete the branch it is
+    // standing on, because the diff was computed while nobody held it.
+    let held_after = crate::linked::held_branches(repo)?;
+    transitions.retain(|t| !crate::linked::owned_elsewhere(&t.name, &held_after));
+
+    // 2. Stash effects, in the order the move makes them true: everything
     //    left behind inverts newest-first (a rolled-back push drops, a
     //    rolled-back drop re-pushes), then everything entered replays
     //    oldest-first. The stash *ref* is in the table like any other, but
@@ -313,7 +395,7 @@ pub fn rewind(
         }
     }
 
-    // 2. Everything else, one atomic transaction. refs/stash was handled
+    // 3. Everything else, one atomic transaction. refs/stash was handled
     //    above; CAS expectations come from the observed present, so a crash
     //    and re-run sees the remainder as the new diff.
     let mut edits = Vec::new();
@@ -365,7 +447,7 @@ pub fn rewind(
         }
     }
 
-    // 3. HEAD.
+    // 4. HEAD.
     if head_moves {
         match to_table.head.strip_prefix("ref:") {
             Some(target_ref) => crate::branch::retarget_head(repo, target_ref, now)?,
@@ -376,16 +458,16 @@ pub fn rewind(
         }
     }
 
-    // 4. Worktree, from the state the preamble recorded to the recorded one.
+    // 5. Worktree, from the state the preamble recorded to the recorded one.
     let everything = |_: &str| true;
     let transition = worktree::apply_tree_transition(repo, from_tree, target_wt_tree, &everything)?;
 
-    // 5. Index.
+    // 6. Index.
     if matches!(repo.try_find_object(index_target), Ok(Some(_))) {
         crate::index::write_index_for_tree(repo, index_target)?;
     }
 
-    // 6. Pending descriptions, recorded parents, editing sessions, held
+    // 7. Pending descriptions, recorded parents, editing sessions, held
     //    rewrites, and resolution sessions, in the same order and by the same
     //    rule: what is left behind restores its `old`, what is entered
     //    applies its `new`, and the last write is the one the landing
@@ -420,7 +502,7 @@ pub fn rewind(
         }
     }
 
-    // 7. The pointer itself, last: everything above is idempotent against the
+    // 8. The pointer itself, last: everything above is idempotent against the
     //    landing, so a crash before this leaves the log naming a state the
     //    world is already in, and re-running converges.
     move_pointer(repo, tip, target_id, &back, &fwd, forward, now)?;

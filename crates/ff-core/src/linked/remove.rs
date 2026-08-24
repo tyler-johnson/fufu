@@ -152,11 +152,24 @@ pub fn remove_worktree(
     // Here the append comes before the teardown, the ordinary write-ahead
     // way: everything the effect names is known before anything is
     // destroyed, so there is no reason to invert the order the add verb
-    // must. A removal moves no ref, and must not — the chain at
+    // must. A removal moves no ref of its own, and must not — the chain at
     // `refs/fufu/wt/<id>/ops` survives on purpose.
     let head = crate::head::head_state(repo)?;
     let chain = crate::snapshot::chain::chain_name(&head);
-    let planned = observe_refs(repo)?;
+    let mut planned = observe_refs(repo)?;
+    // The branch the removed worktree held becomes this worktree's to record
+    // the moment the checkout is gone, because nobody holds it any more and
+    // `observe_refs` excludes only branches somebody does. `planned` is the
+    // planned END state, so it must say so here rather than leave the next
+    // reconcile to find a branch it has no record of and call it a foreign
+    // create — an absorption that would then stand between `ff undo` and the
+    // removal it is trying to reverse.
+    if let Some(branch) = &branch {
+        let full = format!("refs/heads/{branch}");
+        if let Some(tip) = crate::refs::ref_target(repo, &full)? {
+            planned.refs.insert(full, tip.to_string());
+        }
+    }
     let mut record = OpRecord::new("worktree", format!("remove worktree {id}"), now);
     record.argv = argv;
     record.worktree = vec![crate::ops::record::WorktreeEffect::Remove {

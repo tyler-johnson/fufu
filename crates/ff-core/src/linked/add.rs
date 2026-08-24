@@ -58,7 +58,27 @@ pub fn create(repo: &gix::Repository, path: &Path, branch: &str, now: i64) -> Re
     let admin = common.join("worktrees").join(&id);
     let preexisted = path.is_dir();
 
-    match write(repo, path, &id, &admin, branch, head, now) {
+    // The branch's tree is what the new worktree holds, in the index and
+    // the checkout alike.
+    let tree = repo
+        .find_commit(head)
+        .map_err(Error::repo)?
+        .tree_id()
+        .map_err(Error::repo)?
+        .detach();
+
+    match materialize(
+        repo,
+        Layout {
+            path,
+            id: &id,
+            branch,
+            tree,
+            index_tree: tree,
+            head,
+        },
+        now,
+    ) {
         Ok(created) => Ok(created),
         Err(err) => {
             // A failure partway must not leave a half layout, and a cleanup
@@ -218,7 +238,7 @@ pub fn add_worktree(
 
 /// The destination is free: no file, and no directory holding anything. An
 /// existing empty directory is fine — git allows it, and so does fufu.
-fn destination_free(path: &Path) -> Result<()> {
+pub(crate) fn destination_free(path: &Path) -> Result<()> {
     let occupied = Error::coded(
         "worktree/exists",
         format!("{} already exists and is not empty", path.display()),
@@ -264,20 +284,42 @@ fn pick_id(path: &Path, common: &Path) -> Result<String> {
     }
 }
 
-/// Write the layout, open the worktree through gix, and check the branch
-/// out. The checkout goes through the new handle, never `repo` — passing
-/// `repo` would overwrite the calling worktree with the branch's tree.
-fn write(
-    repo: &gix::Repository,
-    path: &Path,
-    id: &str,
-    admin: &Path,
-    branch: &str,
-    head: gix::ObjectId,
-    now: i64,
-) -> Result<Created> {
+/// Write the layout, open the worktree through gix, and check the given
+/// tree out at the given index. The checkout goes through the new handle,
+/// never `repo` — passing `repo` would overwrite the calling worktree with
+/// the tree it was asked to hold.
+///
+/// `id` is passed rather than picked: it is the name git files the
+/// worktree under and the name its operation chain is keyed by, and a
+/// reviver must file the worktree back under the name its history already
+/// has, or the chain would be orphaned.
+/// What a worktree should be when `materialize` is done with it. The id is
+/// carried rather than derived, because a revive has to come back under the
+/// id its chain is keyed by, and a fresh one would orphan its own history.
+pub(crate) struct Layout<'a> {
+    pub path: &'a Path,
+    pub id: &'a str,
+    pub branch: &'a str,
+    /// What the working tree should hold — a capture's tree on a revive, the
+    /// branch's own on a plain creation.
+    pub tree: gix::ObjectId,
+    pub index_tree: gix::ObjectId,
+    /// What HEAD and ORIG_HEAD name.
+    pub head: gix::ObjectId,
+}
+
+pub(crate) fn materialize(repo: &gix::Repository, layout: Layout<'_>, now: i64) -> Result<Created> {
+    let Layout {
+        path,
+        id,
+        branch,
+        tree,
+        index_tree,
+        head,
+    } = layout;
     std::fs::create_dir_all(path).map_err(Error::repo)?;
     let dest = path.canonicalize().map_err(Error::repo)?;
+    let admin = repo.common_dir().join("worktrees").join(id);
 
     std::fs::create_dir_all(admin.join("logs")).map_err(Error::repo)?;
     std::fs::create_dir_all(admin.join("refs")).map_err(Error::repo)?;
@@ -302,8 +344,21 @@ fn write(
     .map_err(Error::repo)?;
     // The index is written by `write_index_for_tree` below, at the new
     // handle's `index_path()`, which resolves to this path.
-    std::fs::write(dest.join(".git"), format!("gitdir: {}\n", admin.display()))
-        .map_err(Error::repo)?;
+    // Absolute, and that is load-bearing: git resolves a relative `gitdir:`
+    // against the worktree directory, not against the repository, so a
+    // relative path here yields `<dest>/./.git/worktrees/<id>` and every git
+    // command run inside the new worktree fails. `repo.common_dir()` is
+    // relative whenever the repository was discovered by a relative path,
+    // which is the ordinary case from a shell sitting in it.
+    let admin_abs = admin
+        .canonicalize()
+        .or_else(|_| std::path::absolute(&admin))
+        .unwrap_or_else(|_| admin.clone());
+    std::fs::write(
+        dest.join(".git"),
+        format!("gitdir: {}\n", admin_abs.display()),
+    )
+    .map_err(Error::repo)?;
 
     // Open the new worktree through gix. A successful open is itself proof
     // the layout is well-formed, and it inherits no GIT_DIR from the
@@ -317,13 +372,7 @@ fn write(
         .into_repo()
         .map_err(Error::repo)?;
 
-    let tree = repo
-        .find_commit(head)
-        .map_err(Error::repo)?
-        .tree_id()
-        .map_err(Error::repo)?
-        .detach();
-    crate::index::write_index_for_tree(&wt, tree)?;
+    crate::index::write_index_for_tree(&wt, index_tree)?;
     let everything = |_: &str| true;
     crate::worktree::apply_tree_transition(
         &wt,

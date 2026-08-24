@@ -184,3 +184,36 @@ fn the_main_worktree_is_not_removable() {
     let err = ff_core::linked::remove::teardown(&fx.repo(), "main").unwrap_err();
     assert_eq!(err.id(), "worktree/is-main");
 }
+
+/// The `.git` file points at an absolute path. git resolves a relative
+/// `gitdir:` against the worktree directory rather than the repository, so a
+/// relative one yields `<dest>/./.git/worktrees/<id>` and every git command
+/// run inside the new worktree fails. `repo.common_dir()` is relative
+/// whenever the repository was discovered by a relative path, which is what
+/// a shell sitting in the repository does — and what this fixture, which
+/// discovers by an absolute path, would otherwise never catch.
+#[test]
+fn the_gitdir_pointer_is_absolute() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["branch", "side"]);
+
+    let bay = fx.root().join("bay");
+    let created = ff_core::linked::add::create(&fx.repo(), &bay, "side", 0).expect("create");
+
+    let pointer = std::fs::read_to_string(created.path.join(".git")).expect("read .git");
+    let target = pointer
+        .trim()
+        .strip_prefix("gitdir:")
+        .expect("a gitdir pointer")
+        .trim();
+    assert!(
+        std::path::Path::new(target).is_absolute(),
+        "the gitdir pointer is relative: {target}"
+    );
+    assert!(
+        !target.contains("/./"),
+        "the gitdir pointer is unresolved: {target}"
+    );
+}

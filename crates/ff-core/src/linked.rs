@@ -142,6 +142,123 @@ pub fn orphan_chains(repo: &gix::Repository) -> Result<Vec<String>> {
     Ok(out)
 }
 
+/// Capture a linked worktree into its own chain, then tear it down.
+///
+/// This is the capture-before-courage that makes an undo that deletes a
+/// directory acceptable: the chain survives the teardown, so the capture
+/// stays addressable, and undoing the undo can put the worktree back on it.
+/// Returns the capture's op id when there was one.
+pub(crate) fn retire(repo: &gix::Repository, id: &str, now: i64) -> Result<Option<String>> {
+    // Absent: there is nothing to retire, and that is not an error — undo
+    // must converge rather than refuse over a worktree somebody already
+    // removed by hand.
+    let Some(proxy) = repo
+        .worktrees()
+        .map_err(Error::repo)?
+        .into_iter()
+        .find(|proxy| proxy.id() == id)
+    else {
+        return Ok(None);
+    };
+
+    let capture = match proxy.into_repo() {
+        // The checkout is already gone from disk: nothing to capture, and
+        // that is not an error. The teardown still runs, because that is the
+        // normal way a stale entry gets cleaned up.
+        Err(_) => None,
+        Ok(wt) => match crate::ops::capture_with(
+            &wt,
+            &crate::snapshot::Provenance::new("undo", None),
+            &crate::snapshot::TakeOptions {
+                now: Some(now),
+                max_file_size: None,
+            },
+        )? {
+            crate::ops::CaptureOutcome::Created { id, .. } => Some(id.to_string()),
+            // A clean bay with a chain already holding its tree needs
+            // nothing new; a bay with no operations at all yields `None`,
+            // which is honest.
+            crate::ops::CaptureOutcome::NoOp { tip, .. } => tip.map(|tip| tip.to_string()),
+            crate::ops::CaptureOutcome::Contended => {
+                return Err(Error::coded(
+                    "worktree/busy",
+                    format!("something is running in {id}: its operation log is locked"),
+                    vec!["ff worktree list".into()],
+                ));
+            }
+        },
+    };
+
+    remove::teardown(repo, id)?;
+    Ok(capture)
+}
+
+/// Put a linked worktree back where it stood.
+///
+/// What it stands on, in the order the work is most likely to live in: the
+/// capture the effect names; the chain's own tip, where the capture undo
+/// took when it retired this worktree lives — the chain outlived the
+/// teardown, which is exactly why this works; and then the branch, which a
+/// worktree with no history at all comes back at. The id is preserved
+/// because the chain is keyed by it: a fresh id would orphan the
+/// worktree's own history.
+pub(crate) fn revive(
+    repo: &gix::Repository,
+    id: &str,
+    path: &Path,
+    branch: &str,
+    capture: Option<&str>,
+    now: i64,
+) -> Result<()> {
+    // The destination is free, or the revive does not happen: writing into
+    // a directory something else now occupies would merge two lives.
+    add::destination_free(path)?;
+
+    // The branch's current tip, what HEAD/ORIG_HEAD name. A gone branch is
+    // a warning case for the caller, not a panic — this is the error it
+    // turns into one.
+    let head =
+        crate::refs::ref_target(repo, &format!("refs/heads/{branch}"))?.ok_or_else(|| {
+            Error::coded(
+                "branch/not-found",
+                format!("no branch named {branch}"),
+                vec!["ff branch list".into()],
+            )
+        })?;
+
+    let (tree, index_tree) = if let Some(capture) = capture {
+        let op = crate::ops::walk::decode(repo, crate::ops::OpId::parse(capture)?.object_id())?;
+        let tree = op.tree();
+        (tree, op.index_tree()?.unwrap_or(tree))
+    } else if let Some(tip) = crate::refs::ref_target(repo, &crate::ops::ops_ref(id))? {
+        let op = crate::ops::walk::decode(repo, tip)?;
+        let tree = op.tree();
+        (tree, op.index_tree()?.unwrap_or(tree))
+    } else {
+        let tree = repo
+            .find_commit(head)
+            .map_err(Error::repo)?
+            .tree_id()
+            .map_err(Error::repo)?
+            .detach();
+        (tree, tree)
+    };
+
+    add::materialize(
+        repo,
+        add::Layout {
+            path,
+            id,
+            branch,
+            tree,
+            index_tree,
+            head,
+        },
+        now,
+    )?;
+    Ok(())
+}
+
 /// The holder of one branch, if another worktree has it.
 pub fn holder_of(repo: &gix::Repository, branch: &str) -> Result<Option<Holder>> {
     Ok(holders(repo)?.into_iter().find(|h| h.branch == branch))
