@@ -7,6 +7,8 @@
 //! somebody deleted with work in it — its tip is what `ff restore --at-op`
 //! takes.
 
+use std::path::Path;
+
 use ff_core::Result;
 
 use crate::cli::WorktreeAction;
@@ -17,7 +19,135 @@ pub fn run(ctx: &Ctx, action: Option<WorktreeAction>) -> Result<()> {
     match action {
         None => list(ctx),
         Some(WorktreeAction::List { .. }) => list(ctx),
+        Some(WorktreeAction::Add { path, branch }) => add(ctx, &path, branch.as_deref()),
+        Some(WorktreeAction::Remove { target }) => remove(ctx, &target),
     }
+}
+
+fn add(ctx: &Ctx, path: &Path, branch: Option<&str>) -> Result<()> {
+    let repo = ff_core::discover(".")?;
+    let (report, verb_ctx) = ff_core::add_worktree(
+        &repo,
+        path,
+        branch,
+        &crate::provenance::pre_ff(ctx),
+        None,
+        std::env::args().collect(),
+    )?;
+    crate::render::init_palette(&repo);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
+
+    if ctx.json {
+        let payload = serde_json::json!({
+            "added": report,
+            "undo": "ff undo",
+        });
+        return crate::machine::emit("worktree add", &payload);
+    }
+
+    let colored = crate::pager::color_enabled();
+    println!(
+        "made {} at {} on {}",
+        report.id,
+        report.path.display(),
+        report.branch
+    );
+    if report.created_branch {
+        println!("{}", crate::render::paint_dim("  on a new branch", colored));
+    }
+    println!(
+        "{}",
+        crate::render::paint_dim(&format!("  its log is {}", report.chain), colored)
+    );
+    // Warnings, not failures: the checkout stands either way, and each one
+    // says what it costs.
+    for warning in &report.warnings {
+        eprintln!(
+            "{}",
+            crate::render::paint_warn(&format!("ff: {warning}"), colored)
+        );
+    }
+    Ok(())
+}
+
+fn remove(ctx: &Ctx, target: &str) -> Result<()> {
+    let repo = ff_core::discover(".")?;
+    let id = resolve(&repo, target)?;
+    let (report, verb_ctx) = ff_core::remove_worktree(
+        &repo,
+        &id,
+        &crate::provenance::pre_ff(ctx),
+        None,
+        std::env::args().collect(),
+    )?;
+    crate::render::init_palette(&repo);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
+
+    if ctx.json {
+        let payload = serde_json::json!({
+            "removed": report,
+            "undo": "ff undo",
+        });
+        return crate::machine::emit("worktree remove", &payload);
+    }
+
+    let colored = crate::pager::color_enabled();
+    match &report.branch {
+        Some(branch) => println!("removed {} (was on {})", report.id, branch),
+        None => println!("removed {}", report.id),
+    }
+    // The line the verb earns: git needs --force for a dirty worktree
+    // because it has nowhere to put the work, and this is where fufu says
+    // where it put it.
+    match &report.capture {
+        Some(capture) => {
+            // The same 12-letter prefix `ff op log` prints; the full id is
+            // in `--json`.
+            let id = capture.chars().take(12).collect::<String>();
+            println!(
+                "  {}{}{}",
+                crate::render::paint_dim("captured first as ", colored),
+                crate::render::paint_id(&id, colored),
+                crate::render::paint_dim(&format!(" — ff restore <path> --at-op {id}"), colored)
+            );
+        }
+        None => {
+            println!(
+                "{}",
+                crate::render::paint_dim("  it held nothing to capture", colored)
+            );
+        }
+    }
+    println!(
+        "{}",
+        crate::render::paint_dim(&format!("  its log stays at {}", report.chain), colored)
+    );
+    Ok(())
+}
+
+/// The worktree a removal names, as an id. A person thinks in paths and the
+/// listing prints ids, so both are taken: an exact id match wins over a
+/// path, and a path is made absolute before it is compared — a checkout
+/// somebody deleted by hand still has an entry to remove, and
+/// `canonicalize` would refuse it.
+fn resolve(repo: &ff_core::gix::Repository, target: &str) -> Result<String> {
+    let survey = ff_core::survey(repo)?;
+    if let Some(row) = survey.worktrees.iter().find(|row| row.id == target) {
+        return Ok(row.id.clone());
+    }
+    let absolute = std::path::absolute(target).unwrap_or_else(|_| std::path::PathBuf::from(target));
+    if let Some(row) = survey
+        .worktrees
+        .iter()
+        .find(|row| row.path.as_deref() == Some(absolute.as_path()))
+    {
+        return Ok(row.id.clone());
+    }
+    Err(ff_core::Error::coded(
+        "worktree/not-found",
+        format!("no worktree at {target}"),
+        vec!["ff worktree list".into()],
+    ))
 }
 
 fn list(ctx: &Ctx) -> Result<()> {

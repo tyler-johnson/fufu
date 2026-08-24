@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
@@ -716,6 +717,23 @@ pub enum WorktreeAction {
         #[command(flatten)]
         past: Past,
     },
+    /// Make a worktree: a second checkout of this repository, with its own log
+    #[command(long_about = help::WORKTREE_ADD, after_long_help = help::WORKTREE_ADD_EXAMPLES)]
+    Add {
+        /// Where to put it
+        #[arg(value_name = "path")]
+        path: PathBuf,
+        /// The branch it stands on — a new one named after the directory if you do not say
+        #[arg(value_name = "branch")]
+        branch: Option<String>,
+    },
+    /// Take a worktree away, capturing what it holds first
+    #[command(long_about = help::WORKTREE_REMOVE, after_long_help = help::WORKTREE_REMOVE_EXAMPLES)]
+    Remove {
+        /// The worktree, by path or by the id `ff worktree list` shows
+        #[arg(value_name = "worktree")]
+        target: String,
+    },
 }
 
 impl WorktreeAction {
@@ -723,12 +741,17 @@ impl WorktreeAction {
     fn name(&self) -> &'static str {
         match self {
             WorktreeAction::List { .. } => "worktree list",
+            WorktreeAction::Add { .. } => "worktree add",
+            WorktreeAction::Remove { .. } => "worktree remove",
         }
     }
 
     fn past(&self) -> Option<&Past> {
         match self {
             WorktreeAction::List { past } => Some(past),
+            // Neither mutator reads a past state: they only add to now, and
+            // the parser has already refused the flags there.
+            WorktreeAction::Add { .. } | WorktreeAction::Remove { .. } => None,
         }
     }
 
@@ -736,6 +759,8 @@ impl WorktreeAction {
         match self {
             // A listing reads and nothing more.
             WorktreeAction::List { .. } => Lanes::READ,
+            // The core already captures.
+            WorktreeAction::Add { .. } | WorktreeAction::Remove { .. } => Lanes::MUTATOR,
         }
     }
 }

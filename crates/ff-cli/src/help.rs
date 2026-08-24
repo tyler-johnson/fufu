@@ -681,8 +681,8 @@ Examples:
 
 pub const WORKTREE: &str = "\
 Worktrees are how parallel work gets parallel trees: one checkout per line
-of work, each standing on a branch of its own. Bare `ff worktree` is the
-list.
+of work, each standing on a branch of its own. `add` makes one, `remove`
+takes one away, and bare `ff worktree` is the list.
 
 A worktree's operation chain is keyed by the worktree, so each one has its
 own log, its own undo, and its own lock.";
@@ -691,7 +691,8 @@ pub const WORKTREE_EXAMPLES: &str = "\
 Examples:
   ff worktree              the live worktrees, and the gone chains
   ff worktree list         the same, spelled out
-  ff worktree list --json  the same, for a machine
+  ff worktree add bay      make one, on a branch of its own
+  ff worktree remove bay   take one away; its work is captured first
   ff branch list           the branches those worktrees stand on";
 
 pub const BRANCH_LIST: &str = "\
@@ -732,6 +733,47 @@ Examples:
   ff worktree list --json         the same, for a machine
   ff restore <path> --at-op <op>  bring a file back from one of them
   ff trim                         age the gone chains out";
+
+pub const WORKTREE_ADD: &str = "\
+A second checkout of the same repository: one object store and one ref
+namespace are shared, and the working tree, the index, and HEAD are what
+is new.
+
+The chain floor is laid as the worktree is made, so ff undo works there
+from the first command. A checkout written by hand gets its floor on its
+first fufu command instead, and undo in it is blind until then.
+
+The branch is a name you give, or a new branch named after the directory
+when you do not say, or a minted name when that name is taken. A branch
+open in another worktree is refused: git allows a branch in one tree, and
+fufu enforces it.";
+
+pub const WORKTREE_ADD_EXAMPLES: &str = "\
+Examples:
+  ff worktree add bay        a second checkout, on a branch of its own
+  ff worktree add bay side   the same, on a branch that already exists
+  ff branch list             the branch it now stands on
+  ff undo                    the checkout and the new branch come back";
+
+pub const WORKTREE_REMOVE: &str = "\
+The capture comes first, into the worktree's own chain, and that is why
+there is no --force: git demands one for a dirty worktree because it has
+nowhere to put the work, and fufu has put it. The uncommitted work
+survives the removal, and the removal says where it went.
+
+The chain stays behind, and ff worktree list will show it under the
+chains whose worktree is gone — its tip is what ff restore --at-op takes.
+
+What is not carried: ignored files — build outputs, node_modules,
+virtualenvs — are not captured and do not come back, the same trade any
+worktree removal makes.";
+
+pub const WORKTREE_REMOVE_EXAMPLES: &str = "\
+Examples:
+  ff worktree remove bay         take it away; the work is captured first
+  ff worktree remove kqxmvnptul  the same, by the id ff worktree list shows
+  ff worktree list               the chain stands under the gone ones
+  ff restore <path> --at-op <op> bring a file back from the capture";
 
 pub const BRANCH_DELETE: &str = "\
 The branch's pointer into the log moves to trash rather than evaporating,

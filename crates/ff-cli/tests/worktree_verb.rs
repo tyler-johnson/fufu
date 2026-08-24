@@ -1,9 +1,10 @@
-//! `ff worktree list` — the verb that reads the survey, run through the real
-//! `ff` binary.
+//! `ff worktree` — the family run through the real `ff` binary: the list
+//! that reads the survey, and the two mutators that make and take a
+//! worktree.
 //!
 //! The linked-worktree model lives in `tests/worktree.rs`; this file is the
-//! reader: the bare form, the envelope name, the orphan section, and the
-//! exit that has been waiting for this verb to exist.
+//! rest: the bare form, the envelope name, the orphan section, the floor
+//! the add lays, and the capture the remove makes before it destroys.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -186,4 +187,175 @@ fn the_exit_now_names_fufus_own_verb() {
         body.contains("ff worktree list"),
         "names ff worktree list: {body}"
     );
+}
+
+/// The layout fufu wrote is git's own, so git's listing is the oracle: the
+/// add exits 0 and `git worktree list` names the path it made.
+#[test]
+fn add_makes_a_worktree_git_agrees_with() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = fx.root().join("bay");
+
+    let body = ok(&fx, &["worktree", "add", bay.to_str().unwrap(), "side"]);
+    assert!(body.contains("made bay"), "names the worktree: {body}");
+    assert!(bay.is_dir(), "the checkout stands: {bay:?}");
+
+    let listing = fx.git(&["worktree", "list"]);
+    assert!(
+        listing.contains(bay.to_str().unwrap()),
+        "git names the path: {listing}"
+    );
+}
+
+/// The earn over `git worktree add`: the floor is laid by the add itself, so
+/// the new row already carries a tip the moment it is listed.
+#[test]
+fn add_lays_the_floor() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = fx.root().join("bay");
+
+    ok(&fx, &["worktree", "add", bay.to_str().unwrap(), "side"]);
+
+    let v = json(&ff(&fx, &["worktree", "list", "--json"]));
+    let worktrees = v["data"]["worktrees"].as_array().expect("worktrees array");
+    let row = worktrees
+        .iter()
+        .find(|w| w["id"] == "bay")
+        .expect("the new row is listed");
+    assert!(
+        row["tip"].is_string(),
+        "the floor gave it a tip, not null: {row}"
+    );
+}
+
+/// With no branch named, the directory's name becomes a new branch — and
+/// the output says that is what happened.
+#[test]
+fn add_says_when_it_made_the_branch() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = fx.root().join("meadow");
+
+    let body = ok(&fx, &["worktree", "add", bay.to_str().unwrap()]);
+    assert!(
+        body.contains("on a new branch"),
+        "says the branch is new: {body}"
+    );
+
+    let branches = fx.git(&["branch", "--list", "meadow"]);
+    assert!(
+        branches.contains("meadow"),
+        "the branch is named after the directory: {branches:?}"
+    );
+}
+
+/// git allows a branch in one tree, and fufu enforces it: a second add on a
+/// branch a live worktree holds is refused.
+#[test]
+fn add_refuses_a_branch_another_worktree_holds() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    bay(&fx);
+    let other = fx.root().join("other");
+
+    let output = ff(&fx, &["worktree", "add", other.to_str().unwrap(), "side"]);
+    assert!(
+        !output.status.success(),
+        "took the branch the bay holds: {}",
+        out(&output)
+    );
+    let v = json(&ff(
+        &fx,
+        &["--json", "worktree", "add", other.to_str().unwrap(), "side"],
+    ));
+    assert_eq!(v["error"]["id"], "branch/checked-out-elsewhere");
+    assert!(!other.exists(), "no checkout was made");
+}
+
+/// The load-bearing earn: the capture lands in the bay's own chain before
+/// the teardown, so the uncommitted work survives, the output says where it
+/// went, and the bay stands under the orphan section afterwards.
+#[test]
+fn remove_captures_before_it_destroys() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = bay(&fx);
+    std::fs::write(bay.join("flight.txt"), "work in flight\n").expect("write in the bay");
+
+    let body = ok(&fx, &["worktree", "remove", bay.to_str().unwrap()]);
+    assert!(!bay.exists(), "the checkout is gone: {bay:?}");
+    assert!(
+        body.contains("captured first as"),
+        "says where the work went: {body}"
+    );
+
+    let v = json(&ff(&fx, &["worktree", "list", "--json"]));
+    let orphans = v["data"]["orphans"].as_array().expect("orphans array");
+    assert!(
+        orphans.iter().any(|o| o["id"] == "bay"),
+        "the bay stands under the orphan section: {v}"
+    );
+}
+
+/// The listing prints ids and a person thinks in paths; both are the same
+/// worktree, so both remove it the same way.
+#[test]
+fn remove_takes_a_path_or_an_id() {
+    // By path.
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = bay(&fx);
+    ok(&fx, &["worktree", "remove", bay.to_str().unwrap()]);
+    assert!(!bay.exists(), "gone by path: {bay:?}");
+
+    // By the id `ff worktree list` shows.
+    let fx2 = repo();
+    fx2.write("a.txt", "a\n");
+    fx2.commit("init");
+    let harbor = fx2.root().join("harbor");
+    ok(&fx2, &["worktree", "add", harbor.to_str().unwrap()]);
+
+    let v = json(&ff(&fx2, &["worktree", "list", "--json"]));
+    let worktrees = v["data"]["worktrees"].as_array().expect("worktrees array");
+    let id = worktrees
+        .iter()
+        .find(|w| w["path"] == harbor.to_str().unwrap())
+        .expect("the harbor's row")["id"]
+        .as_str()
+        .expect("an id")
+        .to_string();
+
+    ok(&fx2, &["worktree", "remove", &id]);
+    assert!(!harbor.exists(), "gone by id: {harbor:?}");
+}
+
+/// The worktree you are standing in cannot be taken from under your feet;
+/// the refusal is coded, and the tree is still there afterwards.
+#[test]
+fn remove_refuses_the_worktree_you_are_in() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let bay = bay(&fx);
+
+    let output = ff_at(&bay, &["worktree", "remove", bay.to_str().unwrap()]);
+    assert!(
+        !output.status.success(),
+        "removed the worktree it stands in: {}",
+        out(&output)
+    );
+    let v = json(&ff_at(
+        &bay,
+        &["--json", "worktree", "remove", bay.to_str().unwrap()],
+    ));
+    assert_eq!(v["error"]["id"], "worktree/is-current");
+    assert!(bay.exists(), "the worktree still stands: {bay:?}");
 }

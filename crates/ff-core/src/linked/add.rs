@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 use crate::ops::record::observe_refs;
-use crate::ops::{OpKind, OpRecord, RefTransition, verb};
+use crate::ops::{OpKind, OpRecord, verb};
 
 /// A linked worktree fufu created.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,24 +165,20 @@ pub fn add_worktree(
     // `ff worktree list` shows it as an ordinary row, because the layout is
     // git's own.
     let chain = crate::snapshot::chain::chain_name(&head);
-    let mut planned = observe_refs(repo)?;
-    let mut transitions = Vec::new();
-    if created_branch {
-        let full = format!("refs/heads/{branch_name}");
-        planned.refs.insert(full.clone(), created.head.to_string());
-        transitions.push(RefTransition {
-            name: full,
-            old: None,
-            new: Some(created.head.to_string()),
-        });
-    }
+    // The branch this op may have created is NOT recorded here, and that is
+    // the rule rather than an omission: the new worktree holds it now, and a
+    // worktree records only the refs it owns. `observe_refs` has already
+    // dropped it for exactly that reason, and putting it back would claim a
+    // ref this tree does not own — the next reconcile would find it missing
+    // from the world and report a deletion nobody performed. The branch is
+    // still named by the `WorktreeEffect`, which is what undo reads.
+    let planned = observe_refs(repo)?;
     let mut record = OpRecord::new(
         "worktree",
         format!("add worktree {} on {}", created.id, branch_name),
         now,
     );
     record.argv = argv;
-    record.refs = transitions;
     record.worktree = vec![crate::ops::record::WorktreeEffect::Add {
         id: created.id.clone(),
         path: created.path.display().to_string(),

@@ -241,3 +241,42 @@ fn the_removal_leaves_the_chain_addressable() {
         "the removed chain is not listed: {orphans:?}"
     );
 }
+
+/// The branch a creation makes belongs to the new worktree, so the operation
+/// does not record it in this worktree's ref table. Recording it would claim
+/// a ref this tree does not own, and the next reconcile would find it absent
+/// from the world and report a deletion nobody performed — which is exactly
+/// what `ff worktree add` then `ff worktree remove` used to print.
+#[test]
+fn a_creation_does_not_claim_the_branch_it_made() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let repo = fx.repo();
+    let bay = fx.root().join("bay");
+    let (report, _) =
+        ff_core::add_worktree(&repo, &bay, None, &prov(), None, Vec::new()).expect("add");
+    assert!(report.created_branch, "the branch should have been made");
+
+    let full = format!("refs/heads/{}", report.branch);
+    let log = ff_core::ops::OpLog::open(&repo).expect("open the log");
+    let tip = log.tip().expect("read the tip").expect("a tip");
+    let op = log.get(tip).expect("read the op");
+    let table = op
+        .refs()
+        .expect("read the table")
+        .expect("a verb op carries one");
+    assert!(
+        !table.refs.contains_key(&full),
+        "{full} was recorded, but the new worktree owns it: {:?}",
+        table.refs.keys().collect::<Vec<_>>()
+    );
+
+    // And the reconcile that follows sees nothing foreign.
+    let report = ff_core::ops::reconcile(&repo, 0).expect("reconcile");
+    assert!(
+        format!("{report:?}").matches(&full).count() == 0,
+        "reconcile reported {full}: {report:?}"
+    );
+}
