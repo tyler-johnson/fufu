@@ -2096,7 +2096,9 @@ fn json_is_accepted_by_every_verb() {
     fx.write("a.txt", "a\n");
     fx.commit("one");
 
-    for verb in ["status", "log", "evolog", "doctor", "config", "branch"] {
+    for verb in [
+        "status", "log", "evolog", "doctor", "config", "branch", "worktree",
+    ] {
         let out = ff(&fx, &[verb, "--json"]);
         // A clap usage error exits 2 with "unexpected argument". We assert
         // that does NOT happen: the flag is accepted.

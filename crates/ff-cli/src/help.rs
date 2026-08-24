@@ -679,6 +679,21 @@ Examples:
   ff branch delete old-experiment  remove it (undoable)
   ff describe -b unicode-cleanup   name the branch you are on";
 
+pub const WORKTREE: &str = "\
+Worktrees are how parallel work gets parallel trees: one checkout per line
+of work, each standing on a branch of its own. Bare `ff worktree` is the
+list.
+
+A worktree's operation chain is keyed by the worktree, so each one has its
+own log, its own undo, and its own lock.";
+
+pub const WORKTREE_EXAMPLES: &str = "\
+Examples:
+  ff worktree              the live worktrees, and the gone chains
+  ff worktree list         the same, spelled out
+  ff worktree list --json  the same, for a machine
+  ff branch list           the branches those worktrees stand on";
+
 pub const BRANCH_LIST: &str = "\
 Named branches first, then the anonymous ones fufu minted, kept apart so a
 petname never reads as something you chose. Each row carries its tip, the
@@ -700,6 +715,23 @@ Examples:
   ff branch list --json          the same, for a machine
   ff start origin/spike          fork a branch here from one of theirs
   ff remote                      what the remotes are called";
+
+pub const WORKTREE_LIST: &str = "\
+The live worktrees first, with their checkouts and the branches they stand
+on, then the chains whose worktree is gone.
+
+That second section is the earn: a chain lives in the shared ref namespace,
+so it outlives the checkout, and it is what keeps a deleted bay's work
+addressable. The tip op id on each row is what ff restore --at-op takes.
+Retention still ages those chains out on the ordinary fufu.keep cadence —
+surviving the worktree is not living forever.";
+
+pub const WORKTREE_LIST_EXAMPLES: &str = "\
+Examples:
+  ff worktree list                the worktrees, and the chains whose worktree is gone
+  ff worktree list --json         the same, for a machine
+  ff restore <path> --at-op <op>  bring a file back from one of them
+  ff trim                         age the gone chains out";
 
 pub const BRANCH_DELETE: &str = "\
 The branch's pointer into the log moves to trash rather than evaporating,

@@ -67,7 +67,7 @@ pub static ENTRIES: &[Entry] = &[
                  because that worktree's HEAD would stop resolving. gix has no such check, so \
                  fufu carries its own and reports which worktree holds it. Switch that worktree \
                  away, or remove it, and try again.",
-        exits: &["git worktree list"],
+        exits: &["ff worktree list", "git worktree list"],
     },
     Entry {
         id: "branch/aliased-copy",
@@ -1004,7 +1004,7 @@ pub static ENTRIES: &[Entry] = &[
                  and will not write into one holding anything, because the checkout would mix \
                  with what is already there. Name an empty directory, or remove what is in \
                  this one.",
-        exits: &[],
+        exits: &["ff worktree list"],
     },
     Entry {
         id: "worktree/not-found",
@@ -1014,7 +1014,7 @@ pub static ENTRIES: &[Entry] = &[
                  administrative directory and its operation chain stand after the checkout is \
                  gone, and a chain whose worktree is gone is not itself a worktree, so it is \
                  not named here.",
-        exits: &[],
+        exits: &["ff worktree list"],
     },
     Entry {
         id: "worktree/is-main",
@@ -1022,7 +1022,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "Every linked worktree's administrative directory lives inside the main \
                  worktree's git directory, so removing the main one would take the others with \
                  it. git refuses the same thing for the same reason.",
-        exits: &[],
+        exits: &["ff worktree list"],
     },
     Entry {
         id: "usage/unknown-error-id",

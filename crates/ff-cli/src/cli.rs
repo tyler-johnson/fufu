@@ -397,6 +397,14 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    /// Worktrees of this repository, and the chains of ones that are gone
+    #[command(long_about = help::WORKTREE, after_long_help = help::WORKTREE_EXAMPLES)]
+    Worktree {
+        #[command(subcommand)]
+        action: Option<WorktreeAction>,
+        #[command(flatten)]
+        past: Past,
+    },
     /// Manage fufu's capture hooks: agents, shells, editors
     #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
     Hook {
@@ -700,6 +708,38 @@ impl BranchAction {
     }
 }
 
+#[derive(Subcommand)]
+pub enum WorktreeAction {
+    /// Every worktree here, and every chain whose worktree is gone
+    #[command(long_about = help::WORKTREE_LIST, after_long_help = help::WORKTREE_LIST_EXAMPLES)]
+    List {
+        #[command(flatten)]
+        past: Past,
+    },
+}
+
+impl WorktreeAction {
+    /// The envelope name — the full path, as in the `ff op` family.
+    fn name(&self) -> &'static str {
+        match self {
+            WorktreeAction::List { .. } => "worktree list",
+        }
+    }
+
+    fn past(&self) -> Option<&Past> {
+        match self {
+            WorktreeAction::List { past } => Some(past),
+        }
+    }
+
+    fn lanes(&self) -> Lanes {
+        match self {
+            // A listing reads and nothing more.
+            WorktreeAction::List { .. } => Lanes::READ,
+        }
+    }
+}
+
 /// The ambient lanes: what rides an invocation besides the verb itself —
 /// the pre-command capture, the passive update lane (cache refresh,
 /// auto-install, the one-line notice), and the daily auto-trim. One table on
@@ -784,6 +824,11 @@ impl Command {
             Command::Branch { action, .. } => {
                 action.as_ref().map_or("branch list", BranchAction::name)
             }
+            // The same rule as bare `ff branch`: name the shape it emits,
+            // not the family.
+            Command::Worktree { action, .. } => action
+                .as_ref()
+                .map_or("worktree list", WorktreeAction::name),
             Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
             Command::Absorb { .. } => "absorb",
@@ -836,6 +881,12 @@ impl Command {
             // side of the subcommand rather than only before it.
             Command::Branch { action, past } => {
                 Some(action.as_ref().and_then(BranchAction::past).unwrap_or(past))
+            }
+            // Declared twice on purpose, on the same rule as `ff branch`:
+            // once for the bare form, once for the spelled-out `list`, so
+            // `--at-op` is takeable on either side of the subcommand.
+            Command::Worktree { action, past } => {
+                Some(action.as_ref().and_then(WorktreeAction::past).unwrap_or(past))
             }
             Command::Op { action } => action.past(),
             // The map declares no past flags, on the same rule as bare `ff`:
@@ -1008,6 +1059,9 @@ impl Command {
             Command::Op { action } => action.lanes(),
             Command::Branch { action, .. } => {
                 action.as_ref().map_or(Lanes::READ, BranchAction::lanes)
+            }
+            Command::Worktree { action, .. } => {
+                action.as_ref().map_or(Lanes::READ, WorktreeAction::lanes)
             }
         }
     }

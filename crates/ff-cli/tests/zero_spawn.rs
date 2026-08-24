@@ -249,6 +249,8 @@ fn phase2_verbs_never_spawn() {
         &["switch", "other"][..],
         &["switch", "main"][..],
         &["branch"][..],
+        &["worktree"][..],
+        &["worktree", "list"][..],
         &["op", "log"][..],
         &["undo"][..],
         &["redo"][..],

@@ -189,6 +189,7 @@ fn main() {
         Some(cli::Command::Redo) => cmd::undo::redo(&ctx),
         Some(cli::Command::Op { action }) => cmd::op::run(&ctx, action),
         Some(cli::Command::Branch { action, .. }) => cmd::branch::run(&ctx, action),
+        Some(cli::Command::Worktree { action, .. }) => cmd::worktree::run(&ctx, action),
         Some(cli::Command::Start {
             target,
             message,
