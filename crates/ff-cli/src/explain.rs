@@ -998,6 +998,33 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
+        id: "worktree/exists",
+        summary: "that path is already taken",
+        detail: "fufu checks a worktree out into a directory that does not exist or is empty, \
+                 and will not write into one holding anything, because the checkout would mix \
+                 with what is already there. Name an empty directory, or remove what is in \
+                 this one.",
+        exits: &[],
+    },
+    Entry {
+        id: "worktree/not-found",
+        summary: "no linked worktree by that name",
+        detail: "fufu names linked worktrees by the id git files them under, which is the \
+                 checkout directory's basename. An id can outlive its worktree: the \
+                 administrative directory and its operation chain stand after the checkout is \
+                 gone, and a chain whose worktree is gone is not itself a worktree, so it is \
+                 not named here.",
+        exits: &[],
+    },
+    Entry {
+        id: "worktree/is-main",
+        summary: "the main worktree is not removable",
+        detail: "Every linked worktree's administrative directory lives inside the main \
+                 worktree's git directory, so removing the main one would take the others with \
+                 it. git refuses the same thing for the same reason.",
+        exits: &[],
+    },
+    Entry {
         id: "usage/unknown-error-id",
         summary: "no error goes by that id",
         detail: "Error ids are stable and namespaced — usage/ for a command line that was wrong, \

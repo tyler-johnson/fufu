@@ -21,6 +21,12 @@
 //! worktree at all. The main worktree's HEAD is read separately here, which
 //! is the difference between a guard that works in one direction and one that
 //! works in both.
+//!
+//! The write half lives in the two submodules: gix has no worktree-creation
+//! API, so fufu writes git's on-disk layout itself.
+
+pub mod add;
+pub mod remove;
 
 use std::path::{Path, PathBuf};
 
