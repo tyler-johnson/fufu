@@ -27,6 +27,7 @@
 
 pub mod add;
 pub mod remove;
+pub mod survey;
 
 use std::path::{Path, PathBuf};
 
@@ -121,6 +122,23 @@ pub fn worktree_ids(repo: &gix::Repository) -> Result<Vec<String>> {
     }
     out.sort();
     out.dedup();
+    Ok(out)
+}
+
+/// The operation chains nobody stands in: every chain whose worktree is
+/// gone.
+///
+/// The live set comes from [`worktree_ids`] rather than [`holders`] on
+/// purpose: a worktree with a detached HEAD holds no branch and is every bit
+/// as alive, and sweeping its chain would age out a log nobody agreed to
+/// lose.
+pub fn orphan_chains(repo: &gix::Repository) -> Result<Vec<String>> {
+    let live: std::collections::HashSet<String> = worktree_ids(repo)?.into_iter().collect();
+    let mut out: Vec<String> = crate::ops::chain_ids(repo)?
+        .into_iter()
+        .filter(|id| !live.contains(id))
+        .collect();
+    out.sort();
     Ok(out)
 }
 

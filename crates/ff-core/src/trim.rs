@@ -111,7 +111,13 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
         )?;
     }
 
-    for chain in orphan_chains(repo, &mine)? {
+    // A live worktree's chain is left alone because it has a process of its
+    // own, and its lock is not this pass's to wait on. An orphan's lock will
+    // not be waited on by anyone, which is what makes sweeping it safe.
+    for chain in crate::linked::orphan_chains(repo)? {
+        if chain == mine {
+            continue;
+        }
         let outcome = trim_chain(repo, &chain, opts, now, cutoff)?;
         if let Some(log) = outcome.log {
             report.orphans.push(TrimOrphan {
@@ -410,24 +416,6 @@ fn trim_chain(
         pointers: rows,
         rewrote: true,
     })
-}
-
-/// The chains a retention pass must sweep for nobody else: every chain that
-/// is neither this worktree's nor a worktree that still exists. A live
-/// worktree's chain is left alone because it has a process of its own, and
-/// its lock is not this pass's to wait on — an orphan's lock, by contrast,
-/// will not be waited on by anyone, which is what makes the sweep safe.
-fn orphan_chains(repo: &gix::Repository, mine: &str) -> Result<Vec<String>> {
-    // Every live worktree, not merely every worktree standing on a branch:
-    // a detached HEAD holds no branch and is still a running tree, and
-    // trimming its chain from another process would age out a log nobody
-    // agreed to lose.
-    let live: std::collections::HashSet<String> =
-        crate::linked::worktree_ids(repo)?.into_iter().collect();
-    Ok(crate::ops::chain_ids(repo)?
-        .into_iter()
-        .filter(|id| id != mine && !live.contains(id))
-        .collect())
 }
 
 /// Replay a ref's history one single-ref transaction at a time, oldest first,

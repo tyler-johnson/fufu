@@ -1,6 +1,8 @@
 //! The plain, serializable read model. No gix types leak out of ff-core:
 //! object ids are lowercase hex strings, paths are strings.
 
+use std::path::PathBuf;
+
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -793,6 +795,50 @@ pub struct BranchList {
 pub struct BranchListOptions {
     /// How many remote-only rows to carry; `None` is every one.
     pub remote_limit: Option<usize>,
+}
+
+/// One live worktree, for `ff worktree list`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorktreeRow {
+    /// The id git files it under, which is also its operation chain's key.
+    pub id: String,
+    /// Its checkout, absolute. `None` for a bare repository's main entry,
+    /// which has no working tree.
+    pub path: Option<PathBuf>,
+    /// The branch it stands on, short form. `None` when its HEAD is detached.
+    pub branch: Option<String>,
+    /// Its operation chain's full ref name.
+    pub chain: String,
+    /// The chain's newest operation, in the letters spelling. `None` before
+    /// the worktree's first fufu command, when the chain has no floor yet.
+    pub tip: Option<String>,
+    /// The worktree this command is running in.
+    pub current: bool,
+}
+
+/// One operation chain whose worktree is gone, for `ff worktree list`.
+///
+/// The chain outliving the worktree is deliberate: `git worktree remove` is
+/// foreign, so what was never captured is git's to lose, but everything fufu
+/// held is still addressable. `tip` is what `ff restore <path> --at-op <id>`
+/// takes, which is what makes this row the front door for a deleted bay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OrphanRow {
+    pub id: String,
+    pub chain: String,
+    /// The chain's newest operation, letters spelling.
+    pub tip: Option<String>,
+    /// The branch that operation ran on, when it named one.
+    pub branch: Option<String>,
+    /// That operation's committer time, unix seconds.
+    pub time: Option<i64>,
+}
+
+/// What `ff worktree list` reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Survey {
+    pub worktrees: Vec<WorktreeRow>,
+    pub orphans: Vec<OrphanRow>,
 }
 
 /// The result of claiming an anonymous branch.
