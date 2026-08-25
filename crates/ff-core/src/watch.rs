@@ -27,10 +27,15 @@
 //! otherwise read as a burst of ordinary appends.
 //!
 //! It has to be *this* chain's trash ref rather than any chain's, or one
-//! worktree's trim would end another worktree's stream. A watch is scoped to
-//! the tree it was started in; a supervisor wanting the fleet needs a
-//! repo-wide watch with a worktree field per event, which is a separate
-//! thing and does not exist yet.
+//! worktree's trim would end another worktree's stream. That is why a
+//! rewrite is terminal per *chain* rather than per stream: [`Chains`] emits
+//! it for the chain it happened to, re-anchors that chain from the tip the
+//! event carries, and keeps every other chain running.
+//!
+//! Two readers, then. [`classify`] answers for the worktree it is called in;
+//! [`Chains`] answers for every chain in the repository, one [`Event`] per
+//! motion with the chain named on it. Both go through [`classify_in`], which
+//! is the same seven rules against a chain named rather than assumed.
 //!
 //! **Landmine: ancestry here is the `fufu-prev` chain and nothing else.** An
 //! operation commit's parent 2 is the base commit — a real commit from the
@@ -46,7 +51,7 @@
 //! same caveat, so nothing is degraded by streaming it — and nothing is
 //! fixed by a field or a delay, either.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
@@ -121,6 +126,21 @@ pub struct Watched {
     pub trash: Option<OpId>,
 }
 
+/// One line of a repository-wide stream: what a chain did, and which chain.
+///
+/// The field rides both modes. A single-tree stream always says the same
+/// worktree, which costs a subscriber nothing and buys it one struct to
+/// parse. It is an added field rather than a changed one, so the envelope
+/// contract stays where it was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Event {
+    /// The chain's id — a live worktree's, or the one a retired worktree
+    /// still answers to. `main` for the main worktree.
+    pub worktree: String,
+    #[serde(flatten)]
+    pub motion: Motion,
+}
+
 /// A predicate over one arriving operation.
 ///
 /// Deliberately not [`crate::revset::opspace`]: `evaluate_ops` resolves a
@@ -176,7 +196,30 @@ pub fn classify(
     last_trash: Option<OpId>,
     filter: &Filter,
 ) -> Result<Watched> {
-    let log = OpLog::open(repo)?;
+    classify_in(
+        repo,
+        &crate::ops::chain_id(repo),
+        last_seen,
+        last_trash,
+        filter,
+    )
+}
+
+/// The same question asked of a chain named rather than assumed.
+///
+/// [`classify`] is this against the chain the caller is standing in. The
+/// seven rules below do not know which chain they are on: they read
+/// [`OpLog::tip`], [`OpLog::trash_tip`], and the `fufu-prev` trailer chain,
+/// and the operation id space those resolve against is repository-wide
+/// already.
+pub fn classify_in(
+    repo: &gix::Repository,
+    chain: &str,
+    last_seen: Option<OpId>,
+    last_trash: Option<OpId>,
+    filter: &Filter,
+) -> Result<Watched> {
+    let log = OpLog::open_chain(repo, chain)?;
     // Both refs, once, at the top: everything below describes this instant.
     let trash = log.trash_tip()?;
     let tip = log.tip()?;
@@ -257,6 +300,77 @@ pub fn classify(
         reason: Rewrite::Reset,
         tip,
     }])
+}
+
+/// Every chain a repository-wide stream is watching, and where each of them
+/// was last seen.
+///
+/// The map only ever grows. A chain it has not seen is anchored and
+/// announced — which is the seed on the first tick and an `ff worktree add`
+/// on any later one, through one code path rather than two. A chain whose
+/// worktree is retired stays, because `ff worktree remove` captures into
+/// that chain before the directory goes: dropping it at a tick boundary
+/// would race the last thing it ever said.
+///
+/// Discovery reads live worktrees rather than [`crate::ops::chain_ids`], so
+/// a repository with fifty dead bays does not open with fifty anchor lines.
+/// Nothing appends to a chain nobody stands in, so nothing is missed —
+/// except a chain that died while watched, which the rule above keeps.
+#[derive(Debug, Clone, Default)]
+pub struct Chains {
+    /// Chain id to its `(tip, trash)` anchors, the two things
+    /// [`classify_in`] measures from. Ordered so the anchor burst and every
+    /// later tick come out the same way twice.
+    seen: BTreeMap<String, (Option<OpId>, Option<OpId>)>,
+}
+
+impl Chains {
+    pub fn new() -> Self {
+        Chains::default()
+    }
+
+    /// One pass over every chain: what each of them did since last time.
+    ///
+    /// A chain not yet in the map is classified with no anchors, which is
+    /// rule 0 — no motion, and the fresh anchors to remember — so the
+    /// [`Motion::Start`] announcing it is synthesized here.
+    ///
+    /// Both anchors are stored whatever came back, which is what makes
+    /// [`Motion::Rewritten`] self-healing: the chain re-anchors to the tip
+    /// the event already carried, and the next tick measures from there.
+    ///
+    /// One corner of that costs a tick. A trim with nothing surviving leaves
+    /// no ref at all, so the chain re-anchors on `None` — and `None` is rule
+    /// 0 again, which reports no motion. Whatever lands in the tick after
+    /// such a rewrite is therefore not reported, and the tick after that
+    /// measures from the fresh tip. The subscriber was told the address
+    /// space was gone and that there was nothing there, which is exactly
+    /// what a stream picking up from an emptied log has to say.
+    pub fn tick(&mut self, repo: &gix::Repository, filter: &Filter) -> Result<Vec<Event>> {
+        let mut chains: Vec<String> = self.seen.keys().cloned().collect();
+        chains.extend(crate::linked::worktree_ids(repo)?);
+        chains.sort();
+        chains.dedup();
+
+        let mut events = Vec::new();
+        for chain in chains {
+            let anchors = self.seen.get(&chain).copied();
+            let (last_seen, last_trash) = anchors.unwrap_or((None, None));
+            let seen = classify_in(repo, &chain, last_seen, last_trash, filter)?;
+            if anchors.is_none() {
+                events.push(Event {
+                    worktree: chain.clone(),
+                    motion: Motion::Start { tip: seen.tip },
+                });
+            }
+            events.extend(seen.motion.into_iter().map(|motion| Event {
+                worktree: chain.clone(),
+                motion,
+            }));
+            self.seen.insert(chain, (seen.tip, seen.trash));
+        }
+        Ok(events)
+    }
 }
 
 /// Walk back from `from` along `fufu-prev`, `from` included, until `target`

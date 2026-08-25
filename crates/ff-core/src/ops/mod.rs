@@ -228,9 +228,25 @@ pub struct OpLog<'r> {
 
 impl<'r> OpLog<'r> {
     pub fn open(repo: &'r gix::Repository) -> Result<Self> {
+        Self::open_chain(repo, chain_id(repo))
+    }
+
+    /// A reader on another worktree's chain.
+    ///
+    /// [`OpLog::open`] answers "the log I write to"; this answers "the log
+    /// that one names", which is what a repository-wide reader needs. Every
+    /// method on this type already routes through `self.chain`, and the id
+    /// space the resolution methods search is repository-wide rather than
+    /// per chain ([`index::contains`] walks every chain), so the whole
+    /// reader is correct against a foreign chain.
+    ///
+    /// It is a reader in the sense that matters: [`OpLog::append`] is
+    /// `pub(crate)`, and no fufu path appends to a chain it is not standing
+    /// in.
+    pub fn open_chain(repo: &'r gix::Repository, chain: impl Into<String>) -> Result<Self> {
         Ok(OpLog {
             repo,
-            chain: chain_id(repo),
+            chain: chain.into(),
         })
     }
 
