@@ -40,7 +40,11 @@ fn a_bay_shows_up_with_its_branch_and_chain() {
     let row = survey
         .worktrees
         .iter()
-        .find(|w| w.path.as_deref() == Some(bay.as_path()))
+        .find(|w| {
+            w.path
+                .as_deref()
+                .is_some_and(|p| ff_core::linked::path::same(p, &bay))
+        })
         .expect("the bay row");
     assert_eq!(row.branch.as_deref(), Some("side"));
     assert_eq!(row.chain, "refs/fufu/wt/bay/ops");
@@ -130,7 +134,11 @@ fn a_detached_bay_is_listed_without_a_branch() {
     let row = survey
         .worktrees
         .iter()
-        .find(|w| w.path.as_deref() == Some(detached.as_path()))
+        .find(|w| {
+            w.path
+                .as_deref()
+                .is_some_and(|p| ff_core::linked::path::same(p, &detached))
+        })
         .expect("the detached row");
     assert!(row.branch.is_none());
     assert!(

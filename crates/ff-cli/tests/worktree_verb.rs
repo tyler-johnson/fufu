@@ -204,7 +204,7 @@ fn add_makes_a_worktree_git_agrees_with() {
 
     let listing = fx.git(&["worktree", "list"]);
     assert!(
-        listing.contains(bay.to_str().unwrap()),
+        ff_testsupport::paths::names(&listing, &bay),
         "git names the path: {listing}"
     );
 }
@@ -327,7 +327,7 @@ fn remove_takes_a_path_or_an_id() {
     let worktrees = v["data"]["worktrees"].as_array().expect("worktrees array");
     let id = worktrees
         .iter()
-        .find(|w| w["path"] == harbor.to_str().unwrap())
+        .find(|w| w["path"] == ff_testsupport::paths::real(&harbor))
         .expect("the harbor's row")["id"]
         .as_str()
         .expect("an id")
@@ -358,4 +358,52 @@ fn remove_refuses_the_worktree_you_are_in() {
     ));
     assert_eq!(v["error"]["id"], "worktree/is-current");
     assert!(bay.exists(), "the worktree still stands: {bay:?}");
+}
+
+/// The path a person types and the path fufu records are not the same string
+/// whenever the checkout is reached through a symlink — which is every macOS,
+/// where the temporary directory lives under `/var` and resolves to
+/// `/private/var`. A removal has to find the worktree anyway.
+///
+/// Unix only: making a symlink on Windows needs a privilege the test runner
+/// does not have. The platform this reproduces is covered either way.
+#[test]
+#[cfg(unix)]
+fn a_worktree_reached_through_a_symlink_is_still_found() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    let real = fx.root().join("real");
+    std::fs::create_dir(&real).expect("create the real directory");
+    let link = fx.root().join("link");
+    std::os::unix::fs::symlink(&real, &link).expect("symlink");
+
+    // Added through the link, so what fufu records resolves past it.
+    let typed = link.join("bay");
+    ok(&fx, &["worktree", "add", typed.to_str().unwrap(), "side"]);
+
+    let v = json(&ff(&fx, &["worktree", "list", "--json"]));
+    let row = v["data"]["worktrees"]
+        .as_array()
+        .expect("worktrees array")
+        .iter()
+        .find(|w| w["id"] == "bay")
+        .expect("the bay's row")
+        .clone();
+    assert_eq!(
+        row["path"],
+        ff_testsupport::paths::real(&typed),
+        "the row holds the resolved path"
+    );
+    assert_ne!(
+        row["path"],
+        *typed.to_str().unwrap(),
+        "the two spellings differ, or this test proves nothing"
+    );
+
+    // Removed by the spelling a person would have typed.
+    ok(&fx, &["worktree", "remove", typed.to_str().unwrap()]);
+    assert!(!typed.exists(), "gone through the link: {typed:?}");
+    assert!(!real.join("bay").exists(), "gone for real: {real:?}");
 }

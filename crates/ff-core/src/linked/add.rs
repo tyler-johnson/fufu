@@ -318,7 +318,7 @@ pub(crate) fn materialize(repo: &gix::Repository, layout: Layout<'_>, now: i64) 
         head,
     } = layout;
     std::fs::create_dir_all(path).map_err(Error::repo)?;
-    let dest = path.canonicalize().map_err(Error::repo)?;
+    let dest = super::path::real(path);
     let admin = repo.common_dir().join("worktrees").join(id);
 
     std::fs::create_dir_all(admin.join("logs")).map_err(Error::repo)?;
@@ -327,7 +327,7 @@ pub(crate) fn materialize(repo: &gix::Repository, layout: Layout<'_>, now: i64) 
     std::fs::write(admin.join("commondir"), "../..\n").map_err(Error::repo)?;
     std::fs::write(
         admin.join("gitdir"),
-        format!("{}\n", dest.join(".git").display()),
+        format!("{}\n", super::path::as_git(&dest.join(".git"))),
     )
     .map_err(Error::repo)?;
     std::fs::write(admin.join("HEAD"), format!("ref: refs/heads/{branch}\n"))
@@ -350,13 +350,10 @@ pub(crate) fn materialize(repo: &gix::Repository, layout: Layout<'_>, now: i64) 
     // command run inside the new worktree fails. `repo.common_dir()` is
     // relative whenever the repository was discovered by a relative path,
     // which is the ordinary case from a shell sitting in it.
-    let admin_abs = admin
-        .canonicalize()
-        .or_else(|_| std::path::absolute(&admin))
-        .unwrap_or_else(|_| admin.clone());
+    let admin_abs = super::path::real(&admin);
     std::fs::write(
         dest.join(".git"),
-        format!("gitdir: {}\n", admin_abs.display()),
+        format!("gitdir: {}\n", super::path::as_git(&admin_abs)),
     )
     .map_err(Error::repo)?;
 

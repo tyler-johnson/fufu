@@ -6,6 +6,14 @@ use std::os::unix::fs::PermissionsExt;
 
 use ff_testsupport::Fixture;
 
+/// The worktree paths in `git worktree list --porcelain`, one per entry.
+fn listed(porcelain: &str) -> Vec<&str> {
+    porcelain
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .collect()
+}
+
 /// Real git accepts the worktree fufu wrote: it lists the bay, the checkout
 /// is clean, the bay stands on the branch, and its git dir is the one git
 /// files under `worktrees/bay`.
@@ -22,9 +30,15 @@ fn fufu_writes_a_worktree_real_git_accepts() {
     assert_eq!(created.id, "bay");
     assert_eq!(created.branch, "side");
 
-    let list = fx.git(&["worktree", "list"]);
+    // `--porcelain`, so the comparison is against a whole field rather than a
+    // substring: git finds a worktree's directory by stripping `/.git` off
+    // its `gitdir` file, and when that strip fails the path it reports is the
+    // admin file's — which a `contains` assertion about the bay would accept.
+    let list = fx.git(&["worktree", "list", "--porcelain"]);
     assert!(
-        list.contains(&created.path.to_string_lossy().into_owned()),
+        listed(&list)
+            .iter()
+            .any(|path| ff_testsupport::paths::is(path, &created.path)),
         "git worktree list does not name the bay:\n{list}"
     );
     assert!(
@@ -169,9 +183,11 @@ fn teardown_takes_both_halves() {
             .exists(),
         "the administrative directory survived"
     );
-    let list = fx.git(&["worktree", "list"]);
+    let list = fx.git(&["worktree", "list", "--porcelain"]);
     assert!(
-        !list.contains(&created.path.to_string_lossy().into_owned()),
+        !listed(&list)
+            .iter()
+            .any(|path| ff_testsupport::paths::is(path, &created.path)),
         "git still lists the bay:\n{list}"
     );
 }

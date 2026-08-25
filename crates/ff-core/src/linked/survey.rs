@@ -27,7 +27,7 @@ pub fn survey(repo: &gix::Repository) -> Result<Survey> {
         path: repo
             .main_repo()
             .ok()
-            .and_then(|main| main.workdir().map(absolute)),
+            .and_then(|main| main.workdir().map(super::path::real)),
         branch: super::head_branch(&repo.common_dir().join("HEAD")),
         tip: live_tip(repo, &chain)?,
         chain,
@@ -40,7 +40,7 @@ pub fn survey(repo: &gix::Repository) -> Result<Survey> {
         let current = me == id;
         worktrees.push(WorktreeRow {
             id,
-            path: proxy.base().ok().map(|base| absolute(&base)),
+            path: proxy.base().ok().map(|base| super::path::real(&base)),
             branch: super::head_branch(&proxy.git_dir().join("HEAD")),
             tip: live_tip(repo, &chain)?,
             chain,
@@ -93,11 +93,4 @@ pub fn survey(repo: &gix::Repository) -> Result<Survey> {
 /// reads the ref and stops there.
 fn live_tip(repo: &gix::Repository, chain: &str) -> Result<Option<String>> {
     Ok(crate::refs::ref_target(repo, chain)?.map(|sha| OpId::new(sha).to_string()))
-}
-
-/// A path made absolute without requiring it to exist. `canonicalize` would
-/// refuse a checkout that has been deleted out from under its entry, which is
-/// exactly the case this listing has to survive.
-fn absolute(path: &std::path::Path) -> std::path::PathBuf {
-    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }

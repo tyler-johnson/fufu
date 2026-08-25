@@ -126,21 +126,25 @@ fn remove(ctx: &Ctx, target: &str) -> Result<()> {
 }
 
 /// The worktree a removal names, as an id. A person thinks in paths and the
-/// listing prints ids, so both are taken: an exact id match wins over a
-/// path, and a path is made absolute before it is compared — a checkout
-/// somebody deleted by hand still has an entry to remove, and
-/// `canonicalize` would refuse it.
+/// listing prints ids, so both are taken, an exact id match winning over a
+/// path.
+///
+/// Paths are compared by identity rather than by spelling, through
+/// [`ff_core::linked::path::same`]: the row holds the resolved path and the
+/// argument holds whatever was typed, and on any machine whose temporary
+/// directory is reached through a symlink — every macOS — those differ by a
+/// component nobody typed.
 fn resolve(repo: &ff_core::gix::Repository, target: &str) -> Result<String> {
     let survey = ff_core::survey(repo)?;
     if let Some(row) = survey.worktrees.iter().find(|row| row.id == target) {
         return Ok(row.id.clone());
     }
-    let absolute = std::path::absolute(target).unwrap_or_else(|_| std::path::PathBuf::from(target));
-    if let Some(row) = survey
-        .worktrees
-        .iter()
-        .find(|row| row.path.as_deref() == Some(absolute.as_path()))
-    {
+    let target_path = std::path::Path::new(target);
+    if let Some(row) = survey.worktrees.iter().find(|row| {
+        row.path
+            .as_deref()
+            .is_some_and(|path| ff_core::linked::path::same(path, target_path))
+    }) {
         return Ok(row.id.clone());
     }
     Err(ff_core::Error::coded(

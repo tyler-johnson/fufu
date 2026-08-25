@@ -26,6 +26,7 @@
 //! API, so fufu writes git's on-disk layout itself.
 
 pub mod add;
+pub mod path;
 pub mod remove;
 pub mod survey;
 
@@ -85,9 +86,15 @@ pub fn holders(repo: &gix::Repository) -> Result<Vec<Holder>> {
         out.push(Holder {
             id: wt_id,
             branch,
-            path: proxy
-                .base()
-                .unwrap_or_else(|_| proxy.git_dir().to_path_buf()),
+            // Through `path::real`, like every other worktree path fufu
+            // shows: git writes this entry with forward slashes on Windows,
+            // and a message spelling a path differently from the listing is
+            // one the reader has to translate.
+            path: path::real(
+                &proxy
+                    .base()
+                    .unwrap_or_else(|_| proxy.git_dir().to_path_buf()),
+            ),
         });
     }
 
@@ -100,7 +107,7 @@ pub fn holders(repo: &gix::Repository) -> Result<Vec<Holder>> {
         out.push(Holder {
             id: MAIN_ID.to_string(),
             branch,
-            path,
+            path: path::real(&path),
         });
     }
 

@@ -194,7 +194,7 @@ fn a_branch_is_only_ever_open_in_one_worktree() {
         "{err}"
     );
     assert!(
-        err.contains(bay.to_str().unwrap()),
+        ff_testsupport::paths::names(&err, &bay),
         "the message names the bay: {err}"
     );
     let v = json(&ff(&fx, &["--json", "switch", "side"]));
@@ -213,7 +213,7 @@ fn a_branch_is_only_ever_open_in_one_worktree() {
         "{err}"
     );
     assert!(
-        err.contains(fx.path().to_str().unwrap()),
+        ff_testsupport::paths::names(&err, &fx.path()),
         "the message names the main worktree: {err}"
     );
     let v = json(&ff_at(&bay, &["--json", "switch", "main"]));
