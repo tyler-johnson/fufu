@@ -2,9 +2,9 @@
 //! other, collide with each other — and the invariant that the probe
 //! writes nothing to the object database.
 
+use ff_core::Pairing;
 use ff_core::futures::UnknownReason;
 use ff_core::gix;
-use ff_core::{CollideOptions, Collisions, Pairing};
 use ff_testsupport::Fixture;
 
 fn oid(hex: &str) -> gix::ObjectId {
@@ -69,35 +69,15 @@ fn three_branches() -> Fixture {
     fx
 }
 
-fn opts(names: &[&str]) -> CollideOptions {
-    CollideOptions {
-        names: names.iter().map(|n| n.to_string()).collect(),
-        ..Default::default()
-    }
-}
-
-/// The pair at the head of the answer, named.
-fn pair<'a>(collisions: &'a Collisions, a: &str, b: &str) -> &'a Pairing {
-    collisions
-        .pairs
-        .iter()
-        .find(|p| (p.a == a && p.b == b) || (p.a == b && p.b == a))
-        .map(|p| &p.pairing)
-        .unwrap_or_else(|| panic!("no pair between {a} and {b}: {:?}", collisions.pairs))
-}
-
 #[test]
 fn two_branches_touching_the_same_line_collide() {
     let fx = three_branches();
     let repo = fx.repo();
-    let out = ff_core::collide(&repo, &opts(&["feat-a", "feat-b"])).unwrap();
-    let feat_a = out
-        .sides
-        .iter()
-        .find(|s| s.name == "feat-a")
-        .expect("a side");
-    assert_eq!(feat_a.tip, tip(&fx, "feat-a").to_string());
-    match pair(&out, "feat-a", "feat-b") {
+    let out = ff_core::collide(&repo, "feat-a", "feat-b").unwrap();
+    assert_eq!(out.a.name, "feat-a");
+    assert_eq!(out.a.tip, tip(&fx, "feat-a").to_string());
+    assert_eq!(out.b.name, "feat-b");
+    match &out.pairing {
         Pairing::Collide { paths } => {
             assert!(paths.contains(&"shared.txt".to_string()), "{paths:?}")
         }
@@ -109,8 +89,21 @@ fn two_branches_touching_the_same_line_collide() {
 fn two_branches_touching_different_files_are_clear() {
     let fx = three_branches();
     let repo = fx.repo();
-    let out = ff_core::collide(&repo, &opts(&["feat-a", "fix-c"])).unwrap();
-    assert_eq!(pair(&out, "feat-a", "fix-c"), &Pairing::Clear);
+    let out = ff_core::collide(&repo, "feat-a", "fix-c").unwrap();
+    assert_eq!(out.pairing, Pairing::Clear);
+}
+
+/// The merge does not know which side is "ours", so neither does the verb:
+/// the same two names in either order answer the same way.
+#[test]
+fn the_verdict_does_not_depend_on_which_side_is_named_first() {
+    let fx = three_branches();
+    let repo = fx.repo();
+    let forward = ff_core::collide(&repo, "feat-a", "feat-b").unwrap();
+    let backward = ff_core::collide(&repo, "feat-b", "feat-a").unwrap();
+    assert_eq!(forward.pairing, backward.pairing);
+    assert_eq!(forward.a.name, backward.b.name);
+    assert_eq!(forward.b.name, backward.a.name);
 }
 
 #[test]
@@ -120,31 +113,13 @@ fn unrelated_histories_are_an_honest_unknown() {
     fx.write("o.txt", "other\n");
     fx.commit("a second root");
     let repo = fx.repo();
-    let out = ff_core::collide(&repo, &opts(&["other", "main"])).unwrap();
+    let out = ff_core::collide(&repo, "other", "main").unwrap();
     assert_eq!(
-        pair(&out, "other", "main"),
-        &Pairing::Unknown {
+        out.pairing,
+        Pairing::Unknown {
             reason: UnknownReason::UnrelatedHistories
         },
         "no base to merge against is refused, not guessed"
-    );
-}
-
-#[test]
-fn the_clear_set_is_greedy_and_skips_a_collider() {
-    let fx = three_branches();
-    let repo = fx.repo();
-    let out = ff_core::collide(&repo, &opts(&["feat-a", "feat-b", "fix-c"])).unwrap();
-    assert!(out.clear.contains(&"fix-c".to_string()), "{:?}", out.clear);
-    let feats = out
-        .clear
-        .iter()
-        .filter(|n| matches!(n.as_str(), "feat-a" | "feat-b"))
-        .count();
-    assert_eq!(
-        feats, 1,
-        "exactly one of the colliding pair is clear: {:?}",
-        out.clear
     );
 }
 
@@ -159,22 +134,18 @@ fn an_uncommitted_edit_shows_up_as_a_collision() {
     // capture writes real objects, so any loose_count baseline here would
     // measure the capture, not the probe. None is taken.
     ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
-    let out = ff_core::collide(&repo, &opts(&["feat-a", "feat-b"])).unwrap();
-    match pair(&out, "feat-a", "feat-b") {
+    let out = ff_core::collide(&repo, "feat-a", "feat-b").unwrap();
+    match &out.pairing {
         Pairing::Collide { paths } => {
             assert!(paths.contains(&"shared.txt".to_string()), "{paths:?}")
         }
         other => panic!("the uncommitted edit must still collide: {other:?}"),
     }
-    let side = out
-        .sides
-        .iter()
-        .find(|s| s.name == "feat-b")
-        .expect("feat-b is a side");
     assert!(
-        side.open,
+        out.b.open,
         "the answer includes work that has not been committed"
     );
+    assert!(!out.a.open, "feat-a has nothing open");
 }
 
 #[test]
@@ -182,15 +153,13 @@ fn collide_writes_nothing_to_the_object_database() {
     let fx = three_branches();
     let repo = fx.repo();
     let before = loose_count(&fx);
-    let out = ff_core::collide(&repo, &CollideOptions::default()).unwrap();
-    // A colliding pair is in the run: a conflicted merge is the case most
+    // The colliding pair, deliberately: a conflicted merge is the case most
     // likely to leak a blob.
+    let out = ff_core::collide(&repo, "feat-a", "feat-b").unwrap();
     assert!(
-        out.pairs
-            .iter()
-            .any(|p| matches!(p.pairing, Pairing::Collide { .. })),
+        matches!(out.pairing, Pairing::Collide { .. }),
         "{:?}",
-        out.pairs
+        out.pairing
     );
     assert_eq!(
         loose_count(&fx),
@@ -200,19 +169,19 @@ fn collide_writes_nothing_to_the_object_database() {
 }
 
 #[test]
-fn explicit_names_are_used_in_the_order_given() {
-    let fx = three_branches();
-    let repo = fx.repo();
-    let out = ff_core::collide(&repo, &opts(&["fix-c", "feat-a"])).unwrap();
-    let names: Vec<&str> = out.sides.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["fix-c", "feat-a"]);
-    assert_eq!(out.pairs.len(), 1);
-}
-
-#[test]
 fn an_unknown_branch_name_is_refused() {
     let fx = three_branches();
     let repo = fx.repo();
-    let err = ff_core::collide(&repo, &opts(&["nope"])).unwrap_err();
+    let err = ff_core::collide(&repo, "nope", "feat-a").unwrap_err();
     assert_eq!(err.id(), "branch/not-found", "{err}");
+    let err = ff_core::collide(&repo, "feat-a", "nope").unwrap_err();
+    assert_eq!(err.id(), "branch/not-found", "{err}");
+}
+
+#[test]
+fn one_branch_cannot_collide_with_itself() {
+    let fx = three_branches();
+    let repo = fx.repo();
+    let err = ff_core::collide(&repo, "feat-a", "feat-a").unwrap_err();
+    assert_eq!(err.id(), "usage/collide-same-branch", "{err}");
 }

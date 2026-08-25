@@ -581,6 +581,16 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff status", "ff git <args>"],
     },
     Entry {
+        id: "usage/collide-same-branch",
+        summary: "collide was given one branch twice",
+        detail: "A branch never conflicts with itself, so the answer would be clear no matter \
+                 what either side held — a true answer to a question nobody meant to ask. Name \
+                 the other branch. The one-name form already means the branch you are on \
+                 against the one you named, so it is the same mistake when you are standing on \
+                 the name you passed.",
+        exits: &["ff collide <a> <b>", "ff branch list"],
+    },
+    Entry {
         id: "usage/lift-from-open",
         summary: "lift was named the open change as its source",
         detail: "The open change is what a lift lands in, so naming it as a source has nothing \

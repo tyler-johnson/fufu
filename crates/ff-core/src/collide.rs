@@ -4,9 +4,15 @@
 //! two branches, neither sitting beneath the other, collide with each other?
 //!
 //! The answer is symmetric — a three-way merge does not know which side is
-//! "ours" — so each pair is judged exactly once, in the order the sides are
-//! ranked. As with a futures probe, the merge runs inside an object-memory
-//! clone, and `collide` writes nothing to the object database.
+//! "ours" — which is why the verb takes two branches rather than an ours
+//! and a theirs. As with a futures probe, the merge runs inside an
+//! object-memory clone, and `collide` writes nothing to the object database.
+//!
+//! One pair is the whole verb. A set of branches that land on each other
+//! is a scheduling question, and scheduling needs a queue, a notion of
+//! what is already in flight, and something to claim with — none of which
+//! fufu has. What fufu has is the verdict, and the verdict is what it
+//! answers.
 
 use serde::Serialize;
 
@@ -40,34 +46,13 @@ pub struct Side {
     pub open: bool,
 }
 
-/// One pair, judged. `a` precedes `b` in the side order.
+/// The answer: both sides as they were judged, and the verdict between
+/// them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Pair {
-    pub a: String,
-    pub b: String,
+pub struct Collision {
+    pub a: Side,
+    pub b: Side,
     pub pairing: Pairing,
-}
-
-/// The answer: the sides ranked, every pair judged once, and the clear set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Collisions {
-    pub sides: Vec<Side>,
-    pub pairs: Vec<Pair>,
-    /// The names that are `Clear` against every name admitted before them,
-    /// in side order. Greedy, not maximum: maximum independent set is
-    /// NP-hard, so this is "first-come, all-clear", and a name skipped
-    /// early is not re-admitted later because its blocker was not.
-    pub clear: Vec<String>,
-}
-
-/// What to rank, and in what order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-pub struct CollideOptions {
-    /// How many branches to rank in; `None` is every one. Ignored when
-    /// `names` is non-empty.
-    pub branches: Option<usize>,
-    /// Explicit branches. Empty means "rank them by recency".
-    pub names: Vec<String>,
 }
 
 /// A side with its ids still in hand: the report hex-encodes them, and the
@@ -79,129 +64,62 @@ struct SideRec {
     open: bool,
 }
 
-/// Would `a` and `b` collide, ranked by `opts`?
-pub fn collide(repo: &gix::Repository, opts: &CollideOptions) -> Result<Collisions> {
-    let candidates = candidates(repo, opts)?;
-    let recs = resolve_sides(repo, &candidates)?;
-    let pairs = judge(repo, &recs)?;
-    let names: Vec<String> = recs.iter().map(|s| s.name.clone()).collect();
-    let clear = clear_set(&names, &pairs);
-    let sides: Vec<Side> = recs
-        .iter()
-        .map(|s| Side {
-            name: s.name.clone(),
-            tip: s.tip.to_string(),
-            tree: s.tree.to_string(),
-            open: s.open,
-        })
-        .collect();
-    Ok(Collisions {
-        sides,
-        pairs,
-        clear,
+impl SideRec {
+    /// The reporting form, ids hex-encoded.
+    fn report(&self) -> Side {
+        Side {
+            name: self.name.clone(),
+            tip: self.tip.to_string(),
+            tree: self.tree.to_string(),
+            open: self.open,
+        }
+    }
+}
+
+/// Would `a` and `b` collide?
+pub fn collide(repo: &gix::Repository, a: &str, b: &str) -> Result<Collision> {
+    // A branch never conflicts with itself, so `Clear` here would be a true
+    // answer to a question nobody meant to ask.
+    if a == b {
+        return Err(Error::coded(
+            "usage/collide-same-branch",
+            format!("{a} cannot collide with itself"),
+            vec!["ff collide <a> <b>".into()],
+        ));
+    }
+    let a = resolve_side(repo, a)?;
+    let b = resolve_side(repo, b)?;
+    let pairing = pairing(repo, &a, &b)?;
+    Ok(Collision {
+        a: a.report(),
+        b: b.report(),
+        pairing,
     })
 }
 
-/// The candidates in judgment order: the names given, in order, deduped
-/// (first occurrence wins) and each required to exist; or every branch,
-/// newest committer time first with the name breaking the tie, cut to the
-/// rank — where `Some(0)` and `None` both mean every branch.
-fn candidates(
-    repo: &gix::Repository,
-    opts: &CollideOptions,
-) -> Result<Vec<(String, gix::ObjectId)>> {
-    if !opts.names.is_empty() {
-        let mut out = Vec::new();
-        for name in &opts.names {
-            if out.iter().any(|(n, _)| n == name) {
-                continue;
-            }
-            match crate::refs::ref_target(repo, &format!("refs/heads/{name}"))? {
-                Some(tip) => out.push((name.clone(), tip)),
-                None => {
-                    return Err(Error::coded(
-                        "branch/not-found",
-                        format!("no branch named {name}"),
-                        vec![],
-                    ));
-                }
-            }
-        }
-        return Ok(out);
-    }
-
-    // Unresolvable names drop out here: ranking is a read, and one ref it
-    // cannot follow is no reason to fail the rest.
-    let mut ranked: Vec<(String, gix::ObjectId, i64)> = Vec::new();
-    for name in crate::switch::branch_names(repo)? {
-        let Some(tip) = crate::refs::ref_target(repo, &format!("refs/heads/{name}"))? else {
-            continue;
-        };
-        ranked.push((name, tip, committer_time(repo, tip)?));
-    }
-    // Newest tip first; equal times are a clock accident the name breaks.
-    ranked.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
-    // `Some(0)` means every branch, the same wish `--all` spells out.
-    if let Some(n) = opts.branches
-        && n > 0
-    {
-        ranked.truncate(n);
-    }
-    Ok(ranked
-        .into_iter()
-        .map(|(name, tip, _)| (name, tip))
-        .collect())
-}
-
-/// The committer time of a commit, seconds since the epoch.
-fn committer_time(repo: &gix::Repository, id: gix::ObjectId) -> Result<i64> {
-    Ok(repo
-        .find_commit(id)
-        .map_err(Error::repo)?
-        .committer()
-        .map_err(Error::repo)?
-        .time()
-        .map_err(Error::repo)?
-        .seconds)
-}
-
-/// Each side's judgment tree: the tip's, unless the operation log holds a
-/// different tree for the branch — then the open change's, with `open` set.
-fn resolve_sides(
-    repo: &gix::Repository,
-    candidates: &[(String, gix::ObjectId)],
-) -> Result<Vec<SideRec>> {
-    let mut sides = Vec::new();
-    for (name, tip) in candidates {
-        let tip_tree = futures::tree_of(repo, *tip)?;
-        let open = futures::open_tree(repo, name)?;
-        let (tree, is_open) = match open {
-            Some(t) if t != tip_tree => (t, true),
-            _ => (tip_tree, false),
-        };
-        sides.push(SideRec {
-            name: name.clone(),
-            tip: *tip,
-            tree,
-            open: is_open,
-        });
-    }
-    Ok(sides)
-}
-
-/// Every `i < j` over the sides, in that order.
-fn judge(repo: &gix::Repository, sides: &[SideRec]) -> Result<Vec<Pair>> {
-    let mut pairs = Vec::new();
-    for i in 0..sides.len() {
-        for j in (i + 1)..sides.len() {
-            pairs.push(Pair {
-                a: sides[i].name.clone(),
-                b: sides[j].name.clone(),
-                pairing: pairing(repo, &sides[i], &sides[j])?,
-            });
-        }
-    }
-    Ok(pairs)
+/// One side's tip and the tree to judge it on: the open change's when the
+/// operation log holds one that differs from the tip's, else the tip's.
+/// The log is read rather than the worktree, so a branch checked out in
+/// another bay — or nowhere at all — still answers.
+fn resolve_side(repo: &gix::Repository, name: &str) -> Result<SideRec> {
+    let Some(tip) = crate::refs::ref_target(repo, &format!("refs/heads/{name}"))? else {
+        return Err(Error::coded(
+            "branch/not-found",
+            format!("no branch named {name}"),
+            vec![],
+        ));
+    };
+    let tip_tree = futures::tree_of(repo, tip)?;
+    let (tree, open) = match futures::open_tree(repo, name)? {
+        Some(open) if open != tip_tree => (open, true),
+        _ => (tip_tree, false),
+    };
+    Ok(SideRec {
+        name: name.to_string(),
+        tip,
+        tree,
+        open,
+    })
 }
 
 /// The verdict for one pair, judged from the common ground.
@@ -227,28 +145,4 @@ fn pairing(repo: &gix::Repository, a: &SideRec, b: &SideRec) -> Result<Pairing> 
     } else {
         Ok(Pairing::Collide { paths })
     }
-}
-
-/// A name in when it is `Clear` against every name already in, in side
-/// order. `Collide` and `Unknown` both block admission: an unrelated
-/// history is not a promise of safety.
-fn clear_set(names: &[String], pairs: &[Pair]) -> Vec<String> {
-    let mut admitted: Vec<String> = Vec::new();
-    for name in names {
-        let all_clear = admitted.iter().all(|other| {
-            pairing_between(name, other, pairs).is_some_and(|p| matches!(p, Pairing::Clear))
-        });
-        if all_clear {
-            admitted.push(name.clone());
-        }
-    }
-    admitted
-}
-
-/// The verdict between two names, whichever end they sit on.
-fn pairing_between<'a>(a: &str, b: &str, pairs: &'a [Pair]) -> Option<&'a Pairing> {
-    pairs
-        .iter()
-        .find(|p| (p.a == a && p.b == b) || (p.a == b && p.b == a))
-        .map(|p| &p.pairing)
 }

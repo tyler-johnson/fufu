@@ -58,8 +58,11 @@ fn three_branches() -> Fixture {
 #[test]
 fn the_human_line_marks_a_collision() {
     let fx = three_branches();
-    let out = ff(&fx, &["collide"]);
-    assert!(out.status.success());
+    let out = ff(&fx, &["collide", "feat-a", "feat-b"]);
+    assert!(
+        out.status.success(),
+        "a collision is a finding, not a failure"
+    );
     let text = stdout(&out);
     let line = text
         .lines()
@@ -74,7 +77,7 @@ fn the_human_line_marks_a_collision() {
 #[test]
 fn a_clear_pair_reads_clear() {
     let fx = three_branches();
-    let out = ff(&fx, &["collide"]);
+    let out = ff(&fx, &["collide", "feat-a", "fix-c"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let line = text
@@ -88,20 +91,54 @@ fn a_clear_pair_reads_clear() {
     );
 }
 
+/// One name is the branch you are on against that one.
 #[test]
-fn the_clear_set_is_printed() {
+fn one_name_compares_against_the_branch_you_are_on() {
     let fx = three_branches();
-    let out = ff(&fx, &["collide"]);
+    fx.git(&["switch", "feat-a"]);
+    let out = ff(&fx, &["collide", "feat-b"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let line = text
         .lines()
-        .find(|line| line.contains("clear set:"))
-        .expect("the clear set line");
-    assert!(
-        line.contains("fix-c"),
-        "the clear set names fix-c: {line:?}"
-    );
+        .find(|line| line.contains("feat-a") && line.contains("feat-b"))
+        .expect("the implicit side is the branch checked out");
+    assert!(line.contains("shared.txt"), "{line:?}");
+}
+
+#[test]
+fn a_detached_head_has_no_branch_to_compare() {
+    let fx = three_branches();
+    fx.git(&["checkout", "--detach", "feat-a"]);
+    let out = ff(&fx, &["collide", "feat-b"]);
+    assert!(!out.status.success(), "there is no name to stand in");
+    let text = String::from_utf8(out.stderr.clone()).expect("utf-8 stderr");
+    assert!(text.contains("detached"), "{text:?}");
+}
+
+#[test]
+fn a_branch_cannot_be_asked_about_itself() {
+    let fx = three_branches();
+    let out = ff(&fx, &["collide", "feat-a", "feat-a"]);
+    assert!(!out.status.success());
+    let text = String::from_utf8(out.stderr.clone()).expect("utf-8 stderr");
+    assert!(text.contains("cannot collide with itself"), "{text:?}");
+}
+
+/// The ranking flags the matrix form carried are gone, and clap says so
+/// rather than quietly ignoring them.
+#[test]
+fn the_ranking_flags_are_not_accepted() {
+    let fx = three_branches();
+    for args in [
+        vec!["collide", "--all"],
+        vec!["collide", "-n", "10"],
+        vec!["collide"],
+        vec!["collide", "feat-a", "feat-b", "fix-c"],
+    ] {
+        let out = ff(&fx, &args);
+        assert!(!out.status.success(), "{args:?} must be refused");
+    }
 }
 
 #[test]
@@ -113,7 +150,7 @@ fn uncommitted_work_is_marked_and_explained() {
     // reaches the operation log — not by hand-building that state.
     let capture = ff(&fx, &["status"]);
     assert!(capture.status.success());
-    let out = ff(&fx, &["collide"]);
+    let out = ff(&fx, &["collide", "feat-a", "feat-b"]);
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(
@@ -129,7 +166,7 @@ fn uncommitted_work_is_marked_and_explained() {
 #[test]
 fn json_carries_the_whole_model() {
     let fx = three_branches();
-    let out = ff(&fx, &["collide", "--json"]);
+    let out = ff(&fx, &["collide", "feat-a", "feat-b", "--json"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
@@ -137,28 +174,14 @@ fn json_carries_the_whole_model() {
     assert_eq!(v["cmd"], "collide");
 
     let data = &v["data"];
-    assert!(data.get("sides").is_some(), "data has sides");
-    assert!(data.get("pairs").is_some(), "data has pairs");
-    assert!(data.get("clear").is_some(), "data has clear");
-
-    let collide = data["pairs"]
-        .as_array()
-        .expect("pairs is an array")
-        .iter()
-        .find(|pair| pair["pairing"]["kind"] == "collide")
-        .expect("at least one colliding pair");
-    assert_eq!(
-        collide["pairing"]["paths"],
-        serde_json::json!(["shared.txt"])
+    assert_eq!(data["a"]["name"], "feat-a");
+    assert_eq!(data["b"]["name"], "feat-b");
+    assert!(data["a"]["tip"].is_string(), "each side carries its tip");
+    assert!(
+        data["a"]["tree"].is_string(),
+        "and the tree it was judged on"
     );
-}
-
-#[test]
-fn one_branch_is_nothing_to_compare() {
-    let fx = Fixture::new();
-    fx.write("shared.txt", "alpha\nbeta\ngamma\n");
-    fx.commit("base");
-    let out = ff(&fx, &["collide"]);
-    assert!(out.status.success());
-    assert!(stdout(&out).contains("nothing to compare"));
+    assert_eq!(data["a"]["open"], false);
+    assert_eq!(data["pairing"]["kind"], "collide");
+    assert_eq!(data["pairing"]["paths"], serde_json::json!(["shared.txt"]));
 }

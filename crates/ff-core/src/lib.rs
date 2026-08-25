@@ -58,7 +58,7 @@ pub use gix;
 pub use accounted::accounted_for;
 pub use changestat::{DiffOptions, change_diff, change_stat, tree_diff, tree_diff_stat};
 pub use close::{CloseOptions, close};
-pub use collide::{CollideOptions, Collisions, Pair, Pairing, Side, collide};
+pub use collide::{Collision, Pairing, Side, collide};
 pub use error::{Error, Result};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};

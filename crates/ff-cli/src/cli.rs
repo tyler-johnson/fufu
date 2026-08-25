@@ -114,16 +114,12 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
-    /// Which branches in flight would collide with each other
+    /// Would two branches hit each other if both landed
+    #[command(long_about = help::COLLIDE, after_long_help = help::COLLIDE_EXAMPLES)]
     Collide {
-        /// Branches to compare; omitted means the ones the map would rank
+        /// The two branches; one name means the branch you are on and that one
+        #[arg(num_args = 1..=2, required = true, value_name = "branch")]
         names: Vec<String>,
-        /// Branches to rank in, newest tip first; 0 means all
-        #[arg(short = 'n', long = "max-count", value_name = "count")]
-        branches: Option<usize>,
-        /// Every local branch
-        #[arg(long)]
-        all: bool,
     },
     // agent notice quotes this: `ff status`
     /// Show the working tree status

@@ -70,9 +70,9 @@ fn help_resolves_nested_subcommands() {
 #[test]
 fn every_command_has_a_page() {
     let commands = [
-        "map", "status", "diff", "show", "log", "history", "evolog", "git", "restore", "trim",
-        "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook", "config",
-        "doctor", "update", "resolve", "init", "clone", "remote", "version", "worktree",
+        "map", "status", "collide", "diff", "show", "log", "history", "evolog", "git", "restore",
+        "trim", "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook",
+        "config", "doctor", "update", "resolve", "init", "clone", "remote", "version", "worktree",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);
