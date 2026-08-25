@@ -829,6 +829,45 @@ Examples:
   ff hook shell list             what is wired, and where
   ff doctor                      check that something is feeding capture";
 
+pub const WATCH: &str = "\
+The operation log, as a stream: one JSON object per line, written as the
+log moves. It is not a daemon — it is a foreground process you started, it
+writes nothing, and it holds no authority. Ctrl-C ends it.
+
+What arrives is what the log *did*, not what was appended to it, because
+those are different questions. An operation landing is `landed`. An undo
+moving the pointer back is `stepped-back`. Work after an undo is `forked`.
+A trim is `rewritten`, and that one is terminal: every operation id you
+were holding stops resolving there, so the stream ends and exit 1 says so.
+Every stream opens on `start`, which names the tip you begin from.
+
+--all streams every worktree in the repository instead of this one. It
+opens with one `start` per worktree, picks up a bay added while it runs,
+and keeps a bay's chain on the stream after the worktree is removed —
+the removal captures into that chain, so dropping it would lose the last
+thing it said. A rewrite under --all belongs to the chain it happened to:
+that chain is reported, re-anchors itself, and the other chains keep
+streaming, so there is no exit 1.
+
+Every line carries the worktree the operation belongs to, in both modes,
+so a merged stream is one shape to parse. --since replays from an
+operation before tailing, and is refused with --all: an operation belongs
+to one chain, and there is no single place a repository-wide stream would
+replay from.
+
+Operations are written before the mutation they describe, so an event is
+a claim about the next microsecond rather than a report on the last one.
+`ff op log` shows the same operation with the same caveat.";
+
+pub const WATCH_EXAMPLES: &str = "\
+Examples:
+  ff watch                      this worktree, until you stop it
+  ff watch --all                every worktree in the repository
+  ff watch --kind op            verbs only, no captures
+  ff watch --session flight-3   one agent's motion
+  ff watch -n 1                 the current tip, then exit
+  ff op log                     the same operations, as a page";
+
 pub const HOOK_AGENT: &str = "\
 Wires fufu into the agent clients on this machine, so a snapshot lands
 before every Bash, Edit, Write, and NotebookEdit the agent runs. That is

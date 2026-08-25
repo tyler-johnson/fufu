@@ -425,7 +425,11 @@ pub enum Command {
         kind: HookKind,
     },
     /// Stream operations as they land, one JSON object per line
+    #[command(long_about = help::WATCH, after_long_help = help::WATCH_EXAMPLES)]
     Watch {
+        /// Every worktree in the repository, not just this one
+        #[arg(long)]
+        all: bool,
         /// Replay from this operation before tailing
         #[arg(long, value_name = "op")]
         since: Option<String>,

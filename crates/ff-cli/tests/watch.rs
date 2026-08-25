@@ -148,3 +148,155 @@ fn a_closed_pipe_is_a_clean_exit_not_a_panic() {
         "EPIPE must not panic, got {stderr:?}"
     );
 }
+
+/// A bay off `started()`, through the verb, so its chain floor is laid the
+/// way a real `ff worktree add` lays it.
+fn bay(fx: &Fixture, name: &str) -> std::path::PathBuf {
+    let out = ff(fx, &["worktree", "add", name]);
+    assert!(
+        out.status.success(),
+        "worktree add failed: {}",
+        stdout(&out)
+    );
+    fx.path().join(name)
+}
+
+fn json(line: &str) -> serde_json::Value {
+    serde_json::from_str(line).expect("valid json")
+}
+
+#[test]
+fn all_opens_with_one_anchor_per_worktree() {
+    let fx = started();
+    bay(&fx, "bay-a");
+
+    let out = ff(&fx, &["watch", "--all", "-n", "2"]);
+
+    assert!(out.status.success(), "watch exited {:?}", out.status);
+    let text = stdout(&out);
+    let lines: Vec<serde_json::Value> = text.lines().map(json).collect();
+    assert_eq!(lines.len(), 2, "two worktrees, two anchors: {text:?}");
+    let mut trees: Vec<&str> = lines
+        .iter()
+        .map(|line| {
+            assert_eq!(line["data"]["motion"], "start");
+            line["data"]["worktree"].as_str().expect("a worktree field")
+        })
+        .collect();
+    trees.sort_unstable();
+    assert_eq!(trees, vec!["bay-a", "main"]);
+}
+
+#[test]
+fn a_single_tree_stream_names_its_worktree_too() {
+    let fx = started();
+
+    let out = ff(&fx, &["watch", "-n", "1"]);
+
+    assert!(out.status.success(), "watch exited {:?}", out.status);
+    let v = json(stdout(&out).trim_end());
+    assert_eq!(v["data"]["motion"], "start");
+    // The field rides both modes, so a subscriber parses one shape.
+    assert_eq!(v["data"]["worktree"], "main");
+}
+
+#[test]
+fn work_in_a_bay_reaches_a_stream_started_in_the_main_worktree() {
+    let fx = started();
+    let bay = bay(&fx, "bay-a");
+
+    // Three lines: two anchors, then the bay's commit. `--kind op` keeps the
+    // pre-verb capture off the stream so the third line is the commit.
+    let mut child = cmd_at(&fx.path(), &["watch", "--all", "-n", "3", "--kind", "op"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn ff watch --all");
+    let mut lines = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+
+    // Both anchors before anything moves: reading them is the
+    // synchronization, exactly as the single-tree test uses `start`.
+    for _ in 0..2 {
+        let anchor = json(&lines.next().expect("an anchor line").expect("io"));
+        assert_eq!(anchor["data"]["motion"], "start");
+    }
+
+    std::fs::write(bay.join("b.txt"), "the bay's commit\n").expect("write in the bay");
+    let out = cmd_at(&bay, &["commit", "-m", "from the bay"])
+        .output()
+        .expect("spawn ff commit");
+    assert!(out.status.success(), "commit failed: {}", stdout(&out));
+
+    let landed = json(&lines.next().expect("a landed line").expect("io"));
+    let status = child.wait().expect("join ff watch");
+
+    assert!(status.success(), "watch exited {status:?}");
+    assert_eq!(landed["data"]["motion"], "landed");
+    assert_eq!(landed["data"]["op"]["verb"], "commit");
+    // The whole point: one process, and the line says which tree it came
+    // from. Before this, a supervisor ran one `ff watch` per bay.
+    assert_eq!(landed["data"]["worktree"], "bay-a");
+}
+
+#[test]
+fn all_and_since_are_refused_together() {
+    let fx = started();
+
+    let out = ff(&fx, &["watch", "--all", "--since", "@"]);
+
+    assert_eq!(out.status.code(), Some(2), "stdout: {}", stdout(&out));
+    let stderr = String::from_utf8(out.stderr.clone()).expect("utf-8 stderr");
+    assert!(
+        stderr.contains("--since") && stderr.contains("--all"),
+        "the message must name the combination, got {stderr:?}"
+    );
+    // The registered id, reached the way any refusal is reached.
+    let explained = ff(&fx, &["explain", "usage/bad-flags"]);
+    assert!(
+        explained.status.success(),
+        "explain exited {:?}",
+        explained.status
+    );
+}
+
+#[test]
+fn a_closed_pipe_under_all_is_a_clean_exit_not_a_panic() {
+    let fx = started();
+    let bay = bay(&fx, "bay-a");
+
+    let mut child = cmd_at(&fx.path(), &["watch", "--all", "-n", "9", "--kind", "op"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ff watch --all");
+
+    let mut lines = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+    let anchor = json(&lines.next().expect("an anchor line").expect("io"));
+    assert_eq!(anchor["data"]["motion"], "start");
+    drop(lines);
+
+    // Enough motion, in both trees, that the writer is certain to try again.
+    commit(&fx, "b.txt", "second");
+    std::fs::write(bay.join("c.txt"), "third\n").expect("write in the bay");
+    let out = cmd_at(&bay, &["commit", "-m", "third"])
+        .output()
+        .expect("spawn ff commit");
+    assert!(out.status.success(), "commit failed: {}", stdout(&out));
+
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("io");
+    let status = child.wait().expect("join ff watch");
+
+    assert!(
+        status.success(),
+        "a broken pipe is a clean exit, got {status:?} with stderr {stderr:?}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "EPIPE must not panic, got {stderr:?}"
+    );
+}

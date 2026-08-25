@@ -252,11 +252,12 @@ fn main() {
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
         Some(cli::Command::Hook { kind }) => cmd::hook::run(&ctx, kind),
         Some(cli::Command::Watch {
+            all,
             since,
             kind,
             session,
             count,
-        }) => cmd::watch::run(&ctx, since, kind, session, count),
+        }) => cmd::watch::run(&ctx, all, since, kind, session, count),
         Some(cli::Command::Config {
             key,
             value,

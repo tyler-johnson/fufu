@@ -11,6 +11,13 @@
 //! trailers; everything here is the process around that: a flag surface, a
 //! timer, and a line per motion.
 //!
+//! `--all` is the same process over every chain in the repository instead of
+//! this one. It exists because a supervisor over a pool of bays otherwise
+//! runs one of these per bay — N processes, N poll loops, N sets of anchors
+//! — and gets N streams whose lines carry no field saying which tree they
+//! came from. The `worktree` field is that field, and it rides both modes so
+//! a subscriber parses one shape.
+//!
 //! One caveat rides every event, inherited rather than introduced.
 //! Operations are written **write-ahead**, before the mutation they
 //! describe, so an operation reported here is a claim about the immediate
@@ -21,7 +28,7 @@
 
 use ff_core::gix;
 use ff_core::ops::OpLog;
-use ff_core::watch::{self, Filter, Motion};
+use ff_core::watch::{self, Event, Filter, Motion};
 use ff_core::{Error, Result};
 
 use crate::ctx::Ctx;
@@ -43,28 +50,28 @@ pub fn run(
     // Nothing on the context applies: this verb declares no `--at-op`, and
     // `--json` is not offered because the output is always JSON.
     _ctx: &Ctx,
+    all: bool,
     since: Option<String>,
     kind: Option<String>,
     session: Option<String>,
     count: Option<usize>,
 ) -> Result<()> {
+    // Before anything discovers, because the two flags disagree about what a
+    // stream even is rather than about how to run one.
+    if all && since.is_some() {
+        return Err(Error::coded(
+            "usage/bad-flags",
+            "--since anchors one chain and --all watches every one: an operation \
+             belongs to the worktree that wrote it, so there is no one place for a \
+             repository-wide stream to replay from",
+            vec!["ff watch --since <op>".into(), "ff watch --all".into()],
+        ));
+    }
+
     let repo = ff_core::discover(".")?;
     // The core owns the kind vocabulary and its error, so an unknown value
     // is refused here with the same words `--kind` would get anywhere else.
     let filter = Filter::new(kind.as_deref(), session)?;
-
-    // `resolve` accepts `@`, a letters-spelled id or prefix, and git's
-    // first-parent suffixes; `live` is the check that raises `op/trimmed`
-    // when retention has already aged the anchor off the log.
-    let since = match since {
-        None => None,
-        Some(spec) => {
-            let log = OpLog::open(&repo)?;
-            let id = log.resolve(&spec)?;
-            log.live(id)?;
-            Some(id)
-        }
-    };
 
     // Unbounded and `0` are the same wish. Every emitted event counts,
     // `start` included, which is what makes `-n 1` an anchor and nothing
@@ -79,6 +86,33 @@ pub fn run(
     // the lock five times a second to no purpose.
     let mut out = std::io::stdout().lock();
 
+    let interval = std::time::Duration::from_millis(interval_ms(&repo));
+
+    if all {
+        return run_all(&repo, &filter, interval, &mut out, left);
+    }
+
+    // `resolve` accepts `@`, a letters-spelled id or prefix, and git's
+    // first-parent suffixes; `live` is the check that raises `op/trimmed`
+    // when retention has already aged the anchor off the log.
+    let since = match since {
+        None => None,
+        Some(spec) => {
+            let log = OpLog::open(&repo)?;
+            let id = log.resolve(&spec)?;
+            log.live(id)?;
+            Some(id)
+        }
+    };
+
+    // Every line of a single-tree stream says the same worktree — this one.
+    // One lookup before the loop, rather than one per event.
+    let here = ff_core::ops::chain_id(&repo);
+    let wrap = |motion: Motion| Event {
+        worktree: here.clone(),
+        motion,
+    };
+
     // Read both anchors through the same call the loop uses, rather than
     // reading the refs again here: a second read would describe a different
     // instant than the one the first motion is measured against.
@@ -89,7 +123,7 @@ pub fn run(
     // Always first, so a subscriber holds an id before anything streams. It
     // names where this stream begins — the `--since` operation when one was
     // given, the live tip otherwise.
-    if !emit(&mut out, &Motion::Start { tip: last_seen })? {
+    if !emit(&mut out, &wrap(Motion::Start { tip: last_seen }))? {
         return Ok(());
     }
     left -= 1;
@@ -97,7 +131,6 @@ pub fn run(
         return Ok(());
     }
 
-    let interval = std::time::Duration::from_millis(interval_ms(&repo));
     loop {
         // Sleep first: a `--since` replay must not race the anchor read that
         // just settled above.
@@ -107,14 +140,15 @@ pub fn run(
         last_seen = seen.tip;
         last_trash = seen.trash;
 
-        for motion in &seen.motion {
-            if !emit(&mut out, motion)? {
+        for motion in seen.motion {
+            let terminal = matches!(motion, Motion::Rewritten { .. });
+            if !emit(&mut out, &wrap(motion))? {
                 return Ok(());
             }
             // Terminal. Every id the subscriber holds stops resolving at a
             // rewrite, so this is the end of a stream rather than an event
             // within one, and the shell is told so it can reconnect.
-            if matches!(motion, Motion::Rewritten { .. }) {
+            if terminal {
                 crate::exit::rewritten();
                 return Ok(());
             }
@@ -123,6 +157,38 @@ pub fn run(
                 return Ok(());
             }
         }
+    }
+}
+
+/// The repository-wide loop.
+///
+/// Two things differ from the single-tree loop above, and both are
+/// load-bearing. It ticks *first* and sleeps after: the first tick is the
+/// anchor burst — one `start` per worktree — and there is no `--since` replay
+/// to race it. And a rewrite is not terminal: it belongs to the chain it
+/// happened to, [`watch::Chains`] re-anchors that chain from the tip the
+/// event carried, and every other chain keeps streaming. A subscriber learns
+/// it per chain, from the event, rather than from an exit code that would be
+/// claiming the whole stream ended.
+fn run_all<W: std::io::Write>(
+    repo: &gix::Repository,
+    filter: &Filter,
+    interval: std::time::Duration,
+    out: &mut W,
+    mut left: usize,
+) -> Result<()> {
+    let mut chains = watch::Chains::new();
+    loop {
+        for event in chains.tick(repo, filter)? {
+            if !emit(out, &event)? {
+                return Ok(());
+            }
+            left -= 1;
+            if left == 0 {
+                return Ok(());
+            }
+        }
+        std::thread::sleep(interval);
     }
 }
 
@@ -144,9 +210,9 @@ pub fn run(
 /// stdout: `machine::write` maps its io error through `Error::repo`, which
 /// keeps the message and drops the `ErrorKind`, and the kind is the whole
 /// question being asked here.
-fn emit<W: std::io::Write>(out: &mut W, motion: &Motion) -> Result<bool> {
+fn emit<W: std::io::Write>(out: &mut W, event: &Event) -> Result<bool> {
     let mut line = Vec::new();
-    crate::machine::write(&mut line, "watch", motion)?;
+    crate::machine::write(&mut line, "watch", event)?;
     match out.write_all(&line).and_then(|()| out.flush()) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(false),
