@@ -30,7 +30,19 @@ branches stand to each other.
 You never type a capture. Every verb takes one first.
 
 Seven verbs take a short spelling too — st, ci, sw, br, ev, desc, cfg —
-for status, commit, switch, branch, evolog, describe, and config.";
+for status, commit, switch, branch, evolog, describe, and config.
+
+Every verb takes -C <dir> (--cwd) as well: run as if fufu had been
+started in <dir>, git's spelling of the same idea. It is a chdir, so a
+relative path argument after it reads from <dir> too, and any directory
+inside the repository you mean will do — a linked worktree included,
+which is how you ask one bay a question without leaving another.
+
+`ff <name>` runs ff-<name> from PATH when no verb matches, git-style. The
+child inherits three variables: FF_REPO, the worktree it was invoked
+against, unset outside one or in a bare repository; FF_CONTRACT, the
+version number every --json envelope carries; and FF_SESSION, the session
+tag when one is set.";
 
 pub const ROOT_EXAMPLES: &str = "\
 Examples:
@@ -40,6 +52,7 @@ Examples:
   ff log                         the timeline: commits wearing their operations
   ff restore src/ --at 2h        a directory, as it was two hours ago
   ff undo                        roll the whole repo back one run of work
+  ff -C ../bay status            another worktree, without leaving this one
 
 Wire it in, so capture reaches the commands you did not type:
   ff hook shell install          alias git='ff git' — git snapshots first

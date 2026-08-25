@@ -529,6 +529,18 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
+        id: "usage/no-such-directory",
+        summary: "-C names a directory that is not there",
+        detail: "-C (--cwd) runs the command as if fufu had been started somewhere else, so the \
+                 directory has to exist before anything else can happen — it is a chdir, and the \
+                 message carries what the operating system said about it. Nothing was captured: \
+                 the move lands before the pre-command snapshot precisely so a snapshot is never \
+                 taken against the wrong repository. The path may name any directory inside the \
+                 repository you mean, a linked worktree included, and a relative one is read from \
+                 where you typed it.",
+        exits: &["ff worktree list"],
+    },
+    Entry {
         id: "usage/no-such-path",
         summary: "that path names nothing here",
         detail: "A path has to name something the repository can see — a file or directory on \

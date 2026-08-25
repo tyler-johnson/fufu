@@ -91,6 +91,99 @@ fn the_session_reaches_the_child_in_the_environment() {
     assert_eq!(stdout(&out), "flight-9\n");
 }
 
+/// The other two thirds of the handshake `DESIGN.md` promised: which
+/// repository this was invoked against, and which JSON contract the child is
+/// about to parse.
+#[test]
+fn the_repository_and_the_contract_reach_the_child_too() {
+    let fx = Fixture::new();
+    let (bin_dir, _) = ext_bin("tower", "echo \"$FF_REPO\"; echo \"$FF_CONTRACT\"");
+    let out = ff_ext(&fx, bin_dir.path(), &["tower", "go"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let mut lines = text.lines();
+    let repo = lines.next().expect("FF_REPO line");
+    assert!(
+        ff_testsupport::paths::is(repo, &fx.path()),
+        "FF_REPO was {repo:?}, not the worktree"
+    );
+    // The integer every `{"ff": N, …}` envelope carries, and the same one:
+    // `ff status --json` is the contract the child would be parsing.
+    let contract = lines.next().expect("FF_CONTRACT line");
+    let envelope: serde_json::Value =
+        serde_json::from_str(&stdout(&ff_ext(&fx, bin_dir.path(), &["status", "--json"])))
+            .expect("valid json");
+    assert_eq!(envelope["ff"].to_string(), contract);
+}
+
+/// Absent rather than empty when there is no worktree, so a child tests
+/// presence instead of parsing emptiness.
+#[test]
+fn the_repository_is_unset_outside_one() {
+    let away = TempDir::new().expect("create tempdir");
+    let (bin_dir, _) = ext_bin("tower", "echo \"${FF_REPO-unset}\"");
+    let out = ff_at(away.path(), Some(bin_dir.path()), &["tower", "go"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "unset\n");
+}
+
+/// `-C` reaches the path clap never parsed, and is fufu's flag all the way
+/// down: the child moves with it and never sees it.
+#[test]
+fn the_cwd_flag_reaches_the_extension_and_stays_out_of_its_argv() {
+    let fx = Fixture::new();
+    let away = TempDir::new().expect("create tempdir");
+    let (bin_dir, _) = ext_bin("tower", "echo \"$FF_REPO\"; echo \"[$*]\"");
+    let dir = fx.path();
+    let dir = dir.to_str().expect("utf-8 path");
+    // Every spelling clap would have accepted, since none of them reached it.
+    for args in [
+        vec!["-C", dir, "tower", "go"],
+        vec!["--cwd", dir, "tower", "go"],
+        vec![&format!("--cwd={dir}")[..], "tower", "go"],
+        vec![&format!("-C{dir}")[..], "tower", "go"],
+    ] {
+        let out = ff_at(away.path(), Some(bin_dir.path()), &args);
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let text = stdout(&out);
+        let mut lines = text.lines();
+        assert!(
+            ff_testsupport::paths::is(lines.next().expect("FF_REPO line"), &fx.path()),
+            "{args:?}: {text}"
+        );
+        assert_eq!(lines.next(), Some("[go]"), "{args:?}: {text}");
+    }
+}
+
+/// A `-C` after the extension's own word belongs to the extension: that is
+/// where fufu's argv stops, so it is neither acted on nor stripped.
+#[test]
+fn a_flag_after_the_word_belongs_to_the_extension() {
+    let fx = Fixture::new();
+    let (bin_dir, _) = ext_bin("tower", "echo \"[$*]\"");
+    let out = ff_ext(&fx, bin_dir.path(), &["tower", "-C", "elsewhere"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "[-C elsewhere]\n");
+}
+
+/// `--session <v>` was already dropped from the child's argv; `--session=<v>`
+/// leaked, because the scan compared one spelling of a flag that has two.
+#[test]
+fn both_spellings_of_the_session_flag_stay_out_of_the_argv() {
+    let fx = Fixture::new();
+    let (bin_dir, _) = ext_bin("tower", "echo \"[$*] $FF_SESSION\"");
+    for flag in ["--session=flight-9", "--session"] {
+        let mut args = vec![flag];
+        if flag == "--session" {
+            args.push("flight-9");
+        }
+        args.extend(["tower", "go"]);
+        let out = ff_at(&fx.path(), Some(bin_dir.path()), &args);
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        assert_eq!(stdout(&out), "[go] flight-9\n", "{args:?}");
+    }
+}
+
 #[test]
 fn a_builtin_wins_over_an_extension() {
     let fx = Fixture::new();

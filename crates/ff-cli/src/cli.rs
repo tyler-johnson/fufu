@@ -80,6 +80,18 @@ pub struct Cli {
     /// Session name for this invocation
     #[arg(long, value_name = "name", global = true)]
     pub session: Option<String>,
+    // The second short letter above the verbs, and git's spelling of it. The
+    // long-only rule for shared flags buys verbs a free letter apiece; this
+    // one is bought back because the habit is already in everybody's fingers
+    // and an uppercase letter was spoken for anyway (`-V`). The long form is
+    // the canonical name, as with `-v`/`--version`.
+    //
+    // Named for the mechanism: it is a chdir, so a relative path argument
+    // after it resolves against <dir> too — the whole command moves. `--repo`
+    // would have promised something narrower than what happens.
+    /// Run as if fufu had been started in <dir>
+    #[arg(short = 'C', long = "cwd", value_name = "dir", global = true)]
+    pub cwd: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Option<Command>,
 }

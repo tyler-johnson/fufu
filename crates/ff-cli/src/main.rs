@@ -34,6 +34,9 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 /// only real conflicts it ever caught, so they are named here instead and
 /// the globals go free.
 fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
+    // Before every refusal below and before `Ctx::new`, because it has to
+    // land before anything discovers.
+    relocate(args)?;
     // `-m` is the retired snapshot message: a removal, refused with or
     // without a subcommand, and answered with what bare ff is now.
     if args.message.is_some() {
@@ -78,6 +81,33 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
         ));
     }
     ctx::Ctx::new(args)
+}
+
+/// `-C <dir>`: run as if fufu had been started there.
+///
+/// The mechanism is a chdir rather than a repository path threaded through
+/// discovery, which is why the flag is named for the current directory.
+/// Everything in fufu discovers from `.`, so moving the process moves every
+/// one of those call sites at once, and a relative path argument then
+/// resolves against <dir> the way git's own `-C` makes it.
+///
+/// It runs first in `settle`, which puts it ahead of `lanes::preflight` —
+/// where the pre-command capture and the first discovery happen. A capture
+/// taken from the old directory would snapshot the wrong repository.
+///
+/// The exits name verbs rather than the flag: they are lines somebody types
+/// next, and `every_exit_names_live_surface` parses them as such.
+fn relocate(args: &cli::Cli) -> ff_core::Result<()> {
+    let Some(dir) = &args.cwd else {
+        return Ok(());
+    };
+    std::env::set_current_dir(dir).map_err(|err| {
+        ff_core::Error::coded(
+            "usage/no-such-directory",
+            format!("-C {}: {err}", dir.display()),
+            vec!["ff status".into(), "ff worktree list".into()],
+        )
+    })
 }
 
 /// Render one failure and exit. Both failure paths come through here — the
