@@ -683,8 +683,19 @@ semantics; fufu chooses the execution per call-site.**
   compatibility is a standing test suite, not a port milestone.
 - **Behavioral compatibility included.** Correct formats aren't enough: if
   `ff commit` writes commit objects directly, the user's pre-commit and
-  commit-msg hooks still run — fufu execs them itself. Boring citizenship
-  covers behavior, not just bytes.
+  commit-msg hooks still run — fufu execs them itself. That extends to what
+  the hooks *see*: a hook-runner like lefthook, lint-staged or husky asks git
+  what is staged and does nothing when the answer is empty, so before the
+  first hook fufu writes the index to the tree it is about to commit — the
+  slice for a partial `ff commit <paths>`, matching git's pathspec form — and
+  restores it byte-for-byte when the close does not land, as git rolls its own
+  index back after a refused `commit -a`. The index stays a derived surface
+  the user never sees or maintains; it was simply being written at the wrong
+  moment. One divergence stands, in fufu's favor: a formatter's fixes land via
+  the worktree re-scan rather than via anything the hook staged, so lefthook's
+  `stage_fixed: true` is decorative here, where under git a formatter that
+  rewrites without re-staging loses its fixes. Boring citizenship covers
+  behavior, not just bytes.
 - **No daemon.** Millisecond cold start plus in-process caching keeps jog's
   no-daemon stance viable: compute lazily at invocation, cache aggressively.
 
