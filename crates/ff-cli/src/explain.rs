@@ -531,6 +531,17 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
+        id: "usage/unknown-slug",
+        summary: "that is not a slug ff hook knows",
+        detail: "`ff hook` and `ff unhook` take flat, permanent slugs — claude, codex, cursor, \
+                 gemini, bash, zsh, fish — because they end up written inside config files fufu \
+                 does not own and cannot rename afterward. These two verbs are for people, so an \
+                 unknown name is a real error here; `ff trigger`, which clients call, exits 0 on \
+                 one instead. `ff hook -l` lists every slug with what is on this machine and \
+                 what is already wired.",
+        exits: &["ff hook -l", "ff hook claude", "ff hook --all"],
+    },
+    Entry {
         id: "usage/no-such-directory",
         summary: "-C names a directory that is not there",
         detail: "-C (--cwd) runs the command as if fufu had been started somewhere else, so the \

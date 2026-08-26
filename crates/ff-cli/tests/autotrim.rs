@@ -10,6 +10,15 @@ use ff_testsupport::fixtures::{Fixture, null_device};
 // ── Runner ────────────────────────────────────────────────────────────────
 
 /// Run `ff` in a fixture repo with the auto-trim lane active.
+/// A HOME no test may escape. `ff doctor --fix` and the wiring verbs write
+/// into the user's own config files, so a suite that let the real HOME
+/// through would rewrite the config of whoever is running it.
+fn scratch_home() -> &'static std::path::Path {
+    static HOME: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| tempfile::TempDir::new().expect("scratch HOME"))
+        .path()
+}
+
 fn ff(fx: &Fixture, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(fx.path())
@@ -17,6 +26,7 @@ fn ff(fx: &Fixture, args: &[&str]) -> Output {
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", scratch_home())
         // Real CI sets CI, and the lane skips when it is set — remove so the
         // lane actually runs in our test harness.
         .env_remove("CI")
@@ -242,6 +252,7 @@ fn ci_skips_the_lane() {
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", scratch_home())
         .env("CI", "1")
         .output()
         .expect("spawn ff");
@@ -273,6 +284,7 @@ fn the_hook_carries_the_lane() {
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", scratch_home())
         .env_remove("CI")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

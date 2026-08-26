@@ -39,6 +39,15 @@ struct Trap {
     log: std::path::PathBuf,
 }
 
+/// A HOME no test may escape. `ff doctor --fix` and the wiring verbs write
+/// into the user's own config files, so a suite that let the real HOME
+/// through would rewrite the config of whoever is running it.
+fn scratch_home() -> &'static std::path::Path {
+    static HOME: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    HOME.get_or_init(|| tempfile::TempDir::new().expect("scratch HOME"))
+        .path()
+}
+
 fn build_trap() -> Trap {
     build_trap_with(1)
 }
@@ -82,6 +91,7 @@ fn ff_trapped(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", scratch_home())
         // Real CI sets CI, and the auto-trim lane skips when it is set —
         // remove so the zero-spawn auto-trim case actually exercises the lane.
         .env_remove("CI")
@@ -104,6 +114,7 @@ fn ff_trapped_keeping_path(trap: &Trap, dir: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", scratch_home())
         .env_remove("CI")
         .output()
         .expect("spawn ff")
@@ -150,7 +161,7 @@ fn status_and_log_never_spawn() {
         // before any repository work, so this must be zero-spawn too — a
         // `git` subprocess on every prompt would be a permanent, invisible
         // tax.
-        &["hook", "shell", "trigger"][..],
+        &["trigger", "shell"][..],
         // Bare ff is the map: both its capture and its read are native, so
         // both spellings stay in the trapped set.
         &[][..],

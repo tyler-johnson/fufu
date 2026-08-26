@@ -60,5 +60,5 @@ if (($env:Path -split ';') -notcontains $installDir) {
 
 Write-Host ''
 Write-Host 'next steps:'
-Write-Host "  ff hook shell install          # alias git='ff git' in your shell rc"
-Write-Host "  ff hook agent install claude   # capture around Claude Code's tool actions"
+Write-Host "  ff hook                        # what is on this machine, then wires it"
+Write-Host "  ff hook -l                     # just the report"

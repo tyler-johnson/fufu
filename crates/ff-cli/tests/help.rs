@@ -49,21 +49,17 @@ fn help_command_equals_the_long_flag() {
 
 #[test]
 fn help_resolves_nested_subcommands() {
-    let out = ff(&["help", "hook", "agent"]);
+    let out = ff(&["help", "op"]);
     assert!(out.status.success(), "exit 0: {:?}", out.status);
     let body = stdout(&out);
-    assert!(body.contains("Usage: ff hook agent"), "missing usage line");
-    assert!(
-        body.contains("Wires fufu into the agent"),
-        "missing HOOK_AGENT fragment"
-    );
+    assert!(body.contains("Usage: ff op"), "missing usage line");
 
-    let out = ff(&["help", "hook", "agent", "install"]);
+    let out = ff(&["help", "op", "log"]);
     assert!(out.status.success(), "exit 0: {:?}", out.status);
     let body = stdout(&out);
     assert!(
-        body.contains("Usage: ff hook agent install"),
-        "missing install usage line"
+        body.contains("Usage: ff op log"),
+        "missing nested usage line"
     );
 }
 
@@ -72,7 +68,8 @@ fn every_command_has_a_page() {
     let commands = [
         "map", "status", "collide", "diff", "show", "log", "history", "evolog", "git", "restore",
         "trim", "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook",
-        "config", "doctor", "update", "resolve", "init", "clone", "remote", "version", "worktree",
+        "unhook", "trigger", "config", "doctor", "update", "resolve", "init", "clone", "remote",
+        "version", "worktree",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);

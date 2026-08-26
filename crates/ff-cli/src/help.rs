@@ -55,8 +55,8 @@ Examples:
   ff -C ../bay status            another worktree, without leaving this one
 
 Wire it in, so capture reaches the commands you did not type:
-  ff hook shell install          alias git='ff git' — git snapshots first
-  ff hook agent install          snapshot around your agent's tool calls
+  ff hook                        what is on this machine, then asks
+  ff hook claude zsh             wire exactly those
   ff doctor                      is any of this actually on?
 
 `ff help <command>` (or `ff <command> --help`) has the details.";
@@ -254,7 +254,7 @@ Examples:
 
 pub const GIT: &str = "\
 Snapshots first, then runs the git command. This is what the shell alias
-runs — `alias git='ff git'`, installed by `ff hook shell install` — so
+runs — `alias git='ff git'`, installed by `ff hook <shell>` — so
 typed git keeps working exactly as it did, and simply stops being able to
 lose anything.
 
@@ -275,7 +275,7 @@ Examples:
   ff config translate true       daily forms become their ff verbs
   ff git commit -m \"…\"           translated: closes the open change
   ff git rebase -i HEAD~3        never translated: snapshot, then real git
-  ff hook shell install          make every typed git command do this";
+  ff hook zsh                    make every typed git command do this";
 
 pub const RESTORE: &str = "\
 Files come back as they were somewhere else. Bare, that somewhere is the
@@ -838,21 +838,74 @@ Examples:
   ff undo                          put the branch back";
 
 pub const HOOK: &str = "\
-Everything that feeds the capture floor is a hook, under one grammar:
-ff hook <agent|shell|editor> <install|uninstall|list|trigger> [name].
+Wires fufu into the agent clients and shells on this machine, so a
+snapshot lands before every tool call your agent makes and before every
+git command you type. That is the difference between \"the agent broke
+something\" and \"the agent broke something, and here is the tree from
+thirty seconds ago\".
+
+Bare `ff hook` reports what it found and then asks. Name slugs to wire
+exactly those; --all takes everything detected without asking; -l reports
+and stops either way. The slugs are flat: claude, codex, cursor, gemini,
+bash, zsh, fish. `cursor` is the agent client — a future editor
+integration gets its own name.
+
+What gets written depends on the client, and is not a choice you make:
+Claude Code takes a plugin directory fufu owns outright, the others take
+entries merged into their own settings file, and the shells take marked
+lines in an rc file. A line you wrote yourself is detected, reported, and
+never touched.
 
 Hooks are what make capture ambient instead of something you remember.
-With none of them wired, fufu snapshots only when you type an ff command —
-which works, and misses the whole point. `ff doctor` warns when nothing at
-all feeds capture, because a silent engine feels safe while capturing
+With none of them wired, fufu snapshots only when you type an ff command
+— which works, and misses the whole point. `ff doctor` warns when nothing
+at all feeds capture, because a silent engine feels safe while capturing
 nothing.";
 
 pub const HOOK_EXAMPLES: &str = "\
 Examples:
-  ff hook shell install          alias git='ff git' in your shell's rc file
-  ff hook agent install          snapshot around your agent's tool calls
-  ff hook shell list             what is wired, and where
-  ff doctor                      check that something is feeding capture";
+  ff hook                  what is on this machine, then asks
+  ff hook claude codex     wire exactly those
+  ff hook --all            everything detected, no question
+  ff hook -l               report and stop
+  ff unhook claude         take back exactly what hook added
+  ff doctor                check that something is feeding capture";
+
+pub const UNHOOK: &str = "\
+Removes exactly what `ff hook` added, and nothing else. Foreign entries in
+a settings file keep whatever shape they had; a line somebody wrote by
+hand is left where it is and reported rather than removed.
+
+Bare `ff unhook` reports and asks, the same way `ff hook` does.";
+
+pub const UNHOOK_EXAMPLES: &str = "\
+Examples:
+  ff unhook claude         one client
+  ff unhook --all          everything fufu wired
+  ff hook -l               what is wired, before and after";
+
+pub const TRIGGER: &str = "\
+Snapshots the working tree, now. Every ff command captures first and then
+goes and does something; this one captures and stops, which makes it the
+fastest way to force a snapshot and the natural thing to type before
+something risky. -m says what it is for, so a hand-taken snapshot carries
+its reason.
+
+`ff trigger <source>` means: a capture trigger fired, from this source.
+The other sources are machine surface, not commands to type — claude,
+codex, cursor, gemini for the agent clients, and shell for the prompt
+hook. Those are invoked by the client with a payload on stdin, they always
+exit 0 whatever went wrong, and they never veto the action they fired on.
+Their failures are silent by design; FF_DEBUG=1 makes them talk. A source
+name fufu does not know exits 0 and says nothing, which is what makes a
+fufu trigger safe to wire into a client fufu has never heard of.";
+
+pub const TRIGGER_EXAMPLES: &str = "\
+Examples:
+  ff trigger                     snapshot now
+  ff trigger -m \"before this\"    and say why it was taken
+  ff op log                      the snapshot you just took
+  ff restore --all --at 2h       what the snapshots are for";
 
 pub const WATCH: &str = "\
 The operation log, as a stream: one JSON object per line, written as the
@@ -892,54 +945,6 @@ Examples:
   ff watch --session flight-3   one agent's motion
   ff watch -n 1                 the current tip, then exit
   ff op log                     the same operations, as a page";
-
-pub const HOOK_AGENT: &str = "\
-Wires fufu into the agent clients on this machine, so a snapshot lands
-before every Bash, Edit, Write, and NotebookEdit the agent runs. That is
-the difference between \"the agent broke something\" and \"the agent broke
-something, and here is the tree from thirty seconds ago\".
-
-Install writes entries into the client's own settings file; uninstall
-removes exactly what install added and nothing else; both are idempotent.
-`trigger` is the runtime the client invokes with a payload on stdin — not
-a command to run by hand. It always exits 0: a hook must never veto an
-agent's action.";
-
-pub const HOOK_AGENT_EXAMPLES: &str = "\
-Examples:
-  ff hook agent install          wire claude on this machine
-  ff hook agent list             installed, or not
-  ff hook agent uninstall        remove exactly what install added";
-
-pub const HOOK_SHELL: &str = "\
-Wires two independent pieces into your shell's rc file. The alias —
-alias git='ff git' — so every git command you type snapshots first;
-scripts, IDEs, and GUIs resolve the real git on PATH and are untouched, on
-purpose. The ambient prompt hook — ff hook shell trigger — so the shell can
-tell you what syncing would cost before you ask, speaking only when that
-changes.
-
-The shell defaults to $SHELL; name one to wire a different one.";
-
-pub const HOOK_SHELL_EXAMPLES: &str = "\
-Examples:
-  ff hook shell install          wire $SHELL: the alias and the prompt hook
-  ff hook shell install fish     wire a specific one
-  ff hook shell list             which shells are wired, and how
-  ff hook shell uninstall        take both lines back out";
-
-pub const HOOK_EDITOR: &str = "\
-Reserved. The slot exists so the grammar is complete; nothing installs
-yet. Unknown hook kinds exit 0 silently by design — a hook must never
-break the caller that runs it.";
-
-pub const HOOK_TRIGGER: &str = "\
-The hook runtime: the client invokes this with a payload on stdin when
-something is about to happen. It is not a command to run by hand.
-
-It always exits 0, whatever went wrong — a hook must never veto the
-action it fired on. Failures are silent by design; FF_DEBUG=1 makes them
-talk.";
 
 pub const CONFIG: &str = "\
 No subcommands — arity decides. Bare `ff config` lists every setting with

@@ -86,5 +86,5 @@ case ":$PATH:" in
 esac
 echo ""
 echo "next steps:"
-echo "  ff hook shell install          # alias git='ff git' in your shell rc"
-echo "  ff hook agent install claude   # capture around Claude Code's tool actions"
+echo "  ff hook                        # what is on this machine, then wires it"
+echo "  ff hook -l                     # just the report"

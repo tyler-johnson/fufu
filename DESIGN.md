@@ -511,7 +511,7 @@ Run inside a repository that already exists, `ff init` means *turn fufu on here*
 
 These are the only two verbs that capture **last**. Every other verb captures first; these cannot, because there is no repository to capture until the work is done. What they take is not a pre-command snapshot but the log's first entry, and an append before the clone happened would be a claim nothing could falsify — the same shape `ff publish`'s record takes, for the same reason.
 
-Neither pesters about hooks. `~/.claude/settings.json` and shell rc files belong to the user, not to this repository; `ff hook` installs them when asked and `ff doctor` already owns the report.
+Neither pesters about hooks. Every agent client's config file and every shell rc file belongs to the user, not to this repository; `ff hook` wires them when asked and `ff doctor` already owns the report.
 
 ### Presentation conventions
 
@@ -580,7 +580,7 @@ never reads it: partial staging is invisible to `ff status` and subsumed by
 
 Retention with an undo. `ff trim` drops the oldest suffix of the operation log past `fufu.keep` (90 days by default). The pre-trim tip is written to trash before a single ref moves, so the last trim is itself recoverable; survivors keep their trees, messages, and dates byte-for-byte, only parent slots relink, and the reflog is replayed with the original times so `@{n}` and `@{time}` stay truthful. A crash mid-trim leaves a shorter-but-valid chain and the full pre-trim state in trash.
 
-The earned existence is the automatic half: a safety net whose upkeep is a chore is a net that quietly rots. A trim rides an ff command at most once per `fufu.autoTrim` (daily by default), per repository, and it runs **inline** — the engine is native, so there is no child to spawn and nothing to wait on. The hot path is one read of a per-repo stamp beside the common git dir; config is consulted only when the stamp says a trim might be due, and the stamp is written *before* the trim runs, so a failure retries on the cadence rather than on every command. The one thing the automatic lane deliberately skips is manual trim's `git gc --auto` nudge: that would put a spawn on the commands that carry the lane, and bare `ff`, `ff git`, and `ff hook` stay provably spawn-free. A hand-run `ff trim` nudges whether or not it dropped anything: native writes never trigger auto-gc, so without that nudge nothing ever packs the store, and an unpacked store taxes every chain walk long before retention is due. `gc --auto` is self-limiting, so the nudge costs nothing until git itself thinks packing is worthwhile. `fufu.autoTrim false` leaves trimming entirely by hand.
+The earned existence is the automatic half: a safety net whose upkeep is a chore is a net that quietly rots. A trim rides an ff command at most once per `fufu.autoTrim` (daily by default), per repository, and it runs **inline** — the engine is native, so there is no child to spawn and nothing to wait on. The hot path is one read of a per-repo stamp beside the common git dir; config is consulted only when the stamp says a trim might be due, and the stamp is written *before* the trim runs, so a failure retries on the cadence rather than on every command. The one thing the automatic lane deliberately skips is manual trim's `git gc --auto` nudge: that would put a spawn on the commands that carry the lane, and bare `ff`, `ff git`, and `ff trigger` stay provably spawn-free. A hand-run `ff trim` nudges whether or not it dropped anything: native writes never trigger auto-gc, so without that nudge nothing ever packs the store, and an unpacked store taxes every chain walk long before retention is due. `gc --auto` is self-limiting, so the nudge costs nothing until git itself thinks packing is worthwhile. `fufu.autoTrim false` leaves trimming entirely by hand.
 
 ### `ff config`
 
@@ -596,7 +596,7 @@ The passive lane keeps installs fresh without being asked. Official binaries (ne
 
 ### `ff doctor`
 
-jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (the log moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (the operation log and its age, fufu's identity on the operations carrying it, reflogs, the gc guard, pending foreign drift, settings validated through the same parsers the readers use, the object store's loose-versus-packed split, a trim preview and the auto-trim clock), the wiring (claude hooks, the shell alias, and a triggers check that warns when nothing at all feeds the capture floor — a silent engine feels safe while capturing nothing), and the update cache.
+jog's doctor, carried over. The earned existence: a safety net you can't inspect isn't trustworthy — every floor can degrade silently (the log moved by something that isn't fufu, a reflog that never got created, the gc guard deleted from local config, hooks never installed, a stale binary), and without a doctor the first notice is the day the restore you needed isn't there. One command reads the whole net: the engine (the operation log and its age, fufu's identity on the operations carrying it, reflogs, the gc guard, pending foreign drift, settings validated through the same parsers the readers use, the object store's loose-versus-packed split, a trim preview and the auto-trim clock), the wiring (every agent client and shell `ff hook` knows, folded out of the one status vector `ff hook -l` renders — so the two commands cannot disagree — plus a triggers check that warns when nothing at all feeds the capture floor, because a silent engine feels safe while capturing nothing), and the update cache.
 
 Three row levels, jog's shape: `ok` counts nothing, `info` is news not a problem, `WARN` is a finding. Findings drive the exit code — 0 healthy, 1 findings — so scripts and CI can gate on it, and `--json` emits the same rows for machines. Read-only by design: doctor reports the drift the log will absorb and never absorbs it, captures nothing, reconciles nothing. The one consented write is `--fix`, which repairs exactly the two gc reflog-expiry keys — rewriting wrong values where the lazy guard only ever appends missing ones — and nothing else.
 
@@ -660,7 +660,13 @@ Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `f
 
 The rule that keeps extension from eating the invariant: **extensions read fufu state and call fufu verbs; only fufu writes fufu state.** A plugin editing `refs/fufu/*` is a second author of a cache whose entire safety argument is that it has one — principle 3, with the author named.
 
-Hooks are the oldest mechanism and the widest: everything feeding the capture floor is `ff hook`, and the agent trigger's contract *is* its extension point — always exit 0, never veto, fail silently, `FF_DEBUG=1` to see why. That contract is what makes the trigger safe to install into a tool fufu has never heard of, so it is published rather than reimplemented per vendor: known agents get a thin installer, anything else calls the generic trigger with its payload on stdin. A hook never vetoes, ever; the wish to stop an agent from touching a branch is policy, and policy lives in config.
+Hooks are the oldest mechanism and the widest, and they are two verbs rather than one because they are two contracts. `ff hook` and `ff unhook` are what a person types: flat, permanent slugs — `claude`, `codex`, `cursor`, `gemini`, `bash`, `zsh`, `fish` — where an unknown name is a real error and a failure is loud. `ff trigger <source>` is what a client calls, and its contract *is* the extension point: always exit 0, never veto, fail silently, `FF_DEBUG=1` to see why, and an unrecognized source name exits 0 in silence rather than erroring. That last clause is what makes a fufu trigger safe to wire into a tool fufu has never heard of, so it is published rather than reimplemented per vendor.
+
+The two namespaces are deliberately different, because `hook` names a thing you integrate with and `trigger` names an event source, which is finer-grained. All three shell slugs install rc lines calling one `ff trigger shell`. A client whose payload identifies its own event is one source name; one whose payload cannot is `<vendor>-<event>`, resolved by splitting on the first `-` and forcing the event from the tail. `manual` is a source with no slug, because there is nothing to install.
+
+Behind both verbs sits one client-neutral core — a neutral event, one shared capture pipeline, one briefing text — and four thin protocol adapters that translate a payload in and wrap the briefing on the way out. Two things stay vendor-visible on purpose. The snapshot's subject keeps the source's own name (`claude[a1b2c3d4]: Edit(src/x.rs)`), because a subject says who. And the briefing marker is per-slug, because two clients in one repository sharing one marker would each clobber the other's session id and re-brief forever.
+
+A hook never vetoes, ever; the wish to stop an agent from touching a branch is policy, and policy lives in config.
 
 ## Substrate
 
@@ -793,13 +799,14 @@ the substrate and the zero-spawn budget before anything depends on them.
 ff command capturing first; the per-branch timeline
 interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). (Phase 1
 shipped a manual snapshot verb on bare `ff`; it retired when bare `ff` became
-the map, and capture is automatic-only from then on.) The
+the map, and came back as `ff trigger` — capture is automatic *by default*,
+with one verb that forces it and `-m` to say why.) The
 `ff git` passthrough with its translation whitelist (opt-in, behind
 `fufu.translate`) and the recommended alias move up from Phase 5: the
 translation layer grows with the verbs, and anything reaching for git grabs
 fufu instead from day one. Triggers are the
-capture-first commands, the alias, and agent hooks (Claude Code); editor
-integration is deferred until a real need shows up. jog's lessons carried
+capture-first commands, the alias, and the agent clients (Claude Code, Codex,
+Cursor, Gemini CLI); editor integration is deferred until a real need shows up. jog's lessons carried
 over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The operation log and whole-repo `ff undo`; reconciliation as
@@ -883,7 +890,7 @@ tree), so it is self-invalidating: no eviction policy, no staleness clock, and
 deleting it changes no answer, only the cost of getting one. A remote
 configured against a ref that is not there short-circuits to `gone` without
 probing or caching, there being nothing to simulate and nothing worth
-remembering. The ambient channel is the `ff hook shell trigger` runtime the verb
+remembering. The ambient channel is the `ff trigger shell` runtime the verb
 grammar already had room for — read-only by construction (no capture, no
 reconcile, no journal append), gated on a TTY first because it runs at every
 prompt, and fingerprinted on the verdicts' *kinds* alone, both axes, so a branch

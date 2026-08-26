@@ -82,7 +82,7 @@ fn fresh_repo_with_no_log_warns() {
         "triggers warn present:\n{out_text}"
     );
     assert!(
-        out_text.contains("neither the alias nor the claude hooks are wired"),
+        out_text.contains("nothing is wired"),
         "triggers detail:\n{out_text}"
     );
 
@@ -188,17 +188,15 @@ fn all_green_after_snapshot_and_wiring() {
         "settings defaults:\n{out_text}"
     );
     assert!(out_text.contains("info  trim"), "trim info:\n{out_text}");
+    // No claude row at all: the client is not on this machine, and a
+    // client you do not have is not a hole in the net.
     assert!(
-        out_text.contains("info  claude hooks"),
-        "claude hooks info:\n{out_text}"
-    );
-    assert!(
-        out_text.contains("not wired (optional"),
-        "claude hooks detail:\n{out_text}"
+        !out_text.contains("claude"),
+        "no row for an absent client:\n{out_text}"
     );
     assert!(out_text.contains("ok    alias"), "alias ok:\n{out_text}");
     assert!(
-        out_text.contains("git='ff git' installed in"),
+        out_text.contains("git='ff git' wired in"),
         "alias detail:\n{out_text}"
     );
     assert!(
@@ -379,16 +377,12 @@ fn wiring_infos_and_triggers_warn() {
     // Initialize snapshots
     ff_init(&fx);
 
-    // Nothing wired
+    // Nothing wired, and no client on this machine either.
     let out = doctor(&fx, &[]);
     let out_text = stdout(&out);
     assert!(
-        out_text.contains("info  claude hooks"),
-        "claude hooks info:\n{out_text}"
-    );
-    assert!(
-        out_text.contains("not wired (optional — `ff hook agent install`)"),
-        "claude hooks detail:\n{out_text}"
+        !out_text.contains("claude"),
+        "no row for an absent client:\n{out_text}"
     );
     assert!(out_text.contains("info  alias"), "alias info:\n{out_text}");
     assert!(
@@ -401,11 +395,7 @@ fn wiring_infos_and_triggers_warn() {
     );
 
     // Install bash alias
-    let out = doctor_env(
-        &fx.path(),
-        &["hook", "shell", "install", "bash"],
-        &fx.root().join("home"),
-    );
+    let out = doctor_env(&fx.path(), &["hook", "bash"], &fx.root().join("home"));
     assert!(out.status.success(), "alias install succeeded");
 
     // Triggers should be gone
@@ -432,12 +422,8 @@ fn partial_hook_wiring_warns() {
     // Initialize snapshots
     ff_init(&fx);
 
-    // Wire bash alias (so we only test the partial hook side)
-    let out = doctor_env(
-        &fx.path(),
-        &["hook", "shell", "install", "bash"],
-        &fx.root().join("home"),
-    );
+    // Wire bash alias (so we only test the partial client side)
+    let out = doctor_env(&fx.path(), &["hook", "bash"], &fx.root().join("home"));
     assert!(out.status.success(), "alias install succeeded");
 
     // Write settings.json with only PreToolUse wired
@@ -454,12 +440,13 @@ fn partial_hook_wiring_warns() {
     assert_eq!(out.status.code(), Some(1), "exit 1 with partial hook warn");
     let out_text = stdout(&out);
     assert!(
-        out_text.contains("WARN  claude hooks"),
-        "claude hooks warn:\n{out_text}"
+        out_text.contains("WARN  claude"),
+        "claude warn:\n{out_text}"
     );
     assert!(
-        out_text.contains("PreToolUse wired but UserPromptSubmit missing — capture is partial (`ff hook agent install` repairs)"),
-        "partial hook detail:\n{out_text}"
+        out_text.contains("UserPromptSubmit missing — capture is partial")
+            && out_text.contains("`ff hook claude` repairs"),
+        "partial wiring detail:\n{out_text}"
     );
     // Partial wiring is still wiring — no triggers row
     assert!(
@@ -544,11 +531,8 @@ fn outside_repository() {
         "repo detail:\n{out_text}"
     );
     // Wiring checks still run
-    assert!(
-        out_text.contains("claude hooks"),
-        "claude hooks present:\n{out_text}"
-    );
     assert!(out_text.contains("alias"), "alias present:\n{out_text}");
+    assert!(out_text.contains("ambient"), "ambient present:\n{out_text}");
     assert!(out_text.contains("update"), "update present:\n{out_text}");
     // chains should NOT appear (repo check)
     assert!(

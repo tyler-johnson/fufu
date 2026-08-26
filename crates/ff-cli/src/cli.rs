@@ -35,8 +35,8 @@ pub const VERSION: &str = concat!(
 #[command(
     name = "ff",
     // Pinned, not derived: clap falls back to argv[0]'s file name, which is
-    // "ff.exe" on Windows, so usage lines would read "Usage: ff.exe hook agent"
-    // there and "Usage: ff hook agent" everywhere else. Subcommands inherit it.
+    // "ff.exe" on Windows, so usage lines would read "Usage: ff.exe hook"
+    // there and "Usage: ff hook" everywhere else. Subcommands inherit it.
     bin_name = "ff",
     version = VERSION,
     // The version line's name, and only that: usage lines keep `bin_name`,
@@ -97,7 +97,7 @@ pub struct Cli {
 }
 
 // A `// agent notice quotes this` line marks surface that the once-per-session
-// Claude briefing spells out verbatim (`NOTICE` in cmd/hook.rs). That briefing
+// Claude briefing spells out verbatim (`NOTICE` in integ/briefing.rs). That briefing
 // is the only spelling lesson an agent gets, so a retired verb or a renamed
 // flag there teaches it to fail: change one here and fix it there in the same
 // commit. `grep -rn "agent notice" crates/ff-cli/src` finds every site, both
@@ -414,11 +414,41 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
-    /// Manage fufu's capture hooks: agents, shells, editors
+    /// Hook fufu into the agent clients and shells on this machine
     #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
     Hook {
-        #[command(subcommand)]
-        kind: HookKind,
+        /// Slugs to hook: claude, codex, cursor, gemini, bash, zsh, fish
+        #[arg(value_name = "slug")]
+        slugs: Vec<String>,
+        /// Everything detected, without asking
+        #[arg(long)]
+        all: bool,
+        /// Report what is here and stop
+        #[arg(short = 'l', long = "list")]
+        list: bool,
+        /// claude only: wire settings entries instead of the plugin
+        #[arg(long)]
+        settings: bool,
+    },
+    /// Remove exactly what hook added
+    #[command(long_about = help::UNHOOK, after_long_help = help::UNHOOK_EXAMPLES)]
+    Unhook {
+        /// Slugs to unhook; none reports and asks
+        #[arg(value_name = "slug")]
+        slugs: Vec<String>,
+        /// Everything detected, without asking
+        #[arg(long)]
+        all: bool,
+    },
+    /// Snapshot the working tree now
+    #[command(long_about = help::TRIGGER, after_long_help = help::TRIGGER_EXAMPLES)]
+    Trigger {
+        /// The source; absent or `manual` is the hand-taken snapshot
+        #[arg(value_name = "source")]
+        source: Option<String>,
+        /// Say what this snapshot is for
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
     },
     /// Stream operations as they land, one JSON object per line
     #[command(long_about = help::WATCH, after_long_help = help::WATCH_EXAMPLES)]
@@ -797,8 +827,8 @@ pub struct Lanes {
 
 impl Lanes {
     /// Nothing at all: the verbs that run before there is a repository, the
-    /// detached `update` child, `git` and `hook` (each already carries its
-    /// own lanes on purpose), and the foreign redirects (they print and stop).
+    /// detached `update` child, `git` and the wiring verbs (each already carries
+    /// its own lanes on purpose), and the foreign redirects (they print and stop).
     pub const NONE: Lanes = Lanes {
         capture: false,
         update: false,
@@ -880,6 +910,8 @@ impl Command {
             Command::Done { .. } => "done",
             Command::Resolve { .. } => "resolve",
             Command::Hook { .. } => "hook",
+            Command::Unhook { .. } => "unhook",
+            Command::Trigger { .. } => "trigger",
             Command::Watch { .. } => "watch",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
@@ -957,6 +989,8 @@ impl Command {
             | Command::Done { .. }
             | Command::Resolve { .. }
             | Command::Hook { .. }
+            | Command::Unhook { .. }
+            | Command::Trigger { .. }
             | Command::Config { .. }
             | Command::Remote
             | Command::Doctor { .. }
@@ -983,19 +1017,24 @@ impl Command {
 
     /// Whether `--json` means anything here. Four verbs own their stream
     /// rather than emit an envelope on it: `git` passes real git's output
-    /// through (often by exec'ing it), `hook` speaks the agent client's
+    /// through (often by exec'ing it), a client `trigger` speaks that client's
     /// protocol on stdout, `update` narrates a download to a person, and
     /// `watch` emits a *stream* of envelopes rather than one, so a flag
     /// asking for JSON would be describing what it already always does. For
     /// those the flag is ignored, not honored with an empty envelope.
     pub fn json_capable(&self) -> bool {
-        !matches!(
-            self,
-            Command::Git { .. }
-                | Command::Hook { .. }
-                | Command::Update { .. }
-                | Command::Watch { .. }
-        )
+        match self {
+            Command::Git { .. } | Command::Update { .. } | Command::Watch { .. } => false,
+            // `trigger` is two things under one name, and only one of them
+            // owns its stream. The manual snapshot is a verb like any
+            // other and emits an envelope; a client source's stdout
+            // belongs to that client's protocol, and an envelope on it
+            // would be fufu talking over the briefing.
+            Command::Trigger { source, .. } => {
+                matches!(source.as_deref(), None | Some(crate::integ::manual::SOURCE))
+            }
+            _ => true,
+        }
     }
 
     /// The ambient lanes this verb rides. It lives beside the variant, so a
@@ -1007,7 +1046,7 @@ impl Command {
             // These ride nothing: `init` and `clone` capture last, by design
             // — there is no repository to capture until their work is done;
             // `update`'s detached child must touch nothing and must not
-            // recurse; `git` and `hook` already carry their own lanes, in
+            // recurse; `git` and the trigger sources already carry their own lanes, in
             // their own order (git's notice is deliberately deferred past
             // git's output); and the foreign redirects print a redirect and
             // stop — a snapshot for a command that does not exist would be a
@@ -1017,6 +1056,8 @@ impl Command {
             | Command::Update { .. }
             | Command::Git { .. }
             | Command::Hook { .. }
+            | Command::Unhook { .. }
+            | Command::Trigger { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
             | Command::Pull { .. }
@@ -1102,59 +1143,6 @@ impl Command {
             }
         }
     }
-}
-
-/// Everything that feeds the capture floor is a hook. One grammar:
-/// `ff hook <agent|shell|editor> <install|uninstall|list|trigger> [name]`.
-#[derive(Subcommand)]
-pub enum HookKind {
-    /// Agent hooks (claude): capture around agent tool actions
-    #[command(long_about = help::HOOK_AGENT, after_long_help = help::HOOK_AGENT_EXAMPLES)]
-    Agent {
-        #[command(subcommand)]
-        verb: HookVerb,
-    },
-    /// Shell hooks (bash, zsh, fish): the `alias git='ff git'` line
-    #[command(long_about = help::HOOK_SHELL, after_long_help = help::HOOK_SHELL_EXAMPLES)]
-    Shell {
-        #[command(subcommand)]
-        verb: HookVerb,
-    },
-    /// Editor hooks: reserved — none exist yet
-    #[command(long_about = help::HOOK_EDITOR)]
-    Editor {
-        #[command(subcommand)]
-        verb: HookVerb,
-    },
-    /// Unknown kinds exit 0 silently: never break a caller's hook.
-    /// (Also forwards the committed Phase 1 spelling `ff hook claude`.)
-    #[command(external_subcommand)]
-    Other(Vec<OsString>),
-}
-
-#[derive(Subcommand)]
-pub enum HookVerb {
-    /// Install the hook (agent: settings entries; shell: the alias line)
-    Install {
-        /// Agent (claude) or shell (bash, zsh, fish); defaults to claude / $SHELL
-        name: Option<String>,
-    },
-    /// Remove exactly what install added
-    Uninstall {
-        /// Agent or shell name; defaults to claude / $SHELL
-        name: Option<String>,
-    },
-    /// Show installation state
-    List {
-        /// Optional name to narrow to
-        name: Option<String>,
-    },
-    /// Hook runtime, called by the client with a payload on stdin
-    #[command(long_about = help::HOOK_TRIGGER)]
-    Trigger {
-        /// Agent name; defaults to claude
-        name: Option<String>,
-    },
 }
 
 #[cfg(test)]

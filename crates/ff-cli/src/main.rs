@@ -9,6 +9,7 @@ mod explain;
 mod ext;
 mod graph;
 mod help;
+mod integ;
 mod lanes;
 mod machine;
 mod net;
@@ -246,7 +247,14 @@ fn main() {
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
         Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
-        Some(cli::Command::Hook { kind }) => cmd::hook::run(&ctx, kind),
+        Some(cli::Command::Hook {
+            slugs,
+            all,
+            list,
+            settings,
+        }) => integ::hook(&ctx, slugs, all, list, settings),
+        Some(cli::Command::Unhook { slugs, all }) => integ::unhook(&ctx, slugs, all),
+        Some(cli::Command::Trigger { source, message }) => integ::trigger(&ctx, source, message),
         Some(cli::Command::Watch {
             all,
             since,
