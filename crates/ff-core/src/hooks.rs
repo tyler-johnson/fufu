@@ -47,6 +47,18 @@ fn find_hook(repo: &gix::Repository, name: &str) -> Result<Option<PathBuf>> {
     Ok(Some(hook))
 }
 
+/// Whether a close is going to run a hook at all — either of the two.
+/// The close populates the index before the first hook so hook-runners
+/// keyed on staging see the change staged, and that work is worth nothing
+/// in a repo with no hooks; gating on this costs two `stat` calls.
+///
+/// `commit-msg` is in the gate as well as `pre-commit` because the index
+/// stays populated from the early write through `commit_msg`, matching
+/// git, at no extra cost.
+pub fn will_run(repo: &gix::Repository) -> Result<bool> {
+    Ok(find_hook(repo, "pre-commit")?.is_some() || find_hook(repo, "commit-msg")?.is_some())
+}
+
 /// Run a hook from the worktree root with the given arguments. `Ok(false)`
 /// = no hook to run; `Ok(true)` = ran and succeeded; a non-zero exit is an
 /// error carrying the hook's name.

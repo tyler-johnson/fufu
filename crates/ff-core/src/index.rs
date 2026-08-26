@@ -112,6 +112,64 @@ fn write_locked(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// The index as it was found, restored on drop unless disarmed. The close
+/// writes the index to the tree it is about to commit before running hooks,
+/// so hook-runners keyed on `git diff --cached` see the change staged; if
+/// the close then doesn't land, git rolls its own index back and so does
+/// this.
+///
+/// Byte-exact rather than a rewrite to `head_tree`: a user may have their
+/// own `git add` state, which fufu tolerates, and a close that refuses must
+/// not destroy it.
+pub struct IndexBackup {
+    path: std::path::PathBuf,
+    /// The file's bytes, or `None` when there was no index file at all
+    /// (an unborn or freshly-initialized repository).
+    bytes: Option<Vec<u8>>,
+    armed: bool,
+}
+
+impl IndexBackup {
+    /// Read the current index aside. In a linked worktree `index_path()`
+    /// resolves per-worktree, which is the path this restores to.
+    pub fn take(repo: &gix::Repository) -> Result<Self> {
+        let path = repo.index_path();
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+            Err(err) => return Err(Error::msg(format!("could not read index: {err}"))),
+        };
+        Ok(Self {
+            path,
+            bytes,
+            armed: true,
+        })
+    }
+
+    /// Keep the index as it now stands — the close landed.
+    pub fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for IndexBackup {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // Drop cannot propagate. A held `index.lock` means no restore, and
+        // the next fufu operation rewrites the index anyway.
+        match &self.bytes {
+            Some(bytes) => {
+                let _ = write_locked(&self.path, bytes);
+            }
+            None => {
+                let _ = std::fs::remove_file(&self.path);
+            }
+        }
+    }
+}
+
 /// Copy stat data for every entry whose (path, id, mode) match the previous
 /// index at stage 0, except the paths the caller says the worktree differs
 /// on. Everything else keeps zeroed stats and will be rehashed by the next

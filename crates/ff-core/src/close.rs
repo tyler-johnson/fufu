@@ -46,6 +46,18 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
     Ok(commit.message().map_err(Error::repo)?.summary().to_string())
 }
 
+/// The paths a scan saw that a slice does not take — what a close leaves on
+/// disk. Empty paths select everything, so nothing is left behind.
+fn unselected_paths(scan: &snaptree::Scan, paths: &[String]) -> Vec<String> {
+    if paths.is_empty() {
+        return Vec::new();
+    }
+    scan.paths()
+        .filter(|path| !crate::restore::path_selected(path, paths))
+        .map(String::from)
+        .collect()
+}
+
 /// The clean-tree refusal: no hooks, no commit, nothing written. It happens
 /// before every mutation, so a pending description survives it untouched; a
 /// `-m` does not — it is discarded with the refusal, which is why
@@ -194,6 +206,31 @@ pub fn close(
         ));
     }
 
+    // Hook-runners — lefthook, lint-staged, husky, pre-commit — ask git
+    // what is staged and do nothing when the answer is empty. fufu's index
+    // describes the last commit while a change is open, so every one of
+    // them silently no-ops. Git populates the index before running
+    // `pre-commit` (both `commit -a` and `commit -- <path>` do) and rolls it
+    // back when the commit does not land; do the same. The index stays a
+    // derived surface the user never maintains — it is just written at the
+    // right moment now.
+    //
+    // The provisional tree is the *slice*, so a partial `ff commit <paths>`
+    // stages exactly what is landing, as git's pathspec form does.
+    let mut index_backup = None;
+    if !opts.no_verify && hooks::will_run(repo)? {
+        // Never `head_tree`: `snaptree::scan` short-circuits on a valid
+        // cache-tree root equal to HEAD's tree and would then report only
+        // index↔worktree, so a provisional index equal to HEAD (or written
+        // without a cache tree) would make the re-scan below come back
+        // empty and refuse a real change as `commit/empty`. The empty
+        // slice already refused above, so this tree differs from HEAD.
+        let provisional = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?.0;
+        let differs = unselected_paths(&scan_full, &opts.paths);
+        index_backup = Some(crate::index::IndexBackup::take(repo)?);
+        crate::index::write_index_for_tree_except(repo, provisional, &differs)?;
+    }
+
     // Hooks before the tree build — pre-commit hooks format files, so a
     // hook that ran invalidates the scan. Re-take both, and re-narrow.
     if !opts.no_verify && hooks::pre_commit(repo)? {
@@ -235,15 +272,7 @@ pub fn close(
     // holds — so their stat data must not be carried over, or the next
     // status trusts it and the remainder stops being the open change. See
     // `index::write_index_for_tree_except`.
-    let worktree_differs: Vec<String> = if opts.paths.is_empty() {
-        Vec::new()
-    } else {
-        scan_full
-            .paths()
-            .filter(|path| !crate::restore::path_selected(path, &opts.paths))
-            .map(String::from)
-            .collect()
-    };
+    let worktree_differs = unselected_paths(&scan_full, &opts.paths);
 
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
@@ -430,7 +459,17 @@ pub fn close(
         time: &time_str,
     };
     match refs::commit_edits_as(repo, Some(edit), sig_ref)? {
-        refs::EditOutcome::Applied => {}
+        refs::EditOutcome::Applied => {
+            // The close has landed: the provisional index is no longer
+            // provisional, and putting the old one back would contradict
+            // HEAD. Every exit before this point — the post-hook empty
+            // refusal, a declining `commit-msg`, `branch/exists`,
+            // `ref/contended`, any `?` on the way — drops the guard armed
+            // and gets the index back byte-for-byte.
+            if let Some(backup) = index_backup.take() {
+                backup.disarm();
+            }
+        }
         refs::EditOutcome::Contended => {
             return Err(Error::coded(
                 "ref/contended",

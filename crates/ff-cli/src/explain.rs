@@ -264,8 +264,10 @@ pub static ENTRIES: &[Entry] = &[
         summary: "one of your git hooks refused the commit",
         detail: "fufu runs your pre-commit and commit-msg hooks itself, so a hook that exits \
                  non-zero stops the close exactly as it would under git. The hook's own output \
-                 says why. --no-verify skips them, with the usual caveat that they were there \
-                 for a reason.",
+                 says why. The index is populated before the hooks run, so runners keyed on \
+                 staged files see the change, and it is put back exactly as it was when the \
+                 close does not land. --no-verify skips them, with the usual caveat that they \
+                 were there for a reason.",
         exits: &["ff commit --no-verify"],
     },
     Entry {

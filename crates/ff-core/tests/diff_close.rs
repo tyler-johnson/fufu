@@ -245,6 +245,9 @@ fn declining_pre_commit_hook_aborts_with_nothing_written() {
     ident(&fx);
     install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
     fx.write("a.txt", "changed\n");
+    // The close populates the index before the hook; a decline must put it
+    // back exactly, git's own rollback.
+    let index_before = fx.index_bytes();
 
     let repo = fx.repo();
     let err = ff_core::close(
@@ -257,6 +260,11 @@ fn declining_pre_commit_hook_aborts_with_nothing_written() {
         fx.git(&["rev-parse", "HEAD"]).trim(),
         head,
         "branch unmoved"
+    );
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "the declined close restores .git/index byte-for-byte"
     );
     // No op entry was journaled for the aborted close.
     let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
@@ -284,6 +292,155 @@ fn commit_msg_hook_rewrites_the_message() {
     let (outcome, _) = close_with(&fx, default_opts());
     let CommitOutcome::Closed { subject, .. } = outcome;
     assert_eq!(subject, "rewritten: close message");
+}
+
+/// Records what git thinks is staged at hook time, into the git dir so the
+/// marker never becomes part of the open change. This is exactly lefthook's
+/// `{staged_files}`.
+const STAGED_HOOK: &str = "#!/bin/sh\ngit diff --name-only --cached --diff-filter=ACMR \
+                           > \"$(git rev-parse --git-dir)/staged.txt\"\n";
+
+fn staged_marker(fx: &Fixture) -> Vec<String> {
+    let text = std::fs::read_to_string(fx.path().join(".git/staged.txt"))
+        .expect("the hook ran and recorded what was staged");
+    text.lines().map(String::from).collect()
+}
+
+#[test]
+fn pre_commit_hook_sees_the_whole_change_staged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "new\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    assert!(matches!(outcome, CommitOutcome::Closed { .. }));
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["a.txt", "new.txt"],
+        "hook-runners keyed on the index see the whole change"
+    );
+}
+
+#[test]
+fn pre_commit_hook_sees_only_the_selected_paths() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.write("b.txt", "b\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("a.txt", "a changed\n");
+    fx.write("b.txt", "b changed\n");
+
+    let mut opts = default_opts();
+    opts.paths = vec!["a.txt".into()];
+    let (outcome, _) = close_with(&fx, opts);
+    assert!(matches!(outcome, CommitOutcome::Closed { .. }));
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["a.txt"],
+        "a partial close stages exactly the slice, as git's pathspec form does"
+    );
+    // The remainder is still the open change, on disk and unstaged.
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("b.txt")).unwrap(),
+        "b changed\n",
+        "the unselected edit survives the hook run"
+    );
+}
+
+#[test]
+fn commit_msg_hook_sees_the_change_staged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    // No pre-commit hook: the gate's second arm carries this alone.
+    install_hook(&fx, "commit-msg", STAGED_HOOK);
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    assert!(matches!(outcome, CommitOutcome::Closed { .. }));
+    assert_eq!(staged_marker(&fx), vec!["a.txt"]);
+}
+
+#[test]
+fn an_inert_pre_commit_hook_still_closes_the_whole_change() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 0\n");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "new\n");
+
+    // The provisional index must never be HEAD's tree, or the capture scan's
+    // staged-known-clean shortcut fires and a real change refuses as empty.
+    let (outcome, _) = close_with(&fx, default_opts());
+    let CommitOutcome::Closed { id, .. } = outcome;
+    assert_eq!(fx.git(&["show", &format!("{id}:a.txt")]), "changed\n");
+    assert_eq!(fx.git(&["show", &format!("{id}:new.txt")]), "new\n");
+}
+
+#[test]
+fn a_hook_reverting_the_worktree_refuses_and_restores_the_index() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let head = fx.commit("init");
+    ident(&fx);
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nprintf 'a\\n' > a.txt\n");
+    fx.write("a.txt", "changed\n");
+    let index_before = fx.index_bytes();
+
+    let err = close_result(&fx, default_opts()).unwrap_err();
+    assert_eq!(
+        err.id(),
+        "commit/empty",
+        "the re-scan finds nothing to close"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD"]).trim(),
+        head,
+        "branch unmoved"
+    );
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "a close that does not land restores .git/index byte-for-byte"
+    );
+}
+
+#[test]
+fn no_verify_writes_no_provisional_index() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.git(&["branch", "taken"]);
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("a.txt", "changed\n");
+    let index_before = fx.index_bytes();
+
+    // Refuses at the branch axis, well past where the provisional write
+    // would have happened.
+    let mut opts = default_opts();
+    opts.no_verify = true;
+    opts.branch = Some("taken".into());
+    let err = close_result(&fx, opts).unwrap_err();
+    assert_eq!(err.id(), "branch/exists");
+    assert!(
+        !fx.path().join(".git/staged.txt").exists(),
+        "--no-verify runs no hook"
+    );
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "--no-verify touches the index only at the final write"
+    );
 }
 
 #[test]
