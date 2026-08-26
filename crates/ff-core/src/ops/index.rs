@@ -381,7 +381,9 @@ impl Index {
                         && file.read_exact(&mut buf).is_ok()
                     {
                         records = buf
-                            .chunks_exact(RECORD_LEN)
+                            .as_chunks::<RECORD_LEN>()
+                            .0
+                            .iter()
                             .map(|rec| String::from_utf8_lossy(&rec[..40]).to_string())
                             .collect();
                     }

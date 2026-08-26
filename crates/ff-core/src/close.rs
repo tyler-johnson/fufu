@@ -292,11 +292,10 @@ pub fn close(
         .to_string();
 
     // The branch axis: where does this close land?
-    let target_branch;
     let mut claim_from: Option<String> = None;
     let mut created_branch = false;
-    match &opts.branch {
-        None => target_branch = current_branch.clone(),
+    let target_branch = match &opts.branch {
+        None => current_branch.clone(),
         Some(name) => {
             branch::validate_name(name)?;
             if refs::ref_target(repo, &format!("refs/heads/{name}"))?.is_some() {
@@ -311,9 +310,9 @@ pub fn close(
             } else {
                 created_branch = true;
             }
-            target_branch = name.clone();
+            name.clone()
         }
-    }
+    };
 
     // The commit object, written up front — the plan needs its sha.
     let sig = refs::user_signature(repo, now)?;
