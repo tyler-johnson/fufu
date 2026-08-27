@@ -59,7 +59,11 @@ Wire it in, so capture reaches the commands you did not type:
   ff hook claude zsh             wire exactly those
   ff doctor                      is any of this actually on?
 
-`ff help <command>` (or `ff <command> --help`) has the details.";
+`ff help <command>` (or `ff <command> --help`) has the details.
+
+Are you an agent working in a repository fufu manages? Before you write to it:
+  SKIP if fufu's skill is already in your context. Otherwise:
+  ff hook --skill                the manual: recovery, rewriting, conflicts";
 
 pub const COLLIDE: &str = "\
 Would these two branches hit each other if both landed? A three-way merge
@@ -874,6 +878,7 @@ Examples:
   ff hook claude codex     wire exactly those
   ff hook --all            everything detected, no question
   ff hook -l               report and stop
+  ff hook --skill          print the manual, for a client that reads no skill
   ff unhook claude         take back exactly what hook added
   ff doctor                check that something is feeding capture";
 

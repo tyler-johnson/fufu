@@ -252,7 +252,8 @@ fn main() {
             all,
             list,
             settings,
-        }) => integ::hook(&ctx, slugs, all, list, settings),
+            skill,
+        }) => integ::hook(&ctx, slugs, all, list, settings, skill),
         Some(cli::Command::Unhook { slugs, all }) => integ::unhook(&ctx, slugs, all),
         Some(cli::Command::Trigger { source, message }) => integ::trigger(&ctx, source, message),
         Some(cli::Command::Watch {

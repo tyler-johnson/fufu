@@ -624,6 +624,84 @@ fn the_codex_skill_is_its_own_directory() {
     assert!(v.get("hooks").is_none(), "the entries went too: {v}");
 }
 
+/// The print route. Cursor and Gemini read no skills directory, and a
+/// client fufu has never heard of reads nothing fufu knows about — so the
+/// manual has to be reachable without an install. What it prints is the
+/// same bytes an install writes, which is what makes redirecting it into a
+/// foreign client honest.
+#[test]
+fn the_skill_prints_and_writes_nothing() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    // Outside a repository: `hook` takes no capture lane, so this is the
+    // one place that claim is asserted rather than assumed.
+    let out = ff_env(home.path(), &["hook", "--skill"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let printed = text(&out);
+    assert!(
+        printed.starts_with("---\nname: fufu\n"),
+        "frontmatter survives the redirect: {:?}",
+        &printed[..printed.len().min(40)]
+    );
+
+    // A print is a print: nothing on this machine changed.
+    assert!(!home.path().join(".claude").exists());
+    assert!(!home.path().join(".codex").exists());
+
+    // …and it is byte-for-byte what an install writes.
+    assert!(
+        ff_env(home.path(), &["hook", "claude"], &env)
+            .status
+            .success()
+    );
+    let installed =
+        std::fs::read_to_string(home.path().join(".claude/skills/fufu/skills/fufu/SKILL.md"))
+            .unwrap();
+    assert_eq!(printed, installed, "printed and installed are one text");
+}
+
+/// Anything fufu tells a person, a script reads as data.
+#[test]
+fn the_printed_skill_has_a_json_form() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    let out = ff_env(home.path(), &["--json", "hook", "--skill"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_str(text(&out).trim()).unwrap();
+    assert_eq!(v["ff"], 1);
+    assert_eq!(v["cmd"], "hook");
+    let skill = v["data"]["skill"].as_str().expect("the skill is a string");
+    assert!(skill.starts_with("---\nname: fufu\n"), "{skill:?}");
+}
+
+/// Every one of these is a question with no answer — print, or act? clap
+/// refusing them beats picking one.
+#[test]
+fn printing_the_skill_conflicts_with_acting() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    for args in [
+        &["hook", "--skill", "--all"][..],
+        &["hook", "--skill", "-l"][..],
+        &["hook", "claude", "--skill"][..],
+    ] {
+        let out = ff_env(home.path(), args, &env);
+        assert_eq!(out.status.code(), Some(2), "{args:?} is a usage error");
+    }
+    assert!(!home.path().join(".claude").exists());
+}
+
 /// A skill an older fufu wrote still reads, so it is a repair rather than
 /// a hole: doctor names it, `--fix` rewrites it, and capture never enters
 /// the question.

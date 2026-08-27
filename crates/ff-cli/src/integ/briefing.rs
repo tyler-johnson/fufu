@@ -237,6 +237,43 @@ mod notice {
         );
     }
 
+    /// The root `--help` ends with a block routing an agent that has no
+    /// skill in its context to go and print one. That is the same class of
+    /// text as the notice — prose an agent reads as instructions — so it
+    /// gets the same guard: the command it names is one clap still takes.
+    /// Without this, retiring the flag teaches an agent to fail instead of
+    /// failing here.
+    #[test]
+    fn the_help_block_routes_an_agent_to_a_command_that_runs() {
+        let block = crate::help::ROOT_EXAMPLES
+            .split_once("Are you an agent")
+            .expect("the root help still carries the agent block")
+            .1;
+        // Two columns: the command, then whitespace, then what it is for.
+        let commands: Vec<Vec<String>> = block
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("ff "))
+            .map(|line| {
+                line.split("  ")
+                    .next()
+                    .unwrap_or(line)
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .collect();
+        assert!(
+            !commands.is_empty(),
+            "the agent block stopped naming a command to run"
+        );
+        for tokens in &commands {
+            let line = tokens.join(" ");
+            Cli::try_parse_from(tokens)
+                .unwrap_or_else(|err| panic!("the agent block's `{line}` does not parse:\n{err}"));
+        }
+    }
+
     /// The skill is paid for only when it is read, so its budget is loose —
     /// but it is a budget, because an unwatched manual grows until it is
     /// one nobody finishes.

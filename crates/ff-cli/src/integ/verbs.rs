@@ -20,7 +20,21 @@ const MAX_PEEK: u64 = 8 * 1024 * 1024;
 
 // ---- ff hook / ff unhook ---------------------------------------------------
 
-pub fn hook(ctx: &Ctx, slugs: Vec<String>, all: bool, list: bool, settings: bool) -> Result<()> {
+pub fn hook(
+    ctx: &Ctx,
+    slugs: Vec<String>,
+    all: bool,
+    list: bool,
+    settings: bool,
+    skill: bool,
+) -> Result<()> {
+    // First, ahead of everything: a print reads no stdin and opens no
+    // config file on its way out. It is also the one route to the manual
+    // for a client that reads no skills directory — and for one fufu has
+    // never heard of.
+    if skill {
+        return print_skill(ctx);
+    }
     if let Some(result) = legacy(ctx, &slugs, settings) {
         return result;
     }
@@ -31,6 +45,21 @@ pub fn hook(ctx: &Ctx, slugs: Vec<String>, all: bool, list: bool, settings: bool
     let targets = targets(ctx, &slugs, all, "hook")?;
     let opts = InstallOptions { settings };
     act(ctx, &targets, &opts, Verb::Hook)
+}
+
+/// The shipped text, verbatim, so `ff hook --skill > rules.md` produces a
+/// file byte-identical to the one an install writes. The JSON form carries
+/// the same string, because anything fufu tells a person a script can read
+/// as data.
+fn print_skill(ctx: &Ctx) -> Result<()> {
+    if ctx.json {
+        return crate::machine::emit(
+            ctx.command,
+            &serde_json::json!({ "skill": super::skill::SKILL }),
+        );
+    }
+    print!("{}", super::skill::SKILL);
+    Ok(())
 }
 
 pub fn unhook(ctx: &Ctx, slugs: Vec<String>, all: bool) -> Result<()> {
@@ -332,11 +361,12 @@ fn legacy(ctx: &Ctx, slugs: &[String], settings: bool) -> Option<Result<()>> {
             false,
             false,
             settings,
+            false,
         ),
         ("agent", "uninstall") => unhook(ctx, vec![name.unwrap_or_else(|| "claude".into())], false),
         ("shell", "install") => {
             match name.or_else(|| super::shell::default_shell().map(str::to_string)) {
-                Some(shell) => hook(ctx, vec![shell], false, false, settings),
+                Some(shell) => hook(ctx, vec![shell], false, false, settings, false),
                 None => Err(no_shell()),
             }
         }

@@ -431,6 +431,9 @@ pub enum Command {
         /// claude only: wire settings entries instead of the plugin
         #[arg(long)]
         settings: bool,
+        /// Print fufu's skill — the manual an agent reads — and stop
+        #[arg(long, conflicts_with_all = ["slugs", "all", "list", "settings"])]
+        skill: bool,
     },
     /// Remove exactly what hook added
     #[command(long_about = help::UNHOOK, after_long_help = help::UNHOOK_EXAMPLES)]
