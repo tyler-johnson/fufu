@@ -114,17 +114,6 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
-            name: "ambient",
-            key: "fufu.ambient",
-            def: "true",
-            kind: SettingKind::Bool,
-            desc: &[
-                "Let the shell prompt speak: with the prompt hook installed, ff says",
-                "one line when what a sync would cost changes, and stays quiet",
-                "otherwise. false silences the channel without touching the alias.",
-            ],
-        },
-        Setting {
             name: "translate",
             key: "fufu.translate",
             def: "false",

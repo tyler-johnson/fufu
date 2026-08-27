@@ -96,12 +96,14 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-// A `// agent notice quotes this` line marks surface that the once-per-session
-// Claude briefing spells out verbatim (`NOTICE` in integ/briefing.rs). That briefing
-// is the only spelling lesson an agent gets, so a retired verb or a renamed
-// flag there teaches it to fail: change one here and fix it there in the same
+// A `// agent notice quotes this` line marks surface an agent is taught
+// verbatim — by the once-per-session briefing (`NOTICE` in integ/briefing.rs),
+// or by the skill shipped beside it (integ/skill.md). Those two texts are the
+// only spelling lessons an agent gets, so a retired verb or a renamed flag in
+// either teaches it to fail: change one here and fix it there in the same
 // commit. `grep -rn "agent notice" crates/ff-cli/src` finds every site, both
-// directions.
+// directions. The briefing keeps the stricter contract — every verb it names
+// carries a marker — because it is the text that cannot afford to be wrong.
 #[derive(Subcommand)]
 pub enum Command {
     /// The map bare `ff` draws: the local branches as a skeleton

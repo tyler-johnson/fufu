@@ -92,6 +92,7 @@ impl Integration for Cursor {
             note: wiring.feeds_capture().then(|| CLOUD.to_string()),
             wiring,
             parts: Vec::new(),
+            skill: None,
             stale,
         }
     }

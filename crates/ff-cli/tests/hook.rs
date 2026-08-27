@@ -26,10 +26,16 @@ fn scratch_home() -> &'static Path {
 
 /// Run `ff` with a payload on stdin.
 fn ff_stdin(cwd: &Path, args: &[&str], payload: &str) -> Output {
+    ff_stdin_home(cwd, args, payload, scratch_home())
+}
+
+/// The same, against a HOME of the caller's own. The briefing reads what is
+/// installed there, so a test about the skill cannot share the scratch one.
+fn ff_stdin_home(cwd: &Path, args: &[&str], payload: &str, home: &Path) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
         .args(args)
         .current_dir(cwd)
-        .env("HOME", scratch_home())
+        .env("HOME", home)
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -358,19 +364,64 @@ fn the_briefing_teaches_only_live_spellings() {
         notice.contains("ff log") && notice.contains("ff restore"),
         "the notice teaches the agent the verbs: {notice:?}"
     );
-    // The notice is the agent's only spelling lesson: a retired or mistyped
-    // form there teaches it to fail. Guard the two that already went wrong.
+    // The notice is the always-on spelling lesson: a retired or mistyped
+    // form there teaches the agent to fail. Guard the two that already went
+    // wrong. The positive half of the second — that an id goes to --at-op —
+    // moved to the skill with the verb, and is guarded there.
     assert!(
         !notice.contains("ff -m"),
         "bare -m is retired; the notice must not teach it: {notice:?}"
     );
     assert!(
-        !notice.contains("--at <id>") && notice.contains("--at-op <id>"),
-        "an id goes to --at-op; --at takes a time: {notice:?}"
+        !notice.contains("--at <id>"),
+        "an id never goes to --at; --at takes a time: {notice:?}"
     );
     assert_eq!(
         chain_subject(&fx),
         "claude[session-]: prompt \"please fix the tests\""
+    );
+}
+
+/// The briefing names the skill only where the skill actually landed. A
+/// machine with no plugin — or one on the `--settings` escape hatch — must
+/// not be told to read a manual that is not there.
+#[test]
+fn the_briefing_names_the_skill_only_where_it_is_installed() {
+    let fx = repo();
+    let home = tempfile::TempDir::new().unwrap();
+    let body = payload("UserPromptSubmit", "s-1", &fx.path(), r#""prompt":"hi""#);
+
+    let bare = String::from_utf8(
+        ff_stdin_home(&fx.path(), &["trigger", "claude"], &body, home.path()).stdout,
+    )
+    .unwrap();
+    assert!(bare.starts_with("fufu (`ff`) is capturing"), "{bare:?}");
+    assert!(
+        !bare.contains("skill"),
+        "nothing is installed, so nothing is named: {bare:?}"
+    );
+
+    // Install the plugin, and brief a fresh session so the marker does not
+    // suppress it.
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .args(["hook", "claude"])
+        .current_dir(fx.path())
+        .env("HOME", home.path())
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn ff");
+    assert!(out.status.success());
+
+    let body = payload("UserPromptSubmit", "s-2", &fx.path(), r#""prompt":"hi""#);
+    let briefed = String::from_utf8(
+        ff_stdin_home(&fx.path(), &["trigger", "claude"], &body, home.path()).stdout,
+    )
+    .unwrap();
+    assert!(
+        briefed.contains("`fufu` skill"),
+        "the skill is on disk, so the briefing points at it: {briefed:?}"
     );
 }
 

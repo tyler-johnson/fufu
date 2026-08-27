@@ -8,7 +8,13 @@
 //! hook's hash and skips new or changed hooks until they are reviewed
 //! through `/hooks`. Without that told, capture silently never happens and
 //! nothing explains why — which is the exact failure a capture floor exists
-//! to make impossible.
+//! to make impossible. The trust step gates the hook and nothing else: the
+//! shipped skill is a file Codex reads, not a command it runs.
+//!
+//! Two mechanisms, then, and they are independent. The hooks are entries
+//! merged into a settings file that belongs to the user; the skill is a
+//! directory fufu owns outright under `~/.codex/skills/`, written whole and
+//! removed whole. Neither install can take the other down with it.
 
 use std::path::PathBuf;
 
@@ -16,7 +22,7 @@ use ff_core::Result;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Status,
-    Wiring, payload, settings,
+    Wiring, payload, settings, skill,
 };
 
 pub struct Codex;
@@ -34,6 +40,17 @@ const TRUST: &str = "Codex trusts a hook by its hash: run /hooks in Codex to rev
 
 fn config_dir() -> Result<PathBuf> {
     Ok(super::home()?.join(".codex"))
+}
+
+fn skill_dir() -> Result<PathBuf> {
+    Ok(config_dir()?.join("skills").join(skill::NAME))
+}
+
+fn skill_wiring() -> Wiring {
+    match skill_dir() {
+        Ok(dir) => skill::wiring(&dir),
+        Err(_) => Wiring::NotWired,
+    }
 }
 
 fn spec() -> Result<settings::Spec> {
@@ -73,18 +90,30 @@ impl Integration for Codex {
             note: wiring.feeds_capture().then(|| TRUST.to_string()),
             wiring,
             parts: Vec::new(),
+            skill: Some(skill_wiring()),
             stale,
         }
     }
 
     fn install(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::install(&spec()?)?;
+        let dir = skill_dir()?;
+        skill::write(&dir)?;
+        change.absorb(Change::changed(format!(
+            "skill written to {}",
+            dir.display()
+        )));
         change.lines.push(TRUST.into());
         Ok(change)
     }
 
     fn uninstall(&self, _opts: &InstallOptions) -> Result<Change> {
-        settings::uninstall(&spec()?)
+        let mut change = settings::uninstall(&spec()?)?;
+        let dir = skill_dir()?;
+        if skill::remove(&dir)? {
+            change.absorb(Change::changed(format!("removed {}", dir.display())));
+        }
+        Ok(change)
     }
 
     fn protocol(&self) -> Option<&'static dyn AgentProtocol> {
@@ -101,6 +130,10 @@ impl AgentProtocol for Codex {
     /// Plain stdout, the same as Claude Code.
     fn briefing_envelope(&self, text: &str) -> String {
         text.to_string()
+    }
+
+    fn has_skill(&self) -> bool {
+        skill_dir().is_ok_and(|dir| skill::installed(&dir))
     }
 }
 

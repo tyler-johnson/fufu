@@ -255,10 +255,17 @@ fn describe(status: &Status) -> String {
             .collect::<Vec<_>>()
             .join(", ");
     }
-    match status.wiring.at() {
+    let mut line = match status.wiring.at() {
         Some(at) => format!("{} — {}", status.wiring.word(), at.display()),
         None => status.wiring.word(),
+    };
+    // The skill rides along on the same line rather than earning a row: it
+    // is a property of a client that is already listed, and a client with
+    // no skill at all should not have to say so.
+    if let Some(super::Wiring::Wired { .. }) = &status.skill {
+        line.push_str(", skill");
     }
+    line
 }
 
 // ---- ff trigger ------------------------------------------------------------

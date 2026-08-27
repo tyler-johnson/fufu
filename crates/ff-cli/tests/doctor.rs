@@ -606,27 +606,6 @@ fn ambient_row_reports_not_installed() {
     // warnings, and this test is about the row alone.
 }
 
-/// 13. `fufu.ambient` false: the row says the channel is off.
-#[test]
-fn ambient_row_reports_off_when_the_setting_is_false() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "a\n");
-    fx.commit("init");
-
-    fx.set_config("fufu.ambient", "false");
-
-    let out = doctor(&fx, &[]);
-    let out_text = stdout(&out);
-    assert!(
-        out_text.contains("off (the ambient setting)"),
-        "off detail:\n{out_text}"
-    );
-    assert!(
-        out_text.contains("the prompt channel is silent"),
-        "off detail:\n{out_text}"
-    );
-}
-
 /// 14. Tripwire 2's guard: the ambient row must be ok or info in every
 ///     fixture shape, never warn — an uninstalled optional channel must not
 ///     turn `ff doctor` red.
@@ -642,18 +621,7 @@ fn ambient_row_never_warns() {
         "no-wiring fixture:\n{out_text}"
     );
 
-    // 2. The setting is false.
-    let fx = Fixture::new();
-    fx.write("a.txt", "a\n");
-    fx.commit("init");
-    fx.set_config("fufu.ambient", "false");
-    let out_text = stdout(&doctor(&fx, &[]));
-    assert!(
-        !out_text.contains("WARN  ambient"),
-        "setting-false fixture:\n{out_text}"
-    );
-
-    // 3. HOME's .bashrc carries the marked `ff hook shell trigger` line —
+    // 2. HOME's .bashrc carries the marked `ff hook shell trigger` line —
     //    the real installer writes it.
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");

@@ -64,6 +64,7 @@ impl Integration for Gemini {
             wiring,
             note: None,
             parts: Vec::new(),
+            skill: None,
             stale,
         }
     }

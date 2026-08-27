@@ -8,6 +8,12 @@
 //! that is entirely fufu's. `--settings` is the escape hatch back to
 //! settings entries if the plugin path ever misbehaves.
 //!
+//! The plugin carries the shipped skill too, under `skills/fufu/`, which
+//! is the layout a plugin's own skills take. That is why the skill costs
+//! this adapter nothing structural: it is one more file inside a directory
+//! that is written whole and removed whole either way. `--settings` gets
+//! no skill, because the skill rides the plugin.
+//!
 //! The migration from settings entries to the plugin is add-then-remove:
 //! install the plugin, verify it, then strip the settings entries. The
 //! other order leaves a window with no capture at all; this one leaves a
@@ -20,7 +26,7 @@ use ff_core::Result;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
-    Status, Wiring, payload, settings,
+    Status, Wiring, payload, settings, skill,
 };
 
 pub struct Claude;
@@ -59,6 +65,19 @@ fn manifest_path() -> Result<PathBuf> {
 
 fn hooks_path() -> Result<PathBuf> {
     Ok(plugin_dir()?.join("hooks/hooks.json"))
+}
+
+/// Where a plugin's own skills live, which is where Claude Code looks for
+/// them — the plugin directory is not itself the skill.
+fn skill_dir() -> Result<PathBuf> {
+    Ok(plugin_dir()?.join("skills").join(skill::NAME))
+}
+
+fn skill_wiring() -> Wiring {
+    match skill_dir() {
+        Ok(dir) => skill::wiring(&dir),
+        Err(_) => Wiring::NotWired,
+    }
 }
 
 fn spec() -> Result<settings::Spec> {
@@ -156,6 +175,7 @@ fn write_plugin() -> Result<()> {
     }
     std::fs::write(&manifest_path, manifest).map_err(ff_core::Error::repo)?;
     std::fs::write(&hooks_path, hooks).map_err(ff_core::Error::repo)?;
+    skill::write(&skill_dir()?)?;
     Ok(())
 }
 
@@ -209,7 +229,8 @@ impl Integration for Claude {
         // Being on the older mechanism is news, not a finding: it still
         // captures, and moving costs a client restart. That move stays
         // something a person asks for with `ff hook claude`, which says so.
-        // Only a retired *command spelling* is stale.
+        // Only a retired *command spelling* is stale; a skill that has
+        // drifted is its own row, because it is its own repair.
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
         Status {
             slug: self.slug(),
@@ -217,6 +238,7 @@ impl Integration for Claude {
             wiring,
             note,
             parts: Vec::new(),
+            skill: Some(skill_wiring()),
             stale,
         }
     }
@@ -249,6 +271,9 @@ impl Integration for Claude {
                 "moved off the settings entries it used to use",
             ));
         }
+        change
+            .lines
+            .push(format!("skill written to {}", skill_dir()?.display()));
         change.lines.push(
             "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
                 .into(),
@@ -296,6 +321,10 @@ impl AgentProtocol for Claude {
     /// Claude Code reads a hook's stdout as context, verbatim.
     fn briefing_envelope(&self, text: &str) -> String {
         text.to_string()
+    }
+
+    fn has_skill(&self) -> bool {
+        skill_dir().is_ok_and(|dir| skill::installed(&dir))
     }
 }
 

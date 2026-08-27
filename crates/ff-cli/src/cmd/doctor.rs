@@ -212,11 +212,7 @@ fn count_objects(objects_dir: &std::path::Path) -> (usize, usize) {
 /// because a stored string is only rewritten when somebody runs the
 /// installer again, and doctor is the command people run when they are
 /// already suspicious.
-fn wiring_rows(
-    statuses: &[crate::integ::Status],
-    repo: Option<&ff_core::gix::Repository>,
-    fix: bool,
-) -> Vec<Row> {
+fn wiring_rows(statuses: &[crate::integ::Status], fix: bool) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     for status in statuses {
         // The shells answer through the alias and ambient rows below,
@@ -239,7 +235,10 @@ fn wiring_rows(
         }
     }
     rows.push(alias_row(statuses));
-    rows.push(ambient_row(statuses, repo));
+    rows.push(ambient_row(statuses));
+    if let Some(row) = skill_row(statuses, fix) {
+        rows.push(row);
+    }
     if let Some(row) = triggers_row(statuses) {
         rows.push(row);
     }
@@ -287,6 +286,64 @@ fn client_row(status: &crate::integ::Status, fix: bool) -> Option<Row> {
     })
 }
 
+/// The shipped skill, across the clients that read one. Aggregated the way
+/// the alias and ambient rows are, because it is one question — is fufu's
+/// own manual on this machine — and answering it per client would say the
+/// same thing twice.
+///
+/// A skill is never a finding by its absence. Without it an agent is down
+/// to the once-per-session briefing, which costs it spelling and not file
+/// state, and the whole point of the split is that the briefing alone is
+/// enough to work safely. Drift is the one thing worth a warning, because
+/// a manual describing a fufu that has moved teaches commands that fail.
+fn skill_row(statuses: &[crate::integ::Status], fix: bool) -> Option<Row> {
+    use crate::integ::Wiring;
+
+    let skills: Vec<(&crate::integ::Status, &Wiring)> = statuses
+        .iter()
+        .filter_map(|status| status.skill.as_ref().map(|wiring| (status, wiring)))
+        .filter(|(status, wiring)| status.presence.is_present() || wiring.at().is_some())
+        .collect();
+    if skills.is_empty() {
+        return None;
+    }
+    // Drift first: it is the only state here anybody has to act on.
+    if let Some((status, wiring)) = skills
+        .iter()
+        .find(|(_, wiring)| matches!(wiring, Wiring::Partial { .. }))
+    {
+        let at = wiring
+            .at()
+            .map(|at| at.display().to_string())
+            .unwrap_or_default();
+        return Some(fixed_or_fixable(
+            status,
+            format!("an older fufu wrote the skill in {at}"),
+            &format!("`ff hook {}`", status.slug),
+            fix,
+        ));
+    }
+    let wired: Vec<&str> = skills
+        .iter()
+        .filter(|(_, wiring)| matches!(wiring, Wiring::Wired { .. }))
+        .map(|(status, _)| status.slug)
+        .collect();
+    if wired.is_empty() {
+        let slugs: Vec<&str> = skills.iter().map(|(status, _)| status.slug).collect();
+        return Some(Row::info(
+            "skill",
+            format!(
+                "not installed (optional — `ff hook {}` writes fufu's manual for the agent)",
+                slugs.join(" ")
+            ),
+        ));
+    }
+    Some(Row::ok(
+        "skill",
+        format!("fufu's manual, for {}", wired.join(", ")),
+    ))
+}
+
 /// The consented write, and the row that reports it either way.
 fn fixed_or_fixable(status: &crate::integ::Status, detail: String, repair: &str, fix: bool) -> Row {
     if !fix {
@@ -316,23 +373,12 @@ fn alias_row(statuses: &[crate::integ::Status]) -> Row {
     )
 }
 
-fn ambient_row(statuses: &[crate::integ::Status], repo: Option<&ff_core::gix::Repository>) -> Row {
-    if let Some(repo) = repo
-        && !repo
-            .config_snapshot()
-            .boolean("fufu.ambient")
-            .unwrap_or(true)
-    {
-        return Row::info(
-            "ambient",
-            "off (the ambient setting) — the prompt channel is silent".into(),
-        );
-    }
+fn ambient_row(statuses: &[crate::integ::Status]) -> Row {
     piece_row(
         statuses,
         "ambient",
         "ambient",
-        "prompt hook wired in",
+        "prompt hook snapshots at every prompt, wired in",
         "no prompt hook found in shell rc files (heuristic)",
         "found in the {} rc file (heuristic — check your prompt)",
     )
@@ -1023,7 +1069,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     }
 
     // wiring + update checks — always run
-    rows.extend(wiring_rows(&crate::integ::statuses(), repo.as_ref(), fix));
+    rows.extend(wiring_rows(&crate::integ::statuses(), fix));
     rows.push(update_row());
 
     render(&rows, fix, ctx.json, colored);
@@ -1173,6 +1219,7 @@ mod tests {
             wiring,
             note: None,
             parts: Vec::new(),
+            skill: None,
             stale: false,
         }
     }
@@ -1200,6 +1247,7 @@ mod tests {
                     wiring: ambient,
                 },
             ],
+            skill: None,
             stale: false,
         }
     }
@@ -1296,7 +1344,7 @@ mod tests {
     fn the_two_shell_pieces_report_independently() {
         let statuses = vec![shell_status(Wiring::NotWired, rc_wired())];
         assert!(matches!(alias_row(&statuses).level, Level::Info));
-        assert!(matches!(ambient_row(&statuses, None).level, Level::Ok));
+        assert!(matches!(ambient_row(&statuses).level, Level::Ok));
     }
 
     #[test]

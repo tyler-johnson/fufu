@@ -37,6 +37,7 @@ pub mod payload;
 pub mod runtime;
 pub mod settings;
 pub mod shell;
+pub mod skill;
 pub mod verbs;
 
 pub use event::{AgentEvent, EventKind, Label};
@@ -105,7 +106,9 @@ pub enum Wiring {
 
 impl Wiring {
     /// Whether this piece actually feeds the capture floor. `Partial`
-    /// counts: half-wired still captures on the events it has.
+    /// counts: half-wired still captures on the events it has — the
+    /// shell's prompt hook takes a snapshot too, so either piece alone is
+    /// still capture.
     pub fn feeds_capture(&self) -> bool {
         matches!(
             self,
@@ -156,6 +159,13 @@ pub struct Status {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
+    /// The shipped skill, for the clients that read one. Deliberately not
+    /// a `Part`: parts are pieces of *wiring*, and `feeds_capture` is
+    /// summed over them — a skill counted there would let a client with no
+    /// hooks at all read as capturing. A missing skill costs an agent
+    /// spelling; a missing hook costs file state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill: Option<Wiring>,
     /// The wiring works, but it is written in a spelling install would
     /// rewrite — a retired command name, or the mechanism fufu has moved
     /// off. It keeps capturing, so this is never an outage; it is what
@@ -270,6 +280,15 @@ pub trait AgentProtocol: Sync {
     /// Claude Code and Codex read plain stdout; Gemini and Cursor need JSON,
     /// which is why this is asked of the adapter rather than assumed.
     fn briefing_envelope(&self, text: &str) -> String;
+
+    /// Whether the shipped skill is on disk for this client right now.
+    /// Read at briefing time rather than assumed from the install, because
+    /// the two can disagree: Claude's `--settings` escape hatch wires
+    /// capture and no skill, and telling an agent to read a skill that is
+    /// not there is worse than saying nothing.
+    fn has_skill(&self) -> bool {
+        false
+    }
 }
 
 // ---- the registry ----------------------------------------------------------

@@ -157,10 +157,10 @@ fn status_and_log_never_spawn() {
         // The moves rather than the operations, and the same rule: both
         // walks are native.
         &["history"][..],
-        // The ambient prompt hook: piped stdout means the TTY gate fires
-        // before any repository work, so this must be zero-spawn too — a
-        // `git` subprocess on every prompt would be a permanent, invisible
-        // tax.
+        // The prompt hook, which takes a snapshot at every shell prompt.
+        // It reaches the full capture path — nothing short-circuits ahead
+        // of it — and stays zero-spawn because capture is native. A `git`
+        // subprocess on every prompt would be a permanent, invisible tax.
         &["trigger", "shell"][..],
         // Bare ff is the map: both its capture and its read are native, so
         // both spellings stay in the trapped set.

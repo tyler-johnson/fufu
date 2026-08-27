@@ -7,21 +7,23 @@
 //! names an event source, and there is no reason those have to line up.
 //!
 //! Two independent pieces go into the rc file: the alias (`alias git='ff
-//! git'`), so every git command you type snapshots first, and the ambient
-//! prompt hook, so the shell can tell you what syncing would cost before
-//! you ask. Marked-line editing: install appends lines carrying the fufu
-//! marker, uninstall removes exactly the marked lines. A hand-written alias
+//! git'`), so every git command you type snapshots first, and the prompt
+//! hook, so a snapshot lands at every shell prompt too and the tree you
+//! were about to change is already on the log. Marked-line editing:
+//! install appends lines carrying the fufu marker, uninstall removes
+//! exactly the marked lines. A hand-written alias
 //! or a hand-written prompt hook is detected, respected, and never touched
 //! — independently of the other piece. Every path is env-resolved (HOME,
 //! ZDOTDIR, XDG_CONFIG_HOME, SHELL) so tests stay hermetic.
 
-use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use ff_core::{Error, Result};
 
+use super::runtime;
 use super::{
-    Change, EventKind, InstallOptions, Integration, Mechanism, Part, Presence, Status, Wiring,
+    AgentEvent, Change, EventKind, InstallOptions, Integration, Label, Mechanism, Part, Presence,
+    Status, Wiring,
 };
 use crate::ctx::Ctx;
 
@@ -235,6 +237,7 @@ impl Integration for Shell {
                     wiring: ambient,
                 },
             ],
+            skill: None,
             stale,
         }
     }
@@ -363,10 +366,25 @@ impl Integration for Shell {
         )))
     }
 
-    /// The ambient channel, not an agent pipeline: it reads no payload, and
-    /// its whole job is one status line at a shell prompt.
-    fn trigger(&self, _ctx: &Ctx, _forced: Option<EventKind>) {
-        ambient();
+    /// The prompt hook: capture, and say nothing at all. A line at every
+    /// shell prompt is noise where the snapshot is the whole point.
+    fn trigger(&self, ctx: &Ctx, _forced: Option<EventKind>) {
+        if let Err(err) = (|| -> Result<()> {
+            let cwd = std::env::current_dir().map_err(Error::repo)?;
+            let event = AgentEvent {
+                // A prompt fires before whatever you are about to run,
+                // which is what BeforeTool means — manual.rs reads it the
+                // same way, for the same reason.
+                kind: EventKind::BeforeTool,
+                session: String::new(),
+                cwd,
+                label: Label::Text(String::new()),
+            };
+            runtime::pipeline(ctx, "shell", &event, None)?;
+            Ok(())
+        })() {
+            runtime::complain("shell", &err);
+        }
     }
 }
 
@@ -427,167 +445,6 @@ fn combine(alias: &Wiring, ambient: &Wiring) -> Wiring {
         },
         (Wiring::HandWritten, _) | (_, Wiring::HandWritten) => Wiring::HandWritten,
         _ => Wiring::NotWired,
-    }
-}
-
-// ---------------------------------------------------------------------
-// The ambient runtime: `ff trigger shell`, run at every shell prompt.
-// ---------------------------------------------------------------------
-
-/// The ambient channel's runtime. Speaks (to stderr) only when the verdict
-/// it would report has changed since the last time it spoke; otherwise
-/// silent. Never fails: every fallible step below degrades to silence.
-fn ambient() {
-    // Cheapest gate first, in exactly this order, because this runs on
-    // every shell prompt: no-TTY is one fstat and no repository work at
-    // all, so it goes first; repository discovery goes second because it's
-    // still cheap and is the common case in a non-repo directory like
-    // $HOME; repository config goes last because it cannot be read before
-    // a repository has been discovered.
-    if !std::io::stdout().is_terminal() {
-        return;
-    }
-    let Ok(repo) = ff_core::discover(".") else {
-        return;
-    };
-    let ambient = repo
-        .config_snapshot()
-        .boolean("fufu.ambient")
-        .unwrap_or(true);
-    if !ambient {
-        return;
-    }
-    // A prompt hook that printed `ff: ...` on every prompt because a
-    // repository is mid-rebase would be worse than useless — no error path
-    // below may reach the CLI's error reporter.
-    let _ = run_ambient(&repo);
-}
-
-fn run_ambient(repo: &ff_core::gix::Repository) -> Result<()> {
-    let status = ff_core::status(repo)?;
-    let branch = ff_core::snapshot::chain::chain_name(&status.head);
-    let tip_hex = head_tip_hex(&status.head);
-
-    // The same three inputs `ff status` uses to compute futures: branch, its
-    // tip, and its open tree.
-    let futures = match &status.head {
-        ff_core::HeadState::Branch { commit, .. } => {
-            let tip = ff_core::gix::ObjectId::from_hex(commit.as_bytes()).ok();
-            let open = ff_core::futures::open_tree(repo, &branch)?;
-            ff_core::futures::futures_for(repo, &branch, tip, open)?
-        }
-        _ => ff_core::futures::Futures {
-            base: None,
-            remote: None,
-            remote_unnamed: false,
-        },
-    };
-
-    let foreign = foreign_tip(repo);
-
-    let fingerprint = fingerprint_of(&branch, &tip_hex, &futures, foreign);
-    let path = repo.common_dir().join("fufu/ambient");
-    let previous = std::fs::read_to_string(&path).unwrap_or_default();
-    if previous == fingerprint {
-        // Silent at almost every prompt: this is what "speaks at pause
-        // points" means in practice.
-        return Ok(());
-    }
-
-    crate::render::init_palette(repo);
-    let colored = crate::pager::color_enabled();
-    let mut message = String::new();
-    // Nothing to sync is not news. `ff status` fills that silence with a dim
-    // phrase because someone asked it a question; a prompt hook nobody asked
-    // stays quiet — but the fingerprint below is still stored, so the next
-    // prompt after something *does* change speaks exactly once.
-    let sync = crate::render::sync_parts(&futures, colored);
-    if !sync.is_empty() {
-        message.push_str(&sync.join(" · "));
-        message.push('\n');
-    }
-    if foreign {
-        message.push_str("changes made outside fufu — ff status has the detail\n");
-    }
-    if !message.is_empty() {
-        // stdout at a prompt belongs to whatever the user is about to run.
-        eprint!("{message}");
-    }
-
-    // Best-effort: a fingerprint that cannot be stored must not fail the
-    // command — it just means the next prompt repeats itself.
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&path, &fingerprint);
-
-    Ok(())
-}
-
-/// The commit HEAD resolves to, as hex — empty only when HEAD is unborn
-/// (no commits yet). Detached HEAD still has a tip.
-fn head_tip_hex(head: &ff_core::HeadState) -> String {
-    match head {
-        ff_core::HeadState::Branch { commit, .. } | ff_core::HeadState::Detached { commit } => {
-            commit.clone()
-        }
-        ff_core::HeadState::Unborn { .. } => String::new(),
-    }
-}
-
-/// Whether the operation log's tip is a foreign entry. Read-only mirror of
-/// `cmd::status::reconcile_foreign`, minus the `reconcile` call that
-/// precedes it there — the ambient channel must never write a ref.
-fn foreign_tip(repo: &ff_core::gix::Repository) -> bool {
-    (|| -> Option<bool> {
-        let log = ff_core::ops::OpLog::open(repo).ok()?;
-        let op = log.get(log.tip().ok().flatten()?).ok()?;
-        Some(op.kind() == ff_core::ops::OpKind::Foreign)
-    })()
-    .unwrap_or(false)
-}
-
-/// The fields, joined with the unit separator (`\u{1f}`, this codebase's
-/// existing delimiter for bench-style formats) that together are the
-/// message's *identity* — not its payload. Only each verdict's kind is
-/// included, never its payload: a branch that replays cleanly and then
-/// gains one more clean commit has not changed verdict kind, so it must
-/// not change the fingerprint either. Both axes contribute, so a remote
-/// that moved while the base stood still is still news.
-fn fingerprint_of(
-    branch: &str,
-    tip_hex: &str,
-    futures: &ff_core::futures::Futures,
-    foreign: bool,
-) -> String {
-    let axis = |f: &Option<ff_core::futures::Future>| match f {
-        Some(f) => format!("{}:{}", f.against.tip, verdict_kind(&f.verdict)),
-        None => String::new(),
-    };
-    let base = axis(&futures.base);
-    let remote = axis(&futures.remote);
-    [
-        branch,
-        tip_hex,
-        base.as_str(),
-        remote.as_str(),
-        if foreign { "foreign" } else { "" },
-    ]
-    .join("\u{1f}")
-}
-
-/// The verdict's kind only, spelled the way `ff status --json`'s tag does.
-fn verdict_kind(verdict: &ff_core::futures::Verdict) -> &'static str {
-    use ff_core::futures::Verdict;
-    match verdict {
-        Verdict::UpToDate { .. } => "up-to-date",
-        Verdict::FastForward { .. } => "fast-forward",
-        Verdict::Clean { .. } => "clean",
-        Verdict::Conflict { .. } => "conflict",
-        Verdict::Unknown { .. } => "unknown",
-        Verdict::Gone => "gone",
-        Verdict::Unpublished => "unpublished",
-        Verdict::Undone { .. } => "undone",
     }
 }
 

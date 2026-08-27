@@ -536,6 +536,15 @@ fn the_claude_plugin_round_trips() {
         "absolute path baked in: {command:?}"
     );
 
+    // The shipped skill rides inside the plugin, under the layout a
+    // plugin's own skills take.
+    let skill = plugin.join("skills/fufu/SKILL.md");
+    let text_on_disk = std::fs::read_to_string(&skill).expect("the skill lands with the plugin");
+    assert!(
+        text_on_disk.starts_with("---\nname: fufu\n"),
+        "frontmatter first"
+    );
+
     // Idempotent, and reported as already wired.
     assert!(
         ff_env(home.path(), &["hook", "claude"], &env)
@@ -544,6 +553,10 @@ fn the_claude_plugin_round_trips() {
     );
     let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
     assert!(listing.contains("wired (plugin)"), "{listing:?}");
+    assert!(
+        listing.contains("skill"),
+        "the report says the skill is there: {listing:?}"
+    );
 
     assert!(
         ff_env(home.path(), &["unhook", "claude"], &env)
@@ -551,6 +564,95 @@ fn the_claude_plugin_round_trips() {
             .success()
     );
     assert!(!plugin.exists(), "the directory fufu owns goes whole");
+    assert!(!skill.exists(), "…and the skill inside it with it");
+}
+
+/// The escape hatch back to settings entries buys capture and nothing
+/// else: the skill rides the plugin, so a machine on `--settings` has no
+/// skill, and the briefing must not name one.
+#[test]
+fn the_settings_hatch_wires_capture_and_no_skill() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let skill = home.path().join(".claude/skills/fufu/skills/fufu/SKILL.md");
+
+    assert!(
+        ff_env(home.path(), &["hook", "claude"], &env)
+            .status
+            .success()
+    );
+    assert!(skill.exists());
+
+    assert!(
+        ff_env(home.path(), &["hook", "claude", "--settings"], &env)
+            .status
+            .success()
+    );
+    assert!(!skill.exists(), "the plugin went, and the skill with it");
+}
+
+/// Codex's two mechanisms are independent: entries merged into a settings
+/// file it owns, and a skill directory fufu owns outright.
+#[test]
+fn the_codex_skill_is_its_own_directory() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let hooks = home.path().join(".codex/hooks.json");
+    let skill = home.path().join(".codex/skills/fufu/SKILL.md");
+
+    assert!(
+        ff_env(home.path(), &["hook", "codex"], &env)
+            .status
+            .success()
+    );
+    assert!(skill.exists(), "the skill lands beside the wiring");
+    assert!(
+        std::fs::read_to_string(&skill)
+            .unwrap()
+            .starts_with("---\nname: fufu\n")
+    );
+
+    // Removing the wiring removes the skill, because unhook takes back
+    // exactly what hook added — both halves of it.
+    assert!(
+        ff_env(home.path(), &["unhook", "codex"], &env)
+            .status
+            .success()
+    );
+    assert!(!home.path().join(".codex/skills/fufu").exists());
+    let v = json_at(&hooks);
+    assert!(v.get("hooks").is_none(), "the entries went too: {v}");
+}
+
+/// A skill an older fufu wrote still reads, so it is a repair rather than
+/// a hole: doctor names it, `--fix` rewrites it, and capture never enters
+/// the question.
+#[test]
+fn a_drifted_skill_is_a_finding_doctor_fixes() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let skill = home.path().join(".claude/skills/fufu/skills/fufu/SKILL.md");
+
+    assert!(
+        ff_env(home.path(), &["hook", "claude"], &env)
+            .status
+            .success()
+    );
+    let shipped = std::fs::read_to_string(&skill).unwrap();
+    std::fs::write(&skill, "---\nname: fufu\ndescription: an older fufu\n---\n").unwrap();
+
+    let fx = Fixture::new();
+    let report = text(&ff_env(&fx.path(), &["doctor"], &env));
+    assert!(report.contains("older fufu wrote the skill"), "{report:?}");
+    assert!(report.contains("--fix"), "offers the repair: {report:?}");
+
+    let report = text(&ff_env(&fx.path(), &["doctor", "--fix"], &env));
+    assert!(report.contains("rewired"), "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(&skill).unwrap(),
+        shipped,
+        "the fix rewrote it to what this binary ships"
+    );
 }
 
 /// The migration is add-then-remove: the plugin lands and verifies before
@@ -785,7 +887,7 @@ fn doctor_fix_repairs_outdated_wiring() {
     assert!(!report.contains("retired spelling"), "{report:?}");
 }
 
-// ---- the ambient runtime ---------------------------------------------------
+// ---- the prompt hook runtime -----------------------------------------------
 
 fn fixture_with_a_verdict() -> Fixture {
     let fx = Fixture::new();
@@ -804,35 +906,49 @@ fn the_shell_trigger_outside_a_repo_exits_zero_and_says_nothing() {
     assert!(out.stderr.is_empty(), "{:?}", out.stderr);
 }
 
-/// The test harness always captures stdout through a pipe, so this can only
-/// prove the TTY gate fires under a pipe — it cannot hermetically exercise
-/// the speaking path (there is no way to hand a spawned child a real TTY
-/// here). The speaking path is covered instead by the fingerprint test
-/// below, through the file the gate prevents from ever being written.
+/// The prompt hook is a snapshot, not a channel: it lands an operation and
+/// prints nothing on either stream. Silence is the contract — a line above
+/// the prompt is noise where the snapshot is the whole point.
 #[test]
-fn the_shell_trigger_is_silent_when_stdout_is_not_a_tty() {
+fn the_shell_trigger_captures_and_says_nothing() {
     let fx = fixture_with_a_verdict();
+    fx.write("f1.txt", "moved\n");
     let env: [(&str, &str); 0] = [];
     let out = ff_env(&fx.path(), &["trigger", "shell"], &env);
     assert!(out.status.success());
     assert!(out.stdout.is_empty(), "{:?}", text(&out));
     assert!(out.stderr.is_empty(), "{:?}", out.stderr);
+
+    let log = text(&ff_env(&fx.path(), &["op", "log"], &env));
+    assert!(log.contains("shell"), "the prompt hook's operation:\n{log}");
 }
 
-/// The TTY gate makes stdout-based assertions impossible under this
-/// harness (see the previous test), so this asserts the side effect
-/// instead: because the gate fires before any repository work, the
-/// fingerprint file must never be written, proving the gate order
-/// (cheapest gate first) actually short-circuits before the fingerprint
-/// step runs.
+/// Leaning on Enter writes nothing: `ff_core::capture` answers `NoOp` when
+/// the tree has not moved, so a snapshot at every prompt costs an unchanged
+/// log. And nothing writes the retired fingerprint file any more.
 #[test]
-fn the_shell_trigger_writes_no_fingerprint_behind_the_tty_gate() {
+fn a_second_shell_trigger_on_an_unmoved_tree_adds_no_operation() {
     let fx = fixture_with_a_verdict();
+    fx.write("f1.txt", "moved\n");
     let env: [(&str, &str); 0] = [];
-    let out = ff_env(&fx.path(), &["trigger", "shell"], &env);
-    assert!(out.status.success());
+
+    assert!(
+        ff_env(&fx.path(), &["trigger", "shell"], &env)
+            .status
+            .success()
+    );
+    let first = text(&ff_env(&fx.path(), &["op", "log"], &env));
+
+    assert!(
+        ff_env(&fx.path(), &["trigger", "shell"], &env)
+            .status
+            .success()
+    );
+    let second = text(&ff_env(&fx.path(), &["op", "log"], &env));
+
+    assert_eq!(first, second, "an unmoved tree lands no second operation");
     assert!(
         !fx.path().join(".git/fufu/ambient").exists(),
-        "the fingerprint must not be written when the TTY gate short-circuits first"
+        "the retired fingerprint file is never written"
     );
 }

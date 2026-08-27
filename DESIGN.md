@@ -557,10 +557,6 @@ On a git-free machine, translated forms keep working — they never needed the
 binary. Everything else — the default — is verbatim passthrough, which is
 exactly the thing that still requires git.
 
-Much of fufu's presence is not commands at all: the ambient status channel (shell
-integration) speaks at natural pause points — "main moved, rebased you cleanly,
-undo if you disagree." The tool is used mostly by *reading* it.
-
 Staged and tracked are git states fufu has no concept of. The working tree *is*
 the change, whole: `.gitignore` is the only line left — ignored is invisible,
 everything else is already in the commit about to be cut. Selection survives
@@ -662,9 +658,13 @@ The rule that keeps extension from eating the invariant: **extensions read fufu 
 
 Hooks are the oldest mechanism and the widest, and they are two verbs rather than one because they are two contracts. `ff hook` and `ff unhook` are what a person types: flat, permanent slugs — `claude`, `codex`, `cursor`, `gemini`, `bash`, `zsh`, `fish` — where an unknown name is a real error and a failure is loud. `ff trigger <source>` is what a client calls, and its contract *is* the extension point: always exit 0, never veto, fail silently, `FF_DEBUG=1` to see why, and an unrecognized source name exits 0 in silence rather than erroring. That last clause is what makes a fufu trigger safe to wire into a tool fufu has never heard of, so it is published rather than reimplemented per vendor.
 
-The two namespaces are deliberately different, because `hook` names a thing you integrate with and `trigger` names an event source, which is finer-grained. All three shell slugs install rc lines calling one `ff trigger shell`. A client whose payload identifies its own event is one source name; one whose payload cannot is `<vendor>-<event>`, resolved by splitting on the first `-` and forcing the event from the tail. `manual` is a source with no slug, because there is nothing to install.
+The two namespaces are deliberately different, because `hook` names a thing you integrate with and `trigger` names an event source, which is finer-grained. All three shell slugs install rc lines calling one `ff trigger shell`. The shell wires two independent pieces, and both of them capture: the `git` alias snapshots before a git command, and the prompt hook snapshots at every prompt. Neither says anything — where the alias is silent because it is standing in front of git, the prompt hook is silent because a line above the prompt is noise and the snapshot is the whole point. Leaning on Enter is free: an unmoved tree captures to `NoOp`. A client whose payload identifies its own event is one source name; one whose payload cannot is `<vendor>-<event>`, resolved by splitting on the first `-` and forcing the event from the tail. `manual` is a source with no slug, because there is nothing to install.
 
 Behind both verbs sits one client-neutral core — a neutral event, one shared capture pipeline, one briefing text — and four thin protocol adapters that translate a payload in and wrap the briefing on the way out. Two things stay vendor-visible on purpose. The snapshot's subject keeps the source's own name (`claude[a1b2c3d4]: Edit(src/x.rs)`), because a subject says who. And the briefing marker is per-slug, because two clients in one repository sharing one marker would each clobber the other's session id and re-brief forever.
+
+What an agent is *told* is two texts, budgeted differently on purpose. The briefing is the always-on contract: it rides every context-start event, so every session pays for it whether or not it needs it, and it is capped by test at what four writing verbs, the git rule, and one pointer to `--help` actually cost. Everything past that — recovery, rewriting commits that have closed, held rewrites, the machine surface — is a skill fufu ships and installs beside the wiring, and a skill costs nothing until a client decides the situation calls for it. That split is the whole reason both can be good: the briefing stays short because it is not carrying the manual, and the manual stays complete because it is not being charged per session. Both are prose an agent reads as instructions, so both rot the way prose does and neither is allowed to: one test parses every command either text spells and fails on surface clap no longer takes.
+
+Delivery is the same directory story the plugin already tells. Claude Code's skill rides inside the plugin fufu owns outright; Codex takes a directory of its own beside the settings file it does not. Cursor and Gemini read no skills directory, so they get the briefing alone and are not told to read something that is not there — which is why the question is asked of the adapter at print time rather than assumed from the install.
 
 A hook never vetoes, ever; the wish to stop an agent from touching a branch is policy, and policy lives in config.
 
@@ -673,8 +673,8 @@ A hook never vetoes, ever; the wish to stop an agent from touching a branch is p
 Rust, on gitoxide (`gix`). The rule that governs execution: **git defines the
 semantics; fufu chooses the execution per call-site.**
 
-- **Reads are native from day one.** The ambient channel runs at every prompt,
-  and subprocess spawn cost (5–15ms per `git` exec) can't carry it. Refs,
+- **Reads are native from day one.** A capture runs at every shell prompt, and
+  subprocess spawn cost (5–15ms per `git` exec) can't carry it. Refs,
   objects, index and status reads, log walks: in-process. Floor 2's core
   primitive too — merge simulation runs in memory (gitoxide's merge-ort port),
   cached by (base, ours, theirs), so futures recompute only when a ref moves.
@@ -856,8 +856,12 @@ wordlists. Two-phase descriptions live in plain JSON files under
 recorded on every change so `ff undo` restores the text.
 
 **Phase 3 — Futures.** In-memory merge simulation, cached; `ff status` starts
-reporting futures, not just facts; the ambient shell channel speaks at pause
-points. Pure reads — no automation yet, just foreknowledge.
+reporting futures, not just facts. Pure reads — no automation yet, just
+foreknowledge. An ambient shell channel — a status line at pause points — shipped
+in this phase and was withdrawn: a conflict verdict appearing above the prompt
+unbidden reads as an error, and the prompt hook's rc lines now take a snapshot
+and print nothing. The verdicts it rendered are still one `ff status` away, asked
+for rather than volunteered.
 
 *Phase 3 implementation notes (shipped Aug 2026).* The verdict is a
 commit-by-commit replay, not a single endpoint probe: it costs N in-memory
@@ -890,16 +894,7 @@ tree), so it is self-invalidating: no eviction policy, no staleness clock, and
 deleting it changes no answer, only the cost of getting one. A remote
 configured against a ref that is not there short-circuits to `gone` without
 probing or caching, there being nothing to simulate and nothing worth
-remembering. The ambient channel is the `ff trigger shell` runtime the verb
-grammar already had room for — read-only by construction (no capture, no
-reconcile, no journal append), gated on a TTY first because it runs at every
-prompt, and fingerprinted on the verdicts' *kinds* alone, both axes, so a branch
-gaining one more cleanly-replaying commit is not news but a remote that moved
-while the base stood still is. `ff status` and that channel share one renderer,
-since a channel that worded a verdict differently from the command would be
-worse than one that stayed quiet — though where `ff status` fills an all-quiet
-line with `nothing to sync`, the channel says nothing at all: someone asked
-`ff status` a question, and nobody asked the prompt.
+remembering.
 
 **Phase 4 — Rewrite.** Floor 3: the rewrite map, `ff absorb`, `ff describe`,
 `ff edit` sessions with `ff done`, held rewrites and `ff resolve`, and `ff sync` —
@@ -939,8 +934,8 @@ when a machine with only `ff` on it is a working development machine.
 - **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an entry rewritten outside fufu is invalidated, loudly), and the map's home is the operation record, which makes pruning `ff trim`'s job. What is left is the lookup index, still deferred: the first reader outside the tests — sync asking whether a divergence is its own — answers a handful of shas once per invocation against a walk the queried commits' own timestamps bound, and did not need one.
 - **Reconciliation triggers** — lazy (rebuild at the next fufu invocation,
   jog-style) versus live (post-commit / reference-transaction hooks). jog's
-  no-git-hooks stance is in tension with how fresh the ambient status channel
-  can be.
+  no-git-hooks stance costs freshness, and nothing reads fufu state on its own
+  any more to make that cost visible.
 - **Held-rewrite composition** — one hold per branch is settled: a second
   *conflicting* rewrite refuses rather than guessing an order, while one that
   would land cleanly is not competing for anything and goes through. What stays

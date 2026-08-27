@@ -283,8 +283,8 @@ fn json_shapes() {
     assert!(v["data"]["settings"].is_array());
     // pushOnSync left the registry with the sync/publish split; translate
     // joined with the opt-in git translation, and watchInterval with ff
-    // watch, so 13.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 13);
+    // watch; ambient left with the shell channel, so 12.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -432,70 +432,6 @@ fn trunk_accepts_remote_qualified() {
     // Read back via git config
     let git_val = fx.git(&["config", "fufu.trunk"]);
     assert_eq!(git_val.trim(), "origin/main");
-}
-
-#[test]
-fn ambient_setting_round_trips() {
-    let fx = Fixture::new();
-    let global = fx.root().join("gitconfig");
-
-    // Default: get prints true; the list marks it (default)
-    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
-    assert!(out.status.success());
-    assert_eq!(stdout(&out), "true\n");
-
-    let out = ff_cfg(&fx.path(), &["config"], &global);
-    assert!(out.status.success());
-    let text = stdout(&out);
-    let ambient_line = text
-        .lines()
-        .find(|l| l.starts_with("ambient  "))
-        .expect("ambient line in list output");
-    assert!(
-        ambient_line.contains("(default)"),
-        "ambient marked (default) before set: {ambient_line}"
-    );
-
-    // Set false
-    let out = ff_cfg(&fx.path(), &["config", "ambient", "false"], &global);
-    assert!(out.status.success());
-
-    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
-    assert!(out.status.success());
-    assert_eq!(stdout(&out), "false\n");
-
-    let out = ff_cfg(&fx.path(), &["config"], &global);
-    assert!(out.status.success());
-    let text = stdout(&out);
-    let ambient_line = text
-        .lines()
-        .find(|l| l.starts_with("ambient  "))
-        .expect("ambient line in list output");
-    assert!(
-        !ambient_line.contains("(default)"),
-        "ambient not marked (default) after set: {ambient_line}"
-    );
-
-    // Unset — back to the default
-    let out = ff_cfg(&fx.path(), &["config", "--unset", "ambient"], &global);
-    assert!(out.status.success());
-    let out = ff_cfg(&fx.path(), &["config", "ambient"], &global);
-    assert!(out.status.success());
-    assert_eq!(stdout(&out), "true\n");
-}
-
-#[test]
-fn ambient_rejects_a_non_boolean() {
-    let fx = Fixture::new();
-    let global = fx.root().join("gitconfig");
-
-    let out = ff_cfg(&fx.path(), &["config", "ambient", "maybe"], &global);
-    assert_eq!(out.status.code(), Some(2));
-    assert!(
-        stderr(&out).contains("invalid value for ambient"),
-        "the failure names the setting that failed: {}",
-        stderr(&out)
-    );
 }
 
 #[test]

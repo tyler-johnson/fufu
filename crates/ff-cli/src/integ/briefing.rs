@@ -4,9 +4,22 @@
 //! delivered — plain stdout for Claude and Codex, a JSON field for Gemini
 //! and Cursor — which is why the envelope is the adapter's job and this is
 //! not.
+//!
+//! The guards at the bottom cover the shipped skill too. Both texts are
+//! prose an agent reads as instructions, both rot the same silent way, and
+//! the skill is the larger surface by an order of magnitude — so the check
+//! that every command in them is one the CLI still takes belongs to both.
 
 /// What the agent is told, once per session, when a client's context-start
 /// event gives fufu somewhere to put it.
+///
+/// This is the always-on contract and nothing more: the four verbs that
+/// write, the git rule, and where the authority is. Everything past it —
+/// recovery, rewriting, conflicts, the machine surface — lives in the
+/// shipped skill (`integ/skill.md`), which costs nothing until a client
+/// decides it is wanted. The two are budgeted differently on purpose, and
+/// that is the whole reason the split exists.
+///
 /// Every command here is real and spelled the way the CLI takes it — a
 /// retired or mistyped form teaches the agent to fail. Keep it short: this
 /// is context the agent pays for on every session.
@@ -21,46 +34,41 @@ fufu (`ff`) is capturing this repository: the worktree is snapshotted before eve
 tool action, so no edit can lose file state. Work directly — no backup copies, no \
 hedging.
 
-Use `ff`, not `git`, for anything that writes:
-- commit: `ff commit -m \"…\"` — no add, no staging; the worktree is the change
-- begin work: `ff start` · move: `ff switch <branch>` (parks and resumes dirty trees)
-- undo the last operation, whole repo: `ff undo`
-- discard edits to a file: `ff restore <path>`
-- go back in time: `ff restore --all --at 2h`, or `ff op log` for ids then \
-`ff restore <path> --at-op <id>`
-- where you can go back to, one row per undo step: `ff history`
-- fold a fix into an earlier commit: `ff absorb --into <rev>`
-- take in base and remote: `ff sync` · send it out: `ff publish`
-- anything else git does: `ff git <args…>` — snapshots, then runs git verbatim
+Use `ff`, not `git`, for anything that writes. `ff commit -m \"…\"` closes the open \
+change — no add, no staging, the worktree is the change. `ff switch <branch>` moves. \
+`ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. \
+Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
 
-Reading with git is fine. `ff status` and `ff log` say more than their git \
-counterparts: the open change, and what the next rebase or push will do. \
-`ff diff` sees the untracked files `git diff` does not.
+Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
+counterparts.
+
+Every verb's own `--help` is the authority on it.
 ";
 
 // ---- the notice is a contract with the CLI ---------------------------------
 
-/// `NOTICE` is prose that an agent reads as instructions, so it rots in a way
-/// the compiler cannot see: a retired verb or a renamed flag still reads fine
-/// and simply teaches the agent to fail. These guards make it fail here
-/// instead — clap is the authority on what the notice is allowed to say.
+/// `NOTICE` and the shipped skill are prose an agent reads as instructions,
+/// so they rot in a way the compiler cannot see: a retired verb or a renamed
+/// flag still reads fine and simply teaches the agent to fail. These guards
+/// make it fail here instead — clap is the authority on what either text is
+/// allowed to say.
 #[cfg(test)]
 mod notice {
     use clap::{CommandFactory, Parser};
 
     use super::NOTICE;
     use crate::cli::Cli;
+    use crate::integ::skill::SKILL;
 
     /// cli.rs as text, for the marker trail. Read as source rather than
     /// through clap because a comment is exactly what clap discards.
     const CLI_SRC: &str = include_str!("../cli.rs");
     const MARKER: &str = "// agent notice quotes this";
 
-    /// Every `ff …` the notice spells, as argv. Placeholders (`<path>`,
+    /// Every `ff …` a text spells, as argv. Placeholders (`<path>`,
     /// `"…"`) become a value, since the point is the grammar around them.
-    fn quoted() -> Vec<Vec<String>> {
-        NOTICE
-            .split('`')
+    fn quoted(text: &str) -> Vec<Vec<String>> {
+        text.split('`')
             // Odd fields are the ones between a pair of backticks.
             .skip(1)
             .step_by(2)
@@ -98,7 +106,7 @@ mod notice {
     #[test]
     fn only_live_documented_surface() {
         let root = Cli::command();
-        let commands = quoted();
+        let commands = quoted(NOTICE);
         assert!(
             commands.len() >= 8,
             "the notice stopped teaching verbs: {commands:?}"
@@ -132,6 +140,49 @@ mod notice {
         }
     }
 
+    /// The same guard over the skill. It teaches most of the command
+    /// surface rather than nine verbs of it, so this is where a retired
+    /// verb is overwhelmingly likely to be found still being taught.
+    #[test]
+    fn the_skill_teaches_only_live_surface() {
+        let root = Cli::command();
+        let commands = quoted(SKILL);
+        assert!(
+            commands.len() >= 40,
+            "the skill stopped teaching the surface the notice cannot afford: {}",
+            commands.len()
+        );
+        for tokens in &commands {
+            let line = tokens.join(" ");
+            let mut cmd = &root;
+            let mut rest = &tokens[1..];
+            while let Some(sub) = rest.first().and_then(|name| cmd.find_subcommand(name)) {
+                assert!(
+                    !sub.is_hide_set(),
+                    "the skill names {:?} in `{line}`, which is hidden — retired or \
+                     undocumented surface must not be taught to an agent",
+                    sub.get_name()
+                );
+                cmd = sub;
+                rest = &rest[1..];
+            }
+            for flag in rest.iter().filter(|tok| tok.starts_with('-')) {
+                let arg = find_arg(cmd, flag)
+                    .or_else(|| find_arg(&root, flag))
+                    .unwrap_or_else(|| {
+                        panic!("the skill passes {flag} in `{line}`, which does not exist")
+                    });
+                assert!(
+                    !arg.is_hide_set(),
+                    "the skill passes {flag} in `{line}`, which is hidden — retired or \
+                     undocumented surface must not be taught to an agent"
+                );
+            }
+            Cli::try_parse_from(tokens)
+                .unwrap_or_else(|err| panic!("the skill's `{line}` does not parse:\n{err}"));
+        }
+    }
+
     /// The other half of the trail: a command in the notice has a marker at
     /// its definition, so whoever retires it there sees this text named.
     #[test]
@@ -145,7 +196,7 @@ mod notice {
             markers.len() >= 8,
             "the marker trail is gone from cli.rs; the notice has nothing pointing at it"
         );
-        for tokens in quoted() {
+        for tokens in quoted(NOTICE) {
             // Bare `ff` — the notice names the tool before it names a verb.
             let Some(verb) = tokens.get(1) else { continue };
             assert!(
@@ -157,14 +208,44 @@ mod notice {
     }
 
     /// The notice is context the agent pays for on every session. There is no
-    /// exact token count to assert, so the budget is bytes: roughly 250
-    /// tokens, and a rewrite that doubles it has to say so here.
+    /// exact token count to assert, so the budget is bytes: roughly 160
+    /// tokens, and a rewrite that doubles it has to say so here. The number
+    /// came down when the skill took the advanced surface off it; growing
+    /// it back is choosing to charge every session for something one
+    /// session in twenty needs.
     #[test]
     fn stays_within_its_budget() {
         assert!(
-            NOTICE.len() <= 1_200,
+            NOTICE.len() <= 800,
             "the notice is {} bytes; trim it or raise the budget deliberately",
             NOTICE.len()
+        );
+    }
+
+    /// The half of the `--at` lesson that moved out of the notice with the
+    /// verb. An id goes to `--at-op` and `--at` takes a time; the two were
+    /// confused once, in a text an agent reads as instructions.
+    #[test]
+    fn the_skill_keeps_the_at_lesson_straight() {
+        assert!(
+            SKILL.contains("--at-op <id>"),
+            "the skill teaches where an operation id goes"
+        );
+        assert!(
+            !SKILL.contains("--at <id>"),
+            "an id never goes to --at; --at takes a time"
+        );
+    }
+
+    /// The skill is paid for only when it is read, so its budget is loose —
+    /// but it is a budget, because an unwatched manual grows until it is
+    /// one nobody finishes.
+    #[test]
+    fn the_skill_stays_within_its_budget() {
+        assert!(
+            SKILL.len() <= 16_000,
+            "the skill is {} bytes; trim it or raise the budget deliberately",
+            SKILL.len()
         );
     }
 }

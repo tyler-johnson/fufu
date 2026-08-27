@@ -12,7 +12,7 @@ use std::io::Read;
 use ff_core::{Error, Result};
 
 use super::briefing::NOTICE;
-use super::{AgentEvent, AgentProtocol, EventKind};
+use super::{AgentEvent, AgentProtocol, EventKind, skill};
 use crate::ctx::Ctx;
 
 /// A payload larger than this is refused rather than read into memory.
@@ -50,7 +50,7 @@ pub fn agent_payload(
     }
 }
 
-fn complain(slug: &str, err: &Error) {
+pub(super) fn complain(slug: &str, err: &Error) {
     if std::env::var_os("FF_DEBUG").is_some() {
         eprintln!("ff[debug]: {slug} trigger failed: {err}");
     }
@@ -148,6 +148,15 @@ fn brief(
         file.sync_all().map_err(Error::repo)?;
     }
     std::fs::rename(&tmp, &marker).map_err(Error::repo)?;
-    print!("{}", proto.briefing_envelope(NOTICE));
+    // The skill line joins the notice before the envelope rather than
+    // after it, because a client that wants JSON wants one field and not
+    // two. It is asked of the adapter at print time: an install and a
+    // disk can disagree, and naming a skill that is not there is worse
+    // than saying nothing at all.
+    let mut text = NOTICE.to_string();
+    if proto.has_skill() {
+        text.push_str(skill::LINE);
+    }
+    print!("{}", proto.briefing_envelope(&text));
     Ok(true)
 }
