@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/ff-core", "crates/ff-cli", "crates/ff-testsupport"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/tyler-johnson/fufu"
