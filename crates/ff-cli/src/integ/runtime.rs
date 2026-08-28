@@ -12,7 +12,7 @@ use std::io::Read;
 use ff_core::{Error, Result};
 
 use super::briefing::NOTICE;
-use super::{AgentEvent, AgentProtocol, EventKind, skill};
+use super::{AgentEvent, AgentProtocol, Correction, EventKind, skill};
 use crate::ctx::Ctx;
 
 /// A payload larger than this is refused rather than read into memory.
@@ -25,8 +25,10 @@ pub struct Landed {
 }
 
 /// The agent trigger's absolute contract, in one place: it always exits 0,
-/// it never vetoes the action it fired on, and it says nothing about a
-/// failure unless `FF_DEBUG=1`.
+/// it says nothing about a failure unless `FF_DEBUG=1`, and it never vetoes
+/// the action it fired on except where config said to — `fufu.gitPolicy
+/// strict` is the only veto there is, and it travels as JSON the client may
+/// ignore rather than as an exit code.
 pub fn agent(ctx: &Ctx, slug: &'static str, proto: &dyn AgentProtocol, forced: Option<EventKind>) {
     let payload = match read_payload() {
         Ok(payload) => payload,
@@ -105,6 +107,14 @@ pub fn pipeline(
         brief(&repo, source, &event.session, proto)?;
     }
 
+    // The raw-git lane, after the capture and never conditional on it: a
+    // correction fufu could not compute must never cost a snapshot.
+    if event.kind == EventKind::BeforeTool
+        && let Some(command) = event.command.as_deref()
+    {
+        correct(&repo, &event.session, command, proto);
+    }
+
     crate::selfupdate::notify::maybe_spawn_check(&repo);
     // A client trigger is often the only thing feeding a repository, so it
     // carries the auto-trim lane too — a daily inline walk is the price of
@@ -112,6 +122,52 @@ pub fn pipeline(
     crate::autotrim::maybe_trim(&repo);
 
     Ok(Landed { repo, outcome })
+}
+
+/// The raw-git correction: what the tier has to say about a `git …` the
+/// agent is about to run.
+///
+/// Tallying happens under every tier, including `observe` — that is what
+/// `observe` is for, and what `ff doctor`'s row reads. Only the speaking is
+/// gated, and only a client with a documented channel is spoken to.
+///
+/// Every failure inside is swallowed the way the other ambient lanes'
+/// failures are: this rides an event whose job is the snapshot.
+fn correct(
+    repo: &ff_core::gix::Repository,
+    session: &str,
+    command: &str,
+    proto: Option<&dyn AgentProtocol>,
+) {
+    let crate::rawgit::Shape::Write(word, _) = crate::rawgit::classify_command(command) else {
+        return;
+    };
+    let policy = crate::gitpolicy::read(repo);
+    let deny = policy == crate::gitpolicy::Policy::Strict;
+    let fresh = crate::gitpolicy::record(repo, session, word.git, deny);
+    if policy == crate::gitpolicy::Policy::Observe {
+        return;
+    }
+    // A refusal is the answer and prints every time; a coach is a nudge and
+    // spends itself the first time the word comes up this session.
+    if !deny && !fresh {
+        return;
+    }
+    let text = if deny {
+        format!(
+            "fufu.gitPolicy is strict here: run {} instead of git {} — {}",
+            word.ff, word.git, word.why
+        )
+    } else {
+        format!(
+            "fufu: {} is what fufu has for git {} — {}",
+            word.ff, word.git, word.why
+        )
+    };
+    let Some(proto) = proto else { return };
+    if let Some(envelope) = proto.correction_envelope(&Correction { text, deny }) {
+        println!("{envelope}");
+    }
 }
 
 /// Print the briefing at most once per session, per client. Answers

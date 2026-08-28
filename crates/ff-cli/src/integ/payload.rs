@@ -94,6 +94,13 @@ pub fn event_label(kind: EventKind, event_name: &str, prompt: &str) -> Label {
     Label::text(format!("event {event_name}"))
 }
 
+/// The tool's shell command, verbatim and untruncated — the label's copy is
+/// cut to a subject line, and a classifier reading a cut command line would
+/// be reading a different command.
+pub fn command_of(input: &ToolInput) -> Option<String> {
+    (!input.command.is_empty()).then(|| input.command.clone())
+}
+
 /// The shared translation for the three clients that speak this dialect.
 pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<AgentEvent>> {
     if payload.cwd.is_empty() {
@@ -114,6 +121,7 @@ pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<A
         session: payload.session_id.clone(),
         cwd: payload.cwd.clone().into(),
         label,
+        command: command_of(&payload.tool_input),
     }))
 }
 

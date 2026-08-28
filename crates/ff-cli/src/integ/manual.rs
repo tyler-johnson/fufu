@@ -36,6 +36,7 @@ pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
         session: String::new(),
         cwd,
         label: Label::Text(label),
+        command: None,
     };
     let landed = runtime::pipeline(ctx, SOURCE, &event, None)?;
     report(ctx, &landed)

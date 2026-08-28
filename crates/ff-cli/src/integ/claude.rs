@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use ff_core::Result;
 
 use super::{
-    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
-    Status, Wiring, payload, settings, skill,
+    AgentEvent, AgentProtocol, Change, Correction, EventKind, InstallOptions, Integration,
+    Mechanism, Presence, Status, Wiring, payload, settings, skill,
 };
 
 pub struct Claude;
@@ -323,6 +323,35 @@ impl AgentProtocol for Claude {
         text.to_string()
     }
 
+    /// `PreToolUse` is the one correction channel that is documented and
+    /// testable, which is why Claude Code is the only adapter that
+    /// implements this.
+    ///
+    /// A denial carries `permissionDecision`. A coach carries
+    /// `additionalContext` and **no `permissionDecision` at all** — that
+    /// omission is load-bearing, because emitting `"allow"` would suppress
+    /// the user's own permission prompts for a tool fufu was only
+    /// commenting on. Plain stdout is not an option here: on `PreToolUse`
+    /// it goes to the debug log, unlike `UserPromptSubmit` where the
+    /// briefing lives.
+    fn correction_envelope(&self, correction: &Correction) -> Option<String> {
+        let mut hook = serde_json::Map::new();
+        hook.insert("hookEventName".into(), "PreToolUse".into());
+        if correction.deny {
+            hook.insert("permissionDecision".into(), "deny".into());
+            hook.insert(
+                "permissionDecisionReason".into(),
+                correction.text.clone().into(),
+            );
+        } else {
+            hook.insert("additionalContext".into(), correction.text.clone().into());
+        }
+        Some(
+            serde_json::json!({ "hookSpecificOutput": serde_json::Value::Object(hook) })
+                .to_string(),
+        )
+    }
+
     fn has_skill(&self) -> bool {
         skill_dir().is_ok_and(|dir| skill::installed(&dir))
     }
@@ -396,5 +425,37 @@ mod tests {
     #[test]
     fn the_briefing_goes_out_as_plain_text() {
         assert_eq!(Claude.briefing_envelope("hello"), "hello");
+    }
+
+    /// A denial says deny and carries a reason; a coach says nothing about
+    /// permission at all, because `"allow"` would suppress the user's own
+    /// prompt for a tool fufu was only commenting on.
+    #[test]
+    fn a_correction_speaks_pretooluse() {
+        let deny = Claude
+            .correction_envelope(&Correction {
+                text: "run ff commit".into(),
+                deny: true,
+            })
+            .expect("claude has a channel");
+        let value: serde_json::Value = serde_json::from_str(&deny).unwrap();
+        let hook = &value["hookSpecificOutput"];
+        assert_eq!(hook["hookEventName"], "PreToolUse");
+        assert_eq!(hook["permissionDecision"], "deny");
+        assert_eq!(hook["permissionDecisionReason"], "run ff commit");
+
+        let coach = Claude
+            .correction_envelope(&Correction {
+                text: "run ff commit".into(),
+                deny: false,
+            })
+            .expect("claude has a channel");
+        let value: serde_json::Value = serde_json::from_str(&coach).unwrap();
+        let hook = &value["hookSpecificOutput"];
+        assert_eq!(hook["additionalContext"], "run ff commit");
+        assert!(
+            hook.get("permissionDecision").is_none(),
+            "a coach must not decide permission: {coach}"
+        );
     }
 }

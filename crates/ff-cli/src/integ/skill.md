@@ -121,6 +121,18 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 - **Only fufu writes fufu state.** Never hand-edit `refs/fufu/*`. Extensions read fufu state and call fufu verbs.
 - **A conflict is never left half-applied.** If a verb reports a hold, the repository did not move; do not go looking for a rebase to continue.
 
+## Raw git, and what fufu says about it
+
+`fufu.gitPolicy` decides what fufu does when git is reached for directly — typed as `ff git …`, or run as a plain `git …` in a shell tool. It never rewrites the command: the write that runs is the one that was asked for, or none at all.
+
+- **observe** — records it, says nothing.
+- **coach** (the default) — names the fufu verb the first time each git word comes up in a session. `git commit` earns `ff commit`, `git stash` earns `ff switch <branch>`, `git push` earns `ff publish`.
+- **strict** — refuses those words and says what to run instead. `ff git commit` exits 2 rather than running, and an agent's raw `git commit` is denied before it starts.
+
+Only the git words fufu actually has a verb for are ever touched. `git apply`, `git bisect`, `git gc`, `git show HEAD:file` and the rest run capture-first under every tier, which is what keeps `ff git <args…>` an honest escape hatch. So does anything fufu cannot read with certainty: a compound command, a `git` behind `sudo`, a `-C` naming another repository — those pass through untouched, counted or not.
+
+`ff doctor` reports what the lane has seen. `ff config gitPolicy <tier>` moves it.
+
 ## Machine surface
 
 Every verb takes `--json` and emits a versioned envelope, `{"ff": 1, "cmd": "status", …}`, so a script can assert what it is talking to. The JSON is not a mirror of the human layout — `ff status` crops to two rows for an eye while its JSON carries the model whole.

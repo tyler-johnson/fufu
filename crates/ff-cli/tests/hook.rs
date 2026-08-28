@@ -1,9 +1,11 @@
 //! The `ff trigger` runtime contract.
 //!
 //! Two halves, and they are opposites. A client source always exits 0,
-//! never vetoes, prints nothing but the briefing, and swallows every
-//! failure. The `manual` source is a verb like any other: loud, `--json`
-//! capable, and an error outside a repository.
+//! prints nothing but the briefing and whatever `fufu.gitPolicy` had to say
+//! about raw git, and swallows every failure. It never vetoes on its own
+//! judgment, and the one veto config can ask for travels as JSON rather
+//! than as an exit code. The `manual` source is a verb like any other:
+//! loud, `--json` capable, and an error outside a repository.
 //!
 //! The adapter-parity proof is one recorded payload per vendor landing a
 //! snapshot with that vendor's own name on it.
@@ -92,6 +94,134 @@ fn repo() -> Fixture {
     fx.commit("init");
     fx.write("a.txt", "dirty\n");
     fx
+}
+
+// ---- the raw-git correction ------------------------------------------------
+
+/// A Bash payload carrying a raw git command.
+fn git_payload(session: &str, cwd: &Path, command: &str) -> String {
+    payload(
+        "PreToolUse",
+        session,
+        cwd,
+        &format!(
+            r#""tool_name":"Bash","tool_input":{{"command":{}}}"#,
+            serde_json::to_string(command).unwrap()
+        ),
+    )
+}
+
+/// Observe records and says nothing at all — byte-identical to a
+/// PreToolUse that had nothing to say.
+#[test]
+fn observe_is_silent() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "observe");
+    let body = git_payload("s", &fx.path(), "git commit -m x");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "observe says nothing: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(out.stderr.is_empty());
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
+}
+
+/// Coach injects the alternative as context and decides no permission at
+/// all — `"allow"` would suppress the user's own prompt for a tool fufu was
+/// only commenting on.
+#[test]
+fn coach_injects_context_without_deciding_permission() {
+    let fx = repo();
+    let body = git_payload("s", &fx.path(), "git commit -m x");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    let hook = &value["hookSpecificOutput"];
+    assert_eq!(hook["hookEventName"], "PreToolUse");
+    assert!(
+        hook["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.contains("ff commit")),
+        "coach names the verb: {text}"
+    );
+    assert!(
+        hook.get("permissionDecision").is_none(),
+        "coach must not decide permission: {text}"
+    );
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
+
+    // The same word again in the same session says nothing more.
+    dirty(&fx, "again\n");
+    let again = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(again.status.code(), Some(0));
+    assert!(
+        again.stdout.is_empty(),
+        "coach names each word once per session: {}",
+        String::from_utf8_lossy(&again.stdout)
+    );
+}
+
+/// Strict denies, carrying the verb to run instead — and still exits 0,
+/// because a denial is JSON the client may ignore, never an exit code.
+#[test]
+fn strict_denies_and_still_exits_zero() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    let body = git_payload("s", &fx.path(), "git commit -m x");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    let hook = &value["hookSpecificOutput"];
+    assert_eq!(hook["permissionDecision"], "deny");
+    assert!(
+        hook["permissionDecisionReason"]
+            .as_str()
+            .is_some_and(|t| t.contains("ff commit")),
+        "the denial names the verb: {text}"
+    );
+    // The capture is never conditional on the correction.
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
+}
+
+/// A command fufu cannot read as one plain git invocation fails open: no
+/// denial, under strict, and the snapshot lands anyway.
+#[test]
+fn a_compound_command_is_never_denied() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    let body = git_payload("s", &fx.path(), "make && git commit -m x");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "ambiguity fails open: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(
+        chain_subject(&fx),
+        "claude[s]: Bash(make && git commit -m x)"
+    );
+}
+
+/// A write with no fufu verb to name is nobody's to correct, under any tier.
+#[test]
+fn a_write_fufu_cannot_answer_passes_under_strict() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    let body = git_payload("s", &fx.path(), "git apply p.diff");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "git apply has no fufu answer: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(git apply p.diff)");
 }
 
 // ---- the client sources ----------------------------------------------------

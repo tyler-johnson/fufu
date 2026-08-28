@@ -13,8 +13,11 @@
 //! finer-grained than a thing you integrate with. All three shell slugs
 //! install rc lines calling one `ff trigger shell`; `manual` is a source
 //! and not a slug, because there is nothing to install. `ff trigger` is
-//! machine surface with one absolute contract: it always exits 0, it never
-//! vetoes, and it says nothing about a failure unless `FF_DEBUG=1`.
+//! machine surface with one absolute contract: it always exits 0, it says
+//! nothing about a failure unless `FF_DEBUG=1`, and it never vetoes on its
+//! own judgment — a veto is `fufu.gitPolicy strict` and nothing else, and
+//! it arrives as JSON the client is free to ignore rather than as an exit
+//! code.
 //!
 //! Nothing can collide across the two namespaces, which is what makes it
 //! safe for them to be different.
@@ -264,6 +267,18 @@ pub trait Integration: Sync {
     }
 }
 
+/// What fufu has to say about a tool that is about to run.
+///
+/// One line of prose and one bit. The prose names a fufu verb; the bit says
+/// whether the client is being asked to stop the tool or merely told. There
+/// is deliberately no third field carrying a command to run in its place —
+/// fufu names an alternative and never composes one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Correction {
+    pub text: String,
+    pub deny: bool,
+}
+
 /// How one vendor spells a payload, and how it wants to be spoken back to.
 /// Everything between the two is vendor-blind and lives in `runtime`.
 pub trait AgentProtocol: Sync {
@@ -280,6 +295,16 @@ pub trait AgentProtocol: Sync {
     /// Claude Code and Codex read plain stdout; Gemini and Cursor need JSON,
     /// which is why this is asked of the adapter rather than assumed.
     fn briefing_envelope(&self, text: &str) -> String;
+
+    /// How this client accepts a correction on a tool it is about to run.
+    /// `None` when the client has no documented channel for one — nothing
+    /// is printed, and the tally still happens. The same discipline as
+    /// `has_skill`: naming a channel that is not there is worse than saying
+    /// nothing at all.
+    fn correction_envelope(&self, correction: &Correction) -> Option<String> {
+        let _ = correction;
+        None
+    }
 
     /// Whether the shipped skill is on disk for this client right now.
     /// Read at briefing time rather than assumed from the install, because

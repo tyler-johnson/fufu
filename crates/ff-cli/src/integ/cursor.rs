@@ -145,6 +145,7 @@ impl AgentProtocol for Cursor {
             session,
             cwd: cwd.into(),
             label,
+            command: payload::command_of(&raw.tool_input),
         }))
     }
 

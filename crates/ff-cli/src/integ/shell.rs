@@ -379,6 +379,7 @@ impl Integration for Shell {
                 session: String::new(),
                 cwd,
                 label: Label::Text(String::new()),
+                command: None,
             };
             runtime::pipeline(ctx, "shell", &event, None)?;
             Ok(())

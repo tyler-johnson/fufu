@@ -1,11 +1,12 @@
 //! The neutral agent event: what every client's payload becomes once its
 //! adapter is done with it, and the only thing the shared pipeline reads.
 //!
-//! It carries four fields because the core consumes four things — which
+//! It carries five fields because the core consumes five things — which
 //! event this is, whose session it belongs to, which directory to discover
-//! a repository from, and what the snapshot's subject should say. A vendor
-//! field that nothing downstream reads would be a field to keep in sync for
-//! nobody.
+//! a repository from, what the snapshot's subject should say, and the shell
+//! command the tool carried when it carried one, which is what the raw-git
+//! correction reads. A vendor field that nothing downstream reads would be
+//! a field to keep in sync for nobody.
 
 use std::path::{Path, PathBuf};
 
@@ -118,6 +119,9 @@ pub struct AgentEvent {
     /// The directory the repository is discovered from.
     pub cwd: PathBuf,
     pub label: Label,
+    /// The tool's shell command, when the tool had one. `None` for
+    /// everything else — a prompt, a file edit, a bare prompt hook.
+    pub command: Option<String>,
 }
 
 #[cfg(test)]
