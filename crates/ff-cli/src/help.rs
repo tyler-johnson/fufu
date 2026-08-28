@@ -1,1232 +1,130 @@
-//! Every help page fufu prints. The prose lives here rather than in
-//! `cli.rs` doc comments for one mechanical reason: clap_derive joins a
-//! doc comment's lines into a single paragraph and this build has no
-//! `wrap_help`, so a doc comment prints as one very long line, while a
-//! `&'static str` is emitted line for line. Hand-wrapped at 72 columns.
+//! Every help page fufu prints, one `.txt` file per page under `help/`.
 //!
-//! Two consts per command: the long description clap prints above
-//! `Usage:` (`long_about`), and the examples it prints below the options
-//! (`after_long_help`). The one-line `about` stays in `cli.rs`, where it
-//! is also the row in the parent's command list.
-
-pub const ROOT: &str = "\
-a friendlier interface to plain git
-
-fufu snapshots your working tree as you work — before every command it
-runs, before every git command you type through the alias, before every
-tool call your agent makes — so the last hour of work is always
-recoverable. Snapshots are ordinary git objects under refs/fufu/, beside
-your history rather than in it: nothing fufu stores reaches a remote, and
-nothing it stores needs fufu to read back.
-
-Bare `ff` is the map: recent work across every branch, parked changes
-included — where you left things. It draws the commits that relate the
-branches shown — their tips, the forks where they part, the merges that
-land one — and contracts the runs between them into one `~ N commits`
-row. History that relates only itself, like a merged-and-deleted
-branch, earns no row: the shape is the answer, and the shape is how the
-branches stand to each other.
-
-You never type a capture. Every verb takes one first.
-
-Seven verbs take a short spelling too — st, ci, sw, br, ev, desc, cfg —
-for status, commit, switch, branch, evolog, describe, and config.
-
-Every verb takes -C <dir> (--cwd) as well: run as if fufu had been
-started in <dir>, git's spelling of the same idea. It is a chdir, so a
-relative path argument after it reads from <dir> too, and any directory
-inside the repository you mean will do — a linked worktree included,
-which is how you ask one bay a question without leaving another.
-
-`ff <name>` runs ff-<name> from PATH when no verb matches, git-style. The
-child inherits three variables: FF_REPO, the worktree it was invoked
-against, unset outside one or in a bare repository; FF_CONTRACT, the
-version number every --json envelope carries; and FF_SESSION, the session
-tag when one is set.";
-
-pub const ROOT_EXAMPLES: &str = "\
-Examples:
-  ff                             the map: where you left things
-  ff -n 3                        just the three branches you touched last
-  ff --all                       every local branch, however old
-  ff log                         the timeline: commits wearing their operations
-  ff restore src/ --at 2h        a directory, as it was two hours ago
-  ff undo                        roll the whole repo back one run of work
-  ff -C ../bay status            another worktree, without leaving this one
-
-Wire it in, so capture reaches the commands you did not type:
-  ff hook                        what is on this machine, then asks
-  ff hook claude zsh             wire exactly those
-  ff doctor                      is any of this actually on?
-
-`ff help <command>` (or `ff <command> --help`) has the details.
-
-Are you an agent working in a repository fufu manages? Before you write to it:
-  SKIP if fufu's skill is already in your context. Otherwise:
-  ff hook --skill                the manual: recovery, rewriting, conflicts";
-
-pub const COLLIDE: &str = "\
-Would these two branches hit each other if both landed? A three-way merge
-replayed in memory against their merge base, so the answer costs a read
-and changes nothing — no index, no worktree, nothing written to the
-object database.
-
-The other two axes are vertical: a branch against the base beneath it, or
-against the remote copy of itself. This one runs sideways, between two
-branches where neither sits under the other, which is the pair no other
-verb asks about.
-
-Each side is judged on the tree the operation log holds for it, not the
-one on disk, so a branch checked out in another worktree — or nowhere at
-all — still answers, and uncommitted work counts. A name wears * when
-that is what happened.
-
-A collision is a finding rather than a failure: the exit is 0 whichever
-way the answer goes, and a program reads the verdict from --json.";
-
-pub const COLLIDE_EXAMPLES: &str = "\
-Examples:
-  ff collide feat-x              against the branch you are on
-  ff collide feat-x feat-y       two you name
-  ff collide feat-x --json       the verdict, for a program";
-
-pub const STATUS: &str = "\
-Where you are and what is uncommitted: the branch, its upstream, the open
-change, and the files that differ from the commit underneath it.
-
-The files are a diffstat — counts, not content. `ff diff` is the same
-change read down to the line, and it sees the untracked files `git diff`
-does not.
-
-Status is also where drift is loud. Work done behind fufu's back — a plain
-`git commit`, a rebase run by a tool that never heard of fufu — is absorbed
-into the operation log lazily, and status keeps reporting it until the
-next fufu operation, so foreign motion is never silent.";
-
-pub const STATUS_EXAMPLES: &str = "\
-Examples:
-  ff status
-  ff status --json               the same state, for scripts
-  ff diff                        the same change, with content";
-
-pub const LOG: &str = "\
-The changes view, jj-style: the open change (@) sits atop the commit walk
-(●), and each commit wears the id of its newest operation — the letters
-column `ff evolog` drills into.
-
---commits drops to plain history, no operation identity. The operation log
-itself is `ff op log`: every mutation fufu has made, newest first, carrying
-the ids the `ff op` verbs take.
-
--r takes a revset and replaces where the rows come from: gitrevisions'
-whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @
-row appears only when the open change is a member of the set, because
-`ff log -r main` is a question about main.
-
-Paths narrow the log to the commits that touch them, by the rule `ff
-restore` speaks: a file, or a directory prefix. No globs.
-
-No `--` is needed, the opposite of what git teaches: revisions go to -r
-and the positional is only ever paths, so `ff log main` is a question
-about the path main, even where a branch called main exists.
-
-A path that names a blob is followed through its renames, on by default.
-A directory gets no follow — git tracks no such thing as a directory
-rename, so there is nothing to follow.
-
--r filters but does not follow: a revset names a set, and a set has no
-line of descent to carry a name along. `ff log -r 'trunk..@' src/` is a
-good question and still works — it filters.
-
-The @ row appears when the open change touches the paths, the same rule
--r already has.
-
-The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER,
-then PAGER, then less. Piped output and --json never page.";
-
-pub const LOG_EXAMPLES: &str = "\
-Examples:
-  ff log                         the last 25 rows
-  ff log -n 0                    all of it
-  ff log --commits               history only, no operation rows
-  ff log -r main                 just main's tip — no @ row, it is not in it
-  ff log -r 'trunk..@'           what this branch has that trunk does not
-  ff log src/parser.rs           what happened to this file, renames and all
-  ff log -r 'trunk..@' src/      filters that set by path — no rename follow
-  ff op log                      the operation log, in its own address space";
-
-pub const DIFF: &str = "\
-The open change as a patch: what `ff commit` would land, and what it says.
-Every other view here reports `path +N -M`; this is the same tree diff read
-down to the line.
-
-It is the one patch tool that sees the whole change. `git diff` is blind to
-untracked files, and an untracked file is exactly where a wrong commit
-comes from — so the file you just created shows up here with its content,
-without an `ff status` first to make it visible.
-
-The body is git's unified diff, verbatim, because a patch format is not
-fufu's to invent: what comes out of here is what `git apply` takes. The
-diffstat is `ff status`, and this verb deliberately does not reprint it.
-
-Paths narrow it, by the rule `ff restore` speaks: a file, or a directory
-prefix. No globs.";
-
-pub const DIFF_EXAMPLES: &str = "\
-Examples:
-  ff diff                        the whole open change, with content
-  ff diff src/                   just what changed under src/
-  ff diff --json                 hunks and lines as fields
-  ff diff > fix.patch            output git apply reads back
-  ff status                      the same change, as counts
-  ff op diff <a> <b>             the same question between two operations";
-
-pub const SHOW: &str = "\
-One revision, with its patch: the commit's furniture — id, author, age,
-subject — then what it did, measured against its first parent.
-
-Bare, it shows `@`: the open change, header and all, with exactly the body
-`ff diff` prints. One renderer, so the thing you are about to commit and
-the thing you committed last read the same way.
-
-A merge names the ambiguity instead of picking a parent for you. git prints
-no diff there either; this says why, and where the per-parent view is.
-
-Revisions only. `ff show <op>` is refused and points at `ff op show` — the
-operation log is its own address space, which is what lets hex mean commit
-everywhere and letters mean operation everywhere. Blobs and trees stay
-git's: `ff git show HEAD:file.txt`.";
-
-pub const SHOW_EXAMPLES: &str = "\
-Examples:
-  ff show                        the open change — the same body as ff diff
-  ff show HEAD                   what the last commit did
-  ff show main~2 src/            that commit, narrowed to src/
-  ff show --json                 header and hunks as fields
-  ff op show <op>                the other address space
-  ff git show HEAD:file.txt      a blob at a revision, git's job";
-
-pub const HISTORY: &str = "\
-Where you can go back to. `ff op log` answers what happened; this answers
-the other question, and they are not the same question — captures
-outnumber verb operations by more than an order of magnitude, so a log is
-mostly a machine's account of itself.
-
-One row is one keystroke. `@` is where the repository stands; each row
-below it is one more press of `ff undo`, and each row above is one more
-press of `ff redo`. A run of captures collapses into the single row it
-undoes as, and says how many it collapsed — a keystroke that moved forty
-operations should not have to be inferred.
-
-The redo path is whatever is still reversible. Landing work after an undo
-forks the log rather than truncating it, so the rows above `@` simply stop
-being offered once that happens.
-
-Ids are the ones the `ff op` verbs take, so any row is also
-`ff op show <id>` and `ff op restore <id>`.";
-
-pub const HISTORY_EXAMPLES: &str = "\
-Examples:
-  ff history                     the last 25 undo steps
-  ff history -n 0                every step back to the floor
-  ff history --json              the same, for machines
-  ff op show <id>                what one of those rows was";
-
-pub const EVOLOG: &str = "\
-Every operation on the change you have open, newest first — the drill-in
-behind the letters column in `ff log`. This is where a lost hour is found:
-each row is a whole worktree, and `ff restore --at-op <id>` brings any of
-them back.
-
-Because fufu captures before it works, the newest row is often this
-command's own capture, taken a moment ago when it found the tree dirty.
-That is intended.
-
-Ids are spelled in the letters k–z, never hex digits, so an operation id
-can never be misread as a commit sha. The bold prefix is the shortest one
-`ff op` and `--at-op` resolve unambiguously.
-
--p prints each row's patch under it — what that one operation changed,
-measured against the capture before it on this branch.";
-
-pub const EVOLOG_EXAMPLES: &str = "\
-Examples:
-  ff evolog                      the open change's operations
-  ff evolog -n 0                 all of them
-  ff evolog -p                   each row with what it changed, in full
-  ff restore src/ --at-op <id>   pull a directory back from one";
-
-pub const GIT: &str = "\
-Snapshots first, then runs the git command. This is what the shell alias
-runs — `alias git='ff git'`, installed by `ff hook <shell>` — so
-typed git keeps working exactly as it did, and simply stops being able to
-lose anything.
-
-Nothing is ever translated: the command that runs is the one you typed, or
-none at all. What `fufu.gitPolicy` decides is what fufu *says* about a git
-word it has a verb for. observe records it and stays quiet. coach — the
-default — adds one line naming the fufu verb, once per word. strict refuses
-that word outright and says what to run instead; words fufu has no verb for
-(`apply`, `bisect`, `gc`) are never touched under any tier, so the escape
-hatch stays open.
-
-The same setting governs raw git in an agent's own shell, through the hook:
-there coach injects the alternative into the model's context and strict asks
-the client to stop the call.
-
-Every flag here belongs to git, including --help. This page is `ff help
-git`.";
-
-pub const GIT_EXAMPLES: &str = "\
-Examples:
-  ff git status                  snapshot, then real git status
-  ff git commit -m \"…\"           git's, plus a line naming ff commit
-  ff config gitPolicy strict     refuse the words fufu has verbs for
-  ff config gitPolicy observe    count them and say nothing
-  ff git rebase -i HEAD~3        no fufu verb to name: snapshot, then git
-  ff hook zsh                    make every typed git command do this";
-
-pub const RESTORE: &str = "\
-Files come back as they were somewhere else. Bare, that somewhere is the
-commit under the open change — the everyday \"discard my edits to this
-file\". --all restores the whole tree, including deleting files that were
-created since.
-
-Three flags name a different source, one kind each, because a position
-argument has exactly one kind and a second kind takes a flag:
-
-  --from <rev>      a revision — a branch, a sha, any revset naming one
-  --at-op <op>      an operation, by its letters-spelled id
-  --at <time>       the operation current at a time (30m/2h/3d, or a date)
-
-Only the worktree is written. The index, HEAD, and branches stay exactly
-as they are. Restore takes its own capture first, and that one is
-mandatory: if the pre-restore capture fails, nothing is written. So any
-restore is undone by another restore, or by `ff undo`.";
-
-pub const RESTORE_EXAMPLES: &str = "\
-Examples:
-  ff restore src/main.rs         discard edits: back to the commit below
-  ff restore --all --at 2h       the whole tree, as it stood two hours ago
-  ff restore docs/ --at-op kqzm  a directory, from one operation
-  ff restore src/ --from main~2  the same paths, from history instead";
-
-pub const TRIM: &str = "\
-Retention with an undo. The log's pre-trim tip is written to the chain's own
-trash ref, refs/fufu/wt/<worktree>/trash/@ops, before a single ref moves, so
-the last trim is itself recoverable. Survivors keep their trees, messages, and dates
-byte-for-byte — only parent slots relink — and the reflog is replayed with
-the original times, so `--at 2h` stays truthful afterwards.
-
-You rarely need to run this. A trim rides an ff command at most once per
-fufu.autoTrim (daily by default), per worktree. This is the hand-run
-form, and the only one that nudges git's own gc when it dropped something.";
-
-pub const TRIM_EXAMPLES: &str = "\
-Examples:
-  ff trim -n                     preview: what would go, nothing written
-  ff trim                        drop everything past the keep window
-  ff trim --gone                 also drop pointers whose branch is gone
-  ff config keep 30d             a shorter window
-  ff config autoTrim false       leave trimming entirely to this command";
-
-pub const COMMIT: &str = "\
-There is no staging step: the working tree is the change, and closing it
-is the commit. -m describes what is closing and wins over any pending
-description left by `ff describe`. -b lands the close on a branch — it
-claims the anonymous branch you are standing on, or forks a fresh one from
-here, leaving the branch you were on where it was.
-
-Paths close a slice: a file or a directory — the same rule `ff restore`
-and `ff diff` speak, no globs — and what lies under it lands while the
-rest stays open, still the change you are in the middle of. That is
-selection at the moment of the close, not a staging area that persists.
-There is still nothing between commits: the choice is an argument at the
-moment of the close, made once rather than maintained. The remainder is
-left without a description, and `ff describe -m` gives it one.
-
-A clean tree has nothing to close either way: a description does not
-make one — it waits for the next close instead. Every close is recorded,
-so `ff undo` takes it back — tree and refs together.";
-
-pub const COMMIT_EXAMPLES: &str = "\
-Examples:
-  ff commit -m \"parser: handle unicode escapes\"
-  ff commit                      close with the pending description
-  ff commit -b unicode-cleanup   claim the name as the work lands
-  ff commit --no-verify          skip pre-commit and commit-msg hooks
-  ff commit src/parser.rs -m \"one fix\"  land one file, leave the rest open
-  ff commit src/ -m \"one fix\"           a directory prefix works the same way";
-
-pub const SWITCH: &str = "\
-Branches without the stash dance. Whatever is open here is parked with the
-branch you are leaving, and whatever was parked where you are going comes
-back exactly as you left it — same files, same edits, same pending
-description. Both halves are reported, so you always know where your work
-went and what came back.
-
-The target is a branch name, or any unique prefix of one. An ambiguous
-prefix is an error that lists the candidates.";
-
-pub const SWITCH_EXAMPLES: &str = "\
-Examples:
-  ff switch main
-  ff switch uni                  a unique prefix is enough
-  ff undo                        changed your mind: the park and the move
-                                 both roll back together";
-
-pub const UNDO: &str = "\
-Whole-repo undo: refs and the working tree together, not one without the
-other. It takes no argument and repeats — each one goes one step further
-back.
-
-A step is a *run*, not an operation. Captures happen at machine rate and a
-person's undo does not, so undo steps over the longest stretch of adjacent
-captures carrying the same session, ending at the first operation that is
-not one. A verb's operation is a decision somebody made, so it is always
-its own step — a switch and a commit are two undos, never one — which is
-also what keeps undo from rolling past a commit by accident.
-
-Undo moves the log's pointer rather than appending, so the log records
-work and never navigation, and `ff redo` is what comes forward again.
-Nothing is discarded: what an undo steps off stays reachable, with the
-capture taken just before it at the head, so redo hands back the work you
-were holding first.
-
-Naming one operation instead of a run is `ff op restore <op>`.";
-
-pub const UNDO_EXAMPLES: &str = "\
-Examples:
-  ff undo                        step back one run of work
-  ff undo                        …and again, further back
-  ff redo                        forward again
-  ff op log                      what the log holds, with ids
-  ff op restore kqzm             land on one named operation instead";
-
-pub const START: &str = "\
-Begin a new line of work on a fresh branch. `ff commit` records, `ff switch`
-resumes, `ff start` begins.
-
-Bare `ff start` forks from trunk; a `<rev>` argument forks there instead. A
-branch name forks at that branch's tip rather than continuing it — continuing
-is `ff switch`'s job.
-
-The open change parks where it was; the new branch opens clean. Nothing is
-ever carried across a fork. -m describes the change being *opened*; -b names
-the minted branch, else it is anonymous.
-
-`ff start` never creates a commit.";
-
-pub const START_EXAMPLES: &str = "\
-Examples:
-  ff start                       begin new work, forked from trunk
-  ff start -m \"the next thing\"   …with the new change already described
-  ff start -b hotfix             name the branch at birth
-  ff start 5b7a90e               fork from a specific commit";
-
-pub const DESCRIBE: &str = "\
-The open change carries a description before it is ever a commit, so you
-can name work while you are doing it and let `ff commit` pick the name up
-when it closes. -m sets it inline; the bare form opens $EDITOR seeded with
-the current text — the same spawn git makes for a commit message, and one
-of the very few fufu makes at all.
-
--b names the branch you are on instead — the same act whether it is an
-anonymous petname earning a real name or a chosen name being replaced. The
-capture chain, any parked change, and the pending description all come
-along, which is the part a bare `git branch -m` would orphan.
-
-Naming a revision rewords a commit that has already closed instead. Everything
-above it re-parents in the same operation, so any branches sitting inside that
-range come along with it.";
-
-pub const DESCRIBE_EXAMPLES: &str = "\
-Examples:
-  ff describe -m \"parser: handle unicode escapes\"
-  ff describe                    open $EDITOR on the pending description
-  ff describe -b unicode-cleanup name the branch you are on
-  ff describe HEAD~2 -m \"fix\"    reword a closed commit, restacking above it";
-
-pub const ABSORB: &str = "\
-Folds the open change into a commit that has already closed — the revision
-you name, or the one it sits on when you name none. An absorb does not
-attribute hunks: the change is the unit, and a path filter only chooses
-which of its files fold in, leaving the rest open.
-
-Everything above the target re-parents in the same operation, so a branch
-inside that range comes along with it. What moves is the commit's identity
-and the stack above it; no file is copied or renamed in the re-point.";
-
-pub const ABSORB_EXAMPLES: &str = "\
-Examples:
-  ff absorb                      fold everything open into the commit under it
-  ff absorb --into HEAD~2        fold it into a commit further back
-  ff absorb src/parser.rs        fold only that path";
-
-pub const LIFT: &str = "\
-The other direction of absorb: takes paths out of a commit that has already
-closed and back into the open change — the revision you name, or the one it
-sits on when you name none. A lift does not attribute hunks either: whole
-files are what come back out, and a path filter only chooses which of the
-commit's files they are.
-
-Everything above the target re-parents in the same operation, so a branch
-inside that range comes along with it. If the lift takes everything the
-commit held, the commit is dropped, because fufu writes no empty commit.
-What moves is the commit's identity and the stack above it; no file is
-copied or renamed in the re-point.";
-
-pub const LIFT_EXAMPLES: &str = "\
-Examples:
-  ff lift                        take everything out of the commit under it
-  ff lift --from HEAD~2          take it out of a commit further back
-  ff lift src/parser.rs          take only that path back out";
-
-pub const RESTACK: &str = "\
-Replays a branch's commits onto the base it sits on — the branch it was
-forked from when one was recorded, trunk otherwise. `--onto` records a new
-parent first, which is how a branch is re-aimed and the only way to
-change it. A base is a branch wherever it lives: `origin/main` names one
-that lives on a remote, and re-aiming at it records it like any other.
-
-The positional names the branch being moved, so a branch you are not
-standing on restacks without touching a file on disk. Branches inside
-the replayed range come along with it, and a replay that would conflict
-stops with nothing changed rather than leaving you mid-rebase.
-
-Offline — it never reaches the network.";
-
-pub const RESTACK_EXAMPLES: &str = "\
-Examples:
-  ff restack                     replay onto the base this branch sits on
-  ff restack feature             restack a branch you are not standing on
-  ff restack --onto release-1.2  re-aim this branch and replay onto it
-  ff restack --onto origin/main  a base that lives on a remote";
-
-pub const SYNC: &str = "\
-Line this branch up with both things it answers to: the base beneath it and
-the remote copy of itself. Fetch, take in whatever arrived, replay onto the
-base. One verb for both, because reconciling with either is the same replay.
-
-Nothing leaves the machine. Everything sync does is recorded and undoable,
-which is the whole reason it stops here — `ff publish` is the outgoing half,
-and it is a verb you type on purpose because a push cannot be taken back.
-Sync names what is waiting and leaves it.
-
-Whose divergence it is decides what happens. Divergence this run's fetch
-created is somebody else's, and your commits replay on top of theirs.
-Divergence that was already there is yours only if fufu's own operation log
-accounts for every commit of it — as a rewrite it recorded, or as one it
-dropped as empty — and then there is nothing to take in and ff publish is what
-sends it. Commits the log does not recognize are somebody else's however they
-arrived, and they replay too.
-
-Either replay can conflict. The first one that does stops the run and holds:
-nothing moves, and ff resolve picks it up.
-
-Sync acts on the branch you are standing on. ff restack takes the name of one
-you are not, and cascading up a stack is one branch at a time.";
-
-pub const SYNC_EXAMPLES: &str = "\
-Examples:
-  ff sync                        fetch, reconcile with base and remote
-  ff sync --no-fetch             reconcile with what you already have
-  ff publish                     send it, once it lines up";
-
-pub const PUBLISH: &str = "\
-Send this branch to its remote. The outgoing half of lining up, and the one
-thing fufu does that no operation log can take back — which is exactly why it
-is a verb you type rather than a default riding along inside another one.
-`ff sync` takes in; this sends.
-
-There is a way back, and it is this verb rather than ff undo: undo the commit
-and publish again, and the lease rolls the shared copy back to where the
-branch now stands. That is not erasure — other clones may hold the commits,
-CI ran, a webhook fired — but the shared copy is yours to move, and fufu
-records every push so it knows which commits out there are your own.
-
-The push carries a lease: it goes through only if the shared copy still stands
-where you last saw it. If somebody pushed since, nothing is sent and nothing is
-lost — ff sync takes their work in first, and this sends afterwards. A branch
-with no shared copy yet gets one, tracking set up in the same step. One that
-was deleted is put back under a lease that says it must not exist; one that
-was never created is simply created, and telling those two apart is why fufu
-keeps a record of what it has sent.
-
-Publish does not fetch, on purpose. The lease is worth something precisely
-because it means the tip you last looked at; refreshing it first would ask git
-to guard you against a change you accepted without reading.
-
-A held rewrite blocks the exit. Nothing is sent while the branch's commits are
-still about to be rewritten out from under.
-
---to <remote> names where to send a branch that does not answer to one yet, and
-records the answer, so the next ff sync and ff status need no flag. It is
-refused for a branch that already answers somewhere else: one branch, one
-shared copy. With a single remote, or one named origin, you never need it.
-
---dry-run says which push this would be without making it: creating a shared
-copy, replacing one, putting back one that was deleted, and rolling one back
-are four different acts wearing one verb, and this is the only way to tell
-them apart while the answer still costs nothing. It writes nothing and sends
-nothing.";
-
-pub const PUBLISH_EXAMPLES: &str = "\
-Examples:
-  ff publish                     send this branch, under a lease
-  ff publish -n                  which push would this be? send nothing
-  ff publish --to upstream       send to a named remote, and remember it
-  ff sync                        take in what arrived, first
-  ff status                      what is waiting to go, before you send it";
-
-pub const REMOTE: &str = "\
-What the remotes here are called, and where each one points.
-
-fufu's own verbs name a remote rather than assume one — ff publish --to takes
-a name, ff sync fetches from the one this branch answers to, and a refusal
-that could not tell which remote you meant sends you here. So the list those
-verbs are checked against is worth having inside fufu rather than borrowed
-from git. One row per remote, its fetch URL beside it.
-
-A read and nothing more. Adding a remote is a name and a URL, two facts fufu
-has no verb for yet: ff git remote add <name> <url> is where that lives.";
-
-pub const REMOTE_EXAMPLES: &str = "\
-Examples:
-  ff remote                      what the remotes here are called
-  ff remote --json               the same, for a machine
-  ff publish --to origin         send a branch to one of them, by name
-  ff branch list                 what those remotes are holding";
-
-pub const INIT: &str = "\
-Starts a repository with the safety net already on.
-
-A `git init` leaves a repository whose operation log begins whenever some
-later fufu verb happens to take a floor, and whose gc guard — the config that
-stops `git gc` expiring fufu's own refs — is written at that same
-unpredictable moment. This writes both before you have typed anything else,
-so `ff undo` has somewhere to land from your first command onward.
-
-The default branch is `init.defaultBranch` if you set one, and `main` if you
-did not.
-
-Run inside a repository that already exists, it means turn fufu on here: the
-same two things, and it says so rather than pretending it made anything. That
-is the way to adopt a repository git created, or one you cloned before fufu
-was on the machine.
-
-It does not touch your shell or your agent. Those are yours, not this
-repository's, and `ff hook` installs them when you want them — `ff doctor`
-says what is wired and what is not.";
-
-pub const INIT_EXAMPLES: &str = "\
-Examples:
-  ff init                        here
-  ff init myproject              in a new directory
-  ff init                        again, in a repo git made: adopt it
-  ff doctor                      is the net actually on?
-  ff git init --bare             a bare repository is still git\'s job";
-
-pub const CLONE: &str = "\
-Clones a repository and arms it on arrival: the gc guard written, the
-operation log\'s floor taken, and one line saying what landed.
-
-fufu speaks the git protocol itself here rather than running `git clone` — it
-negotiates the pack, writes it, and checks out the worktree. What it still
-reaches outside the process for is git\'s configuration and authentication
-surface: the installation config (so `url.<base>.insteadOf` and `http.proxy`
-keep working), your credential helper when a remote asks for one, and `ssh`
-for an ssh URL. Those are inherited whole rather than reimplemented.
-
-Ctrl-C leaves nothing behind: a clone that does not finish takes its
-half-built directory with it.
-
---depth takes only the last N commits. A shallow clone is a smaller download
-and a shorter history; fufu\'s own operations work the same way on one.
-
-The directory is the URL\'s last path segment with .git stripped, unless you
-name one. An existing directory with anything in it is refused rather than
-merged into.";
-
-pub const CLONE_EXAMPLES: &str = "\
-Examples:
-  ff clone git@github.com:you/thing.git
-  ff clone https://github.com/you/thing.git thing
-  ff clone <url> -b release        check out a branch, not the remote HEAD
-  ff clone <url> --depth 1         just the tip
-  ff init                          already have the repository? adopt it";
-
-pub const EDIT: &str = "\
-Opens an editing session on a commit: a branch is minted at the commit and you
-switch to it, so the commit's real content is what gets edited, with your whole
-toolchain pointed at it.
-
-The branch you came from stays exactly where it stands, its commits waiting
-ahead. `ff done` amends the commit with what you changed and replays them onto
-it. A branch name is a switch instead — the one available reading is taken and
-announced. Your open change parks where you stood and comes back when the
-session ends.";
-
-pub const EDIT_EXAMPLES: &str = "\
-Examples:
-  ff edit 3f2a1b                 open a session on that commit
-  ff edit HEAD                   edit the commit you are sitting on
-  ff edit main                   a branch is a switch, not a session";
-
-pub const DONE: &str = "\
-Ends the editing session `ff edit` opened: the commit the session was opened
-on is amended with what the working tree now holds, what waited ahead is
-replayed onto it, and you land back on the branch the session left standing.
-
-A replay that would conflict stops with nothing changed rather than leaving you
-mid-rewrite. `--abandon` drops the session instead of landing it, stashing
-whatever is uncommitted rather than discarding it.
-
-It is one operation — the amend, the replay and the return move together — so
-one `ff undo` takes the whole session back.";
-
-pub const DONE_EXAMPLES: &str = "\
-Examples:
-  ff done                        amend, replay what waited, land back
-  ff done --abandon              drop the session, stash what is open";
-
-pub const RESOLVE: &str = "\
-A held rewrite is a conflict fufu chose not to interrupt you with — and this
-is where you choose to deal with it, all at once. Every surviving conflict
-region lands in the working tree together, as ordinary labeled markers, in
-one session: fix them, then `ff done` lands the rewrite.
-
-Nothing moves. Your branch does not move and the parked change, if there is
-one, waits where it was — the session is recorded in the branch's own
-metadata, and the hold stays, because it is what the session is resolving.
-If the world has moved and the rewrite applies cleanly now, the hold is
-released instead, and re-running the verb that recorded it lands it.
-
---abandon drops the hold — and an open session's markers with it — so it is
-also the way out of one. The way back, either way, is one ff undo.";
-
-pub const RESOLVE_EXAMPLES: &str = "\
-Examples:
-  ff resolve                   materialize the hold's conflicts and fix them
-  ff done                      land the fixes, and the rewrite behind them
-  ff resolve --abandon         drop the hold instead
-  ff undo                      take the session back, markers and all";
-
-pub const BRANCH: &str = "\
-Bookkeeping for lines of work: `ff branch list` says what exists and
-`ff branch delete` takes one away. Bare `ff branch` is the list.
-
-Naming is not here. `ff describe -b <name>` names the branch you are on,
-on the same axis as -m — one verb for saying what work is, whether the
-subject is the change's description or the branch's name.";
-
-pub const BRANCH_EXAMPLES: &str = "\
-Examples:
-  ff branch                        what exists, and what is still anonymous
-  ff branch delete old-experiment  remove it (undoable)
-  ff describe -b unicode-cleanup   name the branch you are on";
-
-pub const WORKTREE: &str = "\
-Worktrees are how parallel work gets parallel trees: one checkout per line
-of work, each standing on a branch of its own. `add` makes one, `remove`
-takes one away, and bare `ff worktree` is the list.
-
-A worktree's operation chain is keyed by the worktree, so each one has its
-own log, its own undo, and its own lock.";
-
-pub const WORKTREE_EXAMPLES: &str = "\
-Examples:
-  ff worktree              the live worktrees, and the gone chains
-  ff worktree list         the same, spelled out
-  ff worktree add bay      make one, on a branch of its own
-  ff worktree remove bay   take one away; its work is captured first
-  ff branch list           the branches those worktrees stand on";
-
-pub const BRANCH_LIST: &str = "\
-Named branches first, then the anonymous ones fufu minted, kept apart so a
-petname never reads as something you chose. Each row carries its tip, the
-subject there, and what is hanging off it: a parked change, a pending
-description, and how it stands against its upstream.
-
-Then what a remote is holding that is not here: the branches a clone or a
-fetch left a tracking ref for and no local branch of yours tracks. Those rows
-wear the sigil without the brackets, because the brackets mean a name you can
-type at ff switch and switch resolves local names only — ff start
-origin/<branch> is the verb that forks one of these into a branch here. The
-section is bounded the way the map is, with a dim count standing for the
-rest; --all is that bound spelled off.";
-
-pub const BRANCH_LIST_EXAMPLES: &str = "\
-Examples:
-  ff branch list                 what exists, and what is still anonymous
-  ff branch list --all           every remote branch too, unbounded
-  ff branch list --json          the same, for a machine
-  ff start origin/spike          fork a branch here from one of theirs
-  ff remote                      what the remotes are called";
-
-pub const WORKTREE_LIST: &str = "\
-The live worktrees first, with their checkouts and the branches they stand
-on, then the chains whose worktree is gone.
-
-That second section is the earn: a chain lives in the shared ref namespace,
-so it outlives the checkout, and it is what keeps a deleted bay's work
-addressable. The tip op id on each row is what ff restore --at-op takes.
-Retention still ages those chains out on the ordinary fufu.keep cadence —
-surviving the worktree is not living forever.";
-
-pub const WORKTREE_LIST_EXAMPLES: &str = "\
-Examples:
-  ff worktree list                the worktrees, and the chains whose worktree is gone
-  ff worktree list --json         the same, for a machine
-  ff restore <path> --at-op <op>  bring a file back from one of them
-  ff trim                         age the gone chains out";
-
-pub const WORKTREE_ADD: &str = "\
-A second checkout of the same repository: one object store and one ref
-namespace are shared, and the working tree, the index, and HEAD are what
-is new.
-
-The chain floor is laid as the worktree is made, so ff undo works there
-from the first command. A checkout written by hand gets its floor on its
-first fufu command instead, and undo in it is blind until then.
-
-The branch is a name you give, or a new branch named after the directory
-when you do not say, or a minted name when that name is taken. A branch
-open in another worktree is refused: git allows a branch in one tree, and
-fufu enforces it.";
-
-pub const WORKTREE_ADD_EXAMPLES: &str = "\
-Examples:
-  ff worktree add bay        a second checkout, on a branch of its own
-  ff worktree add bay side   the same, on a branch that already exists
-  ff branch list             the branch it now stands on
-  ff undo                    the checkout and the new branch come back";
-
-pub const WORKTREE_REMOVE: &str = "\
-The capture comes first, into the worktree's own chain, and that is why
-there is no --force: git demands one for a dirty worktree because it has
-nowhere to put the work, and fufu has put it. The uncommitted work
-survives the removal, and the removal says where it went.
-
-The chain stays behind, and ff worktree list will show it under the
-chains whose worktree is gone — its tip is what ff restore --at-op takes.
-
-What is not carried: ignored files — build outputs, node_modules,
-virtualenvs — are not captured and do not come back, the same trade any
-worktree removal makes.";
-
-pub const WORKTREE_REMOVE_EXAMPLES: &str = "\
-Examples:
-  ff worktree remove bay         take it away; the work is captured first
-  ff worktree remove kqxmvnptul  the same, by the id ff worktree list shows
-  ff worktree list               the chain stands under the gone ones
-  ff restore <path> --at-op <op> bring a file back from the capture";
-
-pub const BRANCH_DELETE: &str = "\
-The branch's pointer into the log moves to trash rather than evaporating,
-its parked change is demoted to an ordinary stash entry, and the tip stays
-pinned by the operation — so nothing local is lost and there is no
-merged-check to argue with. `ff undo` brings the branch and its timeline
-back.
-
-A published branch is more than the name, though: there is a copy on the
-remote, and a tracking ref and upstream pointing at it. A plain delete
-leaves all three standing and says so — undo has to be exact, and it
-cannot reach any of them. `--shared` deletes the copy too, under a lease,
-and takes the tracking ref and upstream down with it. That half left the
-machine; the branch still comes back, and the copy does not.
-
-The branch's operations themselves stay on the log either way; what goes
-is the way in through this name.";
-
-pub const BRANCH_DELETE_EXAMPLES: &str = "\
-Examples:
-  ff branch delete old-experiment
-  ff branch delete ff/misty-owl    an anonymous one you are done with
-  ff branch delete spike --shared  the copy on the remote goes too
-  ff undo                          put the branch back";
-
-pub const HOOK: &str = "\
-Wires fufu into the agent clients and shells on this machine, so a
-snapshot lands before every tool call your agent makes, before every git
-command you type, and at every shell prompt. That is the difference
-between \"the agent broke something\" and \"the agent broke something, and
-here is the tree from thirty seconds ago\".
-
-Bare `ff hook` reports what it found and then asks. Name slugs to wire
-exactly those; --all takes everything detected without asking; -l reports
-and stops either way. The slugs are flat: claude, codex, cursor, gemini,
-bash, zsh, fish. `cursor` is the agent client — a future editor
-integration gets its own name.
-
-What gets written depends on the client, and is not a choice you make:
-Claude Code takes a plugin directory fufu owns outright, the others take
-entries merged into their own settings file, and the shells take marked
-lines in an rc file. A line you wrote yourself is detected, reported, and
-never touched.
-
-Claude Code and Codex take fufu's own skill along with the wiring: the
-manual for everything the once-per-session briefing has no room for —
-recovery, rewriting commits that have closed, held rewrites, the JSON. It
-costs the agent nothing until it is read. Claude's skill rides inside the
-plugin, so --settings wires capture and no skill.
-
-Hooks are what make capture ambient instead of something you remember.
-With none of them wired, fufu snapshots only when you type an ff command
-— which works, and misses the whole point. `ff doctor` warns when nothing
-at all feeds capture, because a silent engine feels safe while capturing
-nothing.";
-
-pub const HOOK_EXAMPLES: &str = "\
-Examples:
-  ff hook                  what is on this machine, then asks
-  ff hook claude codex     wire exactly those
-  ff hook --all            everything detected, no question
-  ff hook -l               report and stop
-  ff hook --skill          print the manual, for a client that reads no skill
-  ff unhook claude         take back exactly what hook added
-  ff doctor                check that something is feeding capture";
-
-pub const UNHOOK: &str = "\
-Removes exactly what `ff hook` added, and nothing else. Foreign entries in
-a settings file keep whatever shape they had; a line somebody wrote by
-hand is left where it is and reported rather than removed. The directories
-fufu owns outright — the Claude plugin, and the skill each client that
-reads one was given — go whole, because there is nothing else in them.
-
-Bare `ff unhook` reports and asks, the same way `ff hook` does.";
-
-pub const UNHOOK_EXAMPLES: &str = "\
-Examples:
-  ff unhook claude         one client
-  ff unhook --all          everything fufu wired
-  ff hook -l               what is wired, before and after";
-
-pub const TRIGGER: &str = "\
-Snapshots the working tree, now. Every ff command captures first and then
-goes and does something; this one captures and stops, which makes it the
-fastest way to force a snapshot and the natural thing to type before
-something risky. -m says what it is for, so a hand-taken snapshot carries
-its reason.
-
-`ff trigger <source>` means: a capture trigger fired, from this source.
-The other sources are machine surface, not commands to type — claude,
-codex, cursor, gemini for the agent clients, and shell for the prompt
-hook. Those are invoked by the client with a payload on stdin, they always
-exit 0 whatever went wrong, and they never veto the action they fired on on
-their own judgment — `fufu.gitPolicy strict` is the one veto there is, and
-it travels as JSON the client may ignore rather than as an exit code.
-Their failures are silent by design; FF_DEBUG=1 makes them talk. A source
-name fufu does not know exits 0 and says nothing, which is what makes a
-fufu trigger safe to wire into a client fufu has never heard of.";
-
-pub const TRIGGER_EXAMPLES: &str = "\
-Examples:
-  ff trigger                     snapshot now
-  ff trigger -m \"before this\"    and say why it was taken
-  ff op log                      the snapshot you just took
-  ff restore --all --at 2h       what the snapshots are for";
-
-pub const WATCH: &str = "\
-The operation log, as a stream: one JSON object per line, written as the
-log moves. It is not a daemon — it is a foreground process you started, it
-writes nothing, and it holds no authority. Ctrl-C ends it.
-
-What arrives is what the log *did*, not what was appended to it, because
-those are different questions. An operation landing is `landed`. An undo
-moving the pointer back is `stepped-back`. Work after an undo is `forked`.
-A trim is `rewritten`, and that one is terminal: every operation id you
-were holding stops resolving there, so the stream ends and exit 1 says so.
-Every stream opens on `start`, which names the tip you begin from.
-
---all streams every worktree in the repository instead of this one. It
-opens with one `start` per worktree, picks up a bay added while it runs,
-and keeps a bay's chain on the stream after the worktree is removed —
-the removal captures into that chain, so dropping it would lose the last
-thing it said. A rewrite under --all belongs to the chain it happened to:
-that chain is reported, re-anchors itself, and the other chains keep
-streaming, so there is no exit 1.
-
-Every line carries the worktree the operation belongs to, in both modes,
-so a merged stream is one shape to parse. --since replays from an
-operation before tailing, and is refused with --all: an operation belongs
-to one chain, and there is no single place a repository-wide stream would
-replay from.
-
-Operations are written before the mutation they describe, so an event is
-a claim about the next microsecond rather than a report on the last one.
-`ff op log` shows the same operation with the same caveat.";
-
-pub const WATCH_EXAMPLES: &str = "\
-Examples:
-  ff watch                      this worktree, until you stop it
-  ff watch --all                every worktree in the repository
-  ff watch --kind op            verbs only, no captures
-  ff watch --session flight-3   one agent's motion
-  ff watch -n 1                 the current tip, then exit
-  ff op log                     the same operations, as a page";
-
-pub const CONFIG: &str = "\
-No subcommands — arity decides. Bare `ff config` lists every setting with
-its value, its meaning, and a (default) marker. A key alone gets it; a key
-plus a value sets it; --unset returns it to the default; --global widens
-the set or unset to every repo.
-
-Storage is plain git config under fufu.<key>, so `git config fufu.keep`
-and fufu can never disagree, and precedence is git's own. What git config
-cannot do is tell you what settings exist, what they default to, or
-whether a value will parse — and every fufu reader falls back to its
-default on a value it cannot read, so a typo'd setting looks set and does
-nothing. Values here are validated through the readers' own parsers before
-anything touches disk.";
-
-pub const CONFIG_EXAMPLES: &str = "\
-Examples:
-  ff config                      every setting, defaults marked
-  ff config keep                 what the retention window is
-  ff config keep 30d             set it, this repo
-  ff config --global pager bat   set it, every repo
-  ff config gitPolicy strict     refuse raw git that has a fufu verb
-  ff config --unset autoTrim     back to the default";
-
-pub const DOCTOR: &str = "\
-A safety net you cannot inspect is not trustworthy, and every floor of
-this one can degrade quietly: a log moved by something that is not fufu,
-a reflog that never got created, the gc guard deleted out of local config,
-a branch that answers to no remote anything can name, hooks never
-installed, a stale binary. Doctor reads the whole net in one pass — the
-engine (the operation log and its age, the fufu identity on its tip,
-reflogs, the gc guard, log health and pending foreign drift, settings
-validated through the readers' own parsers, a trim preview and the
-auto-trim clock), the remote floor (whether every branch can name the
-remote it answers to, config left naming branches that are not here, and
-tracking refs that have gone), the wiring (agent hooks, the shell alias,
-and a warning when nothing at all feeds capture), and the update lane.
-
-Rows come at three levels: ok counts nothing, info is news rather than a
-problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1
-findings — so CI can gate on it, and --json emits the same rows for
-machines.
-
-Read-only by design: doctor reports the drift the log will absorb and
-never absorbs it, takes no snapshot, reconciles nothing. --fix is the one
-consented write, and it repairs exactly two things: the gc reflog-expiry
-keys, and a config section left naming a branch that is gone from both
-sides. It never touches a section whose shared copy is still standing —
-that one is `ff branch delete` doing its job, not drift.";
-
-pub const DOCTOR_EXAMPLES: &str = "\
-Examples:
-  ff doctor                      read the net
-  ff doctor --fix                repair the gc keys and dead config (the only write)
-  ff doctor --json               the same rows, for machines";
-
-pub const VERSION: &str = "\
-Which fufu this is: the full name, the release, and the commit and date it
-was built from, with the project's home under it. `ff` is two letters and
-not a searchable string, so the name and the URL go where a bug report
-gets pasted from. A build made without git available (a source tarball, a
-crates.io vendor, a docker context with no .git) names the release alone —
-there is no commit to name.
-
-The second half is whether it is the current one. The passive update lane
-already keeps the latest release in a cache on disk, so this reads it
-rather than the network: nothing here reaches out, and nothing here waits.
-A line appears only when a newer release is cached; up to date says
-nothing, because saying it every time teaches people to stop reading.
-
---json splits the line into fields — version, commit, date, and the update
-status — so a caller never takes the display string apart.
-
-There is one answer and two ways to type it: `ff -v` is the verb, spelled
-as a flag — it reads the update cache, says the \"available\" line, and takes
---json exactly as the verb does.";
-
-pub const VERSION_EXAMPLES: &str = "\
-Examples:
-  ff version                     the release, the build, the update lane
-  ff -v                          the same, spelled as a flag
-  ff version --json              the same, as fields";
-
-pub const UPDATE: &str = "\
-Moves the running binary to the latest release: picks this platform's
-asset, streams it through sha256 against the release's checksums.txt, and
-atomically renames it over the executable. Installs that are not fufu's to
-touch get pointed at their own updater instead — Homebrew at `brew upgrade
-fufu`, source builds at `cargo install`.
-
-Official builds also keep themselves fresh without being asked. A check
-runs at most once per fufu.updateCheck (daily by default), and a newer
-release either installs itself silently in the background (fufu.autoUpdate,
-on by default) or lands a one-line notice on stderr instead. A release is
-announced at most once, ever.
-
---check is that background lane: it refreshes the cache and prints
-nothing.";
-
-pub const UPDATE_EXAMPLES: &str = "\
-Examples:
-  ff update                      update now
-  ff config autoUpdate false     keep checking, but only notice
-  ff config updateCheck false    turn the whole lane off";
-
-pub const REDO: &str = "\
-The complement of `ff undo`: step forward again along the branch of the
-log an undo stepped off. Takes no argument, and repeats — each one goes
-one run further forward, until the log is back where it started.
-
-Redo reads where the operation ref has been, so it can only follow a path
-that is still there. New work after an undo forks the log rather than
-truncating it: nothing is discarded, but redo stops offering a way forward
-it can no longer take, and says so. The forked-off branch keeps its ids,
-and `ff op restore` still lands on any of them until trim ages them out.";
-
-pub const REDO_EXAMPLES: &str = "\
-Examples:
-  ff undo && ff redo             back, and forward again
-  ff redo                        …and again, after several undos
-  ff op log                      where the log stands now";
-
-pub const OP: &str = "\
-The operation log as objects. Every capture and every fufu mutation lands
-on one log at refs/fufu/ops, and this is the family that reads and moves
-it: `log` lists, `show` and `diff` read, `restore` rewinds the whole
-repository to one, and `revert` inverts a single one leaving later work
-standing. Deleting operations is `ff trim`'s job and nobody else's.
-
-Operation ids are spelled in the letters k–z and never in hex, which is
-what keeps hex meaning \"commit\" everywhere in fufu. `@` is the newest
-operation, and git's own first-parent suffixes work on it — `@^` is the
-one before, `@~3` three back — because an operation's first parent *is*
-the operation before it.
-
-`ff undo` is the everyday shortcut for `ff op restore`, argument-free and
-repeatable; most work never needs the long form.";
-
-pub const OP_EXAMPLES: &str = "\
-Examples:
-  ff op log                      what has happened, newest first
-  ff op show @                   what the newest operation did
-  ff op diff @^ @                what changed across it
-  ff op restore kqzm             rewind the whole repository there
-  ff undo                        the same move, one run at a time";
-
-pub const OP_LOG: &str = "\
-Every operation, newest first, wearing the ids the `ff op` verbs take.
-Every one: captures outnumber verb operations by more than an order of
-magnitude, and the log reports what happened rather than deciding what is
-worth reading. Narrowing is the expression's job — `ff op log 'kind(op)'`
-— and where you can go *back* to is `ff history`, which is a different
-question and has its own verb.
-
-The argument is the set language over operations: the same operators as
-`ff log`, reading the other address space, and positional here for the
-same reason an operation id is positional in `ff op show` — the position
-differs only in how many members it accepts. Ancestry follows the log, so
-`@^` is the operation before the newest and `::@` is the whole log.
-Operations bring three functions of their own — on_branch(), session() and
-kind() — and share latest(), heads() and roots(). Filtering to one session
-is `session(<name>)`, and that is the only session filter there is.
-
---at-op and --at bound the walk at a past operation rather than the tip,
-so `ff op log --at 2h` is the log as it read two hours ago, and an
-expression alongside them is evaluated against that bounded log.
-
-This verb captures first, like every verb but `ff init` and `ff clone`, so
-on a dirty tree the newest row is this command's own capture — intended,
-and the same note `ff evolog` carries.
-
-The bold prefix on each id is the shortest one these verbs resolve
-unambiguously, so an id copied from here never lands on an ambiguity.";
-
-pub const OP_LOG_EXAMPLES: &str = "\
-Examples:
-  ff op log                      the last 25 operations, every kind
-  ff op log 'kind(op)'           verb operations only
-  ff op log 'kind(capture)'      the machine-rate rows alone
-  ff op log 'session(nightly)'   one session's operations
-  ff op log '~on_branch(main)'   everything that happened elsewhere
-  ff log -r 'base(@)'            the commit the newest operation ran on
-  ff op log --at 2h              the log as it read two hours ago";
-
-pub const OP_SHOW: &str = "\
-One operation in full: what ran, when, on which branch, what it moved, and
-the diffstat of the worktree it carries against the operation before it.
-Bare `ff op show` reads `@`, the newest.
-
-Every operation has a tree, which is what makes this uniform — a capture
-and a close are read the same way, and differ only in whether there are
-ref transitions to list.
-
--p puts the patch under the diffstat rather than in place of it: the same
-unified diff `ff diff` prints, for the operation instead of the tree.";
-
-pub const OP_SHOW_EXAMPLES: &str = "\
-Examples:
-  ff op show                     the newest operation
-  ff op show @^                  the one before it
-  ff op show kqzm                by id
-  ff op show -p @                what it changed, with content
-  ff op show --json              the same, for machines";
-
-pub const OP_DIFF: &str = "\
-What changed in the worktree between two operations. Both are operation
-ids; the second defaults to `@`, so a single argument reads \"from there to
-now\".
-
-This compares the trees two operations carry, not their ref transitions —
-adjacent operations can sit on different branches, and the diff across
-that seam reads as the whole worktree being replaced, which is literal
-rather than wrong.
-
--p puts the patch under the diffstat, the same unified diff `ff diff`
-prints.";
-
-pub const OP_DIFF_EXAMPLES: &str = "\
-Examples:
-  ff op diff @^ @                what the newest operation changed
-  ff op diff kqzm                from that operation to now
-  ff op diff kqzm kwzq           between two of them
-  ff op diff -p @^ @             with content, not just counts";
-
-pub const OP_RESTORE: &str = "\
-Rewind the whole repository to an operation: refs, HEAD, the working tree
-and the index together, exactly as that operation recorded them.
-
-It moves the log's pointer rather than appending, so what it steps off
-stays reachable and `ff redo` walks back forward along it. Nothing is
-discarded and no entry is written saying you navigated — the log records
-work, not movement.
-
---force rewinds to what remains when parts of the recorded state have
-already been trimmed, naming each missing piece instead of refusing.
-
-`ff undo` is this verb without an argument, moving one run at a time.";
-
-pub const OP_RESTORE_EXAMPLES: &str = "\
-Examples:
-  ff op restore kqzm             land on that operation
-  ff op restore @~3              three operations back
-  ff op restore @ --force        what remains, after a trim took the rest
-  ff redo                        undo the rewind";
-
-pub const OP_REVERT: &str = "\
-Invert one operation and leave everything after it standing. Where
-`ff op restore` rewinds to a moment, this undoes a single change in the
-middle of later work.
-
-It is the one verb in this family that *writes* an operation, because
-inverting one change while later work stands is itself a thing that
-happened, and the log should say so.
-
-An inversion that no longer applies cleanly holds rather than guessing:
-the conflict is reported and nothing is written.";
-
-pub const OP_REVERT_EXAMPLES: &str = "\
-Examples:
-  ff op revert kqzm              take that one change back out
-  ff op log                      …and see the revert recorded
-  ff undo                        take the revert back too";
+//! The prose lives in those files rather than in `cli.rs` doc comments for
+//! one mechanical reason: clap_derive joins a doc comment's lines into a
+//! single paragraph and this build has no `wrap_help`, so a doc comment
+//! prints as one very long line, while a `&'static str` is emitted line for
+//! line. Nothing re-wraps them at runtime either — what a file holds is what
+//! a terminal gets, at every width — which is why the widths below are the
+//! page design rather than a tidiness.
+//!
+//! One file holds both halves clap prints, split at its `Examples:` line:
+//! above it the long description that goes over `Usage:` (`long_about`),
+//! below it the examples that go under the options (`after_long_help`). The
+//! one-line `about` stays in `cli.rs`, where it is also the row in the
+//! parent's command list.
+//!
+//! The `the_pages_are_formatted` test holds every file to one shape.
+//! Column-0 prose in the description half is filled to 72 columns;
+//! everything else — the indented lines, and the whole `Examples:` half,
+//! which is a column-aligned table a reflow could only damage — is checked
+//! at 80 and never rewritten. The check is an equality against the
+//! formatter's own output, `cargo fmt --check` semantics, and
+//! `FF_HELP_FMT=1 cargo test -p ff-cli --bins` rewrites the files instead of
+//! reporting them.
+
+/// The blank line where a page's two halves meet. `Examples:` appears once
+/// in a file and only ever at column 0, which is what lets the split have no
+/// special cases.
+const SEAM: &str = "\n\nExamples:\n";
+
+/// Where [`SEAM`] sits in a page. Const, so a file that lost its marker is a
+/// compile error rather than a page that prints half of itself.
+const fn seam(page: &str) -> usize {
+    let (page, marker) = (page.as_bytes(), SEAM.as_bytes());
+    let mut at = 0;
+    while at + marker.len() <= page.len() {
+        let mut i = 0;
+        while i < marker.len() && page[at + i] == marker[i] {
+            i += 1;
+        }
+        if i == marker.len() {
+            return at;
+        }
+        at += 1;
+    }
+    panic!("a help page has no `Examples:` line");
+}
+
+/// Everything above the seam.
+const fn description(page: &'static str) -> &'static str {
+    page.split_at(seam(page)).0
+}
+
+/// The `Examples:` line and everything under it, less the file's trailing
+/// newline: `long_about` and `after_long_help` are printed with their own
+/// spacing, and a stray newline would land a blank line on the page.
+const fn examples(page: &'static str) -> &'static str {
+    let below = page.split_at(seam(page) + 2).1;
+    below.split_at(below.len() - 1).0
+}
+
+/// The manifest: one row per page, naming the two consts `cli.rs` reads its
+/// halves by and the file both come out of. The second column is always the
+/// first with `_EXAMPLES` appended — `macro_rules!` cannot join identifiers,
+/// so a row spells the name it declares rather than deriving it.
+///
+/// Braces rather than parens: rustfmt formats a parenthesized invocation as
+/// a call and breaks the longer rows across five lines apiece, and a
+/// manifest that cannot hold its columns is not one.
+macro_rules! pages {
+    ($($description:ident $examples:ident $file:literal)*) => {$(
+        pub const $description: &str = description(include_str!($file));
+        pub const $examples: &str = examples(include_str!($file));
+    )*};
+}
+
+pages! {
+    ROOT            ROOT_EXAMPLES            "help/root.txt"
+    COLLIDE         COLLIDE_EXAMPLES         "help/collide.txt"
+    STATUS          STATUS_EXAMPLES          "help/status.txt"
+    LOG             LOG_EXAMPLES             "help/log.txt"
+    DIFF            DIFF_EXAMPLES            "help/diff.txt"
+    SHOW            SHOW_EXAMPLES            "help/show.txt"
+    HISTORY         HISTORY_EXAMPLES         "help/history.txt"
+    EVOLOG          EVOLOG_EXAMPLES          "help/evolog.txt"
+    GIT             GIT_EXAMPLES             "help/git.txt"
+    RESTORE         RESTORE_EXAMPLES         "help/restore.txt"
+    TRIM            TRIM_EXAMPLES            "help/trim.txt"
+    COMMIT          COMMIT_EXAMPLES          "help/commit.txt"
+    SWITCH          SWITCH_EXAMPLES          "help/switch.txt"
+    UNDO            UNDO_EXAMPLES            "help/undo.txt"
+    START           START_EXAMPLES           "help/start.txt"
+    DESCRIBE        DESCRIBE_EXAMPLES        "help/describe.txt"
+    ABSORB          ABSORB_EXAMPLES          "help/absorb.txt"
+    LIFT            LIFT_EXAMPLES            "help/lift.txt"
+    RESTACK         RESTACK_EXAMPLES         "help/restack.txt"
+    SYNC            SYNC_EXAMPLES            "help/sync.txt"
+    PUBLISH         PUBLISH_EXAMPLES         "help/publish.txt"
+    REMOTE          REMOTE_EXAMPLES          "help/remote.txt"
+    INIT            INIT_EXAMPLES            "help/init.txt"
+    CLONE           CLONE_EXAMPLES           "help/clone.txt"
+    EDIT            EDIT_EXAMPLES            "help/edit.txt"
+    DONE            DONE_EXAMPLES            "help/done.txt"
+    RESOLVE         RESOLVE_EXAMPLES         "help/resolve.txt"
+    BRANCH          BRANCH_EXAMPLES          "help/branch.txt"
+    WORKTREE        WORKTREE_EXAMPLES        "help/worktree.txt"
+    BRANCH_LIST     BRANCH_LIST_EXAMPLES     "help/branch-list.txt"
+    WORKTREE_LIST   WORKTREE_LIST_EXAMPLES   "help/worktree-list.txt"
+    WORKTREE_ADD    WORKTREE_ADD_EXAMPLES    "help/worktree-add.txt"
+    WORKTREE_REMOVE WORKTREE_REMOVE_EXAMPLES "help/worktree-remove.txt"
+    BRANCH_DELETE   BRANCH_DELETE_EXAMPLES   "help/branch-delete.txt"
+    HOOK            HOOK_EXAMPLES            "help/hook.txt"
+    UNHOOK          UNHOOK_EXAMPLES          "help/unhook.txt"
+    TRIGGER         TRIGGER_EXAMPLES         "help/trigger.txt"
+    WATCH           WATCH_EXAMPLES           "help/watch.txt"
+    CONFIG          CONFIG_EXAMPLES          "help/config.txt"
+    DOCTOR          DOCTOR_EXAMPLES          "help/doctor.txt"
+    VERSION         VERSION_EXAMPLES         "help/version.txt"
+    UPDATE          UPDATE_EXAMPLES          "help/update.txt"
+    REDO            REDO_EXAMPLES            "help/redo.txt"
+    OP              OP_EXAMPLES              "help/op.txt"
+    OP_LOG          OP_LOG_EXAMPLES          "help/op-log.txt"
+    OP_SHOW         OP_SHOW_EXAMPLES         "help/op-show.txt"
+    OP_DIFF         OP_DIFF_EXAMPLES         "help/op-diff.txt"
+    OP_RESTORE      OP_RESTORE_EXAMPLES      "help/op-restore.txt"
+    OP_REVERT       OP_REVERT_EXAMPLES       "help/op-revert.txt"
+}
 
 // ---------------------------------------------------------------------------
 // The root page's command list.
@@ -1513,5 +411,170 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Column-0 prose in a page's description half is filled to this.
+    const FILL: usize = 72;
+
+    /// What nothing may exceed: the indented lines, and the aligned rows of
+    /// the `Examples:` half. Neither can be reflowed — a table row has no
+    /// line breaks to move — so a row over this is reworded, not rewrapped.
+    const CAP: usize = 80;
+
+    /// The width each line of a page is held to.
+    fn caps(page: &str) -> Vec<usize> {
+        let seam = page.find(SEAM).unwrap_or(page.len());
+        let mut at = 0;
+        let mut caps = Vec::new();
+        for line in page.lines() {
+            let prose = at < seam && !line.starts_with(' ');
+            caps.push(if prose { FILL } else { CAP });
+            at += line.len() + 1;
+        }
+        caps
+    }
+
+    /// Greedy fill at [`FILL`], counting characters rather than bytes: the
+    /// prose is full of em dashes, and the widest line in these files is 71
+    /// characters and 75 bytes. A blank line is kept exactly, and an
+    /// indented line ends the paragraph above it and is never reflowed —
+    /// `restore`'s three flag rows are the ones that depend on that.
+    fn fill(half: &str) -> String {
+        fn flush(out: &mut String, words: &mut Vec<&str>) {
+            let mut line = String::new();
+            for word in words.drain(..) {
+                let too_wide = line.chars().count() + 1 + word.chars().count() > FILL;
+                if !line.is_empty() && too_wide {
+                    out.push_str(&line);
+                    out.push('\n');
+                    line.clear();
+                }
+                if !line.is_empty() {
+                    line.push(' ');
+                }
+                line.push_str(word);
+            }
+            if !line.is_empty() {
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
+
+        let mut out = String::new();
+        let mut words: Vec<&str> = Vec::new();
+        for line in half.lines() {
+            let line = line.trim_end();
+            if line.is_empty() || line.starts_with(' ') {
+                flush(&mut out, &mut words);
+                out.push_str(line);
+                out.push('\n');
+            } else {
+                words.extend(line.split_whitespace());
+            }
+        }
+        flush(&mut out, &mut words);
+        out.truncate(out.trim_end().len());
+        out
+    }
+
+    /// What a page file should hold, byte for byte.
+    fn formatted(page: &str) -> String {
+        let seam = page.find(SEAM).expect("a page has an `Examples:` line");
+        let mut out = fill(&page[..seam]);
+        out.push_str("\n\n");
+        for line in page[seam + 2..].trim_end().lines() {
+            out.push_str(line.trim_end());
+            out.push('\n');
+        }
+        out
+    }
+
+    /// The pages are one width, and stay one width. The check is an equality
+    /// against the formatter's own output rather than "no line is too long",
+    /// which is what makes it hold over time; greedy fill is idempotent, so
+    /// a formatted file is a fixed point.
+    #[test]
+    fn the_pages_are_formatted() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/help");
+        let rewrite = std::env::var_os("FF_HELP_FMT").is_some();
+
+        let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+            .expect("the pages live beside this module")
+            .map(|entry| entry.expect("a readable directory entry").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
+            .collect();
+        paths.sort();
+
+        let mut wrote = 0;
+        let mut unformatted: Vec<String> = Vec::new();
+        let mut overwide: Vec<String> = Vec::new();
+
+        for path in &paths {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let src = std::fs::read_to_string(path).expect("a page is UTF-8");
+            let want = formatted(&src);
+
+            if src != want {
+                if rewrite {
+                    std::fs::write(path, &want).expect("a writable page");
+                    wrote += 1;
+                } else {
+                    let (have, mine): (Vec<&str>, Vec<&str>) =
+                        (src.lines().collect(), want.lines().collect());
+                    let at = (0..have.len().max(mine.len()))
+                        .find(|i| have.get(*i) != mine.get(*i))
+                        .unwrap_or(0);
+                    let line = have.get(at).copied().unwrap_or_default();
+                    let wide = line.chars().count();
+                    let cap = caps(&src).get(at).copied().unwrap_or(CAP);
+                    unformatted.push(if wide > cap {
+                        format!("help/{name}:{} is {wide} columns, want <= {cap}", at + 1)
+                    } else {
+                        format!(
+                            "help/{name}:{} is not the fill\n    have: {line}\n    want: {}",
+                            at + 1,
+                            mine.get(at).copied().unwrap_or_default()
+                        )
+                    });
+                }
+            }
+
+            // Against the formatted text, so the only widths left are the
+            // ones a reflow cannot reach.
+            for ((at, line), cap) in want.lines().enumerate().zip(caps(&want)) {
+                let wide = line.chars().count();
+                if wide > cap {
+                    overwide.push(format!(
+                        "help/{name}:{} is {wide} columns, want <= {cap} — reword it, \
+                         the fill cannot reach this line",
+                        at + 1
+                    ));
+                }
+                if line.contains('\t') {
+                    overwide.push(format!("help/{name}:{} has a tab", at + 1));
+                }
+            }
+        }
+
+        assert!(
+            paths.len() >= 40,
+            "the walk found {} pages under {}, so it is checking nothing",
+            paths.len(),
+            dir.display()
+        );
+
+        if rewrite {
+            println!("rewrapped {wrote} files");
+        }
+
+        let mut report = String::new();
+        for finding in unformatted.iter().chain(&overwide) {
+            report.push_str(finding);
+            report.push('\n');
+        }
+        if !unformatted.is_empty() {
+            report.push_str("  run: FF_HELP_FMT=1 cargo test -p ff-cli --bins\n");
+        }
+        assert!(report.is_empty(), "\n{report}");
     }
 }
