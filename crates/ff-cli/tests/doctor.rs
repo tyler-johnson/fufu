@@ -826,3 +826,50 @@ fn a_section_pointing_at_nothing_is_fixable() {
         "the section is gone after --fix:\n{fixed_text}"
     );
 }
+
+/// The raw-git row: silent until the gitPolicy lane has counted something,
+/// then a count with the tier's own nudge under `observe`.
+#[test]
+fn the_raw_git_row_appears_once_the_lane_has_counted() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ff_init(&fx);
+
+    let text = stdout(&doctor(&fx, &[]));
+    assert!(
+        !text.contains("raw git"),
+        "nothing counted, nothing to report:\n{text}"
+    );
+
+    // One raw git write through the passthrough, under observe.
+    fx.set_config("fufu.gitPolicy", "observe");
+    fx.write("a.txt", "dirty\n");
+    let out = doctor_env(
+        &fx.path(),
+        &["git", "branch", "-a"],
+        &fx.root().join("home"),
+    );
+    assert!(
+        out.status.success(),
+        "observe runs git verbatim: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let text = stdout(&doctor(&fx, &[]));
+    assert!(text.contains("raw git"), "the lane counted it:\n{text}");
+    assert!(text.contains("1 write"), "with a count:\n{text}");
+    assert!(
+        text.contains("ff config gitPolicy coach"),
+        "observe earns the nudge:\n{text}"
+    );
+
+    // Coach has nothing to nudge toward.
+    fx.set_config("fufu.gitPolicy", "coach");
+    let text = stdout(&doctor(&fx, &[]));
+    assert!(text.contains("raw git"), "{text}");
+    assert!(
+        !text.contains("ff config gitPolicy coach"),
+        "coach is already the answer:\n{text}"
+    );
+}

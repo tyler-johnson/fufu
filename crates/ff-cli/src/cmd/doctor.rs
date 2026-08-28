@@ -456,6 +456,30 @@ fn update_row() -> Row {
     }
 }
 
+/// How much raw git this chain has seen, and — under `observe` — the nudge
+/// that tier exists to earn. Silent when nothing has been counted: a row
+/// saying zero is a row about a thing that never happened.
+fn raw_git_row(repo: &ff_core::gix::Repository, now: i64) -> Option<Row> {
+    let tally = crate::gitpolicy::load(repo);
+    if tally.is_empty() {
+        return None;
+    }
+    let mut detail = format!("{} write(s)", tally.writes);
+    if tally.denied > 0 {
+        detail.push_str(&format!(", {} refused", tally.denied));
+    }
+    if tally.last_at > 0 {
+        detail.push_str(&format!(
+            ", last {}",
+            crate::render::relative_age(now, tally.last_at)
+        ));
+    }
+    if crate::gitpolicy::read(repo) == crate::gitpolicy::Policy::Observe {
+        detail.push_str(" — `ff config gitPolicy coach` names the alternative");
+    }
+    Some(Row::info("raw git", detail))
+}
+
 pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     // No capture call — doctor observes; capturing would absorb the very drift
     // the journal check reports.
@@ -1066,6 +1090,13 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
                 ));
             }
         }
+    }
+
+    // raw git — what the gitPolicy lane has seen, whichever tier it was on
+    if let Some(repo) = &repo
+        && let Some(row) = raw_git_row(repo, now)
+    {
+        rows.push(row);
     }
 
     // wiring + update checks — always run
