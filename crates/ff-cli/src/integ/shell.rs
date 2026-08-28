@@ -377,6 +377,7 @@ impl Integration for Shell {
                 // same way, for the same reason.
                 kind: EventKind::BeforeTool,
                 session: String::new(),
+                agent: String::new(),
                 cwd,
                 label: Label::Text(String::new()),
                 command: None,

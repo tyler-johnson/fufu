@@ -267,16 +267,45 @@ pub trait Integration: Sync {
     }
 }
 
-/// What fufu has to say about a tool that is about to run.
+/// Everything fufu has to say on one event, in one place.
 ///
-/// One line of prose and one bit. The prose names a fufu verb; the bit says
-/// whether the client is being asked to stop the tool or merely told. There
-/// is deliberately no third field carrying a command to run in its place —
-/// fufu names an alternative and never composes one.
+/// One reply and not two, because a client parses a hook's stdout as a
+/// *single* object: the briefing and a `fufu.gitPolicy` correction can now
+/// both fall due on one `PreToolUse`, and two prints would lose both. So
+/// the lanes contribute to this, and the adapter renders it once.
+///
+/// There is deliberately no field carrying a command to run in place of the
+/// one being refused — fufu names an alternative and never composes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Correction {
-    pub text: String,
-    pub deny: bool,
+pub struct Reply {
+    /// The event this is an answer to. The adapters render some kinds
+    /// differently and have no channel at all on others.
+    pub kind: EventKind,
+    /// Context to inject, in order.
+    pub context: Vec<String>,
+    /// A refusal, when config asked for one. `None` is not "allow": it is
+    /// fufu saying nothing about permission, which is what a coach must do.
+    pub deny: Option<String>,
+}
+
+impl Reply {
+    pub fn new(kind: EventKind) -> Reply {
+        Reply {
+            kind,
+            context: Vec::new(),
+            deny: None,
+        }
+    }
+
+    /// Nothing to say, so nothing is printed and no marker is stamped.
+    pub fn is_empty(&self) -> bool {
+        self.context.is_empty() && self.deny.is_none()
+    }
+
+    /// The context as one string, for the clients that take one field.
+    pub fn joined(&self) -> String {
+        self.context.join("\n")
+    }
 }
 
 /// How one vendor spells a payload, and how it wants to be spoken back to.
@@ -291,20 +320,18 @@ pub trait AgentProtocol: Sync {
     /// event of a kind no adapter maps. That is a success, not a failure.
     fn parse(&self, stdin: &[u8], forced: Option<EventKind>) -> Result<Option<AgentEvent>>;
 
-    /// The briefing, wrapped however this client accepts injected context.
-    /// Claude Code and Codex read plain stdout; Gemini and Cursor need JSON,
-    /// which is why this is asked of the adapter rather than assumed.
-    fn briefing_envelope(&self, text: &str) -> String;
-
-    /// How this client accepts a correction on a tool it is about to run.
-    /// `None` when the client has no documented channel for one — nothing
-    /// is printed, and the tally still happens. The same discipline as
-    /// `has_skill`: naming a channel that is not there is worse than saying
-    /// nothing at all.
-    fn correction_envelope(&self, correction: &Correction) -> Option<String> {
-        let _ = correction;
-        None
-    }
+    /// One reply, wrapped however this client accepts it on this event.
+    /// Claude Code and Codex read plain stdout on a context kind; Gemini
+    /// and Cursor need JSON; only Claude Code has a documented channel on
+    /// `BeforeTool`.
+    ///
+    /// `None` when the client has no channel for this kind — nothing is
+    /// printed, and every tally the lanes kept still happened. The same
+    /// discipline as `has_skill`: naming a channel that is not there is
+    /// worse than saying nothing at all. It is also what keeps the
+    /// briefing marker honest, since the marker is stamped only when this
+    /// answers `Some`.
+    fn reply_envelope(&self, reply: &Reply) -> Option<String>;
 
     /// Whether the shipped skill is on disk for this client right now.
     /// Read at briefing time rather than assumed from the install, because

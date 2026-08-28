@@ -34,6 +34,7 @@ pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
         // it could honestly claim to be.
         kind: EventKind::BeforeTool,
         session: String::new(),
+        agent: String::new(),
         cwd,
         label: Label::Text(label),
         command: None,

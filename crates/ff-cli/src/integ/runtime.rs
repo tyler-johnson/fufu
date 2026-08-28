@@ -2,21 +2,28 @@
 //! payload, and nothing that knows which vendor sent it.
 //!
 //! Discover the repository from the event's own `cwd`, capture with the
-//! source's provenance, brief once per session when the event is a context
-//! start, then ride the two throttled ambient lanes. The manual source
-//! enters here too, with a synthesized event, so there is one capture path
-//! and not two.
+//! source's provenance, brief the audience in front of it if it has not
+//! been briefed since the last context boundary, then ride the two
+//! throttled ambient lanes. The manual source enters here too, with a
+//! synthesized event, so there is one capture path and not two.
 
 use std::io::Read;
 
 use ff_core::{Error, Result};
 
+use serde::{Deserialize, Serialize};
+
 use super::briefing::NOTICE;
-use super::{AgentEvent, AgentProtocol, Correction, EventKind, skill};
+use super::{AgentEvent, AgentProtocol, EventKind, Reply, skill};
 use crate::ctx::Ctx;
 
 /// A payload larger than this is refused rather than read into memory.
 const MAX_PAYLOAD: u64 = 8 * 1024 * 1024;
+
+/// How many audiences one session's marker remembers. A session with more
+/// subagents than this re-briefs the oldest, which costs one copy of the
+/// notice; an unbounded list costs a file that grows forever.
+const MAX_AUDIENCES: usize = 32;
 
 /// What the pipeline did, for the one source that reports on itself.
 pub struct Landed {
@@ -101,18 +108,11 @@ pub fn pipeline(
     // one, and for a client source even that stays silent.
     let outcome = ff_core::capture(&repo, &prov)?;
 
-    if event.kind == EventKind::ContextStart
-        && let Some(proto) = proto
-    {
-        brief(&repo, source, &event.session, proto)?;
-    }
-
-    // The raw-git lane, after the capture and never conditional on it: a
-    // correction fufu could not compute must never cost a snapshot.
-    if event.kind == EventKind::BeforeTool
-        && let Some(command) = event.command.as_deref()
-    {
-        correct(&repo, &event.session, command, proto);
+    // Everything fufu says, after the capture and never conditional on it:
+    // a briefing or a correction fufu could not compute must never cost a
+    // snapshot.
+    if let Some(proto) = proto {
+        speak(&repo, source, event, proto);
     }
 
     crate::selfupdate::notify::maybe_spawn_check(&repo);
@@ -124,6 +124,65 @@ pub fn pipeline(
     Ok(Landed { repo, outcome })
 }
 
+/// The one place fufu prints on a client's stream.
+///
+/// The lanes contribute to one [`Reply`], the adapter renders it once, and
+/// the briefing marker is stamped only if that rendering produced
+/// something — three adapters answer `None` on `BeforeTool`, and a marker
+/// stamped against a reply that never printed would lose that repository's
+/// briefing permanently.
+///
+/// The stamp still lands *before* the print, so a crash between the two can
+/// only under-notify. That direction is the right one: a missing briefing
+/// costs the agent one context of spelling, and a repeated one costs
+/// context on every turn.
+fn speak(
+    repo: &ff_core::gix::Repository,
+    slug: &str,
+    event: &AgentEvent,
+    proto: &dyn AgentProtocol,
+) {
+    let mut reply = Reply::new(event.kind);
+
+    let pending = briefing_due(
+        &load_briefed(repo, slug),
+        event.kind,
+        &event.session,
+        &event.agent,
+    );
+    if pending.is_some() {
+        // The skill line joins the notice before the envelope rather than
+        // after it, because a client that wants JSON wants one field and
+        // not two. It is asked of the adapter at print time: an install
+        // and a disk can disagree, and naming a skill that is not there is
+        // worse than saying nothing at all.
+        let mut text = NOTICE.to_string();
+        if proto.has_skill() {
+            text.push_str(skill::LINE);
+        }
+        reply.context.push(text);
+    }
+
+    if event.kind == EventKind::BeforeTool
+        && let Some(command) = event.command.as_deref()
+    {
+        correct(repo, &event.session, command, &mut reply);
+    }
+
+    if reply.is_empty() {
+        return;
+    }
+    let Some(envelope) = proto.reply_envelope(&reply) else {
+        return;
+    };
+    if let Some(marker) = pending
+        && save_briefed(repo, slug, &marker).is_err()
+    {
+        return;
+    }
+    println!("{envelope}");
+}
+
 /// The raw-git correction: what the tier has to say about a `git …` the
 /// agent is about to run.
 ///
@@ -133,12 +192,7 @@ pub fn pipeline(
 ///
 /// Every failure inside is swallowed the way the other ambient lanes'
 /// failures are: this rides an event whose job is the snapshot.
-fn correct(
-    repo: &ff_core::gix::Repository,
-    session: &str,
-    command: &str,
-    proto: Option<&dyn AgentProtocol>,
-) {
+fn correct(repo: &ff_core::gix::Repository, session: &str, command: &str, reply: &mut Reply) {
     let crate::rawgit::Shape::Write(word, _) = crate::rawgit::classify_command(command) else {
         return;
     };
@@ -153,66 +207,182 @@ fn correct(
     if !deny && !fresh {
         return;
     }
-    let text = if deny {
-        format!(
+    if deny {
+        reply.deny = Some(format!(
             "fufu.gitPolicy is strict here: run {} instead of git {} — {}",
             word.ff, word.git, word.why
-        )
+        ));
     } else {
-        format!(
+        reply.context.push(format!(
             "fufu: {} is what fufu has for git {} — {}",
             word.ff, word.git, word.why
-        )
-    };
-    let Some(proto) = proto else { return };
-    if let Some(envelope) = proto.correction_envelope(&Correction { text, deny }) {
-        println!("{envelope}");
+        ));
     }
 }
 
-/// Print the briefing at most once per session, per client. Answers
-/// whether this invocation is the one that printed it.
+// ---- who has been briefed --------------------------------------------------
+
+/// `.git/fufu/session/<slug>` — the audiences this client has briefed, and
+/// the session they were briefed in.
 ///
-/// The marker is per-slug — `.git/fufu/session/<slug>` — because two
-/// clients working in one repository would otherwise each clobber the
-/// other's id and re-brief forever.
+/// Per-slug because two clients working in one repository would otherwise
+/// each clobber the other's id and re-brief forever. Per-audience because a
+/// subagent inherits the parent's session id and yet was told nothing: it
+/// is a context of its own, so it is an entry of its own, with the main
+/// thread under the empty name.
 ///
-/// The marker is written durably *before* the briefing prints, so a crash
-/// between the two can only under-notify. That direction is the right one:
-/// a missing briefing costs the agent one session of spelling, and a
-/// repeated one costs context on every turn.
-fn brief(
-    repo: &ff_core::gix::Repository,
-    slug: &str,
-    session: &str,
-    proto: &dyn AgentProtocol,
-) -> Result<bool> {
-    let marker = repo.git_dir().join("fufu/session").join(slug);
-    if std::fs::read_to_string(&marker).is_ok_and(|prev| prev == session) {
-        return Ok(false);
-    }
-    if let Some(parent) = marker.parent() {
+/// On the `gitpolicy.rs` template: serde struct, atomic temp-and-rename,
+/// and every read failure yielding [`Briefed::default`] — which briefs.
+/// A marker that could not be read must cost a duplicate notice and never
+/// a missing one.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct Briefed {
+    session: String,
+    /// The audiences briefed this session: `""` is the main thread, the
+    /// rest are agent ids.
+    agents: Vec<String>,
+}
+
+fn marker_path(repo: &ff_core::gix::Repository, slug: &str) -> std::path::PathBuf {
+    repo.git_dir().join("fufu/session").join(slug)
+}
+
+fn load_briefed(repo: &ff_core::gix::Repository, slug: &str) -> Briefed {
+    std::fs::read(marker_path(repo, slug))
+        .ok()
+        .and_then(|data| serde_json::from_slice(&data).ok())
+        .unwrap_or_default()
+}
+
+fn save_briefed(repo: &ff_core::gix::Repository, slug: &str, marker: &Briefed) -> Result<()> {
+    let path = marker_path(repo, slug);
+    if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(Error::repo)?;
     }
-    let tmp = marker.with_extension("tmp");
+    let body = serde_json::to_vec(marker).map_err(Error::repo)?;
+    let tmp = path.with_extension("ff-tmp");
     {
         use std::io::Write;
         // Sync through the write handle: Windows refuses to flush a handle
         // opened read-only.
         let mut file = std::fs::File::create(&tmp).map_err(Error::repo)?;
-        file.write_all(session.as_bytes()).map_err(Error::repo)?;
+        file.write_all(&body).map_err(Error::repo)?;
         file.sync_all().map_err(Error::repo)?;
     }
-    std::fs::rename(&tmp, &marker).map_err(Error::repo)?;
-    // The skill line joins the notice before the envelope rather than
-    // after it, because a client that wants JSON wants one field and not
-    // two. It is asked of the adapter at print time: an install and a
-    // disk can disagree, and naming a skill that is not there is worse
-    // than saying nothing at all.
-    let mut text = NOTICE.to_string();
-    if proto.has_skill() {
-        text.push_str(skill::LINE);
+    std::fs::rename(&tmp, &path).map_err(Error::repo)?;
+    Ok(())
+}
+
+/// Whether this event briefs, and the marker to stamp if it does. Split
+/// from the disk the way `gitpolicy::mark` is, so the rule is testable
+/// without one.
+///
+/// Three kinds carry a briefing, and they answer three different questions.
+/// `SessionStart` is a context boundary — a startup, a resume, a `/clear`,
+/// a fork, a compaction — and everything injected into the old context went
+/// with it, so it resets unconditionally and briefs. It fires once per
+/// boundary, so it cannot spam, and this needs no reading of the vendor's
+/// `source` field to tell the five apart. `ContextStart` briefs the main
+/// thread if nothing has. `BeforeTool` briefs whoever is making the call,
+/// which is what reaches a subagent — and what reaches a repository the
+/// agent has just `cd`'d into, since the marker lives in that repository's
+/// own `.git` and it has none.
+fn briefing_due(marker: &Briefed, kind: EventKind, session: &str, agent: &str) -> Option<Briefed> {
+    let audience = match kind {
+        // A boundary and a turn are both the main thread talking.
+        EventKind::SessionStart | EventKind::ContextStart => "",
+        EventKind::BeforeTool => agent,
+        _ => return None,
+    };
+    let mut marker = marker.clone();
+    if kind == EventKind::SessionStart || marker.session != session {
+        marker.session = session.to_string();
+        marker.agents.clear();
+    } else if marker.agents.iter().any(|seen| seen == audience) {
+        return None;
     }
-    print!("{}", proto.briefing_envelope(&text));
-    Ok(true)
+    marker.agents.push(audience.to_string());
+    if marker.agents.len() > MAX_AUDIENCES {
+        marker.agents.remove(0);
+    }
+    Some(marker)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The main thread hears it once, and a subagent inside the same
+    /// session is an audience of its own.
+    #[test]
+    fn each_audience_is_briefed_once_per_session() {
+        let mut marker = Briefed::default();
+        marker = briefing_due(&marker, EventKind::ContextStart, "s1", "").expect("the first turn");
+        assert!(
+            briefing_due(&marker, EventKind::ContextStart, "s1", "").is_none(),
+            "the main thread was already told"
+        );
+        assert!(
+            briefing_due(&marker, EventKind::BeforeTool, "s1", "").is_none(),
+            "and a tool call from the main thread is the same audience"
+        );
+
+        marker = briefing_due(&marker, EventKind::BeforeTool, "s1", "sub-1")
+            .expect("a subagent was told nothing");
+        assert!(
+            briefing_due(&marker, EventKind::BeforeTool, "s1", "sub-1").is_none(),
+            "and it hears it once too"
+        );
+        assert!(
+            briefing_due(&marker, EventKind::BeforeTool, "s1", "sub-2").is_some(),
+            "a second subagent is a second context"
+        );
+        // A fresh session id starts everyone over.
+        assert!(briefing_due(&marker, EventKind::ContextStart, "s2", "").is_some());
+    }
+
+    /// A boundary rebuilt the context, so everything briefed into the old
+    /// one is gone — even on a session id the marker already holds.
+    #[test]
+    fn a_boundary_rebriefs_a_session_it_already_holds() {
+        let mut marker = Briefed::default();
+        marker = briefing_due(&marker, EventKind::ContextStart, "s1", "").expect("the first turn");
+        marker = briefing_due(&marker, EventKind::BeforeTool, "s1", "sub-1").expect("a subagent");
+        marker = briefing_due(&marker, EventKind::SessionStart, "s1", "")
+            .expect("a boundary briefs regardless");
+        assert_eq!(marker.agents, vec![String::new()], "and it reset the rest");
+        assert!(
+            briefing_due(&marker, EventKind::ContextStart, "s1", "").is_none(),
+            "the turn after it is silent again"
+        );
+    }
+
+    /// Capture-only events have no briefing channel at all.
+    #[test]
+    fn a_capture_only_event_never_briefs() {
+        let marker = Briefed::default();
+        for kind in [
+            EventKind::TurnEnd,
+            EventKind::SubagentStart,
+            EventKind::SessionEnd,
+            EventKind::Other,
+        ] {
+            assert!(briefing_due(&marker, kind, "s1", "").is_none());
+        }
+    }
+
+    /// A long session must not grow the marker without bound.
+    #[test]
+    fn the_audience_list_is_bounded() {
+        let mut marker = Briefed::default();
+        for n in 0..MAX_AUDIENCES + 4 {
+            marker = briefing_due(&marker, EventKind::BeforeTool, "s1", &format!("sub-{n}"))
+                .expect("a new audience");
+        }
+        assert_eq!(marker.agents.len(), MAX_AUDIENCES);
+        assert_eq!(marker.agents.last().unwrap(), "sub-35");
+        // The oldest went, and re-briefing it is the harmless direction.
+        assert!(!marker.agents.iter().any(|a| a == "sub-0"));
+    }
 }

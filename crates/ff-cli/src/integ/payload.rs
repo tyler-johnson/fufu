@@ -28,6 +28,10 @@ const MAX_PROMPT: usize = 60;
 pub struct Payload {
     pub hook_event_name: String,
     pub session_id: String,
+    /// The subagent making this call, when one is. Empty is the main
+    /// thread — and a subagent carries the parent's `session_id`, which is
+    /// exactly why the audience needs a field of its own.
+    pub agent_id: String,
     pub cwd: String,
     pub tool_name: String,
     pub tool_input: ToolInput,
@@ -57,8 +61,7 @@ impl ToolInput {
     }
 }
 
-/// Read the payload, refusing one with no `cwd` — there is no repository to
-/// discover without it, so there is nothing honest to do.
+/// Read the payload.
 pub fn parse_json<T: serde::de::DeserializeOwned>(stdin: &[u8]) -> Result<T> {
     serde_json::from_slice(stdin).map_err(Error::repo)
 }
@@ -103,9 +106,16 @@ pub fn command_of(input: &ToolInput) -> Option<String> {
 
 /// The shared translation for the three clients that speak this dialect.
 pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<AgentEvent>> {
-    if payload.cwd.is_empty() {
-        return Err(Error::msg("hook payload has no cwd"));
-    }
+    // Some events carry no `cwd` at all — Claude Code's `SubagentStop` is
+    // the one that made this necessary. The client spawns the hook in the
+    // session's own directory, so the process's is the honest fallback,
+    // and only when that is unreadable too is there no repository to
+    // discover and nothing honest to do.
+    let cwd = if payload.cwd.is_empty() {
+        std::env::current_dir().map_err(|_| Error::msg("hook payload has no cwd"))?
+    } else {
+        payload.cwd.clone().into()
+    };
     // The name's hint wins when it was given: a `<vendor>-<event>` trigger
     // exists precisely for clients whose payload cannot say, or says the
     // wrong thing.
@@ -119,7 +129,8 @@ pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<A
     Ok(Some(AgentEvent {
         kind,
         session: payload.session_id.clone(),
-        cwd: payload.cwd.clone().into(),
+        agent: payload.agent_id.clone(),
+        cwd,
         label,
         command: command_of(&payload.tool_input),
     }))
@@ -175,8 +186,14 @@ mod tests {
         );
     }
 
+    /// A payload with no `cwd` falls back to the process directory rather
+    /// than erroring — `SubagentStop` sends one, and a silent error there
+    /// would be the last edit of a subagent's turn going uncaptured.
     #[test]
-    fn a_payload_with_no_cwd_is_refused() {
-        assert!(to_event(&Payload::default(), None).is_err());
+    fn a_payload_with_no_cwd_falls_back_to_the_process_directory() {
+        let event = to_event(&Payload::default(), None)
+            .expect("the fallback stands in")
+            .expect("an event");
+        assert_eq!(event.cwd, std::env::current_dir().unwrap());
     }
 }

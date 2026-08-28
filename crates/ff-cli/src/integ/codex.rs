@@ -21,18 +21,19 @@ use std::path::PathBuf;
 use ff_core::Result;
 
 use super::{
-    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Status,
-    Wiring, payload, settings, skill,
+    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
+    Status, Wiring, payload, settings, skill,
 };
+use settings::Need;
 
 pub struct Codex;
 
 const COMMAND: &str = "ff trigger codex";
 const LEGACY: [&str; 0] = [];
 
-const EVENTS: [(&str, Option<&str>); 2] = [
-    ("PreToolUse", Some("Bash|apply_patch")),
-    ("UserPromptSubmit", None),
+const EVENTS: [(&str, Option<&str>, Need); 2] = [
+    ("PreToolUse", Some("Bash|apply_patch"), Need::Required),
+    ("UserPromptSubmit", None, Need::Required),
 ];
 
 const TRUST: &str = "Codex trusts a hook by its hash: run /hooks in Codex to review this one, \
@@ -127,9 +128,14 @@ impl AgentProtocol for Codex {
         payload::to_event(&payload, forced)
     }
 
-    /// Plain stdout, the same as Claude Code.
-    fn briefing_envelope(&self, text: &str) -> String {
-        text.to_string()
+    /// Plain stdout, the same as Claude Code — and nothing at all on a
+    /// tool, because Codex documents no channel there. Naming one that is
+    /// not there is worse than saying nothing.
+    fn reply_envelope(&self, reply: &Reply) -> Option<String> {
+        if reply.kind == EventKind::BeforeTool {
+            return None;
+        }
+        (!reply.context.is_empty()).then(|| reply.joined())
     }
 
     fn has_skill(&self) -> bool {
@@ -164,7 +170,13 @@ mod tests {
     }
 
     #[test]
-    fn the_briefing_goes_out_as_plain_text() {
-        assert_eq!(Codex.briefing_envelope("hello"), "hello");
+    fn the_briefing_goes_out_as_plain_text_and_a_tool_gets_nothing() {
+        let mut reply = Reply::new(EventKind::ContextStart);
+        reply.context.push("hello".into());
+        assert_eq!(Codex.reply_envelope(&reply).as_deref(), Some("hello"));
+
+        let mut reply = Reply::new(EventKind::BeforeTool);
+        reply.context.push("hello".into());
+        assert!(Codex.reply_envelope(&reply).is_none());
     }
 }

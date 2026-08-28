@@ -96,6 +96,25 @@ fn repo() -> Fixture {
     fx
 }
 
+/// Get this session's briefing over with, so a test about something else
+/// is reading only that. The briefing rides `PreToolUse` now — it has to,
+/// because that is the only channel that reaches a subagent — so a test
+/// that wants a silent tool call has to have been briefed already.
+///
+/// The warm-up takes its own snapshot, so the tree is re-dirtied after it:
+/// an unmoved tree captures to `NoOp` and the subject under test would
+/// never land.
+fn brief_first(fx: &Fixture, source: &str, session: &str) {
+    let body = payload("UserPromptSubmit", session, &fx.path(), r#""prompt":"hi""#);
+    let out = ff_stdin(&fx.path(), &["trigger", source], &body);
+    assert!(
+        !out.stdout.is_empty(),
+        "the warm-up is what briefs: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    dirty(fx, "dirty again\n");
+}
+
 // ---- the raw-git correction ------------------------------------------------
 
 /// A Bash payload carrying a raw git command.
@@ -117,6 +136,7 @@ fn git_payload(session: &str, cwd: &Path, command: &str) -> String {
 fn observe_is_silent() {
     let fx = repo();
     fx.set_config("fufu.gitPolicy", "observe");
+    brief_first(&fx, "claude", "s");
     let body = git_payload("s", &fx.path(), "git commit -m x");
     let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
     assert_eq!(out.status.code(), Some(0));
@@ -194,6 +214,7 @@ fn strict_denies_and_still_exits_zero() {
 fn a_compound_command_is_never_denied() {
     let fx = repo();
     fx.set_config("fufu.gitPolicy", "strict");
+    brief_first(&fx, "claude", "s");
     let body = git_payload("s", &fx.path(), "make && git commit -m x");
     let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
     assert_eq!(out.status.code(), Some(0));
@@ -213,6 +234,7 @@ fn a_compound_command_is_never_denied() {
 fn a_write_fufu_cannot_answer_passes_under_strict() {
     let fx = repo();
     fx.set_config("fufu.gitPolicy", "strict");
+    brief_first(&fx, "claude", "s");
     let body = git_payload("s", &fx.path(), "git apply p.diff");
     let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
     assert_eq!(out.status.code(), Some(0));
@@ -226,8 +248,11 @@ fn a_write_fufu_cannot_answer_passes_under_strict() {
 
 // ---- the client sources ----------------------------------------------------
 
+/// The first tool call in a repository briefs, because `PreToolUse` is
+/// the only channel that reaches a subagent or a directory the agent has
+/// just entered — and this repository's marker has never been written.
 #[test]
-fn pretooluse_bash_snapshots_with_provenance_and_no_output() {
+fn pretooluse_bash_snapshots_with_provenance_and_briefs_the_first_time() {
     let fx = repo();
     let body = payload(
         "PreToolUse",
@@ -239,11 +264,27 @@ fn pretooluse_bash_snapshots_with_provenance_and_no_output() {
     let elsewhere = tempfile::TempDir::new().unwrap();
     let out = ff_stdin(elsewhere.path(), &["trigger", "claude"], &body);
     assert_eq!(out.status.code(), Some(0));
-    assert!(out.stdout.is_empty(), "PreToolUse never writes stdout");
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    assert!(
+        value["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+        "a tool call is a channel the briefing can reach: {text}"
+    );
     assert!(out.stderr.is_empty());
     assert_eq!(
         chain_subject(&fx),
         "claude[01234567]: Bash(rm -rf build && make)"
+    );
+
+    // The second call of the same session says nothing more.
+    dirty(&fx, "again\n");
+    let again = ff_stdin(elsewhere.path(), &["trigger", "claude"], &body);
+    assert!(
+        again.stdout.is_empty(),
+        "an audience is briefed once: {}",
+        String::from_utf8_lossy(&again.stdout)
     );
 }
 
@@ -319,6 +360,10 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
         source: &'static str,
         payload: fn(&Path) -> String,
         subject: &'static str,
+        /// Whether this client has a documented channel on a tool call.
+        /// Only Claude Code does, and that is what decides whether the
+        /// briefing can ride one here.
+        speaks_on_a_tool: bool,
     }
 
     let cases = [
@@ -333,6 +378,7 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
                 )
             },
             subject: "claude[s1]: Bash(cargo test)",
+            speaks_on_a_tool: true,
         },
         Vendor {
             source: "codex",
@@ -345,6 +391,7 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
                 )
             },
             subject: "codex[s2]: Bash(cargo test)",
+            speaks_on_a_tool: false,
         },
         Vendor {
             source: "gemini",
@@ -357,6 +404,7 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
                 )
             },
             subject: "gemini[s3]: run_shell_command(cargo test)",
+            speaks_on_a_tool: false,
         },
         Vendor {
             source: "cursor",
@@ -367,6 +415,7 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
                 )
             },
             subject: "cursor[s4]: Shell(cargo test)",
+            speaks_on_a_tool: false,
         },
     ];
 
@@ -376,9 +425,186 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
         let source = vendor.source;
         let out = ff_stdin(&fx.path(), &["trigger", source], &body);
         assert_eq!(out.status.code(), Some(0), "{source} exits 0");
-        assert!(out.stdout.is_empty(), "{source} writes no stdout on a tool");
         assert_eq!(chain_subject(&fx), vendor.subject, "{source} provenance");
+
+        // Three of the four have no channel on a tool, so nothing is said
+        // there — and the marker is proof of the rule that makes that
+        // safe: it is stamped only when something actually printed, so a
+        // briefing that had nowhere to go is not recorded as delivered.
+        let marker = fx.path().join(".git/fufu/session").join(source);
+        if vendor.speaks_on_a_tool {
+            assert!(
+                !out.stdout.is_empty(),
+                "{source} carries the briefing on a tool"
+            );
+            assert!(marker.exists(), "{source} recorded the audience it briefed");
+        } else {
+            assert!(out.stdout.is_empty(), "{source} writes no stdout on a tool");
+            assert!(
+                !marker.exists(),
+                "{source} printed nothing, so it recorded nothing"
+            );
+        }
     }
+}
+
+/// The four capture-only events. Nothing is injected on any of them —
+/// `reply_envelope` has no channel for those kinds and the reply is empty
+/// anyway — and each one lands the snapshot that is the whole reason it is
+/// wired. `Stop` and `SubagentStop` are what make the last edit of a turn
+/// durable: capture is snapshot-*before*, so without them the file state an
+/// agent writes as its final action waits for whatever comes next.
+#[test]
+fn the_turn_end_events_capture_and_say_nothing() {
+    for (event, subject) in [
+        ("Stop", "claude[s]: event Stop"),
+        ("SubagentStop", "claude[s]: event SubagentStop"),
+        ("SubagentStart", "claude[s]: event SubagentStart"),
+        ("CwdChanged", "claude[s]: event CwdChanged"),
+    ] {
+        let fx = repo();
+        let body = payload(event, "s", &fx.path(), "");
+        let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+        assert_eq!(out.status.code(), Some(0), "{event} exits 0");
+        assert!(
+            out.stdout.is_empty(),
+            "{event} is a capture lane: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        assert!(out.stderr.is_empty(), "{event} says nothing");
+        assert_eq!(chain_subject(&fx), subject, "{event} lands a snapshot");
+    }
+}
+
+/// `SubagentStop` carries no `cwd`, which used to make every one of them a
+/// silent error. The process directory is the honest fallback: the client
+/// spawns the hook in the session's own directory.
+#[test]
+fn a_payload_with_no_cwd_still_captures() {
+    let fx = repo();
+    let body = r#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"sub-1"}"#;
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], body);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty());
+    assert_eq!(chain_subject(&fx), "claude[s]: event SubagentStop");
+}
+
+/// A context boundary — a startup, a resume, a `/clear`, a fork, a
+/// compaction — hands back the same session id, and the briefing injected
+/// into the context it replaced is gone with it. So `SessionStart` re-briefs
+/// unconditionally, where a second turn on that id does not.
+#[test]
+fn a_session_start_rebriefs_where_a_second_turn_does_not() {
+    let fx = repo();
+    let turn = |session: &str| {
+        let body = payload("UserPromptSubmit", session, &fx.path(), r#""prompt":"hi""#);
+        ff_stdin(&fx.path(), &["trigger", "claude"], &body)
+    };
+
+    assert!(!turn("s1").stdout.is_empty(), "the first turn briefs");
+    assert!(turn("s1").stdout.is_empty(), "the second does not");
+
+    let body = payload("SessionStart", "s1", &fx.path(), r#""source":"compact""#);
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.starts_with("fufu (`ff`) is capturing"),
+        "a boundary briefs on an id the marker already holds: {text:?}"
+    );
+    assert!(
+        turn("s1").stdout.is_empty(),
+        "and the turn after it is quiet again"
+    );
+}
+
+/// A subagent inherits the parent's session id, fires no prompt event, and
+/// was told nothing — so it is an audience of its own, reached on its first
+/// write-tool call and once only.
+#[test]
+fn a_subagent_is_briefed_once_on_its_own_first_tool_call() {
+    let fx = repo();
+    let call = |agent: &str| {
+        let body = payload(
+            "PreToolUse",
+            "s1",
+            &fx.path(),
+            &format!(r#""agent_id":"{agent}","tool_name":"Bash","tool_input":{{"command":"ls"}}"#),
+        );
+        let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+        dirty(&fx, &format!("after {agent}\n"));
+        String::from_utf8(out.stdout).unwrap()
+    };
+
+    let first = call("sub-1");
+    let value: serde_json::Value = serde_json::from_str(first.trim()).expect("valid json");
+    assert!(
+        value["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+        "the subagent's first write is where fufu can reach it: {first}"
+    );
+    assert!(call("sub-1").is_empty(), "and it hears it once");
+    assert!(
+        !call("sub-2").is_empty(),
+        "a second subagent is a second context"
+    );
+
+    // The main thread is its own audience, and this one has been briefed —
+    // the subagents' copies were not its.
+    let body = payload("UserPromptSubmit", "s1", &fx.path(), r#""prompt":"hi""#);
+    assert!(
+        !ff_stdin(&fx.path(), &["trigger", "claude"], &body)
+            .stdout
+            .is_empty(),
+        "the main thread was never told"
+    );
+    dirty(&fx, "after the prompt\n");
+    let body = payload(
+        "PreToolUse",
+        "s1",
+        &fx.path(),
+        r#""tool_name":"Bash","tool_input":{"command":"ls"}"#,
+    );
+    assert!(
+        ff_stdin(&fx.path(), &["trigger", "claude"], &body)
+            .stdout
+            .is_empty(),
+        "and a tool call with no agent id is that same audience"
+    );
+}
+
+/// Claude Code parses a hook's stdout as a *single* JSON object, and the
+/// briefing and a refusal can now both fall due on one `PreToolUse`. Two
+/// prints would lose both.
+#[test]
+fn a_briefing_and_a_denial_arrive_as_one_object() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    let body = git_payload("s", &fx.path(), "git commit -m x");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        text.trim().lines().count(),
+        1,
+        "one object, not two: {text}"
+    );
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    let hook = &value["hookSpecificOutput"];
+    assert!(
+        hook["additionalContext"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+        "the briefing rode it: {text}"
+    );
+    assert_eq!(hook["permissionDecision"], "deny");
+    assert!(
+        hook["permissionDecisionReason"]
+            .as_str()
+            .is_some_and(|t| t.contains("ff commit")),
+        "and so did the refusal: {text}"
+    );
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
 }
 
 /// The briefing is one text and four envelopes: plain for Claude and Codex,
@@ -458,14 +684,13 @@ fn two_clients_in_one_repo_are_each_briefed_once() {
     );
 
     let session_dir = fx.path().join(".git/fufu/session");
-    assert_eq!(
-        std::fs::read_to_string(session_dir.join("claude")).unwrap(),
-        "claude-1"
-    );
-    assert_eq!(
-        std::fs::read_to_string(session_dir.join("codex")).unwrap(),
-        "codex-1"
-    );
+    let marker_session = |slug: &str| {
+        let body = std::fs::read(session_dir.join(slug)).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        value["session"].as_str().unwrap().to_string()
+    };
+    assert_eq!(marker_session("claude"), "claude-1");
+    assert_eq!(marker_session("codex"), "codex-1");
 
     // A fresh session re-briefs, and only that client's marker moves.
     assert!(
@@ -473,10 +698,7 @@ fn two_clients_in_one_repo_are_each_briefed_once() {
             .stdout
             .is_empty()
     );
-    assert_eq!(
-        std::fs::read_to_string(session_dir.join("codex")).unwrap(),
-        "codex-1"
-    );
+    assert_eq!(marker_session("codex"), "codex-1");
 }
 
 #[test]
@@ -688,7 +910,7 @@ fn json_is_an_envelope_for_manual_and_ignored_for_a_client() {
 
     // A client source owns its stream: `--json` must not put an envelope
     // on it, because the briefing is what the client is reading there.
-    dirty(&fx, "dirtier\n");
+    brief_first(&fx, "claude", "s");
     let body = payload(
         "PreToolUse",
         "s",

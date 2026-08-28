@@ -11,18 +11,23 @@ use std::path::PathBuf;
 use ff_core::Result;
 
 use super::{
-    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Status,
-    Wiring, payload, settings,
+    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
+    Status, Wiring, payload, settings,
 };
+use settings::Need;
 
 pub struct Gemini;
 
 const COMMAND: &str = "ff trigger gemini";
 const LEGACY: [&str; 0] = [];
 
-const EVENTS: [(&str, Option<&str>); 2] = [
-    ("BeforeTool", Some("run_shell_command|write_file|replace")),
-    ("SessionStart", None),
+const EVENTS: [(&str, Option<&str>, Need); 2] = [
+    (
+        "BeforeTool",
+        Some("run_shell_command|write_file|replace"),
+        Need::Required,
+    ),
+    ("SessionStart", None, Need::Required),
 ];
 
 fn config_dir() -> Result<PathBuf> {
@@ -90,12 +95,18 @@ impl AgentProtocol for Gemini {
 
     /// Gemini reads injected context out of a JSON field, so plain stdout
     /// would be discarded — and discarded silently, which is the worst of
-    /// the available failures.
-    fn briefing_envelope(&self, text: &str) -> String {
-        serde_json::json!({
-            "hookSpecificOutput": { "additionalContext": text }
-        })
-        .to_string()
+    /// the available failures. On a tool it documents no channel at all,
+    /// so nothing is said there.
+    fn reply_envelope(&self, reply: &Reply) -> Option<String> {
+        if reply.kind == EventKind::BeforeTool || reply.context.is_empty() {
+            return None;
+        }
+        Some(
+            serde_json::json!({
+                "hookSpecificOutput": { "additionalContext": reply.joined() }
+            })
+            .to_string(),
+        )
     }
 }
 
@@ -124,13 +135,23 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(event.kind, EventKind::ContextStart);
+        // Gemini fires this once per session, so a boundary event is what
+        // it has always been for it.
+        assert_eq!(event.kind, EventKind::SessionStart);
     }
 
     #[test]
-    fn the_briefing_is_json_wrapped() {
-        let out = Gemini.briefing_envelope("hello");
+    fn the_briefing_is_json_wrapped_and_a_tool_gets_nothing() {
+        let mut reply = Reply::new(EventKind::SessionStart);
+        reply.context.push("hello".into());
+        let out = Gemini
+            .reply_envelope(&reply)
+            .expect("a session start speaks");
         let value: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(value["hookSpecificOutput"]["additionalContext"], "hello");
+
+        let mut reply = Reply::new(EventKind::BeforeTool);
+        reply.context.push("hello".into());
+        assert!(Gemini.reply_envelope(&reply).is_none());
     }
 }

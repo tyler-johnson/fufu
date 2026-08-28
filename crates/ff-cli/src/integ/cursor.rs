@@ -20,18 +20,19 @@ use ff_core::Result;
 use serde::Deserialize;
 
 use super::{
-    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Status,
-    Wiring, payload, settings,
+    AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
+    Status, Wiring, payload, settings,
 };
+use settings::Need;
 
 pub struct Cursor;
 
 const COMMAND: &str = "ff trigger cursor";
 const LEGACY: [&str; 0] = [];
 
-const EVENTS: [(&str, Option<&str>); 2] = [
-    ("preToolUse", Some("Shell|Write|Delete")),
-    ("sessionStart", None),
+const EVENTS: [(&str, Option<&str>, Need); 2] = [
+    ("preToolUse", Some("Shell|Write|Delete"), Need::Required),
+    ("sessionStart", None, Need::Required),
 ];
 
 const CLOUD: &str = "Cursor does not fire sessionStart for cloud agents, so the briefing is \
@@ -143,6 +144,9 @@ impl AgentProtocol for Cursor {
         Ok(Some(AgentEvent {
             kind,
             session,
+            // Cursor's payload names no subagent, so every event is the
+            // main thread's.
+            agent: String::new(),
             cwd: cwd.into(),
             label,
             command: payload::command_of(&raw.tool_input),
@@ -150,9 +154,13 @@ impl AgentProtocol for Cursor {
     }
 
     /// Cursor takes injected context as a JSON field, the way Gemini does,
-    /// under its own name.
-    fn briefing_envelope(&self, text: &str) -> String {
-        serde_json::json!({ "additional_context": text }).to_string()
+    /// under its own name — and documents no channel on a tool, so nothing
+    /// is said there.
+    fn reply_envelope(&self, reply: &Reply) -> Option<String> {
+        if reply.kind == EventKind::BeforeTool || reply.context.is_empty() {
+            return None;
+        }
+        Some(serde_json::json!({ "additional_context": reply.joined() }).to_string())
     }
 }
 
@@ -187,14 +195,22 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(event.kind, EventKind::ContextStart);
+        assert_eq!(event.kind, EventKind::SessionStart);
         assert_eq!(event.session, "conv-9");
     }
 
     #[test]
-    fn the_briefing_is_json_wrapped() {
-        let out = Cursor.briefing_envelope("hello");
+    fn the_briefing_is_json_wrapped_and_a_tool_gets_nothing() {
+        let mut reply = Reply::new(EventKind::SessionStart);
+        reply.context.push("hello".into());
+        let out = Cursor
+            .reply_envelope(&reply)
+            .expect("a session start speaks");
         let value: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(value["additional_context"], "hello");
+
+        let mut reply = Reply::new(EventKind::BeforeTool);
+        reply.context.push("hello".into());
+        assert!(Cursor.reply_envelope(&reply).is_none());
     }
 }

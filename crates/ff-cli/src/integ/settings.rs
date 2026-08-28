@@ -19,6 +19,23 @@ use serde_json::{Map, Value};
 
 use super::{Change, Wiring};
 
+/// Whether a missing event is an outage or an upgrade.
+///
+/// The distinction exists because "some of the events are wired" stopped
+/// being one thing. An install predating an event fufu has since added has
+/// whole capture and is simply old; an install missing the event capture
+/// *depends* on is half-finished. Calling both `Partial` tells the first
+/// user their capture is broken when it is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    /// Capture depends on it. Missing means [`Wiring::Partial`].
+    Required,
+    /// It widens capture rather than founding it. Missing means `stale`,
+    /// which routes the user to `ff doctor --fix` without claiming an
+    /// outage.
+    Extra,
+}
+
 /// How a client spells one hook entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
@@ -32,8 +49,9 @@ pub enum Shape {
 pub struct Spec {
     pub path: PathBuf,
     pub shape: Shape,
-    /// The events fufu hooks, with the matcher each takes (if any).
-    pub events: &'static [(&'static str, Option<&'static str>)],
+    /// The events fufu hooks: the name, the matcher it takes (if any), and
+    /// whether capture depends on it.
+    pub events: &'static [(&'static str, Option<&'static str>, Need)],
     /// The command the client is told to run.
     pub command: String,
     /// Spellings older installs may still carry. Recognized as ours — so
@@ -147,7 +165,7 @@ fn wired_events(spec: &Spec, settings: &Map<String, Value>) -> Vec<bool> {
     let hooks = settings.get("hooks").and_then(Value::as_object);
     spec.events
         .iter()
-        .map(|(event, _)| {
+        .map(|(event, ..)| {
             hooks
                 .and_then(|h| h.get(*event))
                 .and_then(Value::as_array)
@@ -163,40 +181,51 @@ pub fn wiring(spec: &Spec) -> Wiring {
         Err(err) => return Wiring::Unavailable(err.to_string()),
     };
     let wired = wired_events(spec, &settings);
-    if wired.iter().all(|w| *w) {
+    if wired.iter().all(|w| !*w) {
+        return Wiring::NotWired;
+    }
+    // Only a required event's absence is partial capture. An extra one is
+    // missing from an install written before fufu grew it, which is stale
+    // rather than broken.
+    let missing = missing_of(spec, &wired, Need::Required);
+    if missing.is_empty() {
         return Wiring::Wired {
             mechanism: super::Mechanism::Settings,
             at: spec.path.clone(),
         };
     }
-    if wired.iter().all(|w| !*w) {
-        return Wiring::NotWired;
-    }
-    let missing = spec
-        .events
-        .iter()
-        .zip(&wired)
-        .filter(|(_, wired)| !**wired)
-        .map(|((event, _), _)| *event)
-        .collect::<Vec<_>>()
-        .join(", ");
     Wiring::Partial {
-        missing,
+        missing: missing.join(", "),
         at: spec.path.clone(),
     }
 }
 
-/// Whether any entry fufu recognizes is written in a retired spelling.
-/// The wiring still fires — that is why legacy commands are recognized at
-/// all — so this is a repair to offer, never an outage to report.
+/// The events of one need that are not wired, in the spec's own order.
+fn missing_of(spec: &Spec, wired: &[bool], need: Need) -> Vec<&'static str> {
+    spec.events
+        .iter()
+        .zip(wired)
+        .filter(|((_, _, this), wired)| *this == need && !**wired)
+        .map(|((event, ..), _)| *event)
+        .collect()
+}
+
+/// Whether the wiring works but is written the way fufu no longer writes
+/// it — a retired command spelling, or an install predating an event fufu
+/// has since added. Neither costs capture, so this is a repair to offer
+/// and never an outage to report.
 pub fn stale(spec: &Spec) -> bool {
     let Ok(settings) = load(&spec.path) else {
         return false;
     };
+    let wired = wired_events(spec, &settings);
+    if wired.iter().any(|w| *w) && !missing_of(spec, &wired, Need::Extra).is_empty() {
+        return true;
+    }
     let Some(hooks) = settings.get("hooks").and_then(Value::as_object) else {
         return false;
     };
-    spec.events.iter().any(|(event, _)| {
+    spec.events.iter().any(|(event, ..)| {
         hooks
             .get(*event)
             .and_then(Value::as_array)
@@ -239,7 +268,7 @@ pub fn install(spec: &Spec) -> Result<Change> {
         ))
     })?;
 
-    for (event, matcher) in spec.events {
+    for (event, matcher, _) in spec.events {
         let entries = hooks
             .entry((*event).to_string())
             .or_insert_with(|| Value::Array(Vec::new()));
@@ -284,7 +313,7 @@ pub fn uninstall(spec: &Spec) -> Result<Change> {
     };
 
     let mut changed = false;
-    for (event, _) in spec.events {
+    for (event, ..) in spec.events {
         let Some(entries) = hooks.get_mut(*event).and_then(Value::as_array_mut) else {
             continue;
         };
@@ -347,7 +376,10 @@ mod tests {
         Spec {
             path: dir.join("settings.json"),
             shape,
-            events: &[("PreToolUse", Some("Bash|Edit")), ("SessionStart", None)],
+            events: &[
+                ("PreToolUse", Some("Bash|Edit"), Need::Required),
+                ("SessionStart", None, Need::Required),
+            ],
             command: "ff trigger test".into(),
             legacy: &["ff hook agent trigger test"],
             version: None,

@@ -1,31 +1,39 @@
 //! The neutral agent event: what every client's payload becomes once its
 //! adapter is done with it, and the only thing the shared pipeline reads.
 //!
-//! It carries five fields because the core consumes five things — which
-//! event this is, whose session it belongs to, which directory to discover
-//! a repository from, what the snapshot's subject should say, and the shell
-//! command the tool carried when it carried one, which is what the raw-git
-//! correction reads. A vendor field that nothing downstream reads would be
-//! a field to keep in sync for nobody.
+//! It carries six fields because the core consumes six things — which
+//! event this is, whose session it belongs to, which audience inside that
+//! session is listening, which directory to discover a repository from,
+//! what the snapshot's subject should say, and the shell command the tool
+//! carried when it carried one, which is what the raw-git correction
+//! reads. A vendor field that nothing downstream reads would be a field to
+//! keep in sync for nobody.
 
 use std::path::{Path, PathBuf};
 
 /// The events fufu has a use for, named after what they mean rather than
 /// after any one vendor's spelling.
 ///
-/// `SubagentStart`, `TurnEnd`, and `SessionEnd` are mapped by the adapters
-/// and consumed by nothing yet — declared so an adapter has somewhere
+/// `SubagentStart` and `SessionEnd` are mapped by the adapters and consumed
+/// by nothing but the capture floor — declared so an adapter has somewhere
 /// honest to put an event it receives, on the same discipline that defers
-/// editor hooks. `TurnEnd` is the next one with a use: the daily auto-trim
-/// rides `ContextStart` today, which puts an inline walk on the agent's
-/// critical path.
+/// editor hooks. `TurnEnd` is the next one with a use beyond capture: the
+/// daily auto-trim rides `ContextStart` today, which puts an inline walk on
+/// the agent's critical path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventKind {
-    /// A turn or a session is starting and context can be injected.
+    /// The context was built or rebuilt — a startup, a resume, a `/clear`,
+    /// a fork, a compaction. Whatever was injected into the old context is
+    /// gone, which is why this is not a `ContextStart`: a turn begins
+    /// inside a context that already exists, and a boundary replaces one.
+    SessionStart,
+    /// A turn is starting and context can be injected.
     ContextStart,
     /// A tool is about to run. This is the one capture cannot miss.
     BeforeTool,
     SubagentStart,
+    /// A turn ended — or a subagent's did. The last edit of a turn is only
+    /// durable because this fires after it.
     TurnEnd,
     SessionEnd,
     /// An event this adapter has no meaning for. It still captures, and the
@@ -50,12 +58,11 @@ impl EventKind {
             .map(|c| c.to_ascii_lowercase())
             .collect();
         Some(match key.as_str() {
-            "contextstart" | "sessionstart" | "userpromptsubmit" | "beforesubmitprompt" => {
-                EventKind::ContextStart
-            }
+            "sessionstart" => EventKind::SessionStart,
+            "contextstart" | "userpromptsubmit" | "beforesubmitprompt" => EventKind::ContextStart,
             "beforetool" | "pretooluse" | "beforeshellexecution" => EventKind::BeforeTool,
             "subagentstart" | "presubagent" => EventKind::SubagentStart,
-            "turnend" | "stop" | "posttooluse" => EventKind::TurnEnd,
+            "turnend" | "stop" | "subagentstop" | "posttooluse" => EventKind::TurnEnd,
             "sessionend" => EventKind::SessionEnd,
             _ => return None,
         })
@@ -116,6 +123,11 @@ pub struct AgentEvent {
     pub kind: EventKind,
     /// The vendor's session id, verbatim. Empty when the payload has none.
     pub session: String,
+    /// Who inside that session is listening: a subagent's id, or empty for
+    /// the main thread. A subagent inherits the parent's session id and is
+    /// still an audience of its own, because nothing the parent was told
+    /// reaches it.
+    pub agent: String,
     /// The directory the repository is discovered from.
     pub cwd: PathBuf,
     pub label: Label,
@@ -147,11 +159,22 @@ mod tests {
         for spelling in ["PreToolUse", "BeforeTool", "preToolUse"] {
             assert_eq!(EventKind::from_hint(spelling), Some(EventKind::BeforeTool));
         }
-        for spelling in ["UserPromptSubmit", "SessionStart", "sessionStart"] {
+        for spelling in ["UserPromptSubmit", "BeforeSubmitPrompt", "contextStart"] {
             assert_eq!(
                 EventKind::from_hint(spelling),
                 Some(EventKind::ContextStart)
             );
+        }
+        // A boundary is its own event: the runtime has to be able to tell
+        // a rebuilt context from a turn inside one.
+        for spelling in ["SessionStart", "sessionStart", "session_start"] {
+            assert_eq!(
+                EventKind::from_hint(spelling),
+                Some(EventKind::SessionStart)
+            );
+        }
+        for spelling in ["Stop", "SubagentStop", "PostToolUse"] {
+            assert_eq!(EventKind::from_hint(spelling), Some(EventKind::TurnEnd));
         }
     }
 
