@@ -262,13 +262,17 @@ runs — `alias git='ff git'`, installed by `ff hook <shell>` — so
 typed git keeps working exactly as it did, and simply stops being able to
 lose anything.
 
-With `ff config translate true`, invocations whose meaning maps completely
-onto a fufu verb are translated, so muscle memory gets fufu's guarantees
-without retraining: `git switch` engages tree memory, `git commit -m` cuts
-from the capture stream. The whitelist is deliberately strict — any flag or
-form fufu does not fully understand falls through to real git, verbatim and
-unmodified, still capture-first. Off (the default), nothing translates:
-every invocation is real git's, snapshot first.
+Nothing is ever translated: the command that runs is the one you typed, or
+none at all. What `fufu.gitPolicy` decides is what fufu *says* about a git
+word it has a verb for. observe records it and stays quiet. coach — the
+default — adds one line naming the fufu verb, once per word. strict refuses
+that word outright and says what to run instead; words fufu has no verb for
+(`apply`, `bisect`, `gc`) are never touched under any tier, so the escape
+hatch stays open.
+
+The same setting governs raw git in an agent's own shell, through the hook:
+there coach injects the alternative into the model's context and strict asks
+the client to stop the call.
 
 Every flag here belongs to git, including --help. This page is `ff help
 git`.";
@@ -276,9 +280,10 @@ git`.";
 pub const GIT_EXAMPLES: &str = "\
 Examples:
   ff git status                  snapshot, then real git status
-  ff config translate true       daily forms become their ff verbs
-  ff git commit -m \"…\"           translated: closes the open change
-  ff git rebase -i HEAD~3        never translated: snapshot, then real git
+  ff git commit -m \"…\"           git's, plus a line naming ff commit
+  ff config gitPolicy strict     refuse the words fufu has verbs for
+  ff config gitPolicy observe    count them and say nothing
+  ff git rebase -i HEAD~3        no fufu verb to name: snapshot, then git
   ff hook zsh                    make every typed git command do this";
 
 pub const RESTORE: &str = "\
@@ -908,7 +913,9 @@ its reason.
 The other sources are machine surface, not commands to type — claude,
 codex, cursor, gemini for the agent clients, and shell for the prompt
 hook. Those are invoked by the client with a payload on stdin, they always
-exit 0 whatever went wrong, and they never veto the action they fired on.
+exit 0 whatever went wrong, and they never veto the action they fired on on
+their own judgment — `fufu.gitPolicy strict` is the one veto there is, and
+it travels as JSON the client may ignore rather than as an exit code.
 Their failures are silent by design; FF_DEBUG=1 makes them talk. A source
 name fufu does not know exits 0 and says nothing, which is what makes a
 fufu trigger safe to wire into a client fufu has never heard of.";
@@ -979,6 +986,7 @@ Examples:
   ff config keep                 what the retention window is
   ff config keep 30d             set it, this repo
   ff config --global pager bat   set it, every repo
+  ff config gitPolicy strict     refuse raw git that has a fufu verb
   ff config --unset autoTrim     back to the default";
 
 pub const DOCTOR: &str = "\

@@ -153,52 +153,89 @@ fn outside_repo_passthrough_is_quiet_about_capture() {
     assert!(log.contains("argv: [init] [-q]"));
 }
 
-/// Without fufu.translate, a whitelisted form is still git's: `git status`
-/// reaches real git verbatim (capture-first), and no tip prints.
+/// Every tier runs git verbatim: `ff git status` reaches the fake git with
+/// the argv it was given, and a read earns no tip under any of them.
 #[test]
-fn translation_is_off_by_default() {
+fn a_read_reaches_git_verbatim_under_every_tier() {
+    for tier in ["observe", "coach", "strict"] {
+        let fx = Fixture::new();
+        fx.set_config("fufu.gitPolicy", tier);
+        fx.write("a.txt", "a\n");
+        fx.commit("init");
+        fx.write("a.txt", "dirty\n");
+
+        let fake = fake_git();
+        let out = ff_with_path(&fake.bin, &fx.path(), &["git", "status"], &[]);
+        assert!(out.status.success(), "ff git status failed under {tier}");
+        let log = std::fs::read_to_string(&fake.log).unwrap();
+        assert!(
+            log.contains("argv: [status]"),
+            "{tier} must reach git verbatim: {log:?}"
+        );
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(!stderr.contains("tip"), "{tier} coached a read: {stderr:?}");
+        let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+        assert_eq!(subject.trim(), "pre: git status");
+    }
+}
+
+/// Coach is the default: the first write of a word earns a line naming the
+/// fufu verb, the second says nothing, and git ran both times.
+#[test]
+fn coach_names_the_verb_once_per_word() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
     fx.write("a.txt", "dirty\n");
 
     let fake = fake_git();
-    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "status"], &[]);
+    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "commit", "-m", "x"], &[]);
     assert!(out.status.success());
-    let log = std::fs::read_to_string(&fake.log).unwrap();
-    assert!(
-        log.contains("argv: [status]"),
-        "an untranslated whitelisted form must reach git: {log:?}"
-    );
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(
-        !stderr.contains("tip"),
-        "the default passthrough is silent: {stderr:?}"
+        stderr.contains("ff: tip: that's ff commit"),
+        "coach names the verb: {stderr:?}"
     );
-    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
-    assert_eq!(subject.trim(), "pre: git status");
+
+    let again = ff_with_path(&fake.bin, &fx.path(), &["git", "commit", "-m", "y"], &[]);
+    let stderr = String::from_utf8(again.stderr).unwrap();
+    assert!(!stderr.contains("tip"), "coach says it once: {stderr:?}");
+
+    let log = std::fs::read_to_string(&fake.log).unwrap();
+    assert_eq!(
+        log.matches("argv: [commit]").count(),
+        2,
+        "git ran both times: {log:?}"
+    );
 }
 
-/// With fufu.translate on, forms with a count map onto `ff log -n`.
+/// Strict refuses the words fufu has verbs for — and only those. A write
+/// fufu has no answer for passes through under strict like any other.
 #[test]
-fn translated_log_with_count() {
+fn strict_refuses_only_what_it_can_answer() {
     let fx = Fixture::new();
-    fx.set_config("fufu.translate", "true");
-    for i in 0..4 {
-        fx.write("f.txt", &format!("{i}\n"));
-        fx.commit(&format!("c{i}"));
-    }
+    fx.set_config("fufu.gitPolicy", "strict");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+
     let fake = fake_git();
-    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "log", "-2"], &[]);
-    assert!(out.status.success());
+    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "commit", "-m", "x"], &[]);
+    assert_eq!(out.status.code(), Some(2), "strict refuses with exit 2");
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("ff commit"),
+        "the refusal names the verb: {stderr:?}"
+    );
     assert!(
         !fake.log.exists(),
-        "translated log must not exec git: {}",
+        "a refusal must not run git: {}",
         std::fs::read_to_string(&fake.log).unwrap_or_default()
     );
-    let text = String::from_utf8(out.stdout).unwrap();
-    // Change-centric view: the @ row plus exactly two ● commit rows.
-    assert!(text.starts_with("@  "), "{text:?}");
-    let commit_rows = text.lines().filter(|l| l.starts_with('●')).count();
-    assert_eq!(commit_rows, 2, "count honored: {text:?}");
+
+    // No fufu verb to name, so nothing to refuse.
+    let out = ff_with_path(&fake.bin, &fx.path(), &["git", "apply", "p.diff"], &[]);
+    assert!(out.status.success(), "git apply is not fufu's to refuse");
+    let log = std::fs::read_to_string(&fake.log).unwrap();
+    assert!(log.contains("argv: [apply] [p.diff]"), "{log:?}");
 }

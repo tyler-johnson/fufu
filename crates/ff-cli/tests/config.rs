@@ -39,7 +39,8 @@ fn list_shows_defaults() {
     assert!(text.contains("less"), "missing less");
     assert!(text.contains("updateCheck"), "missing updateCheck");
     assert!(text.contains("autoUpdate"), "missing autoUpdate");
-    assert!(text.contains("translate"), "missing translate");
+    assert!(text.contains("gitPolicy"), "missing gitPolicy");
+    assert!(text.contains("coach"), "missing coach");
     assert!(text.contains("(default)"), "missing (default) tag");
     assert!(
         text.contains("Stored as plain git config under fufu."),
@@ -281,9 +282,10 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    // pushOnSync left the registry with the sync/publish split; translate
-    // joined with the opt-in git translation, and watchInterval with ff
-    // watch; ambient left with the shell channel, so 12.
+    // pushOnSync left the registry with the sync/publish split; gitPolicy
+    // joined with the graduated raw-git correction (replacing the boolean
+    // translate in place), and watchInterval with ff watch; ambient left
+    // with the shell channel, so 12.
     assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
@@ -435,54 +437,79 @@ fn trunk_accepts_remote_qualified() {
 }
 
 #[test]
-fn translate_setting_round_trips() {
+fn git_policy_round_trips() {
     let fx = Fixture::new();
     let global = fx.root().join("gitconfig");
 
-    // Default: get prints false; the list marks it (default)
-    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
+    // Default: get prints coach; the list marks it (default)
+    let out = ff_cfg(&fx.path(), &["config", "gitPolicy"], &global);
     assert!(out.status.success());
-    assert_eq!(stdout(&out), "false\n");
+    assert_eq!(stdout(&out), "coach\n");
 
     let out = ff_cfg(&fx.path(), &["config"], &global);
     assert!(out.status.success());
     let text = stdout(&out);
-    let translate_line = text
+    let line = text
         .lines()
-        .find(|l| l.starts_with("translate  "))
-        .expect("translate line in list output");
+        .find(|l| l.starts_with("gitPolicy  "))
+        .expect("gitPolicy line in list output");
     assert!(
-        translate_line.contains("(default)"),
-        "translate marked (default) before set: {translate_line}"
+        line.contains("(default)"),
+        "gitPolicy marked (default) before set: {line}"
     );
 
-    // Set true
-    let out = ff_cfg(&fx.path(), &["config", "translate", "true"], &global);
-    assert!(out.status.success());
-
-    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
-    assert!(out.status.success());
-    assert_eq!(stdout(&out), "true\n");
+    // Every tier is accepted and reads back as itself.
+    for value in ["observe", "coach", "strict"] {
+        let out = ff_cfg(&fx.path(), &["config", "gitPolicy", value], &global);
+        assert!(
+            out.status.success(),
+            "setting gitPolicy to {value} failed: {}",
+            stderr(&out)
+        );
+        let out = ff_cfg(&fx.path(), &["config", "gitPolicy"], &global);
+        assert!(out.status.success());
+        assert_eq!(stdout(&out).trim(), value);
+    }
 
     // Unset — back to the default
-    let out = ff_cfg(&fx.path(), &["config", "--unset", "translate"], &global);
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "gitPolicy"], &global);
     assert!(out.status.success());
-    let out = ff_cfg(&fx.path(), &["config", "translate"], &global);
+    let out = ff_cfg(&fx.path(), &["config", "gitPolicy"], &global);
     assert!(out.status.success());
-    assert_eq!(stdout(&out), "false\n");
+    assert_eq!(stdout(&out), "coach\n");
 }
 
+/// A tier shouted is the same tier: Choice values normalize on write.
 #[test]
-fn translate_rejects_a_non_boolean() {
+fn git_policy_normalizes_case() {
     let fx = Fixture::new();
     let global = fx.root().join("gitconfig");
 
-    let out = ff_cfg(&fx.path(), &["config", "translate", "sometimes"], &global);
-    assert_eq!(out.status.code(), Some(2));
+    let out = ff_cfg(&fx.path(), &["config", "gitPolicy", "STRICT"], &global);
     assert!(
-        stderr(&out).contains("invalid value for translate"),
-        "the failure names the setting that failed: {}",
+        out.status.success(),
+        "uppercase set failed: {}",
         stderr(&out)
+    );
+    let out = ff_cfg(&fx.path(), &["config", "gitPolicy"], &global);
+    assert_eq!(stdout(&out).trim(), "strict");
+}
+
+#[test]
+fn git_policy_rejects_an_unknown_tier() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "gitPolicy", "sometimes"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    let err = stderr(&out);
+    assert!(
+        err.contains("gitPolicy"),
+        "the failure names the setting that failed: {err}"
+    );
+    assert!(
+        err.contains("observe") && err.contains("coach") && err.contains("strict"),
+        "the failure names the tiers: {err}"
     );
 }
 

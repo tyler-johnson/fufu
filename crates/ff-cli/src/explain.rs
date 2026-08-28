@@ -578,6 +578,20 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff branch list", "ff describe -b <name>"],
     },
     Entry {
+        id: "usage/git-policy",
+        summary: "fufu.gitPolicy is strict, and this git word has a fufu verb",
+        detail: "fufu.gitPolicy governs what fufu says when git is reached for directly — \
+                 through ff git, or in an agent's own shell. observe records it and stays \
+                 quiet; coach, the default, names the fufu verb once per word; strict \
+                 refuses. Refusing is the only tier that stops anything, and it is still \
+                 not a translation: fufu names an alternative and never composes one, so \
+                 the write that runs is the one that was typed or none at all. The set it \
+                 refuses is exactly the git words fufu has a verb for, which is what keeps \
+                 the passthrough honest — apply, bisect, gc and everything else fufu has no \
+                 answer for run capture-first under every tier.",
+        exits: &["ff config gitPolicy coach", "ff config gitPolicy"],
+    },
+    Entry {
         id: "usage/foreign-verb",
         summary: "that is a git verb fufu answers rather than runs",
         detail: "A handful of git words name something fufu does differently, so typing one is a \

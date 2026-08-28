@@ -114,14 +114,15 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
-            name: "translate",
-            key: "fufu.translate",
-            def: "false",
-            kind: SettingKind::Bool,
+            name: "gitPolicy",
+            key: "fufu.gitPolicy",
+            def: "coach",
+            kind: SettingKind::Choice(&["observe", "coach", "strict"]),
             desc: &[
-                "Whether ff git translates daily forms (status, log, switch, commit,",
-                "branch) into their fufu verbs. Off, every invocation runs real git",
-                "verbatim, capture-first; the whitelist stays strict either way.",
+                "What fufu says when git is reached for directly — through ff git, or",
+                "in an agent's own shell. observe records and stays quiet; coach (the",
+                "default) names the fufu verb once per word; strict refuses the words",
+                "fufu has verbs for. Nothing is ever silently run in its place.",
             ],
         },
         Setting {

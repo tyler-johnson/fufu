@@ -200,45 +200,45 @@ fn status_and_log_never_spawn() {
     );
 }
 
-/// With fufu.translate on, a translated `ff git status` never execs git:
-/// capture + translation are fully native. (Verbatim passthrough forms exec
-/// by design — not this test.)
+/// Under strict, a refused `ff git commit` never reaches git at all: the
+/// refusal lands before the capture and before any spawn. (Verbatim
+/// passthrough forms exec by design — not this test.)
 #[test]
-fn translated_git_status_never_spawns() {
+fn a_strict_refusal_never_spawns() {
     let fx = Fixture::new();
-    fx.set_config("fufu.translate", "true");
+    fx.set_config("fufu.gitPolicy", "strict");
     fx.write("a.txt", "a\n");
     fx.commit("one");
     fx.write("a.txt", "dirty\n");
     let index_before = fx.index_bytes();
 
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["git", "status"]);
-    assert!(
-        out.status.success(),
-        "ff git status failed under trap PATH: {}",
+    let out = ff_trapped(&trap, &fx.path(), &["git", "commit", "-m", "x"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "strict refuses: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(
-        stderr.contains("ff: tip: that's ff status"),
-        "first translation hints once: {stderr:?}"
+        stderr.contains("ff commit"),
+        "the refusal names the verb: {stderr:?}"
     );
-
-    let again = ff_trapped(&trap, &fx.path(), &["git", "status"]);
-    let stderr = String::from_utf8(again.stderr).unwrap();
-    assert!(!stderr.contains("tip"), "hint prints only once: {stderr:?}");
 
     assert!(
         !trap.log.exists(),
-        "translated ff git spawned: {}",
+        "a refusal spawned something: {}",
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
     assert_eq!(index_before, fx.index_bytes());
 
-    // The capture happened, natively.
-    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
-    assert_eq!(subject.trim(), "pre: git status");
+    // A refusal writes on behalf of nothing, so there is no capture either.
+    let chain = fx.git(&["for-each-ref", "--format=%(refname)", "refs/fufu/"]);
+    assert!(
+        chain.trim().is_empty(),
+        "a refused command must not have captured: {chain:?}"
+    );
 }
 
 /// Every Phase 2 verb is native: commit, switch, branch, new, describe,

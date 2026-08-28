@@ -7,6 +7,7 @@ mod ctx;
 mod exit;
 mod explain;
 mod ext;
+mod gitpolicy;
 mod graph;
 mod help;
 mod integ;
@@ -16,6 +17,7 @@ mod net;
 mod pager;
 mod progress;
 mod provenance;
+mod rawgit;
 mod render;
 mod session;
 

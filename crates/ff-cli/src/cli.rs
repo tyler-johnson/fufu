@@ -191,7 +191,7 @@ pub enum Command {
         past: Past,
     },
     // agent notice quotes this: `ff git <args…>`
-    /// Capture-first git passthrough; translation to ff verbs is opt-in
+    /// Capture-first git passthrough; fufu.gitPolicy decides what it says
     #[command(
         disable_help_flag = true,
         long_about = help::GIT,
