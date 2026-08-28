@@ -23,8 +23,8 @@ mod session;
 
 mod selfupdate;
 
-use clap::Parser;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
+use clap::{CommandFactory, FromArgMatches};
 
 /// The pre-dispatch gate: refuse the one flag combination clap used to
 /// refuse for us, then build the context the verbs run against.
@@ -145,10 +145,25 @@ fn main() {
     // signals; the engine itself never installs handlers.
     let _interrupt = unsafe { ff_core::gix::interrupt::init_handler(1, || {}) };
 
+    // The root page's command list is rendered by fufu, not clap — see
+    // `help::root_template`. clap picks short help over long itself and does
+    // not expose the choice to the template, so the spelling is read from
+    // argv here instead. Loose on purpose: the root template renders only
+    // for the root page, so what `ff commit --help` computes is a value
+    // nobody reads.
+    // `args_os`, not `args`: a non-UTF-8 path after `-C` is clap's to report,
+    // not a panic before clap has seen the command line at all.
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let long = argv.iter().any(|a| a == "--help") || argv.get(1).is_some_and(|a| a == "help");
+    let root = cli::Cli::command().help_template(help::root_template(long));
+
     // Parse first, PATH second: a builtin verb always wins, and an
     // extension is only considered once clap has declined the word. The
     // miss path falls through to clap's own error, byte for byte.
-    let args = match cli::Cli::try_parse() {
+    let args = match root
+        .try_get_matches()
+        .and_then(|m| cli::Cli::from_arg_matches(&m))
+    {
         Ok(args) => args,
         Err(e) => {
             if e.kind() == ErrorKind::InvalidSubcommand

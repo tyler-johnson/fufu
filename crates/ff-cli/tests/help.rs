@@ -27,7 +27,19 @@ fn bare_help_prints_the_root_page() {
     assert!(out.status.success(), "exit 0: {:?}", out.status);
     let body = stdout(&out);
     assert!(body.contains("Usage: ff"), "missing Usage line");
-    assert!(body.contains("Commands:"), "missing Commands list");
+    // The command list is grouped, git-style, so the headings are the list.
+    for heading in [
+        "start a working area:",
+        "work on the current change:",
+        "examine the history and state:",
+        "grow, mark and tweak your common history:",
+        "collaborate:",
+        "go back:",
+        "wire it in, and check on it:",
+        "fufu itself:",
+    ] {
+        assert!(body.contains(heading), "missing heading {heading:?}");
+    }
     assert!(
         body.contains("snapshots your working tree"),
         "missing root page fragment"
@@ -148,5 +160,117 @@ fn short_help_stays_short() {
     assert!(
         body_long.contains("Examples:"),
         "long help (--help) should contain Examples:"
+    );
+}
+
+/// The command list on the root page: everything between the usage line and
+/// the options, which is what the grouping replaced clap's flat `Commands:`
+/// section with.
+fn command_list(page: &str) -> &str {
+    page.split_once("Usage: ff")
+        .and_then(|(_, rest)| rest.split_once("\nOptions:"))
+        .map(|(list, _)| list)
+        .expect("a command list")
+}
+
+/// One row per command: the name, and the column its description starts at.
+fn rows(list: &str) -> Vec<(&str, usize)> {
+    list.lines()
+        .filter(|line| line.starts_with("  "))
+        .filter_map(|line| {
+            let name = line[2..].split_whitespace().next()?;
+            let gap = line.find(name)? + name.len();
+            let about = line[gap..].trim_start();
+            // The footer is indented like a row and has no description
+            // column; a row always has one.
+            let start = line.len() - about.len();
+            (!about.is_empty() && line[gap..].starts_with("  ")).then_some((name, start))
+        })
+        .collect()
+}
+
+/// `-h` is the common verbs and nothing else, and it has to say where the
+/// rest went — otherwise a reader has no way to learn a command is missing.
+#[test]
+fn short_root_help_is_a_subset_that_names_the_long_one() {
+    let short = stdout(&ff(&["-h"]));
+    let long = stdout(&ff(&["--help"]));
+
+    let short_rows: Vec<&str> = rows(command_list(&short))
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    let long_rows: Vec<&str> = rows(command_list(&long))
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+
+    assert!(!short_rows.is_empty(), "the short page lists nothing");
+    assert!(
+        short_rows.len() < long_rows.len(),
+        "the short page should be shorter: {short_rows:?}"
+    );
+    for name in &short_rows {
+        assert!(
+            long_rows.contains(name),
+            "{name} is on the short page but not the long one: {long_rows:?}"
+        );
+    }
+    assert!(
+        short.contains("ff --help"),
+        "the short page should name `ff --help`: {short}"
+    );
+}
+
+/// One name column for the whole list, not one per heading — a column that
+/// moved under each heading would undo the grouping it is there to serve.
+#[test]
+fn the_command_list_aligns_across_headings() {
+    for flag in ["-h", "--help"] {
+        let page = stdout(&ff(&[flag]));
+        let rows = rows(command_list(&page));
+        let (first, start) = rows.first().copied().expect("at least one row");
+        for (name, col) in &rows {
+            assert_eq!(
+                *col, start,
+                "ff {flag}: {name}'s description starts at {col}, {first}'s at {start}"
+            );
+        }
+    }
+}
+
+/// The list is painted by fufu rather than by clap, so it has to be painted
+/// in clap's own styles: headings bold+underline like `Usage:`, names bold
+/// like every other thing you can type.
+#[test]
+fn the_command_list_wears_claps_styles() {
+    let out = Command::new(env!("CARGO_BIN_EXE_ff"))
+        .args(["--help"])
+        .env("CLICOLOR_FORCE", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn ff");
+    let page = stdout(&out);
+    assert!(
+        page.contains("\u{1b}[1m\u{1b}[4mstart a working area:\u{1b}[0m"),
+        "the heading should be bold+underline: {page:?}"
+    );
+    assert!(
+        page.contains("\u{1b}[1minit\u{1b}[0m"),
+        "the command name should be bold: {page:?}"
+    );
+    assert!(
+        page.contains("\u{1b}[1m\u{1b}[4mOptions:\u{1b}[0m"),
+        "the hand-written Options: heading should match: {page:?}"
+    );
+
+    // And nothing at all when the stream is captured, which is the state
+    // every other test above reads the page in.
+    let plain = stdout(&ff(&["--help"]));
+    assert!(
+        !plain.contains('\u{1b}'),
+        "piped help carries no escape byte"
     );
 }

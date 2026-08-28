@@ -1037,7 +1037,7 @@ fn paint(text: &str, style: anstyle::Style, colored: bool) -> String {
 }
 
 /// A left-aligned column: pad FIRST (format-width would count escape bytes).
-fn col(text: &str, width: usize, style: anstyle::Style, colored: bool) -> String {
+pub fn col(text: &str, width: usize, style: anstyle::Style, colored: bool) -> String {
     let pad = " ".repeat(width.saturating_sub(text.chars().count()));
     format!("{}{pad}", paint(text, style, colored))
 }

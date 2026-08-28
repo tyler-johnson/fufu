@@ -115,9 +115,13 @@ fn the_aliases_stay_out_of_the_command_list() {
         page.contains("st, ci, sw, br, ev, desc, cfg"),
         "the root page teaches all seven: {page}"
     );
+    // The list is grouped now, so there is no one `Commands:` header to split
+    // on: it runs from the usage line to the options, and a row is indented
+    // where a heading is not.
     let list = page
-        .split_once("Commands:")
-        .map(|(_, rest)| rest.to_string())
+        .split_once("Usage: ff")
+        .and_then(|(_, rest)| rest.split_once("\nOptions:"))
+        .map(|(list, _)| list.to_string())
         .expect("a command list");
     // The row's own name, not a substring of it: `  status` starts with `st`.
     let rows: Vec<&str> = list

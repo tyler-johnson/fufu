@@ -1227,3 +1227,291 @@ Examples:
   ff op revert kqzm              take that one change back out
   ff op log                      …and see the revert recorded
   ff undo                        take the revert back too";
+
+// ---------------------------------------------------------------------------
+// The root page's command list.
+//
+// clap cannot group subcommands: `subcommand_help_heading` renames the single
+// `Commands:` header, and `help_heading` is an `Arg` property a subcommand
+// never consults. So fufu renders the list itself and hands it to clap as a
+// `help_template` on the root command only.
+//
+// The template writes `{options}` rather than `{all-args}`, and that is what
+// keeps clap's own flat list from rendering at all — no subcommand needs
+// hiding, so suggestions, `ff help <cmd>` and dispatch are untouched. The
+// `Options:` heading `{all-args}` would have written is written by hand
+// instead, in clap's own header style.
+// ---------------------------------------------------------------------------
+
+/// One command in the list.
+pub struct Row {
+    pub name: &'static str,
+    /// Shown by `ff -h`; the rest wait for `ff --help`.
+    pub common: bool,
+}
+
+/// One heading, and the commands under it.
+pub struct Group {
+    pub heading: &'static str,
+    pub commands: &'static [Row],
+}
+
+/// Shorthand for the table below: `c` is a common verb, `r` is the rest.
+const fn c(name: &'static str) -> Row {
+    Row { name, common: true }
+}
+const fn r(name: &'static str) -> Row {
+    Row {
+        name,
+        common: false,
+    }
+}
+
+/// Every command, grouped. Four of the headings are `git help`'s own words,
+/// because git already solved this page and a reader who knows one should
+/// not have to learn the other; the fufu-only groups are written in the same
+/// register.
+///
+/// Three placements are deliberate. `commit` sits with the current change
+/// rather than under "grow, mark and tweak", because in fufu the working
+/// tree *is* the change. `restore` sits there too, where git has it. And
+/// `map` heads "examine" rather than taking a line of its own, since bare
+/// `ff` is taught two paragraphs into [`ROOT`].
+///
+/// clap's generated `help` subcommand is not a row: it exists only after
+/// `Command::build()`, which [`root_template`] deliberately does not call,
+/// and [`ROOT_EXAMPLES`] already teaches `ff help <command>`.
+pub const GROUPS: &[Group] = &[
+    Group {
+        heading: "start a working area",
+        commands: &[c("init"), c("clone"), r("worktree")],
+    },
+    Group {
+        heading: "work on the current change",
+        commands: &[
+            c("status"),
+            c("diff"),
+            r("restore"),
+            c("commit"),
+            c("describe"),
+        ],
+    },
+    Group {
+        heading: "examine the history and state",
+        commands: &[
+            r("map"),
+            c("log"),
+            c("show"),
+            r("evolog"),
+            r("history"),
+            r("collide"),
+        ],
+    },
+    Group {
+        heading: "grow, mark and tweak your common history",
+        commands: &[
+            c("start"),
+            c("switch"),
+            c("branch"),
+            r("absorb"),
+            r("lift"),
+            r("restack"),
+            r("edit"),
+            r("done"),
+            r("resolve"),
+        ],
+    },
+    Group {
+        heading: "collaborate",
+        commands: &[c("sync"), c("publish"), r("remote")],
+    },
+    Group {
+        heading: "go back",
+        commands: &[c("undo"), r("redo"), r("op"), r("trim")],
+    },
+    Group {
+        heading: "wire it in, and check on it",
+        commands: &[
+            r("hook"),
+            r("unhook"),
+            r("trigger"),
+            r("watch"),
+            r("config"),
+            r("doctor"),
+        ],
+    },
+    Group {
+        heading: "fufu itself",
+        commands: &[r("git"), r("explain"), r("version"), r("update")],
+    },
+];
+
+/// The `help_template` for the root page: clap's own frame, with the grouped
+/// list where its flat `Commands:` section would have been.
+///
+/// `long` is the `-h`/`--help` spelling, which clap decides for itself and
+/// does not expose to the template — main reads it from argv instead. Short
+/// help shows only the common verbs, and closes with a line naming the long
+/// spelling.
+///
+/// Styles are painted unconditionally. clap prints help through an
+/// `anstream::AutoStream`, which strips the escapes when color is off, so
+/// this block colors exactly when clap's own `Usage:` and `Options:` do and
+/// there is no second color decision to keep in step.
+pub fn root_template(long: bool) -> String {
+    use clap::CommandFactory;
+    use std::fmt::Write as _;
+
+    // Not built: `Command::build()` is the frame the stack budget guards
+    // (cli.rs's `the_command_tree_fits_a_small_stack`), and the only row it
+    // would add is clap's own `help`.
+    let root = crate::cli::Cli::command();
+    let styles = root.get_styles();
+    let header = *styles.get_header();
+    let literal = *styles.get_literal();
+    let context = *styles.get_context();
+    let context_value = *styles.get_context_value();
+
+    // What clap would have printed for each row, minus the name: the `about`
+    // line plus any visible alias, spelled the way clap spells it. Hidden
+    // subcommands drop out here — which is exactly what keeps the eight
+    // foreign git words off the page.
+    let live: Vec<(&str, String)> = root
+        .get_subcommands()
+        .filter(|sc| !sc.is_hide_set())
+        .map(|sc| {
+            let mut about = sc.get_about().map(ToString::to_string).unwrap_or_default();
+            let aliases: Vec<&str> = sc.get_visible_aliases().collect();
+            if !aliases.is_empty() {
+                let plural = if aliases.len() == 1 { "" } else { "es" };
+                let names = aliases
+                    .iter()
+                    .map(|a| format!("{context_value}{a}{context_value:#}"))
+                    .collect::<Vec<_>>()
+                    .join(&format!("{context}, {context:#}"));
+                let _ = write!(
+                    about,
+                    " {context}[alias{plural}: {context:#}{names}{context}]{context:#}"
+                );
+            }
+            (sc.get_name(), about)
+        })
+        .collect();
+    let about_of = |name: &str| {
+        live.iter()
+            .find(|(live_name, _)| *live_name == name)
+            .map(|(_, about)| about.as_str())
+    };
+
+    // One name column for the whole page, not one per heading: the headings
+    // are what group the rows, and a column that moved under each of them
+    // would undo that.
+    let width = GROUPS
+        .iter()
+        .flat_map(|group| group.commands)
+        .filter(|row| (long || row.common) && about_of(row.name).is_some())
+        .map(|row| row.name.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let mut block = String::new();
+    for group in GROUPS {
+        let rows: Vec<&Row> = group
+            .commands
+            .iter()
+            .filter(|row| (long || row.common) && about_of(row.name).is_some())
+            .collect();
+        if rows.is_empty() {
+            continue;
+        }
+        if !block.is_empty() {
+            block.push('\n');
+        }
+        let _ = writeln!(block, "{header}{}:{header:#}", group.heading);
+        for row in rows {
+            let name = crate::render::col(row.name, width, literal, true);
+            let about = about_of(row.name).unwrap_or_default();
+            let _ = writeln!(block, "  {name}  {about}");
+        }
+    }
+
+    let mut template = String::from("{before-help}{about-with-newline}\n{usage-heading} {usage}\n");
+    let _ = write!(template, "\n{block}");
+    if !long {
+        let dim = anstyle::Style::new().dimmed();
+        let _ = writeln!(
+            template,
+            "\n  {dim}see `ff --help` for every command{dim:#}"
+        );
+    }
+    let _ = write!(template, "\n{header}Options:{header:#}\n");
+    template.push_str("{options}{after-help}");
+    template
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The table is a second list of the command tree, so it has to be the
+    /// same list — the guard `rawgit::TABLE` already writes for its own.
+    #[test]
+    fn every_live_command_is_grouped_exactly_once() {
+        use clap::CommandFactory;
+
+        let root = crate::cli::Cli::command();
+        let live: Vec<&str> = root
+            .get_subcommands()
+            .filter(|sc| !sc.is_hide_set())
+            .map(|sc| sc.get_name())
+            .collect();
+
+        let listed: Vec<&str> = GROUPS
+            .iter()
+            .flat_map(|group| group.commands)
+            .map(|row| row.name)
+            .collect();
+
+        for name in &live {
+            let seen = listed.iter().filter(|listed| *listed == name).count();
+            assert_eq!(seen, 1, "{name} appears in {seen} groups, want exactly 1");
+        }
+        for name in &listed {
+            assert!(
+                live.contains(name),
+                "{name} is grouped but is not live, non-hidden surface"
+            );
+        }
+    }
+
+    /// clap echoes an unknown `{tag}` back verbatim, so a brace anywhere in
+    /// the pre-rendered block would corrupt the page it is embedded in.
+    #[test]
+    fn nothing_on_the_page_carries_a_brace() {
+        use clap::CommandFactory;
+
+        let root = crate::cli::Cli::command();
+        for sc in root.get_subcommands().filter(|sc| !sc.is_hide_set()) {
+            let about = sc.get_about().map(ToString::to_string).unwrap_or_default();
+            assert!(
+                !about.contains(['{', '}']),
+                "{}'s about carries a brace: {about:?}",
+                sc.get_name()
+            );
+        }
+        for group in GROUPS {
+            assert!(
+                !group.heading.contains(['{', '}']),
+                "the heading {:?} carries a brace",
+                group.heading
+            );
+            for row in group.commands {
+                assert!(
+                    !row.name.contains(['{', '}']),
+                    "the row {:?} carries a brace",
+                    row.name
+                );
+            }
+        }
+    }
+}
