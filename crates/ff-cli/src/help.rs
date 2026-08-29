@@ -28,7 +28,7 @@
 /// The blank line where a page's two halves meet. `## Examples` appears once
 /// in a file and only ever at column 0, which is what lets the split have no
 /// special cases.
-const SEAM: &str = "\n\n## Examples\n";
+pub(crate) const SEAM: &str = "\n\n## Examples\n";
 
 /// Where [`SEAM`] sits in a page. Const, so a file that lost its marker is a
 /// compile error rather than a page that prints half of itself.

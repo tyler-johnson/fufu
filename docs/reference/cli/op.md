@@ -1,0 +1,44 @@
+# ff op
+
+The operation log as objects. Every capture and every fufu mutation lands on one log at refs/fufu/ops, and this is the family that reads and moves it: `log` lists, `show` and `diff` read, `restore` rewinds the whole repository to one, and `revert` inverts a single one leaving later work standing. Deleting operations is `ff trim`'s job and nobody else's.
+
+Operation ids are spelled in the letters k–z and never in hex, which is what keeps hex meaning "commit" everywhere in fufu. `@` is the newest operation, and git's own first-parent suffixes work on it — `@^` is the one before, `@~3` three back — because an operation's first parent *is* the operation before it.
+
+`ff undo` is the everyday shortcut for `ff op restore`, argument-free and repeatable; most work never needs the long form.
+
+## Usage
+
+```
+Usage: ff op [OPTIONS] <COMMAND>
+
+Commands:
+  log      Every operation, newest first, with the ids these verbs take
+  show     Show one operation: what it was, what it moved, what it holds
+  diff     Compare the worktrees two operations carry
+  restore  Rewind the whole repository to an operation
+  revert   Invert one operation, leaving later work standing
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --json
+          Emit machine-readable JSON
+
+      --session <name>
+          Session name for this invocation
+
+  -C, --cwd <dir>
+          Run as if fufu had been started in <dir>
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## Examples
+
+```
+ff op log                      what has happened, newest first
+ff op show @                   what the newest operation did
+ff op diff @^ @                what changed across it
+ff op restore kqzm             rewind the whole repository there
+ff undo                        the same move, one run at a time
+```

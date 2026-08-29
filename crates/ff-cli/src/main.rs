@@ -4,6 +4,8 @@ mod capture;
 mod cli;
 mod cmd;
 mod ctx;
+#[cfg(test)]
+mod docsgen;
 mod exit;
 mod explain;
 mod ext;

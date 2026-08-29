@@ -1,0 +1,39 @@
+# ff worktree remove
+
+The capture comes first, into the worktree's own chain, and that is why there is no --force: git demands one for a dirty worktree because it has nowhere to put the work, and fufu has put it. The uncommitted work survives the removal, and the removal says where it went.
+
+The chain stays behind, and ff worktree list will show it under the chains whose worktree is gone — its tip is what ff restore --at-op takes.
+
+What is not carried: ignored files — build outputs, node_modules, virtualenvs — are not captured and do not come back, the same trade any worktree removal makes.
+
+## Usage
+
+```
+Usage: ff worktree remove [OPTIONS] <worktree>
+
+Arguments:
+  <worktree>
+          The worktree, by path or by the id `ff worktree list` shows
+
+Options:
+      --json
+          Emit machine-readable JSON
+
+      --session <name>
+          Session name for this invocation
+
+  -C, --cwd <dir>
+          Run as if fufu had been started in <dir>
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## Examples
+
+```
+ff worktree remove bay         take it away; the work is captured first
+ff worktree remove kqxmvnptul  the same, by the id ff worktree list shows
+ff worktree list               the chain stands under the gone ones
+ff restore <path> --at-op <op> bring a file back from the capture
+```
