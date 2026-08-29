@@ -1,12 +1,50 @@
 # Why agents want fufu
 
-!!! note "Draft stub"
-    Planned content, not yet written.
+fufu's pitch is version control for humans and agents. This page is the argument for the second half: what goes wrong when an agent drives plain git, and what fufu changes about it.
 
-Version control for humans *and agents* is the pitch; this page is the argument. To cover:
+## The failure mode
 
-- The failure mode: an agent with shell access and `git` is one confident `reset --hard` from destroying an afternoon — and agents run destructive commands with conviction.
-- The net: fufu snapshots before every action, including foreign git commands, so the human can always `ff undo` whatever the agent did — tree and refs together.
-- No staging means no half-staged states for an agent to mangle; no stash means nothing to forget; every verb reports what it did in one parseable line with `undo:` on the next.
-- The supervisor pattern: agent works with `ff` (or even raw git), human reviews with `ff history` and `ff op diff`, disasters cost one keystroke.
-- Strict mode as a leash: refusing the ambiguous git invocations outright.
+An agent with shell access and `git` on PATH is one confident `git reset --hard` from destroying an afternoon. Git's destructive commands — `reset --hard`, `checkout .`, `clean -fd`, `restore <file>` — assume the person typing them has already weighed what they discard, and an agent supplies the conviction without the weighing: when its model of the tree diverges from the tree, discarding the tree is the fix it reaches for, and it reaches without hesitating.
+
+The exposure is wider than the dramatic commands. An agent edits at machine rate and may commit nothing for an hour, so at any given moment the valuable state is uncommitted work — precisely the state git protects least. The reflog records where refs moved and nothing about what the working tree held, so an uncommitted tree that gets clobbered — by a reset, by a bad merge, by the agent overwriting a file it misread — is simply gone. There is no `git undo`, and the recovery rituals that exist (`reflog`, `fsck --lost-found`, stash archaeology) assume a human who checkpointed along the way. Agents do not checkpoint.
+
+## The net
+
+fufu [snapshots the working tree before every action](../concepts/snapshots-and-undo.md), automatically, with no verb for asking. With the agent hooks wired — [setup](setup.md) shows how — capture runs before every tool call the agent makes: every edit, every shell command, at machine rate. Each snapshot records the tree and all refs together on one operation log, so fufu holds a running record of the agent's work that no other tool has, taken the moment before each action rather than whenever someone remembered to save.
+
+The net covers git itself. `ff git <args…>` snapshots first and then runs git verbatim, and the recommended alias plus the agent hooks route the agent's git invocations through it. A `reset --hard` still resets — fufu never blocks a command you ran, per [the two regimes](../concepts/two-regimes.md) — but the tree it discarded is now one operation back. Even git run entirely around fufu is absorbed into the operation log at the next fufu invocation, labeled as foreign and undoable like anything else; the one honest gap is a foreign tree change that moves no ref, which is invisible until the next capture — and closing that gap is exactly what wiring the hooks buys, because with them the last capture is always the moment before the agent's action.
+
+So the human retains the last word. `ff undo` takes back the last operation — refs and working tree together, whether the agent did it through fufu or behind its back — and a run of machine-rate captures collapses into one undo step, so unwinding an agent's session is a few keystrokes rather than an archaeology project.
+
+## A surface with fewer ways to go wrong
+
+Part of the argument is what fufu removes. There is no staging area, so there is no half-staged index for an agent to mangle and no class of bugs where the commit contains something other than the tree: the working tree is the change, and `ff commit -m` closes it. There is no stash, so there is nothing for an agent to stash and forget; switching branches parks dirty work automatically and switching back resumes it. Each ritual git demands is a place an agent can leave the repository in a state neither it nor you expected, and fufu deletes the rituals rather than documenting them.
+
+What remains is legible to a machine. Every verb reports what it did in one line, with `undo:` on the next naming the way back:
+
+```console
+$ ff start
+minted ff/hidden-wren (forked from main)
+open change on ff/hidden-wren
+undo: ff undo
+```
+
+The agent reads its own escape hatch after every action instead of inferring repository state from a status block built for eyes. When it needs structure, `--json` carries each verb's full data model, errors carry stable ids, and every prompt has a non-interactive answer — the [machine surface](machine-surface.md) covers that contract in full.
+
+## The supervisor pattern
+
+The setup this enables: the agent works — through `ff`, or even through raw git under the alias — and the human reviews afterward, with real leverage.
+
+[`ff history`](../reference/cli/history.md) is the review at the coarse grain: one row per undo step, with the agent's capture noise collapsed into the rows it would undo as, so the session reads as a short list of decisions rather than hundreds of operations. [`ff op diff`](../reference/cli/op-diff.md) answers the finer question — what changed between any two operations, tree and refs — so you can inspect exactly what a stretch of agent work did before deciding whether it stays. Sessions tag every operation an agent records, so `ff op log 'session(<id>)'` isolates one agent's work even when two were interleaving.
+
+Then the verdict is cheap in both directions. Work that holds up gets committed as usual. Work that does not costs one `ff undo`, and a disaster mid-session costs the same — which changes what you are willing to let an agent attempt, because the downside of a wrong turn is no longer the afternoon.
+
+## Strict mode as a leash
+
+Review-after is not always enough leash, so `fufu.gitPolicy` graduates what fufu does about the agent typing git at all. The default, `coach`, injects a one-line correction into the agent's context the first time each git word comes up — `tip: that's ff commit` — which is usually sufficient, since the agent reads it as an instruction. `strict` refuses instead: an unambiguous git write that has a fufu verb is denied through the hook (`permissionDecision: deny`, or exit 2 on the alias), naming the verb to run.
+
+The limits of the leash are deliberate, and worth knowing before you rely on it. fufu only refuses what it can answer, so git words with no fufu equivalent — `apply`, `am`, `bisect`, `submodule` — pass untouched, and `ff git <args…>` remains an open escape hatch even under strict. Ambiguous shell strings fail open, because guessing at someone else's compound command is the wrong risk to take. Strict mode is a nudge with teeth, and the actual guarantee sits underneath it: the capture already happened before the command ran, so whichever way the policy call goes, the net is intact.
+
+## What this rests on
+
+None of the above is special agent machinery bolted onto the side. The snapshot-before-every-action rule is [fufu's foundation](../concepts/snapshots-and-undo.md) for humans too; an agent is simply a writer that exercises it harder. The repository stays [a boring git repository](../concepts/invariant.md) throughout, so nothing the agent does through fufu can put it in a state your other tools cannot read. And [the two regimes](../concepts/two-regimes.md) mean an agent that calls `ff` gets everything the surface promises — automation is inside the surface with everyone else. [Setup](setup.md) is the wiring; it takes a few minutes.
