@@ -1,0 +1,14 @@
+What changed in the worktree between two operations. Both are operation ids; the second defaults to `@`, so a single argument reads "from there to now".
+
+This compares the trees two operations carry, not their ref transitions — adjacent operations can sit on different branches, and the diff across that seam reads as the whole worktree being replaced, which is literal rather than wrong.
+
+-p puts the patch under the diffstat, the same unified diff `ff diff` prints.
+
+## Examples
+
+```
+ff op diff @^ @                what the newest operation changed
+ff op diff kqzm                from that operation to now
+ff op diff kqzm kwzq           between two of them
+ff op diff -p @^ @             with content, not just counts
+```

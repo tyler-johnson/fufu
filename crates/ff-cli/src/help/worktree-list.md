@@ -1,0 +1,12 @@
+The live worktrees first, with their checkouts and the branches they stand on, then the chains whose worktree is gone.
+
+That second section is the earn: a chain lives in the shared ref namespace, so it outlives the checkout, and it is what keeps a deleted bay's work addressable. The tip op id on each row is what ff restore --at-op takes. Retention still ages those chains out on the ordinary fufu.keep cadence — surviving the worktree is not living forever.
+
+## Examples
+
+```
+ff worktree list                the worktrees, and the gone chains
+ff worktree list --json         the same, for a machine
+ff restore <path> --at-op <op>  bring a file back from one of them
+ff trim                         age the gone chains out
+```

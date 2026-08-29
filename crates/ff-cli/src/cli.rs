@@ -45,8 +45,8 @@ pub const VERSION: &str = concat!(
     // Declared by hand below, for the short letter: clap's own flag is `-V`.
     disable_version_flag = true,
     about = "a friendlier interface to plain git",
-    long_about = help::ROOT,
-    after_long_help = help::ROOT_EXAMPLES
+    long_about = help::term(help::ROOT),
+    after_long_help = help::term_examples(help::ROOT_EXAMPLES)
 )]
 pub struct Cli {
     /// Retired: bare ff is the map, and capture is automatic
@@ -107,7 +107,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// The map bare `ff` draws: the local branches as a skeleton
-    #[command(long_about = help::ROOT, after_long_help = help::ROOT_EXAMPLES)]
+    #[command(long_about = help::term(help::ROOT), after_long_help = help::term_examples(help::ROOT_EXAMPLES))]
     Map {
         /// Branches to show, newest tip first; 0 means all
         #[arg(short = 'n', long = "max-count", value_name = "count")]
@@ -117,7 +117,7 @@ pub enum Command {
         all: bool,
     },
     /// Would two branches hit each other if both landed
-    #[command(long_about = help::COLLIDE, after_long_help = help::COLLIDE_EXAMPLES)]
+    #[command(long_about = help::term(help::COLLIDE), after_long_help = help::term_examples(help::COLLIDE_EXAMPLES))]
     Collide {
         /// The two branches; one name means the branch you are on and that one
         #[arg(num_args = 1..=2, required = true, value_name = "branch")]
@@ -125,14 +125,14 @@ pub enum Command {
     },
     // agent notice quotes this: `ff status`
     /// Show the working tree status
-    #[command(alias = "st", long_about = help::STATUS, after_long_help = help::STATUS_EXAMPLES)]
+    #[command(alias = "st", long_about = help::term(help::STATUS), after_long_help = help::term_examples(help::STATUS_EXAMPLES))]
     Status {
         #[command(flatten)]
         past: Past,
     },
     // agent notice quotes this: `ff log`
     /// Show the timeline: commits wearing the operations that built them
-    #[command(long_about = help::LOG, after_long_help = help::LOG_EXAMPLES)]
+    #[command(long_about = help::term(help::LOG), after_long_help = help::term_examples(help::LOG_EXAMPLES))]
     Log {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
@@ -154,14 +154,14 @@ pub enum Command {
     },
     // agent notice quotes this: `ff diff`
     /// Show the open change as a patch — content, not just counts
-    #[command(long_about = help::DIFF, after_long_help = help::DIFF_EXAMPLES)]
+    #[command(long_about = help::term(help::DIFF), after_long_help = help::term_examples(help::DIFF_EXAMPLES))]
     Diff {
         /// Files or directories to limit the patch to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,
     },
     /// Show one commit: what it was, and what it did
-    #[command(long_about = help::SHOW, after_long_help = help::SHOW_EXAMPLES)]
+    #[command(long_about = help::term(help::SHOW), after_long_help = help::term_examples(help::SHOW_EXAMPLES))]
     Show {
         /// The revision; `@`, the open change, when omitted
         #[arg(value_name = "rev")]
@@ -172,14 +172,14 @@ pub enum Command {
     },
     // agent notice quotes this: `ff history`
     /// Where you can go back to: one row per `ff undo` step, with redo above
-    #[command(long_about = help::HISTORY, after_long_help = help::HISTORY_EXAMPLES)]
+    #[command(long_about = help::term(help::HISTORY), after_long_help = help::term_examples(help::HISTORY_EXAMPLES))]
     History {
         /// Number of undo steps to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
     },
     /// Show the open change's operations, newest first (the evolution log)
-    #[command(alias = "ev", long_about = help::EVOLOG, after_long_help = help::EVOLOG_EXAMPLES)]
+    #[command(alias = "ev", long_about = help::term(help::EVOLOG), after_long_help = help::term_examples(help::EVOLOG_EXAMPLES))]
     Evolog {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
@@ -194,8 +194,8 @@ pub enum Command {
     /// Capture-first git passthrough; fufu.gitPolicy decides what it says
     #[command(
         disable_help_flag = true,
-        long_about = help::GIT,
-        after_long_help = help::GIT_EXAMPLES
+        long_about = help::term(help::GIT),
+        after_long_help = help::term_examples(help::GIT_EXAMPLES)
     )]
     Git {
         /// Arguments passed to git verbatim
@@ -204,7 +204,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff restore <path>`, `--all --at <time>`, `--at-op <id>`
     /// Restore worktree files from the timeline
-    #[command(long_about = help::RESTORE, after_long_help = help::RESTORE_EXAMPLES)]
+    #[command(long_about = help::term(help::RESTORE), after_long_help = help::term_examples(help::RESTORE_EXAMPLES))]
     Restore {
         /// Revision to restore from; without it, the commit under the change
         #[arg(long, value_name = "rev")]
@@ -219,7 +219,7 @@ pub enum Command {
         past: Past,
     },
     /// Drop operations past the retention cutoff (fufu.keep, 90d)
-    #[command(long_about = help::TRIM, after_long_help = help::TRIM_EXAMPLES)]
+    #[command(long_about = help::term(help::TRIM), after_long_help = help::term_examples(help::TRIM_EXAMPLES))]
     Trim {
         /// Report what would be dropped without writing anything
         #[arg(short = 'n', long)]
@@ -230,7 +230,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff commit -m`
     /// Close the open change into a commit (the working tree is the change)
-    #[command(alias = "ci", long_about = help::COMMIT, after_long_help = help::COMMIT_EXAMPLES)]
+    #[command(alias = "ci", long_about = help::term(help::COMMIT), after_long_help = help::term_examples(help::COMMIT_EXAMPLES))]
     Commit {
         /// Describe what is closing; wins over the pending description
         #[arg(short = 'm', value_name = "msg")]
@@ -247,7 +247,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff switch <branch>`
     /// Switch branches; a dirty tree is parked, a parked change resumes
-    #[command(alias = "sw", long_about = help::SWITCH, after_long_help = help::SWITCH_EXAMPLES)]
+    #[command(alias = "sw", long_about = help::term(help::SWITCH), after_long_help = help::term_examples(help::SWITCH_EXAMPLES))]
     Switch {
         /// Branch name, or a unique prefix of one
         #[arg(value_name = "branch")]
@@ -255,13 +255,13 @@ pub enum Command {
     },
     // agent notice quotes this: `ff undo`
     /// Step the whole repository back one run of work
-    #[command(long_about = help::UNDO, after_long_help = help::UNDO_EXAMPLES)]
+    #[command(long_about = help::term(help::UNDO), after_long_help = help::term_examples(help::UNDO_EXAMPLES))]
     Undo,
     /// Step forward again after an undo
-    #[command(long_about = help::REDO, after_long_help = help::REDO_EXAMPLES)]
+    #[command(long_about = help::term(help::REDO), after_long_help = help::term_examples(help::REDO_EXAMPLES))]
     Redo,
     /// The operation log as objects: read it, compare it, move to it
-    #[command(long_about = help::OP, after_long_help = help::OP_EXAMPLES)]
+    #[command(long_about = help::term(help::OP), after_long_help = help::term_examples(help::OP_EXAMPLES))]
     Op {
         #[command(subcommand)]
         action: OpAction,
@@ -270,8 +270,8 @@ pub enum Command {
     /// Begin new work on a fresh branch
     #[command(
         visible_alias = "new",
-        long_about = help::START,
-        after_long_help = help::START_EXAMPLES
+        long_about = help::term(help::START),
+        after_long_help = help::term_examples(help::START_EXAMPLES)
     )]
     Start {
         /// Branch, revision, or nothing to stay here
@@ -285,7 +285,7 @@ pub enum Command {
         branch: Option<String>,
     },
     /// Edit the pending description of the open change
-    #[command(alias = "desc", long_about = help::DESCRIBE, after_long_help = help::DESCRIBE_EXAMPLES)]
+    #[command(alias = "desc", long_about = help::term(help::DESCRIBE), after_long_help = help::term_examples(help::DESCRIBE_EXAMPLES))]
     Describe {
         /// The revision to reword; omitted describes the open change
         #[arg(value_name = "rev", conflicts_with = "branch")]
@@ -299,7 +299,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff absorb --into <rev>`
     /// Fold working changes into a commit that has already closed
-    #[command(long_about = help::ABSORB, after_long_help = help::ABSORB_EXAMPLES)]
+    #[command(long_about = help::term(help::ABSORB), after_long_help = help::term_examples(help::ABSORB_EXAMPLES))]
     Absorb {
         /// Commit to absorb into; without it, the commit under the change
         #[arg(long, value_name = "rev")]
@@ -309,7 +309,7 @@ pub enum Command {
         paths: Vec<String>,
     },
     /// Take changes back out of a closed commit, into the open change
-    #[command(long_about = help::LIFT, after_long_help = help::LIFT_EXAMPLES)]
+    #[command(long_about = help::term(help::LIFT), after_long_help = help::term_examples(help::LIFT_EXAMPLES))]
     Lift {
         /// Commit to lift out of; without it, the commit under the change
         #[arg(long, value_name = "rev")]
@@ -319,7 +319,7 @@ pub enum Command {
         paths: Vec<String>,
     },
     /// Replay a branch's commits onto the base it sits on
-    #[command(long_about = help::RESTACK, after_long_help = help::RESTACK_EXAMPLES)]
+    #[command(long_about = help::term(help::RESTACK), after_long_help = help::term_examples(help::RESTACK_EXAMPLES))]
     Restack {
         /// Branch to restack; without it, the one you are on
         #[arg(value_name = "branch")]
@@ -330,7 +330,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff sync`
     /// Line this branch up with its base and its remote
-    #[command(long_about = help::SYNC, after_long_help = help::SYNC_EXAMPLES)]
+    #[command(long_about = help::term(help::SYNC), after_long_help = help::term_examples(help::SYNC_EXAMPLES))]
     Sync {
         /// Skip the fetch: reconcile with what you already have
         #[arg(long)]
@@ -338,7 +338,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff publish`
     /// Send this branch to its remote, under a lease
-    #[command(long_about = help::PUBLISH, after_long_help = help::PUBLISH_EXAMPLES)]
+    #[command(long_about = help::term(help::PUBLISH), after_long_help = help::term_examples(help::PUBLISH_EXAMPLES))]
     Publish {
         /// Say which push this would be, without sending it
         #[arg(short = 'n', long)]
@@ -348,10 +348,10 @@ pub enum Command {
         to: Option<String>,
     },
     /// What the remotes here are called, and where each one points
-    #[command(long_about = help::REMOTE, after_long_help = help::REMOTE_EXAMPLES)]
+    #[command(long_about = help::term(help::REMOTE), after_long_help = help::term_examples(help::REMOTE_EXAMPLES))]
     Remote,
     /// Start a repository with the safety net already on
-    #[command(long_about = help::INIT, after_long_help = help::INIT_EXAMPLES)]
+    #[command(long_about = help::term(help::INIT), after_long_help = help::term_examples(help::INIT_EXAMPLES))]
     Init {
         /// Where to create it; the current directory when omitted
         #[arg(value_name = "dir")]
@@ -361,7 +361,7 @@ pub enum Command {
         bare: bool,
     },
     /// Clone a repository, and arm it on arrival
-    #[command(long_about = help::CLONE, after_long_help = help::CLONE_EXAMPLES)]
+    #[command(long_about = help::term(help::CLONE), after_long_help = help::term_examples(help::CLONE_EXAMPLES))]
     Clone {
         /// The repository to clone from
         #[arg(value_name = "url")]
@@ -380,28 +380,28 @@ pub enum Command {
         origin: String,
     },
     /// Open an editing session on a commit: go there, edit it, come back
-    #[command(long_about = help::EDIT, after_long_help = help::EDIT_EXAMPLES)]
+    #[command(long_about = help::term(help::EDIT), after_long_help = help::term_examples(help::EDIT_EXAMPLES))]
     Edit {
         /// The commit to edit. A branch name is a switch instead
         #[arg(value_name = "rev")]
         rev: String,
     },
     /// Finish the editing session: amend, replay what waited, land back
-    #[command(long_about = help::DONE, after_long_help = help::DONE_EXAMPLES)]
+    #[command(long_about = help::term(help::DONE), after_long_help = help::term_examples(help::DONE_EXAMPLES))]
     Done {
         /// Drop the session instead of landing it
         #[arg(long)]
         abandon: bool,
     },
     /// Materialize a held rewrite's conflicts and fix them, all at once
-    #[command(long_about = help::RESOLVE, after_long_help = help::RESOLVE_EXAMPLES)]
+    #[command(long_about = help::term(help::RESOLVE), after_long_help = help::term_examples(help::RESOLVE_EXAMPLES))]
     Resolve {
         /// Drop the pending rewrite instead of resolving it
         #[arg(long)]
         abandon: bool,
     },
     /// Manage lines of work: what exists, and removing one
-    #[command(alias = "br", long_about = help::BRANCH, after_long_help = help::BRANCH_EXAMPLES)]
+    #[command(alias = "br", long_about = help::term(help::BRANCH), after_long_help = help::term_examples(help::BRANCH_EXAMPLES))]
     Branch {
         #[command(subcommand)]
         action: Option<BranchAction>,
@@ -409,7 +409,7 @@ pub enum Command {
         past: Past,
     },
     /// Worktrees of this repository, and the chains of ones that are gone
-    #[command(long_about = help::WORKTREE, after_long_help = help::WORKTREE_EXAMPLES)]
+    #[command(long_about = help::term(help::WORKTREE), after_long_help = help::term_examples(help::WORKTREE_EXAMPLES))]
     Worktree {
         #[command(subcommand)]
         action: Option<WorktreeAction>,
@@ -417,7 +417,7 @@ pub enum Command {
         past: Past,
     },
     /// Hook fufu into the agent clients and shells on this machine
-    #[command(long_about = help::HOOK, after_long_help = help::HOOK_EXAMPLES)]
+    #[command(long_about = help::term(help::HOOK), after_long_help = help::term_examples(help::HOOK_EXAMPLES))]
     Hook {
         /// Slugs to hook: claude, codex, cursor, gemini, bash, zsh, fish
         #[arg(value_name = "slug")]
@@ -436,7 +436,7 @@ pub enum Command {
         skill: bool,
     },
     /// Remove exactly what hook added
-    #[command(long_about = help::UNHOOK, after_long_help = help::UNHOOK_EXAMPLES)]
+    #[command(long_about = help::term(help::UNHOOK), after_long_help = help::term_examples(help::UNHOOK_EXAMPLES))]
     Unhook {
         /// Slugs to unhook; none reports and asks
         #[arg(value_name = "slug")]
@@ -446,7 +446,7 @@ pub enum Command {
         all: bool,
     },
     /// Snapshot the working tree now
-    #[command(long_about = help::TRIGGER, after_long_help = help::TRIGGER_EXAMPLES)]
+    #[command(long_about = help::term(help::TRIGGER), after_long_help = help::term_examples(help::TRIGGER_EXAMPLES))]
     Trigger {
         /// The source; absent or `manual` is the hand-taken snapshot
         #[arg(value_name = "source")]
@@ -456,7 +456,7 @@ pub enum Command {
         message: Option<String>,
     },
     /// Stream operations as they land, one JSON object per line
-    #[command(long_about = help::WATCH, after_long_help = help::WATCH_EXAMPLES)]
+    #[command(long_about = help::term(help::WATCH), after_long_help = help::term_examples(help::WATCH_EXAMPLES))]
     Watch {
         /// Every worktree in the repository, not just this one
         #[arg(long)]
@@ -475,7 +475,7 @@ pub enum Command {
         count: Option<usize>,
     },
     /// Read and write fufu's settings (plain git config under fufu.*)
-    #[command(alias = "cfg", long_about = help::CONFIG, after_long_help = help::CONFIG_EXAMPLES)]
+    #[command(alias = "cfg", long_about = help::term(help::CONFIG), after_long_help = help::term_examples(help::CONFIG_EXAMPLES))]
     Config {
         /// Setting name — case-insensitive, the fufu. prefix optional
         #[arg(value_name = "key")]
@@ -491,7 +491,7 @@ pub enum Command {
         global: bool,
     },
     /// Verify the safety net: the log, identity, reflogs, gc guard, wiring
-    #[command(long_about = help::DOCTOR, after_long_help = help::DOCTOR_EXAMPLES)]
+    #[command(long_about = help::term(help::DOCTOR), after_long_help = help::term_examples(help::DOCTOR_EXAMPLES))]
     Doctor {
         /// Repair the gc config keys (the one write doctor performs)
         #[arg(long)]
@@ -507,10 +507,10 @@ pub enum Command {
         list: bool,
     },
     /// Which fufu this is, and whether it is the current one
-    #[command(long_about = help::VERSION, after_long_help = help::VERSION_EXAMPLES)]
+    #[command(long_about = help::term(help::VERSION), after_long_help = help::term_examples(help::VERSION_EXAMPLES))]
     Version,
     /// Download the latest release and replace this binary
-    #[command(long_about = help::UPDATE, after_long_help = help::UPDATE_EXAMPLES)]
+    #[command(long_about = help::term(help::UPDATE), after_long_help = help::term_examples(help::UPDATE_EXAMPLES))]
     Update {
         /// Refresh the update cache only (used by the background check)
         #[arg(long)]
@@ -601,7 +601,7 @@ pub struct Past {
 pub enum OpAction {
     // agent notice quotes this: `ff op log`
     /// Every operation, newest first, with the ids these verbs take
-    #[command(long_about = help::OP_LOG, after_long_help = help::OP_LOG_EXAMPLES)]
+    #[command(long_about = help::term(help::OP_LOG), after_long_help = help::term_examples(help::OP_LOG_EXAMPLES))]
     Log {
         /// Operations to show, as a revset over the operation log
         #[arg(value_name = "revset")]
@@ -619,7 +619,7 @@ pub enum OpAction {
         past: Past,
     },
     /// Show one operation: what it was, what it moved, what it holds
-    #[command(long_about = help::OP_SHOW, after_long_help = help::OP_SHOW_EXAMPLES)]
+    #[command(long_about = help::term(help::OP_SHOW), after_long_help = help::term_examples(help::OP_SHOW_EXAMPLES))]
     Show {
         /// The operation; `@` (the newest) when omitted
         #[arg(value_name = "op")]
@@ -631,7 +631,7 @@ pub enum OpAction {
         past: Past,
     },
     /// Compare the worktrees two operations carry
-    #[command(long_about = help::OP_DIFF, after_long_help = help::OP_DIFF_EXAMPLES)]
+    #[command(long_about = help::term(help::OP_DIFF), after_long_help = help::term_examples(help::OP_DIFF_EXAMPLES))]
     Diff {
         /// The older operation
         #[arg(value_name = "a")]
@@ -646,7 +646,7 @@ pub enum OpAction {
         past: Past,
     },
     /// Rewind the whole repository to an operation
-    #[command(long_about = help::OP_RESTORE, after_long_help = help::OP_RESTORE_EXAMPLES)]
+    #[command(long_about = help::term(help::OP_RESTORE), after_long_help = help::term_examples(help::OP_RESTORE_EXAMPLES))]
     Restore {
         /// The operation to land on
         #[arg(value_name = "op")]
@@ -656,7 +656,7 @@ pub enum OpAction {
         force: bool,
     },
     /// Invert one operation, leaving later work standing
-    #[command(long_about = help::OP_REVERT, after_long_help = help::OP_REVERT_EXAMPLES)]
+    #[command(long_about = help::term(help::OP_REVERT), after_long_help = help::term_examples(help::OP_REVERT_EXAMPLES))]
     Revert {
         /// The operation to invert
         #[arg(value_name = "op")]
@@ -704,7 +704,7 @@ impl OpAction {
 #[derive(Subcommand)]
 pub enum BranchAction {
     /// Named branches and anonymous ones, kept apart
-    #[command(long_about = help::BRANCH_LIST, after_long_help = help::BRANCH_LIST_EXAMPLES)]
+    #[command(long_about = help::term(help::BRANCH_LIST), after_long_help = help::term_examples(help::BRANCH_LIST_EXAMPLES))]
     List {
         /// Every remote-only branch, not just the newest few
         #[arg(long)]
@@ -713,7 +713,7 @@ pub enum BranchAction {
         past: Past,
     },
     /// Delete a branch — its timeline moves to trash, and `ff undo` is enough
-    #[command(long_about = help::BRANCH_DELETE, after_long_help = help::BRANCH_DELETE_EXAMPLES)]
+    #[command(long_about = help::term(help::BRANCH_DELETE), after_long_help = help::term_examples(help::BRANCH_DELETE_EXAMPLES))]
     Delete {
         /// The branch to delete, by its full name
         #[arg(value_name = "branch")]
@@ -759,13 +759,13 @@ impl BranchAction {
 #[derive(Subcommand)]
 pub enum WorktreeAction {
     /// Every worktree here, and every chain whose worktree is gone
-    #[command(long_about = help::WORKTREE_LIST, after_long_help = help::WORKTREE_LIST_EXAMPLES)]
+    #[command(long_about = help::term(help::WORKTREE_LIST), after_long_help = help::term_examples(help::WORKTREE_LIST_EXAMPLES))]
     List {
         #[command(flatten)]
         past: Past,
     },
     /// Make a worktree: a second checkout of this repository, with its own log
-    #[command(long_about = help::WORKTREE_ADD, after_long_help = help::WORKTREE_ADD_EXAMPLES)]
+    #[command(long_about = help::term(help::WORKTREE_ADD), after_long_help = help::term_examples(help::WORKTREE_ADD_EXAMPLES))]
     Add {
         /// Where to put it
         #[arg(value_name = "path")]
@@ -775,7 +775,7 @@ pub enum WorktreeAction {
         branch: Option<String>,
     },
     /// Take a worktree away, capturing what it holds first
-    #[command(long_about = help::WORKTREE_REMOVE, after_long_help = help::WORKTREE_REMOVE_EXAMPLES)]
+    #[command(long_about = help::term(help::WORKTREE_REMOVE), after_long_help = help::term_examples(help::WORKTREE_REMOVE_EXAMPLES))]
     Remove {
         /// The worktree, by path or by the id `ff worktree list` shows
         #[arg(value_name = "worktree")]

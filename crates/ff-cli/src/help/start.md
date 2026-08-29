@@ -1,0 +1,16 @@
+Begin a new line of work on a fresh branch. `ff commit` records, `ff switch` resumes, `ff start` begins.
+
+Bare `ff start` forks from trunk; a `<rev>` argument forks there instead. A branch name forks at that branch's tip rather than continuing it — continuing is `ff switch`'s job.
+
+The open change parks where it was; the new branch opens clean. Nothing is ever carried across a fork. -m describes the change being *opened*; -b names the minted branch, else it is anonymous.
+
+`ff start` never creates a commit.
+
+## Examples
+
+```
+ff start                       begin new work, forked from trunk
+ff start -m "the next thing"   …with the new change already described
+ff start -b hotfix             name the branch at birth
+ff start 5b7a90e               fork from a specific commit
+```

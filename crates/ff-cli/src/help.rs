@@ -1,32 +1,34 @@
-//! Every help page fufu prints, one `.txt` file per page under `help/`.
+//! Every help page fufu prints, one markdown file per page under `help/`.
 //!
-//! The prose lives in those files rather than in `cli.rs` doc comments for
-//! one mechanical reason: clap_derive joins a doc comment's lines into a
-//! single paragraph and this build has no `wrap_help`, so a doc comment
-//! prints as one very long line, while a `&'static str` is emitted line for
-//! line. Nothing re-wraps them at runtime either — what a file holds is what
-//! a terminal gets, at every width — which is why the widths below are the
-//! page design rather than a tidiness.
+//! Markdown is the source of truth: the docs site's CLI reference emits
+//! these files verbatim, and the terminal gets a best-effort rendering
+//! through [`term`] — a paragraph is one line in the file and is filled to
+//! 72 columns at render time, `## Examples` prints as `Examples:`, and a
+//! fenced block loses its fence lines and gains a two-space indent. Nothing
+//! else is translated: backticks and emphasis print as typed, which is how
+//! these pages already read.
 //!
-//! One file holds both halves clap prints, split at its `Examples:` line:
-//! above it the long description that goes over `Usage:` (`long_about`),
-//! below it the examples that go under the options (`after_long_help`). The
-//! one-line `about` stays in `cli.rs`, where it is also the row in the
-//! parent's command list.
+//! The prose lives in files rather than in `cli.rs` doc comments for one
+//! mechanical reason: clap_derive joins a doc comment's lines into a single
+//! paragraph, while a rendered string is emitted line for line.
 //!
-//! The `the_pages_are_formatted` test holds every file to one shape.
-//! Column-0 prose in the description half is filled to 72 columns;
-//! everything else — the indented lines, and the whole `Examples:` half,
-//! which is a column-aligned table a reflow could only damage — is checked
-//! at 80 and never rewritten. The check is an equality against the
-//! formatter's own output, `cargo fmt --check` semantics, and
-//! `FF_HELP_FMT=1 cargo test -p ff-cli --bins` rewrites the files instead of
-//! reporting them.
+//! One file holds both halves clap prints, split at its `## Examples`
+//! heading: above it the long description that goes over `Usage:`
+//! (`long_about`), below it the examples that go under the options
+//! (`after_long_help`). The one-line `about` stays in `cli.rs`, where it is
+//! also the row in the parent's command list.
+//!
+//! The `the_pages_are_formatted` test holds every file to one shape: one
+//! line per paragraph, balanced fences, exactly one `## Examples`, and no
+//! line the renderer would print wider than 80 columns. The check is an
+//! equality against the formatter's own output, `cargo fmt --check`
+//! semantics, and `FF_HELP_FMT=1 cargo test -p ff-cli --bins` rewrites the
+//! files (re-joining hand-wrapped paragraphs) instead of reporting them.
 
-/// The blank line where a page's two halves meet. `Examples:` appears once
+/// The blank line where a page's two halves meet. `## Examples` appears once
 /// in a file and only ever at column 0, which is what lets the split have no
 /// special cases.
-const SEAM: &str = "\n\nExamples:\n";
+const SEAM: &str = "\n\n## Examples\n";
 
 /// Where [`SEAM`] sits in a page. Const, so a file that lost its marker is a
 /// compile error rather than a page that prints half of itself.
@@ -43,7 +45,7 @@ const fn seam(page: &str) -> usize {
         }
         at += 1;
     }
-    panic!("a help page has no `Examples:` line");
+    panic!("a help page has no `## Examples` heading");
 }
 
 /// Everything above the seam.
@@ -51,9 +53,10 @@ const fn description(page: &'static str) -> &'static str {
     page.split_at(seam(page)).0
 }
 
-/// The `Examples:` line and everything under it, less the file's trailing
-/// newline: `long_about` and `after_long_help` are printed with their own
-/// spacing, and a stray newline would land a blank line on the page.
+/// The `## Examples` heading and everything under it, less the file's
+/// trailing newline: `long_about` and `after_long_help` are printed with
+/// their own spacing, and a stray newline would land a blank line on the
+/// page.
 const fn examples(page: &'static str) -> &'static str {
     let below = page.split_at(seam(page) + 2).1;
     below.split_at(below.len() - 1).0
@@ -75,55 +78,161 @@ macro_rules! pages {
 }
 
 pages! {
-    ROOT            ROOT_EXAMPLES            "help/root.txt"
-    COLLIDE         COLLIDE_EXAMPLES         "help/collide.txt"
-    STATUS          STATUS_EXAMPLES          "help/status.txt"
-    LOG             LOG_EXAMPLES             "help/log.txt"
-    DIFF            DIFF_EXAMPLES            "help/diff.txt"
-    SHOW            SHOW_EXAMPLES            "help/show.txt"
-    HISTORY         HISTORY_EXAMPLES         "help/history.txt"
-    EVOLOG          EVOLOG_EXAMPLES          "help/evolog.txt"
-    GIT             GIT_EXAMPLES             "help/git.txt"
-    RESTORE         RESTORE_EXAMPLES         "help/restore.txt"
-    TRIM            TRIM_EXAMPLES            "help/trim.txt"
-    COMMIT          COMMIT_EXAMPLES          "help/commit.txt"
-    SWITCH          SWITCH_EXAMPLES          "help/switch.txt"
-    UNDO            UNDO_EXAMPLES            "help/undo.txt"
-    START           START_EXAMPLES           "help/start.txt"
-    DESCRIBE        DESCRIBE_EXAMPLES        "help/describe.txt"
-    ABSORB          ABSORB_EXAMPLES          "help/absorb.txt"
-    LIFT            LIFT_EXAMPLES            "help/lift.txt"
-    RESTACK         RESTACK_EXAMPLES         "help/restack.txt"
-    SYNC            SYNC_EXAMPLES            "help/sync.txt"
-    PUBLISH         PUBLISH_EXAMPLES         "help/publish.txt"
-    REMOTE          REMOTE_EXAMPLES          "help/remote.txt"
-    INIT            INIT_EXAMPLES            "help/init.txt"
-    CLONE           CLONE_EXAMPLES           "help/clone.txt"
-    EDIT            EDIT_EXAMPLES            "help/edit.txt"
-    DONE            DONE_EXAMPLES            "help/done.txt"
-    RESOLVE         RESOLVE_EXAMPLES         "help/resolve.txt"
-    BRANCH          BRANCH_EXAMPLES          "help/branch.txt"
-    WORKTREE        WORKTREE_EXAMPLES        "help/worktree.txt"
-    BRANCH_LIST     BRANCH_LIST_EXAMPLES     "help/branch-list.txt"
-    WORKTREE_LIST   WORKTREE_LIST_EXAMPLES   "help/worktree-list.txt"
-    WORKTREE_ADD    WORKTREE_ADD_EXAMPLES    "help/worktree-add.txt"
-    WORKTREE_REMOVE WORKTREE_REMOVE_EXAMPLES "help/worktree-remove.txt"
-    BRANCH_DELETE   BRANCH_DELETE_EXAMPLES   "help/branch-delete.txt"
-    HOOK            HOOK_EXAMPLES            "help/hook.txt"
-    UNHOOK          UNHOOK_EXAMPLES          "help/unhook.txt"
-    TRIGGER         TRIGGER_EXAMPLES         "help/trigger.txt"
-    WATCH           WATCH_EXAMPLES           "help/watch.txt"
-    CONFIG          CONFIG_EXAMPLES          "help/config.txt"
-    DOCTOR          DOCTOR_EXAMPLES          "help/doctor.txt"
-    VERSION         VERSION_EXAMPLES         "help/version.txt"
-    UPDATE          UPDATE_EXAMPLES          "help/update.txt"
-    REDO            REDO_EXAMPLES            "help/redo.txt"
-    OP              OP_EXAMPLES              "help/op.txt"
-    OP_LOG          OP_LOG_EXAMPLES          "help/op-log.txt"
-    OP_SHOW         OP_SHOW_EXAMPLES         "help/op-show.txt"
-    OP_DIFF         OP_DIFF_EXAMPLES         "help/op-diff.txt"
-    OP_RESTORE      OP_RESTORE_EXAMPLES      "help/op-restore.txt"
-    OP_REVERT       OP_REVERT_EXAMPLES       "help/op-revert.txt"
+    ROOT            ROOT_EXAMPLES            "help/root.md"
+    COLLIDE         COLLIDE_EXAMPLES         "help/collide.md"
+    STATUS          STATUS_EXAMPLES          "help/status.md"
+    LOG             LOG_EXAMPLES             "help/log.md"
+    DIFF            DIFF_EXAMPLES            "help/diff.md"
+    SHOW            SHOW_EXAMPLES            "help/show.md"
+    HISTORY         HISTORY_EXAMPLES         "help/history.md"
+    EVOLOG          EVOLOG_EXAMPLES          "help/evolog.md"
+    GIT             GIT_EXAMPLES             "help/git.md"
+    RESTORE         RESTORE_EXAMPLES         "help/restore.md"
+    TRIM            TRIM_EXAMPLES            "help/trim.md"
+    COMMIT          COMMIT_EXAMPLES          "help/commit.md"
+    SWITCH          SWITCH_EXAMPLES          "help/switch.md"
+    UNDO            UNDO_EXAMPLES            "help/undo.md"
+    START           START_EXAMPLES           "help/start.md"
+    DESCRIBE        DESCRIBE_EXAMPLES        "help/describe.md"
+    ABSORB          ABSORB_EXAMPLES          "help/absorb.md"
+    LIFT            LIFT_EXAMPLES            "help/lift.md"
+    RESTACK         RESTACK_EXAMPLES         "help/restack.md"
+    SYNC            SYNC_EXAMPLES            "help/sync.md"
+    PUBLISH         PUBLISH_EXAMPLES         "help/publish.md"
+    REMOTE          REMOTE_EXAMPLES          "help/remote.md"
+    INIT            INIT_EXAMPLES            "help/init.md"
+    CLONE           CLONE_EXAMPLES           "help/clone.md"
+    EDIT            EDIT_EXAMPLES            "help/edit.md"
+    DONE            DONE_EXAMPLES            "help/done.md"
+    RESOLVE         RESOLVE_EXAMPLES         "help/resolve.md"
+    BRANCH          BRANCH_EXAMPLES          "help/branch.md"
+    WORKTREE        WORKTREE_EXAMPLES        "help/worktree.md"
+    BRANCH_LIST     BRANCH_LIST_EXAMPLES     "help/branch-list.md"
+    WORKTREE_LIST   WORKTREE_LIST_EXAMPLES   "help/worktree-list.md"
+    WORKTREE_ADD    WORKTREE_ADD_EXAMPLES    "help/worktree-add.md"
+    WORKTREE_REMOVE WORKTREE_REMOVE_EXAMPLES "help/worktree-remove.md"
+    BRANCH_DELETE   BRANCH_DELETE_EXAMPLES   "help/branch-delete.md"
+    HOOK            HOOK_EXAMPLES            "help/hook.md"
+    UNHOOK          UNHOOK_EXAMPLES          "help/unhook.md"
+    TRIGGER         TRIGGER_EXAMPLES         "help/trigger.md"
+    WATCH           WATCH_EXAMPLES           "help/watch.md"
+    CONFIG          CONFIG_EXAMPLES          "help/config.md"
+    DOCTOR          DOCTOR_EXAMPLES          "help/doctor.md"
+    VERSION         VERSION_EXAMPLES         "help/version.md"
+    UPDATE          UPDATE_EXAMPLES          "help/update.md"
+    REDO            REDO_EXAMPLES            "help/redo.md"
+    OP              OP_EXAMPLES              "help/op.md"
+    OP_LOG          OP_LOG_EXAMPLES          "help/op-log.md"
+    OP_SHOW         OP_SHOW_EXAMPLES         "help/op-show.md"
+    OP_DIFF         OP_DIFF_EXAMPLES         "help/op-diff.md"
+    OP_RESTORE      OP_RESTORE_EXAMPLES      "help/op-restore.md"
+    OP_REVERT       OP_REVERT_EXAMPLES       "help/op-revert.md"
+}
+
+// ---------------------------------------------------------------------------
+// The terminal rendering.
+//
+// clap is built without `wrap_help`, so whatever these functions return is
+// emitted line for line, at every width. The 72-column fill is the page
+// design, not a terminal measurement — the same width the files themselves
+// held before markdown became the source of truth.
+// ---------------------------------------------------------------------------
+
+/// Column-0 prose is filled to this at render time.
+const FILL: usize = 72;
+
+/// Render one markdown half for the terminal.
+///
+/// Three translations, everything else verbatim: a column-0 paragraph (one
+/// line in the file) is filled to [`FILL`] columns; `## Examples` prints as
+/// `Examples:`; a fenced block loses its fence lines and its content gains a
+/// two-space indent. The blank line markdown wants between a lead-in
+/// paragraph and a fence — or after the heading — is not printed, so a table
+/// hugs the colon line that introduces it, the way these pages always read.
+pub fn term(md: &str) -> String {
+    let mut out = String::new();
+    let mut in_fence = false;
+    // A blank seen but not yet printed: it is dropped if the next line opens
+    // a fence, and printed the moment anything else follows.
+    let mut blank_pending = false;
+    // The blank under `## Examples`, dropped outright.
+    let mut swallow_blank = false;
+    for line in md.lines() {
+        if in_fence {
+            if line.starts_with("```") {
+                in_fence = false;
+            } else if line.is_empty() {
+                out.push('\n');
+            } else {
+                out.push_str("  ");
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        if line.starts_with("```") {
+            blank_pending = false;
+            swallow_blank = false;
+            in_fence = true;
+            continue;
+        }
+        if line.is_empty() {
+            if swallow_blank {
+                swallow_blank = false;
+            } else {
+                blank_pending = true;
+            }
+            continue;
+        }
+        if blank_pending {
+            out.push('\n');
+            blank_pending = false;
+        }
+        swallow_blank = false;
+        if line == "## Examples" {
+            out.push_str("Examples:\n");
+            swallow_blank = true;
+        } else if line.starts_with(' ') {
+            // Markdown holds no indented prose — the formatter test refuses
+            // it — but a renderer never eats a line it does not understand.
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            fill(&mut out, line);
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
+/// [`term`] for the `## Examples` half — the same rendering, named so a
+/// `cli.rs` attachment reads as the pair it is: `term(X)` over the usage,
+/// `term_examples(X_EXAMPLES)` under the options.
+pub fn term_examples(md: &str) -> String {
+    term(md)
+}
+
+/// Greedy fill at [`FILL`], counting characters rather than bytes: the prose
+/// is full of em dashes. A word is never broken, so a token wider than the
+/// fill stands alone on its line.
+fn fill(out: &mut String, paragraph: &str) {
+    let mut width = 0;
+    for word in paragraph.split_whitespace() {
+        let wide = word.chars().count();
+        if width > 0 && width + 1 + wide > FILL {
+            out.push('\n');
+            width = 0;
+        }
+        if width > 0 {
+            out.push(' ');
+            width += 1;
+        }
+        out.push_str(word);
+        width += wide;
+    }
+    if width > 0 {
+        out.push('\n');
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -413,86 +522,99 @@ mod tests {
         }
     }
 
-    /// Column-0 prose in a page's description half is filled to this.
-    const FILL: usize = 72;
-
-    /// What nothing may exceed: the indented lines, and the aligned rows of
-    /// the `Examples:` half. Neither can be reflowed — a table row has no
-    /// line breaks to move — so a row over this is reworded, not rewrapped.
+    /// What nothing the renderer prints may exceed. The prose fill lands at
+    /// [`FILL`] on its own; what this cap actually holds are the fenced
+    /// rows, which have no line breaks to move — a row over it is reworded,
+    /// not rewrapped.
     const CAP: usize = 80;
 
-    /// The width each line of a page is held to.
-    fn caps(page: &str) -> Vec<usize> {
-        let seam = page.find(SEAM).unwrap_or(page.len());
-        let mut at = 0;
-        let mut caps = Vec::new();
-        for line in page.lines() {
-            let prose = at < seam && !line.starts_with(' ');
-            caps.push(if prose { FILL } else { CAP });
-            at += line.len() + 1;
-        }
-        caps
-    }
-
-    /// Greedy fill at [`FILL`], counting characters rather than bytes: the
-    /// prose is full of em dashes, and the widest line in these files is 71
-    /// characters and 75 bytes. A blank line is kept exactly, and an
-    /// indented line ends the paragraph above it and is never reflowed —
-    /// `restore`'s three flag rows are the ones that depend on that.
-    fn fill(half: &str) -> String {
-        fn flush(out: &mut String, words: &mut Vec<&str>) {
-            let mut line = String::new();
-            for word in words.drain(..) {
-                let too_wide = line.chars().count() + 1 + word.chars().count() > FILL;
-                if !line.is_empty() && too_wide {
-                    out.push_str(&line);
-                    out.push('\n');
-                    line.clear();
-                }
-                if !line.is_empty() {
-                    line.push(' ');
-                }
-                line.push_str(word);
-            }
-            if !line.is_empty() {
-                out.push_str(&line);
-                out.push('\n');
-            }
-        }
-
+    /// What a page file should hold, byte for byte: one line per paragraph.
+    /// Consecutive column-0 prose lines are joined — that is the whole
+    /// formatter, and it is what `FF_HELP_FMT=1` uses to unwrap a paragraph
+    /// somebody hand-wrapped. Fences, their content, headings, and blank
+    /// lines pass through with trailing whitespace trimmed.
+    fn formatted(page: &str) -> String {
         let mut out = String::new();
-        let mut words: Vec<&str> = Vec::new();
-        for line in half.lines() {
+        let mut para: Vec<&str> = Vec::new();
+        let mut in_fence = false;
+        let flush = |out: &mut String, para: &mut Vec<&str>| {
+            if !para.is_empty() {
+                out.push_str(&para.join(" "));
+                out.push('\n');
+                para.clear();
+            }
+        };
+        for line in page.lines() {
             let line = line.trim_end();
-            if line.is_empty() || line.starts_with(' ') {
-                flush(&mut out, &mut words);
+            if in_fence || line.starts_with("```") {
+                if line.starts_with("```") {
+                    in_fence = !in_fence;
+                }
+                flush(&mut out, &mut para);
+                out.push_str(line);
+                out.push('\n');
+            } else if line.is_empty() || line.starts_with(' ') || line.starts_with('#') {
+                flush(&mut out, &mut para);
                 out.push_str(line);
                 out.push('\n');
             } else {
-                words.extend(line.split_whitespace());
+                para.push(line);
             }
         }
-        flush(&mut out, &mut words);
+        flush(&mut out, &mut para);
         out.truncate(out.trim_end().len());
+        out.push('\n');
         out
     }
 
-    /// What a page file should hold, byte for byte.
-    fn formatted(page: &str) -> String {
-        let seam = page.find(SEAM).expect("a page has an `Examples:` line");
-        let mut out = fill(&page[..seam]);
-        out.push_str("\n\n");
-        for line in page[seam + 2..].trim_end().lines() {
-            out.push_str(line.trim_end());
-            out.push('\n');
+    /// The shape a page cannot be rewritten into: findings the formatter has
+    /// no move for, reported beside the equality check.
+    fn malformed(name: &str, src: &str) -> Vec<String> {
+        let mut findings = Vec::new();
+        let mut in_fence = false;
+        let mut headings = 0;
+        for (at, line) in src.lines().enumerate() {
+            let row = at + 1;
+            if line.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if line.contains('\t') {
+                findings.push(format!("help/{name}:{row} has a tab"));
+            }
+            if in_fence {
+                continue;
+            }
+            if line == "## Examples" {
+                headings += 1;
+            } else if line.starts_with('#') {
+                findings.push(format!(
+                    "help/{name}:{row} is a heading; `## Examples` is the only one a page holds"
+                ));
+            }
+            if line.starts_with(' ') && !line.trim().is_empty() {
+                findings.push(format!(
+                    "help/{name}:{row} is indented outside a fence — put it in a fenced block"
+                ));
+            }
         }
-        out
+        if in_fence {
+            findings.push(format!("help/{name} has an unclosed fence"));
+        }
+        if headings != 1 {
+            findings.push(format!(
+                "help/{name} has {headings} `## Examples` headings, want exactly 1"
+            ));
+        }
+        findings
     }
 
-    /// The pages are one width, and stay one width. The check is an equality
-    /// against the formatter's own output rather than "no line is too long",
-    /// which is what makes it hold over time; greedy fill is idempotent, so
-    /// a formatted file is a fixed point.
+    /// The pages are markdown, and stay renderable: one line per paragraph
+    /// (the equality check against [`formatted`], `cargo fmt --check`
+    /// semantics), the structural invariants [`malformed`] names, and
+    /// nothing [`term`] prints wider than [`CAP`] — the fenced rows are the
+    /// lines the fill cannot reach, so a wide one is reworded, not
+    /// rewrapped.
     #[test]
     fn the_pages_are_formatted() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/help");
@@ -501,13 +623,13 @@ mod tests {
         let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
             .expect("the pages live beside this module")
             .map(|entry| entry.expect("a readable directory entry").path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
             .collect();
         paths.sort();
 
         let mut wrote = 0;
         let mut unformatted: Vec<String> = Vec::new();
-        let mut overwide: Vec<String> = Vec::new();
+        let mut broken: Vec<String> = Vec::new();
 
         for path in &paths {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -524,34 +646,30 @@ mod tests {
                     let at = (0..have.len().max(mine.len()))
                         .find(|i| have.get(*i) != mine.get(*i))
                         .unwrap_or(0);
-                    let line = have.get(at).copied().unwrap_or_default();
-                    let wide = line.chars().count();
-                    let cap = caps(&src).get(at).copied().unwrap_or(CAP);
-                    unformatted.push(if wide > cap {
-                        format!("help/{name}:{} is {wide} columns, want <= {cap}", at + 1)
-                    } else {
-                        format!(
-                            "help/{name}:{} is not the fill\n    have: {line}\n    want: {}",
-                            at + 1,
-                            mine.get(at).copied().unwrap_or_default()
-                        )
-                    });
+                    unformatted.push(format!(
+                        "help/{name}:{} is not one line per paragraph\n    have: {}\n    want: {}",
+                        at + 1,
+                        have.get(at).copied().unwrap_or_default(),
+                        mine.get(at).copied().unwrap_or_default()
+                    ));
                 }
             }
 
-            // Against the formatted text, so the only widths left are the
-            // ones a reflow cannot reach.
-            for ((at, line), cap) in want.lines().enumerate().zip(caps(&want)) {
-                let wide = line.chars().count();
-                if wide > cap {
-                    overwide.push(format!(
-                        "help/{name}:{} is {wide} columns, want <= {cap} — reword it, \
-                         the fill cannot reach this line",
-                        at + 1
-                    ));
-                }
-                if line.contains('\t') {
-                    overwide.push(format!("help/{name}:{} has a tab", at + 1));
+            broken.extend(malformed(&name, &want));
+
+            // What the terminal will actually print, held to the cap. The
+            // description fill lands under it by construction; the fenced
+            // rows are the lines only a rewording can narrow.
+            let seam = want.find(SEAM).map(|at| at + 2).unwrap_or(want.len());
+            for half in [&want[..seam.min(want.len())], &want[seam.min(want.len())..]] {
+                for line in term(half).lines() {
+                    let wide = line.chars().count();
+                    if wide > CAP {
+                        broken.push(format!(
+                            "help/{name} renders {wide} columns, want <= {CAP} — reword it, \
+                             the fill cannot reach this line:\n    {line}"
+                        ));
+                    }
                 }
             }
         }
@@ -564,11 +682,11 @@ mod tests {
         );
 
         if rewrite {
-            println!("rewrapped {wrote} files");
+            println!("rewrote {wrote} files");
         }
 
         let mut report = String::new();
-        for finding in unformatted.iter().chain(&overwide) {
+        for finding in unformatted.iter().chain(&broken) {
             report.push_str(finding);
             report.push('\n');
         }
