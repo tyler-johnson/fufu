@@ -13,6 +13,12 @@
 //! above a fenced `## Usage` block holding what clap prints for the verb,
 //! the `## Examples` section below it. The prose is docs-grade because it is
 //! the same prose `ff help <verb>` renders; nothing is written twice.
+//!
+//! `docs/reference/config.md` gets the same treatment in miniature: the
+//! settings registry in `cmd/config.rs` renders into a marked region of that
+//! page — `<!-- registry:begin -->` through `<!-- registry:end -->` — under
+//! the same byte-equality and `FF_DOCS_GEN=1` contract, with the prose
+//! around the markers hand-written and untouched.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -224,4 +230,96 @@ fn the_reference_is_generated() {
         report.push_str("  run: make docs-gen\n");
     }
     assert!(report.is_empty(), "\n{report}");
+}
+
+/// The registry region of `docs/reference/config.md`, markers included: one
+/// `###` entry per [`crate::cmd::config::Setting`] — git key, kind, default,
+/// and the description joined back into the one paragraph it wraps.
+fn registry_region() -> String {
+    use crate::cmd::config::{SettingKind, registry};
+
+    let mut out = String::from(
+        "<!-- registry:begin — generated from registry() in \
+         crates/ff-cli/src/cmd/config.rs by a test; edit there, then make docs-gen -->\n",
+    );
+    for setting in registry() {
+        let _ = write!(out, "\n### {}\n\n", setting.name);
+        match &setting.kind {
+            SettingKind::Choice(valid) => {
+                let list = valid
+                    .iter()
+                    .map(|v| format!("`{v}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    out,
+                    "`{}` — choice of {list}; default `{}`",
+                    setting.key, setting.def
+                );
+            }
+            kind if setting.def.is_empty() => {
+                let _ = writeln!(
+                    out,
+                    "`{}` — {}; unset by default",
+                    setting.key,
+                    kind.label()
+                );
+            }
+            kind => {
+                let _ = writeln!(
+                    out,
+                    "`{}` — {}; default `{}`",
+                    setting.key,
+                    kind.label(),
+                    setting.def
+                );
+            }
+        }
+        let _ = write!(out, "\n{}\n", setting.desc.join(" "));
+    }
+    out.push_str("\n<!-- registry:end -->\n");
+    out
+}
+
+/// The region between the markers equals regeneration, byte for byte; the
+/// prose around them is hand-written and never touched. `FF_DOCS_GEN=1`
+/// splices the fresh region in instead of reporting the drift.
+#[test]
+fn the_config_registry_is_generated() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/reference/config.md");
+    let have = std::fs::read_to_string(&path).expect("a readable docs/reference/config.md");
+    let begin = have
+        .find("<!-- registry:begin")
+        .expect("config.md: no `<!-- registry:begin` marker");
+    let end_marker = "<!-- registry:end -->\n";
+    let end = have
+        .find(end_marker)
+        .expect("config.md: no `<!-- registry:end -->` marker")
+        + end_marker.len();
+    assert!(begin < end, "config.md: registry markers out of order");
+
+    let want = registry_region();
+    if have[begin..end] == want {
+        return;
+    }
+
+    if std::env::var_os("FF_DOCS_GEN").is_some() {
+        let fresh = format!("{}{}{}", &have[..begin], want, &have[end..]);
+        std::fs::write(&path, fresh).expect("a writable config.md");
+        println!("rewrote the registry region");
+        return;
+    }
+
+    let (have, mine): (Vec<&str>, Vec<&str>) =
+        (have[begin..end].lines().collect(), want.lines().collect());
+    let at = (0..have.len().max(mine.len()))
+        .find(|i| have.get(*i) != mine.get(*i))
+        .unwrap_or(0);
+    panic!(
+        "\nreference/config.md: the registry region is stale\n    have: {}\n    want: {}\n  \
+         run: make docs-gen\n",
+        have.get(at).copied().unwrap_or_default(),
+        mine.get(at).copied().unwrap_or_default()
+    );
 }

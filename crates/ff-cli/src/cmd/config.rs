@@ -17,6 +17,21 @@ pub(crate) enum SettingKind {
     Choice(&'static [&'static str]),
 }
 
+impl SettingKind {
+    /// The kind's one-word name, as `--json` and the docs registry print it.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            SettingKind::Size => "size",
+            SettingKind::Duration => "duration",
+            SettingKind::Command => "command",
+            SettingKind::Cadence => "cadence",
+            SettingKind::Bool => "bool",
+            SettingKind::Branch => "branch",
+            SettingKind::Choice(_) => "choice",
+        }
+    }
+}
+
 pub(crate) struct Setting {
     pub(crate) name: &'static str,
     pub(crate) key: &'static str,
@@ -342,15 +357,7 @@ pub fn run(
             let display = val.as_deref().unwrap_or(setting.def);
 
             if ctx.json {
-                let kind_str = match &setting.kind {
-                    SettingKind::Size => "size",
-                    SettingKind::Duration => "duration",
-                    SettingKind::Command => "command",
-                    SettingKind::Cadence => "cadence",
-                    SettingKind::Bool => "bool",
-                    SettingKind::Branch => "branch",
-                    SettingKind::Choice(_) => "choice",
-                };
+                let kind_str = setting.kind.label();
                 let source_json = if source.is_empty() {
                     serde_json::Value::Null
                 } else {

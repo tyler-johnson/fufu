@@ -32,8 +32,9 @@ bench-report:
 	scripts/bench/report.py
 
 # The docs site. mkdocs comes from docs/requirements.txt (pip install -r);
-# docs-gen regenerates the CLI reference from the help pages — the same walk
-# CI runs as a drift check.
+# docs-gen regenerates everything docsgen.rs owns — the CLI reference from
+# the help pages, the config registry region — the same walks CI runs as
+# drift checks.
 docs:
 	mkdocs build --strict
 
@@ -41,7 +42,7 @@ docs-serve:
 	mkdocs serve
 
 docs-gen:
-	FF_DOCS_GEN=1 cargo test -p ff-cli --bins the_reference_is_generated
+	FF_DOCS_GEN=1 cargo test -p ff-cli --bins docsgen
 
 # Compare the working tree against a rebuilt older binary, measured back to
 # back on the same fixtures. REF defaults to the most recent tag. Costs a
