@@ -1,7 +1,7 @@
 //! `ff trim` — manual retention. Reports the one log first, because that is
 //! what retention acts on; a branch pointer is a *place in* the log, and the
-//! only per-branch fact worth a line is a pointer that went away with its
-//! branch. After any real run it nudges git's own gc (the one pragmatic spawn
+//! only per-branch fact worth a line is a pointer that went away.
+//! After any real run it nudges git's own gc (the one pragmatic spawn
 //! in fufu: native writes never trigger auto-gc, so without this nothing ever
 //! packs the object store — not just the objects a trim orphaned). `gc
 //! --auto` is self-limiting: below git's own threshold it returns having done
@@ -61,15 +61,27 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
                 }
             }
         }
-        // `--gone`: the branch is gone, so its way into the log goes too. The
-        // operations themselves stay — one branch's cannot be excised from
-        // the middle of one log — and age out on the same cutoff as
-        // everything else.
+        // A deleted pointer has two stories: the branch itself is gone
+        // (`--gone`, or a gone branch whose operations aged out with this
+        // trim), or the branch is alive and merely has no operations left in
+        // the window. The wording follows the report's `gone`, not the mere
+        // fact of deletion. A `--gone` branch drops nothing — one branch's
+        // operations cannot be excised from the middle of one log — so its
+        // operations age out on the same cutoff as everything else.
         for pointer in report.pointers.iter().filter(|p| p.deleted) {
-            println!(
-                "  {}: branch is gone — pointer removed; its operations age out on the keep window",
-                pointer.branch
-            );
+            if pointer.gone && pointer.dropped == 0 {
+                println!(
+                    "  {}: branch is gone — pointer removed; its operations age out on the keep window",
+                    pointer.branch
+                );
+            } else if pointer.gone {
+                println!("  {}: branch is gone — pointer removed", pointer.branch);
+            } else {
+                println!(
+                    "  {}: every operation aged out — pointer removed; the branch itself is untouched",
+                    pointer.branch
+                );
+            }
         }
         for orphan in report.orphans.iter().filter(|o| o.dropped > 0) {
             println!(

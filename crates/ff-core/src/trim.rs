@@ -232,12 +232,14 @@ fn trim_chain(
     let mut rows: Vec<TrimPointer> = Vec::new();
     for (ref_name, branch, _) in &pointers {
         let (kept_here, dropped_here) = per_branch.get(branch).copied().unwrap_or((0, 0));
-        let branch_gone = opts.gone
-            && branch != crate::snapshot::chain::DETACHED
+        let gone = branch != crate::snapshot::chain::DETACHED
             && repo
                 .try_find_reference(&format!("refs/heads/{branch}"))
                 .map_err(Error::repo)?
                 .is_none();
+        // Existence is reported unconditionally; only deletion of a gone
+        // branch's pointer stays behind the `--gone` flag.
+        let branch_gone = opts.gone && gone;
         if branch_gone {
             gone_branches.push(branch.clone());
         }
@@ -254,6 +256,7 @@ fn trim_chain(
             kept: if branch_gone { 0 } else { kept_here },
             trash_ref: trash_ref.clone(),
             deleted: branch_gone || (kept_here == 0 && dropped_here > 0),
+            gone,
         });
     }
 

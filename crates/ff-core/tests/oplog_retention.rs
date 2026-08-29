@@ -243,6 +243,10 @@ fn all_dropped_moves_the_log_to_trash_and_deletes_every_ref() {
     let report = trim(&fx, false, false);
     assert_eq!(report.pointers[0].dropped, 2, "the capture and the floor");
     assert!(report.pointers[0].deleted);
+    assert!(
+        !report.pointers[0].gone,
+        "main exists throughout — a deleted pointer does not make the branch gone"
+    );
     assert!(report.log.as_ref().unwrap().deleted);
 
     for r in ["refs/fufu/snap/main", "refs/fufu/wt/main/ops"] {
@@ -272,6 +276,10 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
         .find(|c| c.branch == "doomed")
         .unwrap();
     assert_eq!(doomed.dropped, 0);
+    assert!(
+        doomed.gone,
+        "existence is reported unconditionally; only deletion is flag-gated"
+    );
 
     // With --gone the POINTER goes, and only the pointer. You cannot excise
     // one branch's operations from the middle of a global chain without
@@ -284,6 +292,7 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
         .find(|c| c.branch == "doomed")
         .unwrap();
     assert!(doomed.deleted);
+    assert!(doomed.gone);
     assert_eq!(doomed.dropped, 0, "--gone drops no operations, and says so");
     let gone = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/doomed"]);
     assert!(!gone.status.success(), "the pointer is deleted");
@@ -299,6 +308,35 @@ fn gone_branches_lose_their_pointer_and_age_out_on_time() {
         doomed_snap,
         "--gone rebuilds nothing, so no operation changes its sha"
     );
+}
+
+/// A live branch whose every operation aged out loses its pointer, not its
+/// existence: the report must say the branch is still there, so the renderer
+/// never calls it gone.
+#[test]
+fn aged_out_live_branch_loses_its_pointer_but_not_the_branch() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["checkout", "-q", "-b", "stale"]);
+    fx.write("a.txt", "stale work\n");
+    snap_at(&fx, 100);
+    fx.git(&["checkout", "-q", "main"]);
+    fx.write("a.txt", "fresh work\n");
+    snap_at(&fx, 1);
+
+    let report = trim(&fx, false, false);
+    let stale = report
+        .pointers
+        .iter()
+        .find(|c| c.branch == "stale")
+        .unwrap();
+    assert!(stale.deleted, "every operation aged out, the pointer goes");
+    assert!(!stale.gone, "the branch itself still exists");
+    let pointer = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/fufu/snap/stale"]);
+    assert!(!pointer.status.success(), "the pointer is deleted");
+    let head = fx.try_git(&["rev-parse", "--verify", "--quiet", "refs/heads/stale"]);
+    assert!(head.status.success(), "refs/heads/stale still resolves");
 }
 
 /// The gc proof: aggressive reflog expiry plus gc --prune=now must not

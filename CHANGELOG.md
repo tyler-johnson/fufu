@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Trim stops calling a live branch gone. A pointer is deleted for two unrelated reasons — the branch no longer exists, or every operation behind it aged out of the keep window — and the report used one wording for both, so a branch that was alive and well printed `branch is gone`. The report now records whether `refs/heads/<branch>` exists, and the wording follows it: a gone branch says so, a live branch says its operations aged out and the branch itself is untouched.
+
 Reconcile stops fabricating branch reports across worktrees. A branch another worktree holds is invisible to observation on purpose, and the stored ref table used to drop it — so taking a branch elsewhere printed `refs/heads/<branch> deleted` while it lived, and releasing it printed `created at`. The table now carries held-elsewhere entries forward at their last-known sha, so the board only reports motion that happened. No migration: old logs read as-is, and the delete direction is fixed immediately even against a pre-upgrade baseline. A baseline written while a branch was hidden genuinely lacks the entry, so its release prints one `created at` line once — the same as before the fix, and self-healing.
 
 ## v0.9.0 — 2026-08-27

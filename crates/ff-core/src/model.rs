@@ -243,6 +243,10 @@ pub struct TrimPointer {
     pub trash_ref: Option<String>,
     /// True when nothing of this branch survived and its pointer was deleted.
     pub deleted: bool,
+    /// True when the branch itself no longer exists (`refs/heads/<branch>` is
+    /// missing). `deleted` says the pointer went; this says why the wording
+    /// may call the branch gone. Always false for `@detached`.
+    pub gone: bool,
 }
 
 /// The one log's retention within a trim pass.

@@ -320,13 +320,13 @@ keep = 2s (this repo)
 
 $ ff trim -n
 would drop 33 of 36 operations
-  ff/early-wren: branch is gone — pointer removed; its operations age out on the keep window
-  ff/keen-drake: branch is gone — pointer removed; its operations age out on the keep window
+  ff/early-wren: branch is gone — pointer removed
+  ff/keen-drake: branch is gone — pointer removed
 
 $ ff trim
 dropped 33 of 36 operations — previous tip saved at refs/fufu/wt/main/trash/@ops until the next trim
-  ff/early-wren: branch is gone — pointer removed; its operations age out on the keep window
-  ff/keen-drake: branch is gone — pointer removed; its operations age out on the keep window
+  ff/early-wren: branch is gone — pointer removed
+  ff/keen-drake: branch is gone — pointer removed
 dropped data frees after gc
 ```
 
