@@ -2,7 +2,7 @@
 # target/dogfood/ff, so the binary is live the moment it links.
 # `make release` is the honest fat-LTO build benches and releases use.
 
-.PHONY: build release bench bench-real bench-report bench-against
+.PHONY: build release bench bench-real bench-report bench-against docs docs-serve docs-gen
 
 build:
 	cargo build --profile dogfood
@@ -30,6 +30,18 @@ bench-real: release
 # this skips run.sh entirely.
 bench-report:
 	scripts/bench/report.py
+
+# The docs site. mkdocs comes from docs/requirements.txt (pip install -r);
+# docs-gen regenerates the CLI reference from the help pages — the same walk
+# CI runs as a drift check.
+docs:
+	mkdocs build --strict
+
+docs-serve:
+	mkdocs serve
+
+docs-gen:
+	FF_DOCS_GEN=1 cargo test -p ff-cli --bins the_reference_is_generated
 
 # Compare the working tree against a rebuilt older binary, measured back to
 # back on the same fixtures. REF defaults to the most recent tag. Costs a

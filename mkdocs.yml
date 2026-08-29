@@ -33,6 +33,7 @@ markdown_extensions:
 
 plugins:
   - search
+  - include-markdown
 
 # The generated per-verb pages are reached from reference/cli/index.md, which
 # is in the nav; listing 50 of them there would drown it.

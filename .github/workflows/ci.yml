@@ -1,9 +1,20 @@
 name: ci
 
+# Docs-only changes are docs.yml's job: a push touching nothing but these
+# paths deploys the site without spinning the rust matrix. A mixed commit
+# still runs everything — paths-ignore only skips when *every* changed file
+# matches — so the generated docs/reference/cli/ pages riding a code commit
+# get full CI, generator test included.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - docs/**
+      - mkdocs.yml
   pull_request:
+    paths-ignore:
+      - docs/**
+      - mkdocs.yml
 
 jobs:
   licenses:
