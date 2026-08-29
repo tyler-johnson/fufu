@@ -140,9 +140,10 @@ show_err "$FF" switch "$minted"
 cd "$SCENE/bay"
 show "$FF" switch bay
 
-# Not pasted into the guide: this block soaks up the parking churn the bay
-# made, so demo's chain absorbs it here and the remove block below stays
-# about removal.
+# Not pasted into the guide: this block soaks up the stash churn the bay's
+# parks made. Branch refs held elsewhere are carried quietly now, but the
+# stash is one stack for the whole repository, so demo's chain genuinely has
+# it to absorb — here, so the remove block below stays about removal.
 cd "$SCENE/demo"
 show "$FF" status
 

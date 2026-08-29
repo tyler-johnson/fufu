@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Reconcile stops fabricating branch reports across worktrees. A branch another worktree holds is invisible to observation on purpose, and the stored ref table used to drop it — so taking a branch elsewhere printed `refs/heads/<branch> deleted` while it lived, and releasing it printed `created at`. The table now carries held-elsewhere entries forward at their last-known sha, so the board only reports motion that happened. No migration: old logs read as-is, and the delete direction is fixed immediately even against a pre-upgrade baseline. A baseline written while a branch was hidden genuinely lacks the entry, so its release prints one `created at` line once — the same as before the fix, and self-healing.
+
 ## v0.9.0 — 2026-08-27
 
 Hooks become one family. `ff hook`, `ff unhook`, and `ff trigger` serve all four integration clients (agent, shell, editor, git) from a single core, and the index is populated before hooks run, matching git's own order. fufu now ships an agent skill: `ff hook --skill` installs it, and the agent briefing routes to the skill instead of carrying the manual inline. `ff collide` now answers one pair of branches per invocation, and two lints that arrived with Rust 1.98 are resolved.

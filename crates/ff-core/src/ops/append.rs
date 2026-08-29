@@ -117,11 +117,14 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         skeleton.prev_segment = Some(segment_link(repo, prev_on_branch, draft.base)?);
         skeleton.prev_verb = Some(verb_link(repo, prev)?);
         skeleton.refs_blob = match &draft.refs {
-            Some(table) => Some(
-                repo.write_blob(table.to_blob().as_bytes())
-                    .map_err(Error::repo)?
-                    .detach(),
-            ),
+            Some(table) => {
+                let carried = carry_held_forward(repo, table, prev)?;
+                Some(
+                    repo.write_blob(carried.to_blob().as_bytes())
+                        .map_err(Error::repo)?
+                        .detach(),
+                )
+            }
             // A capture names its predecessor's table verbatim: the same
             // blob, the same oid, no write. Observing one here would let a
             // hook capture after a foreign `git checkout` refresh the
@@ -203,6 +206,30 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         "the operation log is contended: another fufu operation is in progress",
         vec![],
     ))
+}
+
+/// A planned table plus the predecessor's entries for branches other
+/// worktrees hold. Every verb plans its table from [`observe_refs`], which
+/// cannot see held-elsewhere refs, so a verb run while a branch is hidden
+/// would otherwise write a table lacking it and the branch's release would
+/// read as a creation. Carried here, where every table is serialized, so no
+/// verb has to remember to do it. A `prev` that is absent or does not decode
+/// to a table means there is nothing to carry — lenient on decode, matching
+/// the capture arm's posture.
+fn carry_held_forward(
+    repo: &gix::Repository,
+    planned: &RefsTable,
+    prev: Option<gix::ObjectId>,
+) -> Result<RefsTable> {
+    let prev_table = prev
+        .and_then(|id| walk::decode(repo, id).ok())
+        .and_then(|op| op.refs().ok().flatten().cloned());
+    match prev_table {
+        None => Ok(planned.clone()),
+        Some(prev_table) => {
+            Ok(planned.carrying_held(&prev_table, &crate::linked::held_branches(repo)?))
+        }
+    }
 }
 
 /// Whether a lost CAS is worth another attempt: the tip is unchanged (we

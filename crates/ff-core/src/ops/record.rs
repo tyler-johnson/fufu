@@ -274,6 +274,15 @@ const TRACKED_PREFIXES: [&str; 3] = ["refs/heads/", "refs/tags/", "refs/fufu/par
 /// Deliberately off the capture path: a capture inherits its predecessor's
 /// table instead of observing one. See [`super::append::commit_op`].
 pub fn observe_refs(repo: &gix::Repository) -> Result<RefsTable> {
+    Ok(observe_refs_held(repo)?.0)
+}
+
+/// [`observe_refs`] plus the held-elsewhere branch set the filter used, so a
+/// caller carrying held entries forward works from the same holder snapshot
+/// the observation was filtered by.
+pub(crate) fn observe_refs_held(
+    repo: &gix::Repository,
+) -> Result<(RefsTable, std::collections::HashSet<String>)> {
     let mut table = RefsTable::default();
     let head = repo.head().map_err(Error::repo)?;
     table.head = match head.kind {
@@ -305,7 +314,7 @@ pub fn observe_refs(repo: &gix::Repository) -> Result<RefsTable> {
     if let Some(stash) = refs::ref_target(repo, "refs/stash")? {
         table.refs.insert("refs/stash".into(), stash.to_string());
     }
-    Ok(table)
+    Ok((table, held))
 }
 
 impl RefsTable {
@@ -343,6 +352,33 @@ impl RefsTable {
             ));
         }
         Ok(table)
+    }
+
+    /// `self` plus `prior`'s entries for branches held by other worktrees.
+    ///
+    /// [`observe_refs`] cannot see held-elsewhere refs — it filters them out
+    /// on purpose, because an undo here must not be expected to move them. A
+    /// table that simply dropped them fabricates a deletion the moment
+    /// another worktree takes a branch and a creation the moment it releases
+    /// one, with nothing having moved. Carrying the prior entry forward keeps
+    /// the stored table meaning "the world as this tree last knew it": the
+    /// branch persists at its last-known sha until it is visible again.
+    ///
+    /// `self` wins where both have an entry. Only `refs/heads/` and
+    /// `refs/fufu/parked/` names can be held, so HEAD, tags, and `refs/stash`
+    /// are never touched.
+    pub fn carrying_held(
+        &self,
+        prior: &RefsTable,
+        held: &std::collections::HashSet<String>,
+    ) -> RefsTable {
+        let mut out = self.clone();
+        for (name, sha) in &prior.refs {
+            if crate::linked::owned_elsewhere(name, held) && !out.refs.contains_key(name) {
+                out.refs.insert(name.clone(), sha.clone());
+            }
+        }
+        out
     }
 
     /// The differences carrying `self` (expected) to `current` (observed).
@@ -410,6 +446,58 @@ mod tests {
         let changes = before.diff(&after);
         let names: Vec<&str> = changes.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["HEAD", "refs/heads/feat", "refs/heads/main"]);
+    }
+
+    #[test]
+    fn carrying_held_restores_held_absent_entries_and_lets_self_win() {
+        let held: std::collections::HashSet<String> = ["topic".to_string()].into();
+        let prior = table(
+            "ref:refs/heads/main",
+            &[
+                ("refs/heads/topic", &"a".repeat(40)),
+                ("refs/heads/main", &"b".repeat(40)),
+            ],
+        );
+        // Held + absent: carried at the prior sha.
+        let observed = table(
+            "ref:refs/heads/main",
+            &[("refs/heads/main", &"c".repeat(40))],
+        );
+        let carried = observed.carrying_held(&prior, &held);
+        assert_eq!(carried.refs.get("refs/heads/topic"), Some(&"a".repeat(40)));
+        // Held + present: self wins.
+        let observed = table(
+            "ref:refs/heads/main",
+            &[("refs/heads/topic", &"d".repeat(40))],
+        );
+        let carried = observed.carrying_held(&prior, &held);
+        assert_eq!(carried.refs.get("refs/heads/topic"), Some(&"d".repeat(40)));
+    }
+
+    #[test]
+    fn carrying_held_skips_unheld_names() {
+        let prior = table(
+            "ref:refs/heads/main",
+            &[("refs/heads/gone", &"a".repeat(40))],
+        );
+        let observed = table("ref:refs/heads/main", &[]);
+        let carried = observed.carrying_held(&prior, &std::collections::HashSet::new());
+        assert!(carried.refs.is_empty());
+    }
+
+    #[test]
+    fn carrying_held_covers_parked_refs() {
+        let held: std::collections::HashSet<String> = ["topic".to_string()].into();
+        let prior = table(
+            "ref:refs/heads/main",
+            &[("refs/fufu/parked/topic", &"a".repeat(40))],
+        );
+        let observed = table("ref:refs/heads/main", &[]);
+        let carried = observed.carrying_held(&prior, &held);
+        assert_eq!(
+            carried.refs.get("refs/fufu/parked/topic"),
+            Some(&"a".repeat(40))
+        );
     }
 
     #[test]

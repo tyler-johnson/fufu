@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::model::{ForeignChange, ReconcileReport};
 use crate::ops::append::{self, Append, OpDraft};
 use crate::ops::id::OpId;
-use crate::ops::record::{OpRecord, RefTransition, RefsTable, observe_refs};
+use crate::ops::record::{OpRecord, RefTransition, RefsTable, observe_refs_held};
 use crate::ops::{BRANCH_PREFIX, LEGACY_OPS_REF, LEGACY_OPS_TRASH_REF, OpKind, OpLog};
 use crate::refs;
 use crate::snapshot::{Provenance, TakeOptions};
@@ -161,7 +161,7 @@ pub(crate) fn append_op(
 /// Reconcile the log with reality. Appends at most one operation — `foreign`
 /// on divergence, an `init` note on bootstrap. The clean path writes nothing.
 pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
-    let observed = observe_refs(repo)?;
+    let (observed, held) = observe_refs_held(repo)?;
     let mut report = ReconcileReport {
         bootstrapped: false,
         reinitialized: false,
@@ -226,6 +226,12 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
         return Ok(report);
     };
 
+    // The observation cannot see refs another worktree holds; the baseline
+    // could when it was written. Carry the baseline's held entries forward so
+    // a branch hidden since then is not reported deleted — and, because the
+    // carried table is what the Foreign op below stores, its release later is
+    // not reported created.
+    let observed = observed.carrying_held(&last_seen, &held);
     let mut foreign = last_seen.diff(&observed);
     if foreign.is_empty() {
         return Ok(report); // clean: write nothing
@@ -654,5 +660,7 @@ pub fn pending_foreign(repo: &gix::Repository) -> Result<Vec<ForeignChange>> {
     let Some(last_seen) = op.refs()? else {
         return Ok(Vec::new());
     };
-    Ok(last_seen.diff(&observe_refs(repo)?))
+    // Same carry as reconcile, so the preview matches what it would write.
+    let (observed, held) = observe_refs_held(repo)?;
+    Ok(last_seen.diff(&observed.carrying_held(last_seen, &held)))
 }
