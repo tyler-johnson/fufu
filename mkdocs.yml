@@ -1,0 +1,76 @@
+site_name: fufu
+site_description: git that flies itself
+site_url: https://tyler-johnson.github.io/fufu/
+repo_url: https://github.com/tyler-johnson/fufu
+repo_name: tyler-johnson/fufu
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: light mode
+  features:
+    - navigation.sections
+    - navigation.footer
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Install: install.md
+      - Tutorial: tutorial.md
+      - Adopting fufu: adopting.md
+  - Concepts:
+      - The invariant: concepts/invariant.md
+      - The two regimes: concepts/two-regimes.md
+      - Changes: concepts/changes.md
+      - Snapshots and undo: concepts/snapshots-and-undo.md
+      - Branches: concepts/branches.md
+      - Held rewrites: concepts/held-rewrites.md
+      - The push boundary: concepts/push-boundary.md
+      - Glossary: concepts/glossary.md
+  - Guides:
+      - Recovery: guides/recovery.md
+      - Rewriting history: guides/rewriting-history.md
+      - Stacked changes: guides/stacked-changes.md
+      - Plain-git teammates: guides/plain-git-teammates.md
+      - Worktrees: guides/worktrees.md
+  - For agents:
+      - Why agents want fufu: agents/why.md
+      - Setup: agents/setup.md
+      - The machine surface: agents/machine-surface.md
+  - Reference:
+      - CLI: reference/cli/index.md
+      - Configuration: reference/config.md
+      - Doctor: reference/doctor.md
+  - Comparisons:
+      - fufu vs jj: comparisons/vs-jj.md
+      - fufu vs git: comparisons/vs-git.md
+      - Command table: comparisons/command-table.md
+      - Related work: comparisons/related-work.md
+  - Internals:
+      - Architecture: internals/architecture.md
+      - Substrate: internals/substrate.md
+      - Design document: internals/design.md
+  - FAQ: faq.md
+  - Changelog: changelog.md
