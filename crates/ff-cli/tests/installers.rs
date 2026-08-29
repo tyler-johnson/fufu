@@ -1001,6 +1001,32 @@ fn the_shell_trigger_captures_and_says_nothing() {
     assert!(log.contains("shell"), "the prompt hook's operation:\n{log}");
 }
 
+/// A rendered log minus its age column. Two reads of an unchanged log can
+/// straddle a second boundary, and `0s ago` against `1s ago` is not a second
+/// operation — this was a real flake, on the Windows shards and once on a
+/// Pi. An age is a `<digits><unit> ago` word pair; the pair goes, everything
+/// else (ids, shas, descriptions) stays, and the column padding collapses
+/// with the rejoin so a widening age cannot shift it either.
+fn ageless(log: &str) -> String {
+    let words: Vec<&str> = log.split_whitespace().collect();
+    let mut out: Vec<&str> = Vec::new();
+    let mut at = 0;
+    while at < words.len() {
+        let (word, next) = (words[at], words.get(at + 1));
+        let age = next == Some(&"ago")
+            && word.len() >= 2
+            && word[..word.len() - 1].chars().all(|c| c.is_ascii_digit())
+            && matches!(word.as_bytes()[word.len() - 1], b's' | b'm' | b'h' | b'd');
+        if age {
+            at += 2;
+        } else {
+            out.push(word);
+            at += 1;
+        }
+    }
+    out.join(" ")
+}
+
 /// Leaning on Enter writes nothing: `ff_core::capture` answers `NoOp` when
 /// the tree has not moved, so a snapshot at every prompt costs an unchanged
 /// log. And nothing writes the retired fingerprint file any more.
@@ -1024,7 +1050,11 @@ fn a_second_shell_trigger_on_an_unmoved_tree_adds_no_operation() {
     );
     let second = text(&ff_env(&fx.path(), &["op", "log"], &env));
 
-    assert_eq!(first, second, "an unmoved tree lands no second operation");
+    assert_eq!(
+        ageless(&first),
+        ageless(&second),
+        "an unmoved tree lands no second operation"
+    );
     assert!(
         !fx.path().join(".git/fufu/ambient").exists(),
         "the retired fingerprint file is never written"
