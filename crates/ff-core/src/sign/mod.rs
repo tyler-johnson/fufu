@@ -100,6 +100,10 @@ pub struct Signer {
     pub format: Format,
     pub program: String,
     pub key: Option<String>,
+    /// The environment git hands a spawned child. Held rather than derived
+    /// per call so [`run`] never needs the repository — which is what lets
+    /// verification fan out across threads, `Repository` being `!Sync`.
+    ctx: gix::command::Context,
 }
 
 /// Whether this repository asks for signed commits. Reads one key and never
@@ -187,6 +191,7 @@ pub fn resolve(repo: &gix::Repository, choice: Choice) -> Result<Option<Signer>>
     if !want {
         return Ok(None);
     }
+    let ctx = context(repo)?;
     let setup = setup(repo);
     let Some(format) = setup.format else {
         return Err(Error::coded(
@@ -206,7 +211,7 @@ pub fn resolve(repo: &gix::Repository, choice: Choice) -> Result<Option<Signer>>
         && format == Format::Ssh
         && let Some(command) = &setup.default_key_command
     {
-        key = ssh::default_key(repo, command)?;
+        key = ssh::default_key(&ctx, command)?;
     }
     if format == Format::Ssh && key.is_none() {
         return Err(Error::coded(
@@ -222,6 +227,7 @@ pub fn resolve(repo: &gix::Repository, choice: Choice) -> Result<Option<Signer>>
         format,
         program: setup.program,
         key,
+        ctx,
     }))
 }
 
@@ -241,7 +247,7 @@ pub(crate) fn write_user_commit(
         use gix::objs::WriteTo as _;
         let mut payload = Vec::new();
         commit.write_to(&mut payload).map_err(Error::repo)?;
-        let mut armored = signer.sign(repo, &payload)?;
+        let mut armored = signer.sign(&payload)?;
         if !armored.ends_with(b"\n") {
             armored.push(b'\n');
         }
@@ -256,12 +262,23 @@ pub(crate) fn write_user_commit(
 }
 
 impl Signer {
-    fn sign(&self, repo: &gix::Repository, payload: &[u8]) -> Result<Vec<u8>> {
+    fn sign(&self, payload: &[u8]) -> Result<Vec<u8>> {
         match self.format {
-            Format::OpenPgp | Format::X509 => gpg::sign(repo, self, payload),
-            Format::Ssh => ssh::sign(repo, self, payload),
+            Format::OpenPgp | Format::X509 => gpg::sign(self, payload),
+            Format::Ssh => ssh::sign(self, payload),
         }
     }
+}
+
+/// The environment git gives a child process, with stderr left alone.
+///
+/// The context's own default is "inherit stderr", and it is applied *after*
+/// the pipes a spawn sets — leaving it set would take the signer's diagnosis
+/// with it, which is the whole reason stderr is captured.
+pub(crate) fn context(repo: &gix::Repository) -> Result<gix::command::Context> {
+    let mut ctx = repo.command_context().map_err(Error::repo)?;
+    ctx.stderr = None;
+    Ok(ctx)
 }
 
 /// The first word of a program string, when the string is a plain program
@@ -318,7 +335,7 @@ struct Run {
 /// reaches the terminal, and capturing buys a failure message worth printing
 /// — the same trade the push lane makes.
 fn run(
-    repo: &gix::Repository,
+    ctx: &gix::command::Context,
     program: &str,
     args: &[OsString],
     input: Option<&[u8]>,
@@ -326,14 +343,9 @@ fn run(
     if !program_available(program) {
         return Err(no_program(program));
     }
-    let mut ctx = repo.command_context().map_err(Error::repo)?;
-    // The context's default is "inherit stderr", and it is applied *after*
-    // the pipes below — leaving it set would take the signer's diagnosis
-    // with it.
-    ctx.stderr = None;
     let mut prepare = gix::command::prepare(program)
         .with_shell()
-        .with_context(ctx);
+        .with_context(ctx.clone());
     prepare.args = args.to_vec();
     let mut cmd: std::process::Command = prepare.into();
     cmd.stdin(if input.is_some() {

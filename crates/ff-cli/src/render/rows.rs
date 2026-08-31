@@ -1,7 +1,9 @@
 use ff_core::{BranchInfo, LogEntry, SnapEntry};
 
 use super::age::relative_age;
-use super::palette::{BOLD, DIM, col, col_right, paint, paint_dim, paint_warn, palette, styled_id};
+use super::palette::{
+    BOLD, DIM, col, col_right, paint, paint_dim, paint_ok, paint_warn, palette, styled_id,
+};
 use super::status::{sync_parts, to_publish, to_sync};
 
 /// The data `change_row` needs, extracted from whatever source holds it
@@ -15,14 +17,32 @@ pub struct ChangeRowDisplay<'a> {
     pub time: Option<i64>,
 }
 
+/// What a commit row says about its signature.
+///
+/// An unsigned commit says nothing at all: the overwhelming majority of rows
+/// in most repositories are unsigned, and a column of "unsigned" would be a
+/// column of noise. Absence is the statement.
+pub enum SigMark {
+    /// Unsigned, or nothing was asked. No mark.
+    None,
+    /// It carries a signature. Free — a header read, not a verification — so
+    /// this is what the default `ff log` shows.
+    Signed,
+    /// It was verified: the verdict, and the least that identifies the key
+    /// behind it — the tool and eight characters. `ff log --signatures`.
+    Verdict {
+        word: &'static str,
+        detail: Option<String>,
+        good: bool,
+    },
+}
+
 /// The data `commit_row` needs, extracted from a \`LogEntry\` or the status model.
 pub struct CommitRowDisplay<'a> {
     pub id: &'a str,
     pub subject: &'a str,
     pub time: i64,
-    /// git's `%G?` letter for this commit, under `ff log --signatures`.
-    /// `None` when nothing was verified, which is every other caller.
-    pub signature: Option<char>,
+    pub signature: SigMark,
 }
 
 /// One snapshot row: `<letters8> <base7|blank> <age>  <subject>`, the
@@ -459,21 +479,25 @@ pub fn commit_row(
     );
     let sym = paint("●", palette().sha, colored);
     let rail = paint("│", DIM, colored);
-    // The marker area, where the `@` row puts "(no commits yet)": a good
-    // signature is dim because it is the expected case, and everything else
-    // is a warning because it is not.
-    let marker = match entry.signature {
-        None => String::new(),
-        Some(code) => {
-            let letter = code.to_string();
-            format!(
-                "  {}",
-                if code == 'G' {
-                    paint_dim(&letter, colored)
-                } else {
-                    paint_warn(&letter, colored)
-                }
-            )
+    // The marker area, where the `@` row puts "(no commits yet)". Words, not
+    // git's `%G?` letters: a bare `G` in a column reads as "gpg" at least as
+    // readily as "good", and the letters buy nothing here that a short word
+    // does not. `ff show --json` still carries the code for machines.
+    let marker = match &entry.signature {
+        SigMark::None => String::new(),
+        SigMark::Signed => format!("  {}", paint_ok("signed", colored)),
+        SigMark::Verdict { word, detail, good } => {
+            let verdict = if *good {
+                paint_ok(word, colored)
+            } else {
+                paint_warn(word, colored)
+            };
+            // Dim, and short: enough to tell two keys apart at a glance and
+            // no more. Whose name is on the key is `ff show`'s answer.
+            match detail {
+                Some(detail) => format!("  {verdict} {}", paint_dim(detail, colored)),
+                None => format!("  {verdict}"),
+            }
         }
     };
     let head = format!("{sym}  {letters} {sha} {age}{marker}");

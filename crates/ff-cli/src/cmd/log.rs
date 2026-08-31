@@ -128,18 +128,21 @@ pub fn run_inner(
     let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
     let segments = ff_core::segment_anchors(&repo, &ids)?;
 
-    // `--signatures` is opt-in because verifying a page is one signer spawn
-    // per row. Without it nothing is verified and nothing is spawned, which
-    // is what keeps the default log honest.
+    // Whether a row is signed is already known — it came off the object with
+    // the subject. `--signatures` buys the other question, whether the
+    // signature is any good, and that one costs a signer run apiece. The
+    // batch verifies them in parallel, since a page of them is a page of
+    // process startup; unsigned rows are skipped, so the cost stays
+    // proportional to how much there is to check.
     let row_signatures: Vec<Option<ff_core::sign::verify::SigStatus>> = if signatures {
-        commits
+        let ids: Vec<ff_core::gix::ObjectId> = commits
             .iter()
-            .map(|entry| {
-                let id =
-                    ff_core::gix::ObjectId::from_hex(entry.id.as_bytes()).map_err(Error::repo)?;
-                ff_core::sign::verify::verify(&repo, id).map(Some)
-            })
-            .collect::<Result<_>>()?
+            .map(|entry| ff_core::gix::ObjectId::from_hex(entry.id.as_bytes()).map_err(Error::repo))
+            .collect::<Result<_>>()?;
+        ff_core::sign::verify::verify_many(&repo, &ids)?
+            .into_iter()
+            .map(|status| status.present.then_some(status))
+            .collect()
     } else {
         vec![None; commits.len()]
     };
@@ -245,7 +248,18 @@ pub fn run_inner(
                 id: &entry.id,
                 subject: &entry.subject,
                 time: entry.time,
-                signature: sig.as_ref().map(|status| status.code),
+                // Verified, so say the verdict; otherwise the free fact.
+                signature: match sig {
+                    Some(status) => crate::render::SigMark::Verdict {
+                        word: status.word(),
+                        detail: status
+                            .short_key()
+                            .map(|key| format!("{} {key}", status.tool())),
+                        good: status.code == 'G',
+                    },
+                    None if entry.signed => crate::render::SigMark::Signed,
+                    None => crate::render::SigMark::None,
+                },
             };
             writeln!(
                 out,

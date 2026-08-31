@@ -149,6 +149,11 @@ pub struct LogEntry {
     pub author_email: String,
     /// Author time, seconds since the unix epoch.
     pub time: i64,
+    /// The commit carries a signature. A header read on an object the walk
+    /// already decoded, so it costs nothing and is always populated — unlike
+    /// whether that signature is *good*, which costs a signer run and is
+    /// what `ff log --signatures` is for.
+    pub signed: bool,
 }
 
 /// One capture operation, as the timeline views render it.

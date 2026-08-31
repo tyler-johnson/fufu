@@ -59,24 +59,42 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false ff r
 
 ## Reading signatures back
 
-`ff show <rev>` verifies the commit it shows and prints a `signature:` line when there is one, with the verdict in git's own vocabulary. `--json` carries the same as a `signature` object. An unsigned commit gets no line and costs no signer run.
+`ff show <rev>` verifies the commit it shows and prints a `signature:` line when there is one — the verdict, who signed, and on a second line which key said so:
 
-`ff log --signatures` verifies each row and puts git's `%G?` letter beside it:
+```
+7e2de1ff  Tyler Johnson  13m ago
+  core: honor git's commit signing configuration
+  signature: verified — signed by Tyler Johnson <tyler@tylerjohnson.me> (gpg 9B295D68)
+```
 
-| letter | meaning |
-|---|---|
-| `G` | good |
-| `B` | bad |
-| `U` | good, but below `gpg.minTrustLevel` |
-| `X` | good, expired |
-| `Y` | good, made by an expired key |
-| `R` | good, made by a revoked key |
-| `E` | could not be checked — no key, no allowed-signers file, no verifier |
-| `N` | unsigned |
+`--json` carries the same as a `signature` object. An unsigned commit gets no line and costs no signer run.
 
-It is opt-in because verifying a 25-row page is 25 signer runs. Without the flag `ff log` verifies nothing and runs nothing, which is what keeps the default path free of spawns.
+`ff log` marks signed commits `signed`, by default and for free: whether a commit carries a signature is a header on an object the walk already decoded, so it costs no signer run. `ff status` marks its parent commit row the same way. The word is deliberately `signed` and not `verified` — nothing was checked to say it.
 
-`ff status` reports no signature: it is about the open change, and the open change has none yet.
+Checking is what `--signatures` buys, and it replaces the mark with the verdict, the tool, and the eight characters that identify the key:
+
+```
+●  owrowrvq 7e2de1ff  13m ago  verified gpg 9B295D68
+│  core: honor git's commit signing configuration
+```
+
+| mark | `%G?` | meaning |
+|---|---|---|
+| `verified` | `G` | the signature checks out |
+| `bad signature` | `B` | it does not |
+| `untrusted key` | `U` | it checks out, but below `gpg.minTrustLevel` |
+| `expired signature` | `X` | it checks out, expired |
+| `expired key` | `Y` | it checks out, made by an expired key |
+| `revoked key` | `R` | it checks out, made by a revoked key |
+| `unverifiable` | `E` | could not be checked — no key, no allowed-signers file, no verifier |
+
+That costs one signer run per signed row, which is why it is a flag rather than the default; unsigned rows are skipped, so the cost is proportional to how much there is to check. The runs go in parallel — up to one per core, capped at eight — because they are independent and almost entirely process startup. Verifying twenty ssh-signed commits (two `ssh-keygen` runs apiece) costs about 94ms on four cores against 245ms in a row.
+
+Only verification is parallel. Signing is not, and will not be: it can stop for a passphrase, and several pinentry prompts racing for one terminal is not a speed-up. A rewrite signs its commits one after another for the same reason `git rebase -S` does. An unsigned commit is marked nothing at all, with or without the flag: most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
+
+git's `%G?` letters are still what the machine surface carries — `ff show --json` and `ff log --signatures --json` both report `code` — but a row prints words. A bare `G` in a column reads as "gpg" about as readily as "good".
+
+`ff log --json` carries `signed` on every commit whether or not the flag was given, and adds a `signature` object only under `--signatures`: the key's absence is what says nothing was verified, which is not the same claim as null.
 
 ## The predicted sha
 

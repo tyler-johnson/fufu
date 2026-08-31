@@ -16,7 +16,9 @@ A path that names a blob is followed through its renames, on by default. A direc
 
 The @ row appears when the open change touches the paths, the same rule -r already has.
 
---signatures verifies each row and puts git's status letter beside it — G good, B bad, U untrusted, X expired, Y expired key, R revoked key, E unverifiable, N unsigned. It is opt-in because verifying a page is one signer run per row; without it `ff log` verifies nothing and runs nothing.
+A commit that carries a signature says `signed` beside it. That is free — the header is on an object the walk already read — so it is on by default, and it is a claim about the commit rather than about the key: it says a signature is there, not that anybody checked it.
+
+--signatures checks them, replacing `signed` with the verdict, the tool, and the short id of the key — `verified gpg 9B295D68` — or `bad signature`, `untrusted key`, `expired signature`, `expired key`, `revoked key`, `unverifiable`. The checks run in parallel, one per core up to eight. That costs one signer run per signed row, which is why it is a flag. Unsigned commits say nothing either way — most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
 
 The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER, then PAGER, then less. Piped output and --json never page.
 

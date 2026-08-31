@@ -10,17 +10,13 @@ use crate::error::{Error, Result};
 
 use super::verify::{SigStatus, Trust};
 
-pub(super) fn sign(
-    repo: &gix::Repository,
-    signer: &super::Signer,
-    payload: &[u8],
-) -> Result<Vec<u8>> {
+pub(super) fn sign(signer: &super::Signer, payload: &[u8]) -> Result<Vec<u8>> {
     let mut args: Vec<OsString> = vec!["--status-fd=2".into(), "-bsa".into()];
     if let Some(key) = &signer.key {
         args.push("-u".into());
         args.push(OsString::from(key));
     }
-    let run = super::run(repo, &signer.program, &args, Some(payload))?;
+    let run = super::run(&signer.ctx, &signer.program, &args, Some(payload))?;
     if !run.ok || !run.stderr.contains("[GNUPG:] SIG_CREATED") {
         return Err(super::failed(&signer.program, &run));
     }
@@ -31,7 +27,7 @@ pub(super) fn sign(
 /// a file because that is the only argument gpg takes it in; the payload
 /// stays on stdin, where `-` names it.
 pub(super) fn verify(
-    repo: &gix::Repository,
+    ctx: &gix::command::Context,
     program: &str,
     format: super::Format,
     min_trust: Trust,
@@ -47,7 +43,7 @@ pub(super) fn verify(
         sig_path.clone().into(),
         "-".into(),
     ];
-    let run = match super::run(repo, program, &args, Some(payload)) {
+    let run = match super::run(ctx, program, &args, Some(payload)) {
         Ok(run) => run,
         Err(err) => {
             return Ok(SigStatus {

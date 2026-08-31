@@ -101,6 +101,9 @@ pub struct ParentStatus {
     /// first column. `None` when no capture answers to it — an unborn
     /// repository, or history that arrived from outside fufu.
     pub segment: Option<String>,
+    /// The commit carries a signature. Whether it is a *good* one is
+    /// `ff show`'s answer; this is the free half.
+    pub signed: bool,
 }
 
 /// One foreign ref change (reconciled motion outside fufu).
@@ -272,6 +275,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
             subject: p.subject.clone(),
             time: p.time,
             segment: parent_segment.clone(),
+            signed: p.signed,
         }),
         conflicts: status.conflicts.clone(),
         foreign: foreign.map(|entries| {

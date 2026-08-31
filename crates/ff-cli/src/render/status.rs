@@ -2,7 +2,7 @@ use ff_core::{ChangeStat, HeadState, InProgress, ReconcileReport, Status};
 
 use super::diff::render_diffstat;
 use super::palette::{paint_ahead, paint_dim, paint_ok, paint_sha, paint_warn};
-use super::rows::{ChangeRowDisplay, CommitRowDisplay, change_row, commit_row};
+use super::rows::{ChangeRowDisplay, CommitRowDisplay, SigMark, change_row, commit_row};
 
 /// A ref table value for display. Shas shorten to eight characters; a
 /// `ref:<full-name>` value — a symbolic or unborn HEAD — is a ref, not a sha,
@@ -214,9 +214,14 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             id: &parent.id,
             subject: &parent.subject,
             time: parent.time,
-            // Status is about the open change; the commit under it is
-            // furniture, and verifying it would be a spawn nobody asked for.
-            signature: None,
+            // The same free mark `ff log` shows. Verifying it would be a
+            // spawn nobody asked for, but saying it is signed costs nothing
+            // and the two views agreeing is worth more than the blank.
+            signature: if parent.signed {
+                SigMark::Signed
+            } else {
+                SigMark::None
+            },
         };
         out.push_str(&commit_row(
             &commit_display,

@@ -288,6 +288,9 @@ pub(crate) fn entry_for(repo: &gix::Repository, id: gix::ObjectId) -> Result<Log
     // Author time, like `git log %at` (log order is by commit time elsewhere).
     let time = author.time().map_err(Error::repo)?.seconds;
     let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+    // The raw object is already in hand, so asking whether it carries a
+    // signature is a scan of bytes we decoded anyway.
+    let signed = crate::sign::verify::has_signature(&commit.data);
     Ok(LogEntry {
         id: id.to_string(),
         short_id,
@@ -295,5 +298,6 @@ pub(crate) fn entry_for(repo: &gix::Repository, id: gix::ObjectId) -> Result<Log
         author_name: author.name.to_string(),
         author_email: author.email.to_string(),
         time,
+        signed,
     })
 }

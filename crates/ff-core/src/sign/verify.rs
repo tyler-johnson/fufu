@@ -48,19 +48,49 @@ impl SigStatus {
         self
     }
 
-    /// One word for the row's marker column, and for anyone rendering the
-    /// letter without the prose.
+    /// The verdict as a word, for a row or a header. `verified` rather than
+    /// git's "good": a signature that checks out has been *verified*, which
+    /// is the word every other tool a person meets — GitHub included — puts
+    /// on it, and "good" invites the question "good how?".
     pub fn word(&self) -> &'static str {
         match self.code {
-            'G' => "good",
-            'B' => "bad",
-            'U' => "untrusted",
-            'X' => "expired",
+            'G' => "verified",
+            'B' => "bad signature",
+            'U' => "untrusted key",
+            'X' => "expired signature",
             'Y' => "expired key",
             'R' => "revoked key",
             'E' => "unverifiable",
             _ => "unsigned",
         }
+    }
+
+    /// The signing tool, as a person names it rather than as `gpg.format`
+    /// spells it: `openpgp` is the format, `gpg` is the thing you ran.
+    pub fn tool(&self) -> &'static str {
+        match self.format {
+            Some("openpgp") => "gpg",
+            Some("x509") => "gpgsm",
+            Some("ssh") => "ssh",
+            _ => "unknown",
+        }
+    }
+
+    /// The key, shortened to the eight characters that identify it at a
+    /// glance — the same width fufu shortens a sha to. An ssh fingerprint is
+    /// `SHA256:` and base64 rather than hex, so the prefix comes off and the
+    /// digest is cut in the same place.
+    pub fn short_key(&self) -> Option<String> {
+        let key = self.key.as_deref()?;
+        let body = key.strip_prefix("SHA256:").unwrap_or(key);
+        Some(if key.starts_with("SHA256:") {
+            body.chars().take(8).collect()
+        } else {
+            // A gpg key id identifies from its tail, which is why gpg's own
+            // short form is the last eight.
+            let chars: Vec<char> = body.chars().collect();
+            chars[chars.len().saturating_sub(8)..].iter().collect()
+        })
     }
 }
 
@@ -87,6 +117,122 @@ impl Trust {
     }
 }
 
+/// Whether a raw commit carries a signature at all — a scan of the header
+/// block, no spawn and no verifier.
+///
+/// This is the cheap half of the question, and the reason `ff log` can say
+/// "signed" on every row it prints without costing anything: *carrying* a
+/// signature is a fact about the object, while *verifying* one is a process.
+/// The two are worth different words, and only the second is worth a flag.
+pub fn has_signature(raw: &[u8]) -> bool {
+    let Some(blank) = raw.windows(2).position(|pair| pair == b"\n\n") else {
+        return false;
+    };
+    raw[..blank + 1]
+        .split_inclusive(|&byte| byte == b'\n')
+        .any(is_signature_header)
+}
+
+/// The `gpgsig` header line, in either spelling. `gpgsig-sha256` belongs to
+/// dual-hash compat objects that fufu never writes but may well read.
+fn is_signature_header(line: &[u8]) -> bool {
+    line.starts_with(b"gpgsig ") || line.starts_with(b"gpgsig-sha256 ")
+}
+
+/// Everything a verification needs that does not come off the commit: the
+/// child environment, the three programs, and the trust configuration.
+///
+/// Resolved once and then read-only, which is what makes a batch of
+/// verifications safe to run on several threads — `gix::Repository` is not
+/// `Sync`, so nothing past this struct may touch it.
+struct Verifier {
+    ctx: gix::command::Context,
+    openpgp: String,
+    x509: String,
+    ssh: String,
+    min_trust: Trust,
+    allowed: Option<String>,
+    revocations: Option<String>,
+}
+
+impl Verifier {
+    fn new(repo: &gix::Repository) -> Result<Self> {
+        let ctx = super::context(repo)?;
+        let snap = repo.config_snapshot();
+        Ok(Self {
+            ctx,
+            openpgp: super::program_of(&snap, super::Format::OpenPgp),
+            x509: super::program_of(&snap, super::Format::X509),
+            ssh: super::program_of(&snap, super::Format::Ssh),
+            min_trust: snap
+                .string("gpg.minTrustLevel")
+                .and_then(|raw| Trust::parse(&raw.to_string()))
+                .unwrap_or(Trust::Undefined),
+            allowed: super::allowed_signers(&snap),
+            revocations: super::revocation_file(repo),
+        })
+    }
+
+    /// One verification. Spawns; touches no repository.
+    fn check(&self, payload: &[u8], signature: &[u8]) -> SigStatus {
+        let armor = String::from_utf8_lossy(signature);
+        let format = if armor.contains("BEGIN PGP SIGNATURE") {
+            super::Format::OpenPgp
+        } else if armor.contains("BEGIN SIGNED MESSAGE") {
+            super::Format::X509
+        } else if armor.contains("BEGIN SSH SIGNATURE") {
+            super::Format::Ssh
+        } else {
+            return SigStatus {
+                present: true,
+                format: None,
+                code: 'E',
+                signer: None,
+                key: None,
+                summary: "the gpgsig header is not an armored signature fufu recognizes"
+                    .to_string(),
+            };
+        };
+        let result = match format {
+            super::Format::Ssh => super::ssh::verify(
+                &self.ctx,
+                &self.ssh,
+                self.allowed.as_deref(),
+                self.revocations.as_deref(),
+                self.min_trust,
+                payload,
+                signature,
+            ),
+            super::Format::OpenPgp => super::gpg::verify(
+                &self.ctx,
+                &self.openpgp,
+                format,
+                self.min_trust,
+                payload,
+                signature,
+            ),
+            super::Format::X509 => super::gpg::verify(
+                &self.ctx,
+                &self.x509,
+                format,
+                self.min_trust,
+                payload,
+                signature,
+            ),
+        };
+        // A verifier that could not be run is an unverifiable signature,
+        // not a failed command: the commit is still a commit.
+        result.unwrap_or_else(|err| SigStatus {
+            present: true,
+            format: Some(format.as_str()),
+            code: 'E',
+            signer: None,
+            key: None,
+            summary: err.to_string(),
+        })
+    }
+}
+
 /// Verify one commit's signature, spawning the verifier the armor asks for.
 /// An unsigned commit is `N` and costs no spawn.
 pub fn verify(repo: &gix::Repository, id: gix::ObjectId) -> Result<SigStatus> {
@@ -94,45 +240,70 @@ pub fn verify(repo: &gix::Repository, id: gix::ObjectId) -> Result<SigStatus> {
     let Some((payload, signature)) = split(&object.data) else {
         return Ok(SigStatus::unsigned());
     };
-    let armor = String::from_utf8_lossy(&signature);
-    let format = if armor.contains("BEGIN PGP SIGNATURE") {
-        super::Format::OpenPgp
-    } else if armor.contains("BEGIN SIGNED MESSAGE") {
-        super::Format::X509
-    } else if armor.contains("BEGIN SSH SIGNATURE") {
-        super::Format::Ssh
-    } else {
-        return Ok(SigStatus {
-            present: true,
-            format: None,
-            code: 'E',
-            signer: None,
-            key: None,
-            summary: "the gpgsig header is not an armored signature fufu recognizes".to_string(),
-        });
-    };
+    Ok(Verifier::new(repo)?.check(&payload, &signature))
+}
 
-    let snap = repo.config_snapshot();
-    let program = super::program_of(&snap, format);
-    let min_trust = snap
-        .string("gpg.minTrustLevel")
-        .and_then(|raw| Trust::parse(&raw.to_string()))
-        .unwrap_or(Trust::Undefined);
-    let allowed = super::allowed_signers(&snap);
-    let revocations = super::revocation_file(repo);
-
-    match format {
-        super::Format::Ssh => super::ssh::verify(
-            repo,
-            &program,
-            allowed.as_deref(),
-            revocations.as_deref(),
-            min_trust,
-            &payload,
-            &signature,
-        ),
-        _ => super::gpg::verify(repo, &program, format, min_trust, &payload, &signature),
+/// Verify a page of commits, one status per id in the order given.
+///
+/// The reads and the splits happen here, on this thread and in-process; only
+/// the spawns fan out. That split is the whole design — it keeps the
+/// repository on one thread, and the part worth parallelizing is the part
+/// that is nearly all process startup and waiting.
+///
+/// Verification only. Signing is never run this way: it can prompt for a
+/// passphrase, and several pinentries racing for one terminal is not a
+/// speed-up.
+pub fn verify_many(repo: &gix::Repository, ids: &[gix::ObjectId]) -> Result<Vec<SigStatus>> {
+    let mut jobs: Vec<Option<(Vec<u8>, Vec<u8>)>> = Vec::with_capacity(ids.len());
+    for &id in ids {
+        let object = repo.find_object(id).map_err(Error::repo)?;
+        jobs.push(split(&object.data));
     }
+    let signed = jobs.iter().filter(|job| job.is_some()).count();
+    if signed == 0 {
+        return Ok(jobs.iter().map(|_| SigStatus::unsigned()).collect());
+    }
+
+    let verifier = Verifier::new(repo)?;
+    let mut out: Vec<SigStatus> = jobs.iter().map(|_| SigStatus::unsigned()).collect();
+    let workers = workers(signed);
+    if workers <= 1 {
+        for (job, slot) in jobs.iter().zip(out.iter_mut()) {
+            if let Some((payload, signature)) = job {
+                *slot = verifier.check(payload, signature);
+            }
+        }
+        return Ok(out);
+    }
+
+    // Chunked rather than a work queue: the jobs are one process spawn
+    // apiece, so they cost about the same and an atomic cursor would buy
+    // nothing but contention.
+    let chunk = jobs.len().div_ceil(workers);
+    let verifier = &verifier;
+    std::thread::scope(|scope| {
+        for (jobs, slots) in jobs.chunks(chunk).zip(out.chunks_mut(chunk)) {
+            scope.spawn(move || {
+                for (job, slot) in jobs.iter().zip(slots.iter_mut()) {
+                    if let Some((payload, signature)) = job {
+                        *slot = verifier.check(payload, signature);
+                    }
+                }
+            });
+        }
+    });
+    Ok(out)
+}
+
+/// How many verifiers to run at once. Capped well below what a big machine
+/// would allow: past a handful these queue on gpg-agent rather than on the
+/// CPU, and a page of log is a few dozen rows at most.
+fn workers(jobs: usize) -> usize {
+    const CAP: usize = 8;
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    jobs.min(cpus).clamp(1, CAP)
 }
 
 /// Cut a raw commit into what was signed and the signature that was over it:
@@ -160,12 +331,9 @@ fn split(raw: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
             signature.extend_from_slice(&line[1..]);
         } else {
             in_signature = false;
-            let header = [b"gpgsig ".as_slice(), b"gpgsig-sha256 ".as_slice()]
-                .into_iter()
-                .find(|name| line.starts_with(name));
-            match header {
-                Some(name) if !found => {
-                    signature.extend_from_slice(&line[name.len()..]);
+            match line.iter().position(|&byte| byte == b' ') {
+                Some(at) if !found && is_signature_header(line) => {
+                    signature.extend_from_slice(&line[at + 1..]);
                     in_signature = true;
                     found = true;
                 }

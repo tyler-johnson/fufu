@@ -17,11 +17,7 @@ use super::verify::{SigStatus, Trust};
 /// no verification — so it is the same constant on both sides.
 const NAMESPACE: &str = "git";
 
-pub(super) fn sign(
-    repo: &gix::Repository,
-    signer: &super::Signer,
-    payload: &[u8],
-) -> Result<Vec<u8>> {
+pub(super) fn sign(signer: &super::Signer, payload: &[u8]) -> Result<Vec<u8>> {
     let key = signer
         .key
         .as_deref()
@@ -50,7 +46,7 @@ pub(super) fn sign(
     std::fs::write(&payload_path, payload).map_err(Error::repo)?;
     args.push(payload_path.clone().into());
 
-    let run = super::run(repo, &signer.program, &args, None)?;
+    let run = super::run(&signer.ctx, &signer.program, &args, None)?;
     if !run.ok {
         return Err(super::failed(&signer.program, &run));
     }
@@ -88,8 +84,8 @@ fn literal_key(key: &str) -> Option<String> {
 /// protocol says is the key (usually behind a `key::` prefix). A command that
 /// fails is not an error — it is simply no key, and the caller's refusal is
 /// the one worth reading.
-pub(super) fn default_key(repo: &gix::Repository, command: &str) -> Result<Option<String>> {
-    let run = super::run(repo, command, &[], None)?;
+pub(super) fn default_key(ctx: &gix::command::Context, command: &str) -> Result<Option<String>> {
+    let run = super::run(ctx, command, &[], None)?;
     if !run.ok {
         return Ok(None);
     }
@@ -106,7 +102,7 @@ pub(super) fn default_key(repo: &gix::Repository, command: &str) -> Result<Optio
 /// `gpg.ssh.allowedSignersFile` there is nothing to check against, and that
 /// is `E` — unverifiable, not bad.
 pub(super) fn verify(
-    repo: &gix::Repository,
+    ctx: &gix::command::Context,
     program: &str,
     allowed: Option<&str>,
     revocations: Option<&str>,
@@ -140,7 +136,7 @@ pub(super) fn verify(
         "-s".into(),
         sig_path.clone().into(),
     ];
-    let found = match super::run(repo, program, &find, None) {
+    let found = match super::run(ctx, program, &find, None) {
         Ok(run) => run,
         Err(err) => return Ok(unchecked(err.to_string())),
     };
@@ -171,15 +167,18 @@ pub(super) fn verify(
         check.push("-r".into());
         check.push(OsString::from(revocations));
     }
-    let checked = match super::run(repo, program, &check, Some(payload)) {
+    let checked = match super::run(ctx, program, &check, Some(payload)) {
         Ok(run) => run,
         Err(err) => return Ok(unchecked(err.to_string())),
     };
-    // ssh-keygen writes its verdict to stderr, and the key fingerprint with
-    // it — the one place the key id can be had.
-    let said = checked
-        .stderr
+    // ssh-keygen writes its verdict — `Good "git" signature for <principal>
+    // with <type> key SHA256:…` — to *stdout*, and only its complaints to
+    // stderr. That line is the one place the key fingerprint can be had, so
+    // stdout leads and stderr is the fallback for the failure case.
+    let spoke = String::from_utf8_lossy(&checked.stdout);
+    let said = spoke
         .lines()
+        .chain(checked.stderr.lines())
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or("")
@@ -189,11 +188,10 @@ pub(super) fn verify(
         .find(|word| word.starts_with("SHA256:"))
         .map(str::to_string);
 
+    // The key is carried in its own field, and every reader that wants it
+    // shortens it — so the summary says who, and only who.
     let summary = if checked.ok {
-        match &key {
-            Some(key) => format!("signed by {principal} with {key}"),
-            None => format!("signed by {principal}"),
-        }
+        format!("signed by {principal}")
     } else if said.is_empty() {
         format!("{program} rejected the signature")
     } else {

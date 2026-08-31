@@ -244,6 +244,97 @@ fn doctor_reports_the_signing_setup() {
     assert!(broken.contains("is not on PATH"), "{broken}");
 }
 
+/// The default log says "signed" beside a signed commit and nothing beside an
+/// unsigned one — and says it without running a signer, because carrying a
+/// signature is a header on the object rather than a question for gpg.
+#[test]
+fn the_default_log_marks_signed_commits_and_says_nothing_about_the_rest() {
+    let signer = good_signer();
+    let fx = repo_with(&signer);
+    fx.write("base.txt", "base\n");
+    fx.commit("unsigned one");
+    fx.set_config("commit.gpgsign", "true");
+    fx.write("a.txt", "one\n");
+    ff(&fx, &["commit", "-m", "signed one"]);
+
+    let out = stdout(&ff(&fx, &["log"]));
+    let signed_row = out
+        .lines()
+        .find(|line| line.contains("signed"))
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        signed_row.contains("signed"),
+        "the signed commit carries no mark:\n{out}"
+    );
+    // The unsigned row is the one whose subject is "unsigned one"; its head
+    // line must carry no mark at all.
+    let lines: Vec<&str> = out.lines().collect();
+    let subject_at = lines
+        .iter()
+        .position(|line| line.contains("unsigned one"))
+        .expect("the unsigned commit is in the log");
+    let head = lines[subject_at - 1];
+    assert!(
+        !head.contains("signed") && !head.contains("unsigned"),
+        "an unsigned commit should carry no mark, got: {head:?}"
+    );
+}
+
+/// The flag trades a signer run per signed row for the verdict. The stub's
+/// block is not verifiable by anything, so "unverifiable" is the honest
+/// answer — and it is a word, not a letter.
+#[test]
+fn the_signatures_flag_replaces_the_mark_with_a_verdict() {
+    let signer = good_signer();
+    let fx = repo_with(&signer);
+    fx.set_config("commit.gpgsign", "true");
+    fx.write("a.txt", "one\n");
+    ff(&fx, &["commit", "-m", "signed one"]);
+
+    let plain = stdout(&ff(&fx, &["log"]));
+    assert!(plain.contains("signed"), "{plain}");
+
+    let verified = stdout(&ff(&fx, &["log", "--signatures"]));
+    assert!(
+        verified.contains("unverifiable"),
+        "expected a verdict word, got:\n{verified}"
+    );
+    // git's `%G?` letters stay on the machine surface; a row says words.
+    assert!(
+        !verified
+            .lines()
+            .any(|line| line.trim_end().ends_with(" G") || line.trim_end().ends_with(" E")),
+        "a bare status letter leaked into a row:\n{verified}"
+    );
+}
+
+/// `signed` rides on every log entry, so a machine reading the default log
+/// learns it without asking for verification.
+#[test]
+fn the_machine_surface_carries_the_signed_flag() {
+    let signer = good_signer();
+    let fx = repo_with(&signer);
+    fx.write("base.txt", "base\n");
+    fx.commit("unsigned one");
+    fx.set_config("commit.gpgsign", "true");
+    fx.write("a.txt", "one\n");
+    ff(&fx, &["commit", "-m", "signed one"]);
+
+    let payload = json(&ff(&fx, &["--json", "log"]));
+    let commits = payload["data"]["commits"].as_array().expect("commits");
+    for commit in commits {
+        let expected = commit["subject"] == "signed one";
+        assert_eq!(
+            commit["signed"], expected,
+            "wrong signed flag on {}",
+            commit["subject"]
+        );
+        // No verification was asked for, so no verdict is claimed.
+        assert!(commit.get("signature").is_none());
+    }
+}
+
 /// The signature `ff show` prints, and the object it puts on the machine
 /// surface. The stub's block is not verifiable by anything, so the verdict is
 /// `E` — which is the honest one, and still a `signature` object.
@@ -261,4 +352,80 @@ fn show_reports_the_signature_it_finds() {
 
     let human = stdout(&ff(&fx, &["show", "HEAD"]));
     assert!(human.contains("signature:"), "{human}");
+}
+
+/// A signature real ssh-keygen accepts, rendered: the verdict, the tool, and
+/// the eight characters that name the key — and nothing else on the row. ssh
+/// rather than the stub, because only a real verifier produces a real
+/// verdict; skipped where ssh-keygen is absent.
+#[test]
+fn a_verified_row_names_the_tool_and_the_short_key() {
+    let fx = Fixture::new();
+    if !fx.enable_ssh_signing() {
+        eprintln!("skipping: ssh-keygen is not available");
+        return;
+    }
+    fx.write("a.txt", "one\n");
+    let out = ff(&fx, &["commit", "-m", "signed one"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let printed = stdout(&ff(&fx, &["log", "--signatures"]));
+    let head = printed
+        .lines()
+        .find(|line| line.contains("verified"))
+        .unwrap_or_default();
+    assert!(head.contains("verified ssh "), "got: {head:?}");
+    // A row is a glance, not a transcript: the full fingerprint stays off it.
+    assert!(
+        !head.contains("SHA256:"),
+        "the full fingerprint leaked: {head:?}"
+    );
+    let short = head.split_whitespace().last().expect("a key on the row");
+    assert_eq!(short.len(), 8, "short key should be eight chars: {short:?}");
+
+    // `ff show` is the detail view: who, plus the same short key.
+    let shown = stdout(&ff(&fx, &["show", "HEAD"]));
+    assert!(
+        shown.contains("signature: verified — signed by committer@fixture.test (ssh "),
+        "{shown}"
+    );
+}
+
+/// A page of signed commits verifies in parallel and still comes back in the
+/// walk's order, one status per row.
+#[test]
+fn a_page_of_signatures_verifies_in_order() {
+    let fx = Fixture::new();
+    if !fx.enable_ssh_signing() {
+        eprintln!("skipping: ssh-keygen is not available");
+        return;
+    }
+    for n in 0..6 {
+        fx.write(&format!("f{n}.txt"), &format!("{n}\n"));
+        let out = ff(&fx, &["commit", "-m", &format!("commit {n}")]);
+        assert!(out.status.success(), "stderr: {}", stderr(&out));
+    }
+
+    let payload = json(&ff(&fx, &["--json", "log", "--signatures"]));
+    let commits = payload["data"]["commits"].as_array().expect("commits");
+    assert_eq!(commits.len(), 6);
+    for commit in commits {
+        assert_eq!(commit["signed"], true, "{}", commit["subject"]);
+        assert_eq!(
+            commit["signature"]["code"], "G",
+            "{} did not verify: {}",
+            commit["subject"], commit["signature"]["summary"]
+        );
+    }
+    // Order is the walk's, not the order the threads happened to finish in.
+    let subjects: Vec<&str> = commits
+        .iter()
+        .map(|c| c["subject"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        subjects,
+        vec![
+            "commit 5", "commit 4", "commit 3", "commit 2", "commit 1", "commit 0"
+        ]
+    );
 }

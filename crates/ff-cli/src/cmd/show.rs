@@ -165,12 +165,17 @@ fn commit(
         )?;
         writeln!(out, "  {subject}")?;
         if signature.present {
-            let line = format!("  signature: {} — {}", signature.word(), signature.summary);
+            // One line: the verdict, who, and the least that names the key.
+            // Enough to know what happened, which is all a header owes.
+            let mut line = format!("  signature: {} — {}", signature.word(), signature.summary);
+            if let Some(key) = signature.short_key() {
+                line.push_str(&format!(" ({} {key})", signature.tool()));
+            }
             writeln!(
                 out,
                 "{}",
                 if signature.code == 'G' {
-                    crate::render::paint_dim(&line, colored)
+                    crate::render::paint_ok(&line, colored)
                 } else {
                     crate::render::paint_warn(&line, colored)
                 }
