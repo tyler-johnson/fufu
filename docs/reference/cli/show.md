@@ -6,6 +6,8 @@ Bare, it shows `@`: the open change, header and all, with exactly the body `ff d
 
 A merge names the ambiguity instead of picking a parent for you. git prints no diff there either; this says why, and where the per-parent view is.
 
+A commit that carries a signature gets a signature line under its subject, with the verdict in git's own vocabulary — good, bad, untrusted, expired, revoked, unverifiable — and who signed it. One commit, one verification, always; an unsigned commit gets no line and costs no signer run. `--json` carries the same as a `signature` object.
+
 Revisions only. `ff show <op>` is refused and points at `ff op show` — the operation log is its own address space, which is what lets hex mean commit everywhere and letters mean operation everywhere. Blobs and trees stay git's: `ff git show HEAD:file.txt`.
 
 ## Usage
@@ -40,7 +42,7 @@ Options:
 ff show                        the open change — the same body as ff diff
 ff show HEAD                   what the last commit did
 ff show main~2 src/            that commit, narrowed to src/
-ff show --json                 header and hunks as fields
+ff show --json                 header and hunks as fields, signature included
 ff op show <op>                the other address space
 ff git show HEAD:file.txt      a blob at a revision, git's job
 ```

@@ -149,6 +149,43 @@ impl Fixture {
         self.git(&["config", key, value]);
     }
 
+    /// Turn on ssh commit signing, with a key made for this fixture: an
+    /// `ed25519` pair beside the repository, `gpg.format=ssh`, the public
+    /// half as `user.signingkey`, and an allowed-signers file naming the
+    /// committer.
+    ///
+    /// ssh is the one format a test can use hermetically — no keyring, no
+    /// agent, no passphrase, and a verifier real git will run against the
+    /// same file. `false` when `ssh-keygen` is not on this machine; callers
+    /// skip rather than fail, the way the suite tolerates other absent
+    /// binaries.
+    pub fn enable_ssh_signing(&self) -> bool {
+        let key = self.root.path().join("signing-key");
+        let made = Command::new("ssh-keygen")
+            .args(["-t", "ed25519", "-N", "", "-C", "fixture", "-q", "-f"])
+            .arg(&key)
+            .output();
+        match made {
+            Ok(out) if out.status.success() => {}
+            _ => return false,
+        }
+        let public = key.with_extension("pub");
+        let key_text = std::fs::read_to_string(&public).expect("read fixture signing key");
+        let allowed = self.root.path().join("allowed-signers");
+        std::fs::write(&allowed, format!("committer@fixture.test {key_text}"))
+            .expect("write allowed signers");
+
+        // gix reads the identity from config; git itself takes it from the
+        // hermetic env, so only the fufu side needs this said.
+        self.set_config("user.name", "Fixture Committer");
+        self.set_config("user.email", "committer@fixture.test");
+        self.set_config("gpg.format", "ssh");
+        self.set_config("user.signingkey", &public.to_string_lossy());
+        self.set_config("commit.gpgsign", "true");
+        self.set_config("gpg.ssh.allowedSignersFile", &allowed.to_string_lossy());
+        true
+    }
+
     /// Run git with the hermetic environment. Advances the fixture clock.
     pub fn try_git_in(&self, cwd: &Path, args: &[&str]) -> Output {
         self.try_git_env_in(cwd, args, &[])

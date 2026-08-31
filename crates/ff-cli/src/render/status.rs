@@ -214,6 +214,9 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             id: &parent.id,
             subject: &parent.subject,
             time: parent.time,
+            // Status is about the open change; the commit under it is
+            // furniture, and verifying it would be a spawn nobody asked for.
+            signature: None,
         };
         out.push_str(&commit_row(
             &commit_display,

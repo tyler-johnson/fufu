@@ -285,6 +285,7 @@ fn a_partial_close_zeroes_stats_for_what_it_leaves_behind() {
             message: Some("a: second".into()),
             paths: vec!["a.txt".into()],
             argv: Vec::new(),
+            sign: Default::default(),
             ..Default::default()
         },
         &ff_core::Provenance::new("pre", Some("ff commit".into())),

@@ -68,6 +68,7 @@ nav:
   - Reference:
       - CLI: reference/cli/index.md
       - Configuration: reference/config.md
+      - Commit signing: reference/signing.md
       - Doctor: reference/doctor.md
   - Comparisons:
       - fufu vs jj: comparisons/vs-jj.md

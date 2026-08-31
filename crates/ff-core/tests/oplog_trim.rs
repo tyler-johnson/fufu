@@ -23,6 +23,7 @@ fn close_at(fx: &Fixture, msg: &str, when: i64) {
         &repo,
         &CloseOptions {
             message: Some(msg.into()),
+            sign: Default::default(),
             now: Some(when),
             argv: Vec::new(),
             ..Default::default()

@@ -290,6 +290,7 @@ fn a_verb_inside_a_linked_worktree_matches_git() {
             no_verify: false,
             branch: None,
             paths: Vec::new(),
+            sign: Default::default(),
             now: Some(1_700_000_000),
             argv: vec!["ff".into(), "commit".into()],
         },

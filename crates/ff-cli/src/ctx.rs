@@ -265,6 +265,8 @@ mod tests {
                 message: None,
                 no_verify: false,
                 branch: None,
+                sign: false,
+                no_sign: false,
                 paths: Vec::new(),
             }
             .past()

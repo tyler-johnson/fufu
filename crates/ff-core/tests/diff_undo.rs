@@ -150,6 +150,7 @@ fn a_verb_operation_is_always_its_own_step() {
         &repo,
         &CloseOptions {
             message: Some("one".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -163,6 +164,7 @@ fn a_verb_operation_is_always_its_own_step() {
         &repo,
         &CloseOptions {
             message: Some("two".into()),
+            sign: Default::default(),
             now: Some(NOW + 1),
             argv: Vec::new(),
             ..Default::default()
@@ -199,6 +201,7 @@ fn close_then_undo_is_identity_and_redo_puts_it_back() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -261,6 +264,7 @@ fn moving_appends_nothing_and_the_reflog_records_where_it_stood() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -301,6 +305,7 @@ fn redo_refuses_once_work_has_landed() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -348,6 +353,7 @@ fn an_abandoned_operation_still_resolves_by_id() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -420,6 +426,7 @@ fn undo_of_a_hook_precaptured_close_restores_the_dirty_worktree() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()
@@ -557,6 +564,7 @@ fn landing_on_an_older_operation_steps_over_everything_after_it() {
             &repo,
             &CloseOptions {
                 message: Some(msg.into()),
+                sign: Default::default(),
                 now: Some(NOW + n),
                 argv: Vec::new(),
                 ..Default::default()
@@ -620,6 +628,7 @@ fn partial_application_converges_on_rerun() {
         &repo,
         &CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             now: Some(NOW),
             argv: Vec::new(),
             ..Default::default()

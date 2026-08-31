@@ -360,6 +360,14 @@ $ ff history
     (the floor)
 ```
 
+## Signed commits are re-signed
+
+A rewrite writes new commits, and a new commit cannot carry the signature the old one had — the signature was over a tree and a set of parents that just moved. Git's answer is `rebase.gpgSign`, which is off by default, so `git rebase` on a signed branch quietly hands back an unsigned one.
+
+fufu's answer is that `commit.gpgsign` governs every commit it writes, replays included. Rewrite a signed commit and the rewrite is signed; restack ten signed commits and ten signed commits come back. There is no separate switch, because a verb that silently unsigned your branch is exactly the failure signing is for.
+
+The cost is one signer run per replayed commit — the same as `git rebase -S`, and worth knowing before restacking twenty commits behind a passphrase-protected key with no agent cached. [Commit signing](../reference/signing.md) has the whole surface, including the environment escape hatch for turning it off for one invocation.
+
 ## The append-only boundary
 
 Everything above happened on one machine, which is why all of it was undoable and none of it needed permission. The line where that stops is the push, and [the push boundary](../concepts/push-boundary.md) is where fufu's opinions about malleable history end.

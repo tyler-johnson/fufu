@@ -105,6 +105,11 @@ fn commit(
     let subject = commit.message().map_err(Error::repo)?.summary().to_string();
     let time = author.time().map_err(Error::repo)?.seconds;
 
+    // One commit, one verification, always: this is the verb that shows a
+    // commit whole, and its signature is part of what it is. An unsigned
+    // commit costs no spawn — the header is not there to read.
+    let signature = ff_core::sign::verify::verify(repo, id)?;
+
     // A merge has no single "what it did": which parent to measure against
     // is a choice, and making it silently would report a diff nobody asked
     // for. git prints nothing here either — this at least says why.
@@ -142,6 +147,7 @@ fn commit(
             "changes": stat.as_ref().map(|s| s.files.clone()).unwrap_or_default(),
             "insertions": stat.as_ref().map(|s| s.insertions).unwrap_or(0),
             "deletions": stat.as_ref().map(|s| s.deletions).unwrap_or(0),
+            "signature": signature,
         });
         return crate::machine::emit("show", &payload);
     }
@@ -158,6 +164,18 @@ fn commit(
             crate::render::relative_age(now_secs(), time)
         )?;
         writeln!(out, "  {subject}")?;
+        if signature.present {
+            let line = format!("  signature: {} — {}", signature.word(), signature.summary);
+            writeln!(
+                out,
+                "{}",
+                if signature.code == 'G' {
+                    crate::render::paint_dim(&line, colored)
+                } else {
+                    crate::render::paint_warn(&line, colored)
+                }
+            )?;
+        }
         match &stat {
             None => {
                 writeln!(

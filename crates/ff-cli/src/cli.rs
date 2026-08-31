@@ -146,6 +146,9 @@ pub enum Command {
         /// Retired: the operation log is `ff op log`
         #[arg(long, hide = true, conflicts_with = "commits")]
         ops: bool,
+        /// Verify each commit's signature and show the status letter — one signer run per row
+        #[arg(long, conflicts_with = "commits")]
+        signatures: bool,
         /// Files or directories to limit the log to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,
@@ -241,6 +244,12 @@ pub enum Command {
         /// Branch to land the close on: claim an anonymous one, or fork here
         #[arg(short = 'b', value_name = "branch")]
         branch: Option<String>,
+        /// Sign the commit, whatever commit.gpgsign says; the key is user.signingkey
+        #[arg(short = 'S', long)]
+        sign: bool,
+        /// Do not sign the commit, whatever commit.gpgsign says
+        #[arg(long, conflicts_with = "sign")]
+        no_sign: bool,
         /// Files or directories to close, leaving the rest open; all of it when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,

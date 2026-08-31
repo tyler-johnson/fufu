@@ -367,6 +367,12 @@ fn replay(
     }
 
     let committer = crate::refs::user_signature(repo, now)?;
+    // `commit.gpgsign` governs every user commit fufu writes, replays
+    // included — git needs `rebase.gpgSign` said separately, but in fufu
+    // history moves under you, and a restack that quietly unsigned a branch
+    // is the failure signing exists to prevent. Resolved once, above the
+    // loop; the spawn is per commit, as `git rebase -S` is.
+    let signer = crate::sign::resolve(repo, crate::sign::Choice::Config)?;
     let mut map: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
     let mut rewrites: Vec<Rewrite> = Vec::new();
     let mut dropped: Vec<Dropped> = Vec::new();
@@ -486,7 +492,11 @@ fn replay(
             message,
             extra_headers,
         };
-        let new_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
+        // The inherited signature was stripped above — it is dead the moment
+        // the tree or a parent moves — and this is its counterpart. A signer
+        // that refuses aborts the whole replay before the ref transaction,
+        // so nothing was rewritten.
+        let new_id = crate::sign::write_user_commit(repo, signer.as_ref(), commit)?;
         map.insert(id, new_id);
         rewrites.push(Rewrite {
             old: id.to_string(),

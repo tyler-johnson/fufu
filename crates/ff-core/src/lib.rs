@@ -36,6 +36,7 @@ mod revert;
 pub mod revset;
 pub mod rewrite;
 pub mod sha;
+pub mod sign;
 pub mod snapid;
 pub mod snapshot;
 mod start;

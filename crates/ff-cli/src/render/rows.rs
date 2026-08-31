@@ -20,6 +20,9 @@ pub struct CommitRowDisplay<'a> {
     pub id: &'a str,
     pub subject: &'a str,
     pub time: i64,
+    /// git's `%G?` letter for this commit, under `ff log --signatures`.
+    /// `None` when nothing was verified, which is every other caller.
+    pub signature: Option<char>,
 }
 
 /// One snapshot row: `<letters8> <base7|blank> <age>  <subject>`, the
@@ -456,7 +459,24 @@ pub fn commit_row(
     );
     let sym = paint("●", palette().sha, colored);
     let rail = paint("│", DIM, colored);
-    let head = format!("{sym}  {letters} {sha} {age}");
+    // The marker area, where the `@` row puts "(no commits yet)": a good
+    // signature is dim because it is the expected case, and everything else
+    // is a warning because it is not.
+    let marker = match entry.signature {
+        None => String::new(),
+        Some(code) => {
+            let letter = code.to_string();
+            format!(
+                "  {}",
+                if code == 'G' {
+                    paint_dim(&letter, colored)
+                } else {
+                    paint_warn(&letter, colored)
+                }
+            )
+        }
+    };
+    let head = format!("{sym}  {letters} {sha} {age}{marker}");
     format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
 }
 

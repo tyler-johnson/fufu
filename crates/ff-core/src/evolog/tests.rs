@@ -447,6 +447,7 @@ fn a_verb_operation_never_shadows_the_capture_it_followed() {
         &repo,
         &crate::close::CloseOptions {
             message: Some("landed".into()),
+            sign: Default::default(),
             ..Default::default()
         },
         &Provenance::new("pre", Some("ff commit".into())),

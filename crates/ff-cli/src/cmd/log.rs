@@ -16,6 +16,7 @@ pub fn run(
     revisions: Option<String>,
     commits: bool,
     ops: bool,
+    signatures: bool,
     paths: Vec<String>,
 ) -> Result<()> {
     if ops {
@@ -24,7 +25,7 @@ pub fn run(
     // The past-state view is what `--at-op` would need here, and it does not
     // exist yet.
     ctx.refuse_past("ff log")?;
-    run_inner(ctx, count, revisions, commits, paths)
+    run_inner(ctx, count, revisions, commits, signatures, paths)
 }
 
 /// A removal, not a rename: `ff op log` is a different command with a
@@ -70,6 +71,7 @@ pub fn run_inner(
     count: usize,
     revisions: Option<String>,
     commits_only: bool,
+    signatures: bool,
     paths: Vec<String>,
 ) -> Result<()> {
     // Parsed before the repository is even opened: the grammar is pure, so a
@@ -126,6 +128,22 @@ pub fn run_inner(
     let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
     let segments = ff_core::segment_anchors(&repo, &ids)?;
 
+    // `--signatures` is opt-in because verifying a page is one signer spawn
+    // per row. Without it nothing is verified and nothing is spawned, which
+    // is what keeps the default log honest.
+    let row_signatures: Vec<Option<ff_core::sign::verify::SigStatus>> = if signatures {
+        commits
+            .iter()
+            .map(|entry| {
+                let id =
+                    ff_core::gix::ObjectId::from_hex(entry.id.as_bytes()).map_err(Error::repo)?;
+                ff_core::sign::verify::verify(&repo, id).map(Some)
+            })
+            .collect::<Result<_>>()?
+    } else {
+        vec![None; commits.len()]
+    };
+
     // Each displayed commit's session is the tag (if any) its own
     // chain-segment anchor operation carried — "the operation" a commit row
     // corresponds to, per `segment_anchors`. One targeted message read per
@@ -150,10 +168,18 @@ pub fn run_inner(
         // edge — the model stays hex. Every row also carries `session`, null
         // when the anchor operation wore no tag.
         let mut commit_values = Vec::with_capacity(commits.len());
-        for (entry, sess) in commits.iter().zip(&row_sessions) {
+        for ((entry, sess), sig) in commits.iter().zip(&row_sessions).zip(&row_signatures) {
             let mut value = serde_json::to_value(entry).map_err(Error::repo)?;
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert("session".into(), serde_json::json!(sess));
+                // Only under `--signatures`: the key's absence is what says
+                // nothing was verified, which is not the same claim as null.
+                if let Some(sig) = sig {
+                    map.insert(
+                        "signature".into(),
+                        serde_json::to_value(sig).map_err(Error::repo)?,
+                    );
+                }
             }
             commit_values.push(value);
         }
@@ -213,12 +239,13 @@ pub fn run_inner(
             )?;
         }
 
-        for entry in &commits {
+        for (entry, sig) in commits.iter().zip(&row_signatures) {
             let segment = segments.get(&entry.id).map(String::as_str);
             let commit_display = crate::render::CommitRowDisplay {
                 id: &entry.id,
                 subject: &entry.subject,
                 time: entry.time,
+                signature: sig.as_ref().map(|status| status.code),
             };
             writeln!(
                 out,

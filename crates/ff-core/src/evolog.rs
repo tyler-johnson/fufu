@@ -207,6 +207,11 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
 /// The hash the close would mint: build the commit object and hash it
 /// WITHOUT writing it. Any failure (no identity, serialization) → `None` —
 /// a log view must never fail over a pending id.
+///
+/// A repository that signs gets `None` too, and that is a real regression
+/// rather than an oversight: the signature is not knowable without spawning
+/// the signer, and signing on every status render is out of the question. The
+/// `@` row then shows the same empty sha column an unborn branch shows.
 fn pending_commit_hash(
     repo: &gix::Repository,
     tree: gix::ObjectId,
@@ -215,6 +220,9 @@ fn pending_commit_hash(
     when: i64,
 ) -> Option<String> {
     use gix::objs::WriteTo as _;
+    if crate::sign::enabled(repo) {
+        return None;
+    }
     let sig = crate::refs::user_signature(repo, when).ok()?;
     let commit = gix::objs::Commit {
         tree,

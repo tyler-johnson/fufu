@@ -575,6 +575,7 @@ mod tests {
             &repo,
             &crate::close::CloseOptions {
                 message: Some("landed".into()),
+                sign: Default::default(),
                 now: Some(NOW - 30),
                 argv: Vec::new(),
                 ..Default::default()

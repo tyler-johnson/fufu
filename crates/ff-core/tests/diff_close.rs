@@ -46,6 +46,7 @@ fn default_opts() -> CloseOptions {
         message: Some("close message".into()),
         no_verify: false,
         branch: None,
+        sign: Default::default(),
         paths: Vec::new(),
         now: Some(NOW),
         argv: vec!["ff".into(), "commit".into()],

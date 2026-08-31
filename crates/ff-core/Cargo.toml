@@ -11,6 +11,9 @@ publish = false
 gix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The signer takes its payload as a file path and writes the signature beside
+# it, so signing needs a scratch directory of its own.
+tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -4,6 +4,14 @@
 //! git's failure would surface — so a clean run with no log is proof that no
 //! spawn happened anywhere in the binary.
 //!
+//! The commit signer is the other spawn this trap cannot speak for, and it is
+//! stated rather than asserted for the same reason `ff clone` is: gix
+//! implements no signing, so `ff commit` and every rewrite verb run the
+//! program `gpg.format` names — `gpg`, `gpgsm` or `ssh-keygen` — whenever
+//! `commit.gpgsign` is on. No fixture here sets it, so the default path is
+//! provably spawn-free and every assertion below still stands unchanged.
+//! `crates/ff-cli/tests/signing.rs` covers the lane that does spawn.
+//!
 //! One sanctioned self-spawn exists outside this proof: official release
 //! builds may spawn `<current_exe> update --check` (absolute path, never
 //! PATH) from the passive update lane. Test binaries are never official

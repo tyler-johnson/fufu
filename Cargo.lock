@@ -444,6 +444,7 @@ dependencies = [
  "gix",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 

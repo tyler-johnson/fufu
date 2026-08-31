@@ -271,6 +271,55 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff commit --no-verify"],
     },
     Entry {
+        id: "sign/unknown-format",
+        summary: "gpg.format names a signing format fufu does not know",
+        detail: "git signs in three formats and fufu implements all three: openpgp (gpg), x509 \
+                 (gpgsm), and ssh (ssh-keygen). Anything else in gpg.format is a typo or a \
+                 format from a future git, and either way there is no program to run. The check \
+                 happens before the first object is written, so nothing was half-committed to \
+                 learn it. Fix the spelling, or turn signing off.",
+        exits: &[
+            "git config gpg.format ssh",
+            "git config --unset commit.gpgsign",
+        ],
+    },
+    Entry {
+        id: "sign/no-key",
+        summary: "ssh signing needs a key and user.signingkey is empty",
+        detail: "gpg and gpgsm fall back to a default key of their own; ssh-keygen has nothing to \
+                 fall back to, so the ssh format needs user.signingkey set — to a path (the \
+                 public half is enough, ssh-keygen finds the private one beside it) or to the \
+                 key itself. gpg.ssh.defaultKeyCommand satisfies this too, when it produces a \
+                 key. Nothing was written: the key is resolved before the commit object is \
+                 built.",
+        exits: &[
+            "git config user.signingkey ~/.ssh/id_ed25519.pub",
+            "ff commit --no-sign",
+        ],
+    },
+    Entry {
+        id: "sign/no-program",
+        summary: "the signing program is not on PATH",
+        detail: "fufu spawns the signer itself — gix implements no signing — so the program \
+                 gpg.format names has to be findable: gpg, gpgsm, or ssh-keygen, or whatever \
+                 gpg.program, gpg.<format>.program overrides it with. This is the one signing \
+                 failure that is usually about the machine rather than the repository: the same \
+                 configuration works elsewhere. `ff doctor` reports the same thing without \
+                 needing a commit to fail first.",
+        exits: &["ff doctor", "git config --unset commit.gpgsign"],
+    },
+    Entry {
+        id: "sign/failed",
+        summary: "the signing program ran and refused",
+        detail: "The signer's own words are in the message: a passphrase not given, a key that \
+                 is not there, an agent that is not running. fufu captures the signer's stderr \
+                 rather than letting it through, so the reason survives to the error — a \
+                 pinentry prompt still reaches your terminal, because gpg-agent opens the tty \
+                 itself. Nothing landed: the commit object is written before any ref moves, so a \
+                 refusal leaves the branch exactly where it was.",
+        exits: &["ff doctor", "ff commit --no-sign"],
+    },
+    Entry {
         id: "editor/failed",
         summary: "the editor did not produce a description",
         detail: "The bare form of describe seeds a temporary file and opens $EDITOR on it. When \

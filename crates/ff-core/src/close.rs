@@ -17,6 +17,7 @@ use crate::model::{CommitOutcome, HeadState};
 use crate::ops::record::observe_refs;
 use crate::ops::{DescriptionTransition, OpKind, OpRecord, RefTransition, verb};
 use crate::refs;
+use crate::sign;
 use crate::snapshot::tree as snaptree;
 use crate::snapshot::{Provenance, config};
 
@@ -33,6 +34,9 @@ pub struct CloseOptions {
     /// The rule is [`crate::restore::path_selected`]'s — a file path or a
     /// directory prefix, no globs. Empty closes the whole open change.
     pub paths: Vec<String>,
+    /// `-S` / `--no-sign`: whether this close signs, when the answer is not
+    /// simply `commit.gpgsign`'s.
+    pub sign: sign::Choice,
     /// Clock injection for tests.
     pub now: Option<i64>,
     /// The invoking argv, recorded verbatim.
@@ -163,6 +167,11 @@ pub fn close(
             return Err(no_such_path(path));
         }
     }
+
+    // The signer is resolved here, above every write and above the tree
+    // work: a bad `gpg.format` or a missing key costs a config read and
+    // nothing else. The spawn itself happens once, at the commit object.
+    let signer = sign::resolve(repo, opts.sign)?;
 
     let ctx = verb::begin_verb(repo, prov, opts.now)?;
     let now = ctx.now;
@@ -326,7 +335,10 @@ pub fn close(
         message: message.clone().into(),
         extra_headers: Vec::new(),
     };
-    let commit_id = repo.write_object(&commit).map_err(Error::repo)?.detach();
+    // A signing failure aborts here, with nothing but an unreferenced object
+    // written — before the op-journal append and before any ref moves, the
+    // same shape as every other pre-transaction refusal.
+    let commit_id = sign::write_user_commit(repo, signer.as_ref(), commit)?;
 
     // Write-ahead: the planned table is the post-close world.
     let target_ref = format!("refs/heads/{target_branch}");

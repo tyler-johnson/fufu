@@ -1,6 +1,7 @@
 //! `ff commit` — close the open change. The pre-verb snapshot is mandatory
 //! and owned by core; contention aborts before anything is written.
 
+use ff_core::sign::Choice;
 use ff_core::{CloseOptions, CommitOutcome, Result};
 
 use crate::ctx::Ctx;
@@ -10,6 +11,8 @@ pub fn run(
     message: Option<String>,
     no_verify: bool,
     branch: Option<String>,
+    sign: bool,
+    no_sign: bool,
     paths: Vec<String>,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -24,6 +27,13 @@ pub fn run(
             message,
             no_verify,
             branch,
+            // Two booleans clap already refuses to see together, so the
+            // third state is simply "neither was typed".
+            sign: match (sign, no_sign) {
+                (true, _) => Choice::Force,
+                (_, true) => Choice::Skip,
+                _ => Choice::Config,
+            },
             paths,
             now: None,
             argv: std::env::args().collect(),

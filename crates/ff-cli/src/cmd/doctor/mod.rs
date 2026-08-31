@@ -111,6 +111,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         rows.extend(repo::legacy_row(repo)?);
         rows.extend(repo::parked_row(repo)?);
         rows.extend(repo::settings_checks(repo, now)?);
+        rows.push(repo::signing_row(repo));
         rows.extend(repo::branch_checks(repo, fix)?);
     }
 

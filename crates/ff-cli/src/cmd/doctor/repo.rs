@@ -488,6 +488,52 @@ pub(super) fn settings_checks(repo: &ff_core::gix::Repository, now: i64) -> Resu
     Ok(rows)
 }
 
+/// Commit signing: whether it is on, and whether the setup it names will
+/// actually work. Read-only and spawn-free — the program is looked for on
+/// PATH rather than run, because a doctor that ran gpg could sit on a
+/// pinentry prompt nobody asked for.
+pub(super) fn signing_row(repo: &ff_core::gix::Repository) -> Row {
+    let setup = ff_core::sign::setup(repo);
+    if !setup.on {
+        return Row::info("signing", "off (commit.gpgsign)".into());
+    }
+    let Some(format) = setup.format else {
+        return Row::warn(
+            "signing",
+            format!(
+                "commit.gpgsign is on, but gpg.format is \"{}\" — fufu signs with openpgp, x509 or ssh",
+                setup.raw_format
+            ),
+        );
+    };
+    let mut missing: Vec<String> = Vec::new();
+    if !ff_core::sign::program_available(&setup.program) {
+        missing.push(format!("{} is not on PATH", setup.program));
+    }
+    // openpgp and x509 fall back to gpg's own default key; ssh has no such
+    // fallback, so a key is part of the setup rather than a nicety.
+    if format == ff_core::sign::Format::Ssh
+        && setup.key.is_none()
+        && setup.default_key_command.is_none()
+    {
+        missing.push("no user.signingkey, which ssh signing requires".into());
+    }
+    if format == ff_core::sign::Format::Ssh && setup.allowed_signers.is_none() {
+        missing.push(
+            "no gpg.ssh.allowedSignersFile — signing will work, verification will not".into(),
+        );
+    }
+    let named = match &setup.key {
+        Some(key) => format!("{} via {}, key {key}", format.as_str(), setup.program),
+        None => format!("{} via {}", format.as_str(), setup.program),
+    };
+    if missing.is_empty() {
+        Row::ok("signing", format!("on — {named}"))
+    } else {
+        Row::warn("signing", format!("on — {named}; {}", missing.join("; ")))
+    }
+}
+
 /// The remote floor: which local branches can name a remote, what their
 /// `[branch "<n>"]` sections point at, and whether the shared copy those
 /// sections promise still exists. The upstreams row holds the second of the

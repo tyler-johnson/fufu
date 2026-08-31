@@ -14,6 +14,8 @@ A path that names a blob is followed through its renames, on by default. A direc
 
 The @ row appears when the open change touches the paths, the same rule -r already has.
 
+--signatures verifies each row and puts git's status letter beside it — G good, B bad, U untrusted, X expired, Y expired key, R revoked key, E unverifiable, N unsigned. It is opt-in because verifying a page is one signer run per row; without it `ff log` verifies nothing and runs nothing.
+
 The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER, then PAGER, then less. Piped output and --json never page.
 
 ## Examples
@@ -22,6 +24,7 @@ The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER, the
 ff log                         the last 25 rows
 ff log -n 0                    all of it
 ff log --commits               history only, no operation rows
+ff log --signatures            verify each row and show its status letter
 ff log -r main                 just main's tip — no @ row, it is not in it
 ff log -r 'trunk..@'           what this branch has that trunk does not
 ff log src/parser.rs           what happened to this file, renames and all
