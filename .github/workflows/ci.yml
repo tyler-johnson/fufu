@@ -11,10 +11,14 @@ on:
     paths-ignore:
       - docs/**
       - mkdocs.yml
+      - CHANGELOG.md
+      - DESIGN.md
   pull_request:
     paths-ignore:
       - docs/**
       - mkdocs.yml
+      - CHANGELOG.md
+      - DESIGN.md
 
 jobs:
   licenses:

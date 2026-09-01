@@ -10,6 +10,10 @@ on:
     paths:
       - docs/**
       - mkdocs.yml
+      # Included into the site at build time by docs/changelog.md and
+      # docs/internals/design.md, so they are site sources too.
+      - CHANGELOG.md
+      - DESIGN.md
   workflow_dispatch:
 
 permissions:
