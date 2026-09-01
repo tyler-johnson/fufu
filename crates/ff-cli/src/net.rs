@@ -19,12 +19,22 @@
 //! the other sanctioned one, and differs in a way that matters: a push that
 //! fails is not best-effort. It is reported, with a coded error.
 //!
+//! One more spawn exists, and only in a repository that is broken in a
+//! particular way: a linked worktree's admin dir holding a `gitdir` file
+//! without a readable `commondir`, which is the state such a directory
+//! passes through while it is being created or removed. gix's fetch opens
+//! every one of them and fails the whole fetch on the first it cannot,
+//! where git's own worktree walk skips it and fetches anyway. So the
+//! budget is three cases: native fetch, git's `push`, and git's `fetch`
+//! when the repository is in a state gix's fetch refuses and git's ignores.
+//!
 //! So "native" here is a claim about the protocol, not about the process
 //! table, and `tests/zero_spawn.rs` says the same thing in its preamble.
 
 use ff_core::{Error, Publish, Result};
 
-/// Run one `git` invocation — `push` and nothing else now — capturing stderr
+/// Run one `git` invocation — `push`, and [`fetch`]'s fallback for a
+/// repository gix will not fetch in — capturing stderr
 /// so a failure can be classified rather than merely observed. Progress bars
 /// are the only thing capturing costs: git draws none when stderr is not a
 /// terminal, and its summary lines come through either way.
@@ -92,8 +102,45 @@ fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
 /// still borrowed from git is its config and credential surface, which
 /// [`wire_repo`] explains — so this is a claim about the protocol, not about
 /// the process table.
+///
+/// The one exception is the repository gix will not fetch in at all: a
+/// half-written worktree admin dir, which [`unopenable_worktree`] names and
+/// git walks straight past. There the fetch is handed to `git fetch` once,
+/// and only there.
 pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
     let repo = wire_repo(cwd)?;
+    let err = match native_fetch(&repo, remote) {
+        Ok(()) => return Ok(()),
+        Err(err) => err,
+    };
+    let Some(admin) = unopenable_worktree(&repo) else {
+        return Err(err);
+    };
+    // git walks past that directory and fetches; the one spawn buys the
+    // user their fetch, and whose process did it is not their problem in
+    // the middle of a sync.
+    if let Ok(run) = run(cwd, &["fetch", remote])
+        && run.ok
+    {
+        return Ok(());
+    }
+    Err(Error::coded(
+        "sync/fetch-failed",
+        format!(
+            "{err}: the worktree admin dir {} is incomplete — git ignores it, \
+             fufu's fetch cannot",
+            admin.display()
+        ),
+        vec![
+            "ff git worktree prune".into(),
+            format!("ff git fetch {remote}"),
+            "ff sync --no-fetch".into(),
+        ],
+    ))
+}
+
+/// The four native steps, and nothing about the failure lane.
+fn native_fetch(repo: &gix::Repository, remote: &str) -> Result<()> {
     let failed = |err: &dyn std::error::Error| {
         Error::coded(
             "sync/fetch-failed",
@@ -119,6 +166,33 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
         .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
         .map_err(|err| failed(&err))?;
     Ok(())
+}
+
+/// The git dir of the first linked worktree gix cannot open as a repository,
+/// if any — the admin dir that will have failed the fetch above.
+///
+/// gix's `receive` looks up the branches checked out in other worktrees so it
+/// can decline to move one, and it does that by opening each admin dir
+/// `worktrees()` lists — every directory holding a `gitdir` file — through
+/// exactly the call below. An admin dir with no readable `commondir` resolves
+/// its common dir to itself, so its object dir is `<admin>/objects`, which
+/// does not exist, and the open fails. git's own worktree walk skips such a
+/// directory; gix's fetch fails on it.
+///
+/// Making the probe *be* that call, rather than matching on gix's error text
+/// or restating why the open fails, is what keeps this exact: whatever gix
+/// decides it cannot open is what this reports.
+fn unopenable_worktree(repo: &gix::Repository) -> Option<std::path::PathBuf> {
+    for proxy in repo.worktrees().ok()? {
+        let git_dir = proxy.git_dir().to_path_buf();
+        if proxy
+            .into_repo_with_possibly_inaccessible_worktree()
+            .is_err()
+        {
+            return Some(git_dir);
+        }
+    }
+    None
 }
 
 /// `git push`, in the one of two shapes the plan calls for. A branch with no

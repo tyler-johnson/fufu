@@ -1,8 +1,11 @@
 //! `ff sync` and `ff publish`, end to end against the real `ff` binary.
-//! Every test is offline — `--no-fetch` on a repository with no remote — so
-//! none reaches the network. Covers the base-axis replay, the JSON
-//! envelopes, the nothing-to-sync state, publish with nowhere to send, and
-//! the two git words that now point at the pair.
+//! Every test is offline: all but one run `--no-fetch` on a repository with
+//! no remote, and the one that really fetches
+//! ([`a_half_removed_worktree_admin_dir_does_not_stop_the_fetch`]) aims at a
+//! bare remote on the filesystem beside it. Nothing here reaches the
+//! network. Covers the base-axis replay, the JSON envelopes, the
+//! nothing-to-sync state, publish with nowhere to send, and the two git
+//! words that now point at the pair.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -242,4 +245,61 @@ fn the_dry_run_envelope_says_it_sent_nothing() {
     assert_eq!(v["cmd"], "publish");
     assert_eq!(v["data"]["pushed"], false);
     assert_eq!(v["data"]["publish"]["dry_run"], true);
+}
+
+/// A sibling worktree's admin dir caught mid-removal — a `gitdir` file with
+/// no `commondir` beside it — used to fail the whole sync: gix's fetch opens
+/// every admin dir `worktrees()` lists to find the branches checked out
+/// elsewhere, and propagates the open error. git's own walk skips such a
+/// directory and fetches anyway, so fufu hands the fetch to git there.
+///
+/// The assertion is the fetch, not the fallback: the run exits 0 and the
+/// tracking ref carries a commit this repository had never seen.
+/// `tests/zero_spawn.rs` is where *which* process did it is pinned.
+#[test]
+fn a_half_removed_worktree_admin_dir_does_not_stop_the_fetch() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+
+    // A second clone is where the commit this repository has never seen
+    // comes from — a bare remote has no worktree to make one in.
+    let other = fx.root().join("other");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &other.to_string_lossy(),
+        ],
+    );
+    std::fs::write(other.join("b.txt"), "b\n").unwrap();
+    fx.git_in(&other, &["add", "-A"]);
+    fx.git_in(&other, &["commit", "-q", "-m", "theirs"]);
+    fx.git_in(&other, &["push", "-q", "origin", "main"]);
+    let theirs = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
+    assert!(
+        fx.try_git(&["cat-file", "-e", &theirs]).status.code() != Some(0),
+        "test fixture: the commit must be one this repository has never seen"
+    );
+
+    // The half-removed admin dir: `gitdir` present, `commondir` gone. git
+    // ignores it; gix's fetch used to stop on it.
+    let ghost = fx.path().join(".git/worktrees/ghost");
+    std::fs::create_dir_all(&ghost).unwrap();
+    std::fs::write(
+        ghost.join("gitdir"),
+        format!("{}/.git\n", fx.root().join("ghost").display()),
+    )
+    .unwrap();
+
+    let output = ff(&fx, &["sync"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
+        theirs,
+        "the tracking ref must carry what the remote advertised"
+    );
 }

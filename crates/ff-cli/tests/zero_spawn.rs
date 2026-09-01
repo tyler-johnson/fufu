@@ -23,6 +23,16 @@
 //! dead here, and every assertion below still proves full zero-spawn for
 //! everything else.
 //!
+//! `ff sync`'s fetch adds a third sanctioned spawn, and only in a repository
+//! that is broken in one particular way: a linked worktree's admin dir with a
+//! `gitdir` file and no readable `commondir`, the state such a directory
+//! passes through while it is being created or removed. gix's fetch opens
+//! every admin dir and fails the whole fetch on the first it cannot; git's own
+//! walk skips it. So fufu hands that fetch to `git fetch`, once. The healthy
+//! path stays proven by `a_fetch_speaks_the_protocol_itself`, and
+//! `the_fallback_fetch_fires_only_for_a_broken_worktree_dir` pins that the
+//! spawn happens only in the broken state, and is exactly one `fetch`.
+//!
 //! `ff clone` is the one verb this trap cannot honestly speak for, so it is
 //! stated here instead of asserted. fufu does the clone's protocol, pack and
 //! checkout itself — nothing shells out to `git clone` — but it still reaches
@@ -877,4 +887,61 @@ fn publishing_to_a_named_remote_is_still_one_spawn() {
     );
     let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
     assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
+}
+
+/// The other side of that contract, in one fixture: the same sync run twice,
+/// first healthy and then with a half-removed worktree admin dir planted.
+/// Healthy, nothing is spawned. With the ghost dir, the trap log holds
+/// exactly one line and it is a `fetch` — the fallback fires only in the
+/// broken state, and adds nothing besides itself.
+///
+/// The trap's git *succeeds* here, so the second run is a fetch that fetched
+/// nothing: what the porcelain would have brought back is not this test's
+/// claim, and `tests/sync.rs` asserts the real fetch against a real git. The
+/// real PATH stays behind the trap so `git-upload-pack` resolves — without it
+/// the first fetch would fail on the transport rather than succeed, and the
+/// two runs would prove nothing about the ghost.
+#[test]
+fn the_fallback_fetch_fires_only_for_a_broken_worktree_dir() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+
+    let trap = build_trap_ok();
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    assert!(
+        out.status.success(),
+        "the healthy sync failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !trap.log.exists(),
+        "a healthy repository spawned the fallback: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+
+    // `gitdir` present, `commondir` gone: what git ignores and gix's fetch
+    // will not open.
+    let ghost = fx.path().join(".git/worktrees/ghost");
+    std::fs::create_dir_all(&ghost).unwrap();
+    std::fs::write(
+        ghost.join("gitdir"),
+        format!("{}/.git\n", fx.root().join("ghost").display()),
+    )
+    .unwrap();
+
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    assert!(
+        out.status.success(),
+        "the fallback did not carry the sync: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let logged = std::fs::read_to_string(&trap.log).unwrap_or_default();
+    let lines: Vec<&str> = logged.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "one spawn and no more: {logged:?}");
+    assert!(
+        lines[0].contains("fetch"),
+        "the sanctioned spawn is the fallback fetch: {logged:?}"
+    );
 }

@@ -21,6 +21,7 @@
 ### Fixed
 
 - `ff absorb`, `ff done`, and `ff describe <rev>` ran no hooks at all, so content a `pre-commit` gate would decline on a close landed in the commit anyway. `pre-commit` now runs for `ff absorb` and for both of `ff done`'s landings — the edit session and the resolution — over the index staged with exactly what is landing, and the message hooks run for `ff describe <rev>` and for an `ff done` whose session carries a new description. `ff lift`, `ff restack` and `ff sync` still run none, matching `git rebase`.
+- `ff sync` failed its whole run when a linked worktree's admin dir under `.git/worktrees/` held a `gitdir` file without a readable `commondir` — the state such a directory passes through while it is being created or removed. git ignores such a directory; fufu's native fetch stopped on it. The fetch is now retried once through `git fetch`, which walks past it, and the error names the offending admin dir when that fails too.
 - A held rewrite whose later commit merged its own change *into* a standing conflict marker left `ff done` unable to land any resolution: the block `ff resolve` showed was no longer the block the step that owned it had written, and every fix was refused with `no marker block to resolve at <path>`. The chain now stops at that fold, the same way it stops when two conflicts interleave, so `ff resolve` shows the mark as its owning commit wrote it and `ff done` lands the fix.
 
 ## v0.10.0 — 2026-09-01
