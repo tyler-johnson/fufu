@@ -22,7 +22,7 @@ Check the result:
 
 ```console
 $ ff version
-fufu 0.9.0 (aa32e8a 2026-08-28)
+fufu 0.10.0 (0a47458 2026-09-01)
 https://github.com/tyler-johnson/fufu
 ```
 

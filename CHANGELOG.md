@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.10.0 — 2026-08-31
+## v0.10.0 — 2026-09-01
 
 A documentation site. Everything fufu knew about itself lived in DESIGN.md, a README walkthrough, and forty-nine `--help` pages — nothing a newcomer could read front to back. [The site](https://tyler-johnson.github.io/fufu/) is thirty-two hand-written pages organized jj's way — getting started, concepts, guides, reference, comparisons, internals — plus a section jj has no need for: for agents. The tutorial walks the whole loop, five guides cover recovery, rewriting, stacked changes, worktrees and plain-git teammates, and every console block on the site is pasted from a script under `scripts/docs/` that ran against the real binary, so a changed output is one invocation to regenerate. The README stops demonstrating and points at it.
 

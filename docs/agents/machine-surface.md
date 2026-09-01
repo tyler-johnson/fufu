@@ -12,7 +12,7 @@ Every `--json` emission is one JSON object on one line, wrapped in a versioned e
 
 ```console
 $ ff version --json
-{"ff":1,"cmd":"version","data":{"version":"0.9.0","commit":"aa32e8a","date":"2026-08-28","update":{"status":"unofficial","latest":null}}}
+{"ff":1,"cmd":"version","data":{"version":"0.10.0","commit":"0a47458","date":"2026-09-01","update":{"status":"unofficial","latest":null}}}
 ```
 
 `ff` is the contract version, currently `1`. `cmd` names the verb that answered. The payload is `data` on success and `error` on failure, never both:
