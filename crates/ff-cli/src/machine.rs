@@ -53,3 +53,18 @@ pub fn interactive() -> bool {
     let forced_off = std::env::var_os("FF_NONINTERACTIVE").is_some_and(|v| !v.is_empty());
     !forced_off && std::io::IsTerminal::is_terminal(&std::io::stdin())
 }
+
+/// `[Y/n]` on stdin. No new dependency, and no selector: this is one
+/// question with a default, and a TUI for it would be a TUI to maintain.
+/// Callers gate on [`interactive`] first — nothing may prompt when it is false.
+pub fn confirm(question: &str) -> Result<bool> {
+    use std::io::Write;
+    print!("\n{question} [Y/n] ");
+    std::io::stdout().flush().map_err(Error::repo)?;
+    let mut answer = String::new();
+    if std::io::stdin().read_line(&mut answer).is_err() {
+        return Ok(false);
+    }
+    let answer = answer.trim().to_ascii_lowercase();
+    Ok(answer.is_empty() || answer == "y" || answer == "yes")
+}

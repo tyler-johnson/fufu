@@ -133,7 +133,7 @@ fn targets(
         return Ok(Vec::new());
     }
     let names: Vec<&str> = detected.iter().map(|i| i.slug()).collect();
-    if confirm(&format!("{verb} {}?", names.join(", ")))? {
+    if crate::machine::confirm(&format!("{verb} {}?", names.join(", ")))? {
         Ok(detected)
     } else {
         println!("{}", nothing_hooked(&detected, verb));
@@ -150,20 +150,6 @@ fn nothing_hooked(detected: &[&'static dyn Integration], verb: &str) -> String {
         verb.trim_end_matches('e'),
         names.join(" ")
     )
-}
-
-/// `[Y/n]` on stdin. No new dependency, and no selector: this is one
-/// question with a default, and a TUI for it would be a TUI to maintain.
-fn confirm(question: &str) -> Result<bool> {
-    use std::io::Write;
-    print!("\n{question} [Y/n] ");
-    std::io::stdout().flush().map_err(Error::repo)?;
-    let mut answer = String::new();
-    if std::io::stdin().read_line(&mut answer).is_err() {
-        return Ok(false);
-    }
-    let answer = answer.trim().to_ascii_lowercase();
-    Ok(answer.is_empty() || answer == "y" || answer == "yes")
 }
 
 fn act(

@@ -2,16 +2,11 @@
 
 use serde::Deserialize;
 
+/// Only the tag is read: fufu no longer downloads assets, it compares
+/// versions and hands the install script the rest.
 #[derive(Debug, Deserialize)]
 pub struct Release {
     pub tag_name: String,
-    pub assets: Vec<Asset>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Asset {
-    pub name: String,
-    pub browser_download_url: String,
 }
 
 pub fn agent() -> ureq::Agent {
@@ -67,19 +62,4 @@ pub fn fetch_latest(agent: &ureq::Agent, api_base: &str) -> ff_core::Result<Rele
         .map_err(|err| ff_core::Error::msg(format!("cannot read GitHub API response: {err}")))?;
 
     serde_json::from_str(&body).map_err(|_| ff_core::Error::msg("unexpected GitHub API response"))
-}
-
-pub fn fetch_text(agent: &ureq::Agent, url: &str) -> ff_core::Result<String> {
-    let mut resp = get(agent, url)?;
-
-    let status = resp.status().as_u16();
-    if !(200..300).contains(&status) {
-        return Err(ff_core::Error::msg(format!(
-            "download failed: HTTP {status}"
-        )));
-    }
-
-    resp.body_mut()
-        .read_to_string()
-        .map_err(|err| ff_core::Error::msg(format!("cannot read response body: {err}")))
 }

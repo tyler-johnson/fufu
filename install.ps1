@@ -41,7 +41,28 @@ try {
 
     Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $tmp -Force
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    Copy-Item (Join-Path $tmp 'ff.exe') (Join-Path $installDir 'ff.exe') -Force
+
+    # Windows locks a running exe against being overwritten but permits
+    # renaming it, so move the old one aside first and put it back if the
+    # copy fails. `ff update` re-runs this script over itself, so the file
+    # being replaced is normally the one executing.
+    $target = Join-Path $installDir 'ff.exe'
+    $old = "$target.old"
+    Remove-Item $old -Force -ErrorAction SilentlyContinue
+    $moved = $false
+    if (Test-Path $target) {
+        Move-Item $target $old -Force
+        $moved = $true
+    }
+    try {
+        Copy-Item (Join-Path $tmp 'ff.exe') $target -Force
+    } catch {
+        if ($moved) { Move-Item $old $target -Force }
+        throw
+    }
+    # Usually fails while the old binary is still running — harmless, it is
+    # removed by the next install.
+    if ($moved) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }

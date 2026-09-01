@@ -193,7 +193,10 @@ mod tests {
         let json = |command| Ctx::resolve(true, None, None, &Some(command)).unwrap().json;
         assert!(json(status(None, None)));
         assert!(!json(Command::Git { args: vec![] }));
-        assert!(!json(Command::Update { check: false }));
+        assert!(!json(Command::Update {
+            check: false,
+            yes: false
+        }));
         // And nothing turns it on that did not ask.
         assert!(!Ctx::resolve(false, None, None, &None).unwrap().json);
     }

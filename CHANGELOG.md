@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `ff update` names the command that updates this copy of fufu instead of downloading a binary over itself: `cargo install` for a source build, `brew upgrade fufu` for Homebrew, the install script for a binary at the install script's own path, and the releases page for anything else. It runs that command only on `-y` or a typed yes, and `-y` on a channel it cannot drive exits 1. The only binary fufu will ever replace is the one at the install script's own path, and the install script is what replaces it.
+- The background update check still runs on `fufu.updateCheck` and still lands a one-line notice, but nothing installs itself any more. The notice names whichever command owns the binary.
+- `install.sh` and `install.ps1` land the new binary beside the old one and rename, rather than writing over it, so they can replace an `ff` that is currently running.
+
+### Removed
+
+- `fufu.autoUpdate`. Silent background installs are gone; there is nothing left for the setting to turn off.
+- The in-process downloader — asset selection, sha256 verification, archive extraction, and the binary swap — along with the four dependencies it needed: `sha2`, `tar`, `flate2`, and the windows-only `zip`.
+
 ## v0.10.0 — 2026-09-01
 
 ### Added

@@ -53,13 +53,7 @@ Pager for ff log and ff evolog on a TTY. When set it overrides FF_PAGER and PAGE
 
 `fufu.updateCheck` — cadence; default `1d`
 
-How often ff looks for a new release in the background. false turns the whole machinery off (checks, notices, auto-install); true means daily; durations work too (12h, 7d, 2w), floored at one minute.
-
-### autoUpdate
-
-`fufu.autoUpdate` — bool; default `true`
-
-Install new releases silently in the background. false prints a one-line notice instead; updateCheck false disables both.
+How often ff looks for a new release in the background. false turns the whole machinery off (checks and notices); true means daily; durations work too (12h, 7d, 2w), floored at one minute.
 
 ### trunk
 

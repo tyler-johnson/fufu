@@ -12,11 +12,16 @@
 //! provably spawn-free and every assertion below still stands unchanged.
 //! `crates/ff-cli/tests/signing.rs` covers the lane that does spawn.
 //!
-//! One sanctioned self-spawn exists outside this proof: official release
-//! builds may spawn `<current_exe> update --check` (absolute path, never
-//! PATH) from the passive update lane. Test binaries are never official
-//! (FF_OFFICIAL_BUILD unset), so that lane is structurally dead here and
-//! every assertion below still proves full zero-spawn for everything else.
+//! Two sanctioned spawns exist outside this proof, both in the update lane
+//! and both by absolute path, never through PATH. Official release builds
+//! may spawn `<current_exe> update --check` to refresh the release cache;
+//! and `ff update` on an install-script binary runs the install script
+//! through `/bin/sh -c` (`powershell -NoProfile -Command` on windows) after
+//! an explicit `-y` or a typed yes. Test binaries are never official
+//! (FF_OFFICIAL_BUILD unset), so they classify as a source build and
+//! `ff update` returns before either spawn — both lanes are structurally
+//! dead here, and every assertion below still proves full zero-spawn for
+//! everything else.
 //!
 //! `ff clone` is the one verb this trap cannot honestly speak for, so it is
 //! stated here instead of asserted. fufu does the clone's protocol, pack and

@@ -15,7 +15,6 @@ pub struct UpdateState {
     pub latest: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notified: Option<String>,
-    pub auto_tried_at: i64,
     pub interval_secs: i64,
 }
 
@@ -77,9 +76,6 @@ pub fn save_state(path: &std::path::Path, state: &UpdateState) -> std::io::Resul
     Ok(())
 }
 
-/// Auto-install probes are hard-coded daily, independent of the check cadence.
-const AUTO_RETRY_SECS: i64 = 86_400;
-
 /// Current unix timestamp in seconds.
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
@@ -93,7 +89,8 @@ fn gates_open() -> bool {
     crate::selfupdate::OFFICIAL && std::env::var_os("CI").is_none()
 }
 
-/// Spawn a detached process (all stdio nulled, cwd inherited).
+/// Spawn a detached process (all stdio nulled, cwd inherited). One caller:
+/// the daily `update --check` cache refresh.
 fn spawn_detached(exe: &std::path::Path, args: &[&str]) {
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args)
@@ -157,11 +154,10 @@ pub(crate) fn check_status(current_version: &str) -> CheckStatus {
     )
 }
 
-/// Result of the passive decision core — which actions are due.
+/// Result of the passive decision core — the one action there is.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Due {
     pub notice: bool, // a not-yet-announced newer release exists
-    pub auto: bool,   // an auto-install probe is allowed now
     pub latest: String,
 }
 
@@ -169,8 +165,6 @@ pub(crate) struct Due {
 pub(crate) fn compute_due(
     state: &UpdateState,
     current: crate::selfupdate::Version,
-    now: i64,
-    brew: bool,
     tty: bool,
 ) -> Option<Due> {
     if !tty {
@@ -181,32 +175,37 @@ pub(crate) fn compute_due(
     if latest_ver <= current {
         return None;
     }
-    let notice = state.notified.as_deref() != state.latest.as_deref();
-    let auto = !brew && now - state.auto_tried_at >= AUTO_RETRY_SECS;
-    if !notice && !auto {
+    if state.notified.as_deref() == state.latest.as_deref() {
         return None;
     }
     Some(Due {
-        notice,
-        auto,
+        notice: true,
         latest: latest.clone(),
     })
 }
 
 /// The pending() notice, minus all IO. None = nothing to say to the caller.
+/// The tail names whatever owns this binary, the same four channels
+/// `ff update` dispatches over.
 pub(crate) fn notice_for(
     due: &Due,
     want_notice: bool,
     current_version: &str,
-    brew: bool,
+    kind: crate::selfupdate::InstallKind,
 ) -> Option<String> {
+    use crate::selfupdate::InstallKind;
     if !due.notice || !want_notice {
         return None;
     }
-    let suffix = if brew {
-        " — update with: brew upgrade fufu"
-    } else {
-        " — update with: ff update"
+    let suffix = match kind {
+        InstallKind::Script => " — update with: ff update".to_string(),
+        InstallKind::Homebrew => {
+            format!(" — update with: {}", crate::selfupdate::BREW_UPGRADE)
+        }
+        InstallKind::Source => {
+            format!(" — update with: {}", crate::selfupdate::CARGO_INSTALL)
+        }
+        InstallKind::Unmanaged => format!(" — see {}", crate::selfupdate::RELEASES_URL),
     };
     Some(format!(
         "ff: {} is available (running v{}){}",
@@ -260,11 +259,11 @@ pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
     spawn_detached(&exe, &["update", "--check"]);
 }
 
-/// Check whether a release notice or auto-install is pending.
-/// Returns a notice string if something should be printed.
+/// Check whether a release notice is pending. Returns a notice string if
+/// something should be printed.
 ///
-/// The auto-install half always runs; `want_notice` decides only whether a
-/// caller is handed a string to print.
+/// This lane never installs anything: it notices, and names the command
+/// that would.
 pub fn pending(
     repo: &ff_core::gix::Repository,
     current_version: &str,
@@ -278,42 +277,22 @@ pub fn pending(
     let tty = std::io::stderr().is_terminal();
 
     let current = crate::selfupdate::parse_semver(current_version)?;
-    let exe = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.canonicalize().ok());
-    let brew = exe.as_deref().is_some_and(|e| {
-        crate::selfupdate::classify_install(e, true) == crate::selfupdate::InstallKind::Homebrew
-    });
-
-    let due = compute_due(&state, current, now_secs(), brew, tty)?;
+    let due = compute_due(&state, current, tty)?;
 
     // Something is due — NOW check live config.
     if crate::cadence::read_encoded(repo.config_snapshot().plumbing(), "fufu.updateCheck") == -1 {
         return None;
     }
 
-    // Auto-install path.
-    if due.auto
-        && let Some(exe) = exe
-    {
-        let mut state = state;
-        state.auto_tried_at = now_secs();
-        let _ = save_state(&path, &state);
+    // An unresolvable exe cannot be classified; the releases page is the
+    // answer that is true for every install.
+    let kind = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|exe| crate::selfupdate::classify_install(&exe, true))
+        .unwrap_or(crate::selfupdate::InstallKind::Unmanaged);
 
-        let auto_update = repo
-            .config_snapshot()
-            .boolean("fufu.autoUpdate")
-            .unwrap_or(true);
-
-        if auto_update {
-            spawn_detached(&exe, &["update"]);
-            return None;
-        }
-        // autoUpdate false — fall through to the notice.
-    }
-
-    // Notice path.
-    notice_for(&due, want_notice, current_version, brew)
+    notice_for(&due, want_notice, current_version, kind)
 }
 
 /// Mark the current latest as notified — a release announces at most once, ever.
@@ -442,7 +421,6 @@ mod tests {
             checked_at: 1_700_000_000,
             latest: Some("v0.2.0".into()),
             notified: Some("v0.2.0".into()),
-            auto_tried_at: 1_700_000_100,
             interval_secs: 86_400,
         };
         save_state(&path, &state).unwrap();
@@ -464,144 +442,61 @@ mod tests {
     // compute_due matrix — pure decision logic, no IO
     // ------------------------------------------------------------------
 
-    fn state_builder(
-        latest: Option<&str>,
-        notified: Option<&str>,
-        auto_tried_at: i64,
-    ) -> UpdateState {
+    fn state_builder(latest: Option<&str>, notified: Option<&str>) -> UpdateState {
         UpdateState {
             latest: latest.map(str::to_string),
             notified: notified.map(str::to_string),
-            auto_tried_at,
             ..Default::default()
         }
     }
 
     #[test]
     fn compute_due_no_tty() {
-        let state = state_builder(Some("v0.2.0"), None, 0);
-        assert!(
-            compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, false).is_none()
-        );
+        let state = state_builder(Some("v0.2.0"), None);
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), false).is_none());
     }
 
     #[test]
     fn compute_due_latest_absent() {
-        let state = state_builder(None, None, 0);
-        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+        let state = state_builder(None, None);
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), true).is_none());
     }
 
     #[test]
     fn compute_due_latest_equals_current() {
-        let state = state_builder(Some("v0.1.0"), None, 0);
-        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+        let state = state_builder(Some("v0.1.0"), None);
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), true).is_none());
     }
 
     #[test]
     fn compute_due_latest_older() {
-        let state = state_builder(Some("v0.0.9"), None, 0);
-        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+        let state = state_builder(Some("v0.0.9"), None);
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), true).is_none());
     }
 
     #[test]
-    fn compute_due_notice_only() {
-        // Newer, not notified, auto_tried_at = now → notice only
-        let state = state_builder(Some("v0.2.0"), None, 1000);
-        let due = compute_due(
-            &state,
-            crate::selfupdate::Version(0, 1, 0),
-            1000,
-            false,
-            true,
-        );
+    fn compute_due_notice() {
+        let state = state_builder(Some("v0.2.0"), None);
         assert_eq!(
-            due,
+            compute_due(&state, crate::selfupdate::Version(0, 1, 0), true),
             Some(Due {
                 notice: true,
-                auto: false,
                 latest: "v0.2.0".into(),
             })
         );
     }
 
     #[test]
-    fn compute_due_auto_only() {
-        // Newer, notified, auto_tried_at = 0 → auto only (notice false)
-        let state = state_builder(Some("v0.2.0"), Some("v0.2.0"), 0);
-        let due = compute_due(
-            &state,
-            crate::selfupdate::Version(0, 1, 0),
-            100_000,
-            false,
-            true,
-        );
-        assert_eq!(
-            due,
-            Some(Due {
-                notice: false,
-                auto: true,
-                latest: "v0.2.0".into(),
-            })
-        );
-    }
-
-    #[test]
-    fn compute_due_auto_tried_recent() {
-        // Newer, notified, auto_tried_at recent → None
-        let state = state_builder(Some("v0.2.0"), Some("v0.2.0"), 900);
-        assert!(
-            compute_due(
-                &state,
-                crate::selfupdate::Version(0, 1, 0),
-                1000,
-                false,
-                true
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn compute_due_brew_no_auto() {
-        // Brew + notified → None (no auto for brew)
-        let state = state_builder(Some("v0.2.0"), Some("v0.2.0"), 0);
-        assert!(
-            compute_due(
-                &state,
-                crate::selfupdate::Version(0, 1, 0),
-                1000,
-                true,
-                true
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn compute_due_brew_notice_only() {
-        // Brew + not notified → notice only
-        let state = state_builder(Some("v0.2.0"), None, 0);
-        let due = compute_due(
-            &state,
-            crate::selfupdate::Version(0, 1, 0),
-            1000,
-            true,
-            true,
-        );
-        assert_eq!(
-            due,
-            Some(Due {
-                notice: true,
-                auto: false,
-                latest: "v0.2.0".into(),
-            })
-        );
+    fn compute_due_already_notified() {
+        // A release announces at most once, ever.
+        let state = state_builder(Some("v0.2.0"), Some("v0.2.0"));
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), true).is_none());
     }
 
     #[test]
     fn compute_due_latest_unparseable() {
-        let state = state_builder(Some("not-a-version"), None, 0);
-        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), 0, false, true).is_none());
+        let state = state_builder(Some("not-a-version"), None);
+        assert!(compute_due(&state, crate::selfupdate::Version(0, 1, 0), true).is_none());
     }
 
     #[test]
@@ -609,10 +504,9 @@ mod tests {
         // Due for a notice, but the caller does not want one: nothing.
         let due = Due {
             notice: true,
-            auto: false,
             latest: "v0.2.0".into(),
         };
-        assert!(notice_for(&due, false, "0.1.0", false).is_none());
+        assert!(notice_for(&due, false, "0.1.0", crate::selfupdate::InstallKind::Script).is_none());
     }
 
     #[test]
@@ -620,22 +514,21 @@ mod tests {
         // The caller wants one, but the release is not due: nothing.
         let due = Due {
             notice: false,
-            auto: true,
             latest: "v0.2.0".into(),
         };
-        assert!(notice_for(&due, true, "0.1.0", false).is_none());
+        assert!(notice_for(&due, true, "0.1.0", crate::selfupdate::InstallKind::Script).is_none());
     }
 
     #[test]
-    fn notice_for_binary_install() {
+    fn notice_for_script_install() {
         let due = Due {
             notice: true,
-            auto: false,
             latest: "v0.2.0".into(),
         };
         // `latest` is the tag (v-prefixed); `current_version` is the bare
         // CARGO_PKG_VERSION — the format string supplies its v.
-        let notice = notice_for(&due, true, "0.1.0", false).expect("notice");
+        let notice = notice_for(&due, true, "0.1.0", crate::selfupdate::InstallKind::Script)
+            .expect("notice");
         assert!(notice.contains("v0.2.0"), "the tag: {notice}");
         assert!(
             notice.contains("running v0.1.0"),
@@ -648,12 +541,38 @@ mod tests {
     fn notice_for_brew_install() {
         let due = Due {
             notice: true,
-            auto: false,
             latest: "v0.2.0".into(),
         };
-        let notice = notice_for(&due, true, "0.1.0", true).expect("notice");
+        let notice = notice_for(
+            &due,
+            true,
+            "0.1.0",
+            crate::selfupdate::InstallKind::Homebrew,
+        )
+        .expect("notice");
         assert!(
             notice.ends_with(" — update with: brew upgrade fufu"),
+            "{notice}"
+        );
+    }
+
+    #[test]
+    fn notice_for_unmanaged_install() {
+        // Nothing fufu can name updates a binary mise or nix placed, so the
+        // tail is the page a person goes to rather than a command to run.
+        let due = Due {
+            notice: true,
+            latest: "v0.2.0".into(),
+        };
+        let notice = notice_for(
+            &due,
+            true,
+            "0.1.0",
+            crate::selfupdate::InstallKind::Unmanaged,
+        )
+        .expect("notice");
+        assert!(
+            notice.ends_with(" — see https://github.com/tyler-johnson/fufu/releases/latest"),
             "{notice}"
         );
     }
@@ -664,7 +583,7 @@ mod tests {
 
     #[test]
     fn check_status_unofficial_wins() {
-        let state = state_builder(Some("v1.0.0"), None, 0);
+        let state = state_builder(Some("v1.0.0"), None);
         assert_eq!(
             check_status_from(false, &state, Some(crate::selfupdate::Version(0, 1, 0))),
             CheckStatus::Unofficial
@@ -673,7 +592,7 @@ mod tests {
 
     #[test]
     fn check_status_no_latest() {
-        let state = state_builder(None, None, 0);
+        let state = state_builder(None, None);
         assert_eq!(
             check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
             CheckStatus::NoCheckYet
@@ -682,7 +601,7 @@ mod tests {
 
     #[test]
     fn check_status_unparseable_latest() {
-        let state = state_builder(Some("gibberish"), None, 0);
+        let state = state_builder(Some("gibberish"), None);
         assert_eq!(
             check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
             CheckStatus::NoCheckYet
@@ -691,7 +610,7 @@ mod tests {
 
     #[test]
     fn check_status_available() {
-        let state = state_builder(Some("v0.2.0"), None, 0);
+        let state = state_builder(Some("v0.2.0"), None);
         assert_eq!(
             check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
             CheckStatus::Available("v0.2.0".into())
@@ -700,7 +619,7 @@ mod tests {
 
     #[test]
     fn check_status_up_to_date() {
-        let state = state_builder(Some("v0.1.0"), None, 0);
+        let state = state_builder(Some("v0.1.0"), None);
         assert_eq!(
             check_status_from(true, &state, Some(crate::selfupdate::Version(0, 1, 0))),
             CheckStatus::UpToDate
@@ -709,7 +628,7 @@ mod tests {
 
     #[test]
     fn check_status_no_current() {
-        let state = state_builder(Some("v0.2.0"), None, 0);
+        let state = state_builder(Some("v0.2.0"), None);
         assert_eq!(
             check_status_from(true, &state, None),
             CheckStatus::NoCheckYet

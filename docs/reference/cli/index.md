@@ -74,4 +74,4 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff git`](git.md) — Capture-first git passthrough; fufu.gitPolicy decides what it says
 - [`ff explain`](explain.md) — Look up an error id and see what it means
 - [`ff version`](version.md) — Which fufu this is, and whether it is the current one
-- [`ff update`](update.md) — Download the latest release and replace this binary
+- [`ff update`](update.md) — Name the command that updates this fufu, and offer to run it

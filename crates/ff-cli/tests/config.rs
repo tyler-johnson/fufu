@@ -38,7 +38,6 @@ fn list_shows_defaults() {
     assert!(text.contains("pager"), "missing pager");
     assert!(text.contains("less"), "missing less");
     assert!(text.contains("updateCheck"), "missing updateCheck");
-    assert!(text.contains("autoUpdate"), "missing autoUpdate");
     assert!(text.contains("gitPolicy"), "missing gitPolicy");
     assert!(text.contains("coach"), "missing coach");
     assert!(text.contains("(default)"), "missing (default) tag");
@@ -285,8 +284,8 @@ fn json_shapes() {
     // pushOnSync left the registry with the sync/publish split; gitPolicy
     // joined with the graduated raw-git correction (replacing the boolean
     // translate in place), and watchInterval with ff watch; ambient left
-    // with the shell channel, so 12.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
+    // with the shell channel, and autoUpdate with silent self-installs, so 11.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -312,11 +311,6 @@ fn update_settings_validate() {
     let out = ff_cfg(&fx.path(), &["config", "updateCheck", "bogus"], &global);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("invalid value for updateCheck"));
-
-    // autoUpdate maybe → exit 2
-    let out = ff_cfg(&fx.path(), &["config", "autoUpdate", "maybe"], &global);
-    assert_eq!(out.status.code(), Some(2));
-    assert!(stderr(&out).contains("invalid value for autoUpdate"));
 }
 
 #[test]
@@ -399,19 +393,6 @@ fn update_check_syncs_cache() {
         content.contains("\"interval_secs\":0"),
         "expected 0, got: {}",
         content
-    );
-
-    // autoUpdate false → exit 0 (Bool sets cleanly)
-    let out = run_cfg(
-        &fx.path(),
-        &["config", "autoUpdate", "false"],
-        &global,
-        cache.path(),
-    );
-    assert!(
-        out.status.success(),
-        "set autoUpdate false failed: {}",
-        String::from_utf8_lossy(&out.stderr)
     );
 }
 

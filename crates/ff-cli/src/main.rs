@@ -294,7 +294,7 @@ fn main() {
         Some(cli::Command::Doctor { fix }) => cmd::doctor::run(&ctx, fix),
         Some(cli::Command::Explain { id, list }) => cmd::explain::run(&ctx, id, list),
         Some(cli::Command::Version) => cmd::version::run(&ctx),
-        Some(cli::Command::Update { check }) => cmd::update::run(&ctx, check),
+        Some(cli::Command::Update { check, yes }) => cmd::update::run(&ctx, check, yes),
         // The foreign verbs answer and stop; none of them reaches a repository.
         Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),
         Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),

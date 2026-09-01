@@ -1,8 +1,10 @@
 # ff update
 
-Moves the running binary to the latest release: picks this platform's asset, streams it through sha256 against the release's checksums.txt, and atomically renames it over the executable. Installs that are not fufu's to touch get pointed at their own updater instead — Homebrew at `brew upgrade fufu`, source builds at `cargo install`.
+Names the one command that updates this copy of fufu, and offers to run it. fufu never writes an `ff` binary itself — the install script does, and whatever else placed a binary owns replacing it. So `ff update` works out which of four channels this copy came through and answers accordingly: a source build gets `cargo install`, a Homebrew binary gets `brew upgrade fufu`, a binary mise or nix or a hand copy placed gets the releases page, and a binary sitting where the install script puts it gets the `curl … | sh` line.
 
-Official builds also keep themselves fresh without being asked. A check runs at most once per fufu.updateCheck (daily by default), and a newer release either installs itself silently in the background (fufu.autoUpdate, on by default) or lands a one-line notice on stderr instead. A release is announced at most once, ever.
+That last one is the only channel ff acts on. It checks the latest release, prints the command, and runs it after `-y` or a typed yes. Without a terminal to ask, printing the command is the whole answer. `-y` on any other channel is an error rather than a silent no-op: it asked for an update that cannot happen there.
+
+Official builds also look for new releases without being asked. A check runs at most once per fufu.updateCheck (daily by default) and lands a one-line notice on stderr, naming the same command this verb would. Nothing installs itself. A release is announced at most once, ever.
 
 --check is that background lane: it refreshes the cache and prints nothing.
 
@@ -14,6 +16,9 @@ Usage: ff update [OPTIONS]
 Options:
       --check
           Refresh the update cache only (used by the background check)
+
+  -y, --yes
+          Run the update command without asking
 
       --json
           Emit machine-readable JSON
@@ -31,7 +36,7 @@ Options:
 ## Examples
 
 ```
-ff update                      update now
-ff config autoUpdate false     keep checking, but only notice
-ff config updateCheck false    turn the whole lane off
+ff update                      what updates this fufu, and offer to run it
+ff update -y                   run it without asking
+ff config updateCheck false    turn the background check off
 ```

@@ -518,12 +518,15 @@ pub enum Command {
     /// Which fufu this is, and whether it is the current one
     #[command(long_about = help::term(help::VERSION), after_long_help = help::term_examples(help::VERSION_EXAMPLES))]
     Version,
-    /// Download the latest release and replace this binary
+    /// Name the command that updates this fufu, and offer to run it
     #[command(long_about = help::term(help::UPDATE), after_long_help = help::term_examples(help::UPDATE_EXAMPLES))]
     Update {
         /// Refresh the update cache only (used by the background check)
         #[arg(long)]
         check: bool,
+        /// Run the update command without asking
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     // The foreign verbs: git words fufu answers rather than runs. They are
@@ -1032,7 +1035,8 @@ impl Command {
     /// Whether `--json` means anything here. Four verbs own their stream
     /// rather than emit an envelope on it: `git` passes real git's output
     /// through (often by exec'ing it), a client `trigger` speaks that client's
-    /// protocol on stdout, `update` narrates a download to a person, and
+    /// protocol on stdout, `update` talks an install command over with a
+    /// person, and
     /// `watch` emits a *stream* of envelopes rather than one, so a flag
     /// asking for JSON would be describing what it already always does. For
     /// those the flag is ignored, not honored with an empty envelope.

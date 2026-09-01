@@ -48,7 +48,7 @@ archive="ff_${version#v}_${os}_${arch}.tar.gz"
 base="https://github.com/$REPO/releases/download/$version"
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; rm -f "$INSTALL_DIR/ff.new"' EXIT
 
 echo "downloading fufu $version ($os/$arch)…"
 fetch "$base/$archive" "$tmp/$archive"
@@ -71,11 +71,15 @@ fi
 
 tar -xzf "$tmp/$archive" -C "$tmp" ff
 mkdir -p "$INSTALL_DIR"
-if command -v install >/dev/null 2>&1; then
-  install -m 0755 "$tmp/ff" "$INSTALL_DIR/ff"
-else
-  cp "$tmp/ff" "$INSTALL_DIR/ff" && chmod 0755 "$INSTALL_DIR/ff"
-fi
+
+# Land beside the target and rename, never write over it: when the file
+# being replaced is the ff that is currently running, a write gets ETXTBSY,
+# while rename(2) replaces the directory entry and leaves the busy inode
+# alone. `ff update` re-runs this script over itself, so this is the normal
+# case, not the exotic one.
+cp "$tmp/ff" "$INSTALL_DIR/ff.new"
+chmod 0755 "$INSTALL_DIR/ff.new"
+mv -f "$INSTALL_DIR/ff.new" "$INSTALL_DIR/ff"
 
 echo "installed fufu $version to $INSTALL_DIR/ff"
 case ":$PATH:" in

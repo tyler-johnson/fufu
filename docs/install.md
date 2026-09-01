@@ -44,6 +44,6 @@ Bare `ff hook` reports the shells and agent clients it found and asks; `--all` t
 
 fufu ships as a single `ff` binary. Most of what it does is native, but today it still reaches your git installation for a few operations — the push, credential helpers, hooks — so keep git installed. `ff doctor` reports what fufu found and whether the repository it is standing in is armed.
 
-`ff update` updates fufu in place.
+`ff update` names the command that updates this copy of fufu — the install script, `brew upgrade fufu`, `cargo install`, or whatever else placed the binary — and offers to run it. Nothing updates itself unasked.
 
 Next: the [tutorial](tutorial.md), or [adopting fufu](adopting.md) if you already have a repository.

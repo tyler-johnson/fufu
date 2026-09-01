@@ -12,7 +12,6 @@ pub(crate) enum SettingKind {
     Duration,
     Command,
     Cadence,
-    Bool,
     Branch,
     Choice(&'static [&'static str]),
 }
@@ -25,7 +24,6 @@ impl SettingKind {
             SettingKind::Duration => "duration",
             SettingKind::Command => "command",
             SettingKind::Cadence => "cadence",
-            SettingKind::Bool => "bool",
             SettingKind::Branch => "branch",
             SettingKind::Choice(_) => "choice",
         }
@@ -92,18 +90,8 @@ pub(crate) fn registry() -> &'static [Setting] {
             kind: SettingKind::Cadence,
             desc: &[
                 "How often ff looks for a new release in the background. false turns",
-                "the whole machinery off (checks, notices, auto-install); true means",
-                "daily; durations work too (12h, 7d, 2w), floored at one minute.",
-            ],
-        },
-        Setting {
-            name: "autoUpdate",
-            key: "fufu.autoUpdate",
-            def: "true",
-            kind: SettingKind::Bool,
-            desc: &[
-                "Install new releases silently in the background. false prints a",
-                "one-line notice instead; updateCheck false disables both.",
+                "the whole machinery off (checks and notices); true means daily;",
+                "durations work too (12h, 7d, 2w), floored at one minute.",
             ],
         },
         Setting {
@@ -273,9 +261,6 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
         }
         SettingKind::Command => !value.trim().is_empty(),
         SettingKind::Cadence => crate::cadence::parse(value).is_some(),
-        SettingKind::Bool => {
-            ff_core::gix::config::Boolean::try_from(ff_core::gix::bstr::BStr::new(value)).is_ok()
-        }
         SettingKind::Branch => {
             !value.is_empty()
                 && !value.starts_with('-')
@@ -300,9 +285,6 @@ fn validate_value(setting: &Setting, value: &str) -> Result<()> {
             SettingKind::Cadence => {
                 "invalid value for updateCheck: want true, false, or a duration like 12h or 7d"
                     .to_string()
-            }
-            SettingKind::Bool => {
-                format!("invalid value for {}: want true or false", setting.name)
             }
             SettingKind::Branch => format!(
                 "invalid value for {}: want a branch name like main or origin/main",
