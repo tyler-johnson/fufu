@@ -20,7 +20,8 @@ And when anything goes wrong — including things done behind fufu's back with r
 
 ## Where to go
 
-- [Install](install.md), then the [tutorial](tutorial.md): the whole loop once, with real transcripts.
-- Already have a repository git made? [Adopting fufu](adopting.md) is `ff init` and nothing else.
+- [Install](install.md), then `ff hook` — optional, recommended: it wires the shells and agent clients on this machine, and without it fufu captures only when you type an `ff` command.
+- The [tutorial](tutorial.md): the whole loop once, with real transcripts.
+- Already have a repository git made? [Adopting fufu](adopting.md) is `ff init` inside it.
 - Coming from jj, or wondering why this exists at all: [fufu vs jj](comparisons/vs-jj.md) is the thesis.
 - Pointing an agent at a repository: [why agents want fufu](agents/why.md) and [setup](agents/setup.md).

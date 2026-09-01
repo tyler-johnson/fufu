@@ -8,7 +8,7 @@ Arming writes two things. First, the gc guard: a pair of keys in the repository'
 
 Immediately after the floor, an ordinary capture runs, so whatever the working tree holds at the moment of adoption is already snapshotted before you type anything else. From then on every fufu verb captures the tree before it acts.
 
-`ff init` does not touch your shell or your agent — those are yours, not this repository's. [`ff hook`](reference/cli/hook.md) wires them when you want them, and [`ff doctor`](reference/cli/doctor.md) reports what is armed and what is wired.
+`ff init` does not touch your shell or your agent — those are yours, not this repository's. [`ff hook`](reference/cli/hook.md) wires them, and is worth running once per machine: without it capture fires only when you type an `ff` command. [`ff doctor`](reference/cli/doctor.md) reports what is armed and what is wired.
 
 ## What does not change
 

@@ -34,6 +34,8 @@ The documentation lives at **[tyler-johnson.github.io/fufu](https://tyler-johnso
 
 ## Install
 
+**1. Get the binary.**
+
 Linux/macOS:
 
 ```sh
@@ -51,6 +53,14 @@ Homebrew:
 ```sh
 brew install tyler-johnson/tap/fufu
 ```
+
+**2. Wire it into the shells and agent clients on this machine.** Optional, and recommended.
+
+```sh
+ff hook
+```
+
+fufu captures only when something invokes it, so without hooks only an `ff` command captures. With them a snapshot lands before every agent tool call, every git command you type, and every shell prompt.
 
 Then `ff clone <url>` gets a repository, and `ff init` inside one you already have turns fufu on there. The [install page](https://tyler-johnson.github.io/fufu/install/) has the details, and `ff doctor` verifies a finished setup.
 

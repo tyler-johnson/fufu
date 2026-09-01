@@ -16,6 +16,8 @@ the net is on: ff undo has a floor to land on, and every verb takes one first
 
 The second line is the promise the rest of this tutorial leans on. From this moment, every verb takes a snapshot before it acts, so `ff undo` always has somewhere to land.
 
+That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#2-wire-it-in) if you have not.
+
 If you have a repository git already made, `ff init` inside it means *turn fufu on here* — same arming, nothing else changes. See [Adopting fufu](adopting.md).
 
 ## Look around
