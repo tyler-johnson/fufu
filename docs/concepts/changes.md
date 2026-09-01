@@ -2,7 +2,7 @@
 
 **The working tree is the change.**
 
-There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working tree are the change, from the first keystroke, and fufu [captures them automatically](snapshots-and-undo.md) as you work. Every verb that talks about work in progress talks about this one thing.
+There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working tree are the change, from the first keystroke, and fufu saves them automatically as you work: every command takes a [capture](snapshots-and-undo.md) — an automatic snapshot of the tree — before it acts. Every verb that talks about work in progress talks about this one thing.
 
 A change is in exactly one of three states:
 
@@ -18,7 +18,7 @@ The verbs move a change between these states and do nothing else: `ff commit` cl
 
 Path arguments close a slice. `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open — still the change you are in the middle of. Paths follow the same rule `ff restore` and `ff diff` speak: a file, or a directory whose whole subtree lands, and no globs.
 
-A slice is selection at the moment of the close, not a staging area. In git you maintain the index as a state between commits, keeping it in sync with what you intend; in fufu the selection is an argument to one command, made once, and nothing persists afterward. There is still nothing between commits. The part left open keeps no description — the one it had went out with the slice — and `ff describe -m` gives the remainder its own.
+A slice is selection at the moment of the close, not a staging area. git's index is a real capability — a place to assemble a commit hunk by hunk, at the price of a state to keep in sync between commits; fufu trades the hunk-level assembly away and gets back having nothing to maintain: the selection is an argument to one command, path-level, made once, with nothing persisting afterward. If `git add -p` is your daily habit, the honest accounting — including the escape hatch — is in the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest). The part left open keeps no description — the one it had went out with the slice — and `ff describe -m` gives the remainder its own.
 
 A clean tree has nothing to close, so `ff commit` on one is a no-op rather than an empty commit. And every close is a recorded operation: `ff undo` takes it back, tree and refs together.
 

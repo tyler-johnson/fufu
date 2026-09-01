@@ -72,7 +72,7 @@ $ ff history
     (the floor)
 ```
 
-Every row is also an address the `ff op` family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
+The letters-spelled ids in these rows are operation ids — spelled in k–z and never in hex, so a letters id is always an operation and a hex id always a commit; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the `ff op` family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
 
 ```console
 $ ff op show sunquylz

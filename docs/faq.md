@@ -34,6 +34,10 @@ Everything fufu writes lives in two places inside the repository: refs under `re
 
 Because the working tree is the change: there is no object to assemble before committing, and `ff commit` closes the tree into a commit in one step. What the index gave you survives as an argument instead of a state — `ff commit <paths>` closes a slice and leaves the rest open, selection made once at the moment of the close, with nothing to maintain between commits. The index still exists underneath, and hook-runners still see it staged correctly; you just never curate it by hand. [Changes](concepts/changes.md) is the model; [fufu vs git](comparisons/vs-git.md#what-disappears) is the argument.
 
+## Can I commit some hunks of a file and leave the rest?
+
+Not through fufu's own verbs: a partial commit selects by path — a file, or a directory — and there is no hunk-level selection. When one file holds two changes, the escape hatch is `ff git commit -p`, which snapshots first and then lets git build that commit interactively from the worktree, exactly the `-p` you know. What does not work is `ff git add -p` followed by `ff commit`: `ff commit` closes the worktree, not the index, so a hand-staged selection would be overwritten, not honored. Hunk-level selection through a fufu verb is a genuine capability gap today, not a workflow the docs are steering you around. [Changes](concepts/changes.md) is the model partial commits do follow.
+
 ## Why can't `ff undo` take back a push?
 
 Because a push is the one act that leaves the machine: other clones can fetch it, CI runs on it, webhooks fire, and no operation log on your machine reaches any of that. So undo is honest about its reach, and rollback is a different, still-guarded act: `ff undo` moves your local branch back, and the next `ff publish` rolls the shared copy back to match, under a lease that stops if somebody pushed in the meantime. Rollback is not erasure — commits that reached the world stay reached — but the shared copy is yours to move. [The push boundary](concepts/push-boundary.md) is the full story.

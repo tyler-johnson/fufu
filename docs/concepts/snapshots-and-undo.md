@@ -4,7 +4,7 @@
 
 Capture is entirely automatic, and there is no verb for asking. fufu snapshots the tree before every command it runs — before a switch, before a sync, before `ff git` hands your arguments to git — and around every mutation an agent or editor makes through it, at machine rate. The manual checkpoint is one of the rituals fufu exists to delete, the way the stash dance is: what you would reach for by hand already happened before the command you typed. A capture's description is written by fufu, never by a person — what ran, or which agent acted — so the record stays a machine's account of what happened rather than a place to leave notes. The channels for saying what work *means* are elsewhere: `ff describe` names the [open change](changes.md), `ff commit` closes it.
 
-Snapshots live in refs outside the visible graph, so the commit history you and your teammates read is untouched — [the invariant](invariant.md) at work. And total capture is what licenses everything above it: automatic rebases, malleable unpublished commits, and agents editing at full speed are only defensible once no state can exist solely in the filesystem.
+Snapshots live in refs outside the visible graph, so the commit history you and your teammates read is untouched — [the invariant](invariant.md) at work. And total capture is what licenses everything above it: automatic rebases, malleable unpublished commits, and agents editing at full speed are only defensible once no state can exist solely in the filesystem. The words this page coins — capture, operation, run, the floor — are each one line in the [glossary](glossary.md).
 
 ## One log, one address space
 

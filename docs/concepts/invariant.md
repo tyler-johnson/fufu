@@ -4,7 +4,7 @@
 
 HEAD is attached to a branch. Commits are ordinary commits. `git status` reads the way it always reads. Collaborators, CI, IDEs, and plain-git tooling see nothing unusual, ever. fufu never creates a state that plain git cannot represent; it only automates the transitions between such states.
 
-This is fufu's one non-negotiable promise, and every other design question in the tool is settled by asking what preserves it. It shows up in the mechanisms: [snapshots](snapshots-and-undo.md) live in refs outside the visible graph, so the commit history you and your teammates read is untouched; a [parked change](branches.md) is an ordinary stash entry labeled with its branch, sitting in the same stash panel every GUI already has. Where jj gets its workflow by making its own store authoritative and projecting a git repository from it — which is where detached HEADs and machine-generated conflict commits come from — fufu keeps git authoritative and confines itself to states git already understands. That difference is the thesis of [fufu vs jj](../comparisons/vs-jj.md).
+This is fufu's one non-negotiable promise, and every other design question in the tool is settled by asking what preserves it. It shows up in the mechanisms: [snapshots](snapshots-and-undo.md) live in refs outside the visible graph, so the commit history you and your teammates read is untouched; a [parked change](branches.md) is an ordinary stash entry labeled with its branch, sitting in the same stash panel every GUI already has. Where jj gets its workflow by making its own store authoritative and projecting a git repository from it — which is where detached HEADs and machine-generated conflict commits come from — fufu keeps git authoritative and confines itself to states git already understands. That difference is the thesis of [fufu vs jj](../comparisons/vs-jj.md). fufu coins its terms deliberately — capture, chain, close, park, and the rest — and each is one line in the [glossary](glossary.md).
 
 ## Deleting fufu loses convenience, never data
 
@@ -20,7 +20,7 @@ Supporting that forces one deep design rule. fufu's own state — the operation 
 
 ## Reconciliation is loud
 
-Returning to a repository after working around fufu is reconciliation, not recovery. Nothing is broken and nothing needs repair; fufu compares what it remembered against what it finds, absorbs the foreign operations into its timeline, and carries on. But reconciliation is loud: anything fufu remembered that reality no longer matches gets said out loud, not silently forgotten. A branch that moved, a parked entry that was dropped, a commit that was rewritten behind fufu's back — each is reported so you know what changed while fufu was not watching.
+Returning to a repository after working around fufu is reconciliation, not recovery. Nothing is broken and nothing needs repair; fufu compares what it remembered against what it finds, absorbs the [foreign operations](two-regimes.md#lazy-absorption) into its timeline, and carries on. But reconciliation is loud: anything fufu remembered that reality no longer matches gets said out loud, not silently forgotten. A branch that moved, a parked entry that was dropped, a commit that was rewritten behind fufu's back — each is reported so you know what changed while fufu was not watching.
 
 This is one half of a broader boundary. Operations that go through fufu get fufu's guarantees; operations that go around it get git's exact documented behavior, captured and absorbed afterward. [The two regimes](two-regimes.md) covers that boundary in full.
 
