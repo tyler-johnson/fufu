@@ -586,6 +586,78 @@ fn a_tangled_stack_refuses_a_fix_that_still_conflicts_and_takes_one_that_does_no
     );
 }
 
+/// A later commit's merge used to fold its own change silently into a
+/// standing mark, so the block `ff resolve` laid down was not the block the
+/// step that owned it had written — and `ff done` could land no fix at all:
+/// `no marker block to resolve at f.env`. The chain stops at the fold now, so
+/// the reader is shown the mark as its owning step wrote it, and the fix
+/// lands in that step.
+#[test]
+fn a_fold_into_a_mark_does_not_strand_the_resolution() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.env", "");
+    let _base = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.env", "alpha\n\n");
+    let _f1 = fx.commit("feature 1");
+    fx.write("f.env", "alpha\nbeta\n");
+    let _f2 = fx.commit("feature 2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.env", "gamma\n\ndelta");
+    let _m1 = fx.commit("main advances");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(
+        opened.tangled.as_deref(),
+        Some("feature 2"),
+        "the chain stopped before the commit that would fold into the mark"
+    );
+
+    // What the reader is shown is feature 1's own side — the same two lines
+    // `git rebase` stops on — not feature 2's "beta" folded into it.
+    let shown = std::fs::read_to_string(fx.path().join("f.env")).unwrap();
+    assert!(
+        shown.contains("alpha\n\n"),
+        "the mark carries the owning commit's side: {shown}"
+    );
+    assert!(
+        !shown.contains("beta"),
+        "and not the later commit's change: {shown}"
+    );
+
+    // Resolving it the way scrubbing the marker lines would: both sides kept.
+    fix(&fx, "f.env", "gamma\n\ndelta\nalpha\n\n");
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.fixed, 1, "one region waited and one was fixed");
+    assert_eq!(report.replayed, 2, "both commits landed: {report:?}");
+    assert!(report.still_held.is_none(), "nothing is left waiting");
+
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    assert_eq!(landed.len(), 2, "two commits landed: {landed:?}");
+    for id in &landed {
+        for (path, contents) in tree_files(&repo, oid(id)) {
+            assert!(
+                !contents.contains(OPENER),
+                "{id} still carries markers in {path}:\n{contents}"
+            );
+        }
+    }
+    assert_eq!(
+        file_in(&repo, oid(landed.last().expect("feature 1'")), "f.env").as_deref(),
+        Some("gamma\n\ndelta\nalpha\n\n"),
+        "the fix lands in the commit that owned the conflict"
+    );
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "f.env").as_deref(),
+        Some("gamma\n\ndelta\nalpha\nbeta\n"),
+        "and the commit above it replays its own change over the fix"
+    );
+}
+
 #[test]
 fn a_restacks_open_change_comes_back() {
     let fx = Fixture::new();

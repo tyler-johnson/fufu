@@ -13,6 +13,10 @@
 - `fufu.autoUpdate`. Silent background installs are gone; there is nothing left for the setting to turn off.
 - The in-process downloader — asset selection, sha256 verification, archive extraction, and the binary swap — along with the four dependencies it needed: `sha2`, `tar`, `flate2`, and the windows-only `zip`.
 
+### Fixed
+
+- A held rewrite whose later commit merged its own change *into* a standing conflict marker left `ff done` unable to land any resolution: the block `ff resolve` showed was no longer the block the step that owned it had written, and every fix was refused with `no marker block to resolve at <path>`. The chain now stops at that fold, the same way it stops when two conflicts interleave, so `ff resolve` shows the mark as its owning commit wrote it and `ff done` lands the fix.
+
 ## v0.10.0 — 2026-09-01
 
 ### Added

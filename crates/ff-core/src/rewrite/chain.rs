@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use gix::bstr::ByteSlice;
 
-use super::markers::{CHAIN_OURS, OPENER, blocks};
+use super::markers::{Block, CHAIN_OURS, OPENER, blocks};
 use super::replay::{Change, Range, range_of, subject, tree_of};
 use crate::error::{Error, Result};
 
@@ -37,9 +37,11 @@ pub struct Step {
 }
 
 /// The commit a chain stopped before, and the marks it would have written
-/// over. Two conflicts on one region do not nest — they interleave, and the
-/// earlier block stops being findable — so the chain stops rather than write
-/// a tangle nobody can unpick.
+/// over. Two conflicts on one region do not nest: they either interleave, and
+/// the earlier block stops bracketing anything, or fold into its text, and the
+/// earlier block stops being findable in the tree of the step that owns it.
+/// Either way the mark stops being something a resolution can be aimed at, so
+/// the chain stops rather than write a tangle nobody can unpick.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tangle {
     pub old: String,
@@ -144,18 +146,27 @@ pub fn chain(
 
         // Tangle check: every path any step so far reported unresolved — this
         // step's, plus every earlier one's — that still stands in this step's
-        // tree must parse as clean fufu blocks. A fresh single conflict is
-        // clean; a second one on the same region interleaves and is not.
+        // tree must parse as clean fufu blocks, and every block carried up
+        // from an earlier step must have come through this step's merge
+        // untouched. A fresh single conflict is clean; a second one on the
+        // same region is not, and it arrives two ways — interleaved, when the
+        // incoming change fights the marked text, or folded silently into it,
+        // when the change is small enough to apply inside the block instead.
+        let idx = steps.len();
         let mut to_check: Vec<String> = reported.iter().cloned().collect();
         to_check.extend(paths.iter().cloned());
         to_check.sort();
         to_check.dedup();
         let mut first_tangled: Option<&String> = None;
         for path in &to_check {
-            if let Some(blob) = blob_of(repo, merged_tree, path)?
-                && blocks(&blob).1
-                && first_tangled.is_none()
-            {
+            if first_tangled.is_some() {
+                break;
+            }
+            let Some(blob) = blob_of(repo, merged_tree, path)? else {
+                continue;
+            };
+            let (found, tangled) = blocks(&blob);
+            if tangled || drifted(repo, cursor, path, idx, &found)? {
                 first_tangled = Some(path);
             }
         }
@@ -170,7 +181,6 @@ pub fn chain(
 
         // Fold this step's resolutions in, threading the tree, so the step's
         // stored tree is the one a landing pass can take straight.
-        let idx = steps.len();
         let final_tree = apply_resolutions(repo, merged_tree, idx, resolutions)?;
         reported.extend(paths.iter().cloned());
         steps.push(Step {
@@ -188,6 +198,38 @@ pub fn chain(
         tree,
         tangled,
     })
+}
+
+/// Whether any block an earlier step wrote came through this step's merge
+/// changed rather than left alone. A block whose closer names a step before
+/// this one was carried up, and its exact text is the only handle a
+/// resolution has on the step that owns it: `apply_resolutions` finds the
+/// block in that step's own tree by that text, and `attribute` reads what the
+/// reader wrote over it out of the final tree. So a merge that folds an
+/// incoming change *into* the marked text — rather than interleaving a second
+/// pair of markers over it — leaves a region no resolution can be aimed at,
+/// which is the same two-conflicts-on-one-region the interleaving check
+/// catches, arriving quietly.
+///
+/// A block the merge dropped whole is not drift: a later commit is allowed to
+/// take a marked region away — that is a conflict it resolved along the way —
+/// it is only not allowed to edit one.
+fn drifted(
+    repo: &gix::Repository,
+    ours: gix::ObjectId,
+    path: &str,
+    step: usize,
+    found: &[Block],
+) -> Result<bool> {
+    let mut carried = found.iter().filter(|b| b.step != step).peekable();
+    if carried.peek().is_none() {
+        return Ok(false);
+    }
+    let standing: Vec<String> = match blob_of(repo, ours, path)? {
+        Some(text) => blocks(&text).0.into_iter().map(|b| b.text).collect(),
+        None => Vec::new(),
+    };
+    Ok(carried.any(|b| !standing.contains(&b.text)))
 }
 
 /// The first commit a rewrite cannot replay, and what stopped it.

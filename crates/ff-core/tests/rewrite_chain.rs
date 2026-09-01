@@ -252,6 +252,64 @@ fn two_conflicts_on_one_region_stop_the_chain() {
     assert_eq!(openers, 1, "exactly one opener, no nesting: {blob}");
 }
 
+/// A later commit whose change lands *inside* a standing mark, and lands
+/// there cleanly because the rest of the marked text is context it never
+/// touches, is a second conflict on that region wearing a disguise. The merge
+/// folds it in, the block's text drifts away from the tree of the step that
+/// owns it, and no resolution can be aimed at that step any more — so the
+/// chain has to stop, exactly as it does when two conflicts interleave.
+#[test]
+fn a_later_commit_folding_into_a_mark_stops_the_chain() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `f1` writes two lines and `main` rewrites the file, so step 1 marks the
+    // whole of it. `f2` then changes only the second of `f1`'s lines, leaving
+    // the first as context — small enough for the merge to apply it inside
+    // the block instead of fighting it.
+    fx.write("f.env", "");
+    let base = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature", &base]);
+    fx.write("f.env", "alpha\n\n");
+    let f1 = fx.commit("feature 1");
+    fx.write("f.env", "alpha\nbeta\n");
+    let f2 = fx.commit("feature 2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.env", "gamma\n\ndelta");
+    let main = fx.commit("main advances");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let repo = fx.repo();
+    let chain = chain(&repo, oid(&f1), oid(&f2), &Change::Onto(oid(&main)), &[])
+        .expect("the chain runs and reports a tangle rather than erroring");
+
+    assert_eq!(
+        chain.steps.len(),
+        1,
+        "the chain stops before the commit that would fold into the mark"
+    );
+    // The mark that survives is the one step 1 wrote: `f2`'s "beta" is not in
+    // it, and the block stands byte-identical in step 1's own tree, which is
+    // the property attribution rests on.
+    let found = regions(&repo, &chain).expect("regions resolve");
+    let tangle = chain.tangled.expect("a fold into a mark is a tangle");
+    assert_eq!(
+        tangle.old, f2,
+        "the tangle names the commit it stopped before"
+    );
+    assert_eq!(tangle.path, "f.env");
+    assert_eq!(found.len(), 1, "one region, step 1's: {found:?}");
+    assert_eq!(found[0].step, 0);
+    assert!(
+        !found[0].block.contains("beta"),
+        "the later commit's change did not fold into the mark: {}",
+        found[0].block
+    );
+    assert!(
+        tree_blob(&repo, chain.steps[0].tree, "f.env").contains(&found[0].block),
+        "the block is byte-identical in the tree of the step that owns it"
+    );
+}
+
 #[test]
 fn a_resolution_lands_in_the_step_that_owned_it() {
     let fx = Fixture::new();
