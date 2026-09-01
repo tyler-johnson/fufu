@@ -7,6 +7,8 @@
 3. Write `.github/release-notes/vX.Y.Z.md`.
 4. Commit as `cut vX.Y.Z`, tag `vX.Y.Z` annotated, push `main`, then push the tag.
 
+The tutorial's transcripts follow the release the way install.md's `ff version` block does: when a release changes verb output or moves history, rerun `scripts/docs/tutorial-transcript.sh` and reconcile `docs/tutorial.md`.
+
 The tag push runs `release.yml`: six native builds, a GitHub release whose body is the notes file, and a formula bump into the tap. It reads the notes from the tag's tree, so a later edit needs `gh release edit vX.Y.Z --notes-file`. Under `fufu.gitPolicy=strict` the tag push is wrongly refused; prefix it with `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.gitPolicy GIT_CONFIG_VALUE_0=observe`.
 
 No code changes ride a release commit, so trust CI on the base rather than running the suite locally.

@@ -9,12 +9,14 @@ One thing to unlearn before you start: there is no staging area, no stash, and n
 `ff clone` is fufu's own verb, not a wrapper: it speaks the git protocol itself, checks out the worktree, and arms the repository on arrival.
 
 ```console
-$ ff clone https://example.com/demo.git
-cloned into ./demo — 2 commits on main
+$ ff clone https://github.com/tyler-johnson/fufu
+cloned into ./fufu — 242 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 ```
 
 The second line is the promise the rest of this tutorial leans on. From this moment, every verb takes a snapshot before it acts, so `ff undo` always has somewhere to land.
+
+The repository you just cloned is fufu's own — real history, real files — so everything below is something you can type, not just read. The work you make here stays in your clone.
 
 That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#2-wire-it-in) if you have not.
 
@@ -28,8 +30,8 @@ Bare `ff` is the map: recent work on every branch, parked changes included. A fr
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-●  —        8d58f6b9   2m ago
-│  release: cut v0.1.0
+●  —        8d5309ef   4m ago
+│  docs: comparisons compare honestly, and the undecided get routed
 ~
 ```
 
@@ -43,23 +45,22 @@ The letters column next to each commit (here just `—`) is an operation id: whi
 
 ```console
 $ ff start
-minted ff/hidden-wren (forked from main)
-open change on ff/hidden-wren
+minted ff/vivid-tide (forked from main)
+open change on ff/vivid-tide
 undo: ff undo
 ```
 
-Now edit. Add a file, touch another — and notice what you don't do next: no `add`, no staging. Capture is automatic; the working tree is the change.
+Now edit. Add a file — a design note, say — and notice what you don't do next: no `add`, no staging. Capture is automatic; the working tree is the change.
 
 ```console
 $ ff status
-on ff/hidden-wren · nothing to sync
-@  ozqwnnpu 5186836d   1m ago
+on ff/vivid-tide · nothing to sync
+@  nqluwxqp 13cf55dd   0s ago
 │  (no description)
-│  M src/main.rs   +1  -0  +++++++
-│  A src/parser.rs +3  -0  ++++++++++++++++++++
-│    2 files       +4  -0
-●  —        8d58f6b9   3m ago
-│  release: cut v0.1.0
+│  A notes/parser.md +3  -0  ++++++++++++++++++++
+│    1 file          +3  -0
+●  —        8d5309ef   4m ago  signed
+│  docs: comparisons compare honestly, and the undecided get routed
 ```
 
 `ff status` answers where you are and what is uncommitted, as a diffstat. `ff diff` is the same change read down to the line — and it sees untracked files, which `git diff` does not.
@@ -69,40 +70,42 @@ on ff/hidden-wren · nothing to sync
 The open change can carry a description before it is ever a commit, so you can name work while you are doing it:
 
 ```console
-$ ff describe -m "parser: skeleton and char stream"
-pending description on ff/hidden-wren: parser: skeleton and char stream
+$ ff describe -m "notes: parser skeleton and char stream"
+pending description on ff/vivid-tide: notes: parser skeleton and char stream
 ```
 
 Closing the change is the commit. `ff commit` picks up the pending description:
 
 ```console
 $ ff commit
-closed a223f1f7 on ff/hidden-wren: parser: skeleton and char stream (2 file(s))
+closed 27ef5773 on ff/vivid-tide: notes: parser skeleton and char stream (1 file(s))
 undo: ff undo
 ```
 
 Or say it at the close. Make a second edit, then:
 
 ```console
-$ ff commit -m "parser: drop whitespace from the stream"
-closed 8c8feb4d on ff/hidden-wren: parser: drop whitespace from the stream (1 file(s))
+$ ff commit -m "notes: drop whitespace from the stream"
+closed 9d3883be on ff/vivid-tide: notes: drop whitespace from the stream (1 file(s))
 undo: ff undo
 ```
 
-`ff log` is the changes view for the branch you are on — the open change atop the commit walk:
+`ff log` is the changes view for the branch you are on — the open change atop the commit walk; `-n` bounds the rows:
 
 ```console
-$ ff log
+$ ff log -n 5
 @  no changes
 │  (no description)
-●  vyztqtvo 8c8feb4d   1m ago
-│  parser: drop whitespace from the stream
-●  ozqwnnpu a223f1f7   2m ago
-│  parser: skeleton and char stream
-●  —        8d58f6b9   6m ago
-│  release: cut v0.1.0
-●  —        a600c834   6m ago
-│  init: hello world
+●  myzurkrp 9d3883be   0s ago
+│  notes: drop whitespace from the stream
+●  nqluwxqp 27ef5773   0s ago
+│  notes: parser skeleton and char stream
+●  —        8d5309ef   4m ago  signed
+│  docs: comparisons compare honestly, and the undecided get routed
+●  —        66ead344  11h ago  signed
+│  cli: ff update dispatches, the install script installs
+●  —        505ec784  13h ago  signed
+│  docs: point people at ff hook during install
 ```
 
 The two commits fufu made now wear operation ids. `ff evolog` drills into a commit's history of rewrites through that column, and `ff op log` is the operation log itself.
@@ -113,7 +116,7 @@ Start another edit — a stray note in `README.md`, say — and leave mid-though
 
 ```console
 $ ff switch main
-parked the open change on ff/hidden-wren (0ac71f98)
+parked the open change on ff/vivid-tide (a6e423b2)
 switched to main
 undo: ff undo
 ```
@@ -124,21 +127,20 @@ The map shows where the work went:
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-│ ●  —        8c8feb4d   3m ago  ▸ [ff/hidden-wren]  (+ parked change, 1 file)
-│ │  parser: drop whitespace from the stream
-│ ●  —        a223f1f7   4m ago
-├─╯  parser: skeleton and char stream
-●  —        8d58f6b9   8m ago
-│  release: cut v0.1.0
-●  —        a600c834   8m ago
-   init: hello world
+│ ●  —        9d3883be   0s ago  ▸ [ff/vivid-tide]  (+ parked change, 1 file)
+│ │  notes: drop whitespace from the stream
+│ ●  —        27ef5773   0s ago
+├─╯  notes: parser skeleton and char stream
+●  —        8d5309ef   4m ago
+│  docs: comparisons compare honestly, and the undecided get routed
+~
 ```
 
 Switching back brings the parked change in exactly as you left it — same files, same edits, same pending description. A unique prefix of the branch name is enough for the target.
 
 ```console
-$ ff switch ff/hidden-wren
-switched to ff/hidden-wren
+$ ff switch ff/vivid-tide
+switched to ff/vivid-tide
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
@@ -147,7 +149,7 @@ The work is real now, so claim the name. The capture chain, the parked state, an
 
 ```console
 $ ff describe -b parser-stream
-claimed ff/hidden-wren as parser-stream
+claimed ff/vivid-tide as parser-stream
 undo: ff undo
 ```
 
@@ -155,18 +157,18 @@ That stray README edit isn't part of this work. `ff restore` discards one file's
 
 ```console
 $ ff restore README.md
-restored from 8c8feb4d (parser: drop whitespace from the stream)
+restored from 9d3883be (notes: drop whitespace from the stream)
   restored  README.md
 undo: ff undo
 ```
 
 ## Fix an earlier commit
 
-Review feedback: the helper you just wrote belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
+Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
 ```console
-$ ff absorb --into a223f1f7
-absorbed into 710b3379: parser: skeleton and char stream
+$ ff absorb --into 27ef5773
+absorbed into 6367bedb: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -174,6 +176,8 @@ undo: ff undo
 The target commit was amended in place and everything above it re-parented in the same operation — no interactive rebase, no autosquash dance, and no file moved on disk. This is the shape of all history rewriting in fufu: you say where the change belongs, and the restacking is automatic. [Rewriting history](guides/rewriting-history.md) has the rest of the family.
 
 ## Line up, then send
+
+(This section and the publish below were captured against a copy of the repository with push access — on your clone of fufu, read these two beats along, and replay them the day you point fufu at a repository of your own.)
 
 Meanwhile a teammate landed a commit on `main`. `ff sync` lines your branch up with both things it answers to — the base beneath it and the remote copy of itself. It fetches, replays your commits in memory, and touches the tree only when the replay is clean:
 
@@ -204,7 +208,7 @@ fufu snapshots the repository around every operation — including operations it
 
 ```console
 $ git reset --hard HEAD~2
-HEAD is now at 30dc4d4 docs: say what this is
+HEAD is now at a9ea29a docs: a line from a teammate
 ```
 
 …one `ff undo` brings refs and working tree back together:
@@ -212,11 +216,11 @@ HEAD is now at 30dc4d4 docs: say what this is
 ```console
 $ ff undo
 ff: absorbed changes made outside fufu:
-  refs/heads/parser-stream moved to 30dc4d42 (reset: moving to HEAD~2)
+  refs/heads/parser-stream moved to a9ea29a6 (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at tlkytsulltux (published parser-stream to origin/parser-stream)
-  refs/heads/parser-stream → 07fc75ed
-  2 worktree file(s) restored
+  now at psmxslvoxlyk (published parser-stream to origin/parser-stream)
+  refs/heads/parser-stream → ff786800
+  1 worktree file(s) restored
 back: ff redo
 ```
 
@@ -226,13 +230,23 @@ Undo repeats — each press steps one run of work further back. `ff history` is 
 
 ```console
 $ ff history
-↑1  lmusopvy    1m ago  redo  absorbed 1 foreign ref change(s)
-@   tlkytsul    2m ago  now   published parser-stream to origin/parser-stream
-↓1  vmpokpuq    4m ago  undo  absorb into a223f1f7 on parser-stream
-↓2  pkqxlqoz    4m ago  undo  pre: ff absorb --into a223f1f7
-↓3  myyyrvvy    6m ago  undo  claim ff/hidden-wren as parser-stream
-↓4  rymuorzu    7m ago  undo  switch from main to ff/hidden-wren
-↓5  zstkrutx    8m ago  undo  switch from ff/hidden-wren to main
+↑1  uwvutpxt    0s ago  redo  absorbed 1 foreign ref change(s)
+@   psmxslvo    0s ago  now   published parser-stream to origin/parser-stream
+↓1  szuxvsvs    1s ago  undo  absorb into 27ef5773 on parser-stream
+↓2  plluznvr    1s ago  undo  pre: ff absorb --into 27ef5773
+↓3  zpzxxnuz    1s ago  undo  claim ff/vivid-tide as parser-stream
+↓4  vsvsulyp    1s ago  undo  switch from main to ff/vivid-tide
+↓5  rxnuwpwn    1s ago  undo  switch from ff/vivid-tide to main
+↓6  skrzoono    1s ago  undo  pre: ff switch main
+↓7  knpkrnsx    1s ago  undo  commit on ff/vivid-tide: notes: drop whitespace from the stream
+↓8  myzurkrp    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
+↓9  uqrlkpun    1s ago  undo  commit on ff/vivid-tide: notes: parser skeleton and char stream
+↓10 lksutwzq    1s ago  undo  describe pending change on ff/vivid-tide
+↓11 nqluwxqp    1s ago  undo  pre: ff status
+↓12 xusuzvwm    1s ago  undo  switch from main to ff/vivid-tide
+↓13 nouspnqw    1s ago  undo  mint branch ff/vivid-tide at 8d5309ef
+↓14 uvornvpk    1s ago  undo  operation log initialized from observed state; earlier operations not undoable
+    (the floor)
 ```
 
 Every row is also an address: `ff op show <id>` says what one was, and `ff op restore <id>` lands on it directly instead of pressing undo five times.

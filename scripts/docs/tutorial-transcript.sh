@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# The source of truth for every console block in docs/tutorial.md (and the
-# guides that reuse its scenario): builds a throwaway origin with the
-# tutorial's seed history, then runs the tutorial's exact command sequence
-# against it and prints the labeled transcript to stdout. When a verb's
-# output changes, run this and paste the new blocks rather than hand-editing
-# them — ids and ages differ run to run, everything else must match.
+# The source of truth for every console block in docs/tutorial.md: clones
+# this repository itself into a throwaway scene — a bare, main-only copy
+# serves as origin, so publish pushes somewhere harmless — then runs the
+# tutorial's exact command sequence and prints the labeled transcript to
+# stdout. When a verb's output changes, run this and paste the new blocks
+# rather than hand-editing them; ids, ages, shas, and commit counts differ
+# run to run, everything else must match. One hand-substitution is
+# deliberate: the doc's clone line shows the public URL,
+# https://github.com/tyler-johnson/fufu, where the transcript was captured
+# against the scene-local bare copy. The transcripts follow the release:
+# regenerate them when a release changes what the verbs print.
 #
 # FF names the binary under test; default is `ff` on PATH.
 set -euo pipefail
@@ -43,24 +48,20 @@ show() {
   echo
 }
 
-# --- the seed: a bare origin holding the tutorial's two starting commits ---
-git init -q --bare -b main demo.git
-git init -q -b main seed
-(
-  cd seed && ident
-  printf 'fn main() {\n    println!("hello world");\n}\n' > src.rs
-  mkdir src && mv src.rs src/main.rs
-  printf '# demo\n' > README.md
-  git add -A && git commit -qm "init: hello world"
-  printf '// v0.1.0\n' >> src/main.rs
-  git add -A && git commit -qm "release: cut v0.1.0"
-  git remote add origin ../demo.git && git push -q origin main
-)
-rm -rf seed
+# --- the origin: a bare, main-only copy of this repository ---
+git clone -q --bare --branch main --single-branch "$ROOT_DIR" "$SCENE/fufu.git"
 
 # --- get a repository ---
-show "$FF" clone "$SCENE/demo.git"
-cd demo && ident
+show "$FF" clone "$SCENE/fufu.git"
+cd fufu && ident
+
+# The scene must never push back at the working checkout: confirm origin is
+# the scene-local bare copy before anything below can reach for `publish`.
+origin_url=$(git remote get-url origin)
+case "$origin_url" in
+  "$SCENE"/*) ;;
+  *) echo "origin is not scene-local: $origin_url" >&2; exit 1 ;;
+esac
 
 # --- look around ---
 show "$FF"
@@ -72,17 +73,17 @@ printf '%s\n\n' "$start_out"
 minted=$(printf '%s\n' "$start_out" | sed -n 's/^minted \([^ ]*\).*/\1/p')
 [ -n "$minted" ] || { echo "ff start minted no branch" >&2; exit 1; }
 
-printf 'fn lex() {}\nfn stream() {}\nfn skeleton() {}\n' > src/parser.rs
-printf '// parser wiring\n' >> src/main.rs
+mkdir notes
+printf '%s\n' "A char stream feeds the lexer." "The lexer emits spans." "Whitespace is the stream's problem, not the lexer's." > notes/parser.md
 show "$FF" status
 
 # --- name it, then close it ---
-show "$FF" describe -m "parser: skeleton and char stream"
+show "$FF" describe -m "notes: parser skeleton and char stream"
 show "$FF" commit
 
-printf 'fn drop_whitespace() {}\n' >> src/parser.rs
-show "$FF" commit -m "parser: drop whitespace from the stream"
-show "$FF" log
+printf 'The lexer never sees whitespace.\n' >> notes/parser.md
+show "$FF" commit -m "notes: drop whitespace from the stream"
+show "$FF" log -n 5
 
 # --- switch without stashing ---
 printf '\nstray note\n' >> README.md
@@ -93,20 +94,20 @@ show "$FF" describe -b parser-stream
 show "$FF" restore README.md
 
 # --- fix an earlier commit ---
-# The helper goes at the top of the file, away from the tail the second
+# The heading goes at the top of the file, away from the tail the second
 # commit appended to, so the restack above the absorb replays cleanly — the
 # tutorial's absorb is the no-conflict one, and `ff resolve` has its own page.
 first=$(git rev-parse --short=8 HEAD~1)
-{ printf 'fn helper() {}\n'; cat src/parser.rs; } > src/parser.rs.new
-mv src/parser.rs.new src/parser.rs
+{ printf '# Parser notes\n'; cat notes/parser.md; } > notes/parser.md.new
+mv notes/parser.md.new notes/parser.md
 show "$FF" absorb --into "$first"
 
 # --- meanwhile: a teammate lands a commit on main ---
 (
-  git clone -q "$SCENE/demo.git" "$SCENE/teammate"
+  git clone -q "$SCENE/fufu.git" "$SCENE/teammate"
   cd "$SCENE/teammate" && ident
-  printf 'A demo of fufu.\n' >> README.md
-  git add -A && git commit -qm "docs: say what this is"
+  printf 'A line from a teammate.\n' >> README.md
+  git add -A && git commit -qm "docs: a line from a teammate"
   git push -q origin main
 )
 
