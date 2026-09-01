@@ -6,7 +6,7 @@
 
 The commands fufu retires are the dangerous-but-daily ones — the rituals that exist to move state by hand that git could have moved for you.
 
-**`add` and the staging area.** There is no index to maintain between commits. [The working tree is the change](../concepts/changes.md): [`ff commit`](../reference/cli/commit.md) closes it into a commit in one step, and a partial commit is a slice picked at the moment of the close — path arguments, or the interactive form — with nothing persisting afterward.
+**`add` and the staging area.** There is no index to maintain between commits. [The working tree is the change](../concepts/changes.md): [`ff commit`](../reference/cli/commit.md) closes it into a commit in one step, and a partial commit is a slice picked at the moment of the close — path arguments naming files or directories — with nothing persisting afterward.
 
 **The stash dance.** [`ff switch`](../reference/cli/switch.md) parks whatever is open with the branch you leave and reopens whatever was parked where you arrive, untracked files included. The stash itself survives — a parked change is an ordinary stash entry labeled with its branch, visible in every GUI's stash panel — but the two-step dance, and remembering which entry belonged to which branch, is gone.
 
@@ -19,6 +19,12 @@ The commands fufu retires are the dangerous-but-daily ones — the rituals that 
 **The reflog as a recovery tool.** Every operation — every automatic snapshot included — lands on [one operation log](../concepts/snapshots-and-undo.md) that records refs and tree together. [`ff undo`](../reference/cli/undo.md) steps the whole repository back, and [`ff history`](../reference/cli/history.md) shows exactly where each press would land. The reflog still exists and still fills; you stop needing to read it.
 
 The reflex-by-reflex mapping — what you would have typed in git, and what to type now — is the [command table](command-table.md).
+
+## What your aliases cannot do
+
+A git veteran's first response to the list above is that aliases and scripts already cover it, and for the typing they can: an alias can spell `commit -am`, a script can stash, rebase, and pop. What no alias can do is act before you type. fufu snapshots the working tree before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible. A safety net you have to remember to throw is a checkpoint, and the manual checkpoint is exactly the ritual [snapshots and undo](../concepts/snapshots-and-undo.md) exists to delete.
+
+The second thing an alias cannot give you is one account of what happened. Wrappers leave their records where each underlying command left them — some motion in the reflog, some files in the stash, some state nowhere at all — and reconstructing an afternoon means reading all three. Every fufu operation, captures and raw-git motion included, lands on [one log](../concepts/snapshots-and-undo.md), so `ff history` is the whole account and one `ff undo` steps the repository — refs and tree together — back through it.
 
 ## The opinions, and where they stop
 

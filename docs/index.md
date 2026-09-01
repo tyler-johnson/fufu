@@ -23,5 +23,6 @@ And when anything goes wrong — including things done behind fufu's back with r
 - [Install](install.md), then `ff hook` — optional, recommended: it wires the shells and agent clients on this machine, and without it fufu captures only when you type an `ff` command.
 - The [tutorial](tutorial.md): the whole loop once, with real transcripts.
 - Already have a repository git made? [Adopting fufu](adopting.md) is `ff init` inside it.
+- Deciding whether to switch from plain git: [fufu vs git](comparisons/vs-git.md) — what disappears, what stays, and what your aliases cannot do.
 - Coming from jj, or wondering why this exists at all: [fufu vs jj](comparisons/vs-jj.md) is the thesis.
 - Pointing an agent at a repository: [why agents want fufu](agents/why.md) and [setup](agents/setup.md).

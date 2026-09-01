@@ -1,6 +1,10 @@
 # Adopting fufu
 
-[`ff init`](reference/cli/init.md) in a repository git made means *turn fufu on here*. That is the whole adopt path — no migration, no import, no conversion. This page says what that one command does, what it deliberately does not do, and what you are agreeing to by running it.
+[`ff init`](reference/cli/init.md) in a repository git made means *turn fufu on here*. That is the whole adopt path — no migration, no import, no conversion. This page says what stays exactly as it was, what that one command does, and what you are agreeing to by running it.
+
+## What does not change
+
+Nothing that anyone else can see. Refs, history, remotes, hooks, CI, and teammates all continue exactly as before, because [the invariant](concepts/invariant.md) holds from the first moment: at every instant the repository is a boring git repository. There is no server-side setup, no hook a teammate must install, and no trace in pushed history that fufu was involved. `ff init` adds config keys and refs in fufu's own namespace; it rewrites nothing, moves nothing, and installs no hooks that intercept anything. A teammate cloning the repository, a GUI opening it, a CI job checking it out — none of them can tell fufu is there.
 
 ## What arming does
 
@@ -9,10 +13,6 @@ Arming writes two things. First, the gc guard: a pair of keys in the repository'
 Immediately after the floor, an ordinary capture runs, so whatever the working tree holds at the moment of adoption is already snapshotted before you type anything else. From then on every fufu verb captures the tree before it acts.
 
 `ff init` does not touch your shell or your agent — those are yours, not this repository's. [`ff hook`](reference/cli/hook.md) wires them, and is worth running once per machine: without it capture fires only when you type an `ff` command. [`ff doctor`](reference/cli/doctor.md) reports what is armed and what is wired.
-
-## What does not change
-
-Nothing about the repository that anyone else can see. Refs, history, remotes, hooks, CI, and teammates all continue exactly as before, because [the invariant](concepts/invariant.md) holds from the first moment: at every instant the repository is a boring git repository. Arming adds config keys and refs in fufu's own namespace; it rewrites nothing, moves nothing, and installs no hooks that intercept anything. A teammate cloning the repository, a GUI opening it, a CI job checking it out — none of them can tell fufu is there.
 
 ## The workflow shift
 
