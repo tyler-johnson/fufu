@@ -8,6 +8,8 @@
 effortless branching, whole-repo undo. And it's built on ordinary git,<br>
 so your tools and your remotes all still work.*
 
+[![ci](https://github.com/tyler-johnson/fufu/actions/workflows/ci.yml/badge.svg)](https://github.com/tyler-johnson/fufu/actions/workflows/ci.yml)
+
 </div>
 
 ---

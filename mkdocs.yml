@@ -35,6 +35,11 @@ plugins:
   - search
   - include-markdown
 
+extra_css:
+  - stylesheets/extra.css
+extra_javascript:
+  - javascripts/console-copy.js
+
 # The generated per-verb pages are reached from reference/cli/index.md, which
 # is in the nav; listing 50 of them there would drown it.
 not_in_nav: |
@@ -79,5 +84,6 @@ nav:
       - Architecture: internals/architecture.md
       - Substrate: internals/substrate.md
       - Design document: internals/design.md
+  - Project: project.md
   - FAQ: faq.md
   - Changelog: changelog.md
