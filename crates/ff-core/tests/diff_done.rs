@@ -4,6 +4,7 @@
 //! leave a worktree and an index that plain git reads as clean.
 
 use ff_testsupport::Fixture;
+use ff_testsupport::hooks::{STAGED_HOOK, install_hook, staged_marker};
 
 const NOW: i64 = 1_799_999_999;
 
@@ -35,11 +36,27 @@ fn done_call(fx: &Fixture) -> (ff_core::DoneOutcome, ff_core::ops::VerbContext) 
     ff_core::done::done(
         &fx.repo(),
         false,
+        ff_core::Verify::Run,
         &prov(),
         Some(NOW),
         vec!["ff".into(), "done".into()],
     )
     .unwrap()
+}
+
+/// The same call without the unwrap, for the scenarios a hook refuses.
+fn done_result(
+    fx: &Fixture,
+    verify: ff_core::Verify,
+) -> ff_core::Result<(ff_core::DoneOutcome, ff_core::ops::VerbContext)> {
+    ff_core::done::done(
+        &fx.repo(),
+        false,
+        verify,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "done".into()],
+    )
 }
 
 /// Every worktree file as (repo-relative path, bytes), sorted by path.
@@ -386,5 +403,204 @@ fn no_session_branch_survives_the_landing() {
         fx_ff.git(&["for-each-ref", "--format=%(refname)", "refs/heads/ff/"]),
         "",
         "refs/heads/ff/ must hold no leftover"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The commit hooks. An edit session's worktree becomes the anchor's content,
+// so `pre-commit` runs over it; a session that also carries a new description
+// runs the message hooks over that.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_declining_pre_commit_hook_refuses_the_landing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    let session = match outcome {
+        ff_core::EditOutcome::Opened(report) => report.session,
+        other => panic!("a session must open, got {other:?}"),
+    };
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    fx.write("f1.txt", "one-prime\n");
+    let index_before = fx.index_bytes();
+
+    let err = done_result(&fx, ff_core::Verify::Run).unwrap_err();
+    assert_eq!(err.id(), "hook/declined");
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        c4,
+        "the branch is unmoved and the anchor unrewritten"
+    );
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "a declined landing restores .git/index byte-for-byte"
+    );
+    assert!(
+        ff_core::branchmeta::read(&fx.repo(), &session)
+            .unwrap()
+            .session
+            .is_some(),
+        "the session is still open"
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
+    assert!(ops.iter().all(|op| op.verb != "done"), "{ops:?}");
+}
+
+#[test]
+fn no_verify_skips_the_done_gate() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, _c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    assert!(matches!(outcome, ff_core::EditOutcome::Opened(_)));
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    fx.write("f1.txt", "one-prime\n");
+
+    let (outcome, _ctx) = done_result(&fx, ff_core::Verify::Skip).unwrap();
+    assert!(matches!(outcome, ff_core::DoneOutcome::Done(_)));
+    assert_eq!(fx.git(&["show", "main:f1.txt"]), "one-prime\n");
+}
+
+#[test]
+fn a_pre_commit_formatter_rewrite_is_what_gets_amended() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, _c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    assert!(matches!(outcome, ff_core::EditOutcome::Opened(_)));
+    install_hook(
+        &fx,
+        "pre-commit",
+        "#!/bin/sh\nprintf 'formatted\\n' > f1.txt\n",
+    );
+    fx.write("f1.txt", "unformatted\n");
+
+    let (outcome, _ctx) = done_call(&fx);
+    assert!(matches!(outcome, ff_core::DoneOutcome::Done(_)));
+    assert_eq!(
+        fx.git(&["show", "main:f1.txt"]),
+        "formatted\n",
+        "the hook's formatting is what got amended"
+    );
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "");
+}
+
+#[test]
+fn the_done_gate_sees_the_sessions_content_staged() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, _c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    assert!(matches!(outcome, ff_core::EditOutcome::Opened(_)));
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("f1.txt", "one-prime\n");
+    fx.write("new.txt", "new\n");
+
+    let (outcome, _ctx) = done_call(&fx);
+    assert!(matches!(outcome, ff_core::DoneOutcome::Done(_)));
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["f1.txt", "new.txt"],
+        "hook-runners keyed on the index see the session's whole content"
+    );
+}
+
+#[test]
+fn a_reworded_session_runs_the_message_hooks() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, _c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    assert!(matches!(outcome, ff_core::EditOutcome::Opened(_)));
+
+    // Reword the session's own commit before the hooks are installed, so
+    // what follows is the landing's message run and nothing else.
+    let repo = fx.repo();
+    let target = gix::ObjectId::from_hex(c1.as_bytes()).unwrap();
+    ff_core::describe::reword(
+        &repo,
+        target,
+        "c1 reworded".into(),
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW + 50),
+        vec!["ff".into(), "describe".into()],
+    )
+    .unwrap();
+    drop(repo);
+
+    install_hook(
+        &fx,
+        "prepare-commit-msg",
+        "#!/bin/sh\nprintf '%s %s\\n' \"$2\" \"$3\" > \"$(git rev-parse --git-dir)/source.txt\"\n",
+    );
+    install_hook(
+        &fx,
+        "commit-msg",
+        "#!/bin/sh\nprintf 'hooked: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    fx.write("f1.txt", "one-prime\n");
+
+    let (outcome, _ctx) = done_call(&fx);
+    assert!(matches!(outcome, ff_core::DoneOutcome::Done(_)));
+    assert_eq!(
+        fx.git(&["log", "--format=%s", "main"])
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["c4", "c3", "c2", "hooked: c1 reworded", "base"],
+        "commit-msg rewrote the description the session landed"
+    );
+    // The anchor is the source git names for an amend, third argument and all.
+    let source = std::fs::read_to_string(fx.path().join(".git/source.txt")).unwrap();
+    let mut parts = source.trim().split(' ');
+    assert_eq!(parts.next(), Some("commit"), "{source}");
+    assert_eq!(
+        parts.next().map(str::len),
+        Some(40),
+        "the third argument is the amended commit's sha: {source}"
+    );
+}
+
+#[test]
+fn a_declining_commit_msg_refuses_a_reworded_session() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, _c3, c4] = stack(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &c1);
+    assert!(matches!(outcome, ff_core::EditOutcome::Opened(_)));
+    let repo = fx.repo();
+    let target = gix::ObjectId::from_hex(c1.as_bytes()).unwrap();
+    ff_core::describe::reword(
+        &repo,
+        target,
+        "c1 reworded".into(),
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW + 50),
+        vec!["ff".into(), "describe".into()],
+    )
+    .unwrap();
+    drop(repo);
+
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+    fx.write("f1.txt", "one-prime\n");
+    let index_before = fx.index_bytes();
+
+    let err = done_result(&fx, ff_core::Verify::Run).unwrap_err();
+    assert_eq!(err.id(), "hook/declined");
+    assert_eq!(fx.git(&["rev-parse", "main"]).trim(), c4, "branch unmoved");
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "a declined landing restores .git/index byte-for-byte"
     );
 }

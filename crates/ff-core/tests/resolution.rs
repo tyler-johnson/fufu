@@ -6,6 +6,7 @@
 use ff_core::gix;
 use ff_core::{DoneOutcome, Provenance, ResolveOutcome};
 use ff_testsupport::Fixture;
+use ff_testsupport::hooks::{STAGED_HOOK, install_hook, staged_marker};
 
 const NOW: i64 = 1_799_999_999;
 const OPENER: &str = "<<<<<<<";
@@ -51,6 +52,7 @@ fn done_call(fx: &Fixture, now: i64) -> ff_core::Result<DoneOutcome> {
     ff_core::done::done(
         &repo,
         false,
+        ff_core::Verify::Run,
         &prov(),
         Some(now),
         vec!["ff".into(), "done".into()],
@@ -209,6 +211,7 @@ fn hold_an_absorb(fx: &Fixture, into: &str, paths: Vec<String>) {
         &repo,
         Some(oid(into)),
         paths,
+        ff_core::Verify::Run,
         &prov(),
         Some(NOW),
         vec!["ff".into(), "absorb".into()],
@@ -876,6 +879,7 @@ fn abandoning_a_resolution_through_done_is_the_same_act() {
     let (outcome, _ctx) = ff_core::done::done(
         &repo,
         true,
+        ff_core::Verify::Run,
         &prov(),
         Some(NOW + 200),
         vec!["ff".into(), "done".into(), "--abandon".into()],
@@ -946,4 +950,122 @@ fn abandoning_an_absorbs_resolution_gives_the_open_change_back() {
             && ff_core::held::resolving(&repo, "main").unwrap().is_none(),
         "the hold and the session are both dropped"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The pre-commit gate on the resolution landing. This is fufu's
+// `rebase --continue`, which under git does run the hook.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_declining_pre_commit_hook_refuses_the_resolution_landing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, _f1) = restack_stack(&fx);
+    hold_a_restack(&fx);
+    open_resolution(&fx, NOW + 10);
+    fix(&fx, "f.txt", "three\n");
+
+    let refs_before = head_refs(&fx);
+    let ops_before = verb_ops(&fx);
+    let index_before = fx.index_bytes();
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+
+    let err = done_call(&fx, NOW + 20).unwrap_err();
+    assert_eq!(err.id(), "hook/declined");
+    assert_eq!(head_refs(&fx), refs_before, "no ref moved");
+    assert_eq!(verb_ops(&fx), ops_before, "no operation was journaled");
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "a declined landing restores .git/index byte-for-byte"
+    );
+
+    // --no-verify lands it, and the hold clears.
+    let repo = fx.repo();
+    let outcome = ff_core::done::done(
+        &repo,
+        false,
+        ff_core::Verify::Skip,
+        &prov(),
+        Some(NOW + 30),
+        vec!["ff".into(), "done".into()],
+    )
+    .map(|(outcome, _ctx)| outcome)
+    .unwrap();
+    assert!(matches!(outcome, DoneOutcome::Resolved(_)), "{outcome:?}");
+}
+
+#[test]
+fn the_resolution_landing_gate_sees_the_fixes_staged() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, _f1) = restack_stack(&fx);
+    hold_a_restack(&fx);
+    open_resolution(&fx, NOW + 10);
+    fix(&fx, "f.txt", "three\n");
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+
+    let report = resolved(&fx, NOW + 20);
+    assert_eq!(report.fixed, 1);
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["f.txt"],
+        "the gate is told exactly the file the reader fixed"
+    );
+}
+
+#[test]
+fn a_pre_commit_formatter_rewrite_lands_in_the_resolution() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, _f1) = restack_stack(&fx);
+    hold_a_restack(&fx);
+    open_resolution(&fx, NOW + 10);
+    fix(&fx, "f.txt", "three\n");
+    install_hook(
+        &fx,
+        "pre-commit",
+        "#!/bin/sh\nprintf 'formatted\\n' > f.txt\n",
+    );
+
+    let report = resolved(&fx, NOW + 20);
+    let repo = fx.repo();
+    let landed = oid(&report.new_tip);
+    assert_eq!(
+        file_in(&repo, landed, "f.txt").as_deref(),
+        Some("formatted\n"),
+        "the hook's formatting is what landed"
+    );
+    drop(repo);
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "");
+}
+
+/// The nested landing an absorb's resolution runs through `absorb_with`,
+/// with the gate's window standing open over it. The rewritten index must
+/// not make the re-entry read the worktree as clean.
+#[test]
+fn an_absorbs_resolution_lands_under_the_gate() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (c1, _c2) = absorb_stack(&fx);
+    hold_an_absorb(&fx, &c1, Vec::new());
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "B\n");
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.verb, "absorb");
+    // The gate is told the worktree against HEAD, so only `g.txt` shows:
+    // the reader fixed `f.txt` back to the content `c2` — HEAD — already
+    // holds, which is exactly why the stack can land.
+    assert_eq!(staged_marker(&fx), vec!["g.txt"]);
+    let repo = fx.repo();
+    let landed = commits_between(
+        &repo,
+        oid(&report.new_tip),
+        oid(&fx.git(&["rev-parse", "HEAD~2"])),
+    );
+    let c1_new = oid(landed.last().expect("the oldest landed commit is c1'"));
+    assert_eq!(file_in(&repo, c1_new, "g.txt").as_deref(), Some("gopen\n"));
 }

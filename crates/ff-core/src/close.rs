@@ -25,8 +25,8 @@ use crate::snapshot::{Provenance, config};
 pub struct CloseOptions {
     /// `-m`: describes what is closing; wins over the pending description.
     pub message: Option<String>,
-    /// Skip pre-commit and commit-msg hooks.
-    pub no_verify: bool,
+    /// `--no-verify`: skip the pre-commit and commit-msg hooks.
+    pub verify: hooks::Verify,
     /// `-b`: placeholder branch → claim-rename; fresh name → the close
     /// lands on a new branch forked here, the old branch stays.
     pub branch: Option<String>,
@@ -48,18 +48,6 @@ pub struct CloseOptions {
 fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
     let commit = repo.find_object(commit).map_err(Error::repo)?.into_commit();
     Ok(commit.message().map_err(Error::repo)?.summary().to_string())
-}
-
-/// The paths a scan saw that a slice does not take — what a close leaves on
-/// disk. Empty paths select everything, so nothing is left behind.
-fn unselected_paths(scan: &snaptree::Scan, paths: &[String]) -> Vec<String> {
-    if paths.is_empty() {
-        return Vec::new();
-    }
-    scan.paths()
-        .filter(|path| !crate::restore::path_selected(path, paths))
-        .map(String::from)
-        .collect()
 }
 
 /// The clean-tree refusal: no hooks, no commit, nothing written. It happens
@@ -226,8 +214,17 @@ pub fn close(
     //
     // The provisional tree is the *slice*, so a partial `ff commit <paths>`
     // stages exactly what is landing, as git's pathspec form does.
-    let mut index_backup = None;
-    if !opts.no_verify && hooks::will_run(repo)? {
+    //
+    // `prepare-commit-msg` is in the gate as well: it runs even under
+    // `--no-verify`, and it wants the same staged index, so the window that
+    // holds it open is the same one.
+    let close_hooks: &[&str] = match opts.verify {
+        hooks::Verify::Run => &["pre-commit", "prepare-commit-msg", "commit-msg"],
+        hooks::Verify::Skip => &["prepare-commit-msg"],
+    };
+    let mut window = None;
+    let mut hook_ran = false;
+    if hooks::will_run(repo, close_hooks)? {
         // Never `head_tree`: `snaptree::scan` short-circuits on a valid
         // cache-tree root equal to HEAD's tree and would then report only
         // index↔worktree, so a provisional index equal to HEAD (or written
@@ -235,14 +232,16 @@ pub fn close(
         // empty and refuse a real change as `commit/empty`. The empty
         // slice already refused above, so this tree differs from HEAD.
         let provisional = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?.0;
-        let differs = unselected_paths(&scan_full, &opts.paths);
-        index_backup = Some(crate::index::IndexBackup::take(repo)?);
-        crate::index::write_index_for_tree_except(repo, provisional, &differs)?;
+        let differs = snaptree::unselected_paths(&scan_full, &opts.paths);
+        let (opened, ran) =
+            hooks::Window::open(repo, provisional, &differs, opts.verify, "commit")?;
+        window = Some(opened);
+        hook_ran = ran;
     }
 
     // Hooks before the tree build — pre-commit hooks format files, so a
     // hook that ran invalidates the scan. Re-take both, and re-narrow.
-    if !opts.no_verify && hooks::pre_commit(repo)? {
+    if hook_ran {
         scan_full = snaptree::scan(repo)?;
         scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
         if scan_slice.is_empty() {
@@ -281,18 +280,25 @@ pub fn close(
     // holds — so their stat data must not be carried over, or the next
     // status trusts it and the remainder stops being the open change. See
     // `index::write_index_for_tree_except`.
-    let worktree_differs = unselected_paths(&scan_full, &opts.paths);
+    let worktree_differs = snaptree::unselected_paths(&scan_full, &opts.paths);
 
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
-    let mut message = opts
-        .message
-        .clone()
-        .or_else(|| pending.clone())
-        .unwrap_or_default();
-    if !opts.no_verify {
-        message = hooks::commit_msg(repo, &message)?;
-    }
+    let supplied = opts.message.clone().or_else(|| pending.clone());
+    // A close never brings an editor up, so the only source it can name is
+    // the text the user already supplied; with none, git names no source at
+    // all and passes the file path alone.
+    let source = match &supplied {
+        Some(_) => hooks::MsgSource::Message,
+        None => hooks::MsgSource::Unspecified,
+    };
+    let message = hooks::message_hooks(
+        repo,
+        supplied.as_deref().unwrap_or_default(),
+        source,
+        opts.verify,
+        "commit",
+    )?;
     let message = normalize_message(&message);
     let subject = message
         .lines()
@@ -477,8 +483,8 @@ pub fn close(
             // refusal, a declining `commit-msg`, `branch/exists`,
             // `ref/contended`, any `?` on the way — drops the guard armed
             // and gets the index back byte-for-byte.
-            if let Some(backup) = index_backup.take() {
-                backup.disarm();
+            if let Some(window) = window.take() {
+                window.landed();
             }
         }
         refs::EditOutcome::Contended => {
@@ -513,6 +519,12 @@ pub fn close(
     // First close on a logless repo: make sure gc guards exist (the log pins
     // history through refs/fufu/*).
     let _ = config::ensure_gc_config(repo);
+
+    // `post-commit` last, so the hook sees the landed state: the branch is
+    // where the close put it, the index matches, and the pending description
+    // is gone. It is notification only — nothing it does can take the commit
+    // back, which is why nothing here reads its result.
+    hooks::post_commit(repo);
 
     let files_changed = crate::snapshot::count_file_changes(repo, head_tree, commit_tree)?;
     let short_id = crate::sha::short_oid(commit_id);

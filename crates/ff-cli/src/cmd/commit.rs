@@ -25,7 +25,7 @@ pub fn run(
         &repo,
         &CloseOptions {
             message,
-            no_verify,
+            verify: crate::verify(no_verify),
             branch,
             // Two booleans clap already refuses to see together, so the
             // third state is simply "neither was typed".

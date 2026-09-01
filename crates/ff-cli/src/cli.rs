@@ -305,6 +305,9 @@ pub enum Command {
         /// Name the branch you are on instead — anonymous or already named
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
+        /// Skip pre-commit and commit-msg hooks
+        #[arg(long)]
+        no_verify: bool,
     },
     // agent notice quotes this: `ff absorb --into <rev>`
     /// Fold working changes into a commit that has already closed
@@ -316,6 +319,9 @@ pub enum Command {
         /// Limit the absorb to these paths (files or directory prefixes)
         #[arg(value_name = "path")]
         paths: Vec<String>,
+        /// Skip pre-commit and commit-msg hooks
+        #[arg(long)]
+        no_verify: bool,
     },
     /// Take changes back out of a closed commit, into the open change
     #[command(long_about = help::term(help::LIFT), after_long_help = help::term_examples(help::LIFT_EXAMPLES))]
@@ -401,6 +407,9 @@ pub enum Command {
         /// Drop the session instead of landing it
         #[arg(long)]
         abandon: bool,
+        /// Skip pre-commit and commit-msg hooks
+        #[arg(long)]
+        no_verify: bool,
     },
     /// Materialize a held rewrite's conflicts and fix them, all at once
     #[command(long_about = help::term(help::RESOLVE), after_long_help = help::term_examples(help::RESOLVE_EXAMPLES))]

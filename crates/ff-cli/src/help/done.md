@@ -4,9 +4,12 @@ A replay that would conflict stops with nothing changed rather than leaving you 
 
 It is one operation — the amend, the replay and the return move together — so one `ff undo` takes the whole session back.
 
+The session's content is about to become the amended commit's content, so your `pre-commit` hook runs over it, and a hook that exits non-zero refuses the landing with the session still open. A session that also carries a new description runs the message hooks over that description. Landing a resolution — the `ff done` that finishes `ff resolve` — runs `pre-commit` too, the way `git rebase --continue` does. `--no-verify` skips them; `--abandon` runs none, since nothing is being committed.
+
 ## Examples
 
 ```
 ff done                        amend, replay what waited, land back
 ff done --abandon              drop the session, stash what is open
+ff done --no-verify            land without running the hooks
 ```

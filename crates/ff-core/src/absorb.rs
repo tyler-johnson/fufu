@@ -13,6 +13,7 @@ use gix::bstr::ByteSlice;
 use crate::error::{Error, Result};
 use crate::futures::At;
 use crate::held::{self, Held, Intent};
+use crate::hooks;
 use crate::model::{AbsorbOutcome, AbsorbReport, HeadState, HeldReport, LiftOutcome, LiftReport};
 use crate::ops::record::observe_refs;
 use crate::ops::{OpKind, OpRecord, verb};
@@ -73,14 +74,18 @@ fn parent_tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::
 
 /// The exact worktree tree: the tip's tree with the scan assembled onto it,
 /// nothing size-capped out — an absorb must be exact for the same reason a
-/// commit is. The second result says the tree is clean.
-fn open_tree(repo: &gix::Repository, tip_tree: gix::ObjectId) -> Result<(gix::ObjectId, bool)> {
+/// commit is. The second result says the tree is clean, and the scan comes
+/// back with it because the hook window needs the paths a filter left behind.
+fn open_tree(
+    repo: &gix::Repository,
+    tip_tree: gix::ObjectId,
+) -> Result<(gix::ObjectId, bool, snaptree::Scan)> {
     let scan = snaptree::scan(repo)?;
     if scan.is_empty() {
-        return Ok((tip_tree, true));
+        return Ok((tip_tree, true, scan));
     }
     let (tree_id, _skipped) = snaptree::assemble(repo, tip_tree, &scan, u64::MAX)?;
-    Ok((tree_id, false))
+    Ok((tree_id, false, scan))
 }
 
 /// `base` with the selected paths taking `other`'s content. An empty
@@ -328,6 +333,7 @@ pub fn absorb(
     repo: &gix::Repository,
     into: Option<gix::ObjectId>,
     paths: Vec<String>,
+    verify: hooks::Verify,
     prov: &Provenance,
     now: Option<i64>,
     argv: Vec<String>,
@@ -336,6 +342,7 @@ pub fn absorb(
         repo,
         into,
         paths,
+        verify,
         prov,
         (now, argv),
         &rewrite::Decided::none(),
@@ -350,6 +357,7 @@ pub fn absorb_with(
     repo: &gix::Repository,
     into: Option<gix::ObjectId>,
     paths: Vec<String>,
+    verify: hooks::Verify,
     prov: &Provenance,
     invocation: (Option<i64>, Vec<String>),
     decided: &rewrite::Decided,
@@ -379,7 +387,7 @@ pub fn absorb_with(
     let (branch, tip) = head_branch(repo, "absorb into")?;
 
     let tip_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    let (open_tree, clean) = open_tree(repo, tip_tree)?;
+    let (mut open_tree, clean, scan) = open_tree(repo, tip_tree)?;
     if clean || open_tree == tip_tree {
         return Ok((
             AbsorbOutcome::NothingToAbsorb {
@@ -390,7 +398,7 @@ pub fn absorb_with(
     }
 
     // The tip's tree, with the selected paths taken from the worktree.
-    let theirs = filtered(repo, tip_tree, open_tree, &paths)?;
+    let mut theirs = filtered(repo, tip_tree, open_tree, &paths)?;
     if theirs == tip_tree {
         return Ok((
             AbsorbOutcome::NothingToAbsorb {
@@ -398,6 +406,50 @@ pub fn absorb_with(
             },
             ctx,
         ));
+    }
+
+    // The pre-commit gate. `theirs` is precisely what is folding in — the
+    // tip's tree with the selected paths taken from the worktree — so a
+    // hook-runner asking `git diff --cached` against the tip is told exactly
+    // those paths, and a partial `ff absorb <path>` shows it exactly that
+    // slice. Emptiness refuses above, before any hook runs, matching close.
+    //
+    // A resolution landing has already run the gate in `finish_resolution`:
+    // this re-entry must not run it a second time.
+    let mut window = None;
+    if decided.clearing.is_none()
+        && verify == hooks::Verify::Run
+        && hooks::will_run(repo, &["pre-commit"])?
+    {
+        let differs = snaptree::unselected_paths(&scan, &paths);
+        let (opened, ran) = hooks::Window::open(repo, theirs, &differs, verify, "absorb")?;
+        window = Some(opened);
+        if ran {
+            // A formatter's fixes are part of what folds in, the same way
+            // they are part of a close — so re-read the worktree and put
+            // both emptiness refusals again, since the hook may have
+            // reverted the change it was handed. `self::` because the local
+            // binding shadows the helper's name from here on.
+            let (reread, clean, _scan) = self::open_tree(repo, tip_tree)?;
+            open_tree = reread;
+            if clean || open_tree == tip_tree {
+                return Ok((
+                    AbsorbOutcome::NothingToAbsorb {
+                        branch: branch.clone(),
+                    },
+                    ctx,
+                ));
+            }
+            theirs = filtered(repo, tip_tree, open_tree, &paths)?;
+            if theirs == tip_tree {
+                return Ok((
+                    AbsorbOutcome::NothingToAbsorb {
+                        branch: branch.clone(),
+                    },
+                    ctx,
+                ));
+            }
+        }
     }
 
     let target = into.unwrap_or(tip);
@@ -606,6 +658,15 @@ pub fn absorb_with(
                 vec![],
             ));
         }
+    }
+
+    // The fold has landed: the staged index is no longer provisional, and
+    // putting the old one back would contradict the refs that just moved.
+    // Every exit before this point — a declining hook, a hold, `ref/contended`,
+    // any `?` on the way — drops the window armed and gets the index back
+    // byte-for-byte.
+    if let Some(window) = window.take() {
+        window.landed();
     }
 
     crate::index::write_index_for_tree(repo, new_tip_tree)?;

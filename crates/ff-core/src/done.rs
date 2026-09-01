@@ -27,6 +27,7 @@ use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::futures;
 use crate::held::{self, Held, Intent};
+use crate::hooks;
 use crate::model::{AbandonReport, ArrivalReport, DoneOutcome, DoneReport, HeadState, HeldReport};
 use crate::ops::record::{SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
@@ -177,6 +178,7 @@ fn finish_resolution(
     rec: held::Recording<'_>,
     branch: &str,
     resolve: &held::Resolve,
+    verify: hooks::Verify,
 ) -> Result<DoneOutcome> {
     let hold = &resolve.hold;
 
@@ -209,7 +211,26 @@ fn finish_resolution(
 
     // 2. The reader's fixes, as a tree. The index stands on the marker tree
     // the session laid down, so the scan is exactly what the reader changed.
-    let (worktree_tree, _clean) = open_tree(repo, chain.tree)?;
+    //
+    // This is fufu's `rebase --continue`, which under git does run
+    // `pre-commit`: the fixes on disk are about to become commit content, so
+    // the gate runs over them, and a formatter's rewrite is re-read into the
+    // tree that lands. The window stays open across the landing below and is
+    // disarmed once the refs have moved.
+    let (mut worktree_tree, _clean) = open_tree(repo, chain.tree)?;
+    let mut window = None;
+    if verify == hooks::Verify::Run && hooks::will_run(repo, &["pre-commit"])? {
+        let (opened, ran) = hooks::Window::open(repo, worktree_tree, &[], verify, "done")?;
+        window = Some(opened);
+        if ran {
+            // `open_tree` composes the scan onto its base, and that is the
+            // worktree's content only when the index holds that base — which
+            // is why the read above passes `chain.tree`, the tree `ff resolve`
+            // left standing in both. The window has since written the index to
+            // `worktree_tree`, so that is the base the re-read owes.
+            worktree_tree = open_tree(repo, worktree_tree)?.0;
+        }
+    }
 
     // 3. Attribute the fixes to the steps that own them. A region left
     // standing is a region not fixed: name the files, deduped, not the
@@ -370,6 +391,7 @@ fn finish_resolution(
             let (outcome, _ctx) = done_with(
                 repo,
                 false,
+                verify,
                 rec.prov,
                 (Some(rec.now), rec.argv.clone()),
                 &decided,
@@ -393,6 +415,7 @@ fn finish_resolution(
                 repo,
                 Some(into),
                 paths.clone(),
+                verify,
                 rec.prov,
                 (Some(rec.now), rec.argv.clone()),
                 &decided,
@@ -434,6 +457,14 @@ fn finish_resolution(
             }
         }
     };
+
+    // The landing moved refs and rewrote the index to match: the staged
+    // index is no longer provisional. Every exit above — a declining hook,
+    // `held/unresolved`, any `?` on the way — drops the window armed and gets
+    // the index back byte-for-byte.
+    if let Some(window) = window.take() {
+        window.landed();
+    }
 
     // 7. Ask once more. A hold is a cache over "this rewrite conflicts", and
     // the landing has just changed every input to it, so the question is put
@@ -558,11 +589,19 @@ pub(crate) fn replan_done(
 pub fn done(
     repo: &gix::Repository,
     abandon: bool,
+    verify: hooks::Verify,
     prov: &Provenance,
     now: Option<i64>,
     argv: Vec<String>,
 ) -> Result<(DoneOutcome, verb::VerbContext)> {
-    done_with(repo, abandon, prov, (now, argv), &rewrite::Decided::none())
+    done_with(
+        repo,
+        abandon,
+        verify,
+        prov,
+        (now, argv),
+        &rewrite::Decided::none(),
+    )
 }
 
 /// `done`, with some rewritten commits' trees decided in advance: those
@@ -572,6 +611,7 @@ pub fn done(
 pub fn done_with(
     repo: &gix::Repository,
     abandon: bool,
+    verify: hooks::Verify,
     prov: &Provenance,
     invocation: (Option<i64>, Vec<String>),
     decided: &rewrite::Decided,
@@ -634,7 +674,10 @@ pub fn done_with(
             argv,
             now,
         };
-        return Ok((finish_resolution(repo, rec, &session_branch, session)?, ctx));
+        return Ok((
+            finish_resolution(repo, rec, &session_branch, session, verify)?,
+            ctx,
+        ));
     }
 
     let meta = branchmeta::read(repo, &session_branch)?;
@@ -708,6 +751,10 @@ pub fn done_with(
     let mut rewrite_plan: Option<rewrite::RewritePlan> = None;
     let mut unchanged = false;
     let mut worktree_tree: Option<gix::ObjectId> = None;
+    // The pre-commit gate's index window, opened below and disarmed once the
+    // refs have moved. It lives out here so every `?` between the two drops
+    // it armed and puts `.git/index` back byte-for-byte.
+    let mut window = None;
     if !abandon {
         let anchor_tree = tree_of(repo, anchor)?;
         // The triple the session lands — the same one `held::replan`
@@ -719,7 +766,25 @@ pub fn done_with(
             .and_then(|s| s.open.as_deref())
             .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
             .transpose()?;
-        let change = replan_done(repo, &session_branch, session_open)?.change;
+        let mut change = replan_done(repo, &session_branch, session_open)?.change;
+
+        // The pre-commit gate. An edit session's worktree is about to become
+        // the anchor's content, so the gate runs over the tree the session
+        // assembled, and a formatter's fixes are re-read into what gets
+        // amended. A resolution landing has already run it in
+        // `finish_resolution`: this re-entry must not run it a second time.
+        if decided.clearing.is_none()
+            && verify == hooks::Verify::Run
+            && let rewrite::Change::Tree { tree, .. } = &change
+            && hooks::will_run(repo, &["pre-commit"])?
+        {
+            let (opened, ran) = hooks::Window::open(repo, *tree, &[], verify, "done")?;
+            window = Some(opened);
+            if ran {
+                change = replan_done(repo, &session_branch, session_open)?.change;
+            }
+        }
+
         let (assembled, reworded) = match &change {
             rewrite::Change::Tree { tree, message } => (*tree, message.is_some()),
             other => {
@@ -772,6 +837,33 @@ pub fn done_with(
                     )?),
                     ctx,
                 ));
+            }
+            // The session carries a description the anchor does not: a
+            // message authored for a commit, so both message hooks run over
+            // it, named as an amend the way git names `commit --amend` to
+            // `prepare-commit-msg`. A declining `commit-msg` refuses here,
+            // before anything is planned.
+            if let rewrite::Change::Tree {
+                message: Some(text),
+                ..
+            } = &mut change
+            {
+                let anchor_hex = anchor.to_string();
+                let before = text.to_string();
+                let hooked = hooks::message_hooks(
+                    repo,
+                    &before,
+                    hooks::MsgSource::Commit(&anchor_hex),
+                    verify,
+                    "done",
+                )?;
+                // Untouched messages are left exactly as the session tip
+                // carries them: cleanup is git's answer to a hook having
+                // edited the file, not a rewrite of what was already a
+                // commit message.
+                if hooked != before {
+                    *text = crate::close::normalize_message(&hooked).into();
+                }
             }
             rewrite_plan = Some(rewrite::plan_with(
                 repo,
@@ -1030,6 +1122,12 @@ pub fn done_with(
                 vec![],
             ));
         }
+    }
+
+    // The session has landed: the staged index is no longer provisional, and
+    // putting the old one back would contradict the refs that just moved.
+    if let Some(window) = window.take() {
+        window.landed();
     }
 
     crate::index::write_index_for_tree(repo, new_onto_tree)?;

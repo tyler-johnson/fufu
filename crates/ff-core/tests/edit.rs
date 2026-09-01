@@ -396,7 +396,7 @@ fn committing_inside_a_session_refuses() {
         &repo,
         &ff_core::CloseOptions {
             message: Some("close message".into()),
-            no_verify: false,
+            verify: Default::default(),
             branch: None,
             sign: Default::default(),
             paths: Vec::new(),
@@ -525,7 +525,7 @@ fn committing_outside_a_session_still_works() {
         &repo,
         &ff_core::CloseOptions {
             message: Some("plain close".into()),
-            no_verify: false,
+            verify: Default::default(),
             branch: None,
             sign: Default::default(),
             paths: Vec::new(),

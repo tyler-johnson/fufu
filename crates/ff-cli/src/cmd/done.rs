@@ -10,12 +10,13 @@ use ff_core::{DoneOutcome, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     let (outcome, verb_ctx) = ff_core::done::done(
         &repo,
         abandon,
+        crate::verify(no_verify),
         &crate::provenance::pre_ff(ctx),
         None,
         std::env::args().collect(),

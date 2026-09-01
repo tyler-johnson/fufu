@@ -94,6 +94,21 @@ impl Scan {
     }
 }
 
+/// The paths a scan saw that a slice does not take — what a verb leaves on
+/// disk once it has committed only `paths`. Empty `paths` select everything,
+/// so nothing is left behind. This is the `differs` list every index write
+/// against a partial selection owes
+/// [`crate::index::write_index_for_tree_except`].
+pub(crate) fn unselected_paths(scan: &Scan, paths: &[String]) -> Vec<String> {
+    if paths.is_empty() {
+        return Vec::new();
+    }
+    scan.paths()
+        .filter(|path| !crate::restore::path_selected(path, paths))
+        .map(String::from)
+        .collect()
+}
+
 fn entry_kind(mode: gix::index::entry::Mode) -> Result<gix::objs::tree::EntryKind> {
     mode.to_tree_entry_mode()
         .map(|m| m.kind())

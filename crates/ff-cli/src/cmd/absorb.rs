@@ -7,7 +7,7 @@ use ff_core::{AbsorbOutcome, Error, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>) -> Result<()> {
+pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>, no_verify: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     // Absorb has no bare form: the open change is where your changes
@@ -30,6 +30,7 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>) -> Result<()> {
         &repo,
         target,
         paths,
+        crate::verify(no_verify),
         &crate::provenance::pre_ff(ctx),
         None,
         std::env::args().collect(),

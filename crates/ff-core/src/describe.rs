@@ -112,6 +112,7 @@ pub fn reword(
     repo: &gix::Repository,
     target: gix::ObjectId,
     message: String,
+    verify: crate::hooks::Verify,
     prov: &Provenance,
     now: Option<i64>,
     argv: Vec<String>,
@@ -135,11 +136,6 @@ pub fn reword(
             vec!["ff describe <rev> -m <msg>".into()],
         ));
     }
-    let subject = normalized
-        .lines()
-        .next()
-        .unwrap_or("(no description)")
-        .to_string();
 
     let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
@@ -165,6 +161,31 @@ pub fn reword(
             ));
         }
     };
+
+    // A reword authors a message for a commit and moves no tree, so the two
+    // message hooks run and the tree hook does not. The target names the
+    // source, the shape git gives `prepare-commit-msg` for `commit --amend`,
+    // and a declining `commit-msg` refuses before anything is planned.
+    let target_hex = target.to_string();
+    let normalized = close::normalize_message(&crate::hooks::message_hooks(
+        repo,
+        &normalized,
+        crate::hooks::MsgSource::Commit(&target_hex),
+        verify,
+        "describe",
+    )?);
+    if normalized.is_empty() {
+        return Err(Error::coded(
+            "usage/needs-message",
+            "the commit-msg hook left the description empty; a reworded commit needs one",
+            vec!["ff describe <rev> -m <msg>".into()],
+        ));
+    }
+    let subject = normalized
+        .lines()
+        .next()
+        .unwrap_or("(no description)")
+        .to_string();
 
     let plan = rewrite::plan(
         repo,

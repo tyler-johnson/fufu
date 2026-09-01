@@ -28,6 +28,16 @@ mod selfupdate;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, FromArgMatches};
 
+/// `--no-verify`, as core spells it. One helper so every verb that carries
+/// the flag hands core the same thing.
+fn verify(no_verify: bool) -> ff_core::Verify {
+    if no_verify {
+        ff_core::Verify::Skip
+    } else {
+        ff_core::Verify::Run
+    }
+}
+
 /// The pre-dispatch gate: refuse the one flag combination clap used to
 /// refuse for us, then build the context the verbs run against.
 ///
@@ -248,8 +258,13 @@ fn main() {
             rev,
             message,
             branch,
-        }) => cmd::describe::run(&ctx, rev, message, branch),
-        Some(cli::Command::Absorb { into, paths }) => cmd::absorb::run(&ctx, into, paths),
+            no_verify,
+        }) => cmd::describe::run(&ctx, rev, message, branch, no_verify),
+        Some(cli::Command::Absorb {
+            into,
+            paths,
+            no_verify,
+        }) => cmd::absorb::run(&ctx, into, paths, no_verify),
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
         Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
@@ -267,7 +282,7 @@ fn main() {
             origin,
         }) => cmd::clone::run(&ctx, url, dir, branch, depth, origin),
         Some(cli::Command::Edit { rev }) => cmd::edit::run(&ctx, rev),
-        Some(cli::Command::Done { abandon }) => cmd::done::run(&ctx, abandon),
+        Some(cli::Command::Done { abandon, no_verify }) => cmd::done::run(&ctx, abandon, no_verify),
         Some(cli::Command::Resolve { abandon }) => cmd::resolve::run(&ctx, abandon),
         Some(cli::Command::Hook {
             slugs,

@@ -624,6 +624,7 @@ fn publish_then_rewrite_is_still_yours_with_its_own_message() {
         &repo,
         target,
         "two, reworded".into(),
+        ff_core::Verify::Run,
         &prov(),
         Some(NOW),
         vec!["ff".into(), "describe".into()],

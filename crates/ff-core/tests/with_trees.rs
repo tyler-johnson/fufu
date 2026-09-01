@@ -87,6 +87,7 @@ fn absorb_with_call(
         &repo,
         Some(oid(into)),
         Vec::new(),
+        ff_core::Verify::Run,
         &prov(),
         (Some(now), vec!["ff".into(), "absorb".into()]),
         decided,
@@ -133,6 +134,7 @@ fn done_with_call(
     ff_core::done::done_with(
         &repo,
         false,
+        ff_core::Verify::Run,
         &prov(),
         (Some(now), vec!["ff".into(), "done".into()]),
         decided,

@@ -124,6 +124,7 @@ fn a_reword_re_signs_the_commit_it_rewrites() {
         &repo,
         before,
         "second wording".to_string(),
+        ff_core::Verify::Run,
         &prov("ff describe"),
         Some(NOW + 60),
         vec!["ff".into(), "describe".into()],

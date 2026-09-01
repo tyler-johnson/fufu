@@ -2,10 +2,13 @@ Folds the open change into a commit that has already closed — the revision you
 
 Everything above the target re-parents in the same operation, so a branch inside that range comes along with it. What moves is the commit's identity and the stack above it; no file is copied or renamed in the re-point.
 
+The content is about to become commit content, so your `pre-commit` hook runs over it exactly as it would for a close — the index is staged with what is folding in, and a hook that exits non-zero refuses the absorb. `--no-verify` skips it. No message hook runs: the target keeps its own description untouched.
+
 ## Examples
 
 ```
 ff absorb                      fold everything open into the commit under it
 ff absorb --into HEAD~2        fold it into a commit further back
 ff absorb src/parser.rs        fold only that path
+ff absorb --no-verify          fold without running the pre-commit hook
 ```

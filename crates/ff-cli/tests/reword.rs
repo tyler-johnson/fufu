@@ -7,6 +7,7 @@ use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::hooks::install_hook;
 
 fn ff_at(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
@@ -262,4 +263,50 @@ fn a_rev_with_no_message_and_no_terminal_refuses() {
 
     let head_after = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
     assert_eq!(head_before, head_after);
+}
+
+#[test]
+fn a_reword_runs_the_message_hooks_and_can_be_declined() {
+    let fx = repo();
+    stack(&fx);
+    let head_before = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+    // A pre-commit hook that would refuse: a reword moves no tree, so it
+    // must never be asked.
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+
+    let output = ff(&fx, &["describe", "HEAD~2", "-m", "c2 reworded"]);
+    assert!(!output.status.success(), "{}", out(&output));
+    assert!(out(&output).contains("commit-msg hook"), "{}", out(&output));
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD"]).trim(),
+        head_before,
+        "nothing was rewritten"
+    );
+
+    // --no-verify skips it, and the rewrite lands.
+    let output = ff(
+        &fx,
+        &["describe", "HEAD~2", "-m", "c2 reworded", "--no-verify"],
+    );
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(
+        fx.git(&["log", "--format=%s", "main"])
+            .contains("c2 reworded"),
+        "the reword landed"
+    );
+}
+
+#[test]
+fn the_open_changes_description_runs_no_hook() {
+    let fx = repo();
+    stack(&fx);
+    // Both message hooks would refuse. A pending description is not a
+    // commit, so neither is asked; they fire when the change closes.
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+    install_hook(&fx, "prepare-commit-msg", "#!/bin/sh\nexit 1\n");
+
+    let output = ff(&fx, &["describe", "-m", "still open"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(stdout(&output).contains("still open"), "{}", out(&output));
 }

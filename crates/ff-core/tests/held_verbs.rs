@@ -106,6 +106,7 @@ fn absorb_call(fx: &Fixture, into: &str, now: i64) -> (AbsorbOutcome, ff_core::o
         &repo,
         Some(oid(into)),
         Vec::new(),
+        ff_core::Verify::Run,
         &prov(),
         Some(now),
         vec!["ff".into(), "absorb".into()],
@@ -148,6 +149,7 @@ fn done_call(fx: &Fixture, now: i64) -> (DoneOutcome, ff_core::ops::VerbContext)
     ff_core::done::done(
         &repo,
         false,
+        ff_core::Verify::Run,
         &prov(),
         Some(now),
         vec!["ff".into(), "done".into()],

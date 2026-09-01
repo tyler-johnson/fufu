@@ -5,6 +5,7 @@
 //! description is consumed; `-b` forks and claims.
 
 use ff_core::{CloseOptions, CommitOutcome, Result};
+use ff_testsupport::hooks::{STAGED_HOOK, install_hook, staged_marker};
 use ff_testsupport::{Fixture, scenarios};
 
 /// The newest operation's record, read through the public reader.
@@ -44,7 +45,7 @@ fn close_result(
 fn default_opts() -> CloseOptions {
     CloseOptions {
         message: Some("close message".into()),
-        no_verify: false,
+        verify: Default::default(),
         branch: None,
         sign: Default::default(),
         paths: Vec::new(),
@@ -206,20 +207,6 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
     assert!(meta.pending_description.is_none(), "still consumed");
 }
 
-fn install_hook(fx: &Fixture, name: &str, body: &str) {
-    let dir = fx.path().join(".git/hooks");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(name);
-    std::fs::write(&path, body).unwrap();
-    // Windows has no exec bit; hook discovery there is existence-only,
-    // and the `#!/bin/sh` body runs via Git Bash's sh, as under git itself.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-}
-
 #[test]
 fn pre_commit_hook_changes_are_included_by_the_rescan() {
     let fx = Fixture::new();
@@ -273,7 +260,7 @@ fn declining_pre_commit_hook_aborts_with_nothing_written() {
 
     // --no-verify skips the hook entirely.
     let mut opts = default_opts();
-    opts.no_verify = true;
+    opts.verify = ff_core::Verify::Skip;
     let (outcome, _) = close_with(&fx, opts);
     assert!(matches!(outcome, CommitOutcome::Closed { .. }));
 }
@@ -293,18 +280,6 @@ fn commit_msg_hook_rewrites_the_message() {
     let (outcome, _) = close_with(&fx, default_opts());
     let CommitOutcome::Closed { subject, .. } = outcome;
     assert_eq!(subject, "rewritten: close message");
-}
-
-/// Records what git thinks is staged at hook time, into the git dir so the
-/// marker never becomes part of the open change. This is exactly lefthook's
-/// `{staged_files}`.
-const STAGED_HOOK: &str = "#!/bin/sh\ngit diff --name-only --cached --diff-filter=ACMR \
-                           > \"$(git rev-parse --git-dir)/staged.txt\"\n";
-
-fn staged_marker(fx: &Fixture) -> Vec<String> {
-    let text = std::fs::read_to_string(fx.path().join(".git/staged.txt"))
-        .expect("the hook ran and recorded what was staged");
-    text.lines().map(String::from).collect()
 }
 
 #[test]
@@ -416,6 +391,177 @@ fn a_hook_reverting_the_worktree_refuses_and_restores_the_index() {
 }
 
 #[test]
+fn prepare_commit_msg_receives_the_file_and_its_source() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    // Record the arguments, then edit the message in place — the two things
+    // git's contract for this hook is made of.
+    install_hook(
+        &fx,
+        "prepare-commit-msg",
+        "#!/bin/sh\nprintf '%s\\n' \"$2\" > \"$(git rev-parse --git-dir)/source.txt\"\n\
+         printf 'prepared: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    let CommitOutcome::Closed { subject, .. } = outcome;
+    assert_eq!(
+        subject, "prepared: close message",
+        "the hook's in-place edit is what gets committed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join(".git/source.txt")).unwrap(),
+        "message\n",
+        "-m is git's `message` source"
+    );
+}
+
+#[test]
+fn both_message_hooks_edit_one_file_in_order() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(
+        &fx,
+        "prepare-commit-msg",
+        "#!/bin/sh\nprintf 'one: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    install_hook(
+        &fx,
+        "commit-msg",
+        "#!/bin/sh\nprintf 'two: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    let CommitOutcome::Closed { subject, .. } = outcome;
+    assert_eq!(
+        subject, "two: one: close message",
+        "prepare-commit-msg runs first and commit-msg sees its result"
+    );
+}
+
+#[test]
+fn no_verify_keeps_prepare_commit_msg_and_drops_the_other_two() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    // pre-commit and commit-msg would both refuse the close outright.
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+    install_hook(
+        &fx,
+        "prepare-commit-msg",
+        "#!/bin/sh\nprintf 'prepared: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    fx.write("a.txt", "changed\n");
+
+    let mut opts = default_opts();
+    opts.verify = ff_core::Verify::Skip;
+    let (outcome, _) = close_with(&fx, opts);
+    let CommitOutcome::Closed { subject, .. } = outcome;
+    assert_eq!(
+        subject, "prepared: close message",
+        "githooks(5): --no-verify does not suppress prepare-commit-msg"
+    );
+}
+
+#[test]
+fn declining_prepare_commit_msg_aborts_with_nothing_written() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let head = fx.commit("init");
+    ident(&fx);
+    install_hook(&fx, "prepare-commit-msg", "#!/bin/sh\nexit 1\n");
+    fx.write("a.txt", "changed\n");
+    let index_before = fx.index_bytes();
+
+    let err = close_result(&fx, default_opts()).unwrap_err();
+    assert_eq!(err.id(), "hook/declined");
+    assert_eq!(
+        fx.git(&["rev-parse", "HEAD"]).trim(),
+        head,
+        "branch unmoved"
+    );
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "the declined close restores .git/index byte-for-byte"
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
+    assert!(ops.iter().all(|op| op.verb != "commit"), "{ops:?}");
+}
+
+#[test]
+fn post_commit_runs_after_the_commit_exists() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    // Non-zero on purpose: post-commit cannot fail the close, and the hook
+    // must still see the landed HEAD before it exits.
+    install_hook(
+        &fx,
+        "post-commit",
+        "#!/bin/sh\ngit rev-parse HEAD > \"$(git rev-parse --git-dir)/landed.txt\"\nexit 3\n",
+    );
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    let CommitOutcome::Closed { id, .. } = outcome;
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join(".git/landed.txt"))
+            .unwrap()
+            .trim(),
+        id,
+        "post-commit sees the commit it is notifying about"
+    );
+}
+
+#[test]
+fn commit_hooks_see_git_editor_disabled() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    let record = |name: &str| {
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$GIT_EDITOR\" >> \"$(git rev-parse --git-dir)/editor-{name}.txt\"\nexit 0\n"
+        )
+    };
+    for name in [
+        "pre-commit",
+        "prepare-commit-msg",
+        "commit-msg",
+        "post-commit",
+    ] {
+        install_hook(&fx, name, &record(name));
+    }
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    assert!(matches!(outcome, CommitOutcome::Closed { .. }));
+    for name in [
+        "pre-commit",
+        "prepare-commit-msg",
+        "commit-msg",
+        "post-commit",
+    ] {
+        assert_eq!(
+            std::fs::read_to_string(fx.path().join(format!(".git/editor-{name}.txt")))
+                .unwrap_or_else(|_| panic!("{name} ran")),
+            ":\n",
+            "{name} runs with GIT_EDITOR=:"
+        );
+    }
+}
+
+#[test]
 fn no_verify_writes_no_provisional_index() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
@@ -429,7 +575,7 @@ fn no_verify_writes_no_provisional_index() {
     // Refuses at the branch axis, well past where the provisional write
     // would have happened.
     let mut opts = default_opts();
-    opts.no_verify = true;
+    opts.verify = ff_core::Verify::Skip;
     opts.branch = Some("taken".into());
     let err = close_result(&fx, opts).unwrap_err();
     assert_eq!(err.id(), "branch/exists");

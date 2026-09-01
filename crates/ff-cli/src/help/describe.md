@@ -2,7 +2,7 @@ The open change carries a description before it is ever a commit, so you can nam
 
 -b names the branch you are on instead — the same act whether it is an anonymous petname earning a real name or a chosen name being replaced. The capture chain, any parked change, and the pending description all come along, which is the part a bare `git branch -m` would orphan.
 
-Naming a revision rewords a commit that has already closed instead. Everything above it re-parents in the same operation, so any branches sitting inside that range come along with it.
+Naming a revision rewords a commit that has already closed instead. Everything above it re-parents in the same operation, so any branches sitting inside that range come along with it. A reword authors a message for a commit, so your `prepare-commit-msg` and `commit-msg` hooks run over it and a hook that exits non-zero refuses the reword before anything is planned; `--no-verify` skips `commit-msg`. No tree moves, so `pre-commit` does not run. The bare form writes a pending description rather than a commit, and runs no hook at all — they fire when the change closes.
 
 ## Examples
 

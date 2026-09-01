@@ -6,6 +6,7 @@
 
 use ff_core::gix;
 use ff_testsupport::Fixture;
+use ff_testsupport::hooks::{STAGED_HOOK, install_hook, staged_marker};
 
 const NOW: i64 = 1_799_999_999;
 
@@ -37,11 +38,31 @@ fn absorb_call(
         &repo,
         into.map(oid),
         paths,
+        ff_core::Verify::Run,
         &prov(),
         Some(now),
         vec!["ff".into(), "absorb".into()],
     )
     .unwrap()
+}
+
+/// The same call without the unwrap, for the scenarios a hook refuses.
+fn absorb_result(
+    fx: &Fixture,
+    into: Option<&str>,
+    paths: Vec<String>,
+    verify: ff_core::Verify,
+) -> ff_core::Result<(ff_core::AbsorbOutcome, ff_core::ops::VerbContext)> {
+    let repo = fx.repo();
+    ff_core::absorb::absorb(
+        &repo,
+        into.map(oid),
+        paths,
+        verify,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "absorb".into()],
+    )
 }
 
 fn lift_call(
@@ -325,6 +346,7 @@ fn a_conflicting_fold_holds_and_moves_nothing() {
         &repo,
         Some(oid(&c1)),
         Vec::new(),
+        ff_core::Verify::Run,
         &prov(),
         Some(NOW),
         vec!["ff".into(), "absorb".into()],
@@ -719,4 +741,157 @@ fn absorb_into_head_is_an_amend() {
     assert!(!report.still_open);
     assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "");
     assert_eq!(fx.git(&["show", "main:a.txt"]), "c\n");
+}
+
+// ---------------------------------------------------------------------------
+// The pre-commit gate. `ff absorb` makes worktree content into commit content,
+// so it runs the same hook a close does, over the same staged index.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_declining_pre_commit_hook_refuses_the_absorb() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    let c1 = fx.commit("c1");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("c2");
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    fx.write("a.txt", "changed\n");
+    let index_before = fx.index_bytes();
+
+    let err = absorb_result(&fx, Some(&c1), Vec::new(), ff_core::Verify::Run).unwrap_err();
+    assert_eq!(err.id(), "hook/declined");
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        c2,
+        "the branch is unmoved and the target unrewritten"
+    );
+    assert_eq!(fx.git(&["show", &format!("{c1}:a.txt")]), "a\n");
+    assert_eq!(
+        fx.index_bytes(),
+        index_before,
+        "a declined absorb restores .git/index byte-for-byte"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "changed\n",
+        "the open change is still open"
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
+    assert!(ops.iter().all(|op| op.verb != "absorb"), "{ops:?}");
+}
+
+#[test]
+fn no_verify_skips_the_absorb_gate() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    let c1 = fx.commit("c1");
+    fx.write("b.txt", "b\n");
+    fx.commit("c2");
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    fx.write("a.txt", "changed\n");
+
+    let (outcome, _ctx) = absorb_result(&fx, Some(&c1), Vec::new(), ff_core::Verify::Skip).unwrap();
+    let report = match outcome {
+        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        other => panic!("--no-verify must land, got {other:?}"),
+    };
+    let new_c1 = report.new.expect("the target survived");
+    assert_eq!(fx.git(&["show", &format!("{new_c1}:a.txt")]), "changed\n");
+}
+
+#[test]
+fn a_pre_commit_formatter_rewrite_is_what_gets_absorbed() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    let c1 = fx.commit("c1");
+    fx.write("b.txt", "b\n");
+    fx.commit("c2");
+    install_hook(
+        &fx,
+        "pre-commit",
+        "#!/bin/sh\nprintf 'formatted\\n' > a.txt\n",
+    );
+    fx.write("a.txt", "unformatted\n");
+
+    let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
+    let report = match outcome {
+        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        other => panic!("the absorb must land, got {other:?}"),
+    };
+    let new_c1 = report.new.expect("the target survived");
+    assert_eq!(
+        fx.git(&["show", &format!("{new_c1}:a.txt")]),
+        "formatted\n",
+        "the hook's formatting is what folded in"
+    );
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "");
+}
+
+#[test]
+fn the_absorb_gate_sees_exactly_what_is_folding_in() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    let c1 = fx.commit("c1");
+    fx.write("b.txt", "b\n");
+    fx.commit("c2");
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "new\n");
+
+    let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
+    assert!(matches!(outcome, ff_core::AbsorbOutcome::Absorbed(_)));
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["a.txt", "new.txt"],
+        "the whole open change is staged when nothing narrows it"
+    );
+}
+
+#[test]
+fn the_absorb_gate_sees_only_the_selected_paths() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    fx.write("b.txt", "b\n");
+    let c1 = fx.commit("c1");
+    fx.write("c.txt", "c\n");
+    fx.commit("c2");
+    install_hook(&fx, "pre-commit", STAGED_HOOK);
+    fx.write("a.txt", "a changed\n");
+    fx.write("b.txt", "b changed\n");
+
+    let (outcome, _ctx) = absorb_call(&fx, Some(&c1), vec!["a.txt".into()], NOW);
+    assert!(matches!(outcome, ff_core::AbsorbOutcome::Absorbed(_)));
+    assert_eq!(
+        staged_marker(&fx),
+        vec!["a.txt"],
+        "a path filter stages exactly its slice"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("b.txt")).unwrap(),
+        "b changed\n",
+        "the unselected edit survives the hook run"
+    );
+}
+
+#[test]
+fn lift_runs_no_hook() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    fx.commit("c1");
+    fx.write("a.txt", "b\n");
+    fx.commit("c2");
+    // A hook that would refuse anything it was asked about. `ff lift` never
+    // makes worktree content into commit content, so it is never asked.
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+
+    let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
+    assert!(matches!(outcome, ff_core::LiftOutcome::Lifted(_)));
 }

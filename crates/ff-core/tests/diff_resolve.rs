@@ -111,7 +111,15 @@ fn resolve_call(fx: &Fixture) -> (ff_core::ResolveOutcome, ff_core::ops::VerbCon
 
 fn done_call(fx: &Fixture) -> (ff_core::DoneOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::done::done(&repo, false, &prov(), Some(NOW), vec![]).unwrap()
+    ff_core::done::done(
+        &repo,
+        false,
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW),
+        vec![],
+    )
+    .unwrap()
 }
 
 /// The user-visible history of `feature`, tip down, the way the other

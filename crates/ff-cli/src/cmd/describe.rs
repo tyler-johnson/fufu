@@ -15,6 +15,7 @@ pub fn run(
     rev: Option<String>,
     message: Option<String>,
     branch: Option<String>,
+    no_verify: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
@@ -72,7 +73,7 @@ pub fn run(
     };
 
     if let Some(id) = target {
-        return reword(ctx, &repo, id, message);
+        return reword(ctx, &repo, id, message, no_verify);
     }
 
     let text = match message {
@@ -113,6 +114,7 @@ fn reword(
     repo: &gix::Repository,
     target: gix::ObjectId,
     message: Option<String>,
+    no_verify: bool,
 ) -> Result<()> {
     let text = match message {
         Some(text) => text,
@@ -126,6 +128,7 @@ fn reword(
         repo,
         target,
         text,
+        crate::verify(no_verify),
         &crate::provenance::pre_ff(ctx),
         None,
         std::env::args().collect(),

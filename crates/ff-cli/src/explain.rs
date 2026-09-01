@@ -262,13 +262,24 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "hook/declined",
         summary: "one of your git hooks refused the commit",
-        detail: "fufu runs your pre-commit and commit-msg hooks itself, so a hook that exits \
-                 non-zero stops the close exactly as it would under git. The hook's own output \
-                 says why. The index is populated before the hooks run, so runners keyed on \
-                 staged files see the change, and it is put back exactly as it was when the \
-                 close does not land. --no-verify skips them, with the usual caveat that they \
-                 were there for a reason.",
-        exits: &["ff commit --no-verify"],
+        detail: "fufu runs git's four commit-time hooks itself — pre-commit, prepare-commit-msg, \
+                 commit-msg and post-commit — so a hook that exits non-zero stops the verb \
+                 exactly as it would under git. The hook's own output says why. pre-commit runs \
+                 wherever worktree content becomes commit content: ff commit, ff absorb, and \
+                 both of ff done's landings. The message hooks run wherever a message is \
+                 authored for a commit: ff commit, ff describe <rev>, and an ff done whose \
+                 session carries a new description. post-commit runs on ff commit alone, and \
+                 cannot fail anything. The index is populated before the hooks run, so runners \
+                 keyed on staged files see what is landing, and it is put back exactly as it \
+                 was when the verb does not land. --no-verify skips pre-commit and commit-msg, \
+                 with the usual caveat that they were there for a reason; git documents \
+                 prepare-commit-msg as not skipped by it, and fufu follows.",
+        exits: &[
+            "ff commit --no-verify",
+            "ff absorb --no-verify",
+            "ff done --no-verify",
+            "ff describe --no-verify",
+        ],
     },
     Entry {
         id: "sign/unknown-format",

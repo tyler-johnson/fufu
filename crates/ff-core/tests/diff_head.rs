@@ -287,7 +287,7 @@ fn a_verb_inside_a_linked_worktree_matches_git() {
         &repo,
         &ff_core::CloseOptions {
             message: Some("closed inside the bay".into()),
-            no_verify: false,
+            verify: Default::default(),
             branch: None,
             paths: Vec::new(),
             sign: Default::default(),

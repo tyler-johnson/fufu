@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `prepare-commit-msg` and `post-commit`, the two commit-time hooks fufu did not implement. `ff commit` now runs all four: `pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit`. Every commit hook runs with `GIT_EDITOR=:`, as git sets it for a command that will not open an editor.
+- `--no-verify` on `ff absorb`, `ff done`, and `ff describe <rev>`, the verbs that can now be declined by a hook.
+
 ### Changed
 
 - `ff update` names the command that updates this copy of fufu instead of downloading a binary over itself: `cargo install` for a source build, `brew upgrade fufu` for Homebrew, the install script for a binary at the install script's own path, and the releases page for anything else. It runs that command only on `-y` or a typed yes, and `-y` on a channel it cannot drive exits 1. The only binary fufu will ever replace is the one at the install script's own path, and the install script is what replaces it.
@@ -15,6 +20,7 @@
 
 ### Fixed
 
+- `ff absorb`, `ff done`, and `ff describe <rev>` ran no hooks at all, so content a `pre-commit` gate would decline on a close landed in the commit anyway. `pre-commit` now runs for `ff absorb` and for both of `ff done`'s landings — the edit session and the resolution — over the index staged with exactly what is landing, and the message hooks run for `ff describe <rev>` and for an `ff done` whose session carries a new description. `ff lift`, `ff restack` and `ff sync` still run none, matching `git rebase`.
 - A held rewrite whose later commit merged its own change *into* a standing conflict marker left `ff done` unable to land any resolution: the block `ff resolve` showed was no longer the block the step that owned it had written, and every fix was refused with `no marker block to resolve at <path>`. The chain now stops at that fold, the same way it stops when two conflicts interleave, so `ff resolve` shows the mark as its owning commit wrote it and `ff done` lands the fix.
 
 ## v0.10.0 — 2026-09-01

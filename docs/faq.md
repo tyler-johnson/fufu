@@ -50,9 +50,24 @@ Because a push is the one act that leaves the machine: other clones can fetch it
 
 Undo reaches back to the floor: the operation log's first entry, taken from observed state at the moment fufu was armed. Everything before fufu's arrival is git's history, not fufu's timeline — still reachable with git's own tools, but not a place `ff undo` can land, and nothing becomes undoable retroactively. The same bound applies day to day: work done around fufu is protected only as far back as the last capture, so a raw `git restore <file>` can discard edits fufu never saw. [Snapshots and undo](concepts/snapshots-and-undo.md#the-floor) covers the floor; [recovery](guides/recovery.md#what-undo-cannot-reach) shows it in practice.
 
-## Does `ff commit` run my git hooks?
+## Does fufu run my git hooks?
 
-Yes. fufu execs your `pre-commit` and `commit-msg` hooks itself, resolving through `core.hooksPath` and aborting the close on a non-zero exit, exactly as git does. Hook-runners like lefthook, lint-staged, and husky work too, because fufu writes the index to the tree it is about to commit before the first hook fires, so a runner that asks git what is staged sees the right answer. [Substrate](internals/substrate.md#behavioral-compatibility) has the details, including the one deliberate divergence around formatter fixes.
+Yes — git's four commit-time hooks, from every verb where git's equivalent operation would run them. fufu execs them itself, resolving through `core.hooksPath` and aborting the verb on a non-zero exit, exactly as git does. Hook-runners like lefthook, lint-staged, and husky work too, because fufu writes the index to the tree it is about to commit before the first hook fires, so a runner that asks git what is staged sees the right answer.
+
+One rule decides the table: the tree hook runs where worktree content becomes commit content, and the message hooks run where a message is authored for a commit.
+
+| verb | pre-commit | prepare-commit-msg | commit-msg | post-commit |
+|---|---|---|---|---|
+| `ff commit` | yes | yes | yes | yes |
+| `ff absorb` | yes | no — it inherits the target's message untouched | no | no |
+| `ff done` (edit session) | yes | only when the session carries a new description | same condition | no |
+| `ff done` (resolution landing) | yes | no | no | no |
+| `ff describe <rev>` | no — no tree moves | yes | yes | no |
+| `ff describe` (open change) | no | no — a pending description is not a commit; the hooks fire when it closes | no | no |
+| `ff lift` | no — no worktree content enters a commit | no | no | no |
+| `ff restack`, `ff sync` | no — `git rebase` runs none either | no | no | no |
+
+`post-commit` stays on `ff commit` alone, because git fires it from `git commit` and not from `rebase`, and absorb, done and describe are rebases. `--no-verify` skips `pre-commit` and `commit-msg` on every verb that can be declined; git documents `prepare-commit-msg` as not skipped by it, and fufu follows. `pre-merge-commit` is not applicable — fufu never writes a merge commit — and `applypatch-*` belong to `git am`. [Substrate](internals/substrate.md#behavioral-compatibility) has the details, including the one deliberate divergence around formatter fixes.
 
 ## Do I need git installed?
 

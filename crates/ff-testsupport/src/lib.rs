@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod fixtures;
+pub mod hooks;
 pub mod paths;
 pub mod porcelain;
 pub mod scenarios;
