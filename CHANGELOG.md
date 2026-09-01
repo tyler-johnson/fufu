@@ -2,14 +2,31 @@
 
 ## v0.10.0 — 2026-09-01
 
-fufu learns to explain itself.
+### Added
 
-- A documentation site: thirty-two hand-written pages — tutorial, concepts, five guides, a section for agents — with every console block on it pasted from a script run against the real binary.
-- The CLI reference and the config key registry generate themselves from the help pages under a byte-equality test, so neither can drift from `--help`. The help prose becomes markdown, and `ff --help` groups its forty commands under `git help`'s own headings.
-- `fufu.gitPolicy` replaces `fufu.translate`. `observe`, `coach` and `strict` correct an agent that reaches for git, across both `ff git` and the agent's own shell tool, and never rewrite the command line they were handed.
-- The briefing reaches subagents and repositories an agent has just entered, and two new capture events snapshot the file state an agent writes at the end of a turn.
-- Commit signing, honoring git's configuration in all three formats git signs in — replays included, where `git rebase` needs `rebase.gpgSign` said separately. `ff log` and `ff status` mark a signed commit, `ff log --signatures` verifies a page in parallel, and `ff doctor` gains a `signing` row.
-- `ff trim` stops calling a live branch gone, and reconcile stops reporting branch motion that never happened across worktrees.
+- Documentation site at <https://tyler-johnson.github.io/fufu/>: tutorial, concepts, task guides, CLI reference, and a section on running fufu behind an agent.
+- Commit signing, using git's own configuration (`commit.gpgsign`, `gpg.format`, `user.signingkey`, and the program keys) in all three formats git supports: openpgp, x509, and ssh. Rewrites sign as well. `ff commit` accepts `-S` and `--no-sign`.
+- `ff log` and `ff status` mark signed commits; `ff log --signatures` verifies them and reports the verdict, tool, and key; `ff show` verifies the commit it prints; `ff doctor` reports whether the signing setup will work.
+- `fufu.gitPolicy`, with levels `observe`, `coach` (default), and `strict`, covering both `ff git` and a bare `git` run inside an agent's shell tool. `ff doctor` reports the tally.
+
+### Changed
+
+- `ff --help` groups its commands under the same headings `git help` uses, instead of one alphabetical list. `ff -h` shows a short list of common verbs.
+- The CLI reference and the config key list are generated from the binary's help pages and checked byte for byte in CI.
+- Subagents, and repositories an agent has just entered, now receive the agent briefing. Claude Code's plugin installs `Stop` and `SubagentStop` capture events.
+
+### Removed
+
+- `fufu.translate`, replaced by `fufu.gitPolicy`. Command translation is gone entirely: fufu will not run a different command than the one given.
+
+### Fixed
+
+- `ff trim` reported a live branch as gone when its operations had aged out of the keep window.
+- With multiple worktrees, reconcile reported branch deletions and creations that had not happened, when another worktree held the branch.
+
+### Known issues
+
+- With signing enabled, `ff status` no longer predicts the next commit's sha.
 
 ## v0.9.0 — 2026-08-27
 
