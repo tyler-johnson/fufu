@@ -1,0 +1,8 @@
+/* Console transcripts: the prompt and the output are display, not input.
+   Keep both out of a drag-selection so what you copy is what you can
+   paste. The copy button is handled in javascripts/console-copy.js. */
+.highlight .gp,
+.highlight .go {
+  -webkit-user-select: none;
+  user-select: none;
+}
