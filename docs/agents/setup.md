@@ -68,13 +68,39 @@ If you manage your Claude Code settings by hand instead, this is the wiring — 
 
 These two events are the floor. `PreToolUse` is the capture that cannot miss — every edit, every shell command, and the only channel that reaches a subagent or a repository the agent just entered. `UserPromptSubmit` is the turn boundary the briefing rides. The installer wires five more (`SessionStart`, `Stop`, `SubagentStop`, `SubagentStart`, `CwdChanged`) that widen capture rather than found it — the `Stop` pair matters most, because capture is snapshot-*before*, and without a turn-end event the file state an agent writes as its final action sits uncaptured until whatever comes next.
 
+### The same wiring for Codex
+
+`ff hook codex` wires the same floor into Codex: it merges two events into `~/.codex/hooks.json` — `PreToolUse` on the tools that mutate, and the turn boundary — and writes [the skill](#ship-the-skill) to `~/.codex/skills/fufu/`. This is what lands:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [{ "type": "command", "command": "ff trigger codex" }]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "ff trigger codex" }]
+      }
+    ]
+  }
+}
+```
+
+Two honest differences from the Claude Code wiring. fufu wires Codex with the floor and nothing wider — the turn-end and subagent events the Claude Code installer adds have no counterpart here today, so the file state an agent writes as its final action waits for the next turn's capture. And Codex trusts hooks by their hash: after `ff hook codex`, run `/hooks` inside Codex once to review and accept the new hook, or Codex skips it and nothing captures. `ff doctor` keeps showing that reminder whenever the wiring is present, because fufu cannot read Codex's trust list — an unreviewed hook and a reviewed one look identical from outside.
+
 [`ff trigger <source>`](../reference/cli/trigger.md) is built for this seat: it reads the client's payload on stdin, always exits 0 whatever went wrong, and never vetoes a tool call on its own judgment — `fufu.gitPolicy strict` is the one veto there is, and it travels as JSON the client enforces. A source name fufu does not know exits 0 silently, so the same command is safe to wire into a client fufu has never heard of. When your agent is a script rather than a client with hooks, [the machine surface](machine-surface.md) is the contract to build against.
+
+Two agents in one repository is a supported shape, and the wiring above is all it takes. Give each agent its own worktree — `ff worktree add` — and their operation logs never touch: each worktree writes its own chain under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work. Two agents sharing a single worktree settle at that chain's lock instead: a capture that loses it is skipped, because the winner is already recording, and a verb waits briefly and then refuses with `ref/contended` rather than interleaving. The [worktrees guide](../guides/worktrees.md#two-writers-one-repository) has the full story, including watching every tree's motion from one seat.
 
 ## Ship the skill
 
 The briefing is deliberately short — four verbs, the git rule, a pointer to `--help` — because the agent pays for it every session. Everything past that lives in a skill fufu ships: the recovery table, rewriting commits that have already closed, held rewrites and conflicts, the landmines, and the JSON surface. It costs the agent nothing until the situation calls for it, and it is the difference between an agent that reads `ff evolog` to find a lost hour and one that improvises reflog archaeology through `ff git`.
 
-`ff hook claude` and `ff hook codex` install the skill beside the wiring, so there is nothing extra to do on those clients. For a client that reads no skills directory, print it and put it wherever your agent reads instructions:
+`ff hook claude` and `ff hook codex` install the skill beside the wiring — [the Codex subsection above](#the-same-wiring-for-codex) says where — so there is nothing extra to do on those clients. For a client that reads no skills directory, print it and put it wherever your agent reads instructions:
 
 ```console
 $ ff hook --skill

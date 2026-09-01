@@ -96,6 +96,14 @@ $ ff history
 
 Note the `add worktree bay on bay` row: making the bay was itself an operation, on the chain of the tree that ran it, so an `ff undo` right after it would have taken the checkout away again. [Snapshots and undo](../concepts/snapshots-and-undo.md) covers what each press of undo restores.
 
+## Two writers, one repository
+
+Two trees writing one repository is this guide's normal case — you in one, a build or an agent in the other — so the locking is worth saying plainly. Each chain has one write lock, a file at `<common-dir>/fufu/oplog-<chain>.lock`, and no lock spans the repository: a verb in the bay and a verb in the first tree write two different chains and never wait on each other. The commits and refs underneath stay safe by git's own rules, the same as any two git processes sharing a repository.
+
+Inside one tree, two fufu processes at once — an agent's hook capturing while you type a verb — settle at that chain's one lock, and the loser loses cleanly. A capture that finds the lock held is skipped outright, because another process is already recording and the next capture is moments away. A verb waits up to two seconds, then refuses with `ref/contended: another fufu process is writing the operation log` rather than writing over what the other holds — run it again. Neither case can corrupt the log.
+
+[Architecture](../internals/architecture.md#where-fufus-state-lives) places the lock file among the rest of fufu's on-disk state.
+
 ## Watching every tree
 
 [`ff watch`](../reference/cli/watch.md) streams the operation log as it moves, one JSON object per line. Bare, it streams the chain of the worktree you run it in; `--all` streams every chain in the repository, opening with one `start` event per worktree, and every line names the worktree it belongs to. Land another commit in the bay while a stream opened from the first tree is running:
