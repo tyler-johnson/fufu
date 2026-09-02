@@ -18,7 +18,9 @@
 //! settings registry in `cmd/config.rs` renders into a marked region of that
 //! page — `<!-- registry:begin -->` through `<!-- registry:end -->` — under
 //! the same byte-equality and `FF_DOCS_GEN=1` contract, with the prose
-//! around the markers hand-written and untouched.
+//! around the markers hand-written and untouched. `docs/reference/errors.md`
+//! is the third region: the error id registry in `explain.rs`, one table row
+//! per id with the exit code it carries.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -281,33 +283,34 @@ fn registry_region() -> String {
     out
 }
 
-/// The region between the markers equals regeneration, byte for byte; the
-/// prose around them is hand-written and never touched. `FF_DOCS_GEN=1`
-/// splices the fresh region in instead of reporting the drift.
-#[test]
-fn the_config_registry_is_generated() {
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/reference/config.md");
-    let have = std::fs::read_to_string(&path).expect("a readable docs/reference/config.md");
+/// The region of `page` between the markers equals `want`, byte for byte;
+/// the prose around them is hand-written and never touched. `FF_DOCS_GEN=1`
+/// splices the fresh region in instead of reporting the drift. `begin_prefix`
+/// is the opening marker up to its first space, so the generator's note after
+/// it can change without moving the region.
+fn region_is_generated(page: &str, begin_prefix: &str, end_marker: &str, want: String) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/reference")
+        .join(page);
+    let have = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("a readable docs/reference/{page}"));
     let begin = have
-        .find("<!-- registry:begin")
-        .expect("config.md: no `<!-- registry:begin` marker");
-    let end_marker = "<!-- registry:end -->\n";
+        .find(begin_prefix)
+        .unwrap_or_else(|| panic!("{page}: no `{begin_prefix}` marker"));
     let end = have
         .find(end_marker)
-        .expect("config.md: no `<!-- registry:end -->` marker")
+        .unwrap_or_else(|| panic!("{page}: no `{}` marker", end_marker.trim_end()))
         + end_marker.len();
-    assert!(begin < end, "config.md: registry markers out of order");
+    assert!(begin < end, "{page}: region markers out of order");
 
-    let want = registry_region();
     if have[begin..end] == want {
         return;
     }
 
     if std::env::var_os("FF_DOCS_GEN").is_some() {
         let fresh = format!("{}{}{}", &have[..begin], want, &have[end..]);
-        std::fs::write(&path, fresh).expect("a writable config.md");
-        println!("rewrote the registry region");
+        std::fs::write(&path, fresh).unwrap_or_else(|_| panic!("a writable {page}"));
+        println!("rewrote the generated region of {page}");
         return;
     }
 
@@ -317,9 +320,56 @@ fn the_config_registry_is_generated() {
         .find(|i| have.get(*i) != mine.get(*i))
         .unwrap_or(0);
     panic!(
-        "\nreference/config.md: the registry region is stale\n    have: {}\n    want: {}\n  \
+        "\nreference/{page}: the generated region is stale\n    have: {}\n    want: {}\n  \
          run: make docs-gen\n",
         have.get(at).copied().unwrap_or_default(),
         mine.get(at).copied().unwrap_or_default()
+    );
+}
+
+/// The settings registry region of `docs/reference/config.md` is generated.
+#[test]
+fn the_config_registry_is_generated() {
+    region_is_generated(
+        "config.md",
+        "<!-- registry:begin",
+        "<!-- registry:end -->\n",
+        registry_region(),
+    );
+}
+
+/// The error index region of `docs/reference/errors.md`, markers included:
+/// one table row per [`crate::explain::ENTRIES`] entry, sorted by id so the
+/// namespaces group without headings and the region does not move when the
+/// registry is reordered. The row is id, exit code, summary; the detail
+/// stays with `ff explain <id>`.
+fn errors_region() -> String {
+    let mut out = String::from(
+        "<!-- errors:begin — generated from ENTRIES in crates/ff-cli/src/explain.rs by a \
+         test; edit there, then make docs-gen -->\n\n| id | exit | meaning |\n| --- | --- | --- |\n",
+    );
+    let mut entries: Vec<&crate::explain::Entry> = crate::explain::ENTRIES.iter().collect();
+    entries.sort_by_key(|e| e.id);
+    for entry in entries {
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} |",
+            entry.id,
+            ff_core::exit_code_for(entry.id),
+            entry.summary
+        );
+    }
+    out.push_str("\n<!-- errors:end -->\n");
+    out
+}
+
+/// The error index region of `docs/reference/errors.md` is generated.
+#[test]
+fn the_error_index_is_generated() {
+    region_is_generated(
+        "errors.md",
+        "<!-- errors:begin",
+        "<!-- errors:end -->\n",
+        errors_region(),
     );
 }

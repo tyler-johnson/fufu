@@ -60,7 +60,7 @@ pub use accounted::accounted_for;
 pub use changestat::{DiffOptions, change_diff, change_stat, tree_diff, tree_diff_stat};
 pub use close::{CloseOptions, close};
 pub use collide::{Collision, Pairing, Side, collide};
-pub use error::{Error, Result};
+pub use error::{Error, Result, exit_code_for};
 pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
 pub use history::{Step, history};

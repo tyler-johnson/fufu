@@ -2027,6 +2027,26 @@ fn explain_json_single_entry() {
     assert!(v["data"]["summary"].is_string());
     assert!(v["data"]["detail"].is_string());
     assert!(v["data"]["exits"].is_array());
+    assert!(
+        v["data"]["exit"].is_number(),
+        "each entry carries its exit code"
+    );
+}
+
+/// `exit` on an explain entry is the code the id exits with: 2 for the
+/// `usage/` namespace, 4 for `ref/contended`, the one id coded on its own.
+#[test]
+fn explain_json_carries_the_exit_code() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let out = ff_at(tmp.path(), &["explain", "ref/contended", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["data"]["exit"], 4);
+
+    let out = ff_at(tmp.path(), &["explain", "usage/bad-flags", "--json"]);
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["data"]["exit"], 2);
 }
 
 /// `ff explain --list --json` emits an array of entries.
@@ -2043,6 +2063,7 @@ fn explain_json_list() {
     for entry in entries {
         assert!(entry["id"].is_string(), "each entry has id");
         assert!(entry["summary"].is_string(), "each entry has summary");
+        assert!(entry["exit"].is_number(), "each entry has an exit code");
     }
 }
 

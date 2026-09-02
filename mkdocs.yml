@@ -85,6 +85,7 @@ nav:
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md
       - Doctor: reference/doctor.md
+      - Error ids: reference/errors.md
   - Comparisons:
       - fufu vs jj: comparisons/vs-jj.md
       - fufu vs git: comparisons/vs-git.md

@@ -1241,16 +1241,17 @@ pub fn render(entry: &Entry) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Render every entry as `id  summary` (list mode).
+/// Render every entry as `id  exit  summary` (list mode).
 pub fn render_list() -> std::io::Result<()> {
     let mut out = std::io::stdout();
-    // Compute the widest id column so summaries align.
+    // Compute the widest id column so the codes and summaries align.
     let max_id = ENTRIES.iter().map(|e| e.id.len()).max().unwrap_or(0);
     for entry in ENTRIES {
         writeln!(
             out,
-            "{:<width$}  {}",
+            "{:<width$}  {}  {}",
             entry.id,
+            ff_core::exit_code_for(entry.id),
             entry.summary,
             width = max_id
         )?;
@@ -1258,30 +1259,26 @@ pub fn render_list() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Emit JSON for one entry.
-pub fn emit_json(entry: &Entry) -> Result<()> {
-    let data = serde_json::json!({
+/// One entry as JSON: the registry's four fields plus the exit code the id
+/// carries, so a script reads the code without knowing the namespace rule.
+fn entry_json(entry: &Entry) -> serde_json::Value {
+    serde_json::json!({
         "id": entry.id,
         "summary": entry.summary,
         "detail": entry.detail,
         "exits": entry.exits,
-    });
-    crate::machine::emit("explain", &data)
+        "exit": ff_core::exit_code_for(entry.id),
+    })
+}
+
+/// Emit JSON for one entry.
+pub fn emit_json(entry: &Entry) -> Result<()> {
+    crate::machine::emit("explain", &entry_json(entry))
 }
 
 /// Emit JSON for the list: array of entry objects.
 pub fn emit_json_list() -> Result<()> {
-    let entries: Vec<serde_json::Value> = ENTRIES
-        .iter()
-        .map(|e| {
-            serde_json::json!({
-                "id": e.id,
-                "summary": e.summary,
-                "detail": e.detail,
-                "exits": e.exits,
-            })
-        })
-        .collect();
+    let entries: Vec<serde_json::Value> = ENTRIES.iter().map(entry_json).collect();
     let data = serde_json::json!({ "entries": entries });
     crate::machine::emit("explain", &data)
 }

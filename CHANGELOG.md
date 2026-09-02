@@ -4,6 +4,7 @@
 
 ### Added
 
+- The error id index, `docs/reference/errors.md`: every id `ff explain` knows, with its exit code and one-line meaning, generated from the registry. `ff explain --json` entries carry `exit`, the code the id exits with, and `ff explain --list` prints it as a column.
 - `prepare-commit-msg` and `post-commit`, the two commit-time hooks fufu did not implement. `ff commit` now runs all four: `pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit`. Every commit hook runs with `GIT_EDITOR=:`, as git sets it for a command that will not open an editor.
 - `--no-verify` on `ff absorb`, `ff done`, and `ff describe <rev>`, the verbs that can now be declined by a hook.
 - `ff hook powershell`. `$PROFILE` gets `function git { ff git @args }` and a wrapped `prompt`, with the same marker and the same `ff unhook` as the other shells. On Windows the profile is PowerShell 7's under the Documents known folder, or Windows PowerShell 5.1's when that is the only one on disk, and the slug is always detected; elsewhere it is `~/.config/powershell/`, detected when the profile exists or `$SHELL` is `pwsh`.
