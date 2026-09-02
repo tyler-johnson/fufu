@@ -18,7 +18,7 @@ The second line is the promise the rest of this tutorial leans on. From this mom
 
 The repository you just cloned is fufu's own — real history, real files — so everything below is something you can type, not just read. The work you make here stays in your clone.
 
-That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#2-wire-it-in) if you have not.
+That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#wire-it-in) if you have not.
 
 If you have a repository git already made, `ff init` inside it means *turn fufu on here* — same arming, nothing else changes. See [Adopting fufu](adopting.md).
 
