@@ -111,6 +111,6 @@ Signing is resolved once per verb, before the first object is written, so a misc
 - `sign/no-program` — the program is not on `PATH`.
 - `sign/failed` — the signer ran and refused. Its own words are in the message.
 
-`ff explain <id>` has the long form of each.
+`ff explain <id>` has the long form of each, and [the error id index](errors.md) lists every id with its exit code.
 
 fufu captures the signer's stderr rather than letting it through, which is what makes those messages worth reading. A passphrase prompt still reaches your terminal: gpg-agent's pinentry opens the tty itself through `GPG_TTY` rather than inheriting fufu's.

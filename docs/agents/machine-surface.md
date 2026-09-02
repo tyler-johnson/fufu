@@ -24,7 +24,7 @@ $ echo $?
 2
 ```
 
-`error.id` is the stable machine name: prose gets reworded, ids do not, so a script branches on the id and never matches a sentence. `error.exits` is the same block the human rendering prints — the commands somebody would type next — handed to the machine as data. [`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand.
+`error.id` is the stable machine name: prose gets reworded, ids do not, so a script branches on the id and never matches a sentence. `error.exits` is the same block the human rendering prints — the commands somebody would type next — handed to the machine as data. [`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand. [The error id index](../reference/errors.md) lists every id with its exit code, and `ff explain --list` prints the same table from the binary.
 
 What is promised: within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know. A change that breaks an existing field is what bumps the `ff` number, which is why a strict consumer asserts it before parsing. The human rendering promises none of this — layout, wording, and color are free to change in any release.
 
@@ -146,7 +146,7 @@ $ ff history --json | jq -c '.data.steps[]'
 
 ## Exit codes
 
-Four codes, one meaning each:
+Five codes, one meaning each:
 
 | code | meaning |
 | --- | --- |
@@ -154,8 +154,9 @@ Four codes, one meaning each:
 | 1 | no — the command failed, or the check's answer is negative |
 | 2 | the command line was wrong |
 | 3 | held — nothing was touched, and a human decision is required |
+| 4 | contended — nothing was touched, and the same command run again is the answer |
 
-The code follows the error id's namespace: `usage/*` errors exit 2, `held/*` errors exit 3, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you" — nothing moved, the [held rewrite](../concepts/held-rewrites.md) is parked, and the script should stop and surface it rather than retry. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
+The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you" — nothing moved, the [held rewrite](../concepts/held-rewrites.md) is parked, and the script should stop and surface it rather than retry. Exit 4 asks the opposite: another writer held the ref for a moment, so retry the same command, with a cap, because a lock file nobody clears gives the same answer every time. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
 
 Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, `ff git <word>` refuses any git word fufu has a verb for, before the capture and before anything runs:
 
