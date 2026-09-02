@@ -36,7 +36,7 @@ Because the working tree is the change: there is no object to assemble before co
 
 ## Can I commit some hunks of a file and leave the rest?
 
-Not through fufu's own verbs: a partial commit selects by path — a file, or a directory — and there is no hunk-level selection. When one file holds two changes, the escape hatch is `ff git commit -p`, which snapshots first and then lets git build that commit interactively from the worktree, exactly the `-p` you know. What does not work is `ff git add -p` followed by `ff commit`: `ff commit` closes the worktree, not the index, so a hand-staged selection would be overwritten, not honored. Hunk-level selection through a fufu verb is a genuine capability gap today, not a workflow the docs are steering you around. [Changes](concepts/changes.md) is the model partial commits do follow.
+Not through fufu's own verbs: a partial commit selects by path — a file, or a directory — and there is no hunk-level selection. When one file holds two changes, the escape hatch is `ff git commit -p`, which snapshots first and then lets git build that commit interactively from the worktree, exactly the `-p` you know. One condition: under `fufu.gitPolicy strict` that command is refused along with every other `git commit`, so a hunk commit belongs to a seat running `coach` or `observe` — see [what strict refuses](#what-does-strict-mode-refuse). What does not work is `ff git add -p` followed by `ff commit`: `ff commit` closes the worktree, not the index, so a hand-staged selection would be overwritten, not honored. Hunk-level selection through a fufu verb is a genuine capability gap today, not a workflow the docs are steering you around. [Changes](concepts/changes.md) is the model partial commits do follow.
 
 ## Why can't `ff undo` take back a push?
 
@@ -44,7 +44,7 @@ Because a push is the one act that leaves the machine: other clones can fetch it
 
 ## What does strict mode refuse?
 
-`fufu.gitPolicy strict` refuses exactly the git writes fufu has a verb for — `git commit`, `git stash push`, `git reset`, and their kin — and names the fufu verb to run instead, without ever silently running anything in the refused command's place. Reads pass untouched at every level, writes with no fufu answer (`apply`, `am`, `bisect`, `submodule`) pass untouched, and ambiguous compound shell strings fail open rather than guessing. The capture already happened before the command ran either way, so the policy is a nudge with teeth, not the safety net itself. See [plain-git teammates](guides/plain-git-teammates.md#the-alias-and-gitpolicy) and [why agents](agents/why.md).
+`fufu.gitPolicy strict` refuses exactly the git writes fufu has a verb for — `git commit`, `commit -p` included, `git stash push`, `git reset`, and their kin — and names the fufu verb to run instead, without ever silently running anything in the refused command's place. Reads pass untouched at every level, writes with no fufu answer (`apply`, `am`, `bisect`, `submodule`) pass untouched, and ambiguous compound shell strings fail open rather than guessing. The capture already happened before the command ran either way, so the policy is a nudge with teeth, not the safety net itself. See [plain-git teammates](guides/plain-git-teammates.md#the-alias-and-gitpolicy) and [why agents](agents/why.md).
 
 ## How far back can undo reach? What about before I ran `ff init`?
 
