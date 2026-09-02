@@ -80,7 +80,7 @@ fn home() -> Result<PathBuf> {
 /// The line ending a file already uses, so a rewrite keeps it. A profile
 /// written by a Windows editor is CRLF, and a fufu that rejoined it with
 /// `\n` would flip every line of it on the first `ff unhook`.
-fn line_ending(contents: &str) -> &'static str {
+pub(super) fn line_ending(contents: &str) -> &'static str {
     if contents.contains("\r\n") {
         "\r\n"
     } else {
@@ -361,6 +361,7 @@ impl Integration for Shell {
                 },
             ],
             skill: None,
+            mcp: None,
             stale,
         }
     }

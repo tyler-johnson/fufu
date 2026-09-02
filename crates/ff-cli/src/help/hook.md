@@ -6,6 +6,8 @@ What gets written depends on the client, and is not a choice you make: Claude Co
 
 Claude Code and Codex take fufu's own skill along with the wiring: the manual for everything the once-per-session briefing has no room for — recovery, rewriting commits that have closed, held rewrites, the JSON. It costs the agent nothing until it is read. Claude's skill rides inside the plugin, so --settings wires capture and no skill.
 
+The four agent clients also get `ff mcp` registered as a server, so the agent can reach fufu as a typed tool: `.mcp.json` in the Claude plugin, a marked block in Codex's `config.toml`, `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. The hook and the server do different jobs — the hook snapshots before every tool call, whatever the tool; the server only sees fufu verbs — so both are wired. A registration you wrote yourself is left alone.
+
 Hooks are what make capture ambient instead of something you remember. With none of them wired, fufu snapshots only when you type an ff command — which works, and misses the whole point. `ff doctor` warns when nothing at all feeds capture, because a silent engine feels safe while capturing nothing.
 
 ## Examples

@@ -11,10 +11,12 @@
 //! to make impossible. The trust step gates the hook and nothing else: the
 //! shipped skill is a file Codex reads, not a command it runs.
 //!
-//! Two mechanisms, then, and they are independent. The hooks are entries
+//! Three mechanisms, then, and they are independent. The hooks are entries
 //! merged into a settings file that belongs to the user; the skill is a
 //! directory fufu owns outright under `~/.codex/skills/`, written whole and
-//! removed whole. Neither install can take the other down with it.
+//! removed whole; the MCP server is a marked block in `config.toml`, the
+//! one TOML file among the four clients, appended and removed by its
+//! markers. No install can take another down with it.
 
 use std::path::PathBuf;
 
@@ -22,7 +24,7 @@ use ff_core::Result;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
-    Status, Wiring, payload, settings, skill,
+    Status, Wiring, mcp, payload, settings, skill,
 };
 use settings::Need;
 
@@ -65,6 +67,13 @@ fn spec() -> Result<settings::Spec> {
     })
 }
 
+fn mcp_spec() -> Result<mcp::Spec> {
+    Ok(mcp::Spec::new(
+        config_dir()?.join("config.toml"),
+        mcp::Shape::TomlBlock,
+    ))
+}
+
 impl Integration for Codex {
     fn slug(&self) -> &'static str {
         "codex"
@@ -92,6 +101,10 @@ impl Integration for Codex {
             wiring,
             parts: Vec::new(),
             skill: Some(skill_wiring()),
+            mcp: Some(match mcp_spec() {
+                Ok(spec) => mcp::wiring(&spec),
+                Err(err) => Wiring::Unavailable(err.to_string()),
+            }),
             stale,
         }
     }
@@ -104,6 +117,7 @@ impl Integration for Codex {
             "skill written to {}",
             dir.display()
         )));
+        change.absorb(mcp::install(&mcp_spec()?)?);
         change.lines.push(TRUST.into());
         Ok(change)
     }
@@ -114,6 +128,7 @@ impl Integration for Codex {
         if skill::remove(&dir)? {
             change.absorb(Change::changed(format!("removed {}", dir.display())));
         }
+        change.absorb(mcp::uninstall(&mcp_spec()?)?);
         Ok(change)
     }
 

@@ -12,7 +12,7 @@ use ff_core::Result;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
-    Status, Wiring, payload, settings,
+    Status, Wiring, mcp, payload, settings,
 };
 use settings::Need;
 
@@ -45,6 +45,15 @@ fn spec() -> Result<settings::Spec> {
     })
 }
 
+/// The MCP server goes in the same file as the hooks, under its own key;
+/// Gemini spells no transport, so the entry carries none.
+fn mcp_spec() -> Result<mcp::Spec> {
+    Ok(mcp::Spec::new(
+        config_dir()?.join("settings.json"),
+        mcp::Shape::Json { with_type: false },
+    ))
+}
+
 impl Integration for Gemini {
     fn slug(&self) -> &'static str {
         "gemini"
@@ -70,16 +79,24 @@ impl Integration for Gemini {
             note: None,
             parts: Vec::new(),
             skill: None,
+            mcp: Some(match mcp_spec() {
+                Ok(spec) => mcp::wiring(&spec),
+                Err(err) => Wiring::Unavailable(err.to_string()),
+            }),
             stale,
         }
     }
 
     fn install(&self, _opts: &InstallOptions) -> Result<Change> {
-        settings::install(&spec()?)
+        let mut change = settings::install(&spec()?)?;
+        change.absorb(mcp::install(&mcp_spec()?)?);
+        Ok(change)
     }
 
     fn uninstall(&self, _opts: &InstallOptions) -> Result<Change> {
-        settings::uninstall(&spec()?)
+        let mut change = settings::uninstall(&spec()?)?;
+        change.absorb(mcp::uninstall(&mcp_spec()?)?);
+        Ok(change)
     }
 
     fn protocol(&self) -> Option<&'static dyn AgentProtocol> {

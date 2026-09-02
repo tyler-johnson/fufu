@@ -1306,3 +1306,233 @@ fn a_second_shell_trigger_on_an_unmoved_tree_adds_no_operation() {
         "the retired fingerprint file is never written"
     );
 }
+
+// ---- the MCP server --------------------------------------------------------
+
+/// Every agent client registers the server beside its hook: three JSON
+/// files and one TOML block, each removed exactly by unhook.
+#[test]
+fn each_client_registers_the_mcp_server_in_its_own_file() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let is_ours = |entry: &serde_json::Value| {
+        entry["args"] == serde_json::json!(["mcp"])
+            && entry["command"]
+                .as_str()
+                .is_some_and(|c| c.ends_with("/ff") || c.ends_with("\\ff.exe"))
+    };
+
+    // Claude: the plugin's own .mcp.json, spelled with the transport.
+    assert!(
+        ff_env(home.path(), &["hook", "claude"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&home.path().join(".claude/skills/fufu/.mcp.json"));
+    assert_eq!(v["mcpServers"]["fufu"]["type"], "stdio");
+    assert!(is_ours(&v["mcpServers"]["fufu"]), "{v}");
+
+    // Cursor: its own mcp.json, not the hooks file.
+    assert!(
+        ff_env(home.path(), &["hook", "cursor"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&home.path().join(".cursor/mcp.json"));
+    assert_eq!(v["mcpServers"]["fufu"]["type"], "stdio");
+    assert!(is_ours(&v["mcpServers"]["fufu"]), "{v}");
+    let hooks = json_at(&home.path().join(".cursor/hooks.json"));
+    assert!(
+        hooks.get("mcpServers").is_none(),
+        "the hooks file is not it"
+    );
+
+    // Gemini: the same settings.json as its hooks, no transport spelled.
+    assert!(
+        ff_env(home.path(), &["hook", "gemini"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&home.path().join(".gemini/settings.json"));
+    assert!(
+        v["hooks"]["BeforeTool"].is_array(),
+        "hooks and servers coexist"
+    );
+    assert!(v["mcpServers"]["fufu"].get("type").is_none(), "{v}");
+    assert!(is_ours(&v["mcpServers"]["fufu"]), "{v}");
+
+    // Codex: a marked block in config.toml.
+    assert!(
+        ff_env(home.path(), &["hook", "codex"], &env)
+            .status
+            .success()
+    );
+    let toml = std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap();
+    assert!(
+        toml.starts_with("# >>> fufu (ff hook codex) >>>\n[mcp_servers.fufu]\ncommand = \""),
+        "{toml}"
+    );
+    assert!(
+        toml.ends_with("args = [\"mcp\"]\n# <<< fufu <<<\n"),
+        "{toml}"
+    );
+
+    // The report says so, per client.
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    for slug in ["claude", "codex", "cursor", "gemini"] {
+        let line = listing
+            .lines()
+            .find(|l| l.starts_with(slug))
+            .unwrap_or_else(|| panic!("{slug} in {listing}"));
+        assert!(line.ends_with(", mcp"), "{line}");
+    }
+    let out = ff_env(home.path(), &["hook", "-l", "--json"], &env);
+    let v: serde_json::Value = serde_json::from_str(text(&out).trim()).unwrap();
+    for status in v["data"]["integrations"].as_array().unwrap() {
+        if ["claude", "codex", "cursor", "gemini"].contains(&status["slug"].as_str().unwrap()) {
+            assert_eq!(status["mcp"]["state"], "wired", "{status}");
+        } else {
+            assert!(
+                status.get("mcp").is_none(),
+                "a shell has no server: {status}"
+            );
+        }
+    }
+
+    // Idempotent: a second install changes nothing.
+    for slug in ["codex", "cursor", "gemini"] {
+        let out = ff_env(home.path(), &["hook", slug], &env);
+        assert!(out.status.success());
+        assert!(
+            text(&out).contains("already registered"),
+            "{slug}: {}",
+            text(&out)
+        );
+    }
+    let before = std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap();
+    ff_env(home.path(), &["hook", "codex"], &env);
+    assert_eq!(
+        std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap(),
+        before
+    );
+
+    // Unhook takes back exactly the registration.
+    for slug in ["claude", "codex", "cursor", "gemini"] {
+        assert!(
+            ff_env(home.path(), &["unhook", slug], &env)
+                .status
+                .success()
+        );
+    }
+    assert!(!home.path().join(".claude/skills/fufu").exists());
+    assert!(
+        json_at(&home.path().join(".cursor/mcp.json"))
+            .get("mcpServers")
+            .is_none()
+    );
+    assert_eq!(
+        json_at(&home.path().join(".gemini/settings.json")),
+        serde_json::json!({})
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap(),
+        ""
+    );
+}
+
+/// A registration somebody wrote themselves is reported and never touched,
+/// in both file shapes, and the hook beside it is still installed.
+#[test]
+fn a_hand_written_mcp_registration_is_left_alone() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    let cursor = home.path().join(".cursor/mcp.json");
+    std::fs::create_dir_all(cursor.parent().unwrap()).unwrap();
+    let mine = r#"{"mcpServers":{"fufu":{"command":"/my/wrapper.sh","args":["serve"]},"other":{"command":"x"}}}"#;
+    std::fs::write(&cursor, mine).unwrap();
+    let out = ff_env(home.path(), &["hook", "cursor"], &env);
+    assert!(out.status.success());
+    assert!(text(&out).contains("by hand"), "{}", text(&out));
+    assert_eq!(std::fs::read_to_string(&cursor).unwrap(), mine);
+    let hooks = json_at(&home.path().join(".cursor/hooks.json"));
+    assert!(
+        hooks["hooks"]["preToolUse"].is_array(),
+        "the hook still lands"
+    );
+    let listing = text(&ff_env(home.path(), &["hook", "-l", "--json"], &env));
+    let v: serde_json::Value = serde_json::from_str(listing.trim()).unwrap();
+    let cursor_status = v["data"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["slug"] == "cursor")
+        .unwrap();
+    assert_eq!(cursor_status["mcp"]["state"], "hand-written");
+    let out = ff_env(home.path(), &["unhook", "cursor"], &env);
+    assert!(out.status.success());
+    assert!(text(&out).contains("by hand"), "{}", text(&out));
+    assert_eq!(std::fs::read_to_string(&cursor).unwrap(), mine);
+
+    let codex = home.path().join(".codex/config.toml");
+    std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+    let mine = "model = \"o3\"\n\n[mcp_servers.fufu]\ncommand = \"/my/wrapper.sh\"\n";
+    std::fs::write(&codex, mine).unwrap();
+    let out = ff_env(home.path(), &["hook", "codex"], &env);
+    assert!(out.status.success());
+    assert!(text(&out).contains("by hand"), "{}", text(&out));
+    assert_eq!(std::fs::read_to_string(&codex).unwrap(), mine);
+    assert!(
+        ff_env(home.path(), &["unhook", "codex"], &env)
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read_to_string(&codex).unwrap(), mine);
+}
+
+/// Foreign content around the registration survives both directions: a
+/// Codex config with other tables, and a Cursor file with other servers.
+#[test]
+fn mcp_registration_preserves_foreign_content() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+
+    let codex = home.path().join(".codex/config.toml");
+    std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+    let theirs = "model = \"o3\"\n\n[mcp_servers.other]\ncommand = \"x\"\nargs = [\"y\"]\n";
+    std::fs::write(&codex, theirs).unwrap();
+    assert!(
+        ff_env(home.path(), &["hook", "codex"], &env)
+            .status
+            .success()
+    );
+    let after = std::fs::read_to_string(&codex).unwrap();
+    assert!(after.starts_with(theirs), "{after}");
+    assert!(after.contains("[mcp_servers.fufu]"));
+    assert!(
+        ff_env(home.path(), &["unhook", "codex"], &env)
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read_to_string(&codex).unwrap(), theirs);
+
+    let cursor = home.path().join(".cursor/mcp.json");
+    std::fs::create_dir_all(cursor.parent().unwrap()).unwrap();
+    std::fs::write(&cursor, r#"{"mcpServers":{"other":{"command":"x"}}}"#).unwrap();
+    assert!(
+        ff_env(home.path(), &["hook", "cursor"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&cursor);
+    assert_eq!(v["mcpServers"]["other"]["command"], "x");
+    assert!(v["mcpServers"]["fufu"].is_object());
+    assert!(
+        ff_env(home.path(), &["unhook", "cursor"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&cursor);
+    assert_eq!(v["mcpServers"]["other"]["command"], "x");
+    assert!(v["mcpServers"].get("fufu").is_none());
+}

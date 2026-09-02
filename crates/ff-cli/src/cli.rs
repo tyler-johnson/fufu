@@ -492,6 +492,9 @@ pub enum Command {
         #[arg(short = 'n', long = "max-count", value_name = "count")]
         count: Option<usize>,
     },
+    /// Serve fufu to an agent client over the Model Context Protocol, on stdio
+    #[command(long_about = help::term(help::MCP), after_long_help = help::term_examples(help::MCP_EXAMPLES))]
+    Mcp,
     /// Read and write fufu's settings (plain git config under fufu.*)
     #[command(alias = "cfg", long_about = help::term(help::CONFIG), after_long_help = help::term_examples(help::CONFIG_EXAMPLES))]
     Config {
@@ -939,6 +942,7 @@ impl Command {
             Command::Unhook { .. } => "unhook",
             Command::Trigger { .. } => "trigger",
             Command::Watch { .. } => "watch",
+            Command::Mcp => "mcp",
             Command::Config { .. } => "config",
             Command::Doctor { .. } => "doctor",
             Command::Explain { .. } => "explain",
@@ -999,6 +1003,7 @@ impl Command {
             | Command::Map { .. }
             | Command::Collide { .. }
             | Command::Watch { .. }
+            | Command::Mcp
             | Command::Git { .. }
             | Command::Trim { .. }
             | Command::Commit { .. }
@@ -1052,6 +1057,10 @@ impl Command {
     pub fn json_capable(&self) -> bool {
         match self {
             Command::Git { .. } | Command::Update { .. } | Command::Watch { .. } => false,
+            // The server owns stdout: every byte on it is a JSON-RPC frame
+            // the client parses, and an envelope there is a protocol
+            // violation. Each child it relays to takes `--json` for itself.
+            Command::Mcp => false,
             // `trigger` is two things under one name, and only one of them
             // owns its stream. The manual snapshot is a verb like any
             // other and emits an envelope; a client source's stdout
@@ -1101,6 +1110,11 @@ impl Command {
             // rewrites every id on the log: a watch would be triggering, on
             // its own trailer, the one motion that ends the stream.
             Command::Watch { .. } => Lanes::NONE,
+            // The server rides nothing for the same reason `watch` does not:
+            // each child it spawns is an ordinary invocation and captures
+            // for itself, and a capture at server start would be a row on
+            // the log for a process that has not been asked anything yet.
+            Command::Mcp => Lanes::NONE,
             Command::Version => Lanes::QUIET_UPDATE,
             // No repository in its answer either, but it takes the generic
             // notice — one arm is not a const.

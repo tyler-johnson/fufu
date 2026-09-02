@@ -920,6 +920,18 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff restack <branch> --onto <base>", "ff branch list"],
     },
     Entry {
+        id: "usage/mcp-verb-unavailable",
+        summary: "that verb is not offered through the MCP tool",
+        detail: "ff mcp serves one tool whose input is the command line after ff, and six verbs \
+                 are left out of it on purpose: git, update, watch, hook, unhook, and mcp itself. \
+                 Each either owns its stream — git passes real git's output through, watch \
+                 emits a stream of envelopes rather than one, mcp is the server — or talks a \
+                 person through something, or wires the machine. None of them makes sense \
+                 inside a tool call, so the tool says so rather than running one badly. Run \
+                 the verb in a shell; every other verb goes through the tool.",
+        exits: &["ff help"],
+    },
+    Entry {
         id: "usage/bad-session",
         summary: "that is not a usable session name",
         detail: "A session name can be any text — spaces, punctuation, and unicode are all fine. \

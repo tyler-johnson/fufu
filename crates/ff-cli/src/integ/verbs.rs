@@ -280,6 +280,10 @@ fn describe(status: &Status) -> String {
     if let Some(super::Wiring::Wired { .. }) = &status.skill {
         line.push_str(", skill");
     }
+    // The MCP server on the same rule, and for the same reason.
+    if let Some(super::Wiring::Wired { .. }) = &status.mcp {
+        line.push_str(", mcp");
+    }
     line
 }
 

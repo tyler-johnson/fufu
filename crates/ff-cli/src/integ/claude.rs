@@ -14,6 +14,10 @@
 //! that is written whole and removed whole either way. `--settings` gets
 //! no skill, because the skill rides the plugin.
 //!
+//! The MCP server rides the plugin too, as its `.mcp.json`: the fourth
+//! file in the directory, written and removed with the other three. That
+//! is why `--settings` carries no server, on the same rule as the skill.
+//!
 //! The migration from settings entries to the plugin is add-then-remove:
 //! install the plugin, verify it, then strip the settings entries. The
 //! other order leaves a window with no capture at all; this one leaves a
@@ -26,7 +30,7 @@ use ff_core::Result;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
-    Reply, Status, Wiring, payload, settings, skill,
+    Reply, Status, Wiring, mcp, payload, settings, skill,
 };
 use settings::Need;
 
@@ -107,6 +111,21 @@ fn skill_dir() -> Result<PathBuf> {
 fn skill_wiring() -> Wiring {
     match skill_dir() {
         Ok(dir) => skill::wiring(&dir),
+        Err(_) => Wiring::NotWired,
+    }
+}
+
+/// The plugin's `.mcp.json`, which is the one MCP file a plugin carries.
+fn mcp_spec() -> Result<mcp::Spec> {
+    Ok(mcp::Spec::new(
+        plugin_dir()?.join(".mcp.json"),
+        mcp::Shape::Json { with_type: true },
+    ))
+}
+
+fn mcp_wiring() -> Wiring {
+    match mcp_spec() {
+        Ok(spec) => mcp::wiring(&spec),
         Err(_) => Wiring::NotWired,
     }
 }
@@ -243,6 +262,9 @@ fn write_plugin() -> Result<()> {
     std::fs::write(&manifest_path, manifest).map_err(ff_core::Error::repo)?;
     std::fs::write(&hooks_path, hooks).map_err(ff_core::Error::repo)?;
     skill::write(&skill_dir()?)?;
+    // The merge engine on a file only fufu writes: the result is the whole
+    // file, and the engine is what keeps the entry's shape in one place.
+    mcp::install(&mcp_spec()?)?;
     Ok(())
 }
 
@@ -298,7 +320,7 @@ impl Integration for Claude {
         // something a person asks for with `ff hook claude`, which says so.
         // Only a retired *command spelling*, or an install written before
         // fufu grew an event, is stale; a skill that has drifted is its
-        // own row, because it is its own repair.
+        // own row, because it is its own repair, and so is the server.
         let stale = plugin_stale() || spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
         Status {
             slug: self.slug(),
@@ -307,6 +329,7 @@ impl Integration for Claude {
             note,
             parts: Vec::new(),
             skill: Some(skill_wiring()),
+            mcp: Some(mcp_wiring()),
             stale,
         }
     }
@@ -342,6 +365,10 @@ impl Integration for Claude {
         change
             .lines
             .push(format!("skill written to {}", skill_dir()?.display()));
+        change.lines.push(format!(
+            "MCP server registered in {}",
+            mcp_spec()?.path.display()
+        ));
         change.lines.push(
             "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
                 .into(),

@@ -30,6 +30,17 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 anstyle.workspace = true
 anstream.workspace = true
 ureq.workspace = true
+# The Model Context Protocol has two handshake eras — the `initialize`
+# exchange the 2024 and 2025 revisions open with, and the stateless
+# `server/discover` the 2026 revisions require — and a client may speak
+# either. `ff mcp` is one tool over stdio, and a hand-rolled JSON-RPC loop
+# would be small, but the version negotiation between those eras is the
+# part that keeps moving, and the SDK serves both from one handler. That is
+# what is bought here, the same way `gix` buys git's object model.
+rmcp = { version = "3.2.0", default-features = false, features = ["server", "transport-io"] }
+# Already in the lock through reqwest, with none of the runtime features.
+# The MCP server needs a runtime to drive stdio and the child it relays to.
+tokio = { version = "1", features = ["rt", "process", "macros"] }
 
 # PowerShell's profile lives under the Documents known folder, which
 # OneDrive can redirect; `ff hook powershell` asks the shell API where that

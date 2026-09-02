@@ -23,20 +23,24 @@ pub fn write<W: std::io::Write, T: Serialize>(out: &mut W, cmd: &str, data: &T) 
 
 /// The error form: `error` replaces `data`, never both.
 pub fn emit_error(cmd: &str, err: &Error) -> Result<()> {
-    write_line(
-        &mut std::io::stdout(),
-        &serde_json::json!({
-            "ff": CONTRACT,
-            "cmd": cmd,
-            "error": {
-                "id": err.id(),
-                "message": err.to_string(),
-                // The same block the human rendering prints, so a machine
-                // reading the envelope is told what a terminal would be.
-                "exits": crate::explain::exits_for(err),
-            },
-        }),
-    )
+    write_line(&mut std::io::stdout(), &error_envelope(cmd, err))
+}
+
+/// The error envelope as a value, for the one caller that hands it to a
+/// client rather than printing it: `ff mcp`'s refusal of a verb it does not
+/// relay carries exactly what `emit_error` would have printed.
+pub fn error_envelope(cmd: &str, err: &Error) -> serde_json::Value {
+    serde_json::json!({
+        "ff": CONTRACT,
+        "cmd": cmd,
+        "error": {
+            "id": err.id(),
+            "message": err.to_string(),
+            // The same block the human rendering prints, so a machine
+            // reading the envelope is told what a terminal would be.
+            "exits": crate::explain::exits_for(err),
+        },
+    })
 }
 
 /// One already-shaped envelope, one line, one trailing newline.

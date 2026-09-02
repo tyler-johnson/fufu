@@ -81,7 +81,7 @@ fn every_command_has_a_page() {
         "map", "status", "collide", "diff", "show", "log", "history", "evolog", "git", "restore",
         "trim", "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook",
         "unhook", "trigger", "config", "doctor", "update", "resolve", "init", "clone", "remote",
-        "version", "worktree",
+        "version", "worktree", "mcp",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);

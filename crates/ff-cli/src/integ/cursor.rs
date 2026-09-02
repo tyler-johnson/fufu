@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Presence, Reply,
-    Status, Wiring, payload, settings,
+    Status, Wiring, mcp, payload, settings,
 };
 use settings::Need;
 
@@ -51,6 +51,15 @@ fn spec() -> Result<settings::Spec> {
         legacy: &LEGACY,
         version: Some(1),
     })
+}
+
+/// The MCP server goes in a file of its own, `mcp.json`, which is where
+/// Cursor reads servers from; the hooks file is not it.
+fn mcp_spec() -> Result<mcp::Spec> {
+    Ok(mcp::Spec::new(
+        config_dir()?.join("mcp.json"),
+        mcp::Shape::Json { with_type: true },
+    ))
 }
 
 /// Cursor's payload. Same idea as the shared dialect, different names for
@@ -94,18 +103,25 @@ impl Integration for Cursor {
             wiring,
             parts: Vec::new(),
             skill: None,
+            mcp: Some(match mcp_spec() {
+                Ok(spec) => mcp::wiring(&spec),
+                Err(err) => Wiring::Unavailable(err.to_string()),
+            }),
             stale,
         }
     }
 
     fn install(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::install(&spec()?)?;
+        change.absorb(mcp::install(&mcp_spec()?)?);
         change.lines.push(CLOUD.into());
         Ok(change)
     }
 
     fn uninstall(&self, _opts: &InstallOptions) -> Result<Change> {
-        settings::uninstall(&spec()?)
+        let mut change = settings::uninstall(&spec()?)?;
+        change.absorb(mcp::uninstall(&mcp_spec()?)?);
+        Ok(change)
     }
 
     fn protocol(&self) -> Option<&'static dyn AgentProtocol> {

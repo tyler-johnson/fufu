@@ -37,6 +37,9 @@ pub(super) fn wiring_rows(statuses: &[crate::integ::Status], fix: bool) -> Vec<R
     if let Some(row) = skill_row(statuses, fix) {
         rows.push(row);
     }
+    if let Some(row) = mcp_row(statuses, fix) {
+        rows.push(row);
+    }
     if let Some(row) = triggers_row(statuses) {
         rows.push(row);
     }
@@ -142,19 +145,104 @@ fn skill_row(statuses: &[crate::integ::Status], fix: bool) -> Option<Row> {
     ))
 }
 
-/// The consented write, and the row that reports it either way.
+/// The MCP server's registration, across the clients that take one.
+/// Aggregated the way the skill row is, because it is one question — can
+/// an agent on this machine reach `ff` as a tool — and one answer per
+/// client would say the same thing four times.
+///
+/// Absence is news, not a finding, for the skill's reason: an agent with
+/// the hook and no server shells out to `ff` and loses nothing but a typed
+/// tool. The one warning is a client whose capture hook is wired and whose
+/// server is not — an install predating the server — because that is the
+/// exact shape `ff hook <slug>` run again repairs, and nobody runs the
+/// installer twice unless something tells them to.
+fn mcp_row(statuses: &[crate::integ::Status], fix: bool) -> Option<Row> {
+    use crate::integ::Wiring;
+
+    let servers: Vec<(&crate::integ::Status, &Wiring)> = statuses
+        .iter()
+        .filter_map(|status| status.mcp.as_ref().map(|wiring| (status, wiring)))
+        .filter(|(status, wiring)| status.presence.is_present() || wiring.at().is_some())
+        .collect();
+    if servers.is_empty() {
+        return None;
+    }
+    // The repair first: a wired hook with no server beside it.
+    if let Some((status, _)) = servers.iter().find(|(status, wiring)| {
+        matches!(wiring, Wiring::NotWired)
+            && matches!(status.wiring, Wiring::Wired { .. } | Wiring::Partial { .. })
+    }) {
+        return Some(fixed_or_fixable_named(
+            "mcp",
+            status,
+            format!("not registered with {}, whose hook is wired", status.slug),
+            &format!("`ff hook {}`", status.slug),
+            fix,
+        ));
+    }
+    let registered: Vec<&str> = servers
+        .iter()
+        .filter(|(_, wiring)| matches!(wiring, Wiring::Wired { .. }))
+        .map(|(status, _)| status.slug)
+        .collect();
+    let hand: Vec<&str> = servers
+        .iter()
+        .filter(|(_, wiring)| matches!(wiring, Wiring::HandWritten))
+        .map(|(status, _)| status.slug)
+        .collect();
+    if registered.is_empty() && hand.is_empty() {
+        let slugs: Vec<&str> = servers.iter().map(|(status, _)| status.slug).collect();
+        return Some(Row::info(
+            "mcp",
+            format!(
+                "not registered (optional — `ff hook {}` serves fufu as a tool)",
+                slugs.join(" ")
+            ),
+        ));
+    }
+    let mut detail = String::new();
+    if !registered.is_empty() {
+        detail.push_str(&format!("registered with {}", registered.join(", ")));
+    }
+    if !hand.is_empty() {
+        if !detail.is_empty() {
+            detail.push_str("; ");
+        }
+        detail.push_str(&format!("hand-written for {}", hand.join(", ")));
+    }
+    Some(if registered.is_empty() {
+        Row::info("mcp", detail)
+    } else {
+        Row::ok("mcp", detail)
+    })
+}
+
+/// The consented write, and the row that reports it either way. The row
+/// is named for the slug, whose installer is the repair.
 fn fixed_or_fixable(status: &crate::integ::Status, detail: String, repair: &str, fix: bool) -> Row {
+    fixed_or_fixable_named(status.slug, status, detail, repair, fix)
+}
+
+/// [`fixed_or_fixable`] for an aggregated row, which keeps its own name
+/// while the repair still belongs to one slug's installer.
+fn fixed_or_fixable_named(
+    name: &'static str,
+    status: &crate::integ::Status,
+    detail: String,
+    repair: &str,
+    fix: bool,
+) -> Row {
     if !fix {
-        return Row::warn_fixable(status.slug, format!("{detail} ({repair} repairs)"));
+        return Row::warn_fixable(name, format!("{detail} ({repair} repairs)"));
     }
     let Some(integration) = crate::integ::by_slug(status.slug) else {
-        return Row::warn_fixable(status.slug, format!("{detail} ({repair} repairs)"));
+        return Row::warn_fixable(name, format!("{detail} ({repair} repairs)"));
     };
     match integration.repair() {
-        Ok(_) => Row::ok(status.slug, format!("{detail} (rewired)")),
+        Ok(_) => Row::ok(name, format!("{detail} (rewired)")),
         // A repair that could not be written is still a finding, and the
         // complaint says why rather than the generic hint.
-        Err(err) => Row::warn(status.slug, format!("{detail}; repair failed: {err}")),
+        Err(err) => Row::warn(name, format!("{detail}; repair failed: {err}")),
     }
 }
 
@@ -275,6 +363,7 @@ mod tests {
             note: None,
             parts: Vec::new(),
             skill: None,
+            mcp: None,
             stale: false,
         }
     }
@@ -303,6 +392,7 @@ mod tests {
                 },
             ],
             skill: None,
+            mcp: None,
             stale: false,
         }
     }
@@ -426,6 +516,63 @@ mod tests {
             )])
             .is_none()
         );
+    }
+
+    // ------------------------------------------------------------------
+    // the mcp row
+    // ------------------------------------------------------------------
+
+    fn with_mcp(mut status: Status, mcp: Wiring) -> Status {
+        status.mcp = Some(mcp);
+        status
+    }
+
+    #[test]
+    fn the_mcp_row_is_ok_when_registered_and_names_the_clients() {
+        let statuses = vec![
+            with_mcp(status("claude", wired()), wired()),
+            with_mcp(status("codex", Wiring::NotWired), wired()),
+        ];
+        let row = mcp_row(&statuses, false).expect("a row");
+        assert!(matches!(row.level, Level::Ok));
+        assert_eq!(row.detail, "registered with claude, codex");
+    }
+
+    /// Absence is news: nothing is wired, so nothing is missing.
+    #[test]
+    fn the_mcp_row_is_info_when_nothing_is_registered() {
+        let statuses = vec![with_mcp(
+            status("claude", Wiring::NotWired),
+            Wiring::NotWired,
+        )];
+        let row = mcp_row(&statuses, false).expect("a row");
+        assert!(matches!(row.level, Level::Info));
+        assert!(row.detail.contains("ff hook claude"), "{}", row.detail);
+        // And no row at all for a client that is not here.
+        let mut absent = with_mcp(status("codex", Wiring::NotWired), Wiring::NotWired);
+        absent.presence = Presence::Absent;
+        assert!(mcp_row(&[absent], false).is_none());
+        // A shell has no server to report.
+        assert!(mcp_row(&[shell_status(rc_wired(), rc_wired())], false).is_none());
+    }
+
+    /// A wired hook with no server is an install predating the server,
+    /// and the repair is the installer run again.
+    #[test]
+    fn a_wired_hook_without_the_server_is_a_fixable_warning() {
+        let statuses = vec![with_mcp(status("claude", wired()), Wiring::NotWired)];
+        let row = mcp_row(&statuses, false).expect("a row");
+        assert!(matches!(row.level, Level::Warn));
+        assert!(row.fixable);
+        assert!(row.detail.contains("ff hook claude"), "{}", row.detail);
+    }
+
+    #[test]
+    fn a_hand_written_server_is_reported_and_never_a_finding() {
+        let statuses = vec![with_mcp(status("codex", wired()), Wiring::HandWritten)];
+        let row = mcp_row(&statuses, false).expect("a row");
+        assert!(matches!(row.level, Level::Info));
+        assert_eq!(row.detail, "hand-written for codex");
     }
 
     // ------------------------------------------------------------------

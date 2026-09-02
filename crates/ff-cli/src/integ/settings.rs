@@ -126,7 +126,9 @@ impl Spec {
 }
 
 /// The file as an object, with a missing file reading as an empty one.
-fn load(path: &Path) -> Result<Map<String, Value>> {
+/// Shared with the MCP registration, which merges one key into the same
+/// files on the same rules.
+pub(super) fn load(path: &Path) -> Result<Map<String, Value>> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::from("{}"),
@@ -147,7 +149,7 @@ fn load(path: &Path) -> Result<Map<String, Value>> {
     }
 }
 
-fn write(path: &Path, settings: &Map<String, Value>) -> Result<()> {
+pub(super) fn write(path: &Path, settings: &Map<String, Value>) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(Error::repo)?;
     }

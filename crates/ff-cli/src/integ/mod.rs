@@ -36,6 +36,7 @@ pub mod cursor;
 pub mod event;
 pub mod gemini;
 pub mod manual;
+pub mod mcp;
 pub mod payload;
 pub mod runtime;
 pub mod settings;
@@ -169,6 +170,13 @@ pub struct Status {
     /// spelling; a missing hook costs file state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill: Option<Wiring>,
+    /// The MCP server's registration, for the clients that take one. Not
+    /// a `Part` for the skill's reason: it is not capture. An agent with
+    /// the hook and no server shells out to `ff` and loses nothing but a
+    /// typed tool; an agent with the server and no hook captures only on
+    /// fufu verbs, which is the gap the hook exists to close.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<Wiring>,
     /// The wiring works, but it is written in a spelling install would
     /// rewrite — a retired command name, or the mechanism fufu has moved
     /// off. It keeps capturing, so this is never an outage; it is what
@@ -435,15 +443,21 @@ pub fn home() -> Result<PathBuf> {
         .ok_or_else(|| Error::msg("HOME is not set"))
 }
 
-/// This binary's own path, quoted if it needs to be, for baking into a
-/// client's config. Absolute rather than a bare `ff` so the wiring does not
-/// depend on fufu being on whatever `PATH` the client happens to have.
-pub fn exe_command(args: &str) -> String {
-    let exe = std::env::current_exe()
+/// This binary's own path, for baking into a client's config. Absolute
+/// rather than a bare `ff` so the wiring does not depend on fufu being on
+/// whatever `PATH` the client happens to have.
+pub fn exe_path() -> String {
+    std::env::current_exe()
         .ok()
         .map(|p| p.display().to_string())
         .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "ff".to_string());
+        .unwrap_or_else(|| "ff".to_string())
+}
+
+/// [`exe_path`] with arguments, quoted if the path needs to be, for a
+/// client that takes one command string.
+pub fn exe_command(args: &str) -> String {
+    let exe = exe_path();
     if exe.contains(char::is_whitespace) {
         format!("\"{exe}\" {args}")
     } else {

@@ -33,6 +33,13 @@
 //! `the_fallback_fetch_fires_only_for_a_broken_worktree_dir` pins that the
 //! spawn happens only in the broken state, and is exactly one `fetch`.
 //!
+//! `ff mcp` adds a fourth sanctioned spawn, and it is the verb's whole job:
+//! every tool call runs `<current_exe> <verb> --json` as a child, by the
+//! server's own absolute path and never through PATH, so the `ff` a client
+//! reaches is the one serving it. Nothing below runs the server, and the
+//! child is an ordinary invocation that every assertion here already
+//! covers.
+//!
 //! `ff clone` is the one verb this trap cannot honestly speak for, so it is
 //! stated here instead of asserted. fufu does the clone's protocol, pack and
 //! checkout itself — nothing shells out to `git clone` — but it still reaches

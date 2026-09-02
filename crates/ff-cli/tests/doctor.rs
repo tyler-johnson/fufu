@@ -873,3 +873,83 @@ fn the_raw_git_row_appears_once_the_lane_has_counted() {
         "coach is already the answer:\n{text}"
     );
 }
+
+/// The mcp row, in its three states: news when no client has the server,
+/// ok naming the clients that do, and a fixable finding when a client's
+/// hook is wired without it — which `--fix` repairs.
+#[test]
+fn the_mcp_row_reports_registration_and_fixes_a_missing_one() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ff_init(&fx);
+    let home = fx.root().join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+
+    // A client is here and nothing is wired: news, not a finding.
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("info  mcp"),
+        "not registered is info:\n{out_text}"
+    );
+    assert!(
+        out_text.contains("ff hook claude"),
+        "and names the installer:\n{out_text}"
+    );
+
+    // Wired: ok, naming the client.
+    let out = doctor_env(&fx.path(), &["hook", "claude"], &home);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("ok    mcp            registered with claude"),
+        "registered:\n{out_text}"
+    );
+
+    // An install predating the server: the hook is wired, the server is
+    // not, and the repair is the installer run again.
+    std::fs::remove_file(home.join(".claude/skills/fufu/.mcp.json")).unwrap();
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("WARN  mcp") && out_text.contains("whose hook is wired"),
+        "a wired hook without the server warns:\n{out_text}"
+    );
+    assert_eq!(out.status.code(), Some(1), "a finding is exit 1");
+    let out = doctor(&fx, &["--json"]);
+    let v: serde_json::Value = serde_json::from_str(stdout(&out).trim()).unwrap();
+    let row = v["data"]["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "mcp")
+        .unwrap_or_else(|| panic!("an mcp row in {v}"));
+    assert_eq!(row["level"], "warn", "{row}");
+    assert!(
+        v["data"]["fixable"].as_u64().is_some_and(|n| n >= 1),
+        "the finding counts as fixable: {v}"
+    );
+
+    let out = doctor(&fx, &["--fix"]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("(rewired)"),
+        "--fix repairs it:\n{out_text}"
+    );
+    assert!(
+        home.join(".claude/skills/fufu/.mcp.json").is_file(),
+        "the registration is back"
+    );
+    let out = doctor(&fx, &[]);
+    let out_text = stdout(&out);
+    assert!(
+        out_text.contains("ok    mcp            registered with claude"),
+        "and stays repaired:\n{out_text}"
+    );
+}
