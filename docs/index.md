@@ -6,6 +6,8 @@ fufu (`ff`) is a version control interface for humans and agents: automatic snap
 
 At every instant, the repository is a boring git repository. fufu never creates a state plain git cannot represent; it only automates the transitions between such states. That one promise — [the invariant](concepts/invariant.md) — settles every design question in the tool.
 
+The cost is up front: fufu is opinionated and will not meet you halfway. Branches rebase onto trunk, unpublished commits stay malleable, and there is no staging area. Where that fits and where it does not is on [fufu vs git](comparisons/vs-git.md#the-honest-costs).
+
 The daily loop is five verbs:
 
 ```console
@@ -16,7 +18,7 @@ $ ff sync                         # line up with base and remote, replayed in me
 $ ff publish                      # the one thing fufu can't undo, so it's the one you type
 ```
 
-And when anything goes wrong — including things done behind fufu's back with raw git — one `ff undo` brings refs and working tree back together.
+And when anything goes wrong — including things done behind fufu's back with raw git — one `ff undo` brings refs and working tree back together, as far back as the last capture, which is what the [hooks decide](comparisons/vs-git.md#the-honest-costs).
 
 ## Where to go
 
@@ -24,5 +26,6 @@ And when anything goes wrong — including things done behind fufu's back with r
 - The [tutorial](tutorial.md): the whole loop once, with real transcripts.
 - Already have a repository git made? [Adopting fufu](adopting.md) is `ff init` inside it.
 - Deciding whether to switch from plain git: [fufu vs git](comparisons/vs-git.md) — what disappears, what stays, and what your aliases cannot do.
+- Working alongside people who type git: [plain-git teammates](guides/plain-git-teammates.md) — what they see, what typing git yourself does, and what fufu can and cannot do about someone else's force-push.
 - Coming from jj, or wondering why this exists at all: [fufu vs jj](comparisons/vs-jj.md) is the thesis.
 - Pointing an agent at a repository: [why agents want fufu](agents/why.md) and [setup](agents/setup.md).
