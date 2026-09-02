@@ -384,6 +384,7 @@ fn no_shell() -> Error {
             "ff hook bash".into(),
             "ff hook zsh".into(),
             "ff hook fish".into(),
+            "ff hook powershell".into(),
         ],
     )
 }

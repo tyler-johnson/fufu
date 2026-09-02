@@ -31,6 +31,17 @@ anstyle.workspace = true
 anstream.workspace = true
 ureq.workspace = true
 
+# PowerShell's profile lives under the Documents known folder, which
+# OneDrive can redirect; `ff hook powershell` asks the shell API where that
+# is, the way PowerShell itself resolves `$PROFILE`. Already in the lock as
+# a transitive of the terminal crates.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+] }
+
 [dev-dependencies]
 ff-testsupport.workspace = true
 tempfile.workspace = true

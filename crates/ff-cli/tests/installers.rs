@@ -3,7 +3,8 @@
 //! plugin directory that replaces it.
 //!
 //! Every path here is env-redirected (HOME, ZDOTDIR, XDG_CONFIG_HOME,
-//! SHELL) so the suite never touches a real config file.
+//! SHELL, and FF_DOCUMENTS_DIR for PowerShell's profile on Windows) so the
+//! suite never touches a real config file.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -270,6 +271,277 @@ fn unknown_slugs_are_hard_errors() {
     }
 }
 
+// ---- powershell ------------------------------------------------------------
+
+const PROFILE: &str = "Microsoft.PowerShell_profile.ps1";
+
+/// The env that pins PowerShell's profile under a temp home on every
+/// platform: HOME everywhere, and on Windows the Documents folder too,
+/// since the real one comes from the known-folder API rather than from any
+/// variable.
+fn powershell_env(home: &Path) -> Vec<(&'static str, String)> {
+    let mut env = vec![("HOME", home.to_str().unwrap().to_string())];
+    if cfg!(windows) {
+        env.push((
+            "FF_DOCUMENTS_DIR",
+            home.join("Documents").to_str().unwrap().to_string(),
+        ));
+    }
+    env
+}
+
+/// Where `ff hook powershell` writes under a temp home when neither
+/// profile exists: PowerShell 7's.
+fn powershell_profile(home: &Path) -> std::path::PathBuf {
+    if cfg!(windows) {
+        home.join("Documents").join("PowerShell").join(PROFILE)
+    } else {
+        home.join(".config/powershell").join(PROFILE)
+    }
+}
+
+fn ff_ps(dir: &Path, args: &[&str], env: &[(&str, String)]) -> Output {
+    let borrowed: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    ff_env(dir, args, &borrowed)
+}
+
+#[test]
+fn powershell_install_uninstall_round_trip() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = powershell_env(home.path());
+    let rc = powershell_profile(home.path());
+    std::fs::create_dir_all(rc.parent().unwrap()).unwrap();
+    let seed = "# my prompt setup\nSet-Alias ll Get-ChildItem\n";
+    std::fs::write(&rc, seed).unwrap();
+
+    let out = ff_ps(home.path(), &["hook", "powershell"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let said = text(&out);
+    assert!(
+        said.contains(&format!("wired into {}", rc.display())),
+        "names the profile it wrote: {said:?}"
+    );
+    let contents = std::fs::read_to_string(&rc).unwrap();
+    assert!(contents.starts_with(seed), "prefix preserved: {contents:?}");
+    assert!(
+        contents.contains("function git { ff git @args }  # fufu — added by `ff hook`"),
+        "the git function: {contents:?}"
+    );
+    assert!(
+        contents.contains(
+            "if (-not (Test-Path Function:_fufu_prompt)) { $function:global:_fufu_prompt = $function:prompt; function global:prompt { ff trigger shell | Out-Null; _fufu_prompt } }  # fufu — added by `ff hook`"
+        ),
+        "the wrapped prompt: {contents:?}"
+    );
+
+    // Idempotent.
+    let before = contents.clone();
+    let out = ff_ps(home.path(), &["hook", "powershell"], &env);
+    assert!(text(&out).contains("already wired"), "{:?}", text(&out));
+    assert_eq!(std::fs::read_to_string(&rc).unwrap(), before);
+
+    // Uninstall removes exactly the marked lines.
+    let out = ff_ps(home.path(), &["unhook", "powershell"], &env);
+    assert!(out.status.success());
+    assert_eq!(std::fs::read_to_string(&rc).unwrap(), seed);
+}
+
+/// Windows PowerShell 5.1 and PowerShell 7 read different files. The 7
+/// file is the one wired, unless the 5.1 file is the only profile on disk.
+#[cfg(windows)]
+#[test]
+fn powershell_prefers_an_existing_windows_powershell_profile() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = powershell_env(home.path());
+    let five = home
+        .path()
+        .join("Documents")
+        .join("WindowsPowerShell")
+        .join(PROFILE);
+    std::fs::create_dir_all(five.parent().unwrap()).unwrap();
+    std::fs::write(&five, "# 5.1\n").unwrap();
+
+    let out = ff_ps(home.path(), &["hook", "powershell"], &env);
+    assert!(out.status.success());
+    assert!(
+        text(&out).contains(&format!("wired into {}", five.display())),
+        "{:?}",
+        text(&out)
+    );
+    assert!(
+        std::fs::read_to_string(&five)
+            .unwrap()
+            .contains("function git")
+    );
+    assert!(
+        !powershell_profile(home.path()).exists(),
+        "the 7 file is not created when 5.1's is the one"
+    );
+}
+
+#[test]
+fn a_hand_written_git_function_is_left_alone() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = powershell_env(home.path());
+    let rc = powershell_profile(home.path());
+    std::fs::create_dir_all(rc.parent().unwrap()).unwrap();
+    let original = "function git { ff git @args }  # mine\n";
+    std::fs::write(&rc, original).unwrap();
+
+    let out = ff_ps(home.path(), &["hook", "powershell"], &env);
+    assert!(out.status.success());
+    assert!(
+        text(&out).contains("hand"),
+        "explains why: {:?}",
+        text(&out)
+    );
+    let contents = std::fs::read_to_string(&rc).unwrap();
+    assert!(contents.starts_with(original), "{contents:?}");
+    assert!(
+        contents.contains("ff trigger shell"),
+        "the prompt hook still lands: {contents:?}"
+    );
+
+    let out = ff_ps(home.path(), &["unhook", "powershell"], &env);
+    assert!(out.status.success());
+    assert_eq!(std::fs::read_to_string(&rc).unwrap(), original);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn powershell_honors_xdg_config_home() {
+    let home = tempfile::TempDir::new().unwrap();
+    let xdg = home.path().join("xdg");
+    let mut env = powershell_env(home.path());
+    env.push(("XDG_CONFIG_HOME", xdg.to_str().unwrap().to_string()));
+
+    assert!(
+        ff_ps(home.path(), &["hook", "powershell"], &env)
+            .status
+            .success()
+    );
+    let contents = std::fs::read_to_string(xdg.join("powershell").join(PROFILE)).unwrap();
+    assert!(
+        contents.contains("function git { ff git @args }"),
+        "{contents:?}"
+    );
+    assert!(!powershell_profile(home.path()).exists());
+}
+
+/// A CRLF profile, the kind a Windows editor writes, keeps its line
+/// endings through the append and through the removal.
+#[test]
+fn a_crlf_profile_keeps_its_line_endings() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = powershell_env(home.path());
+    let rc = powershell_profile(home.path());
+    std::fs::create_dir_all(rc.parent().unwrap()).unwrap();
+    let seed = "# mine\r\nSet-Alias ll Get-ChildItem\r\n";
+    std::fs::write(&rc, seed).unwrap();
+
+    assert!(
+        ff_ps(home.path(), &["hook", "powershell"], &env)
+            .status
+            .success()
+    );
+    let contents = std::fs::read_to_string(&rc).unwrap();
+    assert!(contents.starts_with(seed), "{contents:?}");
+    assert!(
+        contents.ends_with("_fufu_prompt } }  # fufu — added by `ff hook`\r\n"),
+        "the appended lines are CRLF too: {contents:?}"
+    );
+    assert!(!contents.replace("\r\n", "").contains('\n'), "{contents:?}");
+
+    assert!(
+        ff_ps(home.path(), &["unhook", "powershell"], &env)
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read_to_string(&rc).unwrap(), seed);
+}
+
+/// The first of `names` on PATH, resolved the way the OS resolves it (with
+/// PATHEXT on Windows) and without spawning anything.
+fn on_path(names: &[&str]) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".EXE".into())
+            .split(';')
+            .map(str::to_string)
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    for dir in std::env::split_paths(&path) {
+        for name in names {
+            for ext in &exts {
+                let candidate = dir.join(format!("{name}{ext}"));
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The lines fufu writes, run by the real shell: dot-sourced twice, the
+/// profile parses, `git` is a function, and `prompt` is wrapped exactly
+/// once — the guard is what keeps a second dot-source from wrapping the
+/// wrapper. Skips, and says so, where no PowerShell is installed.
+#[test]
+fn the_profile_parses_and_wraps_once_under_pwsh() {
+    let Some(pwsh) = on_path(&["pwsh", "powershell"]) else {
+        eprintln!("skipping: neither pwsh nor powershell is on PATH");
+        return;
+    };
+    let home = tempfile::TempDir::new().unwrap();
+    let env = powershell_env(home.path());
+    let out = ff_ps(home.path(), &["hook", "powershell"], &env);
+    assert!(out.status.success());
+    let rc = powershell_profile(home.path());
+    assert!(rc.is_file(), "{:?}", text(&out));
+
+    // The binary's directory goes first on PATH so `ff trigger shell`
+    // would resolve if the prompt ever ran.
+    let bin_dir = Path::new(env!("CARGO_BIN_EXE_ff")).parent().unwrap();
+    let mut paths = vec![bin_dir.to_path_buf()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let script = format!(
+        ". '{rc}'; . '{rc}'; (Get-Command git).CommandType; $function:prompt; $function:_fufu_prompt",
+        rc = rc.display()
+    );
+    let out = Command::new(&pwsh)
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .env("PATH", std::env::join_paths(paths).unwrap())
+        .current_dir(home.path())
+        .output()
+        .expect("spawn pwsh");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "the profile parses and runs twice:\n{stdout}\n{stderr}"
+    );
+    assert!(stdout.contains("Function"), "git is a function: {stdout:?}");
+    assert_eq!(
+        stdout.matches("ff trigger shell").count(),
+        1,
+        "prompt names the trigger once and _fufu_prompt not at all: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("_fufu_prompt"),
+        "prompt calls the saved one: {stdout:?}"
+    );
+}
+
 // ---- the report ------------------------------------------------------------
 
 /// `ff hook -l` and `ff doctor` read one `statuses()` vector, so they
@@ -345,7 +617,7 @@ fn the_report_is_a_json_envelope() {
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(value["cmd"], "hook");
     let rows = value["data"]["integrations"].as_array().unwrap();
-    assert_eq!(rows.len(), 7, "one row per slug: {rows:?}");
+    assert_eq!(rows.len(), 8, "one row per slug: {rows:?}");
     assert_eq!(rows[0]["slug"], "claude");
     assert_eq!(rows[0]["wiring"]["state"], "not-wired");
 }

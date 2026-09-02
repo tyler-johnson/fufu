@@ -158,7 +158,7 @@ fn fixed_or_fixable(status: &crate::integ::Status, detail: String, repair: &str,
     }
 }
 
-/// The alias, folded across the three shells. Installed beats hand-written
+/// The alias, folded across the shells. Installed beats hand-written
 /// beats absent: one shell wired is the question answered.
 fn alias_row(statuses: &[crate::integ::Status]) -> Row {
     piece_row(

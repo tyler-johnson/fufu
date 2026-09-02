@@ -4,14 +4,14 @@
 //! Two namespaces, deliberately not the same one.
 //!
 //! **Slugs** are what `ff hook` and `ff unhook` take — `claude`, `codex`,
-//! `cursor`, `gemini`, `bash`, `zsh`, `fish`. They are flat and permanent,
+//! `cursor`, `gemini`, `bash`, `zsh`, `fish`, `powershell`. They are flat and permanent,
 //! because they end up written inside config files fufu does not own. These
 //! two verbs are for humans: an unknown slug is a real error, a failure is
 //! loud, and `--json` emits a report envelope.
 //!
 //! **Sources** are what `ff trigger` takes — an event source, which is
-//! finer-grained than a thing you integrate with. All three shell slugs
-//! install rc lines calling one `ff trigger shell`; `manual` is a source
+//! finer-grained than a thing you integrate with. Every shell slug
+//! installs rc lines calling one `ff trigger shell`; `manual` is a source
 //! and not a slug, because there is nothing to install. `ff trigger` is
 //! machine surface with one absolute contract: it always exits 0, it says
 //! nothing about a failure unless `FF_DEBUG=1`, and it never vetoes on its
@@ -226,7 +226,7 @@ pub trait Integration: Sync {
     fn slug(&self) -> &'static str;
 
     /// The trigger source name this integration answers to. Defaults to the
-    /// slug; the three shells override it to one shared `shell`.
+    /// slug; the shells override it to one shared `shell`.
     fn source(&self) -> &'static str {
         self.slug()
     }
@@ -352,11 +352,21 @@ static GEMINI: gemini::Gemini = gemini::Gemini;
 static BASH: shell::Shell = shell::Shell { slug: "bash" };
 static ZSH: shell::Shell = shell::Shell { slug: "zsh" };
 static FISH: shell::Shell = shell::Shell { slug: "fish" };
+static POWERSHELL: shell::Shell = shell::Shell { slug: "powershell" };
 
 /// Every slug, in the order `ff hook -l` and `ff hook --all` walk them:
 /// agent clients first, then shells.
-pub fn all() -> [&'static dyn Integration; 7] {
-    [&CLAUDE, &CODEX, &CURSOR, &GEMINI, &BASH, &ZSH, &FISH]
+pub fn all() -> [&'static dyn Integration; 8] {
+    [
+        &CLAUDE,
+        &CODEX,
+        &CURSOR,
+        &GEMINI,
+        &BASH,
+        &ZSH,
+        &FISH,
+        &POWERSHELL,
+    ]
 }
 
 pub fn by_slug(slug: &str) -> Option<&'static dyn Integration> {
@@ -459,11 +469,11 @@ mod tests {
     }
 
     /// The two namespaces are separate on purpose, and this is the guard
-    /// that they stay separate rather than accidentally identical: three
-    /// shell slugs share one source name.
+    /// that they stay separate rather than accidentally identical: every
+    /// shell slug shares one source name.
     #[test]
-    fn the_three_shells_share_one_trigger_source() {
-        for slug in ["bash", "zsh", "fish"] {
+    fn the_shells_share_one_trigger_source() {
+        for slug in shell::SHELLS {
             assert_eq!(by_slug(slug).unwrap().source(), "shell");
         }
         assert!(matches!(

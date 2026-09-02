@@ -1,6 +1,6 @@
 Wires fufu into the agent clients and shells on this machine, so a snapshot lands before every tool call your agent makes, before every git command you type, and at every shell prompt. That is the difference between "the agent broke something" and "the agent broke something, and here is the tree from thirty seconds ago".
 
-Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. The slugs are flat: claude, codex, cursor, gemini, bash, zsh, fish. `cursor` is the agent client — a future editor integration gets its own name.
+Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. The slugs are flat: claude, codex, cursor, gemini, bash, zsh, fish, powershell. `cursor` is the agent client — a future editor integration gets its own name. `powershell` writes `$PROFILE`, a `git` function and a wrapped `prompt`, for PowerShell 7 or Windows PowerShell 5.1.
 
 What gets written depends on the client, and is not a choice you make: Claude Code takes a plugin directory fufu owns outright, the others take entries merged into their own settings file, and the shells take marked lines in an rc file. A line you wrote yourself is detected, reported, and never touched.
 
