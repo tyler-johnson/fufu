@@ -15,7 +15,9 @@ If you already live in jj, nothing in that list will feel new in fufu. The disag
 
 ## The architectural difference
 
-jj achieves its workflow by being a **new VCS that treats git as a storage backend**. Its own store is authoritative; the git-visible repository is a projection of it. That one decision is the source of everything uncomfortable about jj for a git-fluent user: detached HEADs, branches that don't move as you work, commits with machine-generated `.jjconflict-*` trees, git commands demoted to second class.
+jj achieves its workflow by being a **new VCS that treats git as a storage backend**. Its own store is authoritative; the git-visible repository is a projection of it. In a bare jj repository, one with no git worktree beside it, that one decision is the source of everything uncomfortable about jj for a git-fluent user: detached HEADs, branches that don't move as you work, commits with machine-generated `.jjconflict-*` trees, git commands demoted to second class.
+
+A bare repository is not how most people run jj. The usual answer is colocation, a `.jj` beside the `.git`, which keeps the git picture close: commits land in the git object store as jj makes them, bookmarks export to git branches, and raw git stays legal. What it leaves is a seam with its own etiquette, and that seam, not the bare case, is the fair comparison with fufu. The [side by side](#side-by-side) and [what the inversion buys](#what-the-inversion-buys) below treat the colocated case specifically.
 
 None of the workflow benefits require that decision. fufu inverts it:
 
