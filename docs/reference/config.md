@@ -73,6 +73,12 @@ Color theme for ff output. muted gives desaturated 256-color (the default); vivi
 
 What fufu says when git is reached for directly — through ff git, or in an agent's own shell. observe records and stays quiet; coach (the default) names the fufu verb once per word; strict refuses the words fufu has verbs for. Nothing is ever silently run in its place.
 
+### toolPolicy
+
+`fufu.toolPolicy` — choice of `observe`, `coach`, `strict`; default `strict`
+
+What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. Off the record entirely when no fufu server is serving that client.
+
 ### futuresDepth
 
 `fufu.futuresDepth` — size; default `200`

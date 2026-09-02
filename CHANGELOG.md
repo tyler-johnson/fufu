@@ -8,6 +8,8 @@
 - `ff hook claude`, `ff hook codex`, `ff hook cursor`, and `ff hook gemini` register the server beside the capture hook: `.mcp.json` in the Claude plugin, a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml`, `mcpServers.fufu` in `~/.cursor/mcp.json`, and `mcpServers.fufu` in `~/.gemini/settings.json`. `ff unhook` removes exactly that; a registration written by hand is reported and left alone.
 - `ff doctor`'s `mcp` row: which clients have the server, `info` when none does, and a fixable `WARN` when a client's hook is wired and its server is not, which `ff doctor --fix` repairs. `ff hook -l` and `ff hook --json` carry the registration per client.
 - The error id `usage/mcp-verb-unavailable`, for a verb the tool does not offer.
+- `fufu.toolPolicy`: what `ff trigger claude` says when an agent runs `ff` in its shell while the `ff` tool is up for it. `observe` says nothing, `coach` names the tool once per session as context, and `strict` (the default) refuses with `permissionDecision: deny` and a reason carrying the tool name and the `args` to call it with. The six shell-only verbs pass; a compound command is refused by its `ff` segment. Presence means a server this client spawned is alive: the hook is silent when no marker is held for `CLAUDE_PID`.
+- `ff mcp` holds a presence marker, `<cache>/fufu/mcp/<client pid>`, under an exclusive file lock for as long as it serves. The lock is the liveness signal; a marker nobody holds is swept by the first hook that reads it or the next server that starts.
 
 ## v0.11.0 — 2026-09-02
 

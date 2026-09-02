@@ -192,6 +192,15 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
 
 The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it. `isError` follows the exit code: false on 0, true on anything else, and a fufu failure is a *successful* tool call carrying it, never a protocol error, because a client renders a protocol error opaquely and the `error.id` inside is what the agent has to read. The exit-code rules restate as tool rules: an id under `held/*` means nothing moved and a person is needed, so the agent stops and says so; `ref/contended` means the same call run once more. A `help` call returns the page as text with no structured content, and the six verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp` — answer with `usage/mcp-verb-unavailable`. An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
 
+While the server is up for a Claude Code session, `fufu.toolPolicy` (default `strict`) refuses an `ff` the agent runs through its shell tool instead, on the hook's `PreToolUse` channel. The refusal is the same JSON shape as `gitPolicy`'s, and its reason names the tool and carries the `args` to call it with, so the agent can rewrite the call without a lookup:
+
+```json
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+ "permissionDecisionReason": "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool (mcp__plugin_fufu_fufu__ff) with {\"args\":[\"status\"]} instead of running ff in the shell — load the tool's schema first if it is deferred"}}
+```
+
+`--json` is dropped from the args, since the tool adds it. The six shell-only verbs are never refused, and nothing is said at all when no server is serving that client.
+
 ## Piped output never pages
 
 The log family — `ff log`, `ff evolog`, `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human. Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes. Color follows the same discipline: ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.

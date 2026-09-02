@@ -139,6 +139,6 @@ Settings entries written by hand that run something other than `ff trigger claud
 
 The two-event floor for a settings file you manage yourself, `PreToolUse` and `UserPromptSubmit` with the command `ff trigger claude`, is on [the setup page](../../agents/setup.md). It captures and briefs; it does not carry the skill, the server, or the five wider events. To register the server by hand instead, the same `mcpServers.fufu` entry goes in `~/.claude.json`, the user-scope file `claude mcp add --scope user` writes; the tool is then `mcp__fufu__ff`.
 
-The `PreToolUse` matcher stays `Bash|Edit|Write|NotebookEdit` and does not name the MCP tool: every call through the server is a child `ff` that captures for itself, and a hook on it would capture twice.
+The `PreToolUse` matcher stays `Bash|Edit|Write|NotebookEdit` and does not name the MCP tool: every call through the server is a child `ff` that captures for itself, and a hook on it would capture twice. It is also why the `fufu.toolPolicy` refusal lands on `Bash` and not on the tool — the thing being refused is `ff` typed into the shell while the tool is up, and `Bash` is where that happens.
 
 In a script, give `ff hook claude` a closed stdin (`< /dev/null`). When stdin is a pipe rather than a terminal, the command first looks there for a hook payload, because `ff hook claude` was once the spelling that meant trigger and a stale hook entry may still run it.
