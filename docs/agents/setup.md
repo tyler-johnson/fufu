@@ -44,7 +44,7 @@ The hook is what makes capture ambient: a snapshot before every tool call the ag
 $ ff hook claude
 ```
 
-The slugs are `claude`, `codex`, `cursor`, `gemini`, plus `bash`, `zsh`, and `fish` for the shell alias and prompt hook; bare [`ff hook`](../reference/cli/hook.md) reports what it detects and asks, and `ff hook --all` takes everything without asking. For Claude Code the installer writes a plugin directory fufu owns outright; for the other clients it merges entries into their own settings file, and it never touches a line you wrote yourself. [The hook reference](../reference/hooks/index.md) shows the files each slug writes and what `ff unhook` removes.
+The slugs are `claude`, `codex`, `cursor`, `gemini`, plus `bash`, `zsh`, `fish`, and `powershell` for the shell alias and prompt hook; bare [`ff hook`](../reference/cli/hook.md) reports what it detects and asks, and `ff hook --all` takes everything without asking. For Claude Code the installer writes a plugin directory fufu owns outright; for the other clients it merges entries into their own settings file, and it never touches a line you wrote yourself. [The hook reference](../reference/hooks/index.md) shows the files each slug writes and what `ff unhook` removes.
 
 If you manage your Claude Code settings by hand instead, this is the wiring — the pattern the fufu repository itself runs under, pasted into `.claude/settings.json`:
 

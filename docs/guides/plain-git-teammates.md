@@ -87,7 +87,7 @@ The reset really ran, and one `ff undo` brought back refs and worktree together.
 
 ## The alias and gitPolicy
 
-[`ff hook bash`](../reference/hooks/bash.md) (or `zsh`, `fish`) installs `alias git='ff git'` in your shell, so typed git lands on the fufu surface by spelling you already have as muscle memory. The boundary is execution path: aliased git is captured first and absorbed as fufu's own, while anything that resolves git on PATH — a GUI, a script, a teammate — stays outside and is absorbed lazily as above.
+[`ff hook bash`](../reference/hooks/bash.md) (or `zsh`, `fish`, `powershell`) installs `alias git='ff git'` in your shell, so typed git lands on the fufu surface by spelling you already have as muscle memory. The boundary is execution path: aliased git is captured first and absorbed as fufu's own, while anything that resolves git on PATH — a GUI, a script, a teammate — stays outside and is absorbed lazily as above.
 
 What fufu says when git is reached for through it is the `fufu.gitPolicy` setting, with three levels:
 

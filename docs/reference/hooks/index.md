@@ -1,8 +1,8 @@
 # Hooks
 
-[`ff hook <slug>`](../cli/hook.md) wires fufu into one shell or one agent client, and [`ff unhook <slug>`](../cli/unhook.md) takes back exactly what that added. The slugs are `bash`, `zsh`, `fish`, `claude`, `codex`, `cursor`, and `gemini`. One page per slug shows the files it writes, pasted from a run, and what unhook leaves behind.
+[`ff hook <slug>`](../cli/hook.md) wires fufu into one shell or one agent client, and [`ff unhook <slug>`](../cli/unhook.md) takes back exactly what that added. The slugs are `bash`, `zsh`, `fish`, `powershell`, `claude`, `codex`, `cursor`, and `gemini`. One page per slug shows the files it writes, pasted from a run, and what unhook leaves behind.
 
-Two mechanisms cover the seven. A shell takes marked lines in its rc file: the alias `git='ff git'`, so every git command you type snapshots first, and a prompt hook that runs [`ff trigger shell`](../cli/trigger.md) before each prompt. An agent client takes hook entries merged into a settings file it owns, each running `ff trigger <slug>` before a tool call and at the turn boundary, with the rest of the file left as it was. Claude Code is the exception: it takes a plugin directory fufu owns outright, written whole and removed whole.
+Two mechanisms cover the eight. A shell takes marked lines in its rc file: the alias `git='ff git'` (a `git` function in PowerShell), so every git command you type snapshots first, and a prompt hook that runs [`ff trigger shell`](../cli/trigger.md) before each prompt. An agent client takes hook entries merged into a settings file it owns, each running `ff trigger <slug>` before a tool call and at the turn boundary, with the rest of the file left as it was. Claude Code is the exception: it takes a plugin directory fufu owns outright, written whole and removed whole.
 
 The rules are the same everywhere:
 
@@ -13,7 +13,7 @@ The rules are the same everywhere:
 
 Nothing here reaches the network: every slug writes local files and nothing else.
 
-- [bash](bash.md), [zsh](zsh.md), [fish](fish.md)
+- [bash](bash.md), [zsh](zsh.md), [fish](fish.md), [PowerShell](powershell.md)
 - [Claude Code](claude.md), [Codex](codex.md), [Cursor](cursor.md), [Gemini CLI](gemini.md)
 
 [Setup for agents](../../agents/setup.md) is the guide side of this: what the hook does once wired, the briefing, and the hand-pasted two-event floor for Claude Code.

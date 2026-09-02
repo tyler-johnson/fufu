@@ -2,7 +2,7 @@
 # The source of truth for every console and file block in
 # docs/reference/hooks/*.md: builds a throwaway home with an empty rc file
 # per shell and an empty config directory per agent client, then runs
-# `ff hook <slug>` and `ff unhook <slug>` for each of the seven slugs and
+# `ff hook <slug>` and `ff unhook <slug>` for each of the eight slugs and
 # prints what each one said and what the files held afterward. When a
 # slug's output or wiring changes, run this and paste the new blocks rather
 # than hand-editing them. The `-- slug --` marker lines separate slugs for
@@ -30,10 +30,11 @@ SCENE=$(mktemp -d)
 trap 'rm -rf "$SCENE"' EXIT
 
 export HOME="$SCENE/home"
-mkdir -p "$HOME/.config/fish" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.gemini"
+mkdir -p "$HOME/.config/fish" "$HOME/.config/powershell" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.gemini"
 : > "$HOME/.bashrc"
 : > "$HOME/.zshrc"
 : > "$HOME/.config/fish/config.fish"
+: > "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
 
 # A repository to stand in, in case a verb wants one.
 mkdir "$SCENE/repo"
@@ -81,11 +82,14 @@ cat_file() {
 mark() { printf -- '-- %s --\n\n' "$1"; }
 
 # --- the shells: two or three marked lines in an rc file ---
-for shell in bash zsh fish; do
+# powershell's rc is the Linux path; the page gives the Windows ones in
+# prose.
+for shell in bash zsh fish powershell; do
   case $shell in
     bash) rc="$HOME/.bashrc" ;;
     zsh) rc="$HOME/.zshrc" ;;
     fish) rc="$HOME/.config/fish/config.fish" ;;
+    powershell) rc="$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1" ;;
   esac
   mark "$shell"
   show "$FF" hook "$shell"
