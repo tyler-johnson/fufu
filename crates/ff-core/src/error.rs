@@ -60,21 +60,34 @@ impl Error {
         }
     }
 
-    /// Exit code derived from the id's namespace prefix.
-    /// `usage/` → 2, `held/` → 3, anything else → 1.
+    /// The process exit code this error asks for. See [`exit_code_for`].
     pub fn exit_code(&self) -> i32 {
         match self {
-            Error::Coded { id, .. } => {
-                if id.starts_with("usage/") {
-                    2
-                } else if id.starts_with("held/") {
-                    3
-                } else {
-                    1
-                }
-            }
+            Error::Coded { id, .. } => exit_code_for(id),
             _ => 1,
         }
+    }
+}
+
+/// The exit code for an error id. Four nonzero codes, one meaning each:
+/// `usage/*` exits 2, the command line was wrong; `held/*` exits 3, nothing
+/// was touched and a human decision is required; `ref/contended` exits 4,
+/// nothing was touched and no decision is needed, the same command run again
+/// is the whole answer; everything else exits 1, a no.
+///
+/// 4 is decided by id rather than by namespace because the `ref/` namespace
+/// names what moved, and only one of its members is the outcome where
+/// re-running is the answer. Public so the docs generator can render the
+/// code for a registry id without building an [`Error`].
+pub fn exit_code_for(id: &str) -> i32 {
+    if id == "ref/contended" {
+        4
+    } else if id.starts_with("usage/") {
+        2
+    } else if id.starts_with("held/") {
+        3
+    } else {
+        1
     }
 }
 
@@ -91,6 +104,12 @@ mod tests {
 
         let e = Error::coded("held/wait", "paused", vec![]);
         assert_eq!(e.exit_code(), 3);
+
+        let e = Error::coded("ref/contended", "held", vec![]);
+        assert_eq!(e.exit_code(), 4);
+
+        let e = Error::coded("ref/not-found", "gone", vec![]);
+        assert_eq!(e.exit_code(), 1);
 
         let e = Error::coded("internal/something", "err", vec![]);
         assert_eq!(e.exit_code(), 1);

@@ -255,8 +255,10 @@ pub static ENTRIES: &[Entry] = &[
         id: "ref/contended",
         summary: "another process is holding that ref",
         detail: "Two things tried to move the same ref at once — often a second fufu command, an \
-                 editor's git integration, or a hook. Nothing was changed. Contention is a fact \
-                 rather than a fault: run it again once the other write finishes.",
+                 editor's git integration, or a hook. Nothing was changed, and no decision is \
+                 needed. This exits 4, the one code that means run the same command again. A \
+                 lock file nobody clears makes the answer the same every time, so a script caps \
+                 its retries.",
         exits: &[],
     },
     Entry {
