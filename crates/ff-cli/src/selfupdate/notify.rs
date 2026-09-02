@@ -18,39 +18,9 @@ pub struct UpdateState {
     pub interval_secs: i64,
 }
 
-/// Resolve the platform cache root using a pure env-lookup closure.
-pub fn cache_root_from(
-    os: &str,
-    env: impl Fn(&str) -> Option<std::ffi::OsString>,
-) -> Option<std::path::PathBuf> {
-    let env_or_home = |ev: &str, home_fallback: &str| -> Option<std::path::PathBuf> {
-        let val = env(ev)?;
-        if val.is_empty() {
-            return None;
-        }
-        let home = std::path::PathBuf::from(val);
-        Some(home.join(home_fallback))
-    };
-
-    match os {
-        "macos" => env_or_home("HOME", "Library/Caches"),
-        "windows" => {
-            let val = env("LOCALAPPDATA")?;
-            if val.is_empty() {
-                return None;
-            }
-            Some(std::path::PathBuf::from(val))
-        }
-        _ => match env("XDG_CACHE_HOME") {
-            Some(val) if !val.is_empty() => Some(std::path::PathBuf::from(val)),
-            _ => env_or_home("HOME", ".cache"),
-        },
-    }
-}
-
 /// Path to the passive-lane state file (`<cache_root>/fufu/update.json`).
 pub fn state_path() -> Option<std::path::PathBuf> {
-    let root = cache_root_from(std::env::consts::OS, |n| std::env::var_os(n))?;
+    let root = crate::userdirs::cache_root()?;
     Some(root.join("fufu").join("update.json"))
 }
 
@@ -319,92 +289,6 @@ pub fn sync_interval(encoded: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsString;
-
-    #[test]
-    fn cache_root_from_linux() {
-        let linux_env = |key: &str| -> Option<OsString> {
-            match key {
-                "XDG_CACHE_HOME" => Some(OsString::from("/custom/cache")),
-                "HOME" => Some(OsString::from("/home/user")),
-                _ => None,
-            }
-        };
-        assert_eq!(
-            cache_root_from("linux", linux_env),
-            Some(std::path::PathBuf::from("/custom/cache")),
-        );
-
-        // XDG unset + HOME
-        let linux_env2 = |key: &str| -> Option<OsString> {
-            if key == "HOME" {
-                Some(OsString::from("/home/user"))
-            } else {
-                None
-            }
-        };
-        assert_eq!(
-            cache_root_from("linux", linux_env2),
-            Some(std::path::PathBuf::from("/home/user/.cache")),
-        );
-
-        // XDG empty + HOME → fallback to HOME/.cache
-        let linux_env3 = |key: &str| -> Option<OsString> {
-            match key {
-                "XDG_CACHE_HOME" => Some(OsString::from("")),
-                "HOME" => Some(OsString::from("/home/user")),
-                _ => None,
-            }
-        };
-        assert_eq!(
-            cache_root_from("linux", linux_env3),
-            Some(std::path::PathBuf::from("/home/user/.cache")),
-        );
-
-        // Neither
-        let linux_env4 = |_key: &str| -> Option<OsString> { None };
-        assert_eq!(cache_root_from("linux", linux_env4), None);
-    }
-
-    #[test]
-    fn cache_root_from_macos() {
-        let mac_env = |key: &str| -> Option<OsString> {
-            if key == "HOME" {
-                Some(OsString::from("/Users/alice"))
-            } else {
-                None
-            }
-        };
-        assert_eq!(
-            cache_root_from("macos", mac_env),
-            Some(std::path::PathBuf::from("/Users/alice/Library/Caches")),
-        );
-    }
-
-    #[test]
-    fn cache_root_from_windows() {
-        let win_env = |key: &str| -> Option<OsString> {
-            if key == "LOCALAPPDATA" {
-                Some(OsString::from("C:\\Users\\alice\\AppData\\Local"))
-            } else {
-                None
-            }
-        };
-        assert_eq!(
-            cache_root_from("windows", win_env),
-            Some(std::path::PathBuf::from("C:\\Users\\alice\\AppData\\Local")),
-        );
-
-        // Empty LOCALAPPDATA → None
-        let win_env_empty = |key: &str| -> Option<OsString> {
-            if key == "LOCALAPPDATA" {
-                Some(OsString::from(""))
-            } else {
-                None
-            }
-        };
-        assert_eq!(cache_root_from("windows", win_env_empty), None);
-    }
 
     #[test]
     fn state_round_trip() {

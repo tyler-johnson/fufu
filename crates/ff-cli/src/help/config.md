@@ -10,5 +10,6 @@ ff config keep                 what the retention window is
 ff config keep 30d             set it, this repo
 ff config --global pager bat   set it, every repo
 ff config gitPolicy strict     refuse raw git that has a fufu verb
+ff config toolPolicy coach     nudge rather than refuse ff in the shell
 ff config --unset autoTrim     back to the default
 ```

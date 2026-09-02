@@ -42,7 +42,8 @@ Anything else git does: `ff git <args…>`, which snapshots and then runs git ve
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.
 
-When an `ff` tool is offered, call it with the same words instead of the shell.
+When an `ff` tool is offered, call it with the same words; while it is up, `ff` in the \
+shell is refused.
 
 Every verb's own `--help` is the authority on it.
 ";

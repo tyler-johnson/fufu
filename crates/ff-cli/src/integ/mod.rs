@@ -278,9 +278,15 @@ pub trait Integration: Sync {
 /// Everything fufu has to say on one event, in one place.
 ///
 /// One reply and not two, because a client parses a hook's stdout as a
-/// *single* object: the briefing and a `fufu.gitPolicy` correction can now
-/// both fall due on one `PreToolUse`, and two prints would lose both. So
-/// the lanes contribute to this, and the adapter renders it once.
+/// *single* object: the briefing, a `fufu.gitPolicy` correction, and a
+/// `fufu.toolPolicy` steer can all fall due on one `PreToolUse`, and two
+/// prints would lose both. So the lanes contribute to this, and the
+/// adapter renders it once.
+///
+/// The hook has two config-driven refusals now, raw git under gitPolicy
+/// and `ff` in the shell under toolPolicy, and they are the only two: both
+/// are policy from config, both travel as JSON the client may ignore, and
+/// one reply carries at most one reason. `ff trigger` still always exits 0.
 ///
 /// There is deliberately no field carrying a command to run in place of the
 /// one being refused — fufu names an alternative and never composes one.

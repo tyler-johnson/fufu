@@ -11,7 +11,7 @@ The once-per-session briefing already gave the agent four verbs and the git rule
 
 ## The tool
 
-When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Six verbs stay in the shell, because each owns its stream or wires the machine: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, and `ff mcp`; the tool refuses them with `usage/mcp-verb-unavailable`.
+When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Six verbs stay in the shell, because each owns its stream or wires the machine: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, and `ff mcp`; the tool refuses them with `usage/mcp-verb-unavailable`. While the tool is up, `fufu.toolPolicy` refuses every other `ff` run in the shell and names the call to make instead; those six are the exception.
 
 ## The model
 
@@ -136,6 +136,16 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 Only the git words fufu actually has a verb for are ever touched. `git apply`, `git bisect`, `git gc`, `git show HEAD:file` and the rest run capture-first under every tier, which is what keeps `ff git <args…>` an honest escape hatch. So does anything fufu cannot read with certainty: a compound command, a `git` behind `sudo`, a `-C` naming another repository — those pass through untouched, counted or not.
 
 `ff doctor` reports what the lane has seen. `ff config gitPolicy <tier>` moves it.
+
+## The tool, and what fufu says about the shell
+
+`fufu.toolPolicy` decides what fufu does when `ff` is run in a shell tool while the `ff` tool is up for the same client. It never rewrites the command, and it says nothing at all when no fufu server is serving that client.
+
+- **observe** — says nothing.
+- **coach** — names the tool once per session, as context, with the exact `args` to call it with.
+- **strict** (the default) — refuses the shell call before it starts and names the tool and the call: `{"args": ["status"]}` for `ff status`.
+
+The six shell-only verbs pass under every tier, and so does anything that is not a bare `ff`: a path to a binary, `sudo ff`, a variable in front of it. A compound command is read per segment, so `cd sub && ff status` is refused by its `ff` segment, which is what the tool's `cwd` is for. `ff config toolPolicy <tier>` moves it.
 
 ## Machine surface
 

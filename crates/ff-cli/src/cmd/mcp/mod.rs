@@ -30,9 +30,16 @@
 //! lanes. Stderr carries nothing unless `FF_DEBUG=1`, the same rule the
 //! trigger runtime keeps, because a client shows a server's stderr to
 //! nobody and a line there is a line lost.
+//!
+//! While it serves, the server holds a presence marker under the user's
+//! cache directory, keyed by the client process that spawned it. That is
+//! what lets `ff trigger claude` refuse `ff` in the shell under
+//! `fufu.toolPolicy` only when this tool is actually up for the client
+//! making the call — `presence.rs` has the mechanism.
 
-mod child;
+pub(crate) mod child;
 pub mod describe;
+pub mod presence;
 
 use std::path::PathBuf;
 
@@ -79,6 +86,11 @@ pub fn run(ctx: &Ctx) -> Result<()> {
             Err(rmcp::service::ServerInitializeError::ConnectionClosed(_)) => return Ok(()),
             Err(err) => return Err(complain(&err)),
         };
+        // Up, and provably so: the marker is held for as long as this
+        // serves, and the hook reads it to decide whether `ff` in the
+        // shell is refused. After `serve` on purpose, so the probe path
+        // above writes nothing.
+        let _held = presence::hold();
         match running.waiting().await {
             Ok(_) => Ok(()),
             Err(err) => Err(complain(&err)),

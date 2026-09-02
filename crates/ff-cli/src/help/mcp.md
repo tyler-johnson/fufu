@@ -6,7 +6,7 @@ Six verbs are not offered: `git`, `update`, `watch`, `hook`, `unhook`, and `mcp`
 
 A call may carry `cwd`, the directory to run in, for a client that works across repositories. Without it, the child runs where the server was started, which is the directory the client launched it in. `--session <name>` on `ff mcp`, or `FF_SESSION` in its environment, tags every operation the server's children record, which is how an agent's work stays separable from a person's.
 
-`ff hook <client>` registers the server with claude, codex, cursor, or gemini, alongside the capture hook it already wires; `ff unhook <client>` removes it, and `ff doctor` reports it. The two mechanisms do different jobs: the hook snapshots before every tool call the agent makes, whatever tool that is, while the server only sees fufu verbs. Wire both.
+`ff hook <client>` registers the server with claude, codex, cursor, or gemini, alongside the capture hook it already wires; `ff unhook <client>` removes it, and `ff doctor` reports it. The two mechanisms do different jobs: the hook snapshots before every tool call the agent makes, whatever tool that is, while the server only sees fufu verbs. Wire both. They also talk: while it serves, the server holds a presence marker under the user cache directory, keyed by the client process that spawned it, and that is what lets the hook refuse `ff` in the shell under `fufu.toolPolicy` only while the tool is actually up — a marker nobody holds counts for nothing.
 
 ## Examples
 

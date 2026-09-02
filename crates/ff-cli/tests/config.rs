@@ -284,8 +284,9 @@ fn json_shapes() {
     // pushOnSync left the registry with the sync/publish split; gitPolicy
     // joined with the graduated raw-git correction (replacing the boolean
     // translate in place), and watchInterval with ff watch; ambient left
-    // with the shell channel, and autoUpdate with silent self-installs, so 11.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
+    // with the shell channel, and autoUpdate with silent self-installs;
+    // toolPolicy joined with the MCP presence marker, so 12.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON

@@ -22,6 +22,8 @@ mod provenance;
 mod rawgit;
 mod render;
 mod session;
+mod toolpolicy;
+mod userdirs;
 
 mod selfupdate;
 

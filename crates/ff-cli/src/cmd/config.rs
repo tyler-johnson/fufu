@@ -129,6 +129,18 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "toolPolicy",
+            key: "fufu.toolPolicy",
+            def: "strict",
+            kind: SettingKind::Choice(&["observe", "coach", "strict"]),
+            desc: &[
+                "What fufu says when an agent runs ff in its shell while the ff tool is",
+                "up for it. observe stays quiet; coach names the tool once per session;",
+                "strict (the default) refuses and names the call to make instead. Off",
+                "the record entirely when no fufu server is serving that client.",
+            ],
+        },
+        Setting {
             name: "futuresDepth",
             key: "fufu.futuresDepth",
             def: "200",

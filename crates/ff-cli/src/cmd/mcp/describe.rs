@@ -22,8 +22,13 @@ use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use crate::help;
 
 /// The tool's name, which a client prefixes with the server's:
-/// `mcp__plugin_fufu_fufu__ff` in Claude Code.
+/// [`CLAUDE_TOOL`] in Claude Code.
 pub const NAME: &str = "ff";
+
+/// The tool as Claude Code names it once the plugin's server is up: the
+/// plugin, the server, and [`NAME`]. The `fufu.toolPolicy` refusal spells
+/// this so the agent can call it without a lookup.
+pub const CLAUDE_TOOL: &str = "mcp__plugin_fufu_fufu__ff";
 
 /// The contract paragraph: how to call the tool and how to read what
 /// comes back. Nothing here can be learned from `ff help <verb>`.

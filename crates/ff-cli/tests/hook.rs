@@ -1,15 +1,17 @@
 //! The `ff trigger` runtime contract.
 //!
 //! Two halves, and they are opposites. A client source always exits 0,
-//! prints nothing but the briefing and whatever `fufu.gitPolicy` had to say
-//! about raw git, and swallows every failure. It never vetoes on its own
-//! judgment, and the one veto config can ask for travels as JSON rather
+//! prints nothing but the briefing, whatever `fufu.gitPolicy` had to say
+//! about raw git, and whatever `fufu.toolPolicy` had to say about `ff` in
+//! the shell, and swallows every failure. It never vetoes on its own
+//! judgment, and the two vetoes config can ask for travel as JSON rather
 //! than as an exit code. The `manual` source is a verb like any other:
 //! loud, `--json` capable, and an error outside a repository.
 //!
 //! The adapter-parity proof is one recorded payload per vendor landing a
 //! snapshot with that vendor's own name on it.
 
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -34,22 +36,53 @@ fn ff_stdin(cwd: &Path, args: &[&str], payload: &str) -> Output {
 /// The same, against a HOME of the caller's own. The briefing reads what is
 /// installed there, so a test about the skill cannot share the scratch one.
 fn ff_stdin_home(cwd: &Path, args: &[&str], payload: &str, home: &Path) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ff"))
-        .args(args)
+    ff_stdin_with(cwd, args, payload, home, &[])
+}
+
+/// The same, with variables of the caller's own on top. The user cache is
+/// pinned under `home` on every platform, so the tool steer's presence
+/// marker resolves inside the scratch home and never the real one, and
+/// `CLAUDE_PID` is removed unless a test sets it — the suite itself may be
+/// running under a Claude that set one.
+fn ff_stdin_with(
+    cwd: &Path,
+    args: &[&str],
+    payload: &str,
+    home: &Path,
+    envs: &[(&str, &str)],
+) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.args(args)
         .current_dir(cwd)
         .env("HOME", home)
+        .env("XDG_CACHE_HOME", cache_under(home))
+        .env("LOCALAPPDATA", cache_under(home))
+        .env_remove("CLAUDE_PID")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn ff");
+        .stderr(Stdio::piped());
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    let mut child = cmd.spawn().expect("spawn ff");
     // An oversized payload makes ff stop reading and exit early; the
     // resulting broken pipe on our side is expected.
     let _ = child.stdin.take().unwrap().write_all(payload.as_bytes());
     child.wait_with_output().expect("wait ff")
+}
+
+/// Where the binary resolves its cache root under `home`, given the
+/// variables `ff_stdin_with` pins: macOS reads only HOME, and the other
+/// two platforms read the variable that is pinned here.
+fn cache_under(home: &Path) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Caches")
+    } else {
+        home.join(".cache")
+    }
 }
 
 fn ff(cwd: &Path, args: &[&str]) -> Output {
@@ -119,6 +152,11 @@ fn brief_first(fx: &Fixture, source: &str, session: &str) {
 
 /// A Bash payload carrying a raw git command.
 fn git_payload(session: &str, cwd: &Path, command: &str) -> String {
+    bash_payload(session, cwd, command)
+}
+
+/// A Bash payload carrying a command.
+fn bash_payload(session: &str, cwd: &Path, command: &str) -> String {
     payload(
         "PreToolUse",
         session,
@@ -244,6 +282,275 @@ fn a_write_fufu_cannot_answer_passes_under_strict() {
         String::from_utf8_lossy(&out.stdout)
     );
     assert_eq!(chain_subject(&fx), "claude[s]: Bash(git apply p.diff)");
+}
+
+// ---- the tool steer --------------------------------------------------------
+
+/// A Bash payload carrying an `ff` command.
+fn ff_payload(session: &str, cwd: &Path, command: &str) -> String {
+    bash_payload(session, cwd, command)
+}
+
+/// `<cache>/fufu/mcp/`, as the binary resolves it under the scratch HOME.
+fn marker_dir() -> std::path::PathBuf {
+    cache_under(scratch_home()).join("fufu").join("mcp")
+}
+
+/// A marker held the way a live server holds it: exclusively locked. The
+/// file is returned so the test keeps the lock for as long as it wants.
+fn serving_marker(pid: u32) -> File {
+    std::fs::create_dir_all(marker_dir()).unwrap();
+    let file = File::create(marker_dir().join(pid.to_string())).unwrap();
+    file.try_lock().expect("the test holds the marker");
+    file
+}
+
+/// A marker a server left behind: the file, and nobody holding it.
+fn stale_marker(pid: u32) -> std::path::PathBuf {
+    std::fs::create_dir_all(marker_dir()).unwrap();
+    let path = marker_dir().join(pid.to_string());
+    std::fs::write(&path, "{\"server\":1}\n").unwrap();
+    path
+}
+
+/// One steered trigger, as Claude Code would fire it: `CLAUDE_PID` set to
+/// `client`, or absent when `None`.
+fn steered(fx: &Fixture, session: &str, command: &str, client: Option<u32>) -> Output {
+    let body = ff_payload(session, &fx.path(), command);
+    let pid = client.map(|pid| pid.to_string());
+    let envs: Vec<(&str, &str)> = pid.iter().map(|pid| ("CLAUDE_PID", pid.as_str())).collect();
+    ff_stdin_with(
+        &fx.path(),
+        &["trigger", "claude"],
+        &body,
+        scratch_home(),
+        &envs,
+    )
+}
+
+fn hook_output(out: &Output) -> serde_json::Value {
+    let text = String::from_utf8(out.stdout.clone()).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    value["hookSpecificOutput"].clone()
+}
+
+/// Strict denies `ff` in the shell while a server is up for the calling
+/// client, names the tool and the exact call, and still exits 0 with the
+/// capture landed.
+#[test]
+fn strict_denies_ff_in_the_shell_and_still_exits_zero() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    let _held = serving_marker(4242);
+    let out = steered(&fx, "s", "ff status", Some(4242));
+    assert_eq!(out.status.code(), Some(0));
+    let hook = hook_output(&out);
+    assert_eq!(hook["permissionDecision"], "deny", "{hook}");
+    let reason = hook["permissionDecisionReason"].as_str().expect("a reason");
+    assert!(reason.contains("mcp__plugin_fufu_fufu__ff"), "{reason}");
+    assert!(reason.contains(r#"{"args":["status"]}"#), "{reason}");
+    assert!(reason.contains("fufu.toolPolicy is strict"), "{reason}");
+    // The capture is never conditional on the steer.
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(ff status)");
+}
+
+/// The setting's default is strict: an unset repository refuses too.
+#[test]
+fn the_default_tool_policy_is_strict() {
+    let fx = repo();
+    let _held = serving_marker(4242);
+    let out = steered(&fx, "s", "ff log -n 3", Some(4242));
+    assert_eq!(out.status.code(), Some(0));
+    let hook = hook_output(&out);
+    assert_eq!(hook["permissionDecision"], "deny", "{hook}");
+    assert!(
+        hook["permissionDecisionReason"]
+            .as_str()
+            .is_some_and(|t| t.contains(r#"{"args":["log","-n","3"]}"#)),
+        "{hook}"
+    );
+}
+
+/// No marker on disk means no server is up, and nothing is said.
+#[test]
+fn no_server_means_no_refusal() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    brief_first(&fx, "claude", "s");
+    let _ = std::fs::remove_file(marker_dir().join("4343"));
+    let out = steered(&fx, "s", "ff status", Some(4343));
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "nothing is up, so nothing is said: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// A marker nobody holds is a server that died. The first reader sweeps it
+/// and says nothing.
+#[test]
+fn a_stale_marker_is_swept_and_refuses_nothing() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    brief_first(&fx, "claude", "s");
+    let path = stale_marker(4444);
+    let out = steered(&fx, "s", "ff status", Some(4444));
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "a stale marker refuses nothing: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(!path.exists(), "and the hook swept it");
+}
+
+/// The marker is keyed by client: another Claude's server is not this one's.
+#[test]
+fn another_clients_marker_does_not_count() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    brief_first(&fx, "claude", "s");
+    let _held = serving_marker(4545);
+    let out = steered(&fx, "s", "ff status", Some(4546));
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "a different client's server: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// A client that did not say who it is cannot be matched to a server, and
+/// the fail-open direction is silence.
+#[test]
+fn without_claude_pid_nothing_is_said() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    brief_first(&fx, "claude", "s");
+    let _held = serving_marker(4646);
+    let out = steered(&fx, "s", "ff status", None);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "no client pid, no steer: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// The six verbs the tool does not offer belong in the shell, so they pass.
+#[test]
+fn the_shell_only_verbs_pass_the_steer() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    brief_first(&fx, "claude", "s");
+    let _held = serving_marker(4747);
+    let out = steered(&fx, "s", "ff git push", Some(4747));
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "ff git is shell-only: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(chain_subject(&fx), "claude[s]: Bash(ff git push)");
+}
+
+/// Unlike the git lane, a compound command is read per segment: the `ff`
+/// segment is read with certainty, and `cwd` is the tool's answer to the
+/// `cd` in front of it.
+#[test]
+fn a_compound_command_is_refused_by_its_ff_segment() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "strict");
+    let _held = serving_marker(4848);
+    let out = steered(&fx, "s", "cd sub && ff status", Some(4848));
+    assert_eq!(out.status.code(), Some(0));
+    let hook = hook_output(&out);
+    assert_eq!(hook["permissionDecision"], "deny", "{hook}");
+    assert!(
+        hook["permissionDecisionReason"]
+            .as_str()
+            .is_some_and(|t| t.contains(r#"{"args":["status"]}"#)),
+        "{hook}"
+    );
+}
+
+/// Observe says nothing, with the server up and the shell reaching for ff.
+#[test]
+fn observe_says_nothing_about_the_tool() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "observe");
+    brief_first(&fx, "claude", "s");
+    let _held = serving_marker(4949);
+    let out = steered(&fx, "s", "ff status", Some(4949));
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        out.stdout.is_empty(),
+        "observe is silent: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
+/// Coach names the tool once per session as context, decides no
+/// permission, and starts over in a new session.
+#[test]
+fn coach_names_the_tool_once_per_session() {
+    let fx = repo();
+    fx.set_config("fufu.toolPolicy", "coach");
+    brief_first(&fx, "claude", "s");
+    let _held = serving_marker(5050);
+
+    let first = steered(&fx, "s", "ff status", Some(5050));
+    assert_eq!(first.status.code(), Some(0));
+    let hook = hook_output(&first);
+    assert!(
+        hook["additionalContext"].as_str().is_some_and(
+            |t| t.contains("the ff tool is up") && t.contains(r#"{"args":["status"]}"#)
+        ),
+        "coach names the tool: {hook}"
+    );
+    assert!(
+        hook.get("permissionDecision").is_none(),
+        "coach must not decide permission: {hook}"
+    );
+
+    let again = steered(&fx, "s", "ff log", Some(5050));
+    assert_eq!(again.status.code(), Some(0));
+    assert!(
+        again.stdout.is_empty(),
+        "once per session: {}",
+        String::from_utf8_lossy(&again.stdout)
+    );
+
+    let next = steered(&fx, "t", "ff log", Some(5050));
+    assert_eq!(next.status.code(), Some(0));
+    let hook = hook_output(&next);
+    assert!(
+        hook["additionalContext"].as_str().is_some_and(|t| t
+            .starts_with("fufu (`ff`) is capturing")
+            && t.contains("the ff tool is up")),
+        "a new session is briefed and coached again, in one object: {hook}"
+    );
+    assert!(hook.get("permissionDecision").is_none(), "{hook}");
+}
+
+/// The git lane fails open on a compound command, so on one line carrying
+/// both a raw git write and an `ff`, the ff segment is what gets refused.
+/// The two refusals cannot coincide today — the git lane needs a plain
+/// `git …` and nothing else — and the reply carries one reason regardless.
+#[test]
+fn one_reply_carries_one_reason() {
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    fx.set_config("fufu.toolPolicy", "strict");
+    let _held = serving_marker(5151);
+    let out = steered(&fx, "s", "git commit -m x; ff status", Some(5151));
+    assert_eq!(out.status.code(), Some(0));
+    let hook = hook_output(&out);
+    assert_eq!(hook["permissionDecision"], "deny", "{hook}");
+    let reason = hook["permissionDecisionReason"].as_str().expect("a reason");
+    assert!(reason.contains("fufu.toolPolicy"), "{reason}");
+    assert!(!reason.contains("fufu.gitPolicy"), "{reason}");
 }
 
 // ---- the client sources ----------------------------------------------------

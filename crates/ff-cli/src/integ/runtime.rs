@@ -34,8 +34,8 @@ pub struct Landed {
 /// The agent trigger's absolute contract, in one place: it always exits 0,
 /// it says nothing about a failure unless `FF_DEBUG=1`, and it never vetoes
 /// the action it fired on except where config said to — `fufu.gitPolicy
-/// strict` is the only veto there is, and it travels as JSON the client may
-/// ignore rather than as an exit code.
+/// strict` and `fufu.toolPolicy strict` are the two vetoes there are, and
+/// each travels as JSON the client may ignore rather than as an exit code.
 pub fn agent(ctx: &Ctx, slug: &'static str, proto: &dyn AgentProtocol, forced: Option<EventKind>) {
     let payload = match read_payload() {
         Ok(payload) => payload,
@@ -144,13 +144,13 @@ fn speak(
 ) {
     let mut reply = Reply::new(event.kind);
 
-    let pending = briefing_due(
-        &load_briefed(repo, slug),
-        event.kind,
-        &event.session,
-        &event.agent,
-    );
-    if pending.is_some() {
+    // The marker is loaded once, and two lanes may move it: the briefing
+    // stamps an audience, and the tool steer's coach spends its one line.
+    let mut marker = load_briefed(repo, slug);
+    let mut dirty = false;
+    if let Some(next) = briefing_due(&marker, event.kind, &event.session, &event.agent) {
+        marker = next;
+        dirty = true;
         // The skill line joins the notice before the envelope rather than
         // after it, because a client that wants JSON wants one field and
         // not two. It is asked of the adapter at print time: an install
@@ -167,6 +167,7 @@ fn speak(
         && let Some(command) = event.command.as_deref()
     {
         correct(repo, &event.session, command, &mut reply);
+        dirty |= steer(repo, &mut marker, command, &mut reply);
     }
 
     if reply.is_empty() {
@@ -175,9 +176,7 @@ fn speak(
     let Some(envelope) = proto.reply_envelope(&reply) else {
         return;
     };
-    if let Some(marker) = pending
-        && save_briefed(repo, slug, &marker).is_err()
-    {
+    if dirty && save_briefed(repo, slug, &marker).is_err() {
         return;
     }
     println!("{envelope}");
@@ -220,6 +219,64 @@ fn correct(repo: &ff_core::gix::Repository, session: &str, command: &str, reply:
     }
 }
 
+/// The tool steer: what `fufu.toolPolicy` has to say about an `ff …` the
+/// agent is about to run in its shell while the `ff` tool is up for it.
+///
+/// Every check fails open, in this order: the command runs no `ff` the
+/// tool serves; the tier is `observe`; the client did not say who it is
+/// (`CLAUDE_PID`, which only Claude Code sets, and only Claude Code has a
+/// deny channel, so no client sniffing is needed — a Cursor-launched
+/// server writes a marker under Cursor's pid that nothing ever reads); no
+/// server is provably up for that client; or the reply already carries a
+/// refusal, since one reply carries one reason and the git refusal stands.
+///
+/// Answers whether the marker changed — the coach spends its one line per
+/// session on it, and the caller saves.
+fn steer(
+    repo: &ff_core::gix::Repository,
+    marker: &mut Briefed,
+    command: &str,
+    reply: &mut Reply,
+) -> bool {
+    let Some(words) = crate::toolpolicy::classify(command) else {
+        return false;
+    };
+    let policy = crate::toolpolicy::read(repo);
+    if policy == crate::toolpolicy::Policy::Observe {
+        return false;
+    }
+    let Some(client) = std::env::var("CLAUDE_PID")
+        .ok()
+        .and_then(|pid| pid.trim().parse::<u32>().ok())
+    else {
+        return false;
+    };
+    if !crate::cmd::mcp::presence::serving(client) {
+        return false;
+    }
+    if reply.deny.is_some() {
+        return false;
+    }
+    let args = serde_json::json!({ "args": words });
+    if policy == crate::toolpolicy::Policy::Strict {
+        reply.deny = Some(format!(
+            "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool ({}) \
+             with {args} instead of running ff in the shell — load the tool's schema first \
+             if it is deferred",
+            crate::cmd::mcp::describe::CLAUDE_TOOL
+        ));
+        return false;
+    }
+    if marker.tool_coached {
+        return false;
+    }
+    marker.tool_coached = true;
+    reply.context.push(format!(
+        "fufu: the ff tool is up — call it with {args} instead of running ff in the shell"
+    ));
+    true
+}
+
 // ---- who has been briefed --------------------------------------------------
 
 /// `.git/fufu/session/<slug>` — the audiences this client has briefed, and
@@ -242,6 +299,9 @@ struct Briefed {
     /// The audiences briefed this session: `""` is the main thread, the
     /// rest are agent ids.
     agents: Vec<String>,
+    /// Whether `fufu.toolPolicy coach` has spent its one line this session.
+    /// It resets with the audiences: a context boundary loses it too.
+    tool_coached: bool,
 }
 
 fn marker_path(repo: &ff_core::gix::Repository, slug: &str) -> std::path::PathBuf {
@@ -299,6 +359,7 @@ fn briefing_due(marker: &Briefed, kind: EventKind, session: &str, agent: &str) -
     if kind == EventKind::SessionStart || marker.session != session {
         marker.session = session.to_string();
         marker.agents.clear();
+        marker.tool_coached = false;
     } else if marker.agents.iter().any(|seen| seen == audience) {
         return None;
     }

@@ -4,6 +4,10 @@
 //! its stdin, and reads lines from its stdout. No client library, on
 //! purpose: what a client sends is the contract, and a library would hide
 //! which era's shape was being spoken.
+//!
+//! The test process is the server's parent, so the presence marker a
+//! serving instance holds is the one named by this process's pid, under a
+//! cache root pinned per test so the real user cache is never touched.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -21,13 +25,24 @@ struct Server {
     /// Responses that arrived while waiting for another id. Calls run
     /// concurrently, so answers may come back in any order.
     parked: HashMap<u64, Value>,
+    /// The HOME and cache root this server was given, kept alive with it.
+    home: tempfile::TempDir,
 }
 
 fn start(dir: &Path, extra: &[&str], envs: &[(&str, &str)]) -> Server {
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    start_in(home, dir, extra, envs)
+}
+
+/// [`start`] under a HOME the test prepared first.
+fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, &str)]) -> Server {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
     cmd.current_dir(dir)
         .arg("mcp")
         .args(extra)
+        .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", cache_under(home.path()))
+        .env("LOCALAPPDATA", cache_under(home.path()))
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -47,10 +62,54 @@ fn start(dir: &Path, extra: &[&str], envs: &[(&str, &str)]) -> Server {
         stdin,
         stdout,
         parked: HashMap::new(),
+        home,
+    }
+}
+
+/// Where the binary resolves its cache root under `home`, given the
+/// variables `start` pins: macOS reads only HOME, and the other two
+/// platforms read the variable pinned here.
+fn cache_under(home: &Path) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Caches")
+    } else {
+        home.join(".cache")
+    }
+}
+
+/// `<cache>/fufu/mcp/` under a scratch HOME, where a serving instance holds
+/// its marker.
+fn marker_dir(home: &Path) -> std::path::PathBuf {
+    cache_under(home).join("fufu").join("mcp")
+}
+
+/// The marker for a server this process spawned.
+fn marker(home: &Path) -> std::path::PathBuf {
+    marker_dir(home).join(std::process::id().to_string())
+}
+
+/// Nothing under the marker directory, or no directory at all.
+fn assert_no_marker(home: &Path) {
+    if let Ok(entries) = std::fs::read_dir(marker_dir(home)) {
+        let names: Vec<_> = entries.map(|e| e.unwrap().file_name()).collect();
+        assert!(names.is_empty(), "no marker was written: {names:?}");
     }
 }
 
 impl Server {
+    /// The marker is there and a live server holds it: a shared lock is
+    /// refused. Deterministic once any post-handshake response has been
+    /// read, because the hold happens before the request loop starts.
+    fn assert_serving(&self) {
+        let path = marker(self.home.path());
+        let file = std::fs::File::open(&path)
+            .unwrap_or_else(|err| panic!("the marker {} exists: {err}", path.display()));
+        match file.try_lock_shared() {
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            other => panic!("the server holds its marker exclusively: {other:?}"),
+        }
+    }
+
     fn send(&mut self, message: &Value) {
         let stdin = self.stdin.as_mut().expect("stdin is open");
         writeln!(stdin, "{message}").expect("write a frame");
@@ -92,14 +151,21 @@ impl Server {
     }
 
     /// Close stdin and collect what the server did on the way out.
-    fn close(mut self) -> (i32, String) {
+    fn close(self) -> (i32, String) {
+        let (code, stderr, _home) = self.shutdown();
+        (code, stderr)
+    }
+
+    /// The same, handing back the scratch HOME so a marker assertion after
+    /// the exit reads a directory that is still there.
+    fn shutdown(mut self) -> (i32, String, tempfile::TempDir) {
         drop(self.stdin.take());
         let status = self.child.wait().expect("wait");
         let mut stderr = String::new();
         if let Some(mut err) = self.child.stderr.take() {
             std::io::Read::read_to_string(&mut err, &mut stderr).expect("read stderr");
         }
-        (status.code().unwrap_or(-1), stderr)
+        (status.code().unwrap_or(-1), stderr, self.home)
     }
 }
 
@@ -139,6 +205,33 @@ fn repo() -> Fixture {
 // ---- the legacy era --------------------------------------------------------
 
 #[test]
+fn a_starting_server_sweeps_the_markers_nobody_holds() {
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let dir = marker_dir(home.path());
+    std::fs::create_dir_all(&dir).unwrap();
+    // Left by a client that is gone: nothing holds it.
+    let stale = dir.join("4242");
+    std::fs::write(&stale, "{\"server\":1}\n").unwrap();
+    // Held the way a live server holds its own.
+    let live = dir.join("4243");
+    let lock = std::fs::File::create(&live).unwrap();
+    lock.try_lock().expect("an exclusive lock");
+
+    let mut server = start_in(home, &fx.path(), &[], &[]);
+    handshake(&mut server);
+    server.request(2, "tools/list", Value::Null);
+    server.assert_serving();
+    assert!(!stale.exists(), "the stale marker was swept at start");
+    assert!(
+        live.is_file(),
+        "a marker another server holds is left alone"
+    );
+    drop(lock);
+    server.close();
+}
+
+#[test]
 fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
     let fx = repo();
     let mut server = start(&fx.path(), &[], &[]);
@@ -154,6 +247,9 @@ fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
     );
 
     let listed = server.request(2, "tools/list", Value::Null);
+    // Serving, and provably so: the marker for this process — the
+    // server's parent — is held for as long as it serves.
+    server.assert_serving();
     let tools = listed["result"]["tools"].as_array().expect("a tool list");
     assert_eq!(tools.len(), 1, "one tool: {listed}");
     assert_eq!(tools[0]["name"], "ff");
@@ -220,9 +316,13 @@ fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
         "usage/mcp-verb-unavailable"
     );
 
-    let (code, stderr) = server.close();
+    let (code, stderr, home) = server.shutdown();
     assert_eq!(code, 0, "closing stdin ends the server cleanly");
     assert_eq!(stderr, "", "nothing on stderr without FF_DEBUG");
+    assert!(
+        !marker(home.path()).exists(),
+        "the marker went with the server"
+    );
 }
 
 #[test]
@@ -366,6 +466,8 @@ fn the_modern_era_discovers_without_a_handshake() {
     );
     assert_eq!(status["result"]["resultType"], "complete", "{status}");
     assert_eq!(status["result"]["structuredContent"]["cmd"], "status");
+    // The new era marks too: `server/discover` is where serving begins.
+    server.assert_serving();
 
     let (code, stderr) = server.close();
     assert_eq!(code, 0);
@@ -373,12 +475,14 @@ fn the_modern_era_discovers_without_a_handshake() {
 }
 
 /// A client that opens the pipe and closes it again, which is how a client
-/// probes whether a server starts, gets a clean exit and no complaint.
+/// probes whether a server starts, gets a clean exit and no complaint —
+/// and no marker, because a probe is not a server that is up.
 #[test]
 fn closing_stdin_before_speaking_exits_zero() {
     let fx = repo();
     let server = start(&fx.path(), &[], &[]);
-    let (code, stderr) = server.close();
+    let (code, stderr, home) = server.shutdown();
     assert_eq!(code, 0);
     assert_eq!(stderr, "");
+    assert_no_marker(home.path());
 }
