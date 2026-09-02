@@ -72,6 +72,15 @@ nav:
       - The machine surface: agents/machine-surface.md
   - Reference:
       - CLI: reference/cli/index.md
+      - Hooks:
+          - reference/hooks/index.md
+          - bash: reference/hooks/bash.md
+          - zsh: reference/hooks/zsh.md
+          - fish: reference/hooks/fish.md
+          - Claude Code: reference/hooks/claude.md
+          - Codex: reference/hooks/codex.md
+          - Cursor: reference/hooks/cursor.md
+          - Gemini CLI: reference/hooks/gemini.md
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md
       - Doctor: reference/doctor.md

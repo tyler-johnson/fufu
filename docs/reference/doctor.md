@@ -101,7 +101,7 @@ Silent when nothing has been counted — a row saying zero would be a row about 
 
 These rows come from the same status vector `ff hook -l` renders, so the two commands cannot disagree about what is wired.
 
-**One row per agent client** (`claude`, `codex`, …) — `ok` when wired, naming where the hook landed. A client that is present on the machine yet unwired is `info` with the `ff hook <slug>` that would wire it; a client that is neither present nor wired earns no row, because a client you do not have is not a hole in the net. Two states are findings: wired but with an event missing (capture is partial), and wired in a spelling this fufu no longer writes. Both are repaired by `ff hook <slug>`, and both are among the things `--fix` rewires.
+**One row per agent client** (`claude`, `codex`, …) — `ok` when wired, naming where the hook landed; [the hook reference](hooks/index.md) shows what lands there. A client that is present on the machine yet unwired is `info` with the `ff hook <slug>` that would wire it; a client that is neither present nor wired earns no row, because a client you do not have is not a hole in the net. Two states are findings: wired but with an event missing (capture is partial), and wired in a spelling this fufu no longer writes. Both are repaired by `ff hook <slug>`, and both are among the things `--fix` rewires.
 
 **alias** — whether `git='ff git'` is wired in a shell rc file, folded across the shells: one shell wired answers the question. A hand-written alias is `info` (heuristic — check `type git` in your shell), never a finding.
 

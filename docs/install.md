@@ -49,7 +49,7 @@ Optional, and recommended.
 ff hook
 ```
 
-fufu captures only when something invokes it, so without hooks only an `ff` command captures. With them a snapshot lands before every agent tool call, every git command you type, and every shell prompt.
+fufu captures only when something invokes it, so without hooks only an `ff` command captures. With them a snapshot lands before every agent tool call, every git command you type, and every shell prompt. For a shell that is two marked lines in your rc file, `alias git='ff git'` and a prompt hook; for an agent client it is hook entries in its own settings file, or a plugin directory for Claude Code. What each slug writes, and what `ff unhook` takes back, is on [the hook reference](reference/hooks/index.md).
 
 Bare `ff hook` reports the shells and agent clients it found and asks; `--all` takes everything detected, `-l` reports and stops. Claude Code and Codex get [fufu's skill](agents/setup.md) with the wiring. Once per machine, not per repository.
 
