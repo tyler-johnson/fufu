@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
-use ff_testsupport::fixtures::null_device;
+use ff_testsupport::fixtures::{ageless, null_device};
 
 fn ff_at(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
@@ -85,7 +85,9 @@ fn bare_show_is_the_open_change_and_shares_ff_diffs_body() {
 
     let bare = stdout(&ff(&fx, &["show"]));
     let at = stdout(&ff(&fx, &["show", "@"]));
-    assert_eq!(bare, at, "bare is `@`");
+    // Ageless: the header carries the open change's age, and two spawns
+    // straddling a second boundary render `0s ago` against `1s ago`.
+    assert_eq!(ageless(&bare), ageless(&at), "bare is `@`");
 
     let patch = stdout(&ff(&fx, &["diff"]));
     assert!(!patch.is_empty(), "there is a patch to compare");

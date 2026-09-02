@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
-use ff_testsupport::fixtures::null_device;
+use ff_testsupport::fixtures::{ageless, null_device};
 
 fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
@@ -1271,32 +1271,6 @@ fn the_shell_trigger_captures_and_says_nothing() {
 
     let log = text(&ff_env(&fx.path(), &["op", "log"], &env));
     assert!(log.contains("shell"), "the prompt hook's operation:\n{log}");
-}
-
-/// A rendered log minus its age column. Two reads of an unchanged log can
-/// straddle a second boundary, and `0s ago` against `1s ago` is not a second
-/// operation — this was a real flake, on the Windows shards and once on a
-/// Pi. An age is a `<digits><unit> ago` word pair; the pair goes, everything
-/// else (ids, shas, descriptions) stays, and the column padding collapses
-/// with the rejoin so a widening age cannot shift it either.
-fn ageless(log: &str) -> String {
-    let words: Vec<&str> = log.split_whitespace().collect();
-    let mut out: Vec<&str> = Vec::new();
-    let mut at = 0;
-    while at < words.len() {
-        let (word, next) = (words[at], words.get(at + 1));
-        let age = next == Some(&"ago")
-            && word.len() >= 2
-            && word[..word.len() - 1].chars().all(|c| c.is_ascii_digit())
-            && matches!(word.as_bytes()[word.len() - 1], b's' | b'm' | b'h' | b'd');
-        if age {
-            at += 2;
-        } else {
-            out.push(word);
-            at += 1;
-        }
-    }
-    out.join(" ")
 }
 
 /// Leaning on Enter writes nothing: `ff_core::capture` answers `NoOp` when

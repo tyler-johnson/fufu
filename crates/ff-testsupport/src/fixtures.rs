@@ -286,6 +286,32 @@ pub fn null_device() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
+/// A rendering minus its age words. Two reads of unchanged state can straddle
+/// a second boundary, and `0s ago` against `1s ago` is not a difference in
+/// what was rendered — it is a difference in when. An age is a
+/// `<digits><unit> ago` word pair; the pair goes, everything else (ids, shas,
+/// descriptions) stays, and the column padding collapses with the rejoin so a
+/// widening age cannot shift it either.
+pub fn ageless(rendered: &str) -> String {
+    let words: Vec<&str> = rendered.split_whitespace().collect();
+    let mut out: Vec<&str> = Vec::new();
+    let mut at = 0;
+    while at < words.len() {
+        let (word, next) = (words[at], words.get(at + 1));
+        let age = next == Some(&"ago")
+            && word.len() >= 2
+            && word[..word.len() - 1].chars().all(|c| c.is_ascii_digit())
+            && matches!(word.as_bytes()[word.len() - 1], b's' | b'm' | b'h' | b'd');
+        if age {
+            at += 2;
+        } else {
+            out.push(word);
+            at += 1;
+        }
+    }
+    out.join(" ")
+}
+
 /// Read the index bytes for a worktree directory, following `.git` files of
 /// linked worktrees to their private index.
 pub fn index_bytes_at(worktree: &Path) -> Vec<u8> {
