@@ -41,6 +41,15 @@ ff_0.10.0_linux_amd64.tar.gz: OK
 
 One honest limit: `checksums.txt` is not itself signed today, so verification proves your download matches what CI published with the release, not who published it. Pin a version and fetch over TLS from the releases page.
 
+### In a regulated environment
+
+The pieces above, as one list to file with security:
+
+1. **Pin.** Set `FF_VERSION=vX.Y.Z` with the script, or take the versioned archive from the releases page. With the version pinned, `install.sh` fetches only the archive and `checksums.txt`, from the release's own download URL, and nothing else. `install.ps1` does the same, and asks the GitHub API for the latest tag only when no version is set.
+2. **Verify, with the limit in the same breath.** The scripts check the sha256 against `checksums.txt` and refuse on a mismatch; by hand it is the `sha256sum -c` above. `checksums.txt` is unsigned, so this proves the download matches what CI published with the release, not who published it. Signed provenance is not offered today.
+3. **Turn the update check off.** `ff config --global updateCheck false`, which is the git config key [`fufu.updateCheck`](reference/config.md#updatecheck). What it turns off: in official builds, at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag, sends `GITHUB_TOKEN` as a bearer header if the environment has one, and caches the answer in `<cache>/fufu/update.json` for a one-line notice. It never installs anything; `false` stops the check and the notice both.
+4. **What remains.** With the check off, nothing in fufu itself reaches the network. `ff update` fetches only when you run it, `ff hook` writes local files and nothing else, and `ff sync` and `ff publish` talk only to the remotes your repository configures: the fetch is native and reads git's credential and proxy config, and the push runs git.
+
 ## 2. Wire it in
 
 Optional, and recommended.
