@@ -10,7 +10,7 @@ One thing to unlearn before you start: there is no staging area, no stash, and n
 
 ```console
 $ ff clone https://github.com/tyler-johnson/fufu
-cloned into ./fufu — 242 commits on main
+cloned into ./fufu — 265 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 ```
 
@@ -30,8 +30,8 @@ Bare `ff` is the map: recent work on every branch, parked changes included. A fr
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-●  —        8d5309ef   4m ago
-│  docs: comparisons compare honestly, and the undecided get routed
+●  —        677b97ae   4m ago
+│  cut v0.11.0
 ~
 ```
 
@@ -45,8 +45,8 @@ The letters column next to each commit (here just `—`) is an operation id: whi
 
 ```console
 $ ff start
-minted ff/vivid-tide (forked from main)
-open change on ff/vivid-tide
+minted ff/vivid-sparrow (forked from main)
+open change on ff/vivid-sparrow
 undo: ff undo
 ```
 
@@ -54,13 +54,13 @@ Now edit. Add a file — a design note, say — and notice what you don't do nex
 
 ```console
 $ ff status
-on ff/vivid-tide · nothing to sync
-@  nqluwxqp 13cf55dd   0s ago
+on ff/vivid-sparrow · nothing to sync
+@  mmzzqqkk 29700f0f   0s ago
 │  (no description)
 │  A notes/parser.md +3  -0  ++++++++++++++++++++
 │    1 file          +3  -0
-●  —        8d5309ef   4m ago  signed
-│  docs: comparisons compare honestly, and the undecided get routed
+●  —        677b97ae   4m ago  signed
+│  cut v0.11.0
 ```
 
 `ff status` answers where you are and what is uncommitted, as a diffstat. `ff diff` is the same change read down to the line — and it sees untracked files, which `git diff` does not.
@@ -71,14 +71,14 @@ The open change can carry a description before it is ever a commit, so you can n
 
 ```console
 $ ff describe -m "notes: parser skeleton and char stream"
-pending description on ff/vivid-tide: notes: parser skeleton and char stream
+pending description on ff/vivid-sparrow: notes: parser skeleton and char stream
 ```
 
 Closing the change is the commit. `ff commit` picks up the pending description:
 
 ```console
 $ ff commit
-closed 27ef5773 on ff/vivid-tide: notes: parser skeleton and char stream (1 file(s))
+closed c709390e on ff/vivid-sparrow: notes: parser skeleton and char stream (1 file(s))
 undo: ff undo
 ```
 
@@ -86,7 +86,7 @@ Or say it at the close. Make a second edit, then:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
-closed 9d3883be on ff/vivid-tide: notes: drop whitespace from the stream (1 file(s))
+closed cdb9cf71 on ff/vivid-sparrow: notes: drop whitespace from the stream (1 file(s))
 undo: ff undo
 ```
 
@@ -96,16 +96,16 @@ undo: ff undo
 $ ff log -n 5
 @  no changes
 │  (no description)
-●  myzurkrp 9d3883be   0s ago
+●  xmppkont cdb9cf71   0s ago
 │  notes: drop whitespace from the stream
-●  nqluwxqp 27ef5773   0s ago
+●  mmzzqqkk c709390e   0s ago
 │  notes: parser skeleton and char stream
-●  —        8d5309ef   4m ago  signed
-│  docs: comparisons compare honestly, and the undecided get routed
-●  —        66ead344  11h ago  signed
-│  cli: ff update dispatches, the install script installs
-●  —        505ec784  13h ago  signed
-│  docs: point people at ff hook during install
+●  —        677b97ae   4m ago  signed
+│  cut v0.11.0
+●  —        ba870bea  34m ago  signed
+│  docs: machine-surface names the index and the fifth exit code
+●  —        a37965e1  34m ago  signed
+│  cli: the error id index, generated from ff explain's registry
 ```
 
 The two commits fufu made now wear operation ids. `ff evolog` drills into a commit's history of rewrites through that column, and `ff op log` is the operation log itself.
@@ -116,7 +116,7 @@ Start another edit — a stray note in `README.md`, say — and leave mid-though
 
 ```console
 $ ff switch main
-parked the open change on ff/vivid-tide (a6e423b2)
+parked the open change on ff/vivid-sparrow (edb2b4be)
 switched to main
 undo: ff undo
 ```
@@ -127,20 +127,20 @@ The map shows where the work went:
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-│ ●  —        9d3883be   0s ago  ▸ [ff/vivid-tide]  (+ parked change, 1 file)
+│ ●  —        cdb9cf71   0s ago  ▸ [ff/vivid-sparrow]  (+ parked change, 1 file)
 │ │  notes: drop whitespace from the stream
-│ ●  —        27ef5773   0s ago
+│ ●  —        c709390e   0s ago
 ├─╯  notes: parser skeleton and char stream
-●  —        8d5309ef   4m ago
-│  docs: comparisons compare honestly, and the undecided get routed
+●  —        677b97ae   4m ago
+│  cut v0.11.0
 ~
 ```
 
 Switching back brings the parked change in exactly as you left it — same files, same edits, same pending description. A unique prefix of the branch name is enough for the target.
 
 ```console
-$ ff switch ff/vivid-tide
-switched to ff/vivid-tide
+$ ff switch ff/vivid-sparrow
+switched to ff/vivid-sparrow
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
@@ -149,7 +149,7 @@ The work is real now, so claim the name. The capture chain, the parked state, an
 
 ```console
 $ ff describe -b parser-stream
-claimed ff/vivid-tide as parser-stream
+claimed ff/vivid-sparrow as parser-stream
 undo: ff undo
 ```
 
@@ -157,7 +157,7 @@ That stray README edit isn't part of this work. `ff restore` discards one file's
 
 ```console
 $ ff restore README.md
-restored from 9d3883be (notes: drop whitespace from the stream)
+restored from cdb9cf71 (notes: drop whitespace from the stream)
   restored  README.md
 undo: ff undo
 ```
@@ -167,8 +167,8 @@ undo: ff undo
 Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
 ```console
-$ ff absorb --into 27ef5773
-absorbed into 6367bedb: notes: parser skeleton and char stream
+$ ff absorb --into c709390e
+absorbed into 8e5e44fc: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -208,7 +208,7 @@ fufu snapshots the repository around every operation — including operations it
 
 ```console
 $ git reset --hard HEAD~2
-HEAD is now at a9ea29a docs: a line from a teammate
+HEAD is now at 3b738f7 docs: a line from a teammate
 ```
 
 …one `ff undo` brings refs and working tree back together:
@@ -216,10 +216,10 @@ HEAD is now at a9ea29a docs: a line from a teammate
 ```console
 $ ff undo
 ff: absorbed changes made outside fufu:
-  refs/heads/parser-stream moved to a9ea29a6 (reset: moving to HEAD~2)
+  refs/heads/parser-stream moved to 3b738f7f (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at psmxslvoxlyk (published parser-stream to origin/parser-stream)
-  refs/heads/parser-stream → ff786800
+  now at vpyrqznqrozv (published parser-stream to origin/parser-stream)
+  refs/heads/parser-stream → 7400e88e
   1 worktree file(s) restored
 back: ff redo
 ```
@@ -230,22 +230,22 @@ Undo repeats — each press steps one run of work further back. `ff history` is 
 
 ```console
 $ ff history
-↑1  uwvutpxt    0s ago  redo  absorbed 1 foreign ref change(s)
-@   psmxslvo    0s ago  now   published parser-stream to origin/parser-stream
-↓1  szuxvsvs    1s ago  undo  absorb into 27ef5773 on parser-stream
-↓2  plluznvr    1s ago  undo  pre: ff absorb --into 27ef5773
-↓3  zpzxxnuz    1s ago  undo  claim ff/vivid-tide as parser-stream
-↓4  vsvsulyp    1s ago  undo  switch from main to ff/vivid-tide
-↓5  rxnuwpwn    1s ago  undo  switch from ff/vivid-tide to main
-↓6  skrzoono    1s ago  undo  pre: ff switch main
-↓7  knpkrnsx    1s ago  undo  commit on ff/vivid-tide: notes: drop whitespace from the stream
-↓8  myzurkrp    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
-↓9  uqrlkpun    1s ago  undo  commit on ff/vivid-tide: notes: parser skeleton and char stream
-↓10 lksutwzq    1s ago  undo  describe pending change on ff/vivid-tide
-↓11 nqluwxqp    1s ago  undo  pre: ff status
-↓12 xusuzvwm    1s ago  undo  switch from main to ff/vivid-tide
-↓13 nouspnqw    1s ago  undo  mint branch ff/vivid-tide at 8d5309ef
-↓14 uvornvpk    1s ago  undo  operation log initialized from observed state; earlier operations not undoable
+↑1  nypvumko    0s ago  redo  absorbed 1 foreign ref change(s)
+@   vpyrqznq    0s ago  now   published parser-stream to origin/parser-stream
+↓1  umzwnzqv    1s ago  undo  absorb into c709390e on parser-stream
+↓2  olpnnlql    1s ago  undo  pre: ff absorb --into c709390e
+↓3  nvtnzstr    1s ago  undo  claim ff/vivid-sparrow as parser-stream
+↓4  lxnznxsk    1s ago  undo  switch from main to ff/vivid-sparrow
+↓5  mqxmpqlx    1s ago  undo  switch from ff/vivid-sparrow to main
+↓6  szvwuvzl    1s ago  undo  pre: ff switch main
+↓7  pvxxprrn    1s ago  undo  commit on ff/vivid-sparrow: notes: drop whitespace from the stream
+↓8  xmppkont    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
+↓9  nnukmpyx    1s ago  undo  commit on ff/vivid-sparrow: notes: parser skeleton and char stream
+↓10 kwuvnqot    1s ago  undo  describe pending change on ff/vivid-sparrow
+↓11 mmzzqqkk    1s ago  undo  pre: ff status
+↓12 svtwzxnm    1s ago  undo  switch from main to ff/vivid-sparrow
+↓13 nlxnpqpl    1s ago  undo  mint branch ff/vivid-sparrow at 677b97ae
+↓14 wozpoxmy    1s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
