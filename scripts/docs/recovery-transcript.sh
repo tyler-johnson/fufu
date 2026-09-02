@@ -125,6 +125,22 @@ printf 'fn drop_comments() {}\n' >> src/parser.rs   # the reopened whitespace ed
 show "$FF" commit -m "parser: drop whitespace and comments"
 show_fails "$FF" redo
 
+# --- scenario: two writers on one chain, and only one was wrong ---
+mark "two writers on one chain"
+# Writer A and writer B share this worktree, so their operations land on
+# one chain in turn: A commits on parser-stream, B starts a branch off
+# trunk and commits there. A's commit is the wrong one; B's must stand.
+printf '\nThe parser lives in src/parser.rs.\n' >> README.md
+"$FF" commit -m "README: point at the parser" > /dev/null
+"$FF" start -b changelog > /dev/null
+printf '# changelog\n' > CHANGELOG.md
+"$FF" commit -m "changelog: start one" > /dev/null
+show "$FF" op log -n 6
+wrong=$("$FF" op log | awk '/ op /&&/commit on parser-stream: README: point at the parser/{print $1; exit}')
+[ -n "$wrong" ] || { echo "no README commit operation found in ff op log" >&2; exit 1; }
+show "$FF" op revert "$wrong"
+"$FF" switch parser-stream > /dev/null   # quietly back to the branch the rest of the page works on
+
 # --- scenario: wrong message (wrong branch is prose + pointers) ---
 mark "wrong message"
 printf 'fn string_literal() {}\n' >> src/parser.rs

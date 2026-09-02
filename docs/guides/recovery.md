@@ -140,6 +140,33 @@ ff: nothing to redo: work has landed since the last undo, so the log forked rath
 
 Redo stops offering a way forward it can no longer take, and says so. Nothing was destroyed: the forked-off branch of the log keeps its ids, `ff op log` still lists them, and `ff op restore` still lands on any of them until [`ff trim`](../reference/cli/trim.md) ages them out.
 
+## "Two writers on one chain, and only one was wrong"
+
+The symptom: two agents share one worktree, so their operations land on one chain in turn. Agent A closed a commit that should not have happened, agent B has since started a branch off trunk and committed there, and `ff undo` would take back B's work first, because undo steps the chain from its newest operation whoever wrote it.
+
+[`ff op log`](../reference/cli/op-log.md) is the chain; find the operation that was wrong:
+
+```console
+$ ff op log -n 6
+onlwlmpy   0s ago  op      changelog     commit on changelog: changelog: start one
+orpskpmt   0s ago  capture changelog     pre: ff commit -m changelog: start one
+rpqkpopy   0s ago  op      changelog     switch from parser-stream to changelog
+sptlwqxv   0s ago  op      parser-stream  mint branch changelog at 476c18f8
+qnnvvtls   0s ago  op      parser-stream  commit on parser-stream: README: point at the parser
+szovqqzy   0s ago  capture parser-stream  pre: ff commit -m README: point at the parser
+```
+
+[`ff op revert <op>`](../reference/cli/op-revert.md) inverts that one operation and leaves everything after it standing:
+
+```console
+$ ff op revert qnnvvtls
+reverted qnnvvtlspsorxzooruqkylozzzokqyztnpytmzxn: commit on parser-stream: README: point at the parser
+  refs/heads/parser-stream → aa9d3216
+undo: ff undo
+```
+
+B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too. Revert inverts refs, and it applies only where the refs the wrong operation moved still stand where it left them: a later commit on the same branch moves that ref, so had B committed on parser-stream as well, the revert would hold and change nothing. That case is a rewrite rather than a recovery — `ff lift --from <rev>` takes A's files back out of the closed commit, and drops the commit when it takes everything; [rewriting history](rewriting-history.md#split-a-commit-that-already-closed) has it.
+
 ## "I committed to the wrong branch, or with the wrong message"
 
 The symptom: the close itself was fine, but it landed with the wrong name on it — or on the wrong branch entirely.
