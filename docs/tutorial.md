@@ -200,7 +200,7 @@ the push left the machine — ff undo cannot reach it
 ff undo then ff publish rolls the shared copy back, under a lease
 ```
 
-Every publish carries a lease: it goes through only if the shared copy still stands where you last saw it. If somebody pushed to your branch since, nothing is sent and nothing is lost — `ff sync` takes their work in, and you publish after. [The push boundary](concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
+Every publish carries a lease: it goes through only if the shared copy still stands where you last saw it. In git's terms this is a force-push under a lease, `--force-with-lease`, and the bound is worth stating: fufu never force-pushes `main` or anyone else's branch; it replaces the remote copy of your own branch, and only if nobody has touched it since. If somebody pushed to your branch since, nothing is sent and nothing is lost — `ff sync` takes their work in, and you publish after. [The push boundary](concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
 
 ## Undo anything
 
