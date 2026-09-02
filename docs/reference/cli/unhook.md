@@ -1,6 +1,6 @@
 # ff unhook
 
-Removes exactly what `ff hook` added, and nothing else. Foreign entries in a settings file keep whatever shape they had; a line somebody wrote by hand is left where it is and reported rather than removed. The directories fufu owns outright — the Claude plugin, and the skill each client that reads one was given — go whole, because there is nothing else in them.
+Removes exactly what `ff hook` added, and nothing else. Foreign entries in a settings file keep whatever shape they had; a line somebody wrote by hand is left where it is and reported rather than removed. The directories fufu owns outright — the Claude plugin, and the skill each client that reads one was given — go whole, because there is nothing else in them. The MCP server's registration goes with the hook it was written beside, and one written by hand stays.
 
 Bare `ff unhook` reports and asks, the same way `ff hook` does.
 

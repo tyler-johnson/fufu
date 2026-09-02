@@ -982,8 +982,10 @@ when a machine with only `ff` on it is a working development machine.
   makes an agent reach for `ff` instead of `git` was the open half, and
   `fufu.gitPolicy` is the answer: one graduated setting over both entry
   points, correcting only the git words fufu has a verb for and never
-  rewriting a command line. What stays open is the other candidate, an MCP
-  server that is simply the path of least resistance.
+  rewriting a command line. The other candidate shipped as `ff mcp`: one
+  tool over stdio whose every call is an ordinary `ff <verb> --json` child,
+  registered by `ff hook <client>`, so the path of least resistance and the
+  shell command are the same contract.
 - **Sessions past a tag** — one tag per operation answers filtering and nothing
   else. Left open until something needs it: whether an operation may carry more
   than one (an agent's inside a person's), and what a tag means once a rewrite

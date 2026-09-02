@@ -176,6 +176,22 @@ The refusal is a usage error — id `usage/git-policy` — because the command l
 
 One more contract keeps scripts out of stuck states: no verb ever blocks on a prompt or an editor with nobody there to answer. Wherever fufu would ask, a flag supplies the answer up front, and when stdin is not a terminal — or `FF_NONINTERACTIVE` is set to force it — the question becomes a structured error naming that flag, such as `ff describe` with no `-m` failing instead of opening an editor.
 
+## The MCP surface
+
+[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: one tool, `ff`, whose input is the command line after `ff` as an array of words, and whose output is the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through the tool — it is a shell over one contract, not a second implementation.
+
+```json
+{"name": "ff", "arguments": {"args": ["show", "doesnotexist"]}}
+```
+
+```json
+{"content": [{"type": "text", "text": "{\"ff\":1,\"cmd\":\"show\",\"error\":{\"id\":\"usage/revset-unknown-revision\",\"message\":\"no revision here answers to `doesnotexist`\",\"exits\":[\"ff log\",\"ff branch\"]}}"}],
+ "structuredContent": {"ff": 1, "cmd": "show", "error": {"id": "usage/revset-unknown-revision", "message": "no revision here answers to `doesnotexist`", "exits": ["ff log", "ff branch"]}},
+ "isError": true}
+```
+
+The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it. `isError` follows the exit code: false on 0, true on anything else, and a fufu failure is a *successful* tool call carrying it, never a protocol error, because a client renders a protocol error opaquely and the `error.id` inside is what the agent has to read. The exit-code rules restate as tool rules: an id under `held/*` means nothing moved and a person is needed, so the agent stops and says so; `ref/contended` means the same call run once more. A `help` call returns the page as text with no structured content, and the six verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp` — answer with `usage/mcp-verb-unavailable`. An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
+
 ## Piped output never pages
 
 The log family — `ff log`, `ff evolog`, `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human. Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes. Color follows the same discipline: ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.

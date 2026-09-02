@@ -1,6 +1,6 @@
 # Agent setup
 
-[Why agents want fufu](why.md) is the argument; this page is the wiring. Five steps: pick a git policy, put standing orders where the agent reads them, wire the per-turn hook, ship the skill, and verify the whole net — including breaking something on purpose to watch `ff undo` take it back. `ff hook --all` does the middle three in one command; the blocks below are for reading what it wires, and for pasting by hand where an installer cannot reach.
+[Why agents want fufu](why.md) is the argument; this page is the wiring. Six steps: pick a git policy, put standing orders where the agent reads them, wire the per-turn hook, ship the skill, serve the verbs as a tool, and verify the whole net — including breaking something on purpose to watch `ff undo` take it back. `ff hook --all` does the middle four in one command; the blocks below are for reading what it wires, and for pasting by hand where an installer cannot reach.
 
 ## Pick a git policy
 
@@ -106,6 +106,45 @@ The briefing is deliberately short — four verbs, the git rule, a pointer to `-
 $ ff hook --skill
 ```
 
+## Serve the verbs as a tool
+
+The hook makes fufu ambient; [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name. It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}` — and whose result is fufu's JSON envelope, as text and as structured content, with `isError` following the exit code. Every call runs the binary as a child with `--json`, so nothing changes underneath: the child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt. What the agent gains is a typed, allowlistable tool with structured results in place of a shell string it has to quote, and a tool description that carries the verb list, the recovery table, and the landmines in about two thousand tokens, which is why there is one tool rather than one per verb.
+
+What it does not replace is the hook. The server sees only fufu verbs; the snapshot before every *other* tool call — an edit, a shell command — still rides `PreToolUse`, so wire both. Six verbs are not offered through the tool, because each owns its stream or wires the machine: `git`, `update`, `watch`, `hook`, `unhook`, and `mcp`. Asking for one returns `usage/mcp-verb-unavailable`. `--session` on the server, or `FF_SESSION` in its environment, tags every child's operations, so an agent's work through the tool is separable in `ff op log` the same way its hook captures are.
+
+`ff hook <client>` registers the server beside the hook it wires, and `ff unhook <client>` removes it. Where each client keeps it, and the name the tool takes there:
+
+| client | file | tool |
+| --- | --- | --- |
+| Claude Code | `.mcp.json` in the plugin at `~/.claude/skills/fufu/` | `mcp__plugin_fufu_fufu__ff` |
+| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `ff` |
+| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `ff` |
+| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `ff` |
+
+For a client that registers servers from a file you manage yourself, the entry is one key:
+
+```json
+{
+  "mcpServers": {
+    "fufu": {
+      "type": "stdio",
+      "command": "/usr/local/bin/ff",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+`command` is the absolute path of your `ff`; the installer bakes it in so the server does not depend on the client's `PATH`. In Claude Code that entry goes in `~/.claude.json` at user scope, which is also what `claude mcp add --scope user fufu -- ff mcp` writes, and the tool is then `mcp__fufu__ff`. Codex takes the same thing as TOML:
+
+```toml
+[mcp_servers.fufu]
+command = "/usr/local/bin/ff"
+args = ["mcp"]
+```
+
+A registration you wrote by hand is detected and left alone by both `ff hook` and `ff unhook`. [The hook reference](../reference/hooks/index.md) shows each file as the installer leaves it.
+
 ## Verify
 
 [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass, and its wiring lane is the part this page set up. Healthy rows name where each hook landed:
@@ -116,11 +155,13 @@ $ ff doctor
   ...
   info  settings       gitPolicy strict
   ok    claude         plugin wired in ~/.claude/skills/fufu
+  ok    skill          fufu's manual, for claude
+  ok    mcp            registered with claude
   ok    alias          git='ff git' wired in ~/.bashrc (`ff hook bash` manages it)
   ok    ambient        prompt hook snapshots at every prompt, wired in ~/.bashrc (`ff hook bash` manages it)
 ```
 
-A half-wired client is a `WARN` naming the missing event, and `ff hook <slug>` repairs it. When nothing at all feeds capture, doctor warns about that too, because a silent engine feels safe while capturing nothing. Findings drive the exit code — 0 healthy, 1 findings — and `--json` emits the same rows, so CI can gate on it.
+A half-wired client is a `WARN` naming the missing event, and `ff hook <slug>` repairs it; so is a client whose hook is wired without the server, the shape an install from before `ff mcp` leaves, and `ff doctor --fix` runs the installer again. When nothing at all feeds capture, doctor warns about that too, because a silent engine feels safe while capturing nothing. Findings drive the exit code — 0 healthy, 1 findings — and `--json` emits the same rows, so CI can gate on it.
 
 Then run the one test that exercises the actual promise. Seed a file, and ask the agent to destroy it:
 

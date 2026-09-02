@@ -107,6 +107,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/foreign-verb` | 2 | that is a git verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
 | `usage/lift-from-open` | 2 | lift was named the open change as its source |
+| `usage/mcp-verb-unavailable` | 2 | that verb is not offered through the MCP tool |
 | `usage/needs-message` | 2 | a description was needed and there was no terminal to ask on |
 | `usage/no-such-directory` | 2 | -C names a directory that is not there |
 | `usage/no-such-path` | 2 | that path names nothing here |

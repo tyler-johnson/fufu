@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `ff mcp`: a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array. Every call runs the binary as a child with `--json` and relays the envelope, so capture, `fufu.gitPolicy`, sessions, and error ids hold unchanged. `git`, `update`, `watch`, `hook`, `unhook`, and `mcp` are not offered; a call may carry `cwd`; `--session` on the server tags every child's operations. Both protocol eras are served: the `initialize` handshake through 2025-11-25, and the stateless `server/discover` of 2026-07-28.
+- `ff hook claude`, `ff hook codex`, `ff hook cursor`, and `ff hook gemini` register the server beside the capture hook: `.mcp.json` in the Claude plugin, a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml`, `mcpServers.fufu` in `~/.cursor/mcp.json`, and `mcpServers.fufu` in `~/.gemini/settings.json`. `ff unhook` removes exactly that; a registration written by hand is reported and left alone.
+- `ff doctor`'s `mcp` row: which clients have the server, `info` when none does, and a fixable `WARN` when a client's hook is wired and its server is not, which `ff doctor --fix` repairs. `ff hook -l` and `ff hook --json` carry the registration per client.
+- The error id `usage/mcp-verb-unavailable`, for a verb the tool does not offer.
+
 ## v0.11.0 — 2026-09-02
 
 ### Added

@@ -38,6 +38,7 @@ $ ff doctor
   ok    alias          git='ff git' wired in ~/.bashrc (`ff hook bash` manages it)
   ok    ambient        prompt hook snapshots at every prompt, wired in ~/.bashrc (`ff hook bash` manages it)
   ok    skill          fufu's manual, for claude, codex
+  ok    mcp            registered with claude, codex
   info  update         source build — updates via cargo install
 
 no findings — the net is under you
@@ -108,6 +109,8 @@ These rows come from the same status vector `ff hook -l` renders, so the two com
 **ambient** — the prompt hook that snapshots at every prompt, reported separately from the alias because the shells wire the two pieces independently.
 
 **skill** — fufu's shipped manual, aggregated across the clients that read one. Absence is never a finding: without the skill an agent is down to the once-per-session briefing, which costs it spelling and not file state. Drift is the one thing worth a `WARN`, because a manual describing a fufu that has moved teaches commands that fail.
+
+**mcp** — the [`ff mcp`](cli/mcp.md) server's registration, aggregated across the agent clients. `ok` names the clients that have it; `info` when none does, because an agent without it shells out to `ff` and loses nothing but a typed tool. The one `WARN` is a client whose hook is wired and whose server is not, the shape an install predating the server leaves, and `--fix` runs that client's installer again.
 
 **triggers** — the one finding about the whole net rather than any piece of it. When nothing at all feeds capture — no agent hook, no alias, no prompt hook, not even a hand-written line — doctor warns that snapshots only happen when you run `ff` by hand, and points at `ff hook`. A silent engine feels safe while capturing nothing.
 
