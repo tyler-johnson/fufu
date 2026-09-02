@@ -9,6 +9,10 @@ description: Advanced use of fufu (ff), the git interface that snapshots the wor
 
 The once-per-session briefing already gave the agent four verbs and the git rule. This is the rest.
 
+## The tool
+
+When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Six verbs stay in the shell, because each owns its stream or wires the machine: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, and `ff mcp`; the tool refuses them with `usage/mcp-verb-unavailable`.
+
 ## The model
 
 **The worktree is the change.** There is no staging area and no verb that adds to one. What is on disk is what `ff commit` closes. Selection happens as an argument at the moment of the close, not as state maintained between commits.

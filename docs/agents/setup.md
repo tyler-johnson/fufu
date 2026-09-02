@@ -31,6 +31,8 @@ Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the o
 
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git counterparts.
 
+When an `ff` tool is offered, call it with the same words instead of the shell.
+
 Every verb's own `--help` is the authority on it.
 ```
 
@@ -108,7 +110,7 @@ $ ff hook --skill
 
 ## Serve the verbs as a tool
 
-The hook makes fufu ambient; [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name. It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}` — and whose result is fufu's JSON envelope, as text and as structured content, with `isError` following the exit code. Every call runs the binary as a child with `--json`, so nothing changes underneath: the child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt. What the agent gains is a typed, allowlistable tool with structured results in place of a shell string it has to quote, and a tool description that carries the verb list, the recovery table, and the landmines in about two thousand tokens, which is why there is one tool rather than one per verb.
+The hook makes fufu ambient; [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name. It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}` — and whose result is fufu's JSON envelope, as text and as structured content, with `isError` following the exit code. Every call runs the binary as a child with `--json`, so nothing changes underneath: the child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt. What the agent gains is a typed, allowlistable tool with structured results in place of a shell string it has to quote, and a tool description that names every verb with a digest of recovery and the landmines in under two thousand characters, which is what a client shows the model of a description and why there is one tool rather than one per verb. The briefing and the skill both say to prefer the tool when it is offered; the words are the same either way.
 
 What it does not replace is the hook. The server sees only fufu verbs; the snapshot before every *other* tool call — an edit, a shell command — still rides `PreToolUse`, so wire both. Six verbs are not offered through the tool, because each owns its stream or wires the machine: `git`, `update`, `watch`, `hook`, `unhook`, and `mcp`. Asking for one returns `usage/mcp-verb-unavailable`. `--session` on the server, or `FF_SESSION` in its environment, tags every child's operations, so an agent's work through the tool is separable in `ff op log` the same way its hook captures are.
 

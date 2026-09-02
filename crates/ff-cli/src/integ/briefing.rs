@@ -42,6 +42,8 @@ Anything else git does: `ff git <args…>`, which snapshots and then runs git ve
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.
 
+When an `ff` tool is offered, call it with the same words instead of the shell.
+
 Every verb's own `--help` is the authority on it.
 ";
 
@@ -106,11 +108,23 @@ mod notice {
     #[test]
     fn only_live_documented_surface() {
         let root = Cli::command();
-        let commands = quoted(NOTICE);
+        // The MCP tool's card is prose an agent reads the same way, and
+        // it rots the same way, so it is held to the same rule.
+        let card = {
+            use crate::cmd::mcp::describe::{CONTRACT, DOCTRINE, LANDMINES, RECOVERY};
+            format!("{CONTRACT}\n{DOCTRINE}\n{RECOVERY}\n{LANDMINES}")
+        };
+        let mut commands = quoted(NOTICE);
         assert!(
             commands.len() >= 8,
             "the notice stopped teaching verbs: {commands:?}"
         );
+        let from_card = quoted(&card);
+        assert!(
+            from_card.len() >= 20,
+            "the card stopped teaching verbs: {from_card:?}"
+        );
+        commands.extend(from_card);
         for tokens in &commands {
             let line = tokens.join(" ");
             let mut cmd = &root;

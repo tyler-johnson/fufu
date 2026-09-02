@@ -11,12 +11,13 @@
 //! implementation with its own opinions.
 //!
 //! One tool rather than one per verb, because a client transmits every
-//! tool's description on every turn. The one description carries the verb
-//! list, the recovery table, and the landmines in about two thousand
-//! tokens, where forty typed tools would cost five times that and be a
-//! second spelling of the CLI to keep in step. `describe.rs` assembles it
-//! from the same sources `ff --help` and the shipped skill read, so it
-//! cannot drift from them.
+//! tool's description on every turn, and shows the model only the first
+//! two thousand characters or so of each. The one description is a card
+//! under that cut — the contract, the doctrine, every verb by name, and a
+//! digest of recovery and the landmines — where forty typed tools would be
+//! forty cards and a second spelling of the CLI to keep in step.
+//! `describe.rs` assembles the verb list from the same source `ff --help`
+//! reads, so it cannot drift from it.
 //!
 //! The protocol has two handshake eras. Revisions through 2025-11-25 open
 //! with an `initialize` exchange and hold a session; 2026-07-28 dropped
@@ -31,7 +32,7 @@
 //! nobody and a line there is a line lost.
 
 mod child;
-mod describe;
+pub mod describe;
 
 use std::path::PathBuf;
 

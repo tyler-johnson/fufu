@@ -158,14 +158,19 @@ fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
     assert_eq!(tools.len(), 1, "one tool: {listed}");
     assert_eq!(tools[0]["name"], "ff");
     let description = tools[0]["description"].as_str().expect("a description");
-    assert!(description.contains("commit"), "the verb list is in it");
+    assert!(description.contains(", commit"), "the verb list is in it");
     assert!(
-        description.contains("## Recovery"),
-        "the recovery table is in it"
+        description.contains("\nRecovery: "),
+        "the recovery digest is in it"
     );
     assert!(
-        description.contains("## Landmines"),
+        description.contains("\nLandmines: "),
         "the landmines are in it"
+    );
+    assert!(
+        description.chars().count() < 2_048,
+        "the card fits what a client shows the model: {}",
+        description.chars().count()
     );
     assert_eq!(tools[0]["inputSchema"]["required"], json!(["args"]));
 
