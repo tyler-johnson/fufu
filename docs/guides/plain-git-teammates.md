@@ -124,7 +124,7 @@ Coming back is reconciliation. At your first fufu operation, everything that hap
 
 ## What fufu asks of the branch, and of the repo
 
-Of the repository and the people in it, fufu asks nothing. No server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business.
+Of the repository and the people in it, fufu asks nothing. No server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business. The same fact is a limit: fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
 
 Of your own unpublished branches, fufu is opinionated: they rebase onto main rather than merging it in, unpublished commits stay malleable, and updating the remote copy of your branch after a rewrite is a leased force-push — sent only if the shared copy still stands where you last saw it. Those opinions are confined to work only you can see, and they stop at [the push boundary](../concepts/push-boundary.md): published history is append-only.
 
