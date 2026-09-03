@@ -922,14 +922,166 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "usage/mcp-verb-unavailable",
         summary: "that verb is not offered through the MCP tool",
-        detail: "ff mcp serves one tool whose input is the command line after ff, and six verbs \
-                 are left out of it on purpose: git, update, watch, hook, unhook, and mcp itself. \
-                 Each either owns its stream — git passes real git's output through, watch \
-                 emits a stream of envelopes rather than one, mcp is the server — or talks a \
-                 person through something, or wires the machine. None of them makes sense \
-                 inside a tool call, so the tool says so rather than running one badly. Run \
+        detail: "ff mcp serves one tool whose input is the command line after ff, and seven \
+                 verbs are left out of it on purpose: git, update, watch, hook, unhook, mcp \
+                 itself, and extension. Each either owns its stream — git passes real git's \
+                 output through, watch emits a stream of envelopes rather than one, mcp is the \
+                 server — or talks a person through something, or wires the machine. extension \
+                 is the one that is not merely a bad fit: the registry it writes is the \
+                 allowlist for everything fufu says about an extension, so declaring is a \
+                 person's decision about a machine and not one an agent makes for itself. Run \
                  the verb in a shell; every other verb goes through the tool.",
         exits: &["ff help"],
+    },
+    Entry {
+        id: "usage/mcp-policy-write",
+        summary: "that setting is only writable from a shell",
+        detail: "fufu.gitPolicy and fufu.toolPolicy decide what fufu refuses an agent, and a \
+                 call that could set them through the MCP tool would be turning off the thing \
+                 policing it. So a write to either of them — a value, or --unset, which lowers \
+                 the tier by taking the value away — is refused when it arrives through the \
+                 tool, and only through the tool: the same command typed at a shell writes, \
+                 which is where a person changing their own policy is. Reading is untouched \
+                 everywhere. Bare ff config still lists every setting, and ff config <key> \
+                 still prints what applies.",
+        exits: &["ff config toolPolicy", "ff config gitPolicy"],
+    },
+    Entry {
+        id: "usage/mcp-extension-undeclared",
+        summary: "the tool serves declared extensions, and that name is not declared",
+        detail: "ff <name> runs an ff-<name> from PATH, and there are two kinds of them. A \
+                 declared one is a manifest somebody recorded with ff extension add, which is \
+                 what tells fufu the verbs it answers to and whether its writes can be taken \
+                 back; the tool serves those the way it serves a verb. An undeclared one fufu \
+                 knows nothing about, so the tool refuses it and a shell is where it runs — \
+                 fufu.toolPolicy lets an undeclared ff <name> through the shell for the same \
+                 reason, so between the two there is always one place it runs. The other way \
+                 to reach this is a misspelled verb, which is no extension either. Declare the \
+                 extension, or run it in a shell.",
+        exits: &["ff extension add <name>", "ff extension list"],
+    },
+    Entry {
+        id: "usage/mcp-extension-not-undoable",
+        summary: "that extension declares undoable: false, and the tool cannot honestly serve it",
+        detail: "The one tool carries annotations for everything it serves, and they say that \
+                 nothing it serves is destructive. That is honest of fufu, whose every write is \
+                 captured first and taken back by ff undo, and of an extension whose manifest \
+                 says undoable: true because it writes through fufu's own verbs. An extension \
+                 declaring undoable: false is saying the opposite, and serving it under those \
+                 annotations would tell an agent a call is recoverable when it is not. The \
+                 manifest is not refused — the extension is declared, on the card's terms, and \
+                 runs from a shell exactly as it always did — and the place it gets tools of \
+                 its own is the MCP server a manifest's mcp field registers, where it writes \
+                 its own annotations.",
+        exits: &["ff extension list", "ff doctor"],
+    },
+    Entry {
+        id: "extension/not-found",
+        summary: "no extension of that name is on PATH to ask for a manifest",
+        detail: "fufu resolves an extension the way git does — the first executable ff-<name> a \
+                 PATH walk finds — so declaring one starts by finding it, and this walk found \
+                 nothing. Check the spelling of the name, and check that the directory holding \
+                 the binary is on the PATH fufu was run with. Nothing was recorded.",
+        exits: &["ff doctor"],
+    },
+    Entry {
+        id: "extension/handshake-failed",
+        summary: "the extension did not answer the manifest handshake",
+        detail: "Declaring runs ff-<name> --ff-manifest, which a served extension answers with \
+                 one envelope on one line, exiting 0. This binary did something else: it would \
+                 not run, it exited nonzero, or it printed something that is not one envelope — \
+                 a banner, a progress line, a pretty-printed envelope, or an envelope carrying \
+                 an error in place of the manifest. Anything an extension wants to say to a \
+                 person goes on stderr, which leaves stdout for the one line fufu reads. \
+                 Nothing was recorded, and the extension still runs from a shell exactly as it \
+                 did before.",
+        exits: &[],
+    },
+    Entry {
+        id: "extension/bad-manifest",
+        summary: "the manifest came back, and fufu cannot read it",
+        detail: "The handshake answered with an envelope whose data is not the manifest the \
+                 machine surface types. name, version, contract, verbs and undoable are all \
+                 required; a verb carries a name of one word and a read_only boolean; and a \
+                 subscription's kind is one of the six the neutral agent event has, with a \
+                 matcher on BeforeTool and on nothing else — the tool names that subscription \
+                 wants with | between them, like Edit|Write, and not a regular expression. A \
+                 field fufu has never heard of is not the problem — unknown fields are kept. A \
+                 manifest is refused whole rather than in part, because a half-declared \
+                 extension is one fufu would describe and could not serve.",
+        exits: &[],
+    },
+    Entry {
+        id: "extension/unsupported-contract",
+        summary: "the extension speaks a contract this fufu does not",
+        detail: "contract is the machine-surface version the extension answers in — the number \
+                 every envelope leads with and FF_CONTRACT carries — and it is checked before \
+                 anything is recorded, because declaring is fufu promising an agent that this \
+                 binary answers in shapes fufu knows. A newer contract wants a newer fufu, and \
+                 an older one wants a newer extension.",
+        exits: &["ff version", "ff update"],
+    },
+    Entry {
+        id: "extension/name-mismatch",
+        summary: "the manifest claims a name other than the binary's",
+        detail: "name is the <name> in ff-<name>, and it is the namespace everything else hangs \
+                 off: cmd is spelled <name> <verb>, error ids live under <name>/, skills install \
+                 under skills/<name>/, and a server of the extension's own registers under that \
+                 key. A manifest naming one extension and a binary named another would put \
+                 fufu's routing and the binary's own answers under two different names, so it is \
+                 refused rather than reconciled. Declare the name the binary is installed as.",
+        exits: &[],
+    },
+    Entry {
+        id: "extension/not-declared",
+        summary: "nothing on this machine is declared under that name",
+        detail: "Removing takes a name off the list of what this machine declares, and this \
+                 name was never on it — most often a spelling, and otherwise a declaration \
+                 that was already taken back. It is refused rather than answered as done \
+                 because the two are different facts about the machine and a typo reads as \
+                 the first. Nothing about the binary changed either way: an ff-<name> on PATH \
+                 runs from a shell whether it is declared or not, and what removing takes \
+                 away is fufu describing it.",
+        exits: &["ff extension list"],
+    },
+    Entry {
+        id: "extension/delegate-failed",
+        summary: "the extension did not answer when fufu delegated to it",
+        detail: "ff help <name> and ff explain <name>/<id> hand off to ff-<name> help and \
+                 ff-<name> explain <id>, out of band and under the same time box every such \
+                 question runs on. Everywhere else that question's failure costs nobody \
+                 anything, because nobody was waiting on the answer — a briefing line just goes \
+                 unsaid. Here somebody typed the command and is looking at a terminal for a \
+                 page, so a failed delegation says so instead of printing nothing. The binary \
+                 may have left PATH since it was declared, refused to start, exited nonzero, or \
+                 simply run past the time box, and all four look the same from here. Nothing was \
+                 captured or changed.",
+        exits: &["ff doctor", "ff extension list"],
+    },
+    Entry {
+        id: "extension/registry-unreadable",
+        summary: "the registry is there and does not read as one",
+        detail: "The declarations live in one file under the user's config directory, and this \
+                 one is not the shape fufu writes — hand-edited, half-written, or something \
+                 else that took the name. fufu will not write over a file it cannot read, \
+                 because whatever a person meant by it would go with the overwrite. Nothing on \
+                 this machine is described while the file reads this way: the registry is the \
+                 allowlist for everything fufu says about an extension, so an unreadable one \
+                 describes nothing rather than guessing. ff doctor names the file. Fix it, or \
+                 move it aside and declare again.",
+        exits: &["ff doctor"],
+    },
+    Entry {
+        id: "extension/registry-unwritable",
+        summary: "there is nowhere to record the declaration",
+        detail: "Declaring records the manifest under the user's config directory — \
+                 XDG_CONFIG_HOME or ~/.config, ~/Library/Application Support on macOS, APPDATA \
+                 on Windows — and either nothing in the environment names one or the write \
+                 itself failed. It is per machine rather than per repository, since the binary \
+                 is on PATH and declaring it is a decision about the machine. The extension \
+                 still runs from a shell exactly as it did before; what is missing is the \
+                 record that would have fufu describe it.",
+        exits: &["ff doctor"],
     },
     Entry {
         id: "usage/bad-session",

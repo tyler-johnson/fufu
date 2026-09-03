@@ -449,9 +449,16 @@ pub enum Command {
         /// claude only: wire settings entries instead of the plugin
         #[arg(long)]
         settings: bool,
-        /// Print fufu's skill — the manual an agent reads — and stop
-        #[arg(long, conflicts_with_all = ["slugs", "all", "list", "settings"])]
-        skill: bool,
+        /// Print a skill and stop: fufu's own with no name, a declared
+        /// extension's with one
+        #[arg(
+            long,
+            value_name = "name",
+            num_args = 0..=1,
+            default_missing_value = "fufu",
+            conflicts_with_all = ["slugs", "all", "list", "settings"]
+        )]
+        skill: Option<String>,
     },
     /// Remove exactly what hook added
     #[command(long_about = help::term(help::UNHOOK), after_long_help = help::term_examples(help::UNHOOK_EXAMPLES))]
@@ -462,6 +469,12 @@ pub enum Command {
         /// Everything detected, without asking
         #[arg(long)]
         all: bool,
+    },
+    /// Extensions this machine declares, so fufu describes them to an agent
+    #[command(long_about = help::term(help::EXTENSION), after_long_help = help::term_examples(help::EXTENSION_EXAMPLES))]
+    Extension {
+        #[command(subcommand)]
+        action: Option<ExtensionAction>,
     },
     /// Snapshot the working tree now
     #[command(long_about = help::term(help::TRIGGER), after_long_help = help::term_examples(help::TRIGGER_EXAMPLES))]
@@ -807,6 +820,42 @@ pub enum WorktreeAction {
     },
 }
 
+/// `ff extension` — the declaration family. Declaring is a person's gesture
+/// about this machine: it buys the extension no capability and no
+/// environment, only fufu's willingness to describe it to an agent. So the
+/// family is the list, putting a name on it, and taking one off.
+#[derive(Subcommand)]
+pub enum ExtensionAction {
+    /// Ask an ff-<name> for its manifest, check it, and record it here
+    #[command(long_about = help::term(help::EXTENSION_ADD), after_long_help = help::term_examples(help::EXTENSION_ADD_EXAMPLES))]
+    Add {
+        /// The name after `ff-`, as the binary on PATH spells it
+        #[arg(value_name = "name")]
+        name: String,
+    },
+    /// Every extension declared on this machine, and what each answers to
+    #[command(long_about = help::term(help::EXTENSION_LIST), after_long_help = help::term_examples(help::EXTENSION_LIST_EXAMPLES))]
+    List,
+    /// Take one off the list; fufu stops describing it
+    #[command(long_about = help::term(help::EXTENSION_REMOVE), after_long_help = help::term_examples(help::EXTENSION_REMOVE_EXAMPLES))]
+    Remove {
+        /// The name it was declared under
+        #[arg(value_name = "name")]
+        name: String,
+    },
+}
+
+impl ExtensionAction {
+    /// The envelope name — the full path, as in the `ff op` family.
+    fn name(&self) -> &'static str {
+        match self {
+            ExtensionAction::Add { .. } => "extension add",
+            ExtensionAction::List => "extension list",
+            ExtensionAction::Remove { .. } => "extension remove",
+        }
+    }
+}
+
 impl WorktreeAction {
     /// The envelope name — the full path, as in the `ff op` family.
     fn name(&self) -> &'static str {
@@ -940,6 +989,11 @@ impl Command {
             Command::Resolve { .. } => "resolve",
             Command::Hook { .. } => "hook",
             Command::Unhook { .. } => "unhook",
+            // The same rule as bare `ff branch`: name the shape it emits,
+            // not the family.
+            Command::Extension { action } => action
+                .as_ref()
+                .map_or("extension list", ExtensionAction::name),
             Command::Trigger { .. } => "trigger",
             Command::Watch { .. } => "watch",
             Command::Mcp => "mcp",
@@ -1023,6 +1077,9 @@ impl Command {
             | Command::Unhook { .. }
             | Command::Trigger { .. }
             | Command::Config { .. }
+            // The registry is per machine and lives outside every
+            // repository, so there is no past state of it to read.
+            | Command::Extension { .. }
             | Command::Remote
             | Command::Doctor { .. }
             | Command::Explain { .. }
@@ -1094,6 +1151,10 @@ impl Command {
             | Command::Hook { .. }
             | Command::Unhook { .. }
             | Command::Trigger { .. }
+            // No repository in its answer: the whole family reads and
+            // writes one file under the user's config directory, and it
+            // answers outside a repository the way `ff hook` does.
+            | Command::Extension { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
             | Command::Pull { .. }

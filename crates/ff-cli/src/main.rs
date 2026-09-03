@@ -15,11 +15,13 @@ mod help;
 mod integ;
 mod lanes;
 mod machine;
+mod manifest;
 mod net;
 mod pager;
 mod progress;
 mod provenance;
 mod rawgit;
+mod registry;
 mod render;
 mod session;
 mod toolpolicy;
@@ -152,6 +154,25 @@ fn report(json: bool, command: &str, err: &ff_core::Error) -> ! {
     std::process::exit(err.exit_code())
 }
 
+/// `ff help <name>` where `<name>` is a declared extension: run its own
+/// help and hand it back as the page, verbatim and with no `--json` — the
+/// same shape a builtin's help prints, and the reason the tool's relay
+/// needs nothing extra to serve it as text with no structured content.
+///
+/// A failure here is not silent the way `ext::ask`'s other callers are: a
+/// person typed this and is waiting on a page, so `ext::delegate`'s error
+/// goes through the ordinary report path instead of leaving with nothing.
+fn help_extension(declared: &registry::Declared) -> ! {
+    use std::io::Write;
+    match ext::delegate(declared, "help", &[]) {
+        Ok(said) => {
+            let _ = std::io::stdout().write_all(&said);
+            std::process::exit(0);
+        }
+        Err(err) => report(false, "help", &err),
+    }
+}
+
 fn main() {
     // A Ctrl-C between ref lock and ref commit would leave a stale `.lock`
     // behind and silently turn every later capture into Contended. gix's
@@ -182,9 +203,21 @@ fn main() {
         Err(e) => {
             if e.kind() == ErrorKind::InvalidSubcommand
                 && let Some(ContextValue::String(name)) = e.get(ContextKind::InvalidSubcommand)
-                && let Some(_path) = ext::resolve(name)
             {
-                ext::dispatch(name, ext::rest_argv(name));
+                // clap's own `help` subcommand fails the same way a bare
+                // unresolved word does — this is that failure with `help`
+                // as the word ahead of it. A declared extension delegates;
+                // an undeclared one falls through to `e.exit()` below
+                // rather than the plain dispatch two lines down, because
+                // `ff help <name>` must not reach a binary nobody
+                // declared the way `ff <name>` itself would.
+                if argv.get(1).is_some_and(|a| a == "help") {
+                    if let Some(declared) = registry::read().get(name) {
+                        help_extension(declared);
+                    }
+                } else if let Some(_path) = ext::resolve(name) {
+                    ext::dispatch(name, ext::rest_argv(name));
+                }
             }
             e.exit()
         }
@@ -294,6 +327,7 @@ fn main() {
             skill,
         }) => integ::hook(&ctx, slugs, all, list, settings, skill),
         Some(cli::Command::Unhook { slugs, all }) => integ::unhook(&ctx, slugs, all),
+        Some(cli::Command::Extension { action }) => cmd::extension::run(&ctx, action),
         Some(cli::Command::Trigger { source, message }) => integ::trigger(&ctx, source, message),
         Some(cli::Command::Watch {
             all,

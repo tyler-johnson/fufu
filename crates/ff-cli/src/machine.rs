@@ -43,6 +43,23 @@ pub fn error_envelope(cmd: &str, err: &Error) -> serde_json::Value {
     })
 }
 
+/// Exactly one JSON object carrying an `ff` key, and nothing else.
+///
+/// The rule for reading an envelope back, beside the rules for writing one:
+/// the MCP relay applies it to a child `ff`'s stdout, and the `--ff-manifest`
+/// handshake to an extension's. Anything else — a banner, a progress line, a
+/// pretty-printed envelope — is not one envelope on one line, and both
+/// callers say so rather than guessing at what was meant.
+pub fn one_envelope(stdout: &str) -> Option<serde_json::Value> {
+    let line = stdout.trim();
+    if line.is_empty() || line.contains('\n') {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    value.get("ff")?;
+    Some(value)
+}
+
 /// One already-shaped envelope, one line, one trailing newline.
 fn write_line<W: std::io::Write>(out: &mut W, envelope: &serde_json::Value) -> Result<()> {
     let line = serde_json::to_string(envelope).map_err(Error::repo)?;
@@ -71,4 +88,25 @@ pub fn confirm(question: &str) -> Result<bool> {
     }
     let answer = answer.trim().to_ascii_lowercase();
     Ok(answer.is_empty() || answer == "y" || answer == "yes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The rule both readers of an envelope share.
+    #[test]
+    fn one_envelope_means_exactly_one() {
+        assert!(one_envelope("{\"ff\":1,\"cmd\":\"status\",\"data\":{}}\n").is_some());
+        assert!(
+            one_envelope("{\"cmd\":\"status\"}\n").is_none(),
+            "no ff key"
+        );
+        assert!(
+            one_envelope("{\"ff\":1}\n{\"ff\":1}\n").is_none(),
+            "two lines"
+        );
+        assert!(one_envelope("Usage: ff log\n").is_none());
+        assert!(one_envelope("").is_none());
+    }
 }
