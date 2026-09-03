@@ -6,9 +6,9 @@ Every operation fufu performs on your machine lands on the [operation log](snaps
 
 ## Sync is the incoming half
 
-[`ff sync`](../reference/cli/sync.md) lines the branch you are standing on up with both things it answers to: the base beneath it and the shared copy of itself — and [tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to. It fetches, takes in whatever arrived, and replays your commits onto the result. One verb covers both because reconciling with either is the same replay.
+[`ff sync`](../reference/cli/sync.md) lines every local branch up with both things it answers to: the base beneath it and the shared copy of itself — and [tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to. It fetches once, takes in whatever arrived, and replays each branch's commits onto the result, with the branches stacked above following. One verb covers both because reconciling with either is the same replay.
 
-The replay runs in memory and lands only when it is clean. The first commit that conflicts stops the run and holds: nothing moves, no half-applied tree touches the repository, and [`ff resolve`](../reference/cli/resolve.md) picks the [held rewrite](held-rewrites.md) up at a moment you choose.
+The replay runs in memory and lands only when it is clean. A commit that conflicts holds the branch it belongs to: nothing moves there, no half-applied tree touches the repository, the run goes on to the next branch, and [`ff resolve`](../reference/cli/resolve.md) on that branch picks the [held rewrite](held-rewrites.md) up at a moment you choose.
 
 Whose divergence it is decides what happens. Divergence this run's fetch created is somebody else's work, and your commits replay on top of theirs. Divergence that was already there is yours only if fufu's operation log accounts for every commit of it — as a rewrite it recorded, or as a commit it dropped as empty — and then there is nothing to take in; `ff publish` is what sends it. Commits the log does not recognize are somebody else's however they arrived, and they replay too.
 

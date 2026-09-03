@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # The source of truth for every console block in docs/guides/stacked-changes.md:
 # builds a throwaway origin with the tutorial's seed history, builds a
-# two-branch stack, lands review feedback with absorb, cascades the branch
-# above with restack after the absorb and again after a sync, and publishes
-# each branch under its own lease. When a verb's output changes, run this and
+# two-branch stack, lands review feedback with absorb and lets the cascade
+# carry the branch above, syncs the whole repository, and publishes each
+# branch under its own lease. When a verb's output changes, run this and
 # paste the new blocks rather than hand-editing them — ids and ages differ run
 # to run, everything else must match.
 #
@@ -94,9 +94,7 @@ wiring=$(git rev-parse --short=8 HEAD~1)
 printf '// the parser runs behind --parse\n' >> src/main.rs
 show "$FF" absorb --into "$wiring"
 
-# --- cascade: the branch above is reached by name, one branch at a time ---
-show "$FF"
-show "$FF" restack parser-cli
+# --- the cascade carried the branch above ---
 show "$FF"
 
 # --- meanwhile: a teammate lands a commit on main ---
@@ -108,9 +106,8 @@ show "$FF"
   git push -q origin main
 )
 
-# --- sync the branch you stand on; then cascade again ---
+# --- sync the whole repository ---
 show "$FF" sync
-show "$FF" restack parser-cli
 
 # --- publish each branch under its own lease ---
 show "$FF" publish

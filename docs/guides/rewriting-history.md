@@ -426,6 +426,6 @@ That is the boundary in full. fufu has no verb that rewrites history the team sh
 
 ## Where next
 
-- [Stacked changes](stacked-changes.md) — `ff restack` and `--onto`, the restacking these verbs do automatically, under your control.
+- [Stacked changes](stacked-changes.md) — a stack under review, the cascade that carries the branches above every rewrite here, and `ff restack --onto` for re-aiming.
 - [Recovery](recovery.md) — when a rewrite went wrong and `ff undo` is the verb you want.
 - [Held rewrites](../concepts/held-rewrites.md) — what happens when a restack cannot replay cleanly.

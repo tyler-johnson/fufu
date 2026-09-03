@@ -153,10 +153,10 @@ Five codes, one meaning each:
 | 0 | done — or yes, for a command that answers a question |
 | 1 | no — the command failed, or the check's answer is negative |
 | 2 | the command line was wrong |
-| 3 | held — nothing was touched, and a human decision is required |
+| 3 | held — a human decision is required, and the branch that held was not touched |
 | 4 | contended — nothing was touched, and the same command run again is the answer |
 
-The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you" — nothing moved, the [held rewrite](../concepts/held-rewrites.md) is parked, and the script should stop and surface it rather than retry. Exit 4 asks the opposite: another writer held the ref for a moment, so retry the same command, with a cap, because a lock file nobody clears gives the same answer every time. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
+The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry. Exit 4 asks the opposite: another writer held the ref for a moment, so retry the same command, with a cap, because a lock file nobody clears gives the same answer every time. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
 
 Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, `ff git <word>` refuses any git word fufu has a verb for, before the capture and before anything runs:
 

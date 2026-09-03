@@ -8,6 +8,8 @@ One or two sentences per term, each linking to the page that owns it.
 
 **capture** — An automatic [snapshot](snapshots-and-undo.md) of the working tree, taken before every fufu command and around every mutation an agent or editor makes through it, at machine rate. A capture is an operation that moves no ref — the tree alone — and its description is written by fufu, never by a person.
 
+**cascade** — What follows a branch's tip moving: every local branch whose base is that branch is replayed onto its new tip, parent before child, through the whole tree, inside the same operation. Every verb that moves a tip runs one; a replay that conflicts holds that branch and leaves the branches above it alone. [Branches](branches.md#stacking-a-branch-records-its-parent) has the rule.
+
 **chain** — One worktree's own line of the [operation log](snapshots-and-undo.md): every operation belongs to the chain of the worktree that ran it, `ff undo` steps back the chain of the tree it runs in, and a chain outlives its worktree. The [worktrees guide](../guides/worktrees.md#one-repository-a-log-per-tree) shows the split.
 
 **change** — The unit of work in progress: the working tree is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working tree being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
@@ -44,7 +46,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **replay** — Recreate commits one by one onto a new base, in memory, landing only when the result is clean; the first step that conflicts stops the run and becomes a [held rewrite](held-rewrites.md). Sync, restack, and fufu's other rewrites all move history this way.
 
-**restack** — Replay a branch's commits onto the base it sits on; [`ff restack`](../reference/cli/restack.md) is the verb, and `--onto` records a new base first, which is how a branch is re-aimed. It is the primitive under [sync](push-boundary.md)'s replay and the rest of the [rewrites](held-rewrites.md).
+**restack** — Replay a branch's commits onto the base it sits on; [`ff restack`](../reference/cli/restack.md) is the verb, and `--onto` records a new base first, which is how a branch is re-aimed. It is the primitive under [sync](push-boundary.md)'s replay and the rest of the [rewrites](held-rewrites.md), and the branches stacked on the moved branch follow it through the [cascade](branches.md#stacking-a-branch-records-its-parent).
 
 **run** — [Undo](snapshots-and-undo.md)'s unit: the longest stretch of adjacent captures carrying the same session, ending at the first operation that is not one, so forty captures of an editing session are one keystroke back. Only captures group — a verb's operation is always its own step.
 
@@ -52,6 +54,6 @@ One or two sentences per term, each linking to the page that owns it.
 
 **snapshot** — The tree state an operation carries, stored in refs outside the visible graph so the commit history you and your teammates read is untouched. Not a second concept with its own log and ids — [snapshots and undo](snapshots-and-undo.md) explains why restore is uniform because of it.
 
-**sync** — The incoming half of [the push boundary](push-boundary.md): [`ff sync`](../reference/cli/sync.md) fetches, takes in what arrived from the base beneath the branch and the shared copy of it, and replays your commits onto the result. Nothing it does leaves the machine, and one `ff undo` takes the whole run back.
+**sync** — The incoming half of [the push boundary](push-boundary.md): [`ff sync`](../reference/cli/sync.md) fetches once and, for every local branch, takes in what arrived from the base beneath it and the shared copy of it, replaying the branch's commits onto the result. Nothing it does leaves the machine, and one `ff undo` takes the whole run back.
 
 **trunk** — The repository's main line — what "main" is — which bare [`ff start`](branches.md) forks from and which is the default base a branch answers to. fufu resolves it once per repository: config (`fufu.trunk`) first, heuristics otherwise, and ambiguity is an error naming the candidates, never a guess.

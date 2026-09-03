@@ -1,8 +1,8 @@
 # Stacked changes
 
-A stack is a branch whose base is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review. This guide builds a two-branch stack, lands review feedback at the bottom, cascades the branch above, and publishes each branch under its own lease. The repository is the tutorial's demo, and every console block is real `ff` output.
+A stack is a branch whose base is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review. This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, syncs the whole repository, and publishes each branch under its own lease. The repository is the tutorial's demo, and every console block is real `ff` output.
 
-The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, [`ff restack`](../reference/cli/restack.md) replays a branch onto that recorded parent, and [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md) line up and send the branch you stand on. A stack is those verbs applied bottom to top, one branch at a time.
+The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff sync`](../reference/cli/sync.md) lines every branch up with its base and its remote, and [`ff publish`](../reference/cli/publish.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
 ## Start a stack
 
@@ -19,15 +19,15 @@ Three commits build the parser core — the skeleton, the wiring into `main`, an
 
 ```console
 $ ff commit -m "parser: skeleton and char stream"
-closed 85ad0404 on parser-core: parser: skeleton and char stream (1 file(s))
+closed 3e766b76 on parser-core: parser: skeleton and char stream (1 file(s))
 undo: ff undo
 
 $ ff commit -m "parser: wire the module into main"
-closed 2a226695 on parser-core: parser: wire the module into main (1 file(s))
+closed 0fffcd68 on parser-core: parser: wire the module into main (1 file(s))
 undo: ff undo
 
 $ ff commit -m "parser: buffered char stream"
-closed a72a7790 on parser-core: parser: buffered char stream (1 file(s))
+closed dbf80757 on parser-core: parser: buffered char stream (1 file(s))
 undo: ff undo
 ```
 
@@ -40,11 +40,11 @@ open change on parser-cli
 undo: ff undo
 
 $ ff commit -m "cli: expose the parser behind a flag"
-closed 50b3e7e5 on parser-cli: cli: expose the parser behind a flag (1 file(s))
+closed 527ad478 on parser-cli: cli: expose the parser behind a flag (1 file(s))
 undo: ff undo
 ```
 
-`forked from parser-core` is the load-bearing line. The fork recorded parser-core as parser-cli's parent, and that record is what aims every later replay — restack never has to be told where the branch belongs.
+`forked from parser-core` is the load-bearing line. The fork recorded parser-core as parser-cli's parent, and that record is what aims every later replay: nothing ever has to be told where parser-cli belongs.
 
 ## Read the stack in the map
 
@@ -54,107 +54,78 @@ Bare `ff` is the map, and a healthy stack reads as one column: branch markers st
 $ ff
 @  no changes                  ▸ [parser-cli]
 │  (no description)
-●  xurpmoqk 50b3e7e5   0s ago
+●  ypmunmok 527ad478   0s ago
 │  cli: expose the parser behind a flag
-●  —        a72a7790   0s ago  ▸ [parser-core]
+●  —        dbf80757   0s ago  ▸ [parser-core]
 │  parser: buffered char stream
 ~  2 commits
-●  —        065d541c   0s ago  ▸ [main]
+●  —        d41ac877   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        9a9ebdba   0s ago
+●  —        30d4dadd   0s ago
    init: hello world
 ```
 
-`@` is the open change on parser-cli, `▸ [parser-core]` stands mid-column because parser-cli's commit sits directly on its tip, and a `~` row elides commits the map does not need to show. A stack in good shape has no forks in this picture; a fork is the map telling you a cascade is owed, which is exactly what the next two sections produce and repair.
+`@` is the open change on parser-cli, `▸ [parser-core]` stands mid-column because parser-cli's commit sits directly on its tip, and a `~` row elides commits the map does not need to show. A stack in good shape has no forks in this picture. Every rewrite below carries the branches above with it, so a fork here is the map telling you a branch was left behind, and the verb that left it said so at the time.
 
 ## Land review feedback with absorb
 
-Review feedback arrives on the bottom branch: the wiring commit should say how the parser is reached. Switch to parser-core — the branch above stays where it is — make the edit, and fold it into the commit it belongs to with [`ff absorb`](../reference/cli/absorb.md).
+Review feedback arrives on the bottom branch: the wiring commit should say how the parser is reached. Switch to parser-core, make the edit, and fold it into the commit it belongs to with [`ff absorb`](../reference/cli/absorb.md).
 
 ```console
 $ ff switch parser-core
 switched to parser-core
 undo: ff undo
 
-$ ff absorb --into 2a226695
-absorbed into ad354cbd: parser: wire the module into main
+$ ff absorb --into 0fffcd68
+absorbed into 46f6832e: parser: wire the module into main
 restacked 1 commit(s) above it
+parser-cli followed parser-core: replayed 1 commit(s)
 undo: ff undo
 ```
 
-`restacked 1 commit(s) above it`: everything above the target on this branch re-parented in the same operation, so parser-core is already whole — no interactive rebase, no fixup commit. The absorb stops at the branch's own tip. parser-cli still sits on the commits parser-core no longer has, and the map shows the fork:
+`restacked 1 commit(s) above it`: everything above the target on this branch re-parented in the same operation, with no interactive rebase and no fixup commit. `parser-cli followed parser-core: replayed 1 commit(s)` is the cascade. parser-cli's recorded base is parser-core, parser-core's tip moved, so parser-cli's one commit was replayed onto the new tip inside the same operation, and you never left parser-core. The map is still one column:
 
 ```console
 $ ff
 @  no changes                  ▸ [parser-core]
 │  (no description)
-│ ●  —        50b3e7e5   0s ago  ▸ [parser-cli]
-│ │  cli: expose the parser behind a flag
-● │  —        3a560241   0s ago
-│ │  parser: buffered char stream
-● │  —        ad354cbd   0s ago
-│ │  parser: wire the module into main
-│ ~  2 commits
-├─╯
-●  xzossrtl 85ad0404   0s ago
-│  parser: skeleton and char stream
-●  —        065d541c   0s ago  ▸ [main]
+│ ●  —        dab92e41   0s ago  ▸ [parser-cli]
+├─╯  cli: expose the parser behind a flag
+●  —        747bd826   0s ago
+│  parser: buffered char stream
+~  2 commits
+●  —        d41ac877   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        9a9ebdba   0s ago
+●  —        30d4dadd   0s ago
    init: hello world
 ```
 
-## Cascade one branch at a time
+`@` and `▸ [parser-cli]` both sit on parser-core's tip: the open change here and the branch above share a base, and the join is the map drawing two heads on one commit, not a fork.
 
-`ff restack <branch>` reaches a branch you are not standing on. The positional names the branch to move, the replay goes onto its recorded parent, and because you are not on parser-cli, no file on disk is touched — refs and objects only.
+## The cascade
 
-```console
-$ ff restack parser-cli
-parser-core moved ahead by 2 commit(s)
-replayed 1 commit(s) onto parser-core
-dropped 2 commit(s) that change nothing: 2a226695, a72a7790
-undo: ff undo
-```
+Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, `ff lift`, `ff describe <rev>`, and `ff done` each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree, riding the verb's one operation, so one `ff undo` takes the rewrite and the cascade back together. Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so. `ff switch` to the held branch and `ff resolve` picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
 
-The dropped lines are the cascade working. The replay walks from where parser-cli diverged, so it carries copies of parser-core's pre-absorb commits; each one replays to nothing on top of the rewritten branch and is dropped as changing nothing. What survives is parser-cli's own commit, now on parser-core's new tip, and the map is one column again:
+Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
 
-```console
-$ ff
-@  no changes                  ▸ [parser-core]
-│  (no description)
-│ ●  —        7650fe23   0s ago  ▸ [parser-cli]
-├─╯  cli: expose the parser behind a flag
-●  —        3a560241   0s ago
-│  parser: buffered char stream
-~  2 commits
-●  —        065d541c   0s ago  ▸ [main]
-│  release: cut v0.1.0
-~
-```
+## Sync the whole repository
 
-A replay that would conflict does none of this: it stops with nothing written and holds, and `ff resolve` picks up every conflicted commit at once. [Held rewrites](../concepts/held-rewrites.md) covers that state.
-
-## Sync the bottom, then cascade again
-
-Meanwhile a teammate landed a commit on `main`. `ff sync` lines up the branch you stand on with both things it answers to — the base beneath it and the remote copy of itself. It moves that one branch only; cascading up a stack is one branch at a time, so the same `ff restack` follows it.
+Meanwhile a teammate landed a commit on `main`. `ff sync` fetches once and lines every local branch up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes.
 
 ```console
 $ ff sync
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 3 commit(s) onto main
+parser-cli followed parser-core: replayed 1 commit(s)
 updated the working tree (1 file(s))
 not published yet — ff publish
-undo: ff undo
-
-$ ff restack parser-cli
-parser-core moved ahead by 4 commit(s)
-replayed 1 commit(s) onto parser-core
-dropped 3 commit(s) that change nothing: 85ad0404, ad354cbd, 3a560241
+main
+    fast-forwarded to origin/main (1 commit(s))
 undo: ff undo
 ```
 
-The rhythm is the whole discipline of a stack: move the branch you stand on with `sync` or `absorb`, then `ff restack <branch>` for each branch above it, in order. The sequence is deliberate — each move changes the base the next branch answers to, so each verdict is computed fresh rather than promised for the whole tree, and everything up to here is offline and one `ff undo` away.
+Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working tree moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The whole run is one operation, offline, and one `ff undo` away.
 
 ## Publish each branch under its own lease
 
@@ -176,7 +147,7 @@ the push left the machine — ff undo cannot reach it
 ff undo then ff publish rolls the shared copy back, under a lease
 ```
 
-The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make publishing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — `ff sync` on that branch takes their work in, cascade, publish again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
+The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make publishing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — `ff sync` takes their work in and cascades, then publish again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
 
 The finished stack, in the map:
 
@@ -184,14 +155,17 @@ The finished stack, in the map:
 $ ff
 @  no changes                  ▸ [parser-cli]
 │  (no description)
-●  —        c95b1b83   0s ago
+●  —        0683ae0b   1s ago
 │  cli: expose the parser behind a flag
-●  —        85e86fa0   0s ago  ▸ [parser-core]
+●  —        86b61ceb   1s ago  ▸ [parser-core]
 │  parser: buffered char stream
-~  3 commits
-●  —        065d541c   0s ago  ▸ [main]
+~  2 commits
+●  —        821e9eda   1s ago  ▸ [main]
+│  docs: say what this is
+●  —        d41ac877   1s ago
 │  release: cut v0.1.0
-~
+●  —        30d4dadd   1s ago
+   init: hello world
 ```
 
 ## When the bottom lands

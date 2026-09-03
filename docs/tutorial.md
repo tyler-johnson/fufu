@@ -179,7 +179,7 @@ The target commit was amended in place and everything above it re-parented in th
 
 (This section and the publish below were captured against a copy of the repository with push access — on your clone of fufu, read these two beats along, and replay them the day you point fufu at a repository of your own.)
 
-Meanwhile a teammate landed a commit on `main`. `ff sync` lines your branch up with both things it answers to — the base beneath it and the remote copy of itself. It fetches, replays your commits in memory, and touches the tree only when the replay is clean:
+Meanwhile a teammate landed a commit on `main`. `ff sync` lines every branch up with both things it answers to: the base beneath it and the remote copy of itself. It fetches once, replays your commits in memory, touches the tree only when the replay is clean, and then reports the other branches it moved, here `main` fast-forwarding to what the teammate pushed:
 
 ```console
 $ ff sync
@@ -188,6 +188,8 @@ main moved ahead by 1 commit(s)
 replayed 2 commit(s) onto main
 updated the working tree (1 file(s))
 not published yet — ff publish
+main
+    fast-forwarded to origin/main (1 commit(s))
 undo: ff undo
 ```
 
