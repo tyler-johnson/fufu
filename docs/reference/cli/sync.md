@@ -1,16 +1,20 @@
 # ff sync
 
-Line every local branch up with both things it answers to: the base beneath it and the remote copy of itself. Fetch once, take in whatever arrived, replay onto the base. One verb for both, because reconciling with either is the same replay.
+Bring every local branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. One fetch, then each branch is replayed onto whatever moved, and the whole run is one operation.
 
-Nothing leaves the machine. Everything sync does is recorded and undoable, which is the whole reason it stops here — `ff publish` is the outgoing half, and it is a verb you type on purpose because a push cannot be taken back. Sync names what is waiting and leaves it.
+Nothing leaves the machine. Sync takes in; `ff publish` sends, and it is a separate verb because a push is the one act `ff undo` cannot take back. When a branch is ahead of its shared copy, sync says so and leaves it for publish.
 
-Whose divergence it is decides what happens. Divergence this run's fetch created is somebody else's, and your commits replay on top of theirs. Divergence that was already there is yours only if fufu's own operation log accounts for every commit of it — as a rewrite it recorded, or as one it dropped as empty — and then there is nothing to take in and ff publish is what sends it. Commits the log does not recognize are somebody else's however they arrived, and they replay too.
+For the shared copy, sync asks two questions of each branch. Have you changed this branch since you last saw its shared copy? If not, the branch follows the shared copy wherever it went, a force-push included. If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone, and `ff publish` replaces them; fufu knows them because it recorded the rewrite, or the publish you undid.
 
-Either replay can conflict. One that does holds that branch: nothing is written there, the run goes on to the next branch, and `ff resolve` on that branch picks it up. On any one branch, the first axis that conflicts leaves the other alone.
+For the base, one question: did it move? If so, the branch's commits replay onto where it now stands, and the branches stacked on this one follow, parent before child, the way `ff restack` does.
 
-Sync runs over the whole repository. Every local branch gets both axes: the remote axis for every branch first, then the base axis parent before child, each replay cascading into the branches stacked above it the way `ff restack` does. A branch behind its shared copy fast-forwards, one standing exactly where the tracking ref stood before the fetch follows wherever the remote went, force-push included, and one that diverged is sorted the way the branch you are standing on is: divergence the fetch brought in replays the branch's own commits onto the shared copy, a conflict holding that branch alone, while divergence the operation log accounts for is yours and is left standing for `ff publish`. Only a branch tracking the remote this run fetched from gets a remote axis; with `--no-fetch`, or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read, and the rest get the base axis alone. A branch checked out in another worktree, one already holding a rewrite, one whose shared copy this repository published and then undid, and one whose replay would touch a merge or shares no history with its base is named and left where it stands. Only the branch you are standing on carries a working tree, so the others move as refs and objects and touch no file. The whole run is one operation, so one `ff undo` takes every branch and the working tree back.
+A replay that conflicts holds that branch: nothing is written there, the run goes on to the next branch, and `ff resolve` on that branch picks it up. The branches above a held one stay put, since their base did not move.
 
-The report says what happened to the branch you are standing on first, then one block per other branch that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A branch with nothing to say prints nothing, so a repository of up-to-date branches still reads `nothing to sync`. With `--json`, the other branches are the `branches` array, one row per branch tagged `Synced`, `Elsewhere`, or `Held`; a `Synced` row carries its `remote` and `base` axes, tagged the same way, and `files` and `still_open` on the report describe the run's one working-tree write. The exit is 3 when a hold stands on any branch; when that branch is not the one you are standing on, the last line names it as the branch to switch to before `ff resolve`.
+Some branches are named and left where they stand: one checked out in another worktree, one already holding a rewrite, one whose commits hold a merge, and one that shares no history with its base. Only a branch tracking the remote this run fetched from gets the shared-copy half; with `--no-fetch`, or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. Only the branch you are standing on has a working tree, so the others move as refs and objects and touch no file.
+
+The report covers the branch you are standing on first, then one block per other branch that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A repository with nothing to do reads `nothing to sync`. With `--json`, the other branches are the `branches` array, one row per branch tagged `Synced`, `Elsewhere`, or `Held`; a `Synced` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-tree write. The exit is 3 when any branch held, and the last line names the branch to switch to before `ff resolve`.
+
+One `ff undo` puts every branch and the working tree back.
 
 ## Usage
 
@@ -37,7 +41,7 @@ Options:
 ## Examples
 
 ```
-ff sync                        fetch, line each branch up with base and remote
-ff sync --no-fetch             reconcile with what you already have
-ff publish                     send it, once it lines up
+ff sync                        fetch, bring every branch up to date
+ff sync --no-fetch             the same, with what you already have
+ff publish                     send the branch you are on, once it lines up
 ```

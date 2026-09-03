@@ -199,7 +199,7 @@ ff: origin/parser-stream moved since you last looked, so nothing was pushed — 
     ff publish
 ```
 
-[`ff sync`](../reference/cli/sync.md) reconciles by whose divergence it is. Divergence the fetch just revealed is somebody else's, so their commits are taken in and yours replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and sync says which:
+[`ff sync`](../reference/cli/sync.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and sync says which:
 
 ```console
 $ ff sync

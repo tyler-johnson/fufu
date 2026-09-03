@@ -42,7 +42,7 @@ When a branch's tip moves, the branches stacked on it follow. [`ff restack`](../
 
 ## Sync covers the whole repository
 
-[`ff sync`](../reference/cli/sync.md) fetches once and lines every local branch up with both things it answers to: the remote axis over every branch first, then the base axis parent before child, each replay cascading into the branches above it. That is how a fast-forwarded trunk moves every branch started from it in one run. Only the branch you are standing on carries a working tree; the rest move as refs and objects and touch no file. The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what sync takes in and what publish sends.
+[`ff sync`](../reference/cli/sync.md) fetches once and brings every local branch up to date with both things it answers to: first the shared copy of each branch, then the base beneath each, parent before child, so a trunk that moved carries every branch started from it in one run. Standing on a branch changes nothing about how it is treated; it only decides whether a working tree moves, and the branches you are not on move as refs and objects and touch no file. The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what sync takes in and what publish sends.
 
 ## Tracking: one branch, one shared copy
 

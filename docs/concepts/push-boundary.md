@@ -6,11 +6,11 @@ Every operation fufu performs on your machine lands on the [operation log](snaps
 
 ## Sync is the incoming half
 
-[`ff sync`](../reference/cli/sync.md) lines every local branch up with both things it answers to: the base beneath it and the shared copy of itself — and [tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to. It fetches once, takes in whatever arrived, and replays each branch's commits onto the result, with the branches stacked above following. One verb covers both because reconciling with either is the same replay.
+[`ff sync`](../reference/cli/sync.md) brings every local branch up to date with the two things it answers to: the base it sits on and the shared copy of itself, and [tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to. It fetches once, then replays each branch's commits onto whatever moved, with the branches stacked above following.
+
+For the shared copy, sync asks two questions of each branch. Have you changed this branch since you last saw its shared copy? If not, it follows the shared copy wherever it went. If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone for publish to replace; fufu knows them because it recorded the rewrite, or the publish you undid. Plain git cannot tell those two apart, which is the whole reason fufu keeps the record.
 
 The replay runs in memory and lands only when it is clean. A commit that conflicts holds the branch it belongs to: nothing moves there, no half-applied tree touches the repository, the run goes on to the next branch, and [`ff resolve`](../reference/cli/resolve.md) on that branch picks the [held rewrite](held-rewrites.md) up at a moment you choose.
-
-Whose divergence it is decides what happens. Divergence this run's fetch created is somebody else's work, and your commits replay on top of theirs. Divergence that was already there is yours only if fufu's operation log accounts for every commit of it — as a rewrite it recorded, or as a commit it dropped as empty — and then there is nothing to take in; `ff publish` is what sends it. Commits the log does not recognize are somebody else's however they arrived, and they replay too.
 
 Nothing sync does leaves the machine. The fetch, the replay, the whole run is one operation, and one `ff undo` takes it back. That guarantee is the whole reason sync stops where it does: when your branch is ahead of its shared copy, sync names what is waiting and leaves it.
 
