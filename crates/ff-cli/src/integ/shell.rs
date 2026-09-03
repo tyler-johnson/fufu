@@ -362,6 +362,8 @@ impl Integration for Shell {
             ],
             skill: None,
             mcp: None,
+            mcp_extensions: Vec::new(),
+            mcp_orphaned: Vec::new(),
             stale,
         }
     }
@@ -507,6 +509,10 @@ impl Integration for Shell {
                 cwd,
                 label: Label::Text(String::new()),
                 command: None,
+                // A prompt is not a tool call, whatever kind it claims, so
+                // there is no tool name for a subscription to match on.
+                tool: None,
+                path: None,
             };
             runtime::pipeline(ctx, "shell", &event, None)?;
             Ok(())

@@ -34,6 +34,7 @@ pub mod claude;
 pub mod codex;
 pub mod cursor;
 pub mod event;
+pub mod fanout;
 pub mod gemini;
 pub mod manual;
 pub mod mcp;
@@ -177,6 +178,17 @@ pub struct Status {
     /// fufu verbs, which is the gap the hook exists to close.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp: Option<Wiring>,
+    /// Every declared extension's own server, as this client's file
+    /// carries it — empty for a client with no MCP file at all, and for
+    /// most declared extensions too, since declaring one that names no
+    /// server is the common case. Not a `Part` for the same reason `mcp`
+    /// above is not one.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mcp_extensions: Vec<mcp::McpExtension>,
+    /// Names this client's file registers a server under that nothing
+    /// declares any more — the trace `ff extension remove` leaves behind.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mcp_orphaned: Vec<String>,
     /// The wiring works, but it is written in a spelling install would
     /// rewrite — a retired command name, or the mechanism fufu has moved
     /// off. It keeps capturing, so this is never an outage; it is what

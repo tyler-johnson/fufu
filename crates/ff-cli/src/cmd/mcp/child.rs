@@ -12,13 +12,50 @@ use ff_core::Error;
 use rmcp::ErrorData;
 use rmcp::model::{CallToolResult, ContentBlock, JsonObject};
 
-/// The verbs the tool does not offer, and the reason, in the order
-/// `ff --help` lists them. Each owns its stream (`git` passes real git's
-/// through, `watch` is a stream of envelopes, `mcp` is this server), talks
-/// a person through something (`update`), or wires the machine (`hook`,
-/// `unhook`). None of them makes sense inside a tool call, and the
+/// The verbs the tool does not offer, and the reason. Each owns its
+/// stream (`git` passes real git's through, `watch` is a stream of
+/// envelopes, `mcp` is this server), talks a person through something
+/// (`update`), or wires the machine (`hook`, `unhook`). `extension` is
+/// there for a stronger reason than the rest: the registry it writes is
+/// the allowlist for everything fufu says about an extension, so an agent
+/// that could write it through the tool would be deciding for itself what
+/// fufu vouches for. None of them makes sense inside a tool call, and the
 /// registry entry for the refusal names a shell as where to run them.
-pub const EXCLUDED: [&str; 6] = ["git", "update", "watch", "hook", "unhook", "mcp"];
+pub const EXCLUDED: [&str; 7] = [
+    "git",
+    "update",
+    "watch",
+    "hook",
+    "unhook",
+    "mcp",
+    "extension",
+];
+
+/// The marker the relay sets on every child, and the one thing that says
+/// an `ff` was started by this tool rather than typed at a shell. What
+/// reads it is `cmd::config`, which refuses a write to a policy key
+/// through the tool the write would be turning off.
+///
+/// Not `FF_NONINTERACTIVE`: that says there is nobody to prompt, which is
+/// also true of a setup script, a hook, and CI, and none of those should
+/// lose the ability to set a tier. Not a list of argument shapes read
+/// here either — the relay holds an unparsed word list where global flags
+/// may precede the verb, so classifying `config` here would be a second,
+/// weaker parser beside clap's, and anything it misspells is a way
+/// through. The child has clap's answer, and it inherits this variable
+/// through anything it spawns in turn.
+///
+/// An agent that can set environment variables cannot forge its way past
+/// this, because the forgery it would need is the opposite one: the relay
+/// sets the marker on the child itself, and the tool's schema carries
+/// only `args` and `cwd`, so no call can clear it. Setting it by hand
+/// somewhere else only refuses that shell its own policy writes.
+pub const TOOL_CALL: &str = "FF_TOOL_CALL";
+
+/// Whether this process was started by the relay.
+pub fn is_tool_call() -> bool {
+    std::env::var_os(TOOL_CALL).is_some_and(|value| !value.is_empty())
+}
 
 /// One call, as the schema shapes it.
 pub struct Call {
@@ -74,22 +111,71 @@ fn verb(args: &[String]) -> &str {
     args.first().map_or("map", String::as_str)
 }
 
-/// The refusal for a call the tool does not relay: nothing to run, or one
-/// of the six verbs that belong in a shell. Raised through `Error::coded`
-/// so the explain registry carries it like every other id.
+/// The refusal for a call the tool does not relay: nothing to run, one of
+/// the seven verbs that belong in a shell, or an extension the tool will
+/// not serve. Raised through `Error::coded` so the explain registry
+/// carries it like every other id.
 fn refuse(args: &[String]) -> Option<Error> {
+    refuse_in(args, crate::registry::read())
+}
+
+/// [`refuse`] against a registry of the caller's own. The tests' door, and
+/// the reason the one cached reader stays a detail of `refuse`.
+///
+/// The questions are asked in the order `toolpolicy::served` asks them, and
+/// for the same reason: a builtin verb always wins, so the registry is read
+/// only for a word clap would decline, and `ff status` reaches no file.
+///
+/// What the tool serves is what the registry says it serves. A declared
+/// extension is relayed the way a verb is — the child dispatches to
+/// `ff-<name>` itself, and the envelope comes back through `shape` — and an
+/// undeclared one is refused here, because fufu has read no manifest for it
+/// and so knows neither what it answers to nor whether its writes can be
+/// taken back. A declared one saying its writes are not undoable is refused
+/// too, because the tool's annotations promise the opposite of everything
+/// it serves. Both are the other half of `fufu.toolPolicy`'s rule, which
+/// lets exactly those two through the shell: refused in both places, the
+/// verb would have nowhere at all to run.
+fn refuse_in(args: &[String], registry: &crate::registry::Registry) -> Option<Error> {
     let first = args.first()?;
-    if !EXCLUDED.contains(&first.as_str()) {
+    if EXCLUDED.contains(&first.as_str()) {
+        return Some(Error::coded(
+            "usage/mcp-verb-unavailable",
+            format!(
+                "ff {first} is not offered through the MCP tool: it owns a stream, wires the \
+                 machine, or decides what fufu vouches for, so run it in a shell"
+            ),
+            vec![format!("ff {first}"), "ff help".into()],
+        ));
+    }
+    // A builtin verb, or a word that is no verb at all — `--help`, `-C`, a
+    // global's value. Both are the child's to parse, as they always were.
+    if crate::toolpolicy::builtin(first) || !crate::ext::valid_name(first) {
         return None;
     }
-    Some(Error::coded(
-        "usage/mcp-verb-unavailable",
-        format!(
-            "ff {first} is not offered through the MCP tool: it owns a stream or wires the \
-             machine, so run it in a shell"
-        ),
-        vec![format!("ff {first}"), "ff help".into()],
-    ))
+    let Some(declared) = registry.get(first.as_str()) else {
+        return Some(Error::coded(
+            "usage/mcp-extension-undeclared",
+            format!(
+                "ff {first} is no verb of fufu's, and nothing on this machine is declared under \
+                 the name {first}: the tool serves the extensions a person declared, and an \
+                 ff-{first} nobody declared runs from a shell"
+            ),
+            vec![format!("ff extension add {first}"), "ff help".into()],
+        ));
+    };
+    if !declared.manifest.undoable {
+        return Some(Error::coded(
+            "usage/mcp-extension-not-undoable",
+            format!(
+                "ff {first} declares undoable: false, and this tool's annotations say that \
+                 nothing it serves is destructive: run it in a shell, or serve it from the MCP \
+                 server the extension registers of its own"
+            ),
+            vec![format!("ff {first}"), "ff extension list".into()],
+        ));
+    }
+    None
 }
 
 /// Whether `--json` should ride the child. clap's help does not take it,
@@ -151,6 +237,8 @@ pub async fn run(exe: &Path, session: Option<&str>, call: Call) -> CallToolResul
         // Belt and braces: stdin is already not a terminal, and this says
         // so to a verb that checks the variable first.
         .env("FF_NONINTERACTIVE", "1")
+        // The one mark of a tool-borne call, read by `cmd::config`.
+        .env(TOOL_CALL, "1")
         // A client cancelling the call drops the future, and the child
         // must not outlive it.
         .kill_on_drop(true);
@@ -174,7 +262,7 @@ fn shape(args: &[String], output: &std::process::Output) -> CallToolResult {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let failed = !output.status.success();
 
-    if let Some(envelope) = one_envelope(&stdout) {
+    if let Some(envelope) = crate::machine::one_envelope(&stdout) {
         return result(stdout.trim_end().to_string(), Some(envelope), failed);
     }
     if stdout.trim().is_empty() && !output.status.success() {
@@ -204,17 +292,6 @@ fn shape(args: &[String], output: &std::process::Output) -> CallToolResult {
     result(text, None, failed)
 }
 
-/// Exactly one JSON object carrying an `ff` key, and nothing else.
-fn one_envelope(stdout: &str) -> Option<serde_json::Value> {
-    let line = stdout.trim();
-    if line.is_empty() || line.contains('\n') {
-        return None;
-    }
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    value.get("ff")?;
-    Some(value)
-}
-
 /// The last of stderr, for a crash message: enough to read, not enough to
 /// flood the agent's context.
 fn tail(stderr: &str) -> String {
@@ -234,6 +311,36 @@ mod tests {
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|w| w.to_string()).collect()
+    }
+
+    /// A machine that has declared nothing, which is the common one.
+    fn bare() -> crate::registry::Registry {
+        crate::registry::load(None)
+    }
+
+    /// A registry with one name on it, written the way `ff extension add`
+    /// writes one. The directory is returned so the caller keeps it alive.
+    fn declaring(name: &str, undoable: bool) -> (tempfile::TempDir, crate::registry::Registry) {
+        let dir = tempfile::TempDir::new().expect("create tempdir");
+        let file = dir.path().join("extensions.json");
+        let body = serde_json::json!({
+            "ff": crate::machine::CONTRACT,
+            "extensions": [{
+                "path": format!("/usr/local/bin/ff-{name}"),
+                "declared_at": 1788462398,
+                "manifest": {
+                    "name": name,
+                    "version": "0.4.1",
+                    "contract": crate::machine::CONTRACT,
+                    "verbs": [{"name": "brief", "read_only": true}],
+                    "undoable": undoable,
+                },
+            }],
+        });
+        std::fs::write(&file, body.to_string()).expect("write registry");
+        let registry = crate::registry::load(Some(&file));
+        assert!(registry.get(name).is_some(), "the fixture declares {name}");
+        (dir, registry)
     }
 
     #[test]
@@ -259,13 +366,49 @@ mod tests {
     }
 
     #[test]
-    fn the_six_verbs_are_refused_by_id() {
+    fn the_shell_only_verbs_are_refused_by_id() {
         for verb in EXCLUDED {
-            let err = refuse(&args(&[verb, "status"])).expect(verb);
+            let err = refuse_in(&args(&[verb, "status"]), &bare()).expect(verb);
             assert_eq!(err.id(), "usage/mcp-verb-unavailable");
         }
-        assert!(refuse(&args(&["status"])).is_none());
-        assert!(refuse(&args(&["op", "log"])).is_none());
+        assert!(refuse_in(&args(&["status"]), &bare()).is_none());
+        assert!(refuse_in(&args(&["op", "log"]), &bare()).is_none());
+        // A word that is no verb and names no extension either: a flag, or
+        // the value of a global. The child parses those, as it always did.
+        assert!(refuse_in(&args(&["--help"]), &bare()).is_none());
+        assert!(refuse_in(&args(&["-C", "sub", "status"]), &bare()).is_none());
+    }
+
+    /// The tool serves the extensions a person declared and refuses the
+    /// rest by id, which is the whole of what the registry decides here.
+    #[test]
+    fn an_undeclared_extension_is_refused_and_a_declared_one_is_relayed() {
+        let err = refuse_in(&args(&["tower", "next"]), &bare()).expect("undeclared");
+        assert_eq!(err.id(), "usage/mcp-extension-undeclared");
+        assert!(
+            err.exits()
+                .iter()
+                .any(|exit| exit == "ff extension add tower"),
+            "the exit names the declaration: {:?}",
+            err.exits()
+        );
+
+        let (_dir, declared) = declaring("tower", true);
+        assert!(refuse_in(&args(&["tower", "next"]), &declared).is_none());
+        // And declaring one name says nothing about another.
+        assert_eq!(
+            refuse_in(&args(&["bay", "warm"]), &declared).map(|err| err.id().to_string()),
+            Some("usage/mcp-extension-undeclared".into())
+        );
+    }
+
+    /// The tool's annotations say nothing it serves is destructive, which
+    /// is honest only of an extension whose writes `ff undo` takes back.
+    #[test]
+    fn an_extension_that_is_not_undoable_is_refused_on_the_tool() {
+        let (_dir, declared) = declaring("tower", false);
+        let err = refuse_in(&args(&["tower", "next"]), &declared).expect("not undoable");
+        assert_eq!(err.id(), "usage/mcp-extension-not-undoable");
     }
 
     #[test]
@@ -276,21 +419,6 @@ mod tests {
         assert!(!wants_json(&args(&["log", "--help"])));
         assert!(!wants_json(&args(&["log", "-h"])));
         assert!(!wants_json(&args(&["--json", "status"])), "never twice");
-    }
-
-    #[test]
-    fn one_envelope_means_exactly_one() {
-        assert!(one_envelope("{\"ff\":1,\"cmd\":\"status\",\"data\":{}}\n").is_some());
-        assert!(
-            one_envelope("{\"cmd\":\"status\"}\n").is_none(),
-            "no ff key"
-        );
-        assert!(
-            one_envelope("{\"ff\":1}\n{\"ff\":1}\n").is_none(),
-            "two lines"
-        );
-        assert!(one_envelope("Usage: ff log\n").is_none());
-        assert!(one_envelope("").is_none());
     }
 
     #[test]

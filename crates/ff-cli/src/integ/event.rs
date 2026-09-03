@@ -1,13 +1,14 @@
 //! The neutral agent event: what every client's payload becomes once its
 //! adapter is done with it, and the only thing the shared pipeline reads.
 //!
-//! It carries six fields because the core consumes six things — which
-//! event this is, whose session it belongs to, which audience inside that
-//! session is listening, which directory to discover a repository from,
-//! what the snapshot's subject should say, and the shell command the tool
-//! carried when it carried one, which is what the raw-git correction
-//! reads. A vendor field that nothing downstream reads would be a field to
-//! keep in sync for nobody.
+//! Six of its fields are what the capture pipeline consumes — which event
+//! this is, whose session it belongs to, which audience inside that session
+//! is listening, which directory to discover a repository from, what the
+//! snapshot's subject should say, and the shell command the tool carried
+//! when it carried one, which is what the raw-git correction reads. The
+//! last two, the tool's name and the file it named, are what the fan-out
+//! puts on the wire for a subscriber to act on. A vendor field that nothing
+//! downstream reads would be a field to keep in sync for nobody.
 
 use std::path::{Path, PathBuf};
 
@@ -102,7 +103,11 @@ impl Label {
 /// A tool path relative to the worktree when it is inside one, absolute
 /// otherwise. Provenance lands in commit subjects, so the separator is
 /// git's regardless of the host's.
-fn rela(path: &Path, workdir: Option<&Path>) -> String {
+///
+/// The fan-out spells the event's `path` field with it too: a subscriber
+/// reads the same path the subject shows, and one spelling is easier to act
+/// on than two.
+pub(super) fn rela(path: &Path, workdir: Option<&Path>) -> String {
     if let Some(workdir) = workdir
         && let Ok(rel) = path.strip_prefix(workdir)
     {
@@ -134,6 +139,17 @@ pub struct AgentEvent {
     /// The tool's shell command, when the tool had one. `None` for
     /// everything else — a prompt, a file edit, a bare prompt hook.
     pub command: Option<String>,
+    /// The tool's name as the client spelled it, on `BeforeTool` and `None`
+    /// on every other kind. The capture floor reads the label; this is for
+    /// the fan-out, where it is the name a subscription's matcher is tested
+    /// against — so an event carrying no tool name, a shell prompt or a
+    /// hand-taken snapshot, matches nothing.
+    pub tool: Option<String>,
+    /// The file the tool named, by whichever of the field names that client
+    /// uses for it, and `None` when the tool named none. The label already
+    /// renders it into a subject; a subscriber that had only the subject
+    /// would be parsing one to find out which file moved.
+    pub path: Option<PathBuf>,
 }
 
 #[cfg(test)]

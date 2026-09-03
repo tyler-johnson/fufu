@@ -6,8 +6,11 @@
 //! which era's shape was being spoken.
 //!
 //! The test process is the server's parent, so the presence marker a
-//! serving instance holds is the one named by this process's pid, under a
-//! cache root pinned per test so the real user cache is never touched.
+//! serving instance holds is the one under this process's pid, named for
+//! the server it registers as, under a cache root pinned per test so the
+//! real user cache is never touched. The
+//! config root is pinned beside it, since the extension registry lives
+//! there and decides what the tool serves and what its card names.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -43,6 +46,8 @@ fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, 
         .env("HOME", home.path())
         .env("XDG_CACHE_HOME", cache_under(home.path()))
         .env("LOCALAPPDATA", cache_under(home.path()))
+        .env("XDG_CONFIG_HOME", config_under(home.path()))
+        .env("APPDATA", config_under(home.path()))
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -77,15 +82,61 @@ fn cache_under(home: &Path) -> std::path::PathBuf {
     }
 }
 
-/// `<cache>/fufu/mcp/` under a scratch HOME, where a serving instance holds
-/// its marker.
+/// Where the binary resolves its config root under `home`, and so where it
+/// reads the extension registry.
+///
+/// Pinned for the reason the cache root is, and for one more: the registry
+/// decides which extensions the tool serves and names on its card, and a
+/// developer running this suite has a registry of their own. macOS reads
+/// only HOME; the other two platforms read a variable `start` pins.
+fn config_under(home: &Path) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support")
+    } else {
+        home.join(".config")
+    }
+}
+
+/// Declare one extension on the machine `home` stands for, the way
+/// `ff extension add` records one.
+fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
+    let dir = config_under(home).join("fufu");
+    std::fs::create_dir_all(&dir).expect("the config root");
+    let verbs: Vec<Value> = verbs
+        .iter()
+        .map(|verb| json!({ "name": verb, "read_only": true }))
+        .collect();
+    let body = json!({
+        "ff": 1,
+        "extensions": [{
+            "path": format!("/usr/local/bin/ff-{name}"),
+            "declared_at": 1788462398,
+            "manifest": {
+                "name": name,
+                "version": "0.4.1",
+                "contract": 1,
+                "verbs": verbs,
+                "undoable": undoable,
+            },
+        }],
+    });
+    std::fs::write(dir.join("extensions.json"), body.to_string()).expect("write the registry");
+}
+
+/// `<cache>/fufu/mcp/` under a scratch HOME, which holds a directory per
+/// client and a marker per server name inside it.
 fn marker_dir(home: &Path) -> std::path::PathBuf {
     cache_under(home).join("fufu").join("mcp")
 }
 
-/// The marker for a server this process spawned.
+/// One client's directory of markers.
+fn client_dir(home: &Path, client: u32) -> std::path::PathBuf {
+    marker_dir(home).join(client.to_string())
+}
+
+/// fufu's own marker, for a server this process spawned.
 fn marker(home: &Path) -> std::path::PathBuf {
-    marker_dir(home).join(std::process::id().to_string())
+    client_dir(home, std::process::id()).join("fufu")
 }
 
 /// Nothing under the marker directory, or no directory at all.
@@ -208,13 +259,14 @@ fn repo() -> Fixture {
 fn a_starting_server_sweeps_the_markers_nobody_holds() {
     let fx = repo();
     let home = tempfile::TempDir::new().expect("a scratch HOME");
-    let dir = marker_dir(home.path());
-    std::fs::create_dir_all(&dir).unwrap();
     // Left by a client that is gone: nothing holds it.
-    let stale = dir.join("4242");
+    let gone = client_dir(home.path(), 4242);
+    std::fs::create_dir_all(&gone).unwrap();
+    let stale = gone.join("fufu");
     std::fs::write(&stale, "{\"server\":1}\n").unwrap();
     // Held the way a live server holds its own.
-    let live = dir.join("4243");
+    let live = client_dir(home.path(), 4243).join("fufu");
+    std::fs::create_dir_all(live.parent().unwrap()).unwrap();
     let lock = std::fs::File::create(&live).unwrap();
     lock.try_lock().expect("an exclusive lock");
 
@@ -223,6 +275,10 @@ fn a_starting_server_sweeps_the_markers_nobody_holds() {
     server.request(2, "tools/list", Value::Null);
     server.assert_serving();
     assert!(!stale.exists(), "the stale marker was swept at start");
+    assert!(
+        !gone.exists(),
+        "and the directory of a client with nothing left went with it"
+    );
     assert!(
         live.is_file(),
         "a marker another server holds is left alone"
@@ -297,8 +353,20 @@ fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
     );
     assert_eq!(git["structuredContent"]["cmd"], "git");
 
+    // And `extension` with it, which is the one excluded for what it
+    // writes rather than for what it prints: the registry is the allowlist
+    // for everything fufu says about an extension, so an agent putting a
+    // name on it would be deciding for itself what fufu vouches for.
+    let declare = call(&mut server, 6, &["extension", "add", "tower"]);
+    assert_eq!(declare["isError"], true);
+    assert_eq!(
+        declare["structuredContent"]["error"]["id"],
+        "usage/mcp-verb-unavailable"
+    );
+    assert_eq!(declare["structuredContent"]["cmd"], "extension");
+
     // Help is text, and only text.
-    let help = call(&mut server, 6, &["help", "log"]);
+    let help = call(&mut server, 7, &["help", "log"]);
     assert_ne!(help["isError"], true, "{help}");
     assert!(help.get("structuredContent").is_none(), "{help}");
     assert!(
@@ -309,7 +377,7 @@ fn the_legacy_handshake_lists_one_tool_and_relays_the_envelope() {
     );
 
     // Nothing at all is refused the same way, and names the map.
-    let empty = call(&mut server, 7, &[]);
+    let empty = call(&mut server, 8, &[]);
     assert_eq!(empty["isError"], true);
     assert_eq!(
         empty["structuredContent"]["error"]["id"],
@@ -485,4 +553,224 @@ fn closing_stdin_before_speaking_exits_zero() {
     assert_eq!(code, 0);
     assert_eq!(stderr, "");
     assert_no_marker(home.path());
+}
+
+#[test]
+fn a_policy_key_is_not_writable_through_the_tool() {
+    let fx = repo();
+    let mut server = start(&fx.path(), &[], &[]);
+    handshake(&mut server);
+
+    // The write the tool exists to police, refused by id.
+    for words in [
+        vec!["config", "toolPolicy", "observe"],
+        vec!["config", "gitPolicy", "observe"],
+        vec!["config", "--global", "toolPolicy", "observe"],
+        vec!["config", "--unset", "gitPolicy"],
+        // The spelling does not matter: clap resolves it before the check.
+        vec!["config", "fufu.toolpolicy", "coach"],
+    ] {
+        let refused = call(&mut server, 2, &words);
+        assert_eq!(refused["isError"], true, "{words:?}: {refused}");
+        assert_eq!(
+            refused["structuredContent"]["error"]["id"], "usage/mcp-policy-write",
+            "{words:?}: {refused}"
+        );
+    }
+
+    // Nothing was written: the tier still reads as its default.
+    let read = call(&mut server, 3, &["config", "toolPolicy"]);
+    assert_ne!(read["isError"], true, "{read}");
+    assert_eq!(read["structuredContent"]["data"]["value"], "strict");
+    assert_eq!(read["structuredContent"]["data"]["default"], true);
+
+    // Listing is a read too, and still lists every setting.
+    let listed = call(&mut server, 4, &["config"]);
+    assert_ne!(listed["isError"], true, "{listed}");
+    assert_eq!(
+        listed["structuredContent"]["data"]["settings"]
+            .as_array()
+            .expect("a settings array")
+            .len(),
+        12
+    );
+
+    // Every other key writes through the tool as before.
+    let written = call(&mut server, 5, &["config", "keep", "45d"]);
+    assert_ne!(written["isError"], true, "{written}");
+    assert_eq!(written["structuredContent"]["data"]["value"], "45d");
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+// ---- extensions ------------------------------------------------------------
+
+/// The tool serves the extensions a person declared. An `ff <name>` on no
+/// registry is refused before anything runs, and the exit names the
+/// declaration — `fufu.toolPolicy` lets the same call through a shell, so
+/// between the two there is always one place it runs.
+#[test]
+fn an_undeclared_extension_is_refused_by_id() {
+    let fx = repo();
+    let mut server = start(&fx.path(), &[], &[]);
+    handshake(&mut server);
+
+    let refused = call(&mut server, 2, &["tower", "next"]);
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert_eq!(
+        refused["structuredContent"]["error"]["id"],
+        "usage/mcp-extension-undeclared"
+    );
+    assert_eq!(refused["structuredContent"]["cmd"], "tower");
+    let exits = refused["structuredContent"]["error"]["exits"]
+        .as_array()
+        .expect("exits");
+    assert!(
+        exits.iter().any(|exit| exit == "ff extension add tower"),
+        "{refused}"
+    );
+
+    // Nothing on the card either, since nothing is declared.
+    let listed = server.request(3, "tools/list", Value::Null);
+    let description = listed["result"]["tools"][0]["description"]
+        .as_str()
+        .expect("a description");
+    assert!(!description.contains("Extensions: "), "{description}");
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// A declared extension is served the way a verb is: the child dispatches
+/// to `ff-<name>` and the envelope it printed reaches the agent as
+/// structured content. The card names it with the verbs its manifest lists.
+///
+/// Unix only, for the reason `tests/extension.rs` is: the extension has to
+/// be a real binary, and a shell script is the smallest one to write. PATH
+/// is pinned to the test's own directory rather than prepended, so a
+/// machine with a real `ff-tower` installed cannot answer in its place.
+#[cfg(unix)]
+#[test]
+fn a_declared_extension_is_served_and_named_on_the_card() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho '{\"ff\":1,\"cmd\":\"tower next\",\"data\":{\"flight\":68}}'\n",
+    )
+    .expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare(home.path(), "tower", &["next", "file", "done"], true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let listed = server.request(2, "tools/list", Value::Null);
+    let description = listed["result"]["tools"][0]["description"]
+        .as_str()
+        .expect("a description");
+    assert!(
+        description.contains("\nExtensions: tower (next, file, done)\n"),
+        "{description}"
+    );
+    assert!(
+        description.chars().count() < 2_048,
+        "the card still fits what a client shows the model: {}",
+        description.chars().count()
+    );
+
+    let next = call(&mut server, 3, &["tower", "next"]);
+    assert_ne!(next["isError"], true, "{next}");
+    assert_eq!(next["structuredContent"]["ff"], 1);
+    assert_eq!(next["structuredContent"]["cmd"], "tower next");
+    assert_eq!(next["structuredContent"]["data"]["flight"], 68);
+
+    // And declaring one name says nothing about another.
+    let refused = call(&mut server, 4, &["bay", "warm"]);
+    assert_eq!(
+        refused["structuredContent"]["error"]["id"],
+        "usage/mcp-extension-undeclared"
+    );
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// A help call for a declared extension goes through the same relay a
+/// verb does — `refuse_in` already lets `help` and `explain` by as builtin
+/// words — and comes back the way a builtin's help does: text, and no
+/// structured content, because `wants_json` never rides a `help` call and
+/// the extension's page is not one envelope.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn a_declared_extensions_help_is_text_with_no_structured_content() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nif [ \"$1\" = \"help\" ]; then\n  echo \"tower's own help page\"\n  exit 0\nfi\n",
+    )
+    .expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare(home.path(), "tower", &["next"], true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let help = call(&mut server, 2, &["help", "tower"]);
+    assert_ne!(help["isError"], true, "{help}");
+    assert!(help.get("structuredContent").is_none(), "{help}");
+    assert_eq!(
+        help["content"][0]["text"], "tower's own help page",
+        "{help}"
+    );
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// The one tool's annotations say that nothing it serves is destructive,
+/// which is honest only of an extension whose writes `ff undo` takes back.
+/// One declaring otherwise is refused and pointed at a server of its own —
+/// and stays on the card, the way the shell-only verbs stay on it, because
+/// an agent told where to run something has to know the word.
+#[test]
+fn an_extension_that_is_not_undoable_is_refused_on_the_one_tool() {
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    declare(home.path(), "tower", &["next"], false);
+    let mut server = start_in(home, &fx.path(), &[], &[]);
+    handshake(&mut server);
+
+    let refused = call(&mut server, 2, &["tower", "next"]);
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert_eq!(
+        refused["structuredContent"]["error"]["id"],
+        "usage/mcp-extension-not-undoable"
+    );
+
+    let listed = server.request(3, "tools/list", Value::Null);
+    let description = listed["result"]["tools"][0]["description"]
+        .as_str()
+        .expect("a description");
+    assert!(
+        description.contains("Extensions: tower (next)"),
+        "{description}"
+    );
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
 }

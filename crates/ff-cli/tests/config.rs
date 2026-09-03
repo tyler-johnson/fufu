@@ -561,3 +561,60 @@ fn usage_ids_exit_two() {
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert_eq!(v["error"]["id"], "usage/unknown-key");
 }
+
+/// The marker the MCP relay sets on every child it runs. A test can set it
+/// by hand because setting it only ever costs the setter a write — what no
+/// call through the tool can do is clear it.
+fn ff_cfg_as_tool(dir: &Path, args: &[&str], global: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_ff"))
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", global)
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("FF_TOOL_CALL", "1")
+        .output()
+        .expect("spawn ff")
+}
+
+#[test]
+fn a_policy_key_is_writable_from_a_shell() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "toolPolicy", "observe"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg(&fx.path(), &["config", "toolPolicy"], &global);
+    assert_eq!(stdout(&out), "observe\n");
+
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "toolPolicy"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg(&fx.path(), &["config", "toolPolicy"], &global);
+    assert_eq!(stdout(&out), "strict\n");
+}
+
+#[test]
+fn a_policy_key_write_under_the_tool_marker_is_refused() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    for args in [
+        vec!["config", "--json", "toolPolicy", "observe"],
+        vec!["config", "--json", "gitPolicy", "observe"],
+        vec!["config", "--json", "--unset", "toolPolicy"],
+    ] {
+        let out = ff_cfg_as_tool(&fx.path(), &args, &global);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+        assert_eq!(v["error"]["id"], "usage/mcp-policy-write", "{args:?}");
+    }
+
+    // Reading a policy key, and every other key's write, are untouched.
+    let out = ff_cfg_as_tool(&fx.path(), &["config", "toolPolicy"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "strict\n");
+    let out = ff_cfg_as_tool(&fx.path(), &["config", "keep", "45d"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg_as_tool(&fx.path(), &["config", "keep"], &global);
+    assert_eq!(stdout(&out), "45d\n");
+}

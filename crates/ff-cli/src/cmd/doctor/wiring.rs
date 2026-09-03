@@ -224,9 +224,11 @@ fn fixed_or_fixable(status: &crate::integ::Status, detail: String, repair: &str,
 }
 
 /// [`fixed_or_fixable`] for an aggregated row, which keeps its own name
-/// while the repair still belongs to one slug's installer.
-fn fixed_or_fixable_named(
-    name: &'static str,
+/// while the repair still belongs to one slug's installer. `pub(super)`
+/// because `extensions.rs` reaches for the same repair when a declared
+/// extension's own server is missing from a client whose hook is wired.
+pub(super) fn fixed_or_fixable_named(
+    name: impl Into<std::borrow::Cow<'static, str>>,
     status: &crate::integ::Status,
     detail: String,
     repair: &str,
@@ -364,6 +366,8 @@ mod tests {
             parts: Vec::new(),
             skill: None,
             mcp: None,
+            mcp_extensions: Vec::new(),
+            mcp_orphaned: Vec::new(),
             stale: false,
         }
     }
@@ -393,6 +397,8 @@ mod tests {
             ],
             skill: None,
             mcp: None,
+            mcp_extensions: Vec::new(),
+            mcp_orphaned: Vec::new(),
             stale: false,
         }
     }

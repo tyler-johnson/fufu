@@ -23,13 +23,13 @@ fn format_row(row: &Row, colored: bool) -> String {
                 "  {}{}{}{}",
                 painted,
                 level_pad,
-                pad(row.name, 15),
+                pad(&row.name, 15),
                 row.detail
             )
         }
         Level::Info => {
             let painted_level = crate::render::paint_dim(level_text, colored);
-            let painted_name = crate::render::paint_dim(row.name, colored);
+            let painted_name = crate::render::paint_dim(&row.name, colored);
             let painted_detail = crate::render::paint_dim(&row.detail, colored);
             let level_pad = " ".repeat(6usize.saturating_sub(level_text.chars().count()));
             let name_pad = " ".repeat(15usize.saturating_sub(row.name.chars().count()));
@@ -45,7 +45,7 @@ fn format_row(row: &Row, colored: bool) -> String {
                 "  {}{}{}{}",
                 painted,
                 level_pad,
-                pad(row.name, 15),
+                pad(&row.name, 15),
                 row.detail
             )
         }

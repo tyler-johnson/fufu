@@ -17,6 +17,14 @@
 //! removed whole; the MCP server is a marked block in `config.toml`, the
 //! one TOML file among the four clients, appended and removed by its
 //! markers. No install can take another down with it.
+//!
+//! A declared extension's own skill files take a directory of their own
+//! beside fufu's, `~/.codex/skills/<name>/`, on the same written-whole,
+//! removed-whole rule. Namespaced by the extension's name rather than
+//! nested inside a directory fufu owns outright the way Claude's plugin
+//! makes possible, so a name collision with something already living under
+//! `~/.codex/skills/` is a risk this mechanism accepts rather than one it
+//! can detect.
 
 use std::path::PathBuf;
 
@@ -56,6 +64,13 @@ fn skill_wiring() -> Wiring {
     }
 }
 
+/// A declared extension's own directory beside `skills/fufu`, under
+/// `~/.codex/skills/`. Namespaced by the extension's own name, the same
+/// namespace everything else about it hangs off.
+fn ext_skill_dir(name: &str) -> Result<PathBuf> {
+    Ok(config_dir()?.join("skills").join(name))
+}
+
 fn spec() -> Result<settings::Spec> {
     Ok(settings::Spec {
         path: config_dir()?.join("hooks.json"),
@@ -72,6 +87,15 @@ fn mcp_spec() -> Result<mcp::Spec> {
         config_dir()?.join("config.toml"),
         mcp::Shape::TomlBlock,
     ))
+}
+
+/// Every declared extension's own table in the marked block, and every
+/// table there that nothing declares any more.
+fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
+    match mcp_spec() {
+        Ok(spec) => mcp::extensions(&spec),
+        Err(_) => (Vec::new(), Vec::new()),
+    }
 }
 
 impl Integration for Codex {
@@ -92,6 +116,7 @@ impl Integration for Codex {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
+        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -105,6 +130,8 @@ impl Integration for Codex {
                 Ok(spec) => mcp::wiring(&spec),
                 Err(err) => Wiring::Unavailable(err.to_string()),
             }),
+            mcp_extensions,
+            mcp_orphaned,
             stale,
         }
     }
@@ -117,6 +144,16 @@ impl Integration for Codex {
             "skill written to {}",
             dir.display()
         )));
+        for declared in crate::registry::read().declared() {
+            let ext_dir = ext_skill_dir(declared.name())?;
+            if skill::write_sources(&ext_dir, declared)? > 0 {
+                change.absorb(Change::changed(format!(
+                    "{} skill written to {}",
+                    declared.name(),
+                    ext_dir.display()
+                )));
+            }
+        }
         change.absorb(mcp::install(&mcp_spec()?)?);
         change.lines.push(TRUST.into());
         Ok(change)
@@ -127,6 +164,16 @@ impl Integration for Codex {
         let dir = skill_dir()?;
         if skill::remove(&dir)? {
             change.absorb(Change::changed(format!("removed {}", dir.display())));
+        }
+        // Only the extensions still declared: an extension taken back with
+        // `ff extension remove` before this runs leaves its own directory
+        // behind, the same way its manifest's other traces do once nothing
+        // reads the registry for its name any more.
+        for declared in crate::registry::read().declared() {
+            let ext_dir = ext_skill_dir(declared.name())?;
+            if skill::remove(&ext_dir)? {
+                change.absorb(Change::changed(format!("removed {}", ext_dir.display())));
+            }
         }
         change.absorb(mcp::uninstall(&mcp_spec()?)?);
         Ok(change)

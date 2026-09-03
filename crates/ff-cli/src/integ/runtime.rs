@@ -111,8 +111,22 @@ pub fn pipeline(
     // Everything fufu says, after the capture and never conditional on it:
     // a briefing or a correction fufu could not compute must never cost a
     // snapshot.
+    //
+    // The fan-out is on this side of the adapter rather than inside `speak`,
+    // because a subscription buys being told and not being printed: a source
+    // with no protocol at all — a shell prompt, a hand-taken snapshot — hands
+    // the event out too, and every subscriber runs whether or not this client
+    // has a channel for what they said.
+    let subscribed = super::fanout::run(event, source, repo.workdir(), ctx.session.as_deref());
     if let Some(proto) = proto {
-        speak(&repo, source, event, proto);
+        speak(
+            &repo,
+            source,
+            event,
+            proto,
+            ctx.session.as_deref(),
+            subscribed,
+        );
     }
 
     crate::selfupdate::notify::maybe_spawn_check(&repo);
@@ -141,6 +155,8 @@ fn speak(
     slug: &str,
     event: &AgentEvent,
     proto: &dyn AgentProtocol,
+    session: Option<&str>,
+    subscribed: Vec<String>,
 ) {
     let mut reply = Reply::new(event.kind);
 
@@ -161,6 +177,13 @@ fn speak(
             text.push_str(skill::LINE);
         }
         reply.context.push(text);
+        // A declared extension's line is briefing, so it rides this same
+        // boundary and this same marker rather than a lane of its own. Each
+        // is its own entry, which is what puts each on its own line when the
+        // adapter joins them.
+        for line in super::briefing::extension_lines(&event.cwd, repo.workdir(), session) {
+            reply.context.push(line);
+        }
     }
 
     if event.kind == EventKind::BeforeTool
@@ -169,6 +192,12 @@ fn speak(
         correct(repo, &event.session, command, &mut reply);
         dirty |= steer(repo, &mut marker, command, &mut reply);
     }
+
+    // A subscriber speaks after fufu does, in the registry's order. fufu's
+    // own lines are the ones the agent has to have; an extension's are the
+    // ones it asked for, and they are merged into the one reply this client
+    // was going to get rather than printed beside it.
+    reply.context.extend(subscribed);
 
     if reply.is_empty() {
         return;
@@ -226,9 +255,11 @@ fn correct(repo: &ff_core::gix::Repository, session: &str, command: &str, reply:
 /// tool serves; the tier is `observe`; the client did not say who it is
 /// (`CLAUDE_PID`, which only Claude Code sets, and only Claude Code has a
 /// deny channel, so no client sniffing is needed — a Cursor-launched
-/// server writes a marker under Cursor's pid that nothing ever reads); no
-/// server is provably up for that client; or the reply already carries a
-/// refusal, since one reply carries one reason and the git refusal stands.
+/// server writes a marker under Cursor's pid that nothing ever reads);
+/// fufu's own server is not provably up for that client, which is the only
+/// server asked about, since the tool is the only place this refusal sends
+/// anything; or the reply already carries a refusal, since one reply
+/// carries one reason and the git refusal stands.
 ///
 /// Answers whether the marker changed — the coach spends its one line per
 /// session on it, and the caller saves.
@@ -238,7 +269,7 @@ fn steer(
     command: &str,
     reply: &mut Reply,
 ) -> bool {
-    let Some(words) = crate::toolpolicy::classify(command) else {
+    let Some(call) = crate::toolpolicy::classify(command) else {
         return false;
     };
     let policy = crate::toolpolicy::read(repo);
@@ -251,20 +282,29 @@ fn steer(
     else {
         return false;
     };
-    if !crate::cmd::mcp::presence::serving(client) {
+    if !crate::cmd::mcp::presence::serving(client, crate::integ::mcp::NAME) {
         return false;
     }
     if reply.deny.is_some() {
         return false;
     }
-    let args = serde_json::json!({ "args": words });
+    let args = serde_json::json!({ "args": call.args });
+    let tool = crate::cmd::mcp::describe::CLAUDE_TOOL;
     if policy == crate::toolpolicy::Policy::Strict {
-        reply.deny = Some(format!(
-            "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool ({}) \
-             with {args} instead of running ff in the shell — load the tool's schema first \
-             if it is deferred",
-            crate::cmd::mcp::describe::CLAUDE_TOOL
-        ));
+        // A declared extension is named, because the agent has no other way
+        // to tell it from the undeclared one beside it that does run here.
+        reply.deny = Some(match &call.extension {
+            Some(name) => format!(
+                "fufu.toolPolicy is strict here and the ff tool is up: {name} is a declared \
+                 extension the tool serves, so call the ff tool ({tool}) with {args} instead \
+                 of running ff in the shell — load the tool's schema first if it is deferred"
+            ),
+            None => format!(
+                "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool \
+                 ({tool}) with {args} instead of running ff in the shell — load the tool's \
+                 schema first if it is deferred"
+            ),
+        });
         return false;
     }
     if marker.tool_coached {

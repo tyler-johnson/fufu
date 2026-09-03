@@ -1,9 +1,12 @@
 //! Doctor verifies the net — read-only by design (it must never absorb the
 //! foreign drift it reports), one consented write behind `--fix`.
 
+mod extensions;
 mod render;
 mod repo;
 mod wiring;
+
+use std::borrow::Cow;
 
 use ff_core::Result;
 
@@ -17,43 +20,47 @@ pub(super) enum Level {
 
 pub(super) struct Row {
     level: Level,
-    name: &'static str,
+    // `Cow` rather than `&'static str`: every other row is named for a
+    // fixed subject (a client slug, a config key) known at compile time,
+    // but a row about a declared extension is named for what somebody
+    // else's `ff extension add` recorded.
+    name: Cow<'static, str>,
     detail: String,
     fixable: bool,
 }
 
 impl Row {
-    fn ok(name: &'static str, detail: String) -> Self {
+    fn ok(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
         Self {
             level: Level::Ok,
-            name,
+            name: name.into(),
             detail,
             fixable: false,
         }
     }
 
-    fn info(name: &'static str, detail: String) -> Self {
+    fn info(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
         Self {
             level: Level::Info,
-            name,
+            name: name.into(),
             detail,
             fixable: false,
         }
     }
 
-    fn warn(name: &'static str, detail: String) -> Self {
+    fn warn(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
         Self {
             level: Level::Warn,
-            name,
+            name: name.into(),
             detail,
             fixable: false,
         }
     }
 
-    fn warn_fixable(name: &'static str, detail: String) -> Self {
+    fn warn_fixable(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
         Self {
             level: Level::Warn,
-            name,
+            name: name.into(),
             detail,
             fixable: true,
         }
@@ -123,8 +130,13 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     }
 
     // wiring + update checks — always run
-    rows.extend(wiring::wiring_rows(&crate::integ::statuses(), fix));
+    let statuses = crate::integ::statuses();
+    rows.extend(wiring::wiring_rows(&statuses, fix));
     rows.push(wiring::update_row());
+
+    // extensions found on PATH, declared or not — always run: an extension
+    // is a machine-wide thing, not a repository one.
+    rows.extend(extensions::extension_rows(&statuses, fix));
 
     render::render(&rows, fix, ctx.json, colored);
 

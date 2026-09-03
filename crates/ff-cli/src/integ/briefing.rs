@@ -5,10 +5,19 @@
 //! and Cursor — which is why the envelope is the adapter's job and this is
 //! not.
 //!
+//! A declared extension may add one line of its own, which is the other
+//! half of this file. It rides the same boundaries and the same marker the
+//! notice does, because it is briefing: an agent pays for it once per
+//! audience, so it is budgeted the way the notice is.
+//!
 //! The guards at the bottom cover the shipped skill too. Both texts are
 //! prose an agent reads as instructions, both rot the same silent way, and
 //! the skill is the larger surface by an order of magnitude — so the check
 //! that every command in them is one the CLI still takes belongs to both.
+
+use std::path::Path;
+
+use crate::manifest::Briefing;
 
 /// What the agent is told, once per session, when a client's context-start
 /// event gives fufu somewhere to put it.
@@ -48,6 +57,80 @@ shell is refused.
 Every verb's own `--help` is the authority on it.
 ";
 
+// ---- what a declared extension adds ----------------------------------------
+
+/// The most a declared extension's briefing line may run to, in characters.
+///
+/// The notice is budgeted because it is context every session pays for, and
+/// an extension's line is spending the same budget on the same terms. Two
+/// hundred and forty characters is a sentence saying what the extension is
+/// for and how it is spelled, which is the whole job of a line here. An
+/// extension with more to teach ships a skill, which costs the agent
+/// nothing until it is read.
+pub const LINE_CAP: usize = 240;
+
+/// The line every declared extension contributes, in the order the registry
+/// holds them — which is the order they were declared, and load-bearing for
+/// exactly this reason.
+///
+/// The manifest picks the arm. A string in `briefing` is the line itself; a
+/// `true` there means run `ff-<name> briefing` in `cwd`, with the `FF_*`
+/// variables set, and take its stdout. Absent means the extension has
+/// nothing to say, which is the common answer.
+///
+/// Everything that can go wrong produces no line and costs the caller
+/// nothing: a binary that has left PATH, one that will not start, one that
+/// fails or hangs or prints something that is not one line, and a line past
+/// [`LINE_CAP`]. That is `ff trigger`'s doctrine applied to the one place
+/// fufu invites an extension to speak into an agent's context, and it is
+/// why nothing here returns an error.
+pub fn extension_lines(cwd: &Path, repo: Option<&Path>, session: Option<&str>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for declared in crate::registry::read().declared() {
+        let said = match &declared.manifest.briefing {
+            Some(Briefing::Line(line)) => Some(line.clone()),
+            Some(Briefing::Ask(true)) => asked(declared.name(), cwd, repo, session),
+            Some(Briefing::Ask(false)) | None => None,
+        };
+        if let Some(line) = said.as_deref().and_then(usable) {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+/// `ff-<name> briefing`, under fufu's time box, with its stdout as text.
+fn asked(name: &str, cwd: &Path, repo: Option<&Path>, session: Option<&str>) -> Option<String> {
+    let said = crate::ext::ask(&crate::ext::Ask {
+        name,
+        verb: "briefing",
+        rest: &[],
+        cwd,
+        repo,
+        session,
+        stdin: &[],
+        budget: crate::ext::BUDGET,
+    })?;
+    String::from_utf8(said).ok()
+}
+
+/// One line, or nothing.
+///
+/// Surrounding whitespace is fufu's to trim, since a binary that ends its
+/// line with a newline is the normal case. What is left has to be a single
+/// line inside the cap. A text carrying its own newlines is refused rather
+/// than folded, because it would let one extension shape the briefing
+/// instead of contributing a line to it; a line past the cap is dropped
+/// whole rather than cut, because half a sentence is still prose the agent
+/// reads as instructions.
+fn usable(said: &str) -> Option<String> {
+    let line = said.trim();
+    if line.is_empty() || line.contains('\n') || line.chars().count() > LINE_CAP {
+        return None;
+    }
+    Some(line.to_string())
+}
+
 // ---- the notice is a contract with the CLI ---------------------------------
 
 /// `NOTICE` and the shipped skill are prose an agent reads as instructions,
@@ -59,7 +142,7 @@ Every verb's own `--help` is the authority on it.
 mod notice {
     use clap::{CommandFactory, Parser};
 
-    use super::NOTICE;
+    use super::{LINE_CAP, NOTICE, usable};
     use crate::cli::Cli;
     use crate::integ::skill::SKILL;
 
@@ -235,6 +318,49 @@ mod notice {
             "the notice is {} bytes; trim it or raise the budget deliberately",
             NOTICE.len()
         );
+    }
+
+    /// A declared extension spends the same budget the notice does, so its
+    /// line is capped where the notice is budgeted. The number is stated
+    /// against the notice rather than on its own: a line a third of the
+    /// whole always-on text is already a lot for one extension to ask of
+    /// every session, and a machine with several of them declared would be
+    /// paying it several times over.
+    #[test]
+    fn the_extension_line_cap_sits_under_the_notices_budget() {
+        assert!(
+            LINE_CAP * 3 <= NOTICE.len(),
+            "an extension's {LINE_CAP} characters are no longer small against the notice's {} \
+             bytes; move one or the other deliberately",
+            NOTICE.len()
+        );
+    }
+
+    /// The cap is a cap and not a truncation: a line past it is dropped
+    /// whole, because half a sentence is still prose the agent reads as
+    /// instructions.
+    #[test]
+    fn a_line_past_the_cap_is_dropped_rather_than_cut() {
+        let at = "x".repeat(LINE_CAP);
+        assert_eq!(usable(&at).as_deref(), Some(at.as_str()));
+        assert_eq!(usable(&"x".repeat(LINE_CAP + 1)), None);
+        // Characters, not bytes: a line in another script is not charged
+        // for the width of its encoding.
+        assert!(usable(&"é".repeat(LINE_CAP)).is_some());
+    }
+
+    /// One line means one line. Whitespace around it is fufu's to trim, and
+    /// a text carrying its own newlines is refused rather than folded.
+    #[test]
+    fn an_extension_contributes_one_line_or_nothing() {
+        assert_eq!(
+            usable("  Work is filed as flights.\n").as_deref(),
+            Some("Work is filed as flights.")
+        );
+        assert_eq!(usable(""), None);
+        assert_eq!(usable("   \n\n"), None);
+        assert_eq!(usable("one\ntwo"), None);
+        assert_eq!(usable("one\r\ntwo"), None);
     }
 
     /// The half of the `--at` lesson that moved out of the notice with the

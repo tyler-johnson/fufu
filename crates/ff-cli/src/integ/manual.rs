@@ -38,6 +38,10 @@ pub fn run(ctx: &Ctx, message: Option<String>) -> Result<()> {
         cwd,
         label: Label::Text(label),
         command: None,
+        // A hand-taken snapshot names no tool, so it matches no
+        // subscription that asked for one.
+        tool: None,
+        path: None,
     };
     let landed = runtime::pipeline(ctx, SOURCE, &event, None)?;
     report(ctx, &landed)

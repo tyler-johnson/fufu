@@ -32,7 +32,8 @@
 //! nobody and a line there is a line lost.
 //!
 //! While it serves, the server holds a presence marker under the user's
-//! cache directory, keyed by the client process that spawned it. That is
+//! cache directory, keyed by the client process that spawned it and by the
+//! name the server is registered under. That is
 //! what lets `ff trigger claude` refuse `ff` in the shell under
 //! `fufu.toolPolicy` only when this tool is actually up for the client
 //! making the call — `presence.rs` has the mechanism.

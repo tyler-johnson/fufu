@@ -62,6 +62,15 @@ fn mcp_spec() -> Result<mcp::Spec> {
     ))
 }
 
+/// Every declared extension's own server in `mcp.json`, and every name
+/// registered there that nothing declares any more.
+fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
+    match mcp_spec() {
+        Ok(spec) => mcp::extensions(&spec),
+        Err(_) => (Vec::new(), Vec::new()),
+    }
+}
+
 /// Cursor's payload. Same idea as the shared dialect, different names for
 /// the one field that matters most.
 #[derive(Debug, Default, Deserialize)]
@@ -96,6 +105,7 @@ impl Integration for Cursor {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
+        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -107,6 +117,8 @@ impl Integration for Cursor {
                 Ok(spec) => mcp::wiring(&spec),
                 Err(err) => Wiring::Unavailable(err.to_string()),
             }),
+            mcp_extensions,
+            mcp_orphaned,
             stale,
         }
     }
@@ -166,6 +178,8 @@ impl AgentProtocol for Cursor {
             cwd: cwd.into(),
             label,
             command: payload::command_of(&raw.tool_input),
+            tool: payload::tool_of(kind, &raw.tool_name),
+            path: payload::path_of(kind, &raw.tool_input),
         }))
     }
 

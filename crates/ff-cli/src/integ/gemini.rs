@@ -54,6 +54,15 @@ fn mcp_spec() -> Result<mcp::Spec> {
     ))
 }
 
+/// Every declared extension's own server in `settings.json`, and every
+/// name registered there that nothing declares any more.
+fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
+    match mcp_spec() {
+        Ok(spec) => mcp::extensions(&spec),
+        Err(_) => (Vec::new(), Vec::new()),
+    }
+}
+
 impl Integration for Gemini {
     fn slug(&self) -> &'static str {
         "gemini"
@@ -72,6 +81,7 @@ impl Integration for Gemini {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
+        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -83,6 +93,8 @@ impl Integration for Gemini {
                 Ok(spec) => mcp::wiring(&spec),
                 Err(err) => Wiring::Unavailable(err.to_string()),
             }),
+            mcp_extensions,
+            mcp_orphaned,
             stale,
         }
     }

@@ -104,6 +104,24 @@ pub fn command_of(input: &ToolInput) -> Option<String> {
     (!input.command.is_empty()).then(|| input.command.clone())
 }
 
+/// The tool's name, on a `BeforeTool` event and nothing else.
+///
+/// An empty name is `None` too, which is the same absence: a subscription's
+/// matcher is tested against this string, so a tool call that cannot say
+/// which tool it is matches nothing.
+pub fn tool_of(kind: EventKind, tool_name: &str) -> Option<String> {
+    (kind == EventKind::BeforeTool && !tool_name.is_empty()).then(|| tool_name.to_string())
+}
+
+/// The file the tool named, whichever of the three field names it used, on
+/// a `BeforeTool` event and nothing else.
+pub fn path_of(kind: EventKind, input: &ToolInput) -> Option<std::path::PathBuf> {
+    if kind != EventKind::BeforeTool {
+        return None;
+    }
+    input.any_path().map(Into::into)
+}
+
 /// The shared translation for the three clients that speak this dialect.
 pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<AgentEvent>> {
     // Some events carry no `cwd` at all — Claude Code's `SubagentStop` is
@@ -133,6 +151,8 @@ pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<A
         cwd,
         label,
         command: command_of(&payload.tool_input),
+        tool: tool_of(kind, &payload.tool_name),
+        path: path_of(kind, &payload.tool_input),
     }))
 }
 

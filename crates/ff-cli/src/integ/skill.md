@@ -11,7 +11,7 @@ The once-per-session briefing already gave the agent four verbs and the git rule
 
 ## The tool
 
-When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Six verbs stay in the shell, because each owns its stream or wires the machine: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, and `ff mcp`; the tool refuses them with `usage/mcp-verb-unavailable`. While the tool is up, `fufu.toolPolicy` refuses every other `ff` run in the shell and names the call to make instead; those six are the exception.
+When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Seven verbs stay in the shell, because each owns its stream, wires the machine, or decides what fufu vouches for: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, `ff mcp`, and `ff extension`; the tool refuses them with `usage/mcp-verb-unavailable`. While the tool is up, `fufu.toolPolicy` refuses every other `ff` run in the shell and names the call to make instead; those seven are the exception.
 
 ## The model
 
@@ -145,7 +145,7 @@ Only the git words fufu actually has a verb for are ever touched. `git apply`, `
 - **coach** — names the tool once per session, as context, with the exact `args` to call it with.
 - **strict** (the default) — refuses the shell call before it starts and names the tool and the call: `{"args": ["status"]}` for `ff status`.
 
-The six shell-only verbs pass under every tier, and so does anything that is not a bare `ff`: a path to a binary, `sudo ff`, a variable in front of it. A compound command is read per segment, so `cd sub && ff status` is refused by its `ff` segment, which is what the tool's `cwd` is for. `ff config toolPolicy <tier>` moves it.
+The seven shell-only verbs pass under every tier, and so does anything that is not a bare `ff`: a path to a binary, `sudo ff`, a variable in front of it. A compound command is read per segment, so `cd sub && ff status` is refused by its `ff` segment, which is what the tool's `cwd` is for. `ff config toolPolicy <tier>` moves it.
 
 ## Machine surface
 

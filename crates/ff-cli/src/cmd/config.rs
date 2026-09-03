@@ -136,8 +136,11 @@ pub(crate) fn registry() -> &'static [Setting] {
             desc: &[
                 "What fufu says when an agent runs ff in its shell while the ff tool is",
                 "up for it. observe stays quiet; coach names the tool once per session;",
-                "strict (the default) refuses and names the call to make instead. Off",
-                "the record entirely when no fufu server is serving that client.",
+                "strict (the default) refuses and names the call to make instead. What",
+                "it speaks to is what the tool serves: a builtin verb or a declared",
+                "extension. The shell-only verbs pass, and so does an ff <name> the",
+                "tool will not serve, since a shell is the only place that one runs.",
+                "Nothing is said at all when no fufu server is serving that client.",
             ],
         },
         Setting {
@@ -174,6 +177,38 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
     ]
+}
+
+/// The settings a call through the MCP tool may not write: the two tiers
+/// that decide what fufu refuses. An agent that can set `toolPolicy
+/// observe` through the call that setting polices is not policed at all, so
+/// those writes belong to a person at a shell. Reads are untouched: this is
+/// about writes.
+pub(crate) const SEALED: &[&str] = &[
+    "gitPolicy",
+    "toolPolicy",
+    // The extension registry is the same escalation by another route, and
+    // it is sealed elsewhere: it is a file under the user's config
+    // directory rather than a setting, and the one verb that writes it,
+    // `ff extension`, is one the tool does not offer.
+];
+
+/// What the tool says instead of writing a sealed key. The shell is the
+/// place, so the exits are the two lines to type there: the write itself,
+/// and the read that says what applies now.
+fn sealed_refusal(setting: &Setting) -> Error {
+    Error::coded(
+        "usage/mcp-policy-write",
+        format!(
+            "{} decides what fufu refuses, so it is not writable through the MCP tool: set it \
+             in a shell",
+            setting.name
+        ),
+        vec![
+            format!("ff config {} <value>", setting.name),
+            format!("ff config {}", setting.name),
+        ],
+    )
 }
 
 fn lookup_key(input: &str) -> Result<&'static Setting> {
@@ -409,6 +444,16 @@ pub fn run(
     // Lookup the setting
     let input_key = key.as_deref().unwrap_or("");
     let setting = lookup_key(input_key)?;
+
+    // A write to a sealed key through the tool, refused before anything is
+    // read from disk. --unset counts: gitPolicy's default is looser than
+    // strict, so removing a value is a way of lowering the tier.
+    if (unset || value.is_some())
+        && SEALED.contains(&setting.name)
+        && crate::cmd::mcp::child::is_tool_call()
+    {
+        return Err(sealed_refusal(setting));
+    }
 
     // Unset
     if unset {

@@ -26,14 +26,14 @@ pub fn hook(
     all: bool,
     list: bool,
     settings: bool,
-    skill: bool,
+    skill: Option<String>,
 ) -> Result<()> {
     // First, ahead of everything: a print reads no stdin and opens no
     // config file on its way out. It is also the one route to the manual
     // for a client that reads no skills directory — and for one fufu has
     // never heard of.
-    if skill {
-        return print_skill(ctx);
+    if let Some(name) = skill {
+        return print_skill(ctx, &name);
     }
     if let Some(result) = legacy(ctx, &slugs, settings) {
         return result;
@@ -51,14 +51,34 @@ pub fn hook(
 /// file byte-identical to the one an install writes. The JSON form carries
 /// the same string, because anything fufu tells a person a script can read
 /// as data.
-fn print_skill(ctx: &Ctx) -> Result<()> {
+///
+/// A `name` beyond fufu's own is a declared extension's, printed the same
+/// bytes an install would write into `skills/<name>/` — concatenated in the
+/// manifest's own order when it names more than one file. A name nothing on
+/// this machine declares is refused the way `ff extension remove` refuses
+/// one; a name that is declared but names no file fufu could read prints
+/// nothing, on the same doctrine a hook install applies to it.
+fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
+    let text = if name == super::skill::NAME {
+        super::skill::SKILL.to_string()
+    } else {
+        let declared = crate::registry::read().get(name).ok_or_else(|| {
+            Error::coded(
+                "extension/not-declared",
+                format!("nothing on this machine is declared under `{name}`"),
+                vec!["ff extension list".into()],
+            )
+        })?;
+        super::skill::sources(declared)
+            .into_iter()
+            .map(|file| String::from_utf8_lossy(&file.bytes).into_owned())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     if ctx.json {
-        return crate::machine::emit(
-            ctx.command,
-            &serde_json::json!({ "skill": super::skill::SKILL }),
-        );
+        return crate::machine::emit(ctx.command, &serde_json::json!({ "skill": text }));
     }
-    print!("{}", super::skill::SKILL);
+    print!("{text}");
     Ok(())
 }
 
@@ -351,12 +371,12 @@ fn legacy(ctx: &Ctx, slugs: &[String], settings: bool) -> Option<Result<()>> {
             false,
             false,
             settings,
-            false,
+            None,
         ),
         ("agent", "uninstall") => unhook(ctx, vec![name.unwrap_or_else(|| "claude".into())], false),
         ("shell", "install") => {
             match name.or_else(|| super::shell::default_shell().map(str::to_string)) {
-                Some(shell) => hook(ctx, vec![shell], false, false, settings, false),
+                Some(shell) => hook(ctx, vec![shell], false, false, settings, None),
                 None => Err(no_shell()),
             }
         }

@@ -14,6 +14,12 @@
 //! that is written whole and removed whole either way. `--settings` gets
 //! no skill, because the skill rides the plugin.
 //!
+//! A declared extension's own skill files land the same way, beside
+//! `skills/fufu/` under `skills/<name>/` — one directory per extension,
+//! nested inside the plugin fufu already owns, so writing and removing it
+//! whole with the rest costs nothing structural either. `--settings` gets
+//! none of them, on the same rule fufu's own skill does not.
+//!
 //! The MCP server rides the plugin too, as its `.mcp.json`: the fourth
 //! file in the directory, written and removed with the other three. That
 //! is why `--settings` carries no server, on the same rule as the skill.
@@ -127,6 +133,15 @@ fn mcp_wiring() -> Wiring {
     match mcp_spec() {
         Ok(spec) => mcp::wiring(&spec),
         Err(_) => Wiring::NotWired,
+    }
+}
+
+/// Every declared extension's own server in the plugin's `.mcp.json`, and
+/// every name registered there that nothing declares any more.
+fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
+    match mcp_spec() {
+        Ok(spec) => mcp::extensions(&spec),
+        Err(_) => (Vec::new(), Vec::new()),
     }
 }
 
@@ -250,7 +265,33 @@ fn plugin_stale() -> bool {
     missing.len() < EVENTS.len() && missing.iter().any(|(_, need)| *need == Need::Extra)
 }
 
-fn write_plugin() -> Result<()> {
+/// A declared extension's own skill directory, beside `skills/fufu` inside
+/// the plugin — nested inside a directory fufu already owns outright, so
+/// writing and removing it whole costs nothing structural either.
+fn ext_skill_dir(name: &str) -> Result<PathBuf> {
+    Ok(plugin_dir()?.join("skills").join(name))
+}
+
+/// Every declared extension's skill, written or refreshed beside fufu's own.
+/// Answers the ones that actually landed a file, in registry order, so the
+/// caller can report each and say nothing about one that named no readable
+/// skill.
+fn write_ext_skills() -> Result<Vec<String>> {
+    let mut written = Vec::new();
+    for declared in crate::registry::read().declared() {
+        let dir = ext_skill_dir(declared.name())?;
+        if skill::write_sources(&dir, declared)? > 0 {
+            written.push(declared.name().to_string());
+        }
+    }
+    Ok(written)
+}
+
+/// Writes the plugin whole, and answers the extensions whose own skill
+/// landed along with the server registration's own report — which names a
+/// declared extension's server as well as fufu's, and is therefore the
+/// installer's word on it rather than a line this adapter can spell.
+fn write_plugin() -> Result<(Vec<String>, Change)> {
     let (manifest, hooks) = plugin_body();
     let manifest_path = manifest_path()?;
     let hooks_path = hooks_path()?;
@@ -262,10 +303,11 @@ fn write_plugin() -> Result<()> {
     std::fs::write(&manifest_path, manifest).map_err(ff_core::Error::repo)?;
     std::fs::write(&hooks_path, hooks).map_err(ff_core::Error::repo)?;
     skill::write(&skill_dir()?)?;
+    let ext_skills = write_ext_skills()?;
     // The merge engine on a file only fufu writes: the result is the whole
-    // file, and the engine is what keeps the entry's shape in one place.
-    mcp::install(&mcp_spec()?)?;
-    Ok(())
+    // file, and the engine is what keeps the entries' shape in one place.
+    let servers = mcp::install(&mcp_spec()?)?;
+    Ok((ext_skills, servers))
 }
 
 fn remove_plugin() -> Result<bool> {
@@ -322,6 +364,7 @@ impl Integration for Claude {
         // fufu grew an event, is stale; a skill that has drifted is its
         // own row, because it is its own repair, and so is the server.
         let stale = plugin_stale() || spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
+        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -330,6 +373,8 @@ impl Integration for Claude {
             parts: Vec::new(),
             skill: Some(skill_wiring()),
             mcp: Some(mcp_wiring()),
+            mcp_extensions,
+            mcp_orphaned,
             stale,
         }
     }
@@ -343,7 +388,7 @@ impl Integration for Claude {
             return Ok(change);
         }
 
-        write_plugin()?;
+        let (ext_skills, servers) = write_plugin()?;
         // Verify before removing the other wiring: a plugin that did not
         // land must not take the settings entries down with it.
         let verified = plugin_wiring();
@@ -365,10 +410,13 @@ impl Integration for Claude {
         change
             .lines
             .push(format!("skill written to {}", skill_dir()?.display()));
-        change.lines.push(format!(
-            "MCP server registered in {}",
-            mcp_spec()?.path.display()
-        ));
+        for name in &ext_skills {
+            change.lines.push(format!(
+                "{name} skill written to {}",
+                ext_skill_dir(name)?.display()
+            ));
+        }
+        change.lines.extend(servers.lines);
         change.lines.push(
             "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
                 .into(),

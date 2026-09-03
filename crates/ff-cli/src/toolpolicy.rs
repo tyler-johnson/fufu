@@ -10,11 +10,19 @@
 //! refuses the call and names the tool and the exact `args` to call it
 //! with. None of them runs anything in the shell command's place.
 //!
-//! The refusal fires only when a fufu server is verifiably up for the
+//! The refusal fires only when fufu's own server is verifiably up for the
 //! client making the call — `cmd::mcp::presence` decides that — so a
 //! repository with the setting at its default and no server running
 //! behaves exactly as before. Where anything cannot be determined, nothing
 //! is said: the same fail-open doctrine as gitPolicy.
+//!
+//! fufu's own server is the only one asked about. A declared extension may
+//! have a server of its own registered beside it, but that server is a
+//! process the client starts and fufu never sees, so it holds no marker
+//! and nothing here can tell a running one from a registered one. Refusing
+//! on a registration would be refusing on a guess, and this refusal only
+//! ever names the one tool, so what an extension's own server is up to
+//! does not enter into it.
 //!
 //! Unlike gitPolicy, a compound command is read per segment rather than
 //! failing open as a whole. gitPolicy's doctrine is *never refuse what you
@@ -24,6 +32,20 @@
 //!
 //! There is no tally: the operation log already records every `ff` run,
 //! from a shell or a tool, and `ff doctor` has nothing to add.
+//!
+//! What is refused follows the extension registry. A builtin verb and a
+//! declared extension are both served by the tool, so both are refused and
+//! pointed at it. An `ff <name>` nobody declared passes, because a shell is
+//! the only place an undeclared extension runs — the tool does not serve
+//! one — and a repository that refused it in both places would have nowhere
+//! to run it at all. A declared extension whose manifest says its writes
+//! are not undoable passes for that same reason: the tool will not serve
+//! one either. The registry is read only for a word that is neither
+//! shell-only nor a builtin verb, so `ff status` reaches no file; the read
+//! itself is `registry::read`, one cached parse and no PATH walk.
+
+use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use crate::cmd::mcp::child::EXCLUDED;
 
@@ -55,9 +77,18 @@ pub fn read(repo: &ff_core::gix::Repository) -> Policy {
     }
 }
 
-/// The words after `ff` for the first segment of a shell command that
-/// invokes it, as the tool's `args` would carry them — or `None` when no
-/// segment does.
+/// A shell `ff` the tool serves, and what the tool would be called with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Call {
+    /// The words after `ff`, as the tool's `args` would carry them.
+    pub args: Vec<String>,
+    /// The declared extension the first word names, when it names one
+    /// rather than a builtin verb. What lets the refusal say which it is.
+    pub extension: Option<String>,
+}
+
+/// The first segment of a shell command that invokes an `ff` the tool
+/// serves — or `None` when no segment does.
 ///
 /// Segments split on `&&`, `||`, `|`, `&`, `;`, and newlines that stand
 /// outside quotes, backticks, and `$(…)`, so a string or a substitution
@@ -70,17 +101,26 @@ pub fn read(repo: &ff_core::gix::Repository) -> Policy {
 /// names a binary fufu did not resolve, and in fufu's own repository
 /// `target/dogfood/ff status` is a test of a build.
 ///
-/// The six verbs the tool does not offer pass: a segment whose first word
-/// after `ff` is one of [`EXCLUDED`] is not a match. Everything else is,
-/// `--help`, `-C <dir>`, `--session`, and `version` included, because the
-/// tool serves all of them. A `--json` token is dropped, since the tool
-/// adds it, and a bare `ff` becomes `["map"]`, which is what bare `ff` is.
+/// Two kinds of first word pass. One of [`EXCLUDED`] does, because those
+/// verbs are shell-only. An extension nobody declared does too — a word
+/// that is no builtin verb and is not on the registry — because a shell is
+/// the only place one runs. Everything else matches: a builtin verb, a
+/// declared extension, and a line whose first word is no verb at all,
+/// `--help`, `-C <dir>`, and `--session` included, because the tool serves
+/// all of those. A `--json` token is dropped, since the tool adds it, and a
+/// bare `ff` becomes `["map"]`, which is what bare `ff` is.
 ///
 /// Words are whitespace-split and quotes are kept verbatim in the tokens:
 /// `ff commit -m "x y"` yields `["commit", "-m", "\"x", "y\""]`. The words
 /// are a suggestion the agent rewrites into a call, not a command line
 /// fufu composes for it.
-pub fn classify(command: &str) -> Option<Vec<String>> {
+pub fn classify(command: &str) -> Option<Call> {
+    classify_in(command, crate::registry::read())
+}
+
+/// [`classify`] against a registry of the caller's own. The tests' door,
+/// and the reason the one cached reader stays a detail of `classify`.
+fn classify_in(command: &str, registry: &crate::registry::Registry) -> Option<Call> {
     for segment in segments(command) {
         let segment = unwrap(segment.trim());
         let mut tokens = segment.split_whitespace();
@@ -88,9 +128,10 @@ pub fn classify(command: &str) -> Option<Vec<String>> {
             continue;
         }
         let words: Vec<&str> = tokens.collect();
-        if words.first().is_some_and(|verb| EXCLUDED.contains(verb)) {
-            continue;
-        }
+        let extension = match served(words.first().copied(), registry) {
+            Some(extension) => extension,
+            None => continue,
+        };
         let mut args: Vec<String> = words
             .into_iter()
             .filter(|word| *word != "--json")
@@ -99,9 +140,73 @@ pub fn classify(command: &str) -> Option<Vec<String>> {
         if args.is_empty() {
             args.push("map".to_string());
         }
-        return Some(args);
+        return Some(Call { args, extension });
     }
     None
+}
+
+/// Whether the tool serves a segment whose first word after `ff` is this,
+/// and the declared extension it names when it names one.
+///
+/// `Some(None)` is a builtin verb, or a line with no verb in it at all —
+/// `ff --help`, `ff -C sub status`, bare `ff`. `Some(Some(name))` is a
+/// declared extension. `None` is shell-only: one of [`EXCLUDED`], an
+/// extension nobody declared, or a declared one whose manifest says its
+/// writes are not undoable.
+///
+/// That last one is the tool's own refusal read back. The one tool's
+/// annotations say nothing it serves is destructive, so it will not serve
+/// an extension declaring `undoable: false`, and a shell has to be left
+/// holding it for the reason it is left holding an undeclared one: refused
+/// in both places, the verb would have nowhere at all to run.
+fn served(first: Option<&str>, registry: &crate::registry::Registry) -> Option<Option<String>> {
+    let Some(first) = first else {
+        // Bare `ff` is the map, which the tool serves.
+        return Some(None);
+    };
+    if EXCLUDED.contains(&first) {
+        return None;
+    }
+    if builtin(first) {
+        return Some(None);
+    }
+    // A word clap would decline. It names an extension when it is spelled
+    // like one, and a flag or a global's value otherwise, which keeps the
+    // behavior it has always had.
+    if !crate::ext::valid_name(first) {
+        return Some(None);
+    }
+    registry
+        .get(first)
+        .filter(|declared| declared.manifest.undoable)
+        .map(|declared| Some(declared.name().to_string()))
+}
+
+/// Whether the word names a builtin verb.
+///
+/// The live command tree is the answer, aliases and the hidden foreign
+/// verbs included, so the set cannot drift from what clap takes. The tree
+/// is not built — `help` is clap's own subcommand and exists only in a
+/// built one, so it is named here — and the set is collected once, because
+/// the steer reads every shell command the agent runs.
+///
+/// The relay asks the same question of the first word of a tool call, and
+/// asks it here rather than a second time of its own: the two refusals are
+/// halves of one rule, and a word one of them read as a verb and the other
+/// as an extension would be refused in both places or in neither.
+pub(crate) fn builtin(word: &str) -> bool {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            use clap::CommandFactory;
+            crate::cli::Cli::command()
+                .get_subcommands()
+                .flat_map(|sub| std::iter::once(sub.get_name()).chain(sub.get_all_aliases()))
+                .chain(std::iter::once("help"))
+                .map(str::to_string)
+                .collect()
+        })
+        .contains(word)
 }
 
 /// The command cut at every separator that is not inside a quoted string,
@@ -180,8 +285,46 @@ fn unwrap(segment: &str) -> &str {
 mod tests {
     use super::*;
 
+    /// A machine that has declared nothing, which is the common one.
+    fn bare() -> crate::registry::Registry {
+        crate::registry::load(None)
+    }
+
+    /// A registry with one name on it, written the way `ff extension add`
+    /// writes one. The directory is returned so the caller keeps it alive.
+    fn declaring(name: &str) -> (tempfile::TempDir, crate::registry::Registry) {
+        declaring_undoable(name, true)
+    }
+
+    /// The same, saying whether the extension's writes can be taken back.
+    fn declaring_undoable(
+        name: &str,
+        undoable: bool,
+    ) -> (tempfile::TempDir, crate::registry::Registry) {
+        let dir = tempfile::TempDir::new().expect("create tempdir");
+        let file = dir.path().join("extensions.json");
+        let body = serde_json::json!({
+            "ff": crate::machine::CONTRACT,
+            "extensions": [{
+                "path": format!("/usr/local/bin/ff-{name}"),
+                "declared_at": 1788462398,
+                "manifest": {
+                    "name": name,
+                    "version": "0.4.1",
+                    "contract": crate::machine::CONTRACT,
+                    "verbs": [{"name": "brief", "read_only": true}],
+                    "undoable": undoable,
+                },
+            }],
+        });
+        std::fs::write(&file, body.to_string()).expect("write registry");
+        let registry = crate::registry::load(Some(&file));
+        assert!(registry.get(name).is_some(), "the fixture declares {name}");
+        (dir, registry)
+    }
+
     fn words(command: &str) -> Option<Vec<String>> {
-        classify(command)
+        classify_in(command, &bare()).map(|call| call.args)
     }
 
     fn some(args: &[&str]) -> Option<Vec<String>> {
@@ -219,6 +362,60 @@ mod tests {
         assert_eq!(words("ff git push"), None);
         // A later segment that is not shell-only still matches.
         assert_eq!(words("ff git push && ff status"), some(&["status"]));
+    }
+
+    /// A declared extension is the tool's and an undeclared one is the
+    /// shell's, which is the whole of what the registry decides here.
+    #[test]
+    fn a_declared_extension_is_the_tools_and_an_undeclared_one_is_not() {
+        let (_dir, declared) = declaring("tower");
+
+        let call = classify_in("ff tower brief 65", &declared).expect("declared");
+        assert_eq!(call.args, ["tower", "brief", "65"]);
+        assert_eq!(call.extension.as_deref(), Some("tower"));
+
+        // The same word where nobody declared it, and another word where
+        // somebody declared tower: a shell is the only place either runs.
+        assert_eq!(classify_in("ff tower brief 65", &bare()), None);
+        assert_eq!(classify_in("ff bay warm", &declared), None);
+
+        // A builtin verb is the tool's too, and names no extension.
+        let call = classify_in("ff status", &declared).expect("builtin");
+        assert_eq!(call.extension, None);
+    }
+
+    /// The tool refuses a declared extension whose writes it cannot promise
+    /// are undoable, so the shell is what is left holding it.
+    #[test]
+    fn a_declared_extension_that_is_not_undoable_is_the_shells() {
+        let (_dir, declared) = declaring_undoable("tower", false);
+        assert_eq!(classify_in("ff tower brief 65", &declared), None);
+    }
+
+    /// An undeclared extension passing is one segment passing, not the
+    /// command: a later segment the tool serves is still named.
+    #[test]
+    fn a_segment_an_undeclared_extension_owns_does_not_cover_the_next() {
+        assert_eq!(words("ff tower brief && ff status"), some(&["status"]));
+    }
+
+    /// A builtin verb wins over the registry the way it wins over PATH, so
+    /// a declaration under a verb's name changes nothing.
+    #[test]
+    fn a_builtin_verb_is_never_an_extension() {
+        let (_dir, declared) = declaring("status");
+        let call = classify_in("ff status", &declared).expect("builtin");
+        assert_eq!(call.extension, None);
+    }
+
+    /// The builtin set is the live command tree, so an alias, a hidden
+    /// foreign verb, and clap's own `help` are all builtins.
+    #[test]
+    fn an_alias_a_foreign_verb_and_help_are_builtins() {
+        assert_eq!(words("ff st"), some(&["st"]));
+        assert_eq!(words("ff ci -m x"), some(&["ci", "-m", "x"]));
+        assert_eq!(words("ff push"), some(&["push"]));
+        assert_eq!(words("ff help status"), some(&["help", "status"]));
     }
 
     #[test]
