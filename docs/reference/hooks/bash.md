@@ -1,6 +1,6 @@
 # ff hook bash
 
-Two marked lines appended to the end of `~/.bashrc`: the alias, so every git command you type runs through `ff git` and snapshots first, and the prompt hook, so a snapshot lands at every prompt. The file is created if it is missing.
+Two marked lines appended to the end of `~/.bashrc`: the alias, so every git command you type runs through [`ff git`](../../reference/cli/git.md) and snapshots first, and the prompt hook, so a snapshot lands at every prompt. The file is created if it is missing.
 
 ## What it writes
 
@@ -14,9 +14,9 @@ alias git='ff git'  # fufu — added by `ff hook`
 [[ $PROMPT_COMMAND == *"ff trigger shell"* ]] || PROMPT_COMMAND="ff trigger shell;$PROMPT_COMMAND"  # fufu — added by `ff hook`
 ```
 
-Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, and the marker is how fufu tells its own lines from yours. The two pieces are independent. A hand-written `alias git=` line naming `ff git`, or a hand-written line naming `ff trigger shell`, is detected, reported as written by hand, and left alone, and the other piece is still installed. Running `ff hook bash` on a wired file reports both pieces as already wired and changes nothing.
+Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, and the marker is how fufu tells its own lines from yours. The two pieces are independent. A hand-written `alias git=` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed. Running [`ff hook bash`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
 
-Older installs carry the markers `# fufu — added by \`ff hook shell install\`` and `# fufu — added by \`ff shell install\``, and an older prompt line calls `ff hook shell trigger`. All of them still count as fufu's. The next `ff hook bash` rewrites them in place to the current spelling, and `ff doctor` reports them as stale until then.
+Older installs carry the markers `# fufu — added by \`ff hook shell install\`` and `# fufu — added by \`ff shell install\``, and an older prompt line calls `ff hook shell trigger`. All of them still count as fufu's. The next `ff hook bash` rewrites them in place to the current spelling, and [`ff doctor`](../../reference/cli/doctor.md) reports them as stale until then.
 
 ## What `ff unhook bash` removes
 

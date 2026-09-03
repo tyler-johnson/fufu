@@ -6,7 +6,7 @@ One thing to unlearn before you start: there is no staging area, no stash, and n
 
 ## Get a repository
 
-`ff clone` is fufu's own verb, not a wrapper: it speaks the git protocol itself, checks out the worktree, and arms the repository on arrival.
+[`ff clone`](reference/cli/clone.md) is fufu's own verb, not a wrapper: it speaks the git protocol itself, checks out the worktree, and arms the repository on arrival.
 
 ```console
 $ ff clone https://github.com/tyler-johnson/fufu
@@ -14,13 +14,13 @@ cloned into ./fufu — 265 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 ```
 
-The second line is the promise the rest of this tutorial leans on. From this moment, every verb takes a snapshot before it acts, so `ff undo` always has somewhere to land.
+The second line is the promise the rest of this tutorial leans on. From this moment, every verb takes a snapshot before it acts, so [`ff undo`](reference/cli/undo.md) always has somewhere to land.
 
 The repository you just cloned is fufu's own — real history, real files — so everything below is something you can type, not just read. The work you make here stays in your clone.
 
 That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#wire-it-in) if you have not.
 
-If you have a repository git already made, `ff init` inside it means *turn fufu on here* — same arming, nothing else changes. See [Adopting fufu](adopting.md).
+If you have a repository git already made, [`ff init`](reference/cli/init.md) inside it means *turn fufu on here* — same arming, nothing else changes. See [Adopting fufu](adopting.md).
 
 ## Look around
 
@@ -41,7 +41,7 @@ The letters column next to each commit (here just `—`) is an operation id: whi
 
 ## Start work
 
-`ff start` begins a new line of work, always on a fresh branch forked from trunk. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
+[`ff start`](reference/cli/start.md) begins a new line of work, always on a fresh branch forked from trunk. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
 
 ```console
 $ ff start
@@ -63,7 +63,7 @@ on ff/vivid-sparrow · nothing to sync
 │  cut v0.11.0
 ```
 
-`ff status` answers where you are and what is uncommitted, as a diffstat. `ff diff` is the same change read down to the line — and it sees untracked files, which `git diff` does not.
+[`ff status`](reference/cli/status.md) answers where you are and what is uncommitted, as a diffstat. [`ff diff`](reference/cli/diff.md) is the same change read down to the line — and it sees untracked files, which `git diff` does not.
 
 ## Name it, then close it
 
@@ -74,7 +74,7 @@ $ ff describe -m "notes: parser skeleton and char stream"
 pending description on ff/vivid-sparrow: notes: parser skeleton and char stream
 ```
 
-Closing the change is the commit. `ff commit` picks up the pending description:
+Closing the change is the commit. [`ff commit`](reference/cli/commit.md) picks up the pending description:
 
 ```console
 $ ff commit
@@ -90,7 +90,7 @@ closed cdb9cf71 on ff/vivid-sparrow: notes: drop whitespace from the stream (1 f
 undo: ff undo
 ```
 
-`ff log` is the changes view for the branch you are on — the open change atop the commit walk; `-n` bounds the rows:
+[`ff log`](reference/cli/log.md) is the changes view for the branch you are on — the open change atop the commit walk; `-n` bounds the rows:
 
 ```console
 $ ff log -n 5
@@ -108,7 +108,7 @@ $ ff log -n 5
 │  cli: the error id index, generated from ff explain's registry
 ```
 
-The two commits fufu made now wear operation ids. `ff evolog` drills into a commit's history of rewrites through that column, and `ff op log` is the operation log itself.
+The two commits fufu made now wear operation ids. [`ff evolog`](reference/cli/evolog.md) drills into a commit's history of rewrites through that column, and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
 
 ## Switch without stashing
 
@@ -153,7 +153,7 @@ claimed ff/vivid-sparrow as parser-stream
 undo: ff undo
 ```
 
-That stray README edit isn't part of this work. `ff restore` discards one file's edits, back to the commit beneath the change:
+That stray README edit isn't part of this work. [`ff restore`](reference/cli/restore.md) discards one file's edits, back to the commit beneath the change:
 
 ```console
 $ ff restore README.md
@@ -179,7 +179,7 @@ The target commit was amended in place and everything above it re-parented in th
 
 (This section and the publish below were captured against a copy of the repository with push access — on your clone of fufu, read these two beats along, and replay them the day you point fufu at a repository of your own.)
 
-Meanwhile a teammate landed a commit on `main`. `ff sync` lines every branch up with both things it answers to: the base beneath it and the remote copy of itself. It fetches once, replays your commits in memory, touches the tree only when the replay is clean, and then reports the other branches it moved, here `main` fast-forwarding to what the teammate pushed:
+Meanwhile a teammate landed a commit on `main`. [`ff sync`](reference/cli/sync.md) lines every branch up with both things it answers to: the base beneath it and the remote copy of itself. It fetches once, replays your commits in memory, touches the tree only when the replay is clean, and then reports the other branches it moved, here `main` fast-forwarding to what the teammate pushed:
 
 ```console
 $ ff sync
@@ -226,9 +226,9 @@ undid (a change made outside fufu): absorbed 1 foreign ref change(s)
 back: ff redo
 ```
 
-The reset was never dangerous: fufu snapshotted before it ran, noticed the foreign ref motion, and undid it as if it were any other operation. `ff redo` goes forward again.
+The reset was never dangerous: fufu snapshotted before it ran, noticed the foreign ref motion, and undid it as if it were any other operation. [`ff redo`](reference/cli/redo.md) goes forward again.
 
-Undo repeats — each press steps one run of work further back. `ff history` is the map of where you can go: `@` is where the repository stands, each row below is one more press of `ff undo`, each row above one more `ff redo`:
+Undo repeats — each press steps one run of work further back. [`ff history`](reference/cli/history.md) is the map of where you can go: `@` is where the repository stands, each row below is one more press of `ff undo`, each row above one more `ff redo`:
 
 ```console
 $ ff history
@@ -251,7 +251,7 @@ $ ff history
     (the floor)
 ```
 
-Every row is also an address: `ff op show <id>` says what one was, and `ff op restore <id>` lands on it directly instead of pressing undo five times.
+Every row is also an address: [`ff op show <id>`](reference/cli/op-show.md) says what one was, and [`ff op restore <id>`](reference/cli/op-restore.md) lands on it directly instead of pressing undo five times.
 
 ## Where you are now
 

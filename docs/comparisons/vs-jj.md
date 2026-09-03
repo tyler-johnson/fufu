@@ -52,15 +52,15 @@ The inversion has real costs, and DESIGN.md names them rather than hiding them:
 - **You cannot build on a post-rewrite state before its conflicts are resolved.** jj lets you keep stacking on top of a conflicted commit; in fufu the rewrite is held, and you keep working at the existing tip while the pending rewrite replays over whatever you add.
 - **Conflicted commits cannot be shipped around.** In jj a conflict is an object you could in principle push; fufu never creates one — which you would never want to push anyway, but the capability is genuinely absent.
 - **jj's conflicts simplify as they propagate**, because they are expressions; fufu carries conflicts forward as literal marker text, and text does not simplify itself. A later commit can leave a mark alone, not dissolve it.
-- **The operation log has a floor.** jj is present from a repository's birth in a way an adopted overlay is not: `ff undo` reaches back to the moment the repository was armed, and no further.
+- **The operation log has a floor.** jj is present from a repository's birth in a way an adopted overlay is not: [`ff undo`](../reference/cli/undo.md) reaches back to the moment the repository was armed, and no further.
 
 ## Two answers to conflicts
 
 This is the deepest divergence, and it deserves its own sentence-length summary: jj stores an unresolved conflict *inside* the resulting commit; fufu stores it as the *absence* of the resulting commit.
 
-fufu's observation is that for a human, conflicts are operation-shaped, not edit-shaped — and the user-visible benefit of jj's model is scheduling: the conflict doesn't interrupt you, and you resolve it when you choose. That benefit survives translation. When a rewrite would conflict, nothing is touched; the intent is held, both inputs stay ordinary git commits, and `ff resolve` materializes the whole thing on your schedule — every standing region in one editing session, each side labeled with the step that wrote it, and the entire rebased stack landing at once when you finish. No conflicted state ever exists in the graph.
+fufu's observation is that for a human, conflicts are operation-shaped, not edit-shaped — and the user-visible benefit of jj's model is scheduling: the conflict doesn't interrupt you, and you resolve it when you choose. That benefit survives translation. When a rewrite would conflict, nothing is touched; the intent is held, both inputs stay ordinary git commits, and [`ff resolve`](../reference/cli/resolve.md) materializes the whole thing on your schedule — every standing region in one editing session, each side labeled with the step that wrote it, and the entire rebased stack landing at once when you finish. No conflicted state ever exists in the graph.
 
-Deferral only works because jj paired it with relentless disclosure, and held rewrites inherit all three of its disciplines: announced at creation, pinned in every status until gone, and blocking the exit — `ff publish` refuses a branch with a held rewrite, the way jj refuses to push conflicted commits. [Held rewrites](../concepts/held-rewrites.md) has the full model.
+Deferral only works because jj paired it with relentless disclosure, and held rewrites inherit all three of its disciplines: announced at creation, pinned in every status until gone, and blocking the exit — [`ff publish`](../reference/cli/publish.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits. [Held rewrites](../concepts/held-rewrites.md) has the full model.
 
 ## Choosing
 

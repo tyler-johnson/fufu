@@ -10,7 +10,7 @@ Three flags name a different source, one kind each, because a position argument 
 --at <time>       the operation current at a time (30m/2h/3d, or a date)
 ```
 
-Only the worktree is written. The index, HEAD, and branches stay exactly as they are. Restore takes its own capture first, and that one is mandatory: if the pre-restore capture fails, nothing is written. So any restore is undone by another restore, or by `ff undo`.
+Only the worktree is written. The index, HEAD, and branches stay exactly as they are. Restore takes its own capture first, and that one is mandatory: if the pre-restore capture fails, nothing is written. So any restore is undone by another restore, or by [`ff undo`](undo.md).
 
 ## Usage
 

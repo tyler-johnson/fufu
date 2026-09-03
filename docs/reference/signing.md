@@ -12,7 +12,7 @@ git config gpg.format ssh                       # or openpgp (the default), or x
 git config user.signingkey ~/.ssh/id_ed25519.pub
 ```
 
-`ff doctor` has a `signing` row that says whether that will work — the format, the program it names, the key, and for ssh the allowed-signers file verification needs. It is read-only and runs nothing, so asking costs no pinentry prompt.
+[`ff doctor`](../reference/cli/doctor.md) has a `signing` row that says whether that will work — the format, the program it names, the key, and for ssh the allowed-signers file verification needs. It is read-only and runs nothing, so asking costs no pinentry prompt.
 
 ## The three formats
 
@@ -30,8 +30,8 @@ Verification reads three more of git's keys: `gpg.ssh.allowedSignersFile`, `gpg.
 
 Every commit that is *your* work:
 
-- `ff commit` — the close.
-- Every commit a rewrite replays: `ff describe`, `ff absorb`, `ff lift`, `ff restack`, `ff sync`, `ff done`, `ff resolve`.
+- [`ff commit`](../reference/cli/commit.md) — the close.
+- Every commit a rewrite replays: [`ff describe`](../reference/cli/describe.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md), [`ff sync`](../reference/cli/sync.md), [`ff done`](../reference/cli/done.md), [`ff resolve`](../reference/cli/resolve.md).
 
 This is a deliberate departure from git, where `git rebase` needs `rebase.gpgSign` set separately and a rebase silently unsigns a branch without it. `commit.gpgsign` governs every user commit fufu writes, replays included. fufu's whole model is that history moves under you — a restack that quietly unsigned three commits is exactly the failure signing exists to prevent.
 
@@ -59,7 +59,7 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false ff r
 
 ## Reading signatures back
 
-`ff show <rev>` verifies the commit it shows and prints a `signature:` line when there is one — the verdict, who signed, and on a second line which key said so:
+[`ff show <rev>`](../reference/cli/show.md) verifies the commit it shows and prints a `signature:` line when there is one — the verdict, who signed, and on a second line which key said so:
 
 ```
 7e2de1ff  Tyler Johnson  13m ago
@@ -69,7 +69,7 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false ff r
 
 `--json` carries the same as a `signature` object. An unsigned commit gets no line and costs no signer run.
 
-`ff log` marks signed commits `signed`, by default and for free: whether a commit carries a signature is a header on an object the walk already decoded, so it costs no signer run. `ff status` marks its parent commit row the same way. The word is deliberately `signed` and not `verified` — nothing was checked to say it.
+[`ff log`](../reference/cli/log.md) marks signed commits `signed`, by default and for free: whether a commit carries a signature is a header on an object the walk already decoded, so it costs no signer run. [`ff status`](../reference/cli/status.md) marks its parent commit row the same way. The word is deliberately `signed` and not `verified` — nothing was checked to say it.
 
 Checking is what `--signatures` buys, and it replaces the mark with the verdict, the tool, and the eight characters that identify the key:
 
@@ -111,6 +111,6 @@ Signing is resolved once per verb, before the first object is written, so a misc
 - `sign/no-program` — the program is not on `PATH`.
 - `sign/failed` — the signer ran and refused. Its own words are in the message.
 
-`ff explain <id>` has the long form of each, and [the error id index](errors.md) lists every id with its exit code.
+[`ff explain <id>`](../reference/cli/explain.md) has the long form of each, and [the error id index](errors.md) lists every id with its exit code.
 
 fufu captures the signer's stderr rather than letting it through, which is what makes those messages worth reading. A passphrase prompt still reaches your terminal: gpg-agent's pinentry opens the tty itself through `GPG_TTY` rather than inheriting fufu's.

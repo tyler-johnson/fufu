@@ -1,12 +1,12 @@
 # ff diff
 
-The open change as a patch: what `ff commit` would land, and what it says. Every other view here reports `path +N -M`; this is the same tree diff read down to the line.
+The open change as a patch: what [`ff commit`](commit.md) would land, and what it says. Every other view here reports `path +N -M`; this is the same tree diff read down to the line.
 
-It is the one patch tool that sees the whole change. `git diff` is blind to untracked files, and an untracked file is exactly where a wrong commit comes from — so the file you just created shows up here with its content, without an `ff status` first to make it visible.
+It is the one patch tool that sees the whole change. `git diff` is blind to untracked files, and an untracked file is exactly where a wrong commit comes from — so the file you just created shows up here with its content, without an [`ff status`](status.md) first to make it visible.
 
 The body is git's unified diff, verbatim, because a patch format is not fufu's to invent: what comes out of here is what `git apply` takes. The diffstat is `ff status`, and this verb deliberately does not reprint it.
 
-Paths narrow it, by the rule `ff restore` speaks: a file, or a directory prefix. No globs.
+Paths narrow it, by the rule [`ff restore`](restore.md) speaks: a file, or a directory prefix. No globs.
 
 ## Usage
 

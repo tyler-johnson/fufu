@@ -1,6 +1,6 @@
 # ff op revert
 
-Invert one operation and leave everything after it standing. Where `ff op restore` rewinds to a moment, this undoes a single change in the middle of later work.
+Invert one operation and leave everything after it standing. Where [`ff op restore`](op-restore.md) rewinds to a moment, this undoes a single change in the middle of later work.
 
 It is the one verb in this family that *writes* an operation, because inverting one change while later work stands is itself a thing that happened, and the log should say so.
 

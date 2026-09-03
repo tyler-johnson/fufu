@@ -4,7 +4,7 @@ fufu's guarantees follow its surface. Inside it, jj's rules apply; outside it, g
 
 ## Inside: through fufu
 
-An operation that goes through fufu gets everything fufu promises. The working tree is [snapshotted](snapshots-and-undo.md) before the operation runs, so nothing it does can lose file state. The operation lands in the operation log, so one `ff undo` takes it back — refs and working tree together. Switching branches [parks](branches.md) dirty work, so it resumes with its branch. Syncing replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose. And `ff status` reports futures, not just facts: not "12 commits behind main" but "rebases cleanly onto main," computed in memory before you commit to anything.
+An operation that goes through fufu gets everything fufu promises. The working tree is [snapshotted](snapshots-and-undo.md) before the operation runs, so nothing it does can lose file state. The operation lands in the operation log, so one [`ff undo`](../reference/cli/undo.md) takes it back — refs and working tree together. Switching branches [parks](branches.md) dirty work, so it resumes with its branch. Syncing replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose. And [`ff status`](../reference/cli/status.md) reports futures, not just facts: not "12 commits behind main" but "rebases cleanly onto main," computed in memory before you commit to anything.
 
 The user who stays on the fufu surface never meets a conflict at a moment they didn't choose. That is what "inside" buys.
 
@@ -12,7 +12,7 @@ The user who stays on the fufu surface never meets a conflict at a moment they d
 
 Everything else — a GUI's branch switcher, a raw `git pull` in another terminal, an IDE's commit button, a teammate's push, a script that shells out to git — is outside. Outside, you get git's exact documented behavior, including git's conflicts at git's usual moments. That is expected, and it belongs to you; fufu does not reach into operations it did not perform. There are no hooks that intercept, no wrappers that second-guess, no state that a foreign write can corrupt.
 
-Guards obey the same boundary. `ff sync` refuses to publish a stack with held rewrites, because that guard is a property of fufu's verb. Raw `git push` is git, and it pushes; the status channel gets loud after the fact rather than a hook getting in the way.
+Guards obey the same boundary. [`ff sync`](../reference/cli/sync.md) refuses to publish a stack with held rewrites, because that guard is a property of fufu's verb. Raw `git push` is git, and it pushes; the status channel gets loud after the fact rather than a hook getting in the way.
 
 This makes GUIs and IDEs first-class writers, not tolerated exceptions. Every git GUI keeps working identically — showing status, making commits, switching branches — because fufu's conveniences accrue per-operation to whoever goes through fufu, and cost nothing to whoever doesn't.
 

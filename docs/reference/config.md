@@ -10,7 +10,7 @@ Because storage is ordinary git config, `git config fufu.keep` reads and writes 
 
 ## The pager
 
-`ff log`, `ff evolog`, and `ff op log` page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
+[`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op log`](../reference/cli/op-log.md) page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
 
 1. `fufu.pager` git config — when set, it overrides both environment variables.
 2. `FF_PAGER`.
@@ -104,6 +104,6 @@ How many commits bare ff walks before it stops and says so with a trailing ~. Th
 The `fufu.*` keys above are fufu's own. Everything else fufu needs, it reads from git's existing configuration rather than keeping a second copy:
 
 - **Identity.** Commits and operations are authored from `user.name` and `user.email`. With neither set, fufu refuses with the same fix git would ask for: `git config user.name <name>`, `git config user.email <email>`.
-- **URLs, proxies, and credentials.** `ff sync` and `ff clone` speak the git protocol natively, but they honor `url.<base>.insteadOf` rewrites, `http.proxy`, and `credential.helper` from your git config, and they invoke your credential helpers and `ssh` exactly as git would. Push runs the git binary itself, so everything that configures a git push applies unchanged.
+- **URLs, proxies, and credentials.** [`ff sync`](../reference/cli/sync.md) and [`ff clone`](../reference/cli/clone.md) speak the git protocol natively, but they honor `url.<base>.insteadOf` rewrites, `http.proxy`, and `credential.helper` from your git config, and they invoke your credential helpers and `ssh` exactly as git would. Push runs the git binary itself, so everything that configures a git push applies unchanged.
 
 The practical consequence: a repo that already fetches through a corporate proxy or authenticates through a credential helper keeps working under fufu with nothing new to configure. fufu adds settings only for behavior git does not have.

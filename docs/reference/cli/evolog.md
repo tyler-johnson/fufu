@@ -1,10 +1,10 @@
 # ff evolog
 
-Every operation on the change you have open, newest first — the drill-in behind the letters column in `ff log`. This is where a lost hour is found: each row is a whole worktree, and `ff restore --at-op <id>` brings any of them back.
+Every operation on the change you have open, newest first — the drill-in behind the letters column in [`ff log`](log.md). This is where a lost hour is found: each row is a whole worktree, and [`ff restore --at-op <id>`](restore.md) brings any of them back.
 
 Because fufu captures before it works, the newest row is often this command's own capture, taken a moment ago when it found the tree dirty. That is intended.
 
-Ids are spelled in the letters k–z, never hex digits, so an operation id can never be misread as a commit sha. The bold prefix is the shortest one `ff op` and `--at-op` resolve unambiguously.
+Ids are spelled in the letters k–z, never hex digits, so an operation id can never be misread as a commit sha. The bold prefix is the shortest one [`ff op`](op.md) and `--at-op` resolve unambiguously.
 
 -p prints each row's patch under it — what that one operation changed, measured against the capture before it on this branch.
 

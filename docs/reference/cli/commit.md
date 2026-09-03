@@ -1,12 +1,12 @@
 # ff commit
 
-There is no staging step: the working tree is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by `ff describe`. -b lands the close on a branch — it claims the anonymous branch you are standing on, or forks a fresh one from here, leaving the branch you were on where it was.
+There is no staging step: the working tree is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by [`ff describe`](describe.md). -b lands the close on a branch — it claims the anonymous branch you are standing on, or forks a fresh one from here, leaving the branch you were on where it was.
 
-Paths close a slice: a file or a directory — the same rule `ff restore` and `ff diff` speak, no globs — and what lies under it lands while the rest stays open, still the change you are in the middle of. Selection is by path and made once at the close; there is no hunk-level pick, and when one file holds two changes, `ff git commit -p` builds that commit with git's own `-p`, capture-first, and refused under `fufu.gitPolicy strict` like every git commit. The remainder is left without a description, and `ff describe -m` gives it one.
+Paths close a slice: a file or a directory — the same rule [`ff restore`](restore.md) and [`ff diff`](diff.md) speak, no globs — and what lies under it lands while the rest stays open, still the change you are in the middle of. Selection is by path and made once at the close; there is no hunk-level pick, and when one file holds two changes, [`ff git commit -p`](git.md) builds that commit with git's own `-p`, capture-first, and refused under `fufu.gitPolicy strict` like every git commit. The remainder is left without a description, and `ff describe -m` gives it one.
 
 Signing follows git's configuration: `commit.gpgsign` and `gpg.format`, with the key from `user.signingkey`, in all three formats git signs in — openpgp, x509 and ssh. -S signs a repository that does not, --no-sign declines to sign one that does. Both are plain switches: `ff commit` takes positional paths, so git's `-S<keyid>` would make `ff commit -S file.txt` ambiguous, and the key always comes from `user.signingkey`. With signing on, the `@` row shows no predicted sha — a signature is not something a render can know without running the signer.
 
-A clean tree has nothing to close either way: a description does not make one — it waits for the next close instead. Every close is recorded, so `ff undo` takes it back — tree and refs together.
+A clean tree has nothing to close either way: a description does not make one — it waits for the next close instead. Every close is recorded, so [`ff undo`](undo.md) takes it back — tree and refs together.
 
 ## Usage
 

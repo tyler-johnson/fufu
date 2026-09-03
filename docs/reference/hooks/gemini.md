@@ -45,7 +45,7 @@ $ cat ~/.gemini/settings.json
 }
 ```
 
-`BeforeTool` is the snapshot before a shell command, a file write, or a replace; `SessionStart` is where the briefing lands. Entries already in the file that run something else stay, and so does every other setting in the file. A file that is not valid JSON is refused untouched. Running `ff hook gemini` on a wired file reports it as already wired and changes nothing. The server entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`; Gemini CLI spells no transport, so the entry carries none. A `fufu` entry that runs something else was written by hand and is left alone.
+`BeforeTool` is the snapshot before a shell command, a file write, or a replace; `SessionStart` is where the briefing lands. Entries already in the file that run something else stay, and so does every other setting in the file. A file that is not valid JSON is refused untouched. Running [`ff hook gemini`](../../reference/cli/hook.md) on a wired file reports it as already wired and changes nothing. The server entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`; Gemini CLI spells no transport, so the entry carries none. A `fufu` entry that runs something else was written by hand and is left alone.
 
 ## What `ff unhook gemini` removes
 

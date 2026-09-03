@@ -18,13 +18,13 @@ $ ff sync                         # line up with base and remote, replayed in me
 $ ff publish                      # the one thing fufu can't undo, so it's the one you type
 ```
 
-And when anything goes wrong — including things done behind fufu's back with raw git — one `ff undo` brings refs and working tree back together, as far back as the last capture, which is what the [hooks decide](comparisons/vs-git.md#the-honest-costs).
+And when anything goes wrong — including things done behind fufu's back with raw git — one [`ff undo`](reference/cli/undo.md) brings refs and working tree back together, as far back as the last capture, which is what the [hooks decide](comparisons/vs-git.md#the-honest-costs).
 
 ## Where to go
 
-- [Install](install.md), then `ff hook` — optional, recommended: it wires the shells and agent clients on this machine, and without it fufu captures only when you type an `ff` command.
+- [Install](install.md), then [`ff hook`](reference/cli/hook.md) — optional, recommended: it wires the shells and agent clients on this machine, and without it fufu captures only when you type an `ff` command.
 - The [tutorial](tutorial.md): the whole loop once, with real transcripts.
-- Already have a repository git made? [Adopting fufu](adopting.md) is `ff init` inside it.
+- Already have a repository git made? [Adopting fufu](adopting.md) is [`ff init`](reference/cli/init.md) inside it.
 - Deciding whether to switch from plain git: [fufu vs git](comparisons/vs-git.md) — what disappears, what stays, and what your aliases cannot do.
 - Working alongside people who type git: [plain-git teammates](guides/plain-git-teammates.md) — what they see, what typing git yourself does, and what fufu can and cannot do about someone else's force-push.
 - Coming from jj, or wondering why this exists at all: [fufu vs jj](comparisons/vs-jj.md) is the thesis.

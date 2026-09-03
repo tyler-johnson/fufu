@@ -16,11 +16,11 @@ The verbs move a change between these states and do nothing else: `ff commit` cl
 
 `ff commit` closes the open change into a commit. There is no `add` first, because there is nothing to add to: the tree is already the change. `-m` describes what is closing.
 
-Path arguments close a slice. `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open — still the change you are in the middle of. Paths follow the same rule `ff restore` and `ff diff` speak: a file, or a directory whose whole subtree lands, and no globs.
+Path arguments close a slice. `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open — still the change you are in the middle of. Paths follow the same rule [`ff restore`](../reference/cli/restore.md) and [`ff diff`](../reference/cli/diff.md) speak: a file, or a directory whose whole subtree lands, and no globs.
 
 A slice is selection at the moment of the close, not a staging area. git's index is a real capability — a place to assemble a commit hunk by hunk, at the price of a state to keep in sync between commits; fufu trades the hunk-level assembly away and gets back having nothing to maintain: the selection is an argument to one command, path-level, made once, with nothing persisting afterward. If `git add -p` is your daily habit, the honest accounting — including the escape hatch — is in the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest). The part left open keeps no description — the one it had went out with the slice — and `ff describe -m` gives the remainder its own.
 
-A clean tree has nothing to close, so `ff commit` on one is a no-op rather than an empty commit. And every close is a recorded operation: `ff undo` takes it back, tree and refs together.
+A clean tree has nothing to close, so `ff commit` on one is a no-op rather than an empty commit. And every close is a recorded operation: [`ff undo`](../reference/cli/undo.md) takes it back, tree and refs together.
 
 ## Pending descriptions
 
@@ -54,6 +54,6 @@ on ff/hidden-wren · nothing to sync
 │  release: cut v0.1.0
 ```
 
-Bare `ff` — the map — shows the `@` row where you stand and marks other branches that hold a parked change. `ff status` reads the `@` row as a diffstat: the files that differ from the commit beneath it. `ff log` puts `@` atop the walk; with `-r` the row appears only when the open change is a member of the revset, and with paths only when the change touches them, because those are questions about a set, not about you.
+Bare `ff` — the map — shows the `@` row where you stand and marks other branches that hold a parked change. [`ff status`](../reference/cli/status.md) reads the `@` row as a diffstat: the files that differ from the commit beneath it. [`ff log`](../reference/cli/log.md) puts `@` atop the walk; with `-r` the row appears only when the open change is a member of the revset, and with paths only when the change touches them, because those are questions about a set, not about you.
 
 The `@` row always exists. `no changes` means the tree matches the commit beneath it — the open change is empty, not gone — and the pending description prints under the row, so a change you have named but not yet closed already reads the way its commit will.

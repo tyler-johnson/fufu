@@ -6,7 +6,7 @@ Every transcript below is real `ff` output. fufu calls a secondary worktree a ba
 
 ## A second checkout
 
-Bare `ff worktree` is the list. A fresh clone has one row — the tree you are standing in, marked `*`, with its checkout path and the branch it stands on:
+Bare [`ff worktree`](../reference/cli/worktree.md) is the list. A fresh clone has one row — the tree you are standing in, marked `*`, with its checkout path and the branch it stands on:
 
 ```console
 $ ff worktree
@@ -26,11 +26,11 @@ $ ff worktree
   bay       /tmp/tmp.2gL2qhGWtM/bay   bay
 ```
 
-The `its log` line is the part git does not have: each worktree carries its own operation chain, and the chain floor is laid as the worktree is made, so `ff undo` works in the bay from its first command. A checkout written by hand with `git worktree add` gets its floor on its first fufu command instead, and undo in it is blind until then.
+The `its log` line is the part git does not have: each worktree carries its own operation chain, and the chain floor is laid as the worktree is made, so [`ff undo`](../reference/cli/undo.md) works in the bay from its first command. A checkout written by hand with `git worktree add` gets its floor on its first fufu command instead, and undo in it is blind until then.
 
 ## Each tree has its own open change
 
-Every worktree holds exactly one [open change](../concepts/changes.md). `ff status` in the bay is about the bay — its own uncommitted files, on its own branch, with capture running there the same as anywhere:
+Every worktree holds exactly one [open change](../concepts/changes.md). [`ff status`](../reference/cli/status.md) in the bay is about the bay — its own uncommitted files, on its own branch, with capture running there the same as anywhere:
 
 ```console
 $ ff status
@@ -178,7 +178,7 @@ undo: ff undo
 
 ## Removal captures first
 
-The bay now holds a half-written, uncommitted file. `git worktree remove` demands `--force` for a dirty tree because it has nowhere to put the work. `ff worktree remove` has no `--force`, because the capture comes first, into the bay's own chain, and the removal says where the work went:
+The bay now holds a half-written, uncommitted file. `git worktree remove` demands `--force` for a dirty tree because it has nowhere to put the work. [`ff worktree remove`](../reference/cli/worktree-remove.md) has no `--force`, because the capture comes first, into the bay's own chain, and the removal says where the work went:
 
 ```console
 $ ff worktree remove bay
@@ -187,7 +187,7 @@ removed bay (was on bay)
   its log stays at refs/fufu/wt/bay/ops
 ```
 
-The chain outlives the checkout. `ff worktree list` shows it under the gone chains, with the capture's operation id on the row:
+The chain outlives the checkout. [`ff worktree list`](../reference/cli/worktree-list.md) shows it under the gone chains, with the capture's operation id on the row:
 
 ```console
 $ ff worktree list

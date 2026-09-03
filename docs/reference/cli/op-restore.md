@@ -2,11 +2,11 @@
 
 Rewind the whole repository to an operation: refs, HEAD, the working tree and the index together, exactly as that operation recorded them.
 
-It moves the log's pointer rather than appending, so what it steps off stays reachable and `ff redo` walks back forward along it. Nothing is discarded and no entry is written saying you navigated — the log records work, not movement.
+It moves the log's pointer rather than appending, so what it steps off stays reachable and [`ff redo`](redo.md) walks back forward along it. Nothing is discarded and no entry is written saying you navigated — the log records work, not movement.
 
 --force rewinds to what remains when parts of the recorded state have already been trimmed, naming each missing piece instead of refusing.
 
-`ff undo` is this verb without an argument, moving one run at a time.
+[`ff undo`](undo.md) is this verb without an argument, moving one run at a time.
 
 ## Usage
 

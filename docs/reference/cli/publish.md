@@ -1,6 +1,6 @@
 # ff publish
 
-Send this branch to its remote. The outgoing half of lining up, and the one thing fufu does that no operation log can take back — which is exactly why it is a verb you type rather than a default riding along inside another one. `ff sync` takes in; this sends.
+Send this branch to its remote. The outgoing half of lining up, and the one thing fufu does that no operation log can take back — which is exactly why it is a verb you type rather than a default riding along inside another one. [`ff sync`](sync.md) takes in; this sends.
 
 There is a way back, and it is this verb rather than ff undo: undo the commit and publish again, and the lease rolls the shared copy back to where the branch now stands. That is not erasure — other clones may hold the commits, CI ran, a webhook fired — but the shared copy is yours to move, and fufu records every push so it knows which commits out there are your own.
 

@@ -2,7 +2,7 @@
 
 **A script, a CI job, or an agent calling `ff` is a first-class reader: every reader takes `--json`, every failure carries a stable id, and every exit code means one thing.**
 
-A verb computes one data model, and the human rendering and the JSON rendering are both consumers of it, never translations of each other. `--json` is therefore not the human layout re-serialized: `ff status` crops to what an eye wants, while its JSON carries the model whole — the full change list, the [open change](../concepts/changes.md), the parent commit, the sync futures. This is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
+A verb computes one data model, and the human rendering and the JSON rendering are both consumers of it, never translations of each other. `--json` is therefore not the human layout re-serialized: [`ff status`](../reference/cli/status.md) crops to what an eye wants, while its JSON carries the model whole — the full change list, the [open change](../concepts/changes.md), the parent commit, the sync futures. This is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
 
 Every transcript below is real `ff` output. Where one is piped through `jq .`, that is for the page's eye — the actual emission is always a single line.
 
@@ -142,7 +142,7 @@ $ ff history --json | jq -c '.data.steps[]'
 {"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","landing":"undo","kind":"note","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"collapsed":1,"distance":4}
 ```
 
-`landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo — redo rows carry negative `distance`, so `distance` alone says how many presses in which direction. `collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, `note` records something that moved no tree — a publish, the log's floor. The envelope also carries `data.floor`, true when the log bottoms out at the initialized-from-observed-state entry. Every `id` here is a valid argument to the `ff op` verbs.
+`landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo — redo rows carry negative `distance`, so `distance` alone says how many presses in which direction. `collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, `note` records something that moved no tree — a publish, the log's floor. The envelope also carries `data.floor`, true when the log bottoms out at the initialized-from-observed-state entry. Every `id` here is a valid argument to the [`ff op`](../reference/cli/op.md) verbs.
 
 ## Exit codes
 
@@ -158,7 +158,7 @@ Five codes, one meaning each:
 
 The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry. Exit 4 asks the opposite: another writer held the ref for a moment, so retry the same command, with a cap, because a lock file nobody clears gives the same answer every time. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
 
-Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, `ff git <word>` refuses any git word fufu has a verb for, before the capture and before anything runs:
+Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses any git word fufu has a verb for, before the capture and before anything runs:
 
 ```console
 $ ff config gitPolicy strict
@@ -174,7 +174,7 @@ $ echo $?
 
 The refusal is a usage error — id `usage/git-policy` — because the command line itself is what policy rejects. Nothing was captured and nothing ran; the exits name the fufu verb to type instead. Git words fufu has no verb of its own for pass straight through under every policy, so a strict repository still runs `ff git rebase` or `ff git bisect` untouched. [Agent setup](setup.md) covers choosing a policy tier.
 
-One more contract keeps scripts out of stuck states: no verb ever blocks on a prompt or an editor with nobody there to answer. Wherever fufu would ask, a flag supplies the answer up front, and when stdin is not a terminal — or `FF_NONINTERACTIVE` is set to force it — the question becomes a structured error naming that flag, such as `ff describe` with no `-m` failing instead of opening an editor.
+One more contract keeps scripts out of stuck states: no verb ever blocks on a prompt or an editor with nobody there to answer. Wherever fufu would ask, a flag supplies the answer up front, and when stdin is not a terminal — or `FF_NONINTERACTIVE` is set to force it — the question becomes a structured error naming that flag, such as [`ff describe`](../reference/cli/describe.md) with no `-m` failing instead of opening an editor.
 
 ## The MCP surface
 
@@ -203,11 +203,11 @@ While the server is up for a Claude Code session, `fufu.toolPolicy` (default `st
 
 ## Piped output never pages
 
-The log family — `ff log`, `ff evolog`, `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human. Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes. Color follows the same discipline: ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.
+The log family — [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human. Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes. Color follows the same discipline: ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.
 
 ## Detecting fufu programmatically
 
-`ff version --json` answers from anywhere, repository or not, and is the cheapest "is fufu here, and which one" probe — the fields are `version`, `commit`, `date`, and the update status, so a caller never takes the display string apart.
+[`ff version --json`](../reference/cli/version.md) answers from anywhere, repository or not, and is the cheapest "is fufu here, and which one" probe — the fields are `version`, `commit`, `date`, and the update status, so a caller never takes the display string apart.
 
 Inside a directory, any reader says whether a repository is present by its error id:
 

@@ -12,7 +12,9 @@
 //! A page is the help file's markdown emitted verbatim — the description
 //! above a fenced `## Usage` block holding what clap prints for the verb,
 //! the `## Examples` section below it. The prose is docs-grade because it is
-//! the same prose `ff help <verb>` renders; nothing is written twice.
+//! the same prose `ff help <verb>` renders; nothing is written twice. The one
+//! transformation is a link: the first mention of every other verb on a page
+//! points at that verb's page, the convention the hand-written docs keep.
 //!
 //! `docs/reference/config.md` gets the same treatment in miniature: the
 //! settings registry in `cmd/config.rs` renders into a marked region of that
@@ -22,6 +24,7 @@
 //! is the third region: the error id registry in `explain.rs`, one table row
 //! per id with the exit code it carries.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -65,12 +68,63 @@ fn usage(cmd: &clap::Command) -> String {
     cmd.render_long_help().to_string().trim_end().to_string()
 }
 
-/// One command's page: title, the markdown description verbatim, the fenced
-/// usage block, and the `## Examples` section verbatim.
-fn page(path: &str, cmd: &clap::Command) -> Page {
+/// The first mention of every other verb on a page becomes a link to that
+/// verb's page: `` `ff op log` `` reads `[`ff op log`](op-log.md)` once and
+/// bare after, which is the convention the hand-written pages keep. The
+/// page's own verb stays bare, fenced blocks and headings are left alone, and
+/// a span naming no page (`ff help`, an extension) is not touched. Paths are
+/// matched longest first, so `ff op log` reaches its own page rather than
+/// `ff op`'s.
+fn linkify(md: &str, this: &str, verbs: &[String]) -> String {
+    let mut done: HashSet<&str> = HashSet::new();
+    done.insert(this);
+    let mut out = String::with_capacity(md.len());
+    let mut fenced = false;
+    for line in md.split_inclusive('\n') {
+        if line.starts_with("```") {
+            fenced = !fenced;
+        }
+        if fenced || line.starts_with('#') {
+            out.push_str(line);
+            continue;
+        }
+        let mut rest = line;
+        while let Some(start) = rest.find("`ff ") {
+            let Some(len) = rest[start + 1..].find('`') else {
+                break;
+            };
+            let span = &rest[start..start + len + 2];
+            let words: Vec<&str> = span[1..span.len() - 1].split_whitespace().skip(1).collect();
+            let hit = verbs
+                .iter()
+                .filter(|verb| {
+                    let want: Vec<&str> = verb.split(' ').collect();
+                    words.len() >= want.len() && words[..want.len()] == want[..]
+                })
+                .max_by_key(|verb| verb.len());
+            out.push_str(&rest[..start]);
+            match hit {
+                Some(verb) if !done.contains(verb.as_str()) => {
+                    done.insert(verb);
+                    let _ = write!(out, "[{span}]({}.md)", verb.replace(' ', "-"));
+                }
+                _ => out.push_str(span),
+            }
+            rest = &rest[start + len + 2..];
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// One command's page: title, the markdown description with the other verbs
+/// linked on first mention, the fenced usage block, and the `## Examples`
+/// section verbatim.
+fn page(path: &str, cmd: &clap::Command, verbs: &[String]) -> Page {
     let mut content = format!("# ff {path}\n\n");
     match source(path) {
         Some(src) => {
+            let src = linkify(&src, path, verbs);
             let seam = src
                 .find(help::SEAM)
                 .unwrap_or_else(|| panic!("help/{path}: no `## Examples` heading"));
@@ -128,6 +182,21 @@ fn pages() -> Vec<Page> {
     );
     let mut out = Vec::new();
 
+    // Every page's verb path, known before any page is written, so a page
+    // can link to one the walk has not reached yet.
+    let mut verbs: Vec<String> = Vec::new();
+    for group in help::GROUPS {
+        for row in group.commands {
+            let cmd = root
+                .find_subcommand(row.name)
+                .unwrap_or_else(|| panic!("{} is grouped but not live", row.name));
+            verbs.push(row.name.to_string());
+            for sub in family(cmd) {
+                verbs.push(format!("{} {}", row.name, sub.get_name()));
+            }
+        }
+    }
+
     for group in help::GROUPS {
         let _ = write!(index, "\n## {}\n\n", group.heading);
         for row in group.commands {
@@ -136,7 +205,7 @@ fn pages() -> Vec<Page> {
                 .unwrap_or_else(|| panic!("{} is grouped but not live", row.name));
             let about = cmd.get_about().map(ToString::to_string).unwrap_or_default();
             let _ = writeln!(index, "- [`ff {0}`]({0}.md) — {1}", row.name, about);
-            out.push(page(row.name, cmd));
+            out.push(page(row.name, cmd, &verbs));
             for sub in family(cmd) {
                 let path = format!("{} {}", row.name, sub.get_name());
                 let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
@@ -145,7 +214,7 @@ fn pages() -> Vec<Page> {
                     "    - [`ff {path}`]({}.md) — {about}",
                     path.replace(' ', "-")
                 );
-                out.push(page(&path, sub));
+                out.push(page(&path, sub, &verbs));
             }
         }
     }

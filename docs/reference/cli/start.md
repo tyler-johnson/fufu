@@ -1,6 +1,6 @@
 # ff start
 
-Begin a new line of work on a fresh branch. `ff commit` records, `ff switch` resumes, `ff start` begins.
+Begin a new line of work on a fresh branch. [`ff commit`](commit.md) records, [`ff switch`](switch.md) resumes, `ff start` begins.
 
 Bare `ff start` forks from trunk; a `<rev>` argument forks there instead. A branch name forks at that branch's tip rather than continuing it — continuing is `ff switch`'s job.
 

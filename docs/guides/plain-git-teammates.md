@@ -31,7 +31,7 @@ $ git stash list
 stash@{0}: On parser: fufu: wip on parser
 ```
 
-A teammate who opens this repository does not need fufu explained to them, and the entry is next to the button that would restore it. Switch back with `ff switch parser` and the change resumes with its branch; the entry leaves the panel. [Branches](../concepts/branches.md) covers parking itself.
+A teammate who opens this repository does not need fufu explained to them, and the entry is next to the button that would restore it. Switch back with [`ff switch parser`](../reference/cli/switch.md) and the change resumes with its branch; the entry leaves the panel. [Branches](../concepts/branches.md) covers parking itself.
 
 ## Your own git tools: reads and writes
 
@@ -60,11 +60,11 @@ changes made outside fufu (absorbed; ff undo can roll them back):
   refs/heads/parser moved to 3dbae0c0
 ```
 
-The notice stays pinned in `ff status` while the log's tip is foreign, so motion fufu did not perform is never silently blended into motion it did. And because the commit is in the operation log now, `ff undo` can take it back like anything fufu did itself — here the commit was wanted, so it simply stays.
+The notice stays pinned in [`ff status`](../reference/cli/status.md) while the log's tip is foreign, so motion fufu did not perform is never silently blended into motion it did. And because the commit is in the operation log now, [`ff undo`](../reference/cli/undo.md) can take it back like anything fufu did itself — here the commit was wanted, so it simply stays.
 
 ## `ff git`: the escape hatch that keeps undo working
 
-The gap in the lazy story is the working tree. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture. `ff git <args…>` closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
+The gap in the lazy story is the working tree. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture. [`ff git <args…>`](../reference/cli/git.md) closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
 
 The demonstration is the most destructive habit in git's repertoire:
 

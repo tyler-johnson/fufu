@@ -51,11 +51,11 @@ $ find ~/.codex -type f | sort
 ~/.codex/skills/fufu/SKILL.md
 ```
 
-`PreToolUse` is the snapshot before a shell command or a patch; `UserPromptSubmit` is the turn boundary the briefing rides. Entries already in the file that run something else stay, in whatever shape they had. A file that is not valid JSON is refused untouched. Running `ff hook codex` on a wired file reports it as already wired and rewrites the skill, which is how a skill that has drifted from this fufu is refreshed.
+`PreToolUse` is the snapshot before a shell command or a patch; `UserPromptSubmit` is the turn boundary the briefing rides. Entries already in the file that run something else stay, in whatever shape they had. A file that is not valid JSON is refused untouched. Running [`ff hook codex`](../../reference/cli/hook.md) on a wired file reports it as already wired and rewrites the skill, which is how a skill that has drifted from this fufu is refreshed.
 
 The block in `config.toml` is the server: Codex reads `[mcp_servers.<name>]` tables, and this one runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`, so the tool is `fufu`'s `ff`. Anything else in the file stays where it was, above the block. A `[mcp_servers.fufu]` table outside the markers was written by hand and is reported and left alone.
 
-The trust line is the one thing to act on. Codex trusts a hook by its hash: run `/hooks` in Codex to review this one, or it is skipped and nothing captures. `ff hook -l` and `ff doctor` keep saying so for as long as the hook is wired, because fufu cannot read Codex's trust list and an unreviewed hook looks the same as a reviewed one from outside. The skill needs no review: it is a file Codex reads, not a command it runs.
+The trust line is the one thing to act on. Codex trusts a hook by its hash: run `/hooks` in Codex to review this one, or it is skipped and nothing captures. `ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) keep saying so for as long as the hook is wired, because fufu cannot read Codex's trust list and an unreviewed hook looks the same as a reviewed one from outside. The skill needs no review: it is a file Codex reads, not a command it runs.
 
 ## What `ff unhook codex` removes
 

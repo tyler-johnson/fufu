@@ -12,11 +12,11 @@ Both, freely. Everything fufu writes is ordinary git — snapshots are refs outs
 
 ## What happens when a teammate force-pushes or rewrites history I've built on?
 
-Nothing is lost, and nothing is sent by accident. Every `ff publish` carries a lease, so if the shared copy moved since you last saw it, the push is refused and your commits stay put. `ff sync` then reconciles by whose divergence it is: divergence the fetch just revealed is somebody else's work, so their commits are taken in and yours replay on top, and a commit of yours the rewrite already contains replays empty and is dropped, with sync saying which. The whole sync is one operation that one `ff undo` takes back. The walkthrough with real output is in [recovery](guides/recovery.md#someone-force-pushed-over-my-branch); the divergence rules live in [the push boundary](concepts/push-boundary.md).
+Nothing is lost, and nothing is sent by accident. Every [`ff publish`](reference/cli/publish.md) carries a lease, so if the shared copy moved since you last saw it, the push is refused and your commits stay put. [`ff sync`](reference/cli/sync.md) then reconciles by whose divergence it is: divergence the fetch just revealed is somebody else's work, so their commits are taken in and yours replay on top, and a commit of yours the rewrite already contains replays empty and is dropped, with sync saying which. The whole sync is one operation that one [`ff undo`](reference/cli/undo.md) takes back. The walkthrough with real output is in [recovery](guides/recovery.md#someone-force-pushed-over-my-branch); the divergence rules live in [the push boundary](concepts/push-boundary.md).
 
 ## Does fufu work with GitHub, GitLab, and other forges?
 
-Yes, with any forge that serves the git protocol, because there is nothing forge-specific to support: a remote is a git remote, a push is a git push under force-with-lease, and nothing server-side knows fufu exists. Your existing credential helpers, `url.insteadOf` rewrites, and proxies are honored, so a repository that already authenticates keeps working with nothing new to configure. Gerrit's review flow is the one caveat: fufu has no verb for pushing to a magic ref like `refs/for/main` — that flow stays `ff git push`, and it is untested. See [what stays git](comparisons/vs-git.md#what-stays-git) and [configuration](reference/config.md#what-fufu-reads-from-gits-config).
+Yes, with any forge that serves the git protocol, because there is nothing forge-specific to support: a remote is a git remote, a push is a git push under force-with-lease, and nothing server-side knows fufu exists. Your existing credential helpers, `url.insteadOf` rewrites, and proxies are honored, so a repository that already authenticates keeps working with nothing new to configure. Gerrit's review flow is the one caveat: fufu has no verb for pushing to a magic ref like `refs/for/main` — that flow stays [`ff git push`](reference/cli/git.md), and it is untested. See [what stays git](comparisons/vs-git.md#what-stays-git) and [configuration](reference/config.md#what-fufu-reads-from-gits-config).
 
 ## Does fufu work with git LFS?
 
@@ -32,7 +32,7 @@ Everything fufu writes lives in two places inside the repository: refs under `re
 
 ## Why is there no staging area? I liked the staging area.
 
-Because the working tree is the change: there is no object to assemble before committing, and `ff commit` closes the tree into a commit in one step. What the index gave you survives as an argument instead of a state — `ff commit <paths>` closes a slice and leaves the rest open, selection made once at the moment of the close, with nothing to maintain between commits. The index still exists underneath, and hook-runners still see it staged correctly; you just never curate it by hand. [Changes](concepts/changes.md) is the model; [fufu vs git](comparisons/vs-git.md#what-disappears) is the argument.
+Because the working tree is the change: there is no object to assemble before committing, and [`ff commit`](reference/cli/commit.md) closes the tree into a commit in one step. What the index gave you survives as an argument instead of a state — `ff commit <paths>` closes a slice and leaves the rest open, selection made once at the moment of the close, with nothing to maintain between commits. The index still exists underneath, and hook-runners still see it staged correctly; you just never curate it by hand. [Changes](concepts/changes.md) is the model; [fufu vs git](comparisons/vs-git.md#what-disappears) is the argument.
 
 ## Can I commit some hunks of a file and leave the rest?
 
@@ -48,7 +48,7 @@ Because a push is the one act that leaves the machine: other clones can fetch it
 
 ## Why was `ff status` refused in the shell?
 
-Because the `ff` tool was up for that session, and `fufu.toolPolicy` is `strict` by default. Claude Code's plugin registers `ff mcp` as a tool beside the capture hook, and while that server is serving, an `ff` run through the shell tool is refused with a reason naming the tool and the exact `{"args": […]}` to call it with — the same words, no quoting, structured results. The six shell-only verbs (`ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, `ff mcp`) always pass, and nothing is refused when no server is up. `ff config toolPolicy coach` turns the refusal into a one-line nudge; `observe` turns it off. See [agent setup](agents/setup.md#serve-the-verbs-as-a-tool).
+Because the `ff` tool was up for that session, and `fufu.toolPolicy` is `strict` by default. Claude Code's plugin registers [`ff mcp`](reference/cli/mcp.md) as a tool beside the capture hook, and while that server is serving, an `ff` run through the shell tool is refused with a reason naming the tool and the exact `{"args": […]}` to call it with — the same words, no quoting, structured results. The six shell-only verbs (`ff git`, [`ff update`](reference/cli/update.md), [`ff watch`](reference/cli/watch.md), [`ff hook`](reference/cli/hook.md), [`ff unhook`](reference/cli/unhook.md), `ff mcp`) always pass, and nothing is refused when no server is up. [`ff config toolPolicy coach`](reference/cli/config.md) turns the refusal into a one-line nudge; `observe` turns it off. See [agent setup](agents/setup.md#serve-the-verbs-as-a-tool).
 
 ## How far back can undo reach? What about before I ran `ff init`?
 
@@ -63,13 +63,13 @@ One rule decides the table: the tree hook runs where worktree content becomes co
 | verb | pre-commit | prepare-commit-msg | commit-msg | post-commit |
 |---|---|---|---|---|
 | `ff commit` | yes | yes | yes | yes |
-| `ff absorb` | yes | no — it inherits the target's message untouched | no | no |
-| `ff done` (edit session) | yes | only when the session carries a new description | same condition | no |
+| [`ff absorb`](reference/cli/absorb.md) | yes | no — it inherits the target's message untouched | no | no |
+| [`ff done`](reference/cli/done.md) (edit session) | yes | only when the session carries a new description | same condition | no |
 | `ff done` (resolution landing) | yes | no | no | no |
-| `ff describe <rev>` | no — no tree moves | yes | yes | no |
+| [`ff describe <rev>`](reference/cli/describe.md) | no — no tree moves | yes | yes | no |
 | `ff describe` (open change) | no | no — a pending description is not a commit; the hooks fire when it closes | no | no |
-| `ff lift` | no — no worktree content enters a commit | no | no | no |
-| `ff restack`, `ff sync` | no — `git rebase` runs none either | no | no | no |
+| [`ff lift`](reference/cli/lift.md) | no — no worktree content enters a commit | no | no | no |
+| [`ff restack`](reference/cli/restack.md), `ff sync` | no — `git rebase` runs none either | no | no | no |
 
 `post-commit` stays on `ff commit` alone, because git fires it from `git commit` and not from `rebase`, and absorb, done and describe are rebases. `--no-verify` skips `pre-commit` and `commit-msg` on every verb that can be declined; git documents `prepare-commit-msg` as not skipped by it, and fufu follows. `pre-merge-commit` is not applicable — fufu never writes a merge commit — and `applypatch-*` belong to `git am`. [Substrate](internals/substrate.md#behavioral-compatibility) has the details, including the one deliberate divergence around formatter fixes.
 

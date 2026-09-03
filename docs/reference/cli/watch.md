@@ -8,7 +8,7 @@ What arrives is what the log *did*, not what was appended to it, because those a
 
 Every line carries the worktree the operation belongs to, in both modes, so a merged stream is one shape to parse. --since replays from an operation before tailing, and is refused with --all: an operation belongs to one chain, and there is no single place a repository-wide stream would replay from.
 
-Operations are written before the mutation they describe, so an event is a claim about the next microsecond rather than a report on the last one. `ff op log` shows the same operation with the same caveat.
+Operations are written before the mutation they describe, so an event is a claim about the next microsecond rather than a report on the last one. [`ff op log`](op-log.md) shows the same operation with the same caveat.
 
 ## Usage
 

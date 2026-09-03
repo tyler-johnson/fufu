@@ -72,7 +72,7 @@ $ ff history
     (the floor)
 ```
 
-The letters-spelled ids in these rows are operation ids — spelled in k–z and never in hex, so a letters id is always an operation and a hex id always a commit; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the `ff op` family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
+The letters-spelled ids in these rows are operation ids — spelled in k–z and never in hex, so a letters id is always an operation and a hex id always a commit; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the [`ff op`](../reference/cli/op.md) family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
 
 ```console
 $ ff op show sunquylz
@@ -165,7 +165,7 @@ reverted qnnvvtlspsorxzooruqkylozzzokqyztnpytmzxn: commit on parser-stream: READ
 undo: ff undo
 ```
 
-B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too. Revert inverts refs, and it applies only where the refs the wrong operation moved still stand where it left them: a later commit on the same branch moves that ref, so had B committed on parser-stream as well, the revert would hold and change nothing. That case is a rewrite rather than a recovery — `ff lift --from <rev>` takes A's files back out of the closed commit, and drops the commit when it takes everything; [rewriting history](rewriting-history.md#split-a-commit-that-already-closed) has it.
+B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too. Revert inverts refs, and it applies only where the refs the wrong operation moved still stand where it left them: a later commit on the same branch moves that ref, so had B committed on parser-stream as well, the revert would hold and change nothing. That case is a rewrite rather than a recovery — [`ff lift --from <rev>`](../reference/cli/lift.md) takes A's files back out of the closed commit, and drops the commit when it takes everything; [rewriting history](rewriting-history.md#split-a-commit-that-already-closed) has it.
 
 ## "I committed to the wrong branch, or with the wrong message"
 
@@ -183,7 +183,7 @@ reworded ea9920b5 on parser-stream: parser: string literals
 undo: ff undo
 ```
 
-A commit on the wrong branch, if it just happened, is one `ff undo`: the close comes back open, tree and refs together, and you close it again where it belongs — `ff commit -b <branch>` lands the close on a fresh branch in the same step. Once later work has piled on top, this stops being a recovery problem and becomes a rewriting one: `ff absorb --into <rev>` folds the open change into the commit it should have joined, `ff lift --from <rev>` takes files back out of a closed commit, and `ff edit <rev>` reopens one in place. [Rewriting history](rewriting-history.md) is the guide for that whole family.
+A commit on the wrong branch, if it just happened, is one `ff undo`: the close comes back open, tree and refs together, and you close it again where it belongs — [`ff commit -b <branch>`](../reference/cli/commit.md) lands the close on a fresh branch in the same step. Once later work has piled on top, this stops being a recovery problem and becomes a rewriting one: [`ff absorb --into <rev>`](../reference/cli/absorb.md) folds the open change into the commit it should have joined, `ff lift --from <rev>` takes files back out of a closed commit, and [`ff edit <rev>`](../reference/cli/edit.md) reopens one in place. [Rewriting history](rewriting-history.md) is the guide for that whole family.
 
 ## "Someone force-pushed over my branch"
 

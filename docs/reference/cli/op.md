@@ -1,10 +1,10 @@
 # ff op
 
-The operation log as objects. Every capture and every fufu mutation lands on one log at refs/fufu/ops, and this is the family that reads and moves it: `log` lists, `show` and `diff` read, `restore` rewinds the whole repository to one, and `revert` inverts a single one leaving later work standing. Deleting operations is `ff trim`'s job and nobody else's.
+The operation log as objects. Every capture and every fufu mutation lands on one log at refs/fufu/ops, and this is the family that reads and moves it: `log` lists, `show` and `diff` read, `restore` rewinds the whole repository to one, and `revert` inverts a single one leaving later work standing. Deleting operations is [`ff trim`](trim.md)'s job and nobody else's.
 
 Operation ids are spelled in the letters k–z and never in hex, which is what keeps hex meaning "commit" everywhere in fufu. `@` is the newest operation, and git's own first-parent suffixes work on it — `@^` is the one before, `@~3` three back — because an operation's first parent *is* the operation before it.
 
-`ff undo` is the everyday shortcut for `ff op restore`, argument-free and repeatable; most work never needs the long form.
+[`ff undo`](undo.md) is the everyday shortcut for [`ff op restore`](op-restore.md), argument-free and repeatable; most work never needs the long form.
 
 ## Usage
 

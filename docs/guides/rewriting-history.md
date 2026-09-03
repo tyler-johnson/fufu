@@ -1,6 +1,6 @@
 # Rewriting history
 
-Everything you would reach for `rebase -i` for — rewording, squashing, splitting, editing an earlier commit — without the todo list. Every verb here has the same shape: you say where a change belongs, and the restack of everything above the target happens in the same operation. Each one is a single entry on the operation log, so one `ff undo` takes the whole thing back, and a replay that would conflict stops with nothing changed and records a [held rewrite](../concepts/held-rewrites.md) instead of leaving a stopped rebase on disk.
+Everything you would reach for `rebase -i` for — rewording, squashing, splitting, editing an earlier commit — without the todo list. Every verb here has the same shape: you say where a change belongs, and the restack of everything above the target happens in the same operation. Each one is a single entry on the operation log, so one [`ff undo`](../reference/cli/undo.md) takes the whole thing back, and a replay that would conflict stops with nothing changed and records a [held rewrite](../concepts/held-rewrites.md) instead of leaving a stopped rebase on disk.
 
 Every transcript below is real `ff` output from one scratch repository: a `lexer` branch forked from `main`, carrying two commits.
 
@@ -88,7 +88,7 @@ finish with ff done, or ff done --abandon to drop it
 undo: ff undo
 ```
 
-Edit as if the commit were the tip, because for the moment it is. `ff status` keeps saying where you are and how the session ends:
+Edit as if the commit were the tip, because for the moment it is. [`ff status`](../reference/cli/status.md) keeps saying where you are and how the session ends:
 
 ```console
 $ ff status
@@ -312,7 +312,7 @@ $ ff trim -n
 nothing to drop (33 operations kept)
 ```
 
-To make retention visible inside one transcript, this scene shrinks the window to seconds — a real setting looks like `ff config keep 30d`:
+To make retention visible inside one transcript, this scene shrinks the window to seconds — a real setting looks like [`ff config keep 30d`](../reference/cli/config.md):
 
 ```console
 $ ff config keep 2s
@@ -350,7 +350,7 @@ $ ff
    init: hello world
 ```
 
-What shrank is where undo can reach. `ff history` now has a floor where the dropped operations were:
+What shrank is where undo can reach. [`ff history`](../reference/cli/history.md) now has a floor where the dropped operations were:
 
 ```console
 $ ff history
@@ -426,6 +426,6 @@ That is the boundary in full. fufu has no verb that rewrites history the team sh
 
 ## Where next
 
-- [Stacked changes](stacked-changes.md) — a stack under review, the cascade that carries the branches above every rewrite here, and `ff restack --onto` for re-aiming.
+- [Stacked changes](stacked-changes.md) — a stack under review, the cascade that carries the branches above every rewrite here, and [`ff restack --onto`](../reference/cli/restack.md) for re-aiming.
 - [Recovery](recovery.md) — when a rewrite went wrong and `ff undo` is the verb you want.
 - [Held rewrites](../concepts/held-rewrites.md) — what happens when a restack cannot replay cleanly.

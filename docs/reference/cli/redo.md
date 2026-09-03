@@ -1,8 +1,8 @@
 # ff redo
 
-The complement of `ff undo`: step forward again along the branch of the log an undo stepped off. Takes no argument, and repeats — each one goes one run further forward, until the log is back where it started.
+The complement of [`ff undo`](undo.md): step forward again along the branch of the log an undo stepped off. Takes no argument, and repeats — each one goes one run further forward, until the log is back where it started.
 
-Redo reads where the operation ref has been, so it can only follow a path that is still there. New work after an undo forks the log rather than truncating it: nothing is discarded, but redo stops offering a way forward it can no longer take, and says so. The forked-off branch keeps its ids, and `ff op restore` still lands on any of them until trim ages them out.
+Redo reads where the operation ref has been, so it can only follow a path that is still there. New work after an undo forks the log rather than truncating it: nothing is discarded, but redo stops offering a way forward it can no longer take, and says so. The forked-off branch keeps its ids, and [`ff op restore`](op-restore.md) still lands on any of them until trim ages them out.
 
 ## Usage
 

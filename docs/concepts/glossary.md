@@ -2,7 +2,7 @@
 
 One or two sentences per term, each linking to the page that owns it.
 
-**arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and `ff undo` reaches back to the moment of arming and no further.
+**arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and [`ff undo`](../reference/cli/undo.md) reaches back to the moment of arming and no further.
 
 **bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working tree, an index, HEAD, and an operation chain of its own. [`ff worktree add`](../reference/cli/worktree-add.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
 
@@ -14,7 +14,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **change** — The unit of work in progress: the working tree is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working tree being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
 
-**claim** — Give a branch a name you chose with `ff describe -b <name>`, replacing its petname or an earlier name; there is no separate rename command. The rename carries everything fufu associates with the branch — the capture chain, any parked change, the pending description — as [branches](branches.md) describes.
+**claim** — Give a branch a name you chose with [`ff describe -b <name>`](../reference/cli/describe.md), replacing its petname or an earlier name; there is no separate rename command. The rename carries everything fufu associates with the branch — the capture chain, any parked change, the pending description — as [branches](branches.md) describes.
 
 **close** — Turn the [open change](changes.md) into a commit: [`ff commit`](../reference/cli/commit.md) is the verb, paths close a slice, and closing is the only way a change enters history. A closed change is an ordinary git commit.
 
@@ -22,7 +22,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **foreign operation** — An operation recording what raw git did behind fufu's back, absorbed lazily into the operation log at the next fufu invocation — labeled as foreign, quoted with git's own reflog messages, and undoable like anything fufu did itself. [The two regimes](two-regimes.md) covers the boundary it crosses.
 
-**held rewrite** — A pending rewrite that stopped at a conflict: no ref moved, no half-applied tree touched the repository, and the verb's question — the branch, the target — is recorded for a moment you choose. A hold blocks [`ff publish`](push-boundary.md) and nothing local; [held rewrites](held-rewrites.md) is the full story, and `ff resolve` is the way out.
+**held rewrite** — A pending rewrite that stopped at a conflict: no ref moved, no half-applied tree touched the repository, and the verb's question — the branch, the target — is recorded for a moment you choose. A hold blocks [`ff publish`](push-boundary.md) and nothing local; [held rewrites](held-rewrites.md) is the full story, and [`ff resolve`](../reference/cli/resolve.md) is the way out.
 
 **lease** — The guard every [publish](push-boundary.md) carries: the push goes through only if the shared copy still stands where you last saw it, and stops otherwise with nothing sent and nothing lost.
 
@@ -34,7 +34,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **operation id** — An operation's address, spelled in the letters k–z and never in hex, so a letters-spelled id is always an operation and a hex one always a commit. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
 
-**operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; `ff op log` lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
+**operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; [`ff op log`](../reference/cli/op-log.md) lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
 
 **park** — Set the [open change](changes.md) aside with its branch on a switch: an ordinary stash entry labeled with the branch, which becomes the open change again — same files, same edits, same pending description — when you switch back. [Branches](branches.md) covers the mechanics.
 

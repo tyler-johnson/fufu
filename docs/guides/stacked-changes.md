@@ -31,7 +31,7 @@ closed dbf80757 on parser-core: parser: buffered char stream (1 file(s))
 undo: ff undo
 ```
 
-The next piece — a CLI flag that exposes the parser — depends on all of that, and it should not wait for parser-core's review. Fork the second branch at parser-core's tip by naming it: a branch name given to `ff start` forks there rather than continuing it — continuing is `ff switch`'s job.
+The next piece — a CLI flag that exposes the parser — depends on all of that, and it should not wait for parser-core's review. Fork the second branch at parser-core's tip by naming it: a branch name given to `ff start` forks there rather than continuing it — continuing is [`ff switch`](../reference/cli/switch.md)'s job.
 
 ```console
 $ ff start parser-core -b parser-cli
@@ -104,7 +104,7 @@ $ ff
 
 ## The cascade
 
-Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, `ff lift`, `ff describe <rev>`, and `ff done` each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree, riding the verb's one operation, so one `ff undo` takes the rewrite and the cascade back together. Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so. `ff switch` to the held branch and `ff resolve` picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
+Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree, riding the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together. Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so. `ff switch` to the held branch and [`ff resolve`](../reference/cli/resolve.md) picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
 
 Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
 

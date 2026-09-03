@@ -4,7 +4,7 @@ What changed in the worktree between two operations. Both are operation ids; the
 
 This compares the trees two operations carry, not their ref transitions — adjacent operations can sit on different branches, and the diff across that seam reads as the whole worktree being replaced, which is literal rather than wrong.
 
--p puts the patch under the diffstat, the same unified diff `ff diff` prints.
+-p puts the patch under the diffstat, the same unified diff [`ff diff`](diff.md) prints.
 
 ## Usage
 

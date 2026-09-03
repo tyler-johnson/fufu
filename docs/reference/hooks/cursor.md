@@ -44,7 +44,7 @@ $ cat ~/.cursor/mcp.json
 }
 ```
 
-`preToolUse` is the snapshot before a shell command, a write, or a delete; `sessionStart` is where the briefing lands. Entries already in the file that run something else stay. A file that is not valid JSON is refused untouched. Running `ff hook cursor` on a wired file reports it as already wired and changes nothing. The server entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`; a `fufu` entry that runs something else was written by hand and is left alone.
+`preToolUse` is the snapshot before a shell command, a write, or a delete; `sessionStart` is where the briefing lands. Entries already in the file that run something else stay. A file that is not valid JSON is refused untouched. Running [`ff hook cursor`](../../reference/cli/hook.md) on a wired file reports it as already wired and changes nothing. The server entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`; a `fufu` entry that runs something else was written by hand and is left alone.
 
 ## What `ff unhook cursor` removes
 
@@ -68,4 +68,4 @@ An `mcpServers` object left with no servers is dropped, which is why `mcp.json` 
 
 ## Notes
 
-`sessionStart` does not fire for cloud agents, so a cloud agent is never briefed. Capture still rides `preToolUse`, so the snapshots are there; what the agent lacks is the once-per-session spelling of fufu's verbs. `ff hook -l` and `ff doctor` say so whenever the hook is wired.
+`sessionStart` does not fire for cloud agents, so a cloud agent is never briefed. Capture still rides `preToolUse`, so the snapshots are there; what the agent lacks is the once-per-session spelling of fufu's verbs. `ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) say so whenever the hook is wired.

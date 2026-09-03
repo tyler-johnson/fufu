@@ -1,6 +1,6 @@
 # ff hook fish
 
-Two marked lines appended to the end of `$XDG_CONFIG_HOME/fish/config.fish`, or `~/.config/fish/config.fish` when `XDG_CONFIG_HOME` is unset: the alias, so every git command you type runs through `ff git` and snapshots first, and a `fish_prompt` event handler, so a snapshot lands at every prompt. The file and its directory are created if they are missing.
+Two marked lines appended to the end of `$XDG_CONFIG_HOME/fish/config.fish`, or `~/.config/fish/config.fish` when `XDG_CONFIG_HOME` is unset: the alias, so every git command you type runs through [`ff git`](../../reference/cli/git.md) and snapshots first, and a `fish_prompt` event handler, so a snapshot lands at every prompt. The file and its directory are created if they are missing.
 
 ## What it writes
 
@@ -14,9 +14,9 @@ alias git 'ff git'  # fufu — added by `ff hook`
 function _fufu_ambient --on-event fish_prompt; ff trigger shell; end  # fufu — added by `ff hook`
 ```
 
-Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, which is how fufu tells its own lines from yours. The alias and the prompt hook are independent: a hand-written `alias git` line naming `ff git`, or a hand-written line naming `ff trigger shell`, is detected, reported as written by hand, and left alone, and the other piece is still installed. Running `ff hook fish` on a wired file reports both pieces as already wired and changes nothing.
+Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, which is how fufu tells its own lines from yours. The alias and the prompt hook are independent: a hand-written `alias git` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed. Running [`ff hook fish`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
 
-Older markers (`ff hook shell install`, `ff shell install`) and the older prompt command `ff hook shell trigger` still count as fufu's. The next `ff hook fish` rewrites them in place, and `ff doctor` reports them as stale until then.
+Older markers (`ff hook shell install`, `ff shell install`) and the older prompt command `ff hook shell trigger` still count as fufu's. The next `ff hook fish` rewrites them in place, and [`ff doctor`](../../reference/cli/doctor.md) reports them as stale until then.
 
 ## What `ff unhook fish` removes
 

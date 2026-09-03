@@ -1,6 +1,6 @@
 # Doctor
 
-A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly: a log ref moved by something that is not fufu, a reflog that never got created, the gc guard deleted out of local config, a branch that answers to no remote anything can name, hooks never installed, a stale binary. `ff doctor` reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix). The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
+A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly: a log ref moved by something that is not fufu, a reflog that never got created, the gc guard deleted out of local config, a branch that answers to no remote anything can name, hooks never installed, a stale binary. [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix). The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
 
 ## Verdicts
 
@@ -56,15 +56,15 @@ The rows group into four floors: the engine, the remote floor, the wiring, and t
 
 **pointers** — the per-branch refs that point *into* the log, one per branch with the age of its newest operation. A pointer naming an operation the log does not hold is what fufu's two-ref append exists to prevent, so healthy pointers are worth a row.
 
-**reflogs** — whether the log ref has a reflog. It is load-bearing: `ff undo` steps the ref back rather than appending, so where the pointer has stood is recorded only here — it is what `ff redo` walks forward along and what keeps an abandoned branch of the log addressable. No reflog is a `WARN`.
+**reflogs** — whether the log ref has a reflog. It is load-bearing: [`ff undo`](../reference/cli/undo.md) steps the ref back rather than appending, so where the pointer has stood is recorded only here — it is what [`ff redo`](../reference/cli/redo.md) walks forward along and what keeps an abandoned branch of the log addressable. No reflog is a `WARN`.
 
 **gc config** — whether reflog expiry is disabled for `refs/fufu/*` in local config. Without those keys, a manual `git gc` could expire fufu reflog entries. Missing keys are a `WARN`, and the one `--fix` writes.
 
 **trash** — `info`, only when present: pre-trim tips held until the next trim.
 
-**objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at `ff trim`, which nudges git to pack them.
+**objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff trim`](../reference/cli/trim.md), which nudges git to pack them.
 
-**id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next `ff log` or `ff evolog`.
+**id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
 
 **last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
 
@@ -72,9 +72,9 @@ The rows group into four floors: the engine, the remote floor, the wiring, and t
 
 **legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
 
-**parked** — `info`, only when present: branches whose tree memory `ff switch` is holding.
+**parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding.
 
-**settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at `ff config <name>`.
+**settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
 
 **trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
 
@@ -82,11 +82,11 @@ The rows group into four floors: the engine, the remote floor, the wiring, and t
 
 ### The remote floor
 
-**remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because `ff sync` and `ff publish` will both refuse until `ff publish --to <remote>` chooses one.
+**remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md) will both refuse until `ff publish --to <remote>` chooses one.
 
-**upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain `ff branch delete` of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
+**upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch delete`](../reference/cli/branch-delete.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
 
-**tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because `ff status` already reports `remote is gone` for the branch underfoot; repo-wide it is news.
+**tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because [`ff status`](../reference/cli/status.md) already reports `remote is gone` for the branch underfoot; repo-wide it is news.
 
 ### Raw git
 
@@ -100,7 +100,7 @@ Silent when nothing has been counted — a row saying zero would be a row about 
 
 ### The wiring
 
-These rows come from the same status vector `ff hook -l` renders, so the two commands cannot disagree about what is wired.
+These rows come from the same status vector [`ff hook -l`](../reference/cli/hook.md) renders, so the two commands cannot disagree about what is wired.
 
 **One row per agent client** (`claude`, `codex`, …) — `ok` when wired, naming where the hook landed; [the hook reference](hooks/index.md) shows what lands there. A client that is present on the machine yet unwired is `info` with the `ff hook <slug>` that would wire it; a client that is neither present nor wired earns no row, because a client you do not have is not a hole in the net. Two states are findings: wired but with an event missing (capture is partial), and wired in a spelling this fufu no longer writes. Both are repaired by `ff hook <slug>`, and both are among the things `--fix` rewires.
 
@@ -116,7 +116,7 @@ These rows come from the same status vector `ff hook -l` renders, so the two com
 
 ### The update lane
 
-**update** — always `info`: up to date, an available version and the `ff update` that fetches it, a source build that updates via cargo, or no check yet.
+**update** — always `info`: up to date, an available version and the [`ff update`](../reference/cli/update.md) that fetches it, a source build that updates via cargo, or no check yet.
 
 ## Common failures
 
@@ -205,5 +205,5 @@ Read-only is the design, because doctor must never absorb the drift it reports. 
 
 - **After adopting a repository** — the engine floor confirms the log opened and the gc guard is in place, and the wiring floor confirms something actually feeds capture. [Agent setup](../agents/setup.md#verify) runs it as the verification step.
 - **After a version bump** — the update lane confirms which binary answered, and the wiring rows catch hooks and skills written by the fufu you just replaced.
-- **When something feels off** — an `ff undo` that did less than expected, a branch that will not publish, an agent whose edits are not showing up in `ff history`. One pass names the floor that degraded.
+- **When something feels off** — an `ff undo` that did less than expected, a branch that will not publish, an agent whose edits are not showing up in [`ff history`](../reference/cli/history.md). One pass names the floor that degraded.
 - **In CI** — the exit code gates: 0 healthy, 1 findings, and `--json` gives the pipeline the rows.

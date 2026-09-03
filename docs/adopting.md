@@ -8,7 +8,7 @@ Nothing that anyone else can see. Refs, history, remotes, hooks, CI, and teammat
 
 ## What arming does
 
-Arming writes two things. First, the gc guard: a pair of keys in the repository's local config that stop `git gc` from expiring the refs fufu keeps its snapshots in. Second, [the floor](concepts/snapshots-and-undo.md#the-floor): the operation log's first entry, taken from observed state. `ff undo` reaches back to the floor and no further — everything before fufu's arrival is git's history, not fufu's timeline, and nothing that happened before arming becomes undoable retroactively.
+Arming writes two things. First, the gc guard: a pair of keys in the repository's local config that stop `git gc` from expiring the refs fufu keeps its snapshots in. Second, [the floor](concepts/snapshots-and-undo.md#the-floor): the operation log's first entry, taken from observed state. [`ff undo`](reference/cli/undo.md) reaches back to the floor and no further — everything before fufu's arrival is git's history, not fufu's timeline, and nothing that happened before arming becomes undoable retroactively.
 
 Immediately after the floor, an ordinary capture runs, so whatever the working tree holds at the moment of adoption is already snapshotted before you type anything else. From then on every fufu verb captures the tree before it acts.
 

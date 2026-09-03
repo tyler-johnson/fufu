@@ -4,7 +4,7 @@ One operation in full: what ran, when, on which branch, what it moved, and the d
 
 Every operation has a tree, which is what makes this uniform — a capture and a close are read the same way, and differ only in whether there are ref transitions to list.
 
--p puts the patch under the diffstat rather than in place of it: the same unified diff `ff diff` prints, for the operation instead of the tree.
+-p puts the patch under the diffstat rather than in place of it: the same unified diff [`ff diff`](diff.md) prints, for the operation instead of the tree.
 
 ## Usage
 

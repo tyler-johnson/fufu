@@ -2,13 +2,13 @@
 
 One revision, with its patch: the commit's furniture — id, author, age, subject — then what it did, measured against its first parent.
 
-Bare, it shows `@`: the open change, header and all, with exactly the body `ff diff` prints. One renderer, so the thing you are about to commit and the thing you committed last read the same way.
+Bare, it shows `@`: the open change, header and all, with exactly the body [`ff diff`](diff.md) prints. One renderer, so the thing you are about to commit and the thing you committed last read the same way.
 
 A merge names the ambiguity instead of picking a parent for you. git prints no diff there either; this says why, and where the per-parent view is.
 
 A commit that carries a signature gets a signature line under its subject, with the verdict in git's own vocabulary — good, bad, untrusted, expired, revoked, unverifiable — and who signed it. One commit, one verification, always; an unsigned commit gets no line and costs no signer run. `--json` carries the same as a `signature` object.
 
-Revisions only. `ff show <op>` is refused and points at `ff op show` — the operation log is its own address space, which is what lets hex mean commit everywhere and letters mean operation everywhere. Blobs and trees stay git's: `ff git show HEAD:file.txt`.
+Revisions only. `ff show <op>` is refused and points at [`ff op show`](op-show.md) — the operation log is its own address space, which is what lets hex mean commit everywhere and letters mean operation everywhere. Blobs and trees stay git's: [`ff git show HEAD:file.txt`](git.md).
 
 ## Usage
 

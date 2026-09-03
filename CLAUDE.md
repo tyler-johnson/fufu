@@ -20,3 +20,7 @@ Terse bullets under Keep a Changelog headings — Added, Changed, Removed, Fixed
 ### Release notes
 
 Two or three sentences saying what the release adds, then plain headings and short prose. No comparison to the previous release, no argument for each change, no diffstats. Minor items go in a `## Miscellaneous` bullet list. Shorter is better.
+
+## Docs
+
+A verb's first mention on a page links to its page under `docs/reference/cli/`, and later mentions stay bare. Headings, fenced blocks, and the generated regions of config.md and errors.md are left alone. The pages under `docs/reference/cli/` get the same links from the generator in `crates/ff-cli/src/docsgen.rs`, so edit the help page under `crates/ff-cli/src/help/` and run `make docs-gen`.

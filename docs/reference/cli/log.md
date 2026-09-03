@@ -1,12 +1,12 @@
 # ff log
 
-The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears the id of its newest operation — the letters column `ff evolog` drills into.
+The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears the id of its newest operation — the letters column [`ff evolog`](evolog.md) drills into.
 
---commits drops to plain history, no operation identity. The operation log itself is `ff op log`: every mutation fufu has made, newest first, carrying the ids the `ff op` verbs take.
+--commits drops to plain history, no operation identity. The operation log itself is [`ff op log`](op-log.md): every mutation fufu has made, newest first, carrying the ids the [`ff op`](op.md) verbs take.
 
 -r takes a revset and replaces where the rows come from: gitrevisions' whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @ row appears only when the open change is a member of the set, because `ff log -r main` is a question about main.
 
-Paths narrow the log to the commits that touch them, by the rule `ff restore` speaks: a file, or a directory prefix. No globs.
+Paths narrow the log to the commits that touch them, by the rule [`ff restore`](restore.md) speaks: a file, or a directory prefix. No globs.
 
 No `--` is needed, the opposite of what git teaches: revisions go to -r and the positional is only ever paths, so `ff log main` is a question about the path main, even where a branch called main exists.
 

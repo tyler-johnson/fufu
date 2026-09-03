@@ -4,7 +4,7 @@ A safety net you cannot inspect is not trustworthy, and every floor of this one 
 
 Rows come at three levels: ok counts nothing, info is news rather than a problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1 findings — so CI can gate on it, and --json emits the same rows for machines.
 
-Read-only by design: doctor reports the drift the log will absorb and never absorbs it, takes no snapshot, reconciles nothing. --fix is the one consented write, and it repairs exactly two things: the gc reflog-expiry keys, and a config section left naming a branch that is gone from both sides. It never touches a section whose shared copy is still standing — that one is `ff branch delete` doing its job, not drift.
+Read-only by design: doctor reports the drift the log will absorb and never absorbs it, takes no snapshot, reconciles nothing. --fix is the one consented write, and it repairs exactly two things: the gc reflog-expiry keys, and a config section left naming a branch that is gone from both sides. It never touches a section whose shared copy is still standing — that one is [`ff branch delete`](branch-delete.md) doing its job, not drift.
 
 ## Usage
 
