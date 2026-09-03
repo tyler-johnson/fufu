@@ -189,6 +189,12 @@ pub struct OpRecord {
     /// still reads to an older binary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held: Option<HeldTransition>,
+    /// The holds a cascade recorded on branches stacked above the one this
+    /// op rewrote, one per branch whose replay conflicted. A list beside
+    /// `held` rather than a widening of it, so a record written before
+    /// cascades existed still reads. Same version rule as `held`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cascade_held: Vec<HeldTransition>,
     /// A resolution session opened or ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolving: Option<ResolveTransition>,
@@ -241,6 +247,7 @@ impl OpRecord {
             parent: None,
             edit_session: None,
             held: None,
+            cascade_held: Vec::new(),
             resolving: None,
             rewrites: Vec::new(),
             dropped: Vec::new(),

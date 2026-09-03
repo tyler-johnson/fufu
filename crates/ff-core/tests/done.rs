@@ -712,3 +712,319 @@ fn a_session_that_rewords_and_edits_lands_both() {
     assert_eq!(report.replayed, 2, "c2 and c3 must be replayed");
     assert_eq!(anon_count(&fx), 0, "the session branch must be gone");
 }
+
+// ---- the cascade: the branches stacked on the branch the session lands on
+
+/// Record `parent` as the branch `branch` sits on, the way
+/// `ff start <parent> -b <branch>` does.
+fn stacked_on(fx: &Fixture, branch: &str, parent: &str) {
+    let repo = fx.repo();
+    let mut meta = ff_core::branchmeta::read(&repo, branch).unwrap();
+    meta.parent = Some(parent.to_string());
+    ff_core::branchmeta::write(&repo, branch, &meta).unwrap();
+}
+
+/// The verb operations in the log, captures and notes excluded.
+fn verb_ops(fx: &Fixture) -> usize {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    log.iter()
+        .flatten()
+        .filter(|op| op.kind() == ff_core::ops::OpKind::Op)
+        .count()
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn is_ancestor(fx: &Fixture, ancestor: &str, of: &str) -> bool {
+    fx.try_git(&["merge-base", "--is-ancestor", ancestor, of])
+        .status
+        .success()
+}
+
+/// The stack `main` ← `feat` ← `top`, `top` recording `feat` as the branch
+/// it sits on:
+///
+/// base ─ c1 ─ c2        (feat: c1 writes a.txt, c2 adds c.txt)
+///              └─ x1    (top: `top_a` says what x1 does to a.txt)
+///
+/// Returns (c1, c2, x1) and leaves the fixture standing on `feat`, which is
+/// the branch a session opened on c1 lands back on.
+fn cascade_stack(fx: &Fixture, top_a: Option<&str>) -> (String, String, String) {
+    fx.write("a.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("c1");
+    fx.write("c.txt", "c\n");
+    let c2 = fx.commit("c2");
+    fx.git(&["switch", "-q", "-c", "top"]);
+    match top_a {
+        Some(content) => fx.write("a.txt", content),
+        None => fx.write("x.txt", "x\n"),
+    }
+    let x1 = fx.commit("x1");
+    stacked_on(fx, "top", "feat");
+    fx.git(&["switch", "-q", "feat"]);
+    (c1, c2, x1)
+}
+
+#[test]
+fn done_replays_the_branch_stacked_above() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (c1, c2, x1) = cascade_stack(&fx, None);
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let edit_report = opened(edit_outcome);
+    fx.write("a.txt", "one, edited\n");
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+
+    assert_eq!(report.onto, "feat");
+    assert_eq!(report.replayed, 1, "c2 is replayed by the landing itself");
+    assert_eq!(report.cascade.moved.len(), 1, "{:?}", report.cascade);
+    let moved = &report.cascade.moved[0];
+    assert_eq!(moved.branch, "top");
+    assert_eq!(moved.base, "feat");
+    assert_eq!(moved.old_tip, x1);
+    assert_eq!(moved.replayed, 1);
+    assert!(report.cascade.held.is_empty(), "{:?}", report.cascade.held);
+    assert!(
+        report.cascade.skipped.is_empty(),
+        "{:?}",
+        report.cascade.skipped
+    );
+    // The session branch is being deleted by this operation and is nobody's
+    // child: it appears in no list the cascade reports.
+    let session = edit_report.session.as_str();
+    assert!(
+        !report.cascade.unchanged.iter().any(|b| b == session)
+            && !report.cascade.moved.iter().any(|m| m.branch == session),
+        "the session branch must not be in the cascade: {:?}",
+        report.cascade
+    );
+
+    assert_ne!(rev(&fx, "feat"), c2, "feat moved");
+    assert_eq!(rev(&fx, "feat"), report.new_tip);
+    assert_ne!(rev(&fx, "top"), x1, "top followed");
+    assert_eq!(rev(&fx, "top"), moved.new_tip);
+    assert!(
+        is_ancestor(&fx, "feat", "top"),
+        "top's tip is a descendant of feat's new tip"
+    );
+    assert_eq!(
+        fx.git(&["show", "top:a.txt"]),
+        "one, edited\n",
+        "the session's edit reached top"
+    );
+    assert_eq!(anon_count(&fx), 0, "the session branch must be gone");
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        "feat"
+    );
+}
+
+#[test]
+fn done_cascade_rides_the_one_operation() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // Bootstrap the log so the undo has a floor to land on, as the undo
+    // test above does.
+    ff_core::ops::reconcile(&fx.repo(), NOW - 10).unwrap();
+    let (c1, c2, x1) = cascade_stack(&fx, None);
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let edit_report = opened(edit_outcome);
+    let session_tip = rev(&fx, &edit_report.session);
+    fx.write("a.txt", "one, edited\n");
+    let before = verb_ops(&fx);
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+    assert_eq!(report.cascade.moved.len(), 1);
+    assert_eq!(
+        verb_ops(&fx),
+        before + 1,
+        "one operation for the landing and its cascade"
+    );
+
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "done");
+    assert!(
+        record
+            .refs
+            .iter()
+            .any(|t| t.name == "refs/heads/top" && t.old.as_deref() == Some(x1.as_str())),
+        "top's move rides done's record: {:?}",
+        record.refs
+    );
+    assert_eq!(
+        record
+            .refs
+            .iter()
+            .filter(|t| t.name == format!("refs/heads/{}", edit_report.session))
+            .count(),
+        1,
+        "the session branch's deletion is its only transition: {:?}",
+        record.refs
+    );
+    assert!(
+        record.summary.contains("and 1 above it"),
+        "{}",
+        record.summary
+    );
+
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(NOW + 200),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+
+    assert_eq!(rev(&fx, "feat"), c2, "one undo puts feat back");
+    assert_eq!(rev(&fx, "top"), x1, "and top");
+    assert_eq!(
+        rev(&fx, &edit_report.session),
+        session_tip,
+        "and the session branch"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        edit_report.session,
+        "HEAD must be back on the session branch"
+    );
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), &edit_report.session)
+            .unwrap()
+            .session,
+        Some(ff_core::branchmeta::Session {
+            onto: "feat".into(),
+            at: c1,
+        }),
+        "the session metadata must be restored"
+    );
+}
+
+#[test]
+fn a_conflicting_stacked_branch_holds_and_done_still_lands() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // x1 rewrites the line c1 wrote; the session rewrites it another way,
+    // so replaying x1 onto the amended feat conflicts on it.
+    let (c1, c2, x1) = cascade_stack(&fx, Some("two\n"));
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let _ = opened(edit_outcome);
+    fx.write("a.txt", "session\n");
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+
+    assert!(
+        report.cascade.moved.is_empty(),
+        "{:?}",
+        report.cascade.moved
+    );
+    assert_eq!(report.cascade.held.len(), 1, "{:?}", report.cascade);
+    let hold = &report.cascade.held[0];
+    assert_eq!(hold.branch, "top");
+    assert_eq!(hold.base, "feat");
+    assert!(hold.left_alone.is_empty());
+    assert_eq!(hold.report.paths, vec!["a.txt".to_string()]);
+    assert_eq!(hold.report.of, 1);
+    match &hold.report.at {
+        ff_core::futures::At::Commit { id, subject } => {
+            assert_eq!(id, &x1);
+            assert_eq!(subject, "x1");
+        }
+        other => panic!("the hold is at the conflicting commit, got {other:?}"),
+    }
+
+    assert_ne!(rev(&fx, "feat"), c2, "the landing itself happened");
+    assert_eq!(rev(&fx, "feat"), report.new_tip);
+    assert_eq!(rev(&fx, "top"), x1, "the held branch stays put");
+    assert_eq!(anon_count(&fx), 0, "the session branch must be gone");
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        "feat"
+    );
+
+    let repo = fx.repo();
+    let held = ff_core::held::of(&repo, "top").unwrap().expect("top holds");
+    match held.intent {
+        ff_core::held::Intent::Restack { branch, onto } => {
+            assert_eq!(branch, "top");
+            assert_eq!(onto, "refs/heads/feat");
+        }
+        other => panic!("a restack hold, got {other:?}"),
+    }
+    assert!(
+        ff_core::held::of(&repo, "feat").unwrap().is_none(),
+        "the branch landed on does not hold"
+    );
+    let record = tip_record(&repo);
+    assert_eq!(
+        record.verb, "done",
+        "the landing is the newest op, not a hold"
+    );
+    assert_eq!(record.cascade_held.len(), 1, "the hold rides done's op");
+    assert!(record.held.is_none());
+}
+
+#[test]
+fn a_session_that_changed_nothing_runs_no_cascade() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (c1, c2, x1) = cascade_stack(&fx, None);
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let _ = opened(edit_outcome);
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+
+    assert!(report.unchanged);
+    assert!(report.cascade.is_empty(), "{:?}", report.cascade);
+    assert_eq!(rev(&fx, "feat"), c2, "feat's tip did not move");
+    assert_eq!(rev(&fx, "top"), x1, "so top had nothing to follow");
+    let record = tip_record(&fx.repo());
+    assert!(
+        !record.refs.iter().any(|t| t.name == "refs/heads/top"),
+        "{:?}",
+        record.refs
+    );
+}
+
+#[test]
+fn a_stacked_branch_in_another_worktree_is_skipped() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (c1, c2, x1) = cascade_stack(&fx, None);
+    let bay = fx.root().join("bay");
+    ff_core::linked::add::create(&fx.repo(), &bay, "top", NOW - 10).expect("create");
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let _ = opened(edit_outcome);
+    fx.write("a.txt", "one, edited\n");
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+
+    assert!(
+        report.cascade.moved.is_empty(),
+        "{:?}",
+        report.cascade.moved
+    );
+    assert!(report.cascade.held.is_empty(), "{:?}", report.cascade.held);
+    assert_eq!(report.cascade.skipped.len(), 1, "{:?}", report.cascade);
+    let skip = &report.cascade.skipped[0];
+    assert_eq!(skip.branch, "top");
+    assert_eq!(skip.base, "feat");
+    match &skip.reason {
+        ff_core::SkipReason::Worktree { path } => {
+            assert!(path.contains("bay"), "names the worktree: {path}");
+        }
+        other => panic!("skipped for the worktree, got {other:?}"),
+    }
+    assert_ne!(rev(&fx, "feat"), c2, "the landing itself happened");
+    assert_eq!(rev(&fx, "top"), x1, "the other worktree's branch stays put");
+}

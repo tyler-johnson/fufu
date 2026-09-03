@@ -372,6 +372,9 @@ pub struct RewordReport {
     pub moved: Vec<String>,
     /// How many of the rewritten commits the branch's remote already has.
     pub published: usize,
+    /// What happened to the branches stacked above this one. Empty when
+    /// nothing sits on it.
+    pub cascade: Cascade,
 }
 
 /// The result of `ff absorb`: the open change — or the part of it a path
@@ -417,6 +420,9 @@ pub struct AbsorbReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// What happened to the branches stacked above this one. Empty when
+    /// nothing sits on it.
+    pub cascade: Cascade,
 }
 
 /// The result of `ff restack`: a branch's commits replayed onto a different
@@ -482,6 +488,9 @@ pub struct RestackReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// What happened to the branches stacked above this one. Empty when
+    /// nothing sits on it.
+    pub cascade: Cascade,
 }
 
 /// A parked change the restack leaves untouched, disclosed not resolved.
@@ -491,6 +500,93 @@ pub struct Parked {
     pub stash: String,
     /// It still merges onto the branch's new tip.
     pub applies: bool,
+}
+
+/// What a rewrite did to the branches stacked above the one it moved: every
+/// local branch whose base resolves to it, replayed onto the new tip parent
+/// before child, through the whole tree, riding the same operation as the
+/// rewrite so one `ff undo` takes both back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Cascade {
+    /// Branches replayed onto their moved base, parent before child.
+    pub moved: Vec<CascadeMove>,
+    /// Branches whose replay conflicted. Each is held, and everything above
+    /// it is left alone, since its base did not move.
+    pub held: Vec<CascadeHold>,
+    /// Branches the cascade would not touch, and why. Everything above each
+    /// is left alone.
+    pub skipped: Vec<CascadeSkip>,
+    /// Branches with nothing of their own to replay, every commit of theirs
+    /// being in their base already. Left where they stood.
+    pub unchanged: Vec<String>,
+}
+
+impl Cascade {
+    /// Nothing sits above the branch, or nothing above it had to be said.
+    pub fn is_empty(&self) -> bool {
+        self.moved.is_empty()
+            && self.held.is_empty()
+            && self.skipped.is_empty()
+            && self.unchanged.is_empty()
+    }
+}
+
+/// One branch the cascade replayed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CascadeMove {
+    pub branch: String,
+    /// The branch it sits on, whose move it followed.
+    pub base: String,
+    /// Its tip before and after, full shas.
+    pub old_tip: String,
+    pub new_tip: String,
+    /// Commits replayed; `dropped` are not counted.
+    pub replayed: usize,
+    /// Commits the replay dropped because they introduce nothing.
+    pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Other branches inside its replayed range, left where they stood.
+    pub diverged: Vec<String>,
+    /// How many of its rewritten commits its remote already has.
+    pub published: usize,
+    /// The tracking ref `published` was measured against.
+    pub published_on: Option<String>,
+}
+
+/// One branch the cascade held.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CascadeHold {
+    pub branch: String,
+    /// The branch it sits on, whose move it could not follow.
+    pub base: String,
+    pub report: HeldReport,
+    /// Everything stacked above it, left where it stood.
+    pub left_alone: Vec<String>,
+}
+
+/// One branch the cascade would not touch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CascadeSkip {
+    pub branch: String,
+    /// The branch it sits on, whose move it did not follow.
+    pub base: String,
+    pub reason: SkipReason,
+    /// Everything stacked above it, left where it stood.
+    pub left_alone: Vec<String>,
+}
+
+/// Why the cascade left a branch alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SkipReason {
+    /// Checked out in another worktree, which a rewrite must not move a
+    /// tree out from under.
+    Worktree { path: String },
+    /// A rewrite is already held on it: one hold per branch.
+    AlreadyHeld,
+    /// Its commits hold a merge, and replaying a merge is ambiguous.
+    MergeInRange,
+    /// It shares no history with its base.
+    Unrelated,
 }
 
 /// The result of `ff edit`.
@@ -607,6 +703,11 @@ pub struct ResolvedReport {
     /// comes back clean or expired. It is asked anyway, because the cost is
     /// one simulated replay and the alternative is a rewrite going quiet.
     pub still_held: Option<HeldReport>,
+    /// The branches stacked above the landed branch, replayed by the landing
+    /// verb's cascade: the subtree the hold stopped, resumed from the new
+    /// tip. A hold inside it is that branch's own and leaves `still_held`
+    /// alone.
+    pub cascade: Cascade,
 }
 
 /// A session that landed.
@@ -643,6 +744,9 @@ pub struct DoneReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// The branches stacked on `onto`, replayed onto its new tip inside this
+    /// operation. Empty when the tip did not move.
+    pub cascade: Cascade,
 }
 
 /// A session that was dropped without landing.
@@ -722,6 +826,9 @@ pub struct LiftReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// What happened to the branches stacked above this one. Empty when
+    /// nothing sits on it.
+    pub cascade: Cascade,
 }
 
 /// The result of `ff start` — always mints a fresh branch and parks
@@ -1026,10 +1133,62 @@ pub struct SyncReport {
     pub fetched: bool,
     pub remote: RemoteAxis,
     pub base: BaseAxis,
+    /// Every local branch other than the one underfoot, in the order the ref
+    /// namespace lists them. What each axis did to each, or why sync left
+    /// it alone.
+    pub branches: Vec<BranchSync>,
+    /// The files the run's one worktree write touched. The working tree
+    /// moves when the branch underfoot is carried, by its own axis or by
+    /// another branch's cascade, and this is the count wherever that
+    /// happened; the landed report of the axis that carried it says the
+    /// same number when there is one.
+    pub files: usize,
+    /// The working tree still holds an open change against the tip the
+    /// branch underfoot now sits on. False when the tree did not move.
+    pub still_open: bool,
     /// What `ff publish` would still have to do. Sync does not do it — but
     /// a branch that just lined up and still has something waiting is
     /// exactly when naming the other half is useful.
     pub pending: Pending,
+}
+
+impl SyncReport {
+    /// A human decision is required before anything more moves, which is
+    /// what exit 3 says: an axis held, a branch stacked above held in the
+    /// cascade a landed axis carries, or either axis of a branch not
+    /// underfoot held.
+    pub fn blocked(&self) -> bool {
+        fn holds(outcome: &RestackOutcome) -> bool {
+            match outcome {
+                RestackOutcome::Held(_) => true,
+                RestackOutcome::Restacked(r) => !r.cascade.held.is_empty(),
+                RestackOutcome::NothingToRestack { .. } => false,
+            }
+        }
+        let remote = match &self.remote {
+            RemoteAxis::Ran { outcome, .. } => holds(outcome),
+            _ => false,
+        };
+        let base = match &self.base {
+            BaseAxis::Ran { outcome, .. } => holds(outcome),
+            _ => false,
+        };
+        let branches = self.branches.iter().any(|b| match b {
+            BranchSync::Synced { remote, base, .. } => {
+                let remote = match remote {
+                    BranchRemote::Ran { outcome, .. } => holds(outcome),
+                    _ => false,
+                };
+                let base = match base.as_ref() {
+                    BaseAxis::Ran { outcome, .. } => holds(outcome),
+                    _ => false,
+                };
+                remote || base
+            }
+            _ => false,
+        });
+        remote || base || branches
+    }
 }
 
 /// What the outgoing half has left, as sync sees it. Three states rather
@@ -1095,8 +1254,86 @@ pub enum BaseAxis {
     /// Nothing beneath this branch to answer to — standing on trunk, an
     /// editing session, or a trunk fufu cannot name.
     NoBase,
-    /// The remote axis held, and the first axis that conflicts stops the run.
+    /// A hold stands on the branch, recorded this run by its own remote axis
+    /// or by a cascade from another branch's replay, and the first axis that
+    /// conflicts stops the run.
     Skipped,
+    /// The replay was refused before anything moved: the branch shares no
+    /// history with its base, or its commits hold a merge. Named and left
+    /// where it stands. Only a branch not underfoot reads this; the branch
+    /// underfoot's refusal is the verb's own error.
+    Refused { name: String, reason: SkipReason },
+    Ran {
+        name: String,
+        outcome: RestackOutcome,
+    },
+}
+
+/// One branch other than the one underfoot, as `ff sync` found it. The
+/// branch underfoot has the two axes above; every other local branch gets
+/// this row, and the ones sync must not touch say why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum BranchSync {
+    /// Checked out in another worktree, which sync must not move a tree out
+    /// from under. `path` is where.
+    Elsewhere { branch: String, path: String },
+    /// A rewrite from an earlier run is held on it, and one hold per branch
+    /// is the rule. `verb` is the one that held.
+    Held { branch: String, verb: String },
+    /// Sync looked at it: what its remote axis did, then what its base axis
+    /// did, in that order. The base is boxed because two axes dwarf the
+    /// other rows, and an enum sized to its largest arm is paid for on every
+    /// row; the JSON shape is the same either way.
+    Synced {
+        branch: String,
+        remote: BranchRemote,
+        base: Box<BaseAxis>,
+    },
+}
+
+/// The remote axis of a branch not underfoot: the ref-only moves, and the
+/// same divergence rule the branch underfoot gets. A replay here moves refs
+/// and objects and no file, since these branches carry no worktree, and one
+/// that conflicts holds on its own branch while the run goes on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum BranchRemote {
+    /// No upstream is configured, so there is nothing to reconcile with.
+    NoRemote,
+    /// Its tracking ref belongs to a remote this run did not fetch from, or
+    /// no fetch ran at all, so its tip is not one sync can trust.
+    NotFetched { name: String },
+    /// A tracking ref that is configured and absent: the shared copy was
+    /// deleted. Sync says so and touches nothing.
+    Gone { name: String },
+    /// The branch already holds everything its shared copy does.
+    UpToDate { name: String },
+    /// The tracking ref stands exactly where this repository last published
+    /// the branch, and the branch has since stepped back from that tip.
+    /// Taking it in would reverse the undo; the publish is what rolls the
+    /// shared copy back.
+    Undone { name: String, behind: usize },
+    /// The branch followed its shared copy: a fast-forward, or a branch that
+    /// stood exactly where the tracking ref stood before the fetch and went
+    /// wherever the remote went, force-push included.
+    Moved {
+        name: String,
+        fast_forward: bool,
+        behind: usize,
+        old: String,
+        new: String,
+    },
+    /// The branch and its shared copy each hold commits the other does not,
+    /// and the operation log accounts for every one the shared copy holds
+    /// that the branch lacks: stale copies of this repository's own
+    /// rewrites. Left where it stood; the publish is what lines them up.
+    Yours {
+        name: String,
+        ahead: usize,
+        behind: usize,
+    },
+    /// The divergence is theirs, so the branch was replayed onto its shared
+    /// copy. A hold here stands on that branch alone and does not stop the
+    /// run.
     Ran {
         name: String,
         outcome: RestackOutcome,

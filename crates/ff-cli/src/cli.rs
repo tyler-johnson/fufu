@@ -344,7 +344,7 @@ pub enum Command {
         onto: Option<String>,
     },
     // agent notice quotes this: `ff sync`
-    /// Line this branch up with its base and its remote
+    /// Line every branch up with its base and its remote
     #[command(long_about = help::term(help::SYNC), after_long_help = help::term_examples(help::SYNC_EXAMPLES))]
     Sync {
         /// Skip the fetch: reconcile with what you already have

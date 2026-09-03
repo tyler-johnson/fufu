@@ -287,3 +287,109 @@ fn explain_knows_the_new_ids() {
         "{text}"
     );
 }
+
+/// A branch stacked on the one absorb rewrites follows it: the human render
+/// says so in the cascade's own line, and the JSON report carries it as
+/// `absorb.cascade`.
+#[test]
+fn absorb_cascades_onto_the_branch_stacked_above() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    let started = ff(&fx, &["start", "main", "-b", "feat"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    let started = ff(&fx, &["start", "feat", "-b", "top"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("t.txt", "t\n");
+    let t1 = fx.commit("t1");
+    let back = ff(&fx, &["switch", "feat"]);
+    assert!(back.status.success(), "{}", out(&back));
+    fx.write("a.txt", "a\nmore\n");
+
+    let output = ff(&fx, &["absorb", "--into", f1.as_str()]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("restacked 1 commit(s) above it"), "{text}");
+    assert!(
+        text.contains("top followed feat: replayed 1 commit(s)"),
+        "{text}"
+    );
+    let top_after = fx.git(&["rev-parse", "top"]).trim().to_string();
+    assert_ne!(top_after, t1, "top followed the rewrite");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(
+        fx.git(&["rev-parse", "top"]).trim(),
+        t1,
+        "one undo puts top back with feat"
+    );
+
+    let output = ff(&fx, &["--json", "absorb", "--into", f1.as_str()]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let moved = &v["data"]["absorb"]["cascade"]["moved"];
+    assert_eq!(moved[0]["branch"], "top", "{v}");
+    assert_eq!(moved[0]["base"], "feat", "{v}");
+    assert_eq!(moved[0]["replayed"], 1, "{v}");
+    assert_eq!(
+        v["data"]["absorb"]["cascade"]["held"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+/// A branch stacked above the lifted one follows it: the human render says
+/// so, and `--json` carries the cascade on the lift report.
+#[test]
+fn lift_says_what_followed_and_the_json_carries_it() {
+    let fx = repo();
+    fx.write("f1.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("a.txt", "a\n");
+    fx.write("b.txt", "b\n");
+    let c1 = fx.commit("c1");
+    let started = ff(&fx, &["start", "feat", "-b", "top"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    let back = ff(&fx, &["switch", "feat"]);
+    assert!(back.status.success(), "{}", out(&back));
+
+    let output = ff(&fx, &["lift", "--from", c1.trim(), "a.txt"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("lifted out of"), "{text}");
+    assert!(
+        text.contains("top followed feat: replayed 1 commit(s)"),
+        "{text}"
+    );
+    let top = fx.git(&["rev-parse", "top"]);
+    assert_ne!(top.trim(), x1.trim(), "top followed");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(fx.git(&["rev-parse", "top"]).trim(), x1.trim());
+
+    let output = ff(&fx, &["--json", "lift", "--from", c1.trim(), "a.txt"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let moved = &v["data"]["lift"]["cascade"]["moved"];
+    assert_eq!(moved[0]["branch"], "top");
+    assert_eq!(moved[0]["base"], "feat");
+    assert_eq!(moved[0]["replayed"], 1);
+    assert_eq!(
+        v["data"]["lift"]["cascade"]["held"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}

@@ -493,6 +493,107 @@ fn join_paths(paths: &[String]) -> String {
     }
 }
 
+/// The lines a rewrite verb prints for the branches stacked above the one it
+/// moved: one per branch that followed, then each that held, then each that
+/// was skipped. Nothing for a branch with nothing of its own to replay — it
+/// did not move, and the verb's own divergence line already names it when
+/// it sits inside the replayed range.
+pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    for m in &cascade.moved {
+        out.push(format!(
+            "{} followed {}: replayed {} commit(s)",
+            m.branch, m.base, m.replayed
+        ));
+        if let Some(line) = dropped_line(&m.dropped, None, colored) {
+            out.push(format!("    {line}"));
+        }
+        if !m.diverged.is_empty() {
+            let sits = if m.diverged.len() == 1 { "sits" } else { "sit" };
+            out.push(paint_warn(
+                &format!(
+                    "    {} now {sits} on commits this replay replaced",
+                    m.diverged.join(", ")
+                ),
+                colored,
+            ));
+        }
+        if m.published > 0 {
+            let on = m.published_on.as_deref().unwrap_or("the remote");
+            out.push(format!(
+                "    {} of {}'s rewritten commits are already on {on}",
+                m.published, m.branch
+            ));
+        }
+    }
+    for h in &cascade.held {
+        let where_it_stopped = match &h.report.at {
+            ff_core::futures::At::Commit { id, subject } => format!(
+                "replaying {} \"{}\"",
+                ff_core::sha::short(id),
+                truncate_subject(subject)
+            ),
+            ff_core::futures::At::OpenChange => "your open change".to_string(),
+        };
+        out.push(paint_warn(
+            &format!(
+                "{} held: {where_it_stopped} conflicts in {}",
+                h.branch,
+                join_paths(&h.report.paths)
+            ),
+            colored,
+        ));
+        out.push(format!(
+            "    the restack onto {} is waiting — nothing was written there{}",
+            h.base,
+            left_alone(&h.left_alone)
+        ));
+        out.push(paint_dim(
+            &format!(
+                "    ff switch {} · ff resolve to fix them, all at once · ff resolve --abandon to \
+                 drop it",
+                h.branch
+            ),
+            colored,
+        ));
+    }
+    for s in &cascade.skipped {
+        out.push(paint_warn(
+            &format!(
+                "{} skipped: {}{}",
+                s.branch,
+                skip_reason(&s.reason, &s.base),
+                left_alone(&s.left_alone)
+            ),
+            colored,
+        ));
+    }
+    out
+}
+
+/// Why a branch was left where it stands, in the words every verb uses;
+/// `base` is the branch it sits on, named when the reason is about it.
+pub(crate) fn skip_reason(reason: &ff_core::SkipReason, base: &str) -> String {
+    match reason {
+        ff_core::SkipReason::Worktree { path } => format!("checked out in {path}"),
+        ff_core::SkipReason::AlreadyHeld => "a rewrite is already held there".to_string(),
+        ff_core::SkipReason::MergeInRange => {
+            "its commits hold a merge, and replaying a merge is ambiguous".to_string()
+        }
+        ff_core::SkipReason::Unrelated => format!("it shares no history with {base}"),
+    }
+}
+
+/// The tail a held or skipped branch's line carries for the branches above
+/// it, which stay where they stood because their base did not move.
+fn left_alone(names: &[String]) -> String {
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("; above it, {} left alone", names.join(", "))
+    }
+}
+
 /// The one line the rewrite verbs print for commits a rewrite dropped —
 /// `None` when nothing was dropped, so the caller prints nothing. Names a
 /// single drop; counts several and shows the first three, the

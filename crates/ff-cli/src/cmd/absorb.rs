@@ -96,6 +96,12 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>, no_verify: bool)
             if report.still_open {
                 println!("the rest of your change is still open");
             }
+            // The branches stacked above, in the lines every cascading verb
+            // prints. A hold above does not change the exit: the absorb
+            // landed, and `ff status` shows the branch waiting.
+            for line in crate::render::cascade_lines(&report.cascade, colored) {
+                println!("{line}");
+            }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
         AbsorbOutcome::Held(report) => {

@@ -1,7 +1,9 @@
 //! `ff restack` replays a branch's commits onto a different base — the one
 //! recorded for it, or the one `--onto` names — and carries the open change
 //! onto the new tip. It is the primitive `ff sync` and `ff done` will aim at,
-//! and it is offline: one branch moves, never a cascade of branches.
+//! and it is offline. The branches stacked above the one it moves follow it:
+//! `cascade` plans their replay once the new tip is known and before the
+//! operation is written, so the whole cascade rides this one operation.
 //!
 //! The one rule that organizes this file: the worktree moves if and only if
 //! the branch HEAD stands on is carried by the rewrite — always so for the
@@ -9,16 +11,17 @@
 //! between writing files and touching none at all.
 
 use crate::branchmeta;
+use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
-use crate::futures::{self, At, UnknownReason, Verdict};
+use crate::futures::{self, At, Verdict};
 use crate::held::{self, Held, Intent};
 use crate::model::{HeadState, HeldReport, Parked, RestackOutcome, RestackReport};
 use crate::ops::record::{ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, StashEffect, verb};
+use crate::overlay::Overlay;
 use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
-use crate::snapshot::tree as snaptree;
 use crate::stash::{self, ArrivePlan};
 use crate::switch;
 use serde::Serialize;
@@ -42,17 +45,6 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
     Ok(commit.message().map_err(Error::repo)?.summary().to_string())
 }
 
-/// The exact worktree tree: the tip's tree with the scan assembled onto it,
-/// nothing size-capped out. The second result says the tree is clean.
-fn open_tree(repo: &gix::Repository, tip_tree: gix::ObjectId) -> Result<(gix::ObjectId, bool)> {
-    let scan = snaptree::scan(repo)?;
-    if scan.is_empty() {
-        return Ok((tip_tree, true));
-    }
-    let (tree_id, _skipped) = snaptree::assemble(repo, tip_tree, &scan, u64::MAX)?;
-    Ok((tree_id, false))
-}
-
 /// A three-way tree merge, resolved but not yet written: the caller probes
 /// with a handle that writes nothing, and only then merges for real.
 fn merge_into(
@@ -73,44 +65,10 @@ fn merge_into(
 fn hold(
     repo: &gix::Repository,
     rec: held::Recording<'_>,
-    branch: &str,
-    at: &At,
-    base: &Onto,
-    paths: &[String],
-    of: usize,
+    plan: &HoldPlan,
 ) -> Result<RestackOutcome> {
-    let now = rec.now;
-    // One hold per branch, and the check sits here — where the hold would be
-    // recorded — rather than at the top of the verb, on purpose: a rewrite
-    // that would *succeed* while a hold stands is allowed through, because
-    // it is not competing for anything and the hold re-derives itself the
-    // next time somebody asks.
-    held::refuse_if_held(repo, branch, "restacked")?;
-
-    let held = Held {
-        intent: Intent::Restack {
-            branch: branch.to_string(),
-            onto: base.full.clone(),
-        },
-        at: at.clone(),
-        paths: paths.to_vec(),
-        time: now,
-    };
-    held::record(
-        repo,
-        rec,
-        branch,
-        &held,
-        format!("hold restack of {branch} onto {}", base.name),
-    )?;
-
-    Ok(RestackOutcome::Held(HeldReport {
-        verb: "restack".into(),
-        branch: branch.to_string(),
-        at: at.clone(),
-        paths: paths.to_vec(),
-        of,
-    }))
+    held::record(repo, rec, &plan.branch, &plan.held, plan.summary())?;
+    Ok(RestackOutcome::Held(plan.report.clone()))
 }
 
 /// A base `--onto` may name: the ref to replay onto, and what to call it.
@@ -228,6 +186,87 @@ fn onto_from(repo: &gix::Repository, sync_ref: &futures::SyncRef) -> Result<Onto
     })
 }
 
+/// Where the range walk stops: the merge bases with the base as it stands,
+/// and, when the base is one the branch follows, the point the branch forked
+/// from the base's history.
+///
+/// A rewritten base keeps none of its old commits, so the merge base with
+/// its new tip is the point where the base itself forked from trunk, and a
+/// walk bounded there hands back the base's own old commits as if they were
+/// the branch's. Replayed onto their rewritten selves they drop as empty
+/// under a pure move and conflict under a rewrite that changed their
+/// content, which is the cascade's reason for bounding a child's range at
+/// the base as it stood. A replan has no old tip in hand, so it asks the
+/// base's reflog, the way `git rebase --fork-point` does: every place the
+/// base has stood is a candidate, and the branch's fork from any of them
+/// bounds the walk. A commit the base once held and the branch still sits
+/// on is the base's, not the branch's.
+///
+/// Only the two refs a branch answers to are read this way, its recorded
+/// base and its own shared copy. `--onto` aimed elsewhere is a transplant,
+/// and a transplant carries everything above the common ancestor.
+fn range_boundary(
+    repo: &gix::Repository,
+    branch: &str,
+    branch_tip: gix::ObjectId,
+    base: &Onto,
+    bases: &[gix::ObjectId],
+) -> Result<Vec<gix::ObjectId>> {
+    let mut boundary: Vec<gix::ObjectId> = bases.to_vec();
+    let followed = futures::base_for(repo, branch)?.is_some_and(|s| s.r#ref == base.full)
+        || futures::remote_for(repo, branch)?.is_some_and(|s| s.r#ref == base.full);
+    if !followed {
+        return Ok(boundary);
+    }
+    let mut positions: Vec<gix::ObjectId> = vec![base.tip];
+    for line in refs::read_ref_log(repo, &base.full)? {
+        positions.push(line.new);
+        positions.extend(line.previous);
+    }
+    positions.sort();
+    positions.dedup();
+    // The branch's own tip as a past position of the base says nothing about
+    // where the branch forked, and gix answers a `first` inside `others`
+    // with `first` alone.
+    positions.retain(|p| *p != branch_tip);
+    for id in repo
+        .merge_bases_many(branch_tip, &positions)
+        .map_err(Error::repo)?
+    {
+        let id = id.detach();
+        if !boundary.contains(&id) {
+            boundary.push(id);
+        }
+    }
+    Ok(boundary)
+}
+
+/// The commits above `boundary` from `branch_tip` down, oldest first. A
+/// merge in the range is refused by the verb and skipped by the cascade;
+/// here it is reported so the caller decides.
+fn walk_range(
+    repo: &gix::Repository,
+    branch_tip: gix::ObjectId,
+    boundary: &[gix::ObjectId],
+) -> Result<(Vec<gix::ObjectId>, Option<gix::ObjectId>)> {
+    let walk = repo
+        .rev_walk(Some(branch_tip))
+        .with_boundary(boundary.iter().copied())
+        .all()
+        .map_err(Error::repo)?;
+    let mut range = Vec::new();
+    let mut merge = None;
+    for info in walk {
+        let info = info.map_err(Error::repo)?;
+        if merge.is_none() && info.parent_ids().count() > 1 {
+            merge = Some(info.id);
+        }
+        range.push(info.id);
+    }
+    range.reverse(); // oldest-first; the target is the first element
+    Ok((range, merge))
+}
+
 /// The triple a restack replays: the oldest commit of the branch that is not
 /// already on the base, the branch's tip, and the base to land on.
 ///
@@ -248,7 +287,6 @@ pub(crate) fn replan_restack(
     })?;
     let base = resolve_onto(repo, onto)?;
     let base_tip = base.tip;
-    let base_name = base.name;
 
     let bases: Vec<gix::ObjectId> = repo
         .merge_bases_many(branch_tip, &[base_tip])
@@ -260,24 +298,18 @@ pub(crate) fn replan_restack(
         return Err(Error::coded(
             "restack/unrelated",
             format!(
-                "{branch} and {base_name} have no common ancestor: there is nothing to replay onto"
+                "{branch} and {} have no common ancestor: there is nothing to replay onto",
+                base.name
             ),
             vec!["ff log".into()],
         ));
     }
 
-    // Oldest-first from the walk, reversed below — the same range the verb
-    // measures, taken from the branch's own commits down to the base.
-    let walk = repo
-        .rev_walk(Some(branch_tip))
-        .with_boundary(bases.iter().copied())
-        .all()
-        .map_err(Error::repo)?;
-    let mut range = Vec::new();
-    for info in walk {
-        range.push(info.map_err(Error::repo)?.id);
-    }
-    range.reverse(); // oldest-first; the target is the first element
+    // The same range the verb measures: the branch's own commits, down to
+    // where it forked from the base.
+    let boundary = range_boundary(repo, branch, branch_tip, &base, &bases)?;
+    let (range, _merge) = walk_range(repo, branch_tip, &boundary)?;
+    let base_name = base.name;
     if range.is_empty() {
         return Err(Error::msg(format!(
             "{branch} already sits on {base_name}: there is nothing to restack"
@@ -318,6 +350,12 @@ pub fn restack(
 /// merges that are no longer going to happen, is asked only when nothing is
 /// decided — and the aim, which settles whether aiming at the branch's own
 /// shared copy is refused.
+///
+/// Two halves: [`plan_restack`] decides everything and writes only commit
+/// objects, and the committing half below writes the operation ahead of
+/// the refs, the refs in one transaction, and the worktree last. `ff sync`
+/// calls the planning half once per axis of every branch against one
+/// overlay and commits the lot as its own one operation.
 pub fn restack_with(
     repo: &gix::Repository,
     branch: Option<String>,
@@ -352,12 +390,242 @@ pub fn restack_with(
     let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
 
+    // 3 to 10. The plan, against the repository as it stands.
+    let plan = plan_restack(repo, branch, onto, now, decided, aim, &Overlay::default())?;
+    match plan {
+        RestackPlan::Unchanged { branch, base } => {
+            Ok((RestackOutcome::NothingToRestack { branch, base }, ctx))
+        }
+        RestackPlan::Held(plan) => Ok((
+            hold(
+                repo,
+                held::Recording {
+                    ctx: &ctx,
+                    prov,
+                    argv,
+                    now,
+                },
+                &plan,
+            )?,
+            ctx,
+        )),
+        RestackPlan::Replay(plan) => {
+            let report = commit_restack(repo, &ctx, prov, argv, decided, *plan)?;
+            Ok((RestackOutcome::Restacked(Box::new(report)), ctx))
+        }
+    }
+}
+
+/// What a restack decided, before anything is written.
+pub(crate) enum RestackPlan {
+    /// The branch already sits on its base, and nothing else was asked.
+    Unchanged { branch: String, base: String },
+    /// The replay conflicts: nothing moves, and the hold is what gets
+    /// recorded.
+    Held(Box<HoldPlan>),
+    /// A replay or a fast-forward, with everything it moves.
+    Replay(Box<ReplayPlan>),
+}
+
+/// A hold a restack planned.
+pub(crate) struct HoldPlan {
+    pub branch: String,
+    base_name: String,
+    pub held: Held,
+    pub report: HeldReport,
+}
+
+impl HoldPlan {
+    /// The summary of the operation that records it.
+    pub(crate) fn summary(&self) -> String {
+        format!("hold restack of {} onto {}", self.branch, self.base_name)
+    }
+}
+
+/// A replay a restack planned and has not written: the branch's own ref
+/// move, its rewrites and drops, the branches stacked above, and the
+/// worktree the head branch carries. Commit objects are written; no ref
+/// has moved.
+pub(crate) struct ReplayPlan {
+    pub branch: String,
+    base: Onto,
+    branch_tip: gix::ObjectId,
+    pub new_tip: gix::ObjectId,
+    bases: Vec<gix::ObjectId>,
+    /// The restacked branch's own transition.
+    pub carried: Vec<RefTransition>,
+    pub rewrites: Vec<rewrite::Rewrite>,
+    pub dropped: Vec<rewrite::Dropped>,
+    diverged: Vec<String>,
+    replayed: usize,
+    published: usize,
+    fast_forward: bool,
+    reaimed: bool,
+    parent_changes: bool,
+    recorded_parent: Option<String>,
+    head_branch: Option<String>,
+    head_tip: Option<gix::ObjectId>,
+    head_carried: bool,
+    /// The open change as the plan found it, the tip HEAD's branch will
+    /// stand on, and the tree the worktree will hold: all three when the
+    /// head branch is carried, by this replay or by its cascade, and none
+    /// otherwise.
+    pub open: Option<gix::ObjectId>,
+    pub new_head_tip: Option<gix::ObjectId>,
+    pub new_worktree: Option<gix::ObjectId>,
+    pub cascade: CascadePlan,
+    arrive_plan: ArrivePlan,
+    arrive_target: gix::ObjectId,
+}
+
+impl ReplayPlan {
+    /// The commits the operation must keep reachable for the branch's own
+    /// replay: every rewritten commit and every old tip. The cascade's are
+    /// on the cascade plan, folded in beside them.
+    pub(crate) fn own_pins(&self) -> Result<Vec<gix::ObjectId>> {
+        let mut pins: Vec<gix::ObjectId> = self
+            .rewrites
+            .iter()
+            .map(|r| gix::ObjectId::from_hex(r.new.as_bytes()).map_err(Error::repo))
+            .collect::<Result<_>>()?;
+        pins.push(self.branch_tip);
+        if let Some(head_tip) = self.head_tip
+            && head_tip != self.branch_tip
+        {
+            pins.push(head_tip);
+        }
+        match &self.arrive_plan {
+            ArrivePlan::Restore { stash, .. }
+            | ArrivePlan::Conflict { stash, .. }
+            | ArrivePlan::Invalidate { stash } => pins.push(*stash),
+            ArrivePlan::None => {}
+        }
+        Ok(pins)
+    }
+
+    /// The report, once the plan has landed. `files` is what the worktree
+    /// write touched, and `arrival` is what became of a parked change the
+    /// landing brought home, when one did.
+    pub(crate) fn report(
+        &self,
+        repo: &gix::Repository,
+        files: usize,
+        arrival: Option<&stash::Arrival>,
+    ) -> Result<RestackReport> {
+        let branch = &self.branch;
+        // 13. The parked disclosure: say so, never move it. Skipped for the
+        // branch underfoot — a branch you are standing on has no parked entry
+        // to speak of, its change being open rather than parked.
+        let parked = if self.head_carried && self.head_branch.as_deref() == Some(branch.as_str()) {
+            // A branch you are standing on has no parked entry to speak of,
+            // its change being open rather than parked — unless a resolution
+            // parked one and the arrival could not put it back, which is the
+            // one thing here that has to be said out loud.
+            match arrival {
+                Some(crate::stash::Arrival::Conflicted { stash, .. }) => Some(Parked {
+                    stash: stash.clone(),
+                    applies: false,
+                }),
+                _ => None,
+            }
+        } else {
+            match crate::stash::parked_entry(repo, branch)? {
+                Some(id) => {
+                    let sc = crate::stash::read_stash_commit(repo, id)?;
+                    let new_tip_tree = tree_of(repo, self.new_tip)?;
+                    let applies =
+                        futures::conflict_paths(repo, sc.base_tree, new_tip_tree, sc.wip_tree)?
+                            .is_empty();
+                    Some(Parked {
+                        stash: id.to_string(),
+                        applies,
+                    })
+                }
+                None => None,
+            }
+        };
+
+        // 14. The report.
+        let behind = crate::upstream::count_exclusive(repo, self.base.tip, &self.bases)?;
+        let branch_ref = format!("refs/heads/{branch}");
+        let moved: Vec<String> = self
+            .carried
+            .iter()
+            .filter(|t| t.name != branch_ref)
+            .map(|t| {
+                t.name
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(&t.name)
+                    .to_string()
+            })
+            .collect(); // carried is already sorted by ref name
+
+        // What is still open is what the worktree will hold once this lands,
+        // measured against the commit it will then sit on — not the tree the
+        // change stood against before the replay. Comparing the *old* open
+        // tree to the *new* tip answers "did the replay move anything", which
+        // is true of every replay that did its job, and would report a clean
+        // tree as dirty. Both trees here are exact rather than
+        // `ctx.pre_tree`: the capture floor may have size-capped a blob out of
+        // pre_tree while the exact tree kept it.
+        let still_open = match (
+            self.new_worktree,
+            self.new_head_tip.map(|id| tree_of(repo, id)).transpose()?,
+        ) {
+            (Some(worktree), Some(tip_tree)) => worktree != tip_tree,
+            _ => false,
+        };
+
+        let published_on = rewrite::tracking_name(repo, branch)?;
+
+        Ok(RestackReport {
+            branch: branch.clone(),
+            base: self.base.name.clone(),
+            onto: self.base.tip.to_string(),
+            reaimed: self.reaimed,
+            previous_parent: self.recorded_parent.clone(),
+            replayed: self.replayed,
+            behind,
+            fast_forward: self.fast_forward,
+            new_tip: self.new_tip.to_string(),
+            moved,
+            diverged: self.diverged.clone(),
+            published: self.published,
+            published_on,
+            parked,
+            files,
+            still_open,
+            dropped: self.dropped.clone(),
+            cascade: self.cascade.report.clone(),
+        })
+    }
+}
+
+/// The planning half of a restack: everything `restack_with` decides,
+/// against the repository as `overlay` says it stands, with commit objects
+/// written and no ref moved. A hold is a plan too, and so is a branch that
+/// already sits on its base; the one hold per branch rule is checked here,
+/// where the hold would be recorded, so a rewrite that would succeed while a
+/// hold stands is allowed through.
+pub(crate) fn plan_restack(
+    repo: &gix::Repository,
+    branch: Option<String>,
+    onto: Option<String>,
+    now: i64,
+    decided: &rewrite::Decided,
+    aim: Aim,
+    overlay: &Overlay,
+) -> Result<RestackPlan> {
     // 3. HEAD, and the branch to move. HEAD's own state is only fatal when
-    // the verb needs it: a named branch does not.
+    // the verb needs it: a named branch does not. The tip is the overlay's
+    // when the run already moved HEAD's branch.
     let head = crate::head::head_state(repo)?;
     let (head_branch, head_tip) = match &head {
         HeadState::Branch { name, commit, .. } => {
-            let tip = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
+            let tip = match overlay.branch_tip(repo, name)? {
+                Some(tip) => tip,
+                None => gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?,
+            };
             (Some(name.clone()), Some(tip))
         }
         HeadState::Unborn { .. } | HeadState::Detached { .. } => (None, None),
@@ -390,7 +658,7 @@ pub fn restack_with(
         },
     };
 
-    let branch_tip = refs::ref_target(repo, &format!("refs/heads/{branch}"))?.ok_or_else(|| {
+    let branch_tip = overlay.branch_tip(repo, &branch)?.ok_or_else(|| {
         Error::coded(
             "branch/not-found",
             format!("no branch named {branch}"),
@@ -416,7 +684,7 @@ pub fn restack_with(
 
     // 4. The base.
     let reaim_requested = onto.is_some();
-    let (base, own_copy) = match onto {
+    let (mut base, own_copy) = match onto {
         Some(raw) => {
             let base = resolve_onto(repo, &raw)?;
             if base.full == format!("refs/heads/{branch}") {
@@ -463,6 +731,10 @@ pub fn restack_with(
             (onto_from(repo, &sync_ref)?, false)
         }
     };
+    // The base as the run has planned it, when it moved the base already.
+    if let Some(tip) = overlay.tip(&base.full) {
+        base.tip = tip;
+    }
     // `--onto` records a parent whatever namespace the base lives in: `ff
     // start origin/x` already writes one, and `base_for` already resolves
     // one. What survives of the old local-only rule is the invariant
@@ -473,7 +745,6 @@ pub fn restack_with(
     let base_name = base.name.clone();
 
     let recorded_parent = branchmeta::read(repo, &branch)?.parent;
-    let previous_parent = recorded_parent.clone();
     // `--onto` naming the parent that is already recorded changes nothing.
     let parent_changes = reaimed && recorded_parent.as_deref() != Some(base_name.as_str());
 
@@ -502,41 +773,33 @@ pub fn restack_with(
     let fast_forward = !up_to_date && bases.contains(&branch_tip);
 
     if up_to_date && !parent_changes {
-        return Ok((
-            RestackOutcome::NothingToRestack {
-                branch,
-                base: base_name,
-            },
-            ctx,
-        ));
+        return Ok(RestackPlan::Unchanged {
+            branch,
+            base: base_name,
+        });
     }
 
     let mut range: Vec<gix::ObjectId> = Vec::new();
     if !up_to_date && !fast_forward {
-        // Newest-first from the walk; reversed below. A restack is something
-        // a person asked for, so the range is walked in full — no depth cap.
-        let walk = repo
-            .rev_walk(Some(branch_tip))
-            .with_boundary(bases.iter().copied())
-            .all()
-            .map_err(Error::repo)?;
-        for info in walk {
-            let info = info.map_err(Error::repo)?;
-            if info.parent_ids().count() > 1 {
-                return Err(Error::coded(
-                    "rewrite/merge-in-range",
-                    format!(
-                        "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
-                         rewritten",
-                        crate::sha::short_oid(info.id),
-                        subject(repo, info.id)?
-                    ),
-                    vec!["ff log".into()],
-                ));
-            }
-            range.push(info.id);
+        // The branch's own commits, down to where it forked from the base:
+        // the range `replan_restack` measures, so the verb and the replan
+        // cannot disagree. A restack is something a person asked for, so
+        // the range is walked in full — no depth cap.
+        let boundary = range_boundary(repo, &branch, branch_tip, &base, &bases)?;
+        let (walked, merge) = walk_range(repo, branch_tip, &boundary)?;
+        if let Some(merge) = merge {
+            return Err(Error::coded(
+                "rewrite/merge-in-range",
+                format!(
+                    "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
+                     rewritten",
+                    crate::sha::short_oid(merge),
+                    subject(repo, merge)?
+                ),
+                vec!["ff log".into()],
+            ));
         }
-        range.reverse(); // oldest-first; the target is the first element
+        range = walked;
     }
 
     let head_carried = if up_to_date {
@@ -549,13 +812,51 @@ pub fn restack_with(
             .is_some_and(|h| h == branch || head_tip.is_some_and(|t| range.contains(&t)))
     };
 
-    // 6. The open change — only when the head branch is carried.
+    // 6. The open change — only when the head branch is carried. The
+    // overlay answers with the worktree it has planned when the run already
+    // moved HEAD's branch, and with the files otherwise.
     let (mut open, mut head_tip_tree) = (None, None);
     if head_carried && let Some(ht) = head_tip {
         let ht_tree = tree_of(repo, ht)?;
-        open = Some(open_tree(repo, ht_tree)?.0);
+        open = Some(overlay.open_tree(repo, ht_tree)?);
         head_tip_tree = Some(ht_tree);
     }
+
+    // A hold is planned where it would be recorded, and one hold per branch
+    // is the rule, so the check sits here rather than at the top of the
+    // verb, on purpose: a rewrite that would *succeed* while a hold stands is
+    // allowed through, because it is not competing for anything and the hold
+    // re-derives itself the next time somebody asks.
+    let hold_plan = |at: &At, paths: &[String], of: usize| -> Result<RestackPlan> {
+        if overlay.has_hold(&branch) {
+            return Err(Error::coded(
+                "held/already-held",
+                format!("{branch} already has a rewrite held this run: nothing was restacked"),
+                vec!["ff resolve".into(), "ff status".into()],
+            ));
+        }
+        held::refuse_if_held(repo, &branch, "restacked")?;
+        Ok(RestackPlan::Held(Box::new(HoldPlan {
+            branch: branch.clone(),
+            base_name: base.name.clone(),
+            held: Held {
+                intent: Intent::Restack {
+                    branch: branch.clone(),
+                    onto: base.full.clone(),
+                },
+                at: at.clone(),
+                paths: paths.to_vec(),
+                time: now,
+            },
+            report: HeldReport {
+                verb: "restack".into(),
+                branch: branch.clone(),
+                at: at.clone(),
+                paths: paths.to_vec(),
+                of,
+            },
+        })))
+    };
 
     // 7. The conflict verdict — probes only, nothing written. A verb the user
     // asked for pays the full replay cost, unlike thrifty `ff status`. Skipped
@@ -569,83 +870,28 @@ pub fn restack_with(
         } else {
             None
         };
-        match futures::probe_to_depth(repo, base_tip, branch_tip, probe_open, usize::MAX)? {
+        // The probe replays the range §5 walked rather than walking its own,
+        // so it answers about the commits the plan will rewrite and none of
+        // the base's own; §5 already refused a merge in it.
+        match futures::probe_range(repo, base_tip, &range, branch_tip, probe_open)? {
             Verdict::Clean { .. } => {
                 // Standing mid-stack: the open change belongs to the head
                 // branch's tip, not the target's, so it needs its own probe.
-                // Replaying bases..head_tip is a prefix of the range just
+                // Replaying up to head_tip is a prefix of the range just
                 // proven clean, so only the open-change step can still fail.
                 if let (Some(open_t), Some(hb), Some(ht)) = (open, head_branch.as_deref(), head_tip)
                     && hb != branch
+                    && let Some(pos) = range.iter().position(|id| *id == ht)
                     && let Verdict::Conflict {
                         at: at @ At::OpenChange,
                         paths,
-                    } = futures::probe_to_depth(repo, base_tip, ht, Some(open_t), usize::MAX)?
+                    } = futures::probe_range(repo, base_tip, &range[..=pos], ht, Some(open_t))?
                 {
-                    return Ok((
-                        hold(
-                            repo,
-                            held::Recording {
-                                ctx: &ctx,
-                                prov,
-                                argv,
-                                now,
-                            },
-                            &branch,
-                            &at,
-                            &base,
-                            &paths,
-                            range.len(),
-                        )?,
-                        ctx,
-                    ));
+                    return hold_plan(&at, &paths, range.len());
                 }
             }
             Verdict::Conflict { at, paths } => {
-                return Ok((
-                    hold(
-                        repo,
-                        held::Recording {
-                            ctx: &ctx,
-                            prov,
-                            argv,
-                            now,
-                        },
-                        &branch,
-                        &at,
-                        &base,
-                        &paths,
-                        range.len(),
-                    )?,
-                    ctx,
-                ));
-            }
-            // Unreachable in practice — §5 already refused a merge in the
-            // range — but handled rather than panicked, named the way §5
-            // names it.
-            Verdict::Unknown {
-                reason: UnknownReason::MergeCommits,
-            } => {
-                let merge = range
-                    .iter()
-                    .copied()
-                    .find(|&id| {
-                        repo.find_object(id).is_ok_and(|obj| {
-                            gix::objs::CommitRef::from_bytes(&obj.data)
-                                .is_ok_and(|c| c.parents.len() > 1)
-                        })
-                    })
-                    .unwrap_or(branch_tip);
-                return Err(Error::coded(
-                    "rewrite/merge-in-range",
-                    format!(
-                        "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
-                         rewritten",
-                        crate::sha::short_oid(merge),
-                        subject(repo, merge).unwrap_or_default()
-                    ),
-                    vec!["ff log".into()],
-                ));
+                return hold_plan(&at, &paths, range.len());
             }
             verdict => {
                 return Err(Error::msg(format!(
@@ -656,6 +902,7 @@ pub fn restack_with(
     }
 
     // 8. Plan, and the new worktree.
+    let branch_ref = format!("refs/heads/{branch}");
     let mut carried: Vec<RefTransition> = Vec::new();
     let mut diverged: Vec<String> = Vec::new();
     let mut rewrites: Vec<rewrite::Rewrite> = Vec::new();
@@ -666,14 +913,20 @@ pub fn restack_with(
     let mut new_worktree: Option<gix::ObjectId> = None;
 
     if !up_to_date && !fast_forward {
-        // The triple the restack replays — the same one `held::replan`
-        // re-derives, so the verb and the replan cannot disagree.
-        let replan = replan_restack(repo, &branch, &base.full)?;
+        // The triple the restack replays — the range §5 walked, which is the
+        // one `replan_restack` measures, so the verb and the replan cannot
+        // disagree. Read here rather than through `replan_restack` because
+        // the tips are the overlay's, not the refs'.
+        let Some(target) = range.first().copied() else {
+            return Err(Error::msg(format!(
+                "{branch} already sits on {base_name}: there is nothing to restack"
+            )));
+        };
         let plan = rewrite::plan_with(
             repo,
-            replan.target,
-            replan.tip,
-            &replan.change,
+            target,
+            branch_tip,
+            &rewrite::Change::Onto(base_tip),
             now,
             &decided.trees,
         )?;
@@ -684,42 +937,36 @@ pub fn restack_with(
         // `ff restack` moves only the branch it was asked to move: every
         // other local head the rewrite map touched is left where it stood,
         // divergent, rather than carried out from under whatever worktree —
-        // this one included — is standing on it.
-        let branch_ref = format!("refs/heads/{branch}");
-        let (kept, left): (Vec<RefTransition>, Vec<RefTransition>) =
-            plan.carried.into_iter().partition(|t| t.name == branch_ref);
-        carried = kept;
-        diverged = left
+        // this one included — is standing on it. The branch's own transition
+        // is built from the tips the plan replayed, since the ref itself may
+        // still stand where the run found it.
+        diverged = plan
+            .carried
             .into_iter()
+            .filter(|t| t.name != branch_ref)
             .map(|t| {
                 t.name
                     .strip_prefix("refs/heads/")
                     .unwrap_or(&t.name)
                     .to_string()
             })
-            .collect(); // plan.carried is sorted by ref name, and partition preserves order
+            .collect(); // plan.carried is sorted by ref name, and filter preserves order
         rewrites = plan.rewrites;
         replayed = rewrites.len();
         dropped = plan.dropped;
         new_tip = plan.new_tip;
+        carried = vec![RefTransition {
+            name: branch_ref.clone(),
+            old: Some(branch_tip.to_string()),
+            new: Some(new_tip.to_string()),
+        }];
 
-        // The head branch's new tip comes out of the carried table either
-        // way, so there is one code path for head and non-head — but the
-        // table now holds only the acted-on branch's entry, so this can only
-        // resolve when HEAD is standing on that same branch. When HEAD sits
-        // mid-stack on a different, now-divergent branch, its ref is not
-        // moving and neither is its worktree.
+        // The head branch's new tip is the branch's own when HEAD is standing
+        // on that same branch. When HEAD sits mid-stack on a different,
+        // now-divergent branch, its ref is not moving and neither is its
+        // worktree.
         if head_carried && head_branch.as_deref() == Some(branch.as_str()) {
-            let entry = carried
-                .iter()
-                .find(|t| t.name == branch_ref)
-                .ok_or_else(|| {
-                    Error::msg(format!("{branch_ref} was not carried: internal error"))
-                })?;
-            let new_hex = entry.new.as_deref().ok_or_else(|| {
-                Error::msg(format!("{branch_ref} has no new end: internal error"))
-            })?;
-            new_head_tip = Some(gix::ObjectId::from_hex(new_hex.as_bytes()).map_err(Error::repo)?);
+            new_head_tip = Some(new_tip);
         }
 
         // The worktree the verb will leave behind. §7 already proved this
@@ -736,7 +983,7 @@ pub fn restack_with(
         // The base already contains the branch: no commit is rewritten, the
         // ref simply moves. No plan, no rewrite map.
         carried = vec![RefTransition {
-            name: format!("refs/heads/{branch}"),
+            name: branch_ref.clone(),
             old: Some(branch_tip.to_string()),
             new: Some(base_tip.to_string()),
         }];
@@ -751,23 +998,7 @@ pub fn restack_with(
             if !paths.is_empty() {
                 // A fast-forward restacks no commit, so the stack the report
                 // sizes is empty: range was never built and stands at zero.
-                return Ok((
-                    hold(
-                        repo,
-                        held::Recording {
-                            ctx: &ctx,
-                            prov,
-                            argv,
-                            now,
-                        },
-                        &branch,
-                        &At::OpenChange,
-                        &base,
-                        &paths,
-                        range.len(),
-                    )?,
-                    ctx,
-                ));
+                return hold_plan(&At::OpenChange, &paths, range.len());
             }
             if open_t == ht_tree {
                 new_worktree = Some(ours_tree);
@@ -776,6 +1007,27 @@ pub fn restack_with(
                 new_worktree = Some(outcome.tree.write().map_err(Error::repo)?.detach());
             }
         }
+    }
+
+    // 9. The branches stacked above. Planned here, once the new tip is known
+    // and before anything is written, so the whole cascade rides this
+    // operation and one undo takes it back with the restack. HEAD standing
+    // on one of them is the one way the working tree moves for a branch it
+    // is not on: that branch is carried, so its open change is carried too,
+    // and a conflict there holds that branch rather than this verb.
+    let cascade = if new_tip != branch_tip {
+        let head_above = head_branch
+            .as_deref()
+            .filter(|h| *h != branch.as_str())
+            .map(|branch| cascade::Head { branch });
+        cascade::plan_over(repo, &branch, branch_tip, new_tip, head_above, now, overlay)?
+    } else {
+        CascadePlan::default()
+    };
+    if let Some(moved) = &cascade.head {
+        open = Some(moved.open);
+        new_head_tip = Some(moved.new_tip);
+        new_worktree = Some(moved.worktree);
     }
 
     // 10b. A resolution's park comes home. `ff resolve` parks the open change
@@ -794,22 +1046,65 @@ pub fn restack_with(
             ArrivePlan::None
         };
 
+    Ok(RestackPlan::Replay(Box::new(ReplayPlan {
+        branch,
+        base,
+        branch_tip,
+        new_tip,
+        bases,
+        carried,
+        rewrites,
+        dropped,
+        diverged,
+        replayed,
+        published,
+        fast_forward,
+        reaimed,
+        parent_changes,
+        recorded_parent,
+        head_branch,
+        head_tip,
+        head_carried,
+        open,
+        new_head_tip,
+        new_worktree,
+        cascade,
+        arrive_plan,
+        arrive_target,
+    })))
+}
+
+/// The committing half of a restack: the operation write-ahead, the refs in
+/// one transaction, the recorded parent, the cascade's holds, the worktree,
+/// and the report.
+fn commit_restack(
+    repo: &gix::Repository,
+    ctx: &verb::VerbContext,
+    prov: &Provenance,
+    argv: Vec<String>,
+    decided: &rewrite::Decided,
+    plan: ReplayPlan,
+) -> Result<RestackReport> {
+    let now = ctx.now;
+    let branch = plan.branch.clone();
+    let base_name = plan.base.name.clone();
+
     // 11. Write-ahead: the planned table is the post-restack world.
     let mut planned = observe_refs(repo)?;
-    for t in &carried {
+    for t in &plan.carried {
         if let Some(new) = &t.new {
             planned.refs.insert(t.name.clone(), new.clone());
         }
     }
 
-    let mut refs_transitions: Vec<RefTransition> = carried.clone();
+    let mut refs_transitions: Vec<RefTransition> = plan.carried.clone();
     let mut stash_effects: Vec<StashEffect> = Vec::new();
-    if !matches!(arrive_plan, ArrivePlan::None) {
+    if !matches!(plan.arrive_plan, ArrivePlan::None) {
         let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
             .iter()
             .map(|l| l.new)
             .collect();
-        match &arrive_plan {
+        match &plan.arrive_plan {
             ArrivePlan::Restore { stash: sha, .. } => {
                 if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
                     stash_lines.remove(pos);
@@ -847,16 +1142,20 @@ pub fn restack_with(
         }
     }
 
-    let mut record = OpRecord::new("restack", format!("restack {branch} onto {base_name}"), now);
+    let summary = match plan.cascade.report.moved.len() {
+        0 => format!("restack {branch} onto {base_name}"),
+        n => format!("restack {branch} onto {base_name}, and {n} above it"),
+    };
+    let mut record = OpRecord::new("restack", summary, now);
     record.argv = argv;
     record.refs = refs_transitions;
     record.stash = stash_effects;
-    record.rewrites = rewrites.clone();
-    record.dropped = dropped.clone();
-    if parent_changes {
+    record.rewrites = plan.rewrites.clone();
+    record.dropped = plan.dropped.clone();
+    if plan.parent_changes {
         record.parent = Some(ParentTransition {
             branch: branch.clone(),
-            old: recorded_parent.clone(),
+            old: plan.recorded_parent.clone(),
             new: Some(base_name.clone()),
         });
     }
@@ -866,22 +1165,11 @@ pub fn restack_with(
         record.resolving = resolving;
     }
 
-    let mut pins: Vec<gix::ObjectId> = rewrites
-        .iter()
-        .map(|r| gix::ObjectId::from_hex(r.new.as_bytes()).map_err(Error::repo))
-        .collect::<Result<_>>()?;
-    pins.push(branch_tip);
-    if let Some(head_tip) = head_tip
-        && head_tip != branch_tip
-    {
-        pins.push(head_tip);
-    }
-    match &arrive_plan {
-        ArrivePlan::Restore { stash, .. }
-        | ArrivePlan::Conflict { stash, .. }
-        | ArrivePlan::Invalidate { stash } => pins.push(*stash),
-        ArrivePlan::None => {}
-    }
+    let mut pins = plan.own_pins()?;
+
+    // The cascade rides this record: its ref moves, rewrites, drops, and
+    // holds, and the planned table says where its branches will stand.
+    plan.cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     verb::append_op(
         repo,
@@ -893,15 +1181,16 @@ pub fn restack_with(
             // does when the head branch is carried. The recorded end tree
             // must be what the tree will actually hold, or an undo of the
             // next operation throws the carried change away (switch.rs:203-214).
-            tree: match &arrive_plan {
+            tree: match &plan.arrive_plan {
                 ArrivePlan::Restore { target_wip, .. } => *target_wip,
-                _ => new_worktree.unwrap_or(ctx.pre_tree),
+                _ => plan.new_worktree.unwrap_or(ctx.pre_tree),
             },
             // The new tip's tree, so the next foreign `git status` sees the
             // open change against the commit it now sits on.
-            index_tree: match &arrive_plan {
+            index_tree: match &plan.arrive_plan {
                 ArrivePlan::Restore { target_index, .. } => *target_index,
-                _ => new_head_tip
+                _ => plan
+                    .new_head_tip
                     .map(|id| tree_of(repo, id))
                     .transpose()?
                     .unwrap_or(ctx.pre_tree),
@@ -910,8 +1199,8 @@ pub fn restack_with(
             // you exactly where you stood, so HEAD's branch — and only when
             // HEAD is detached or unborn is the restacked one the honest
             // answer.
-            branch: head_branch.clone().unwrap_or_else(|| branch.clone()),
-            base: Some(branch_tip),
+            branch: plan.head_branch.clone().unwrap_or_else(|| branch.clone()),
+            base: Some(plan.branch_tip),
             session: prov.session.clone(),
             pins: &pins,
         },
@@ -922,7 +1211,7 @@ pub fn restack_with(
     // 12.1 Refs: one atomic transaction over every carried head.
     let reflog_msg = format!("restack: onto {base_name}");
     let mut edits = Vec::new();
-    for t in &carried {
+    for t in &plan.carried {
         let (Some(old), Some(new)) = (&t.old, &t.new) else {
             continue;
         };
@@ -937,6 +1226,8 @@ pub fn restack_with(
             &reflog_msg,
         )?);
     }
+    // The branches above move in the same transaction: all of them or none.
+    edits.extend(plan.cascade.edits(&reflog_msg)?);
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -950,15 +1241,21 @@ pub fn restack_with(
     }
 
     // 12.2 The recorded parent.
-    if parent_changes {
+    if plan.parent_changes {
         let mut meta = branchmeta::read(repo, &branch)?;
         meta.parent = Some(base_name.clone());
         branchmeta::write(repo, &branch, &meta)?;
     }
 
+    // 12.2b The cascade's holds onto their branches, now that the refs have
+    // moved, and its futures caches.
+    plan.cascade.land(repo)?;
+
     // 12.3 Worktree: index first, then the files — the order switch.rs uses.
     let mut files = 0usize;
-    if let (Some(open_t), Some(new_wt), Some(new_ht)) = (open, new_worktree, new_head_tip) {
+    if let (Some(open_t), Some(new_wt), Some(new_ht)) =
+        (plan.open, plan.new_worktree, plan.new_head_tip)
+    {
         crate::index::write_index_for_tree(repo, tree_of(repo, new_ht)?)?;
         let everything = |_: &str| true;
         let transition = crate::worktree::apply_tree_transition(repo, open_t, new_wt, &everything)?;
@@ -967,12 +1264,13 @@ pub fn restack_with(
 
     // 12.3b The parked change comes back, exactly the way `ff switch` brings
     // one back — same plan, same executor, same journal entries.
-    let arrival = stash::execute_arrival(repo, &branch, &arrive_plan, arrive_target, now)?;
+    let arrival =
+        stash::execute_arrival(repo, &branch, &plan.arrive_plan, plan.arrive_target, now)?;
 
     // 12.4 Futures caches: the restacked branch and every branch it carried.
     // Best-effort — it costs recomputation and nothing else.
     let _ = futures::cache::remove(repo, &branch);
-    for t in &carried {
+    for t in &plan.carried {
         if let Some(name) = t.name.strip_prefix("refs/heads/")
             && name != branch
         {
@@ -987,90 +1285,6 @@ pub fn restack_with(
         held::set_resolving(repo, &clearing.branch, None)?;
     }
 
-    // 13. The parked disclosure: say so, never move it. Skipped for the
-    // branch underfoot — a branch you are standing on has no parked entry to
-    // speak of, its change being open rather than parked.
-    let parked = if head_carried && head_branch.as_deref() == Some(branch.as_str()) {
-        // A branch you are standing on has no parked entry to speak of, its
-        // change being open rather than parked — unless a resolution parked
-        // one and the arrival above could not put it back, which is the one
-        // thing here that has to be said out loud.
-        match &arrival {
-            crate::stash::Arrival::Conflicted { stash, .. } => Some(Parked {
-                stash: stash.clone(),
-                applies: false,
-            }),
-            _ => None,
-        }
-    } else {
-        match crate::stash::parked_entry(repo, &branch)? {
-            Some(id) => {
-                let sc = crate::stash::read_stash_commit(repo, id)?;
-                let new_tip_tree = tree_of(repo, new_tip)?;
-                let applies =
-                    futures::conflict_paths(repo, sc.base_tree, new_tip_tree, sc.wip_tree)?
-                        .is_empty();
-                Some(Parked {
-                    stash: id.to_string(),
-                    applies,
-                })
-            }
-            None => None,
-        }
-    };
-
-    // 14. The report.
-    let behind = crate::upstream::count_exclusive(repo, base_tip, &bases)?;
-    let branch_ref = format!("refs/heads/{branch}");
-    let moved: Vec<String> = carried
-        .iter()
-        .filter(|t| t.name != branch_ref)
-        .map(|t| {
-            t.name
-                .strip_prefix("refs/heads/")
-                .unwrap_or(&t.name)
-                .to_string()
-        })
-        .collect(); // carried is already sorted by ref name
-
-    // What is still open is what the worktree will hold once this lands,
-    // measured against the commit it will then sit on — not the tree the
-    // change stood against before the replay. Comparing the *old* open tree
-    // to the *new* tip answers "did the replay move anything", which is true
-    // of every replay that did its job, and would report a clean tree as
-    // dirty. Both trees here are exact rather than `ctx.pre_tree`: the
-    // capture floor may have size-capped a blob out of pre_tree while the
-    // exact tree kept it.
-    let still_open = match (
-        new_worktree,
-        new_head_tip.map(|id| tree_of(repo, id)).transpose()?,
-    ) {
-        (Some(worktree), Some(tip_tree)) => worktree != tip_tree,
-        _ => false,
-    };
-
-    let published_on = rewrite::tracking_name(repo, &branch)?;
-
-    Ok((
-        RestackOutcome::Restacked(Box::new(RestackReport {
-            branch,
-            base: base_name,
-            onto: base_tip.to_string(),
-            reaimed,
-            previous_parent,
-            replayed,
-            behind,
-            fast_forward,
-            new_tip: new_tip.to_string(),
-            moved,
-            diverged,
-            published,
-            published_on,
-            parked,
-            files,
-            still_open,
-            dropped,
-        })),
-        ctx,
-    ))
+    // 13 and 14. The disclosure and the report.
+    plan.report(repo, files, Some(&arrival))
 }

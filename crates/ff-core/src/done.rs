@@ -22,13 +22,17 @@
 //! commits of its own, or one whose anchor fell out of the landing branch's
 //! history, both fold away without complaint under `--abandon`.
 
+use crate::absorb::cascade_after;
 use crate::branch;
 use crate::branchmeta;
+use crate::cascade::CascadePlan;
 use crate::error::{Error, Result};
 use crate::futures;
 use crate::held::{self, Held, Intent};
 use crate::hooks;
-use crate::model::{AbandonReport, ArrivalReport, DoneOutcome, DoneReport, HeadState, HeldReport};
+use crate::model::{
+    AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport,
+};
 use crate::ops::record::{SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
 use crate::refs;
@@ -158,6 +162,8 @@ struct Landed {
     /// whose own branch is gone by the time the verb returns.
     landed_on: String,
     new_tip: String,
+    /// What the verb's cascade did to the branches stacked above.
+    cascade: Cascade,
 }
 
 /// A branch's tip, full sha, after a landing moved it.
@@ -359,10 +365,16 @@ fn finish_resolution(
     // the verb's own report rather than being re-read here: a landed `done`
     // has deleted the session branch this arm was standing on, so asking the
     // repository for "the branch's tip" would ask about a ref that is gone.
+    //
+    // Each verb cascades onto the branches stacked above the one it moved,
+    // decided or not, and that is the resumption: the subtree the hold
+    // stopped replays from the landed tip, inside the landing's own
+    // operation. The arm only carries the verb's account of it.
     let Landed {
         replayed,
         landed_on,
         new_tip,
+        cascade,
     } = match &hold.intent {
         Intent::Restack { branch, onto } => {
             let (outcome, _ctx) = crate::restack::restack_with(
@@ -379,6 +391,7 @@ fn finish_resolution(
                     replayed: report.replayed,
                     landed_on: report.branch,
                     new_tip: report.new_tip,
+                    cascade: report.cascade,
                 },
                 other => {
                     return Err(Error::msg(format!(
@@ -401,6 +414,7 @@ fn finish_resolution(
                     replayed: report.replayed,
                     landed_on: report.onto,
                     new_tip: report.new_tip,
+                    cascade: report.cascade,
                 },
                 other => {
                     return Err(Error::msg(format!(
@@ -425,6 +439,7 @@ fn finish_resolution(
                     replayed: report.restacked,
                     new_tip: tip_of(repo, &report.branch)?,
                     landed_on: report.branch,
+                    cascade: report.cascade,
                 },
                 other => {
                     return Err(Error::msg(format!(
@@ -448,6 +463,7 @@ fn finish_resolution(
                     replayed: report.restacked,
                     new_tip: tip_of(repo, &report.branch)?,
                     landed_on: report.branch,
+                    cascade: report.cascade,
                 },
                 other => {
                     return Err(Error::msg(format!(
@@ -501,6 +517,7 @@ fn finish_resolution(
         replayed,
         new_tip,
         still_held,
+        cascade,
     }))
 }
 
@@ -935,6 +952,22 @@ pub fn done_with(
     let published_on = rewrite::tracking_name(repo, &onto)?;
     let new_onto_tree = tree_of(repo, new_onto_tip)?;
 
+    // The branches stacked on `onto`, planned now that its new tip is known
+    // and before anything is written, so the whole cascade rides this
+    // operation. A tip that did not move plans nothing, which covers every
+    // abandon and every session that changed nothing. The session branch is
+    // never in the child set: `futures::base_for` answers nothing for a
+    // session, so the stack files it under no branch, and the deletion
+    // below is its only transition on the record. HEAD stands on the
+    // session branch and never on a child, so the cascade moves no file;
+    // the return trip above is what moves the worktree. A hold up there is
+    // that branch's, not this landing's.
+    let cascade = if abandon {
+        CascadePlan::default()
+    } else {
+        cascade_after(repo, &onto, onto_tip, new_onto_tip, now)?
+    };
+
     // 7. The return trip, planned before anything moves.
     let arrive_plan = stash::plan_arrival(repo, &onto, new_onto_tip, new_onto_tree)?;
 
@@ -1020,7 +1053,10 @@ pub fn done_with(
     let summary = if abandon {
         format!("done --abandon: {anchor_short} on {onto}")
     } else {
-        format!("done: {anchor_short} on {onto}")
+        match cascade.report.moved.len() {
+            0 => format!("done: {anchor_short} on {onto}"),
+            n => format!("done: {anchor_short} on {onto}, and {n} above it"),
+        }
     };
     let mut record = OpRecord::new("done", summary, now);
     record.argv = argv;
@@ -1059,6 +1095,10 @@ pub fn done_with(
     if let Some(plan) = &park_plan {
         pins.push(plan.wip_commit);
     }
+    // The cascade rides this record: its ref moves, rewrites, drops, and
+    // holds, and its pins, so one undo takes the landing and the branches
+    // above it back together.
+    cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     verb::append_op(
         repo,
@@ -1105,6 +1145,9 @@ pub fn done_with(
             &reflog_msg,
         )?);
     }
+    // The branches above `onto` move in the same transaction as `onto`'s
+    // own carried heads and the session's deletion: all of it or none.
+    edits.extend(cascade.edits(&reflog_msg)?);
     edits.push(refs::delete_edit(&session_ref, session_tip)?);
     if let Some(plan) = &park_plan {
         edits.push(refs::delete_edit(
@@ -1123,6 +1166,10 @@ pub fn done_with(
             ));
         }
     }
+
+    // The cascade's holds onto their branches, now that the refs have
+    // moved, and the futures caches of every branch it carried.
+    cascade.land(repo)?;
 
     // The session has landed: the staged index is no longer provisional, and
     // putting the old one back would contradict the refs that just moved.
@@ -1221,6 +1268,7 @@ pub fn done_with(
                 arrival: arrival_report,
                 files,
                 dropped,
+                cascade: cascade.report,
             }),
             ctx,
         ))

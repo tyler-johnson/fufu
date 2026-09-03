@@ -49,7 +49,9 @@ pub fn resolve_branch(repo: &gix::Repository, raw: &str) -> Result<String> {
     }
 }
 
-pub(crate) fn branch_names(repo: &gix::Repository) -> Result<Vec<String>> {
+/// Every local branch by short name, in the order the ref namespace lists
+/// them.
+pub fn branch_names(repo: &gix::Repository) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let platform = repo.references().map_err(Error::repo)?;
     let iter = platform.prefixed("refs/heads/").map_err(Error::repo)?;

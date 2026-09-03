@@ -523,3 +523,55 @@ fn explain_knows_the_new_ids() {
         "{text}"
     );
 }
+
+#[test]
+fn done_says_what_followed_and_the_json_carries_it() {
+    let fx = repo();
+    fx.write("a.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("c1");
+    fx.write("c.txt", "c\n");
+    fx.commit("c2");
+    let started = ff(&fx, &["start", "feat", "-b", "top"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    let back = ff(&fx, &["switch", "feat"]);
+    assert!(back.status.success(), "{}", out(&back));
+
+    let opened = ff(&fx, &["edit", c1.trim()]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    fx.write("a.txt", "one, edited\n");
+    let output = ff(&fx, &["done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("amended"), "{text}");
+    assert!(
+        text.contains("top followed feat: replayed 1 commit(s)"),
+        "{text}"
+    );
+    assert!(text.contains("back on feat"), "{text}");
+    assert_ne!(tip(&fx, "top"), x1.trim(), "top followed");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(tip(&fx, "top"), x1.trim());
+
+    let output = ff(&fx, &["--json", "done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "done");
+    let moved = &v["data"]["done"]["cascade"]["moved"];
+    assert_eq!(moved[0]["branch"], "top");
+    assert_eq!(moved[0]["base"], "feat");
+    assert_eq!(moved[0]["replayed"], 1);
+    assert_eq!(
+        v["data"]["done"]["cascade"]["held"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}

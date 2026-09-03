@@ -489,7 +489,7 @@ pub fn rewind(
                 meta.session = if replay { s.new.clone() } else { s.old.clone() };
                 branchmeta::write(repo, &s.branch, &meta)?;
             }
-            if let Some(h) = &op_record.held {
+            for h in op_record.held.iter().chain(op_record.cascade_held.iter()) {
                 let mut meta = branchmeta::read(repo, &h.branch)?;
                 meta.held = if replay { h.new.clone() } else { h.old.clone() };
                 branchmeta::write(repo, &h.branch, &meta)?;

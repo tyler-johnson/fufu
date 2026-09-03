@@ -197,3 +197,58 @@ fn done_abandon_over_a_resolution_names_the_resolution() {
         "a resolution is not an editing session, and the report says so: {text}"
     );
 }
+
+fn tip(fx: &Fixture, branch: &str) -> String {
+    fx.git(&["rev-parse", branch]).trim().to_string()
+}
+
+/// A hold stops the branches stacked above where they stand; landing it
+/// through `ff done` replays them from the landed tip, and says so.
+#[test]
+fn done_after_a_resolve_resumes_the_cascade_and_the_json_carries_it() {
+    let fx = repo();
+    held_stack(&fx);
+    let started = ff(&fx, &["start", "feature", "-b", "top"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    let back = ff(&fx, &["switch", "feature"]);
+    assert!(back.status.success(), "{}", out(&back));
+
+    assert!(ff(&fx, &["resolve"]).status.success());
+    std::fs::write(fx.path().join("f.txt"), "resolved\n").unwrap();
+    let output = ff(&fx, &["done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("feature is now at"), "{text}");
+    assert!(
+        text.contains("top followed feature: replayed 1 commit(s)"),
+        "the subtree the hold stopped resumed: {text}"
+    );
+    assert_ne!(tip(&fx, "top"), x1.trim(), "top followed");
+
+    // One undo takes the landing and the cascade back together, and puts
+    // the session, markers and all, back in the tree.
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(tip(&fx, "top"), x1.trim());
+
+    std::fs::write(fx.path().join("f.txt"), "resolved\n").unwrap();
+    let output = ff(&fx, &["--json", "done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "done");
+    assert_eq!(v["data"]["done"]["verb"], "restack");
+    assert_eq!(v["data"]["done"]["still_held"], serde_json::Value::Null);
+    let moved = &v["data"]["done"]["cascade"]["moved"];
+    assert_eq!(moved[0]["branch"], "top");
+    assert_eq!(moved[0]["base"], "feature");
+    assert_eq!(moved[0]["replayed"], 1);
+    assert_eq!(
+        v["data"]["done"]["cascade"]["held"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}

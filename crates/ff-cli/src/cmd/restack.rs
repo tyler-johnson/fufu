@@ -24,12 +24,19 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
 
     match outcome {
         RestackOutcome::Restacked(report) => {
+            // A branch above that held needs a person before anything more
+            // moves there: the same 3 a hold on the branch itself owes the
+            // shell, with the landed report still on stdout.
+            let held_above = !report.cascade.held.is_empty();
             if ctx.json {
                 let payload = serde_json::json!({
                     "restack": report,
                     "undo": "ff undo",
                 });
                 crate::machine::emit("restack", &payload)?;
+                if held_above {
+                    crate::exit::held();
+                }
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
@@ -121,7 +128,13 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
                     report.published, upstream_name
                 );
             }
+            for line in crate::render::cascade_lines(&report.cascade, colored) {
+                println!("{line}");
+            }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+            if held_above {
+                crate::exit::held();
+            }
         }
         RestackOutcome::Held(report) => {
             if ctx.json {

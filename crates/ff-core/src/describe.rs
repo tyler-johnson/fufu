@@ -9,7 +9,7 @@
 use crate::branchmeta;
 use crate::close;
 use crate::error::{Error, Result};
-use crate::model::{DescribeReport, RewordReport};
+use crate::model::{Cascade, DescribeReport, RewordReport};
 use crate::ops::record::observe_refs;
 use crate::ops::{DescriptionTransition, OpKind, OpRecord, verb};
 use crate::refs;
@@ -208,12 +208,19 @@ pub fn reword(
                 restacked: 0,
                 moved: Vec::new(),
                 published: 0,
+                cascade: Cascade::default(),
             },
             ctx,
         ));
     }
 
     let published = rewrite::published_count(repo, &branch, &plan)?;
+
+    // The branches stacked above this one follow it. Planned now, before
+    // anything is written, so the whole cascade rides this operation and one
+    // undo takes both back. A reword moves no tree, so a replay above can
+    // never conflict; the cascade is clean or skipped.
+    let cascade = crate::absorb::cascade_after(repo, &branch, tip, plan.new_tip, now)?;
 
     // Write-ahead: the planned table is the post-reword world. HEAD does not
     // move — it stays symbolic on the same branch.
@@ -225,11 +232,11 @@ pub fn reword(
     }
 
     let target_short = crate::sha::short_oid(target);
-    let mut record = OpRecord::new(
-        "describe",
-        format!("reword {target_short} on {branch}: {subject}"),
-        now,
-    );
+    let summary = match cascade.report.moved.len() {
+        0 => format!("reword {target_short} on {branch}: {subject}"),
+        n => format!("reword {target_short} on {branch}, and {n} above it: {subject}"),
+    };
+    let mut record = OpRecord::new("describe", summary, now);
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
@@ -241,6 +248,10 @@ pub fn reword(
         .map(|r| gix::ObjectId::from_hex(r.new.as_bytes()).map_err(Error::repo))
         .collect::<Result<_>>()?;
     pins.push(tip);
+
+    // The cascade rides this record: its ref moves, rewrites, drops, and
+    // pins join the reword's own.
+    cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     verb::append_op(
         repo,
@@ -278,6 +289,9 @@ pub fn reword(
             &reflog_msg,
         )?);
     }
+    // The branches above move in the same transaction: every child moves
+    // with the branch beneath it or none of them do.
+    edits.extend(cascade.edits(&reflog_msg)?);
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -289,6 +303,10 @@ pub fn reword(
             ));
         }
     }
+
+    // The cascade's holds onto their branches, now that the refs have moved,
+    // and the futures caches of every branch that followed.
+    cascade.land(repo)?;
 
     let branch_ref = format!("refs/heads/{branch}");
     let moved: Vec<String> = plan
@@ -314,6 +332,7 @@ pub fn reword(
             restacked: plan.rewrites.len() - 1,
             moved,
             published,
+            cascade: cascade.report,
         },
         ctx,
     ))

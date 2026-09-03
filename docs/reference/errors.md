@@ -11,10 +11,10 @@ Five codes, one meaning each:
 | 0 | done — or yes, for a command that answers a question |
 | 1 | no — the command failed, or the check's answer is negative |
 | 2 | the command line was wrong |
-| 3 | held — nothing was touched, and a human decision is required |
+| 3 | held — a human decision is required, and the branch that held was not touched |
 | 4 | contended — nothing was touched, and the same command run again is the answer |
 
-The code follows the id: `usage/*` exits 2, `held/*` exits 3, `ref/contended` exits 4, everything else exits 1. For a script, 3 and 4 are the two codes that mean nothing moved, and they ask opposite things. On 3 stop and surface it: a [held rewrite](../concepts/held-rewrites.md) is parked, and only a person can say what happens next. On 4 run the same command again, with a cap: contention is another writer holding the ref for a moment, but a lock file nobody clears makes the answer the same every time, so retry a few times and then surface that.
+The code follows the id: `usage/*` exits 2, `held/*` exits 3, `ref/contended` exits 4, everything else exits 1. For a script, 3 and 4 are the two codes that mean a branch was not moved, and they ask opposite things. On 3 stop and surface it: a [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever else the run landed stands, and only a person can say what happens next. On 4 run the same command again, with a cap: contention is another writer holding the ref for a moment, but a lock file nobody clears makes the answer the same every time, so retry a few times and then surface that.
 
 The near miss is `publish/unrecorded`, which stays at 1: the push landed and only the operation log lost the race to record it, so the tree did move, and re-running `ff publish` records it.
 

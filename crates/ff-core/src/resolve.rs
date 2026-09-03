@@ -12,6 +12,7 @@
 //! session that is already open.
 
 use crate::error::{Error, Result};
+use crate::held::verb_of;
 use crate::model::{AbandonedHold, HeadState, ReleasedReport, ResolveOutcome, ResolveReport};
 use crate::ops::record::{HeldTransition, ResolveTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
@@ -44,18 +45,6 @@ fn open_tree(repo: &gix::Repository, tip_tree: gix::ObjectId) -> Result<gix::Obj
     }
     let (tree_id, _skipped) = crate::snapshot::tree::assemble(repo, tip_tree, &scan, u64::MAX)?;
     Ok(tree_id)
-}
-
-/// The verb that held, in the spelling the reports and the re-run carry:
-/// the same names `held::Intent` serializes to.
-fn verb_of(held: &crate::held::Held) -> String {
-    match &held.intent {
-        crate::held::Intent::Restack { .. } => "restack",
-        crate::held::Intent::Done { .. } => "done",
-        crate::held::Intent::Absorb { .. } => "absorb",
-        crate::held::Intent::Lift { .. } => "lift",
-    }
-    .to_string()
 }
 
 /// Deal with the hold standing on the current branch: open a resolution

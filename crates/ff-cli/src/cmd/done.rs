@@ -63,6 +63,12 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                     );
                 }
             }
+            // The branches stacked on the branch landed on. A hold up there
+            // is that branch's, recorded on its metadata, and the session
+            // still landed, so the exit stays 0 and the line names it.
+            for line in crate::render::cascade_lines(&report.cascade, colored) {
+                println!("{line}");
+            }
             if let Some(line) =
                 crate::render::dropped_line(&report.dropped, Some(&report.editing), colored)
             {
@@ -164,6 +170,13 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 report.branch,
                 crate::render::paint_sha(ff_core::sha::short(report.new_tip.as_str()), colored)
             );
+            // The subtree the hold stopped, resumed from the landed tip. A
+            // hold up there is that branch's own, recorded on its metadata,
+            // and the landing stands, so the exit stays 0 and the line names
+            // it; only `still_held` below says a rewrite is still waiting.
+            for line in crate::render::cascade_lines(&report.cascade, colored) {
+                println!("{line}");
+            }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
             if let Some(held) = &report.still_held {
                 // A rewrite is still waiting: render the hold and say so to

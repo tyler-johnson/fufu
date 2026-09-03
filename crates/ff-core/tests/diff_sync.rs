@@ -44,6 +44,7 @@ fn sync_run(
         SyncOptions {
             fetched,
             tracking_after: after,
+            others: Vec::new(),
             now: Some(NOW),
             argv: vec!["ff".into(), "sync".into()],
         },

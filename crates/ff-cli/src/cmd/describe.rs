@@ -164,6 +164,11 @@ fn reword(
             );
         }
     }
+    // The branches stacked above this one. A reword moves no tree, so the
+    // cascade replays clean or skips; the lines name what followed.
+    for line in crate::render::cascade_lines(&report.cascade, colored) {
+        println!("{line}");
+    }
     if report.published > 0 {
         // Disclosure, not a warning: naming where the rewritten commits
         // already live, with no "careful" and no suggested fix — a

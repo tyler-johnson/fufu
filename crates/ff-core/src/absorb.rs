@@ -10,6 +10,7 @@
 
 use gix::bstr::ByteSlice;
 
+use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::At;
 use crate::held::{self, Held, Intent};
@@ -570,6 +571,13 @@ pub fn absorb_with(
     let plan = rewrite::plan_with(repo, target, tip, &change, now, &decided.trees)?;
     let published = rewrite::published_count(repo, &branch, &plan)?;
 
+    // The branches stacked above. Planned once the new tip is known and
+    // before anything is written, so the whole cascade rides this operation
+    // and one undo takes it back with the absorb. A head inside the
+    // rewritten range is `plan.carried`'s to move: the cascade reads it as
+    // wholly inside its base as it stood, and leaves it to that move.
+    let cascade = cascade_after(repo, &branch, tip, plan.new_tip, now)?;
+
     // Write-ahead: the planned table is the post-absorb world. HEAD does not
     // move — it stays symbolic on the same branch.
     let mut planned = observe_refs(repo)?;
@@ -580,11 +588,11 @@ pub fn absorb_with(
     }
 
     let target_short = crate::sha::short_oid(target);
-    let mut record = OpRecord::new(
-        "absorb",
-        format!("absorb into {target_short} on {branch}"),
-        now,
-    );
+    let summary = match cascade.report.moved.len() {
+        0 => format!("absorb into {target_short} on {branch}"),
+        n => format!("absorb into {target_short} on {branch}, and {n} above it"),
+    };
+    let mut record = OpRecord::new("absorb", summary, now);
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
@@ -601,6 +609,10 @@ pub fn absorb_with(
         .map(|r| gix::ObjectId::from_hex(r.new.as_bytes()).map_err(Error::repo))
         .collect::<Result<_>>()?;
     pins.push(tip);
+
+    // The cascade rides this record: its ref moves, rewrites, drops, and
+    // holds, and the planned table says where its branches will stand.
+    cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     // Absorb writes no files, so the planned worktree is the one already
     // there, and the index is about to be rewritten to match the new tip.
@@ -648,6 +660,8 @@ pub fn absorb_with(
             &reflog_msg,
         )?);
     }
+    // The branches above move in the same transaction: all of them or none.
+    edits.extend(cascade.edits(&reflog_msg)?);
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -659,6 +673,11 @@ pub fn absorb_with(
             ));
         }
     }
+
+    // The cascade's holds onto their branches, now that the refs have moved,
+    // and its futures caches. A hold above does not hold the absorb: the
+    // absorb landed, and the stacked branch waits on its own metadata.
+    cascade.land(repo)?;
 
     // The fold has landed: the staged index is no longer provisional, and
     // putting the old one back would contradict the refs that just moved.
@@ -728,9 +747,31 @@ pub fn absorb_with(
             // open there by construction.
             still_open: decided.clearing.is_none() && open_tree != new_tip_tree,
             dropped: plan.dropped.clone(),
+            cascade: cascade.report,
         }),
         ctx,
     ))
+}
+
+/// The branches stacked above `branch`, planned once its rewrite is known:
+/// the plan the caller folds into its own operation, adds to its one ref
+/// transaction, and lands after the refs move. `ff absorb`, `ff lift`, and
+/// `ff describe <rev>` share it, and all three run on the branch HEAD
+/// stands on, so HEAD is never above the branch being rewritten and the
+/// cascade moves no file. A tip that did not move has nothing above it to
+/// follow. `ff done` calls it too, from the branch it landed on: HEAD
+/// stands on the session branch there, which is nobody's child.
+pub(crate) fn cascade_after(
+    repo: &gix::Repository,
+    branch: &str,
+    old_tip: gix::ObjectId,
+    new_tip: gix::ObjectId,
+    now: i64,
+) -> Result<CascadePlan> {
+    if new_tip == old_tip {
+        return Ok(CascadePlan::default());
+    }
+    cascade::plan(repo, branch, old_tip, new_tip, None, now)
 }
 
 /// Take paths out of a commit — `HEAD` by default, or the one named by
@@ -855,6 +896,11 @@ pub fn lift_with(
     let plan = rewrite::plan_with(repo, target, tip, &change, now, &decided.trees)?;
     let published = rewrite::published_count(repo, &branch, &plan)?;
 
+    // The branches stacked above, planned once the new tip is known and
+    // before anything is written, so the whole cascade rides this
+    // operation. A conflict above holds that branch, not the lift.
+    let cascade = cascade_after(repo, &branch, tip, plan.new_tip, now)?;
+
     // Write-ahead: the planned table is the post-lift world. HEAD does not
     // move — it stays symbolic on the same branch.
     let mut planned = observe_refs(repo)?;
@@ -865,11 +911,11 @@ pub fn lift_with(
     }
 
     let target_short = crate::sha::short_oid(target);
-    let mut record = OpRecord::new(
-        "lift",
-        format!("lift out of {target_short} on {branch}"),
-        now,
-    );
+    let summary = match cascade.report.moved.len() {
+        0 => format!("lift out of {target_short} on {branch}"),
+        n => format!("lift out of {target_short} on {branch}, and {n} above it"),
+    };
+    let mut record = OpRecord::new("lift", summary, now);
     record.argv = argv;
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
@@ -886,6 +932,10 @@ pub fn lift_with(
         .map(|r| gix::ObjectId::from_hex(r.new.as_bytes()).map_err(Error::repo))
         .collect::<Result<_>>()?;
     pins.push(tip);
+
+    // The cascade rides this record: its ref moves, rewrites, drops, and
+    // holds, and the planned table says where its branches will stand.
+    cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     // Lift writes no files, so the planned worktree is the one already
     // there, and the index is about to be rewritten to match the new tip.
@@ -923,6 +973,8 @@ pub fn lift_with(
             &reflog_msg,
         )?);
     }
+    // The branches above move in the same transaction: all of them or none.
+    edits.extend(cascade.edits(&reflog_msg)?);
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -934,6 +986,9 @@ pub fn lift_with(
             ));
         }
     }
+    // The cascade's holds onto their branches, now that the refs have
+    // moved, and its futures caches.
+    cascade.land(repo)?;
 
     crate::index::write_index_for_tree(repo, tree_of(repo, plan.new_tip)?)?;
 
@@ -985,6 +1040,7 @@ pub fn lift_with(
             published,
             paths,
             dropped: plan.dropped.clone(),
+            cascade: cascade.report,
         }),
         ctx,
     ))

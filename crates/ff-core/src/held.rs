@@ -104,6 +104,18 @@ pub fn of(repo: &gix::Repository, branch: &str) -> Result<Option<Held>> {
     Ok(crate::branchmeta::read(repo, branch)?.held)
 }
 
+/// The verb that held, in the spelling the reports and the re-run carry:
+/// the same names `Intent` serializes to.
+pub fn verb_of(held: &Held) -> String {
+    match &held.intent {
+        Intent::Restack { .. } => "restack",
+        Intent::Done { .. } => "done",
+        Intent::Absorb { .. } => "absorb",
+        Intent::Lift { .. } => "lift",
+    }
+    .to_string()
+}
+
 /// One hold per branch. Composition — several holds on one stack, and what
 /// queues behind what — is a question fufu has not answered, so a second
 /// *conflicting* rewrite refuses rather than guessing an order. A rewrite

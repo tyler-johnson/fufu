@@ -243,6 +243,20 @@ pub fn probe_to_depth(
     }
     range.reverse();
 
+    probe_range(repo, onto, &range, branch_tip, open_tree)
+}
+
+/// Simulate replaying `range` — oldest-first, already walked and free of
+/// merges — onto `onto`, then the open change when one is given. The walk
+/// and the replay are separate steps because the cascade builds its own
+/// range, bounded by the base as it stood rather than by the merge base.
+pub(crate) fn probe_range(
+    repo: &gix::Repository,
+    onto: gix::ObjectId,
+    range: &[gix::ObjectId],
+    branch_tip: gix::ObjectId,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Verdict> {
     let memory = repo.clone().with_object_memory();
     let options = memory.tree_merge_options().map_err(Error::repo)?;
 
@@ -250,7 +264,7 @@ pub fn probe_to_depth(
     let mut replayed = 0usize;
     let mut dropped = 0usize;
 
-    for id in &range {
+    for id in range {
         let commit = memory.find_object(*id).map_err(Error::repo)?.into_commit();
         let their_tree = commit.tree_id().map_err(Error::repo)?.detach();
         let base_tree = match commit.parent_ids().next() {

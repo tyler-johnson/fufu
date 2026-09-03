@@ -75,6 +75,12 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
                     );
                 }
             }
+            // The branches stacked above this one. A hold up there is that
+            // branch's, recorded on its metadata, and the lift still landed,
+            // so the exit stays 0 and the line names it.
+            for line in crate::render::cascade_lines(&report.cascade, colored) {
+                println!("{line}");
+            }
             if let Some(line) =
                 crate::render::dropped_line(&report.dropped, Some(&report.from), colored)
             {

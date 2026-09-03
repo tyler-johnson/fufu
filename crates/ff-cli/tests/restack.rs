@@ -446,3 +446,147 @@ fn restack_names_the_branchs_own_remote() {
     assert_eq!(v["data"]["restack"]["published"], 3);
     assert_eq!(v["data"]["restack"]["published_on"], "origin/feature");
 }
+
+// ---- The cascade: the branches stacked above the one that moved ----
+
+/// Two branches stacked above `feature` through `ff start`, which records
+/// the branch beneath each. Leaves the fixture standing on `feature`.
+fn stack_above(fx: &Fixture) {
+    let started = ff(fx, &["start", "feature", "-b", "child"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    fx.commit("x1");
+    let started = ff(fx, &["start", "child", "-b", "grandchild"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("y.txt", "y\n");
+    fx.commit("y1");
+    let back = ff(fx, &["switch", "feature"]);
+    assert!(back.status.success(), "{}", out(&back));
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn is_ancestor(fx: &Fixture, ancestor: &str, of: &str) -> bool {
+    fx.try_git(&["merge-base", "--is-ancestor", ancestor, of])
+        .status
+        .success()
+}
+
+#[test]
+fn restack_says_what_followed_above() {
+    let fx = repo();
+    stack(&fx);
+    stack_above(&fx);
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("child followed feature: replayed 1 commit(s)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("grandchild followed child: replayed 1 commit(s)"),
+        "{text}"
+    );
+
+    assert_ne!(child_before, rev(&fx, "child"), "child moved");
+    assert_ne!(
+        grandchild_before,
+        rev(&fx, "grandchild"),
+        "grandchild moved"
+    );
+    assert!(is_ancestor(&fx, "feature", "child"));
+    assert!(is_ancestor(&fx, "child", "grandchild"));
+}
+
+#[test]
+fn the_cascade_is_in_the_json_and_one_undo_takes_it_back() {
+    let fx = repo();
+    stack(&fx);
+    stack_above(&fx);
+    let feature_before = rev(&fx, "feature");
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+
+    let output = ff(&fx, &["--json", "restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let moved = &v["data"]["restack"]["cascade"]["moved"];
+    assert_eq!(moved[0]["branch"], "child");
+    assert_eq!(moved[0]["base"], "feature");
+    assert_eq!(moved[0]["replayed"], 1);
+    assert_eq!(moved[1]["branch"], "grandchild");
+    assert_eq!(moved[1]["base"], "child");
+    assert_eq!(
+        v["data"]["restack"]["cascade"]["held"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(feature_before, rev(&fx, "feature"));
+    assert_eq!(child_before, rev(&fx, "child"), "one undo puts child back");
+    assert_eq!(grandchild_before, rev(&fx, "grandchild"), "and grandchild");
+}
+
+#[test]
+fn a_branch_above_that_conflicts_holds_and_exits_3() {
+    let fx = repo();
+    stack(&fx);
+    // main's m3 added d.txt; child adds its own d.txt, an add/add conflict.
+    let started = ff(&fx, &["start", "feature", "-b", "child"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("d.txt", "child\n");
+    fx.commit("x1");
+    let started = ff(&fx, &["start", "child", "-b", "grandchild"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("y.txt", "y\n");
+    fx.commit("y1");
+    let back = ff(&fx, &["switch", "feature"]);
+    assert!(back.status.success(), "{}", out(&back));
+    let feature_before = rev(&fx, "feature");
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+
+    let output = ff(&fx, &["restack"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(so.contains("replayed 3 commit(s) onto main"), "{so}");
+    assert!(so.contains("child held:"), "{so}");
+    assert!(so.contains("d.txt"), "{so}");
+    assert!(so.contains("grandchild left alone"), "{so}");
+    assert!(so.contains("ff resolve"), "{so}");
+
+    assert_ne!(feature_before, rev(&fx, "feature"), "feature itself moved");
+    assert_eq!(child_before, rev(&fx, "child"), "the held branch stays put");
+    assert_eq!(grandchild_before, rev(&fx, "grandchild"), "and its subtree");
+}
+
+#[test]
+fn a_branch_above_in_another_worktree_is_skipped_and_named() {
+    let fx = repo();
+    stack(&fx);
+    stack_above(&fx);
+    let wt = fx.root().join("linked-wt");
+    fx.git(&["worktree", "add", "-q", wt.to_str().unwrap(), "child"]);
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("child skipped: checked out in"), "{text}");
+    assert!(text.contains("linked-wt"), "{text}");
+    assert!(text.contains("grandchild left alone"), "{text}");
+
+    assert_eq!(child_before, rev(&fx, "child"));
+    assert_eq!(grandchild_before, rev(&fx, "grandchild"));
+}

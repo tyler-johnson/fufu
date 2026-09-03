@@ -1069,3 +1069,482 @@ fn an_absorbs_resolution_lands_under_the_gate() {
     let c1_new = oid(landed.last().expect("the oldest landed commit is c1'"));
     assert_eq!(file_in(&repo, c1_new, "g.txt").as_deref(), Some("gopen\n"));
 }
+
+// ---------------------------------------------------------------------------
+// The cascade a hold stopped resumes when the hold lands
+// ---------------------------------------------------------------------------
+
+/// Record `parent` as the branch `branch` sits on, the way `ff start
+/// <branch>` does.
+fn stacked_on(fx: &Fixture, branch: &str, parent: &str) {
+    let repo = fx.repo();
+    let mut meta = ff_core::branchmeta::read(&repo, branch).unwrap();
+    meta.parent = Some(parent.to_string());
+    ff_core::branchmeta::write(&repo, branch, &meta).unwrap();
+}
+
+fn is_ancestor(fx: &Fixture, ancestor: &str, of: &str) -> bool {
+    fx.try_git(&["merge-base", "--is-ancestor", ancestor, of])
+        .status
+        .success()
+}
+
+/// `main` ← `feat` ← `top` ← `deeper`, each parent recorded, and `main`
+/// moved so `feat`'s `f1` cannot replay onto it: `f1` and `m1` both rewrite
+/// `f.txt`. `top`'s `x1` adds `x.txt`, or rewrites `f.txt` too when
+/// `top_conflicts`, so it cannot follow the landed `feat` either; `deeper`'s
+/// `y1` adds `y.txt`. Leaves the fixture on `feat`. Returns (base, x1, y1).
+fn cascade_stack(fx: &Fixture, top_conflicts: bool) -> (String, String, String) {
+    fx.write("f.txt", "one\n");
+    let base = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("f.txt", "two\n");
+    let _f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "top"]);
+    if top_conflicts {
+        fx.write("f.txt", "x\n");
+    } else {
+        fx.write("x.txt", "x\n");
+    }
+    let x1 = fx.commit("x1");
+    fx.git(&["switch", "-q", "-c", "deeper"]);
+    fx.write("y.txt", "y\n");
+    let y1 = fx.commit("y1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    let _m1 = fx.commit("m1");
+    fx.git(&["switch", "-q", "feat"]);
+    stacked_on(fx, "top", "feat");
+    stacked_on(fx, "deeper", "top");
+    (base, x1, y1)
+}
+
+fn restack_feat(fx: &Fixture, now: i64) -> ff_core::RestackOutcome {
+    let repo = fx.repo();
+    ff_core::restack::restack(
+        &repo,
+        Some("feat".into()),
+        None,
+        &prov(),
+        Some(now),
+        vec!["ff".into(), "restack".into(), "feat".into()],
+    )
+    .unwrap()
+    .0
+}
+
+/// `ff restack feat` holds on `feat`, with `top` and `deeper` untouched.
+fn hold_feat(fx: &Fixture, x1: &str, y1: &str) {
+    let outcome = restack_feat(fx, NOW);
+    assert!(
+        matches!(outcome, ff_core::RestackOutcome::Held(_)),
+        "the precondition is a held restack of feat, got {outcome:?}"
+    );
+    assert_eq!(tip(fx, "top"), x1, "a hold leaves the subtree alone");
+    assert_eq!(tip(fx, "deeper"), y1, "a hold leaves the subtree alone");
+}
+
+fn moved_names(cascade: &ff_core::Cascade) -> Vec<&str> {
+    cascade.moved.iter().map(|m| m.branch.as_str()).collect()
+}
+
+#[test]
+fn landing_a_held_restack_replays_its_subtree() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, x1, y1) = cascade_stack(&fx, false);
+    hold_feat(&fx, &x1, &y1);
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let report = resolved(&fx, NOW + 200);
+
+    assert_eq!(report.verb, "restack");
+    assert_eq!(report.branch, "feat");
+    assert_eq!(report.replayed, 1, "feat's own commit landed");
+    assert!(report.still_held.is_none(), "a hold above is not feat's");
+    assert_eq!(
+        moved_names(&report.cascade),
+        vec!["top", "deeper"],
+        "the subtree the hold stopped replays from the landed tip, parent before child"
+    );
+    assert!(report.cascade.held.is_empty());
+    assert!(report.cascade.skipped.is_empty());
+
+    assert!(is_ancestor(&fx, "main", "feat"), "feat sits on main");
+    assert!(is_ancestor(&fx, "feat", "top"), "top sits on the new feat");
+    assert!(
+        is_ancestor(&fx, "top", "deeper"),
+        "deeper sits on the new top"
+    );
+    assert_ne!(tip(&fx, "top"), x1);
+    assert_ne!(tip(&fx, "deeper"), y1);
+    let repo = fx.repo();
+    assert_eq!(
+        file_in(&repo, oid(&tip(&fx, "deeper")), "f.txt").as_deref(),
+        Some("RESOLVED\n"),
+        "the fix reaches the top of the stack"
+    );
+}
+
+#[test]
+fn the_resumed_cascade_rides_the_landing_operation() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, x1, y1) = cascade_stack(&fx, false);
+    hold_feat(&fx, &x1, &y1);
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "RESOLVED\n");
+
+    let before_refs = head_refs(&fx);
+    let before_ops = verb_ops(&fx);
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(moved_names(&report.cascade), vec!["top", "deeper"]);
+    assert_eq!(
+        verb_ops(&fx),
+        before_ops + 1,
+        "the landing and its cascade are one verb operation"
+    );
+
+    let repo = fx.repo();
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            force: false,
+            now: Some(NOW + 300),
+            argv: vec!["ff".into(), "undo".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    drop(repo);
+
+    assert_eq!(
+        head_refs(&fx),
+        before_refs,
+        "one undo puts feat, top, and deeper back"
+    );
+    assert_eq!(tip(&fx, "top"), x1);
+    assert_eq!(tip(&fx, "deeper"), y1);
+    let repo = fx.repo();
+    assert!(
+        ff_core::held::of(&repo, "feat").unwrap().is_some(),
+        "undo puts the hold back"
+    );
+    assert!(
+        ff_core::held::resolving(&repo, "feat").unwrap().is_some(),
+        "undo puts the resolution session back"
+    );
+}
+
+#[test]
+fn a_child_that_conflicts_on_resumption_holds_and_the_landing_stands() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, x1, y1) = cascade_stack(&fx, true);
+    hold_feat(&fx, &x1, &y1);
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let report = resolved(&fx, NOW + 200);
+
+    assert!(is_ancestor(&fx, "main", "feat"), "feat landed");
+    assert_eq!(report.new_tip, tip(&fx, "feat"));
+    assert!(
+        report.still_held.is_none(),
+        "a hold inside the cascade is the child's, not the landing's"
+    );
+    assert!(report.cascade.moved.is_empty());
+    assert_eq!(report.cascade.held.len(), 1, "{:?}", report.cascade);
+    let held = &report.cascade.held[0];
+    assert_eq!(held.branch, "top");
+    assert_eq!(held.base, "feat");
+    assert_eq!(held.left_alone, vec!["deeper".to_string()]);
+    assert_eq!(held.report.of, 1, "top's own commit, not feat's");
+
+    assert_eq!(tip(&fx, "top"), x1, "the held child stays where it stood");
+    assert_eq!(tip(&fx, "deeper"), y1, "and so does everything above it");
+    let repo = fx.repo();
+    let hold = ff_core::held::of(&repo, "top")
+        .unwrap()
+        .expect("top holds its own restack");
+    assert_eq!(
+        hold.intent,
+        ff_core::held::Intent::Restack {
+            branch: "top".into(),
+            onto: "refs/heads/feat".into(),
+        }
+    );
+    assert!(
+        ff_core::held::of(&repo, "feat").unwrap().is_none(),
+        "feat's hold cleared with the landing"
+    );
+    assert!(
+        ff_core::held::of(&repo, "deeper").unwrap().is_none(),
+        "a branch left alone holds nothing"
+    );
+}
+
+#[test]
+fn a_held_child_is_skipped_on_resumption() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, x1, y1) = cascade_stack(&fx, false);
+    hold_feat(&fx, &x1, &y1);
+    let standing = ff_core::held::Held {
+        intent: ff_core::held::Intent::Restack {
+            branch: "top".into(),
+            onto: "refs/heads/feat".into(),
+        },
+        at: ff_core::futures::At::OpenChange,
+        paths: vec!["x.txt".into()],
+        time: NOW,
+    };
+    ff_core::held::set(&fx.repo(), "top", Some(standing.clone())).unwrap();
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let report = resolved(&fx, NOW + 200);
+
+    assert!(is_ancestor(&fx, "main", "feat"), "feat landed");
+    assert!(report.still_held.is_none());
+    assert!(report.cascade.moved.is_empty());
+    assert!(report.cascade.held.is_empty());
+    assert_eq!(report.cascade.skipped.len(), 1, "{:?}", report.cascade);
+    let skip = &report.cascade.skipped[0];
+    assert_eq!(skip.branch, "top");
+    assert_eq!(skip.reason, ff_core::SkipReason::AlreadyHeld);
+    assert_eq!(skip.left_alone, vec!["deeper".to_string()]);
+
+    assert_eq!(tip(&fx, "top"), x1, "a held child is not moved");
+    assert_eq!(tip(&fx, "deeper"), y1);
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "top").unwrap(),
+        Some(standing),
+        "the standing hold is untouched"
+    );
+}
+
+#[test]
+fn landing_a_held_absorb_replays_its_subtree() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `absorb_stack`'s shape, on `feat` with `top` and `deeper` above it.
+    fx.write("f.txt", "one\n");
+    fx.write("g.txt", "g0\n");
+    let _c0 = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("f.txt", "A\n");
+    let c1 = fx.commit("c1");
+    fx.write("f.txt", "B\n");
+    fx.write("h.txt", "h1\n");
+    let _c2 = fx.commit("c2");
+    fx.git(&["switch", "-q", "-c", "top"]);
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    fx.git(&["switch", "-q", "-c", "deeper"]);
+    fx.write("y.txt", "y\n");
+    let y1 = fx.commit("y1");
+    fx.git(&["switch", "-q", "feat"]);
+    stacked_on(&fx, "top", "feat");
+    stacked_on(&fx, "deeper", "top");
+    fx.write("f.txt", "C\n");
+    fx.write("g.txt", "gopen\n");
+    hold_an_absorb(&fx, &c1, Vec::new());
+    assert_eq!(tip(&fx, "top"), x1, "a hold leaves the subtree alone");
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "B\n");
+    let report = resolved(&fx, NOW + 200);
+
+    assert_eq!(report.verb, "absorb");
+    assert_eq!(report.branch, "feat");
+    assert!(report.still_held.is_none());
+    assert_eq!(
+        moved_names(&report.cascade),
+        vec!["top", "deeper"],
+        "the subtree follows the absorbed feat"
+    );
+    assert_eq!(report.new_tip, tip(&fx, "feat"));
+    assert!(is_ancestor(&fx, "feat", "top"), "top sits on the new feat");
+    assert!(
+        is_ancestor(&fx, "top", "deeper"),
+        "deeper sits on the new top"
+    );
+    assert_ne!(tip(&fx, "top"), x1);
+    assert_ne!(tip(&fx, "deeper"), y1);
+    let repo = fx.repo();
+    assert_eq!(
+        file_in(&repo, oid(&tip(&fx, "deeper")), "g.txt").as_deref(),
+        Some("gopen\n"),
+        "what the absorb folded in reaches the top of the stack"
+    );
+    assert_eq!(
+        file_in(&repo, oid(&tip(&fx, "deeper")), "y.txt").as_deref(),
+        Some("y\n")
+    );
+}
+
+#[test]
+fn abandoning_a_hold_replays_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, x1, y1) = cascade_stack(&fx, false);
+    hold_feat(&fx, &x1, &y1);
+    let feat = tip(&fx, "feat");
+
+    // A bare hold, and a hold with a session open over it: both abandons
+    // leave the whole stack where it stood.
+    let abandoned = resolve_call(&fx, true, NOW + 100).unwrap();
+    assert!(
+        matches!(abandoned, ResolveOutcome::Abandoned(_)),
+        "{abandoned:?}"
+    );
+    assert_eq!(tip(&fx, "feat"), feat);
+    assert_eq!(tip(&fx, "top"), x1);
+    assert_eq!(tip(&fx, "deeper"), y1);
+    assert!(ff_core::held::of(&fx.repo(), "feat").unwrap().is_none());
+
+    hold_feat(&fx, &x1, &y1);
+    open_resolution(&fx, NOW + 200);
+    let abandoned = resolve_call(&fx, true, NOW + 300).unwrap();
+    assert!(
+        matches!(abandoned, ResolveOutcome::Abandoned(_)),
+        "{abandoned:?}"
+    );
+    assert_eq!(tip(&fx, "feat"), feat, "feat stays off main");
+    assert_eq!(tip(&fx, "top"), x1, "the subtree stays where it stood");
+    assert_eq!(tip(&fx, "deeper"), y1);
+    assert!(!is_ancestor(&fx, "main", "feat"));
+    let repo = fx.repo();
+    assert!(ff_core::held::of(&repo, "feat").unwrap().is_none());
+    assert!(ff_core::held::resolving(&repo, "feat").unwrap().is_none());
+}
+
+#[test]
+fn a_released_hold_lands_with_its_cascade_on_the_rerun() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (base, x1, y1) = cascade_stack(&fx, false);
+    hold_feat(&fx, &x1, &y1);
+
+    // main moves back off the conflict and on to something feat's commit
+    // does not touch.
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["reset", "-q", "--hard", &base]);
+    fx.write("z.txt", "z\n");
+    let m2 = fx.commit("m2");
+    fx.git(&["switch", "-q", "feat"]);
+
+    let released = resolve_call(&fx, false, NOW + 100).unwrap();
+    assert!(
+        matches!(released, ResolveOutcome::Released(_)),
+        "the world moved out of the conflict: {released:?}"
+    );
+    assert!(
+        ff_core::held::of(&fx.repo(), "feat").unwrap().is_none(),
+        "the release clears the hold"
+    );
+    assert_eq!(tip(&fx, "top"), x1, "a release moves nothing");
+    assert_eq!(tip(&fx, "deeper"), y1);
+
+    // The verb that recorded the hold lands the rewrite when it is re-run,
+    // and the re-run cascades on its own.
+    let report = match restack_feat(&fx, NOW + 200) {
+        ff_core::RestackOutcome::Restacked(r) => r,
+        other => panic!("the re-run lands, got {other:?}"),
+    };
+    assert_eq!(moved_names(&report.cascade), vec!["top", "deeper"]);
+    assert!(is_ancestor(&fx, &m2, "feat"), "feat sits on the new main");
+    assert!(is_ancestor(&fx, "feat", "top"));
+    assert!(is_ancestor(&fx, "top", "deeper"));
+    assert_ne!(tip(&fx, "top"), x1);
+    assert_ne!(tip(&fx, "deeper"), y1);
+}
+
+/// The hold a cascade writes on a child names the parent as its base, and
+/// resolving it replans against the parent as it now stands. The parent's
+/// rewrite kept none of its old commits, so a walk bounded at the merge
+/// base hands back the parent's own old commits as the child's; replayed
+/// onto their absorbed selves they conflict, on content the child never
+/// touched. The replan bounds the range where the child forked from the
+/// parent's history instead, so the resolution is about the child's commit
+/// alone.
+#[test]
+fn resolving_a_child_hold_replays_only_its_own_commits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "base\n");
+    let _base = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("c1");
+    fx.write("c.txt", "c\n");
+    let _c2 = fx.commit("c2");
+    fx.git(&["switch", "-q", "-c", "top"]);
+    fx.write("a.txt", "one x\n");
+    let x1 = fx.commit("x1");
+    fx.git(&["switch", "-q", "feat"]);
+    stacked_on(&fx, "top", "feat");
+
+    // The absorb lands and its cascade holds top: c1 and x1 now disagree
+    // about the line.
+    fx.write("a.txt", "one, edited\n");
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::absorb::absorb(
+        &repo,
+        Some(oid(&c1)),
+        Vec::new(),
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "absorb".into()],
+    )
+    .unwrap();
+    drop(repo);
+    let report = match outcome {
+        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        other => panic!("the absorb lands, got {other:?}"),
+    };
+    assert_eq!(report.cascade.held.len(), 1, "{:?}", report.cascade);
+    assert_eq!(report.cascade.held[0].branch, "top");
+    assert_eq!(report.cascade.held[0].report.of, 1);
+    assert_eq!(tip(&fx, "top"), x1);
+
+    fx.git(&["switch", "-q", "top"]);
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.verb, "restack");
+    assert_eq!(
+        opened.of, 1,
+        "the resolution is about top's one commit, not feat's two as well"
+    );
+    assert_eq!(opened.steps, 1);
+    let shown = std::fs::read_to_string(fx.path().join("a.txt")).unwrap();
+    assert!(
+        shown.contains("one x"),
+        "x1's side is what the reader sees: {shown}"
+    );
+    assert!(shown.contains("one, edited"), "{shown}");
+
+    fix(&fx, "a.txt", "one, edited x\n");
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.branch, "top");
+    assert_eq!(report.replayed, 1, "top's own commit and nothing of feat's");
+    assert!(report.still_held.is_none());
+    assert!(
+        is_ancestor(&fx, "feat", "top"),
+        "top sits on the absorbed feat"
+    );
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "feat")));
+    assert_eq!(landed.len(), 1, "one commit above feat: {landed:?}");
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "a.txt").as_deref(),
+        Some("one, edited x\n")
+    );
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "c.txt").as_deref(),
+        Some("c\n"),
+        "feat's own commits are beneath, through the absorbed feat"
+    );
+}

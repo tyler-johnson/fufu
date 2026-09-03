@@ -926,3 +926,432 @@ fn a_remote_only_trunk_restacks_and_still_displays_short() {
     assert_eq!(record.summary, "restack feature onto main");
     assert!(record.parent.is_none(), "no parent transition rides the op");
 }
+
+// ---- The cascade: the branches stacked above the one that moved ----
+
+/// Record `parent` as the branch `branch` sits on, the way
+/// `ff start <parent> -b <branch>` does.
+fn stacked_on(fx: &Fixture, branch: &str, parent: &str) {
+    let repo = fx.repo();
+    let mut meta = ff_core::branchmeta::read(&repo, branch).unwrap();
+    meta.parent = Some(parent.to_string());
+    ff_core::branchmeta::write(&repo, branch, &meta).unwrap();
+}
+
+/// Two branches stacked above `feature`, one commit each, each recording
+/// the branch beneath it:
+///
+/// f3 ─ x1        (child, on feature)
+///       └─ y1    (grandchild, on child)
+///
+/// Distinct files, so the replays are clean. Leaves the fixture standing on
+/// `feature`.
+fn stack_above(fx: &Fixture) -> (String, String) {
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    stacked_on(fx, "child", "feature");
+    fx.git(&["switch", "-q", "-c", "grandchild"]);
+    fx.write("y.txt", "y\n");
+    let y1 = fx.commit("y1");
+    stacked_on(fx, "grandchild", "child");
+    fx.git(&["switch", "-q", "feature"]);
+    (x1, y1)
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn is_ancestor(fx: &Fixture, ancestor: &str, of: &str) -> bool {
+    fx.try_git(&["merge-base", "--is-ancestor", ancestor, of])
+        .status
+        .success()
+}
+
+fn undo(fx: &Fixture) {
+    let repo = fx.repo();
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(NOW + 100),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&repo, &opts, &prov()).unwrap();
+}
+
+fn landed(outcome: RestackOutcome) -> ff_core::RestackReport {
+    match outcome {
+        RestackOutcome::Restacked(r) => *r,
+        other => panic!("the restack must land, got {other:?}"),
+    }
+}
+
+#[test]
+fn restack_cascades_onto_the_branches_above() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, _f3, m2) = stack(&fx);
+    let (x1, y1) = stack_above(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+
+    let moved: Vec<&str> = report
+        .cascade
+        .moved
+        .iter()
+        .map(|m| m.branch.as_str())
+        .collect();
+    assert_eq!(moved, ["child", "grandchild"], "parent before child");
+    assert_eq!(report.cascade.moved[0].base, "feature");
+    assert_eq!(report.cascade.moved[1].base, "child");
+    assert_eq!(report.cascade.moved[0].replayed, 1);
+    assert_eq!(report.cascade.moved[1].replayed, 1);
+    assert!(report.cascade.held.is_empty(), "{:?}", report.cascade.held);
+    assert!(
+        report.cascade.skipped.is_empty(),
+        "{:?}",
+        report.cascade.skipped
+    );
+
+    let feature = rev(&fx, "feature");
+    let child = rev(&fx, "child");
+    let grandchild = rev(&fx, "grandchild");
+    assert_ne!(child, x1, "child moved");
+    assert_ne!(grandchild, y1, "grandchild moved");
+    assert_eq!(report.cascade.moved[0].old_tip, x1);
+    assert_eq!(report.cascade.moved[0].new_tip, child);
+    assert_eq!(report.cascade.moved[1].new_tip, grandchild);
+    assert!(
+        is_ancestor(&fx, &m2, &feature),
+        "feature sits on the moved main"
+    );
+    assert!(
+        is_ancestor(&fx, &feature, &child),
+        "child sits on the moved feature"
+    );
+    assert!(
+        is_ancestor(&fx, &child, &grandchild),
+        "grandchild sits on the moved child"
+    );
+
+    // `mid` sits inside feature's range with nothing of its own: it did
+    // not record a parent, so it is not a child, and it stays diverged.
+    assert!(
+        report.diverged.contains(&"mid".to_string()),
+        "{:?}",
+        report.diverged
+    );
+
+    // One operation carries all three moves and every rewrite.
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "restack");
+    assert!(
+        record.summary.contains("and 2 above it"),
+        "{}",
+        record.summary
+    );
+    let names: Vec<&str> = record.refs.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"refs/heads/feature"), "{names:?}");
+    assert!(names.contains(&"refs/heads/child"), "{names:?}");
+    assert!(names.contains(&"refs/heads/grandchild"), "{names:?}");
+    assert_eq!(
+        record.rewrites.len(),
+        5,
+        "three of feature's, one each above"
+    );
+}
+
+#[test]
+fn one_undo_takes_the_whole_cascade_back() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, f3, _m2) = stack(&fx);
+    let (x1, y1) = stack_above(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+    assert_eq!(report.cascade.moved.len(), 2);
+
+    undo(&fx);
+    assert_eq!(rev(&fx, "feature"), f3, "undo puts feature back");
+    assert_eq!(rev(&fx, "child"), x1, "undo puts child back");
+    assert_eq!(rev(&fx, "grandchild"), y1, "undo puts grandchild back");
+}
+
+#[test]
+fn a_conflicting_replay_holds_that_branch_and_leaves_its_subtree_alone() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, f3, _m2) = stack(&fx);
+    // main's m2 added d.txt; child adds its own d.txt, so its replay onto
+    // the moved feature is an add/add conflict.
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("d.txt", "child\n");
+    let x1 = fx.commit("x1");
+    stacked_on(&fx, "child", "feature");
+    fx.git(&["switch", "-q", "-c", "grandchild"]);
+    fx.write("y.txt", "y\n");
+    let y1 = fx.commit("y1");
+    stacked_on(&fx, "grandchild", "child");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+
+    assert!(
+        report.cascade.moved.is_empty(),
+        "{:?}",
+        report.cascade.moved
+    );
+    assert_eq!(report.cascade.held.len(), 1);
+    let hold = &report.cascade.held[0];
+    assert_eq!(hold.branch, "child");
+    assert_eq!(hold.base, "feature");
+    assert_eq!(hold.left_alone, vec!["grandchild".to_string()]);
+    assert_eq!(hold.report.paths, vec!["d.txt".to_string()]);
+    assert_eq!(hold.report.of, 1);
+    match &hold.report.at {
+        At::Commit { id, subject } => {
+            assert_eq!(id, &x1);
+            assert_eq!(subject, "x1");
+        }
+        other => panic!("the hold is at the conflicting commit, got {other:?}"),
+    }
+
+    assert_ne!(rev(&fx, "feature"), f3, "feature itself moved");
+    assert_eq!(rev(&fx, "child"), x1, "the held branch stays put");
+    assert_eq!(rev(&fx, "grandchild"), y1, "its subtree stays put");
+
+    let repo = fx.repo();
+    let held = ff_core::held::of(&repo, "child")
+        .unwrap()
+        .expect("child holds");
+    match held.intent {
+        ff_core::held::Intent::Restack { branch, onto } => {
+            assert_eq!(branch, "child");
+            assert_eq!(onto, "refs/heads/feature");
+        }
+        other => panic!("a restack hold, got {other:?}"),
+    }
+    let record = tip_record(&repo);
+    assert_eq!(
+        record.cascade_held.len(),
+        1,
+        "the hold rides the restack's op"
+    );
+    assert!(record.held.is_none());
+
+    // One undo clears the hold with the restack.
+    undo(&fx);
+    assert_eq!(rev(&fx, "feature"), f3);
+    assert!(ff_core::held::of(&fx.repo(), "child").unwrap().is_none());
+}
+
+#[test]
+fn a_branch_with_nothing_of_its_own_stays_put() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, f2, f3, _m2) = stack(&fx);
+    // `child` sits exactly at feature's tip and `mid` partway up it; both
+    // record feature as their base and neither holds a commit of its own.
+    fx.git(&["branch", "child", "feature"]);
+    stacked_on(&fx, "child", "feature");
+    stacked_on(&fx, "mid", "feature");
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+
+    assert!(
+        report.cascade.moved.is_empty(),
+        "{:?}",
+        report.cascade.moved
+    );
+    assert_eq!(
+        report.cascade.unchanged,
+        vec!["child".to_string(), "mid".to_string()]
+    );
+    assert_eq!(
+        rev(&fx, "child"),
+        f3,
+        "not replayed to nothing and landed on the tip"
+    );
+    assert_eq!(rev(&fx, "mid"), f2);
+    assert!(
+        report.diverged.contains(&"child".to_string()),
+        "{:?}",
+        report.diverged
+    );
+    assert!(
+        report.diverged.contains(&"mid".to_string()),
+        "{:?}",
+        report.diverged
+    );
+}
+
+#[test]
+fn a_branch_held_by_another_worktree_is_skipped_and_named() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, f3, _m2) = stack(&fx);
+    let (x1, y1) = stack_above(&fx);
+    let wt = fx.root().join("linked-wt");
+    fx.git(&["worktree", "add", "-q", wt.to_str().unwrap(), "child"]);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+
+    assert!(
+        report.cascade.moved.is_empty(),
+        "{:?}",
+        report.cascade.moved
+    );
+    assert_eq!(report.cascade.skipped.len(), 1);
+    let skip = &report.cascade.skipped[0];
+    assert_eq!(skip.branch, "child");
+    assert_eq!(skip.left_alone, vec!["grandchild".to_string()]);
+    match &skip.reason {
+        ff_core::SkipReason::Worktree { path } => {
+            assert!(path.contains("linked-wt"), "names the worktree: {path}");
+        }
+        other => panic!("skipped for the worktree, got {other:?}"),
+    }
+    assert_ne!(rev(&fx, "feature"), f3);
+    assert_eq!(rev(&fx, "child"), x1);
+    assert_eq!(rev(&fx, "grandchild"), y1);
+}
+
+#[test]
+fn a_branch_already_holding_a_rewrite_is_skipped() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, _f3, _m2) = stack(&fx);
+    let (x1, y1) = stack_above(&fx);
+    let standing = ff_core::held::Held {
+        intent: ff_core::held::Intent::Restack {
+            branch: "child".into(),
+            onto: "refs/heads/feature".into(),
+        },
+        at: At::OpenChange,
+        paths: vec!["x.txt".into()],
+        time: NOW - 10,
+    };
+    ff_core::held::set(&fx.repo(), "child", Some(standing.clone())).unwrap();
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = landed(outcome);
+
+    assert_eq!(report.cascade.skipped.len(), 1);
+    assert_eq!(report.cascade.skipped[0].branch, "child");
+    assert_eq!(
+        report.cascade.skipped[0].reason,
+        ff_core::SkipReason::AlreadyHeld
+    );
+    assert_eq!(
+        report.cascade.skipped[0].left_alone,
+        vec!["grandchild".to_string()]
+    );
+    assert_eq!(rev(&fx, "child"), x1);
+    assert_eq!(rev(&fx, "grandchild"), y1);
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "child").unwrap(),
+        Some(standing),
+        "the standing hold is left exactly as it was"
+    );
+}
+
+#[test]
+fn a_parent_loop_ends_the_cascade() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, _f3, _m2) = stack(&fx);
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    stacked_on(&fx, "child", "feature");
+    // Aimed in a loop: feature says it sits on child, child on feature.
+    stacked_on(&fx, "feature", "child");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("main"), NOW);
+    let report = landed(outcome);
+
+    assert!(report.reaimed);
+    let moved: Vec<&str> = report
+        .cascade
+        .moved
+        .iter()
+        .map(|m| m.branch.as_str())
+        .collect();
+    assert_eq!(
+        moved,
+        ["child"],
+        "child follows once, and feature is not visited again"
+    );
+    assert_ne!(rev(&fx, "child"), x1);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        Some("main".to_string())
+    );
+}
+
+#[test]
+fn head_on_a_branch_above_carries_the_open_change() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, _f3, _m2) = stack(&fx);
+    let (x1, _y1) = stack_above(&fx);
+    fx.git(&["switch", "-q", "child"]);
+    fx.write("z.txt", "z\n");
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), None, NOW);
+    let report = landed(outcome);
+
+    assert_eq!(report.cascade.moved[0].branch, "child");
+    assert_ne!(rev(&fx, "child"), x1);
+    assert_eq!(rev(&fx, "HEAD"), rev(&fx, "child"), "HEAD followed child");
+    assert!(report.files > 0, "main's file arrived in the worktree");
+    assert!(report.still_open, "the open change is still open");
+    let files = worktree_files(&fx);
+    assert!(
+        files.contains(&("d.txt".to_string(), b"d\n".to_vec())),
+        "{files:?}"
+    );
+    assert!(
+        files.contains(&("z.txt".to_string(), b"z\n".to_vec())),
+        "{files:?}"
+    );
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "?? z.txt");
+}
+
+#[test]
+fn an_open_change_above_that_conflicts_holds_that_branch() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_c0, _c1, _f1, _f2, f3, _m2) = stack(&fx);
+    let (x1, y1) = stack_above(&fx);
+    fx.git(&["switch", "-q", "child"]);
+    // Uncommitted, and the same path main's m2 added.
+    fx.write("d.txt", "mine\n");
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), None, NOW);
+    let report = landed(outcome);
+
+    assert_ne!(rev(&fx, "feature"), f3, "feature itself moved");
+    assert_eq!(report.cascade.held.len(), 1);
+    let hold = &report.cascade.held[0];
+    assert_eq!(hold.branch, "child");
+    assert_eq!(hold.report.at, At::OpenChange);
+    assert_eq!(hold.report.paths, vec!["d.txt".to_string()]);
+    assert_eq!(hold.left_alone, vec!["grandchild".to_string()]);
+    assert_eq!(rev(&fx, "child"), x1);
+    assert_eq!(rev(&fx, "grandchild"), y1);
+    assert_eq!(report.files, 0, "no file moved");
+    let files = worktree_files(&fx);
+    assert!(
+        files.contains(&("d.txt".to_string(), b"mine\n".to_vec())),
+        "{files:?}"
+    );
+}
