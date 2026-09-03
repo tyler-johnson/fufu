@@ -8,6 +8,12 @@ A plain `ff config <key> <value>` writes this repo's config; `--global` writes u
 
 Because storage is ordinary git config, `git config fufu.keep` reads and writes the very same value, and the two tools can never disagree. What `ff config` adds over raw `git config` is the registry below: it knows what settings exist and what they default to, and it validates a new value through the same parser that will later read it, so a typo is refused before it touches disk. Set the same typo with raw `git config` and every fufu reader quietly falls back to its default — the setting looks set and does nothing.
 
+## Policy keys are written from a shell
+
+`fufu.gitPolicy` and `fufu.toolPolicy` decide what fufu refuses an agent, so an agent that could set its own tier through the tool policing it is not policed at all. A write to either through the [`ff mcp`](cli/mcp.md) tool is refused with `usage/mcp-policy-write`, naming the shell as the place to make it; `--unset` counts as a write, since taking a value away lowers the tier to the default. The same command typed at a shell writes, which is where a person changing their own policy already is.
+
+Reading is untouched: through the tool, bare `ff config` still lists every setting and a key alone still prints what applies. Every other setting writes through the tool as before.
+
 ## The pager
 
 [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op log`](../reference/cli/op-log.md) page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
@@ -77,7 +83,7 @@ What fufu says when git is reached for directly — through ff git, or in an age
 
 `fufu.toolPolicy` — choice of `observe`, `coach`, `strict`; default `strict`
 
-What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. Off the record entirely when no fufu server is serving that client.
+What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. What it speaks to is what the tool serves: a builtin verb or a declared extension. The shell-only verbs pass, and so does an ff <name> the tool will not serve, since a shell is the only place that one runs. Nothing is said at all when no fufu server is serving that client.
 
 ### futuresDepth
 

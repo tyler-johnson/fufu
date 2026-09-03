@@ -4,6 +4,8 @@ No subcommands — arity decides. Bare `ff config` lists every setting with its 
 
 Storage is plain git config under `fufu.<key>`, so `git config fufu.keep` and fufu can never disagree, and precedence is git's own. What git config cannot do is tell you what settings exist, what they default to, or whether a value will parse — and every fufu reader falls back to its default on a value it cannot read, so a typo'd setting looks set and does nothing. Values here are validated through the readers' own parsers before anything touches disk.
 
+Two settings are only writable from a shell. `gitPolicy` and `toolPolicy` decide what fufu refuses an agent, so a write to either through the [`ff mcp`](mcp.md) tool — a value, or `--unset`, which lowers the tier by taking the value away — is refused with `usage/mcp-policy-write` rather than turning off the thing doing the policing. Reading them is untouched: bare `ff config` still lists every setting through the tool, and a key alone still prints what applies.
+
 ## Usage
 
 ```

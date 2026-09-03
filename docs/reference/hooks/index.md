@@ -4,6 +4,8 @@
 
 Two mechanisms cover the eight. A shell takes marked lines in its rc file: the alias `git='ff git'` (a `git` function in PowerShell), so every git command you type snapshots first, and a prompt hook that runs [`ff trigger shell`](../cli/trigger.md) before each prompt. An agent client takes hook entries merged into a settings file it owns, each running `ff trigger <slug>` before a tool call and at the turn boundary, with the rest of the file left as it was. Claude Code is the exception: it takes a plugin directory fufu owns outright, written whole and removed whole. An agent client also gets a third thing beside its hook: [`ff mcp`](../cli/mcp.md) registered as a server, one key in the client's own MCP file, so the agent can reach fufu as a typed tool as well as through the shell.
 
+Claude Code and Codex carry a fourth thing for every extension declared with `ff extension add`: its own skill files, named by its manifest, installed under `skills/<name>/` beside fufu's own. Cursor and Gemini read no skills directory, for an extension exactly as for fufu, and get its briefing line alone.
+
 The rules are the same everywhere:
 
 - A line or an entry you wrote by hand is detected, reported, and never touched. In a shell the two pieces are independent, so a hand-written alias leaves the prompt hook to be installed and the other way around.

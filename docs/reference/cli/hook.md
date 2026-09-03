@@ -8,7 +8,13 @@ What gets written depends on the client, and is not a choice you make: Claude Co
 
 Claude Code and Codex take fufu's own skill along with the wiring: the manual for everything the once-per-session briefing has no room for — recovery, rewriting commits that have closed, held rewrites, the JSON. It costs the agent nothing until it is read. Claude's skill rides inside the plugin, so --settings wires capture and no skill.
 
+An extension declared with [`ff extension add`](extension-add.md) adds one line to the same briefing: the text its manifest carries, or whatever `ff-<name> briefing` prints when the briefing is built, run in the event's own directory with the three variables an extension is handed anywhere else. The line rides the same boundaries fufu's own notice does and is capped at the same kind of budget, and an extension that is gone from PATH, broken, or slow contributes nothing and costs the briefing nothing.
+
+A declared extension's own skill files ship the same way fufu's does, for the same two clients: `skills/<name>/` beside `skills/fufu/`, read from wherever the manifest named them. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more. A file the manifest names but that is missing, unreadable, or too large to be a manual is left out rather than failing the install. `ff hook --skill <name>` prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own.
+
 The four agent clients also get [`ff mcp`](mcp.md) registered as a server, so the agent can reach fufu as a typed tool: `.mcp.json` in the Claude plugin, a marked block in Codex's `config.toml`, `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. The hook and the server do different jobs — the hook snapshots before every tool call, whatever the tool; the server only sees fufu verbs — so both are wired. A registration you wrote yourself is left alone.
+
+A declared extension whose manifest names a server of its own is registered beside fufu's in the same file, as `mcpServers.<name>` and as a second table inside Codex's one block, with whatever command, arguments and environment the manifest asked for. [`ff unhook`](unhook.md) takes them back together. That is where an extension wanting its own tools, annotations or resources goes; a registration under its name that you wrote yourself is left alone the same way.
 
 Hooks are what make capture ambient instead of something you remember. With none of them wired, fufu snapshots only when you type an ff command — which works, and misses the whole point. [`ff doctor`](doctor.md) warns when nothing at all feeds capture, because a silent engine feels safe while capturing nothing.
 
@@ -34,8 +40,8 @@ Options:
       --json
           Emit machine-readable JSON
 
-      --skill
-          Print fufu's skill — the manual an agent reads — and stop
+      --skill [<name>]
+          Print a skill and stop: fufu's own with no name, a declared extension's with one
 
       --session <name>
           Session name for this invocation
@@ -55,6 +61,7 @@ ff hook claude codex     wire exactly those
 ff hook --all            everything detected, no question
 ff hook -l               report and stop
 ff hook --skill          print the manual, for a client that reads no skill
+ff hook --skill tower    print a declared extension's own skill
 ff unhook claude         take back exactly what hook added
 ff doctor                check that something is feeding capture
 ```

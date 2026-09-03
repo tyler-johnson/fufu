@@ -64,6 +64,10 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 - [`ff hook`](hook.md) — Hook fufu into the agent clients and shells on this machine
 - [`ff unhook`](unhook.md) — Remove exactly what hook added
+- [`ff extension`](extension.md) — Extensions this machine declares, so fufu describes them to an agent
+    - [`ff extension add`](extension-add.md) — Ask an ff-<name> for its manifest, check it, and record it here
+    - [`ff extension list`](extension-list.md) — Every extension declared on this machine, and what each answers to
+    - [`ff extension remove`](extension-remove.md) — Take one off the list; fufu stops describing it
 - [`ff trigger`](trigger.md) — Snapshot the working tree now
 - [`ff watch`](watch.md) — Stream operations as they land, one JSON object per line
 - [`ff mcp`](mcp.md) — Serve fufu to an agent client over the Model Context Protocol, on stdio
