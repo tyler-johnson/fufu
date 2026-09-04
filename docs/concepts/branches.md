@@ -4,7 +4,7 @@
 
 [`ff start`](../reference/cli/start.md) begins every new line of work on a fresh branch. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead.
 
-The [open change](changes.md) parks with the branch you are leaving, and the new branch opens clean. Nothing ever crosses a fork. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
+The [open change](changes.md) — the edits sitting in your working tree — parks with the branch you are leaving, and the new branch opens clean. Nothing ever crosses a fork. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
 
 ## Minted names
 
@@ -18,11 +18,9 @@ The ordering matches how work actually goes. You start a spike before you know w
 
 ## Claiming a name
 
-[`ff describe -b <name>`](../reference/cli/describe.md) names the branch you are on.
+[`ff describe -b <name>`](../reference/cli/describe.md) names the branch you are on. Naming lives on `describe` because that verb's job is saying what work is: `-m` sets the change's description, `-b` sets the branch's name. Claiming a petname is the same act as replacing a name you chose earlier, so there is no separate rename command to learn.
 
-Naming lives on `describe` because that verb's job is saying what work is: `-m` sets the change's description, `-b` sets the branch's name. Claiming a petname is the same act as replacing a name you chose earlier, so there is no separate rename command to learn.
-
-The rename carries everything fufu associates with the branch — the chain of [snapshots](snapshots-and-undo.md), any parked change, and the pending description.
+The rename carries everything fufu associates with the branch — the chain of [snapshots](snapshots-and-undo.md) taken before each action, any parked change, and the pending description.
 
 This is the part a bare `git branch -m` would orphan. git renames the ref, but the stash entry labeled with the old name, and fufu's records keyed to it, would be left pointing at a branch that no longer exists. Going through the fufu verb keeps the whole bundle attached. That is [the two regimes](two-regimes.md) in miniature.
 
@@ -42,13 +40,17 @@ Contrast jj's bookmarks, which sit still until told to move. fufu's branches beh
 
 [`ff branch list`](../reference/cli/branch-list.md) — bare [`ff branch`](../reference/cli/branch.md) is the same list — shows named branches first, then the anonymous ones. They are kept apart so a petname never reads as something you chose.
 
-Each row carries the branch's tip, the subject there, and what is hanging off it: a parked change, a pending description, and how the branch stands against its shared copy on the remote.
+Each row carries the branch's tip and the subject there, plus what is hanging off it:
+
+- a parked change — the edits set aside when you switched away
+- a pending description
+- how the branch stands against its shared copy on the remote
 
 Below your own branches come the ones a remote holds and you do not. You cannot switch to those directly, because `ff switch` resolves local names only. `ff start origin/spike` is the verb that forks one of them into a branch here.
 
 [`ff branch delete`](../reference/cli/branch-delete.md) removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its parked change is demoted to an ordinary stash entry, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
 
-A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
+A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease: the removal goes through only if the remote copy still stands where you last saw it. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
 
 ## Switching by prefix
 
@@ -62,13 +64,28 @@ What happens to the open change on either side of the move — parked here, resu
 
 That record is what "base" means everywhere fufu says the word: the base axis on [`ff status`](../reference/cli/status.md), the standing `ff branch list` reports, and the replay every rewrite performs. [`ff restack --onto`](../reference/cli/restack.md) is the one way to change it.
 
-When a branch's tip moves, the branches stacked on it follow. [`ff restack`](../reference/cli/restack.md), [`ff sync`](../reference/cli/sync.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) all do this.
+### The cascade
+
+When a branch's tip moves, the branches stacked on it follow. Six verbs move a tip and set that cascade going:
+
+- [`ff restack`](../reference/cli/restack.md)
+- [`ff sync`](../reference/cli/sync.md)
+- [`ff absorb`](../reference/cli/absorb.md)
+- [`ff lift`](../reference/cli/lift.md)
+- [`ff describe <rev>`](../reference/cli/describe.md)
+- [`ff done`](../reference/cli/done.md)
 
 Each replays every local branch whose base is the branch it moved, parent before child, through the whole tree. It happens inside the verb's own operation, so one `ff undo` takes the rewrite and the cascade back together.
 
 Each replay is performed, not predicted. A branch whose replay conflicts is [held](held-rewrites.md) where it stands, and the branches above it stay put because their base did not move. [`ff resolve`](../reference/cli/resolve.md) on that branch, then `ff done`, resumes the cascade from there.
 
-Three kinds of branch are skipped rather than replayed, and the verb names each one: a branch checked out in another worktree (only that worktree may move its HEAD), one already holding a rewrite, and one whose commits hold a merge. A branch with no commits of its own stays put.
+Three kinds of branch are skipped rather than replayed, and the verb names each one:
+
+- a branch checked out in another worktree, since only that worktree may move its HEAD
+- one already holding a rewrite
+- one whose commits hold a merge
+
+A branch with no commits of its own stays put.
 
 The verb says what followed, what held, and what was skipped. `ff restack` and `ff sync` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
 

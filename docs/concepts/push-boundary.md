@@ -14,9 +14,10 @@ So fufu splits reconciling with a remote along exactly that line. The incoming h
 
 It fetches once, then replays each branch's commits onto whatever moved, with the branches stacked above following.
 
-For the shared copy, sync asks two questions of each branch. First: have you changed this branch since you last saw its shared copy? If not, the branch simply follows the shared copy wherever it went.
+For the shared copy, sync asks two questions of each branch:
 
-If you have, the second question is what the shared copy holds beyond you. New work is taken in, and your commits replay on top. Old versions of your own commits are left alone for publish to replace.
+- **Have you changed this branch since you last saw its shared copy?** If not, the branch simply follows the shared copy wherever it went.
+- **If you have, what does the shared copy hold beyond you?** New work is taken in, and your commits replay on top. Old versions of your own commits are left alone for publish to replace.
 
 fufu can tell those two apart because it recorded the rewrite, or the publish you undid. Plain git cannot, which is the whole reason fufu keeps the record.
 
@@ -43,6 +44,8 @@ There is a way back from a push, and it is this same verb rather than `ff undo` 
 fufu records every push, so it knows which commits out there are your own. Moving the shared copy back over your own push is a different act from moving it back over a teammate's.
 
 The rollback goes out under a lease like any other publish. If somebody pushed onto the branch since, it stops rather than taking their work with it.
+
+### What rollback promises
 
 Rollback is not erasure. Other clones may already hold the commits, CI already ran on them, a webhook already fired.
 

@@ -18,15 +18,19 @@ The verbs move a change between these states and do nothing else. `ff commit` cl
 
 `ff commit` closes the open change into a commit. There is no `add` first, because there is nothing to add to — the tree is already the change. `-m` describes what is closing.
 
+A clean tree has nothing to close, so `ff commit` on one does nothing rather than making an empty commit. Every close is a recorded operation, and [`ff undo`](../reference/cli/undo.md) takes it back — tree and refs together.
+
+### Closing a slice
+
 Path arguments close a slice. `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open, still the change you are in the middle of. Paths follow the same rule [`ff restore`](../reference/cli/restore.md) and [`ff diff`](../reference/cli/diff.md) speak: a file, or a directory whose whole subtree lands, and no globs.
+
+The part left open keeps no description, since the one it had went out with the slice. `ff describe -m` gives the remainder its own.
+
+### No index to keep in sync
 
 A slice is selection at the moment of the close, not a staging area. git's index is a real capability — a place to assemble a commit hunk by hunk — but it costs you a third state to keep in sync between commits.
 
 fufu trades the hunk-level assembly away and gets back having nothing to maintain. The selection is an argument to one command, path-level, made once, and nothing persists afterward. If `git add -p` is your daily habit, the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest) has the honest accounting and the escape hatch.
-
-The part left open keeps no description, since the one it had went out with the slice. `ff describe -m` gives the remainder its own.
-
-A clean tree has nothing to close, so `ff commit` on one does nothing rather than making an empty commit. Every close is a recorded operation, and [`ff undo`](../reference/cli/undo.md) takes it back — tree and refs together.
 
 ## Pending descriptions
 
@@ -43,6 +47,8 @@ Describing does not create a commit. Describing a clean tree is legal — the te
 `ff switch` moves between branches without a stash dance. Whatever is open is parked with the branch you are leaving. Whatever was parked where you are going becomes the open change again — same files, same edits, same pending description.
 
 Both halves are reported, so you always know where your work went and what came back. Underneath, a parked change is an ordinary stash entry labeled with its branch, visible in any git GUI. That is [the invariant](invariant.md) at work; [branches](branches.md) covers the mechanics.
+
+### Forks open clean
 
 `ff start` is the other verb that leaves the open change behind. It forks a fresh branch — from trunk, your main line of development, unless you name a revision — and the change it opens there is clean and empty.
 

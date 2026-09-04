@@ -2,9 +2,10 @@
 
 **The working tree is snapshotted before every action, so no action can lose file state.**
 
-fufu calls each snapshot a **capture**, and taking one is entirely automatic. There is no verb for asking.
+fufu calls each snapshot a **capture**, and taking one is entirely automatic. There is no verb for asking. Captures happen:
 
-fufu captures the tree before every command it runs — before a switch, before a sync, before [`ff git`](../reference/cli/git.md) hands your arguments to git — and around every edit an agent or editor makes through it, at machine rate.
+- Before every command fufu runs — before a switch, before a sync, before [`ff git`](../reference/cli/git.md) hands your arguments to git.
+- Around every edit an agent or editor makes through fufu, at machine rate.
 
 The manual checkpoint is one of the rituals fufu exists to delete, the way the stash dance is. What you would reach for by hand already happened, before the command you typed.
 
@@ -20,11 +21,17 @@ Every capture is an **operation**. A snapshot is not a second concept with its o
 
 Every mutation fufu performs lands on one operation log, and each entry records all refs plus the tree state. That is why undo restores both together, and why there is one address space to learn rather than two.
 
-Operations differ only in what they contain. A capture moves no ref: it is the tree alone, taken at machine rate. A verb's operation carries ref movements too — a switch, a commit, a sync.
+Operations differ only in what they contain:
 
-A **foreign operation** records what raw git did behind fufu's back, absorbed lazily at the next fufu invocation ([the two regimes](two-regimes.md) covers that boundary). By the time you ask, work done around fufu is in the log and undoable like anything fufu did itself.
+- **A capture** moves no ref. It is the tree alone, taken at machine rate.
+- **A verb's operation** carries ref movements too — a switch, a commit, a sync.
+- **A foreign operation** records what raw git did behind fufu's back, absorbed lazily at the next fufu invocation. [The two regimes](two-regimes.md) covers that boundary.
+
+By the time you ask, work done around fufu is in the log and undoable like anything fufu did itself.
 
 These kinds sort the log; they do not fork the model. Every operation has a tree, which is what makes restore uniform — the same thing happens whichever entry you name.
+
+### Addressing an operation
 
 [`ff op log`](../reference/cli/op-log.md) lists every operation, newest first, and every means every. Captures outnumber verb operations by more than ten to one, so the log is mostly a machine's account of itself.
 
@@ -40,9 +47,7 @@ A capture is a machine's granularity, and a person's undo is not. Stepping back 
 
 So undo steps over a **run**: the longest stretch of adjacent captures from the same session, ending at the first operation that is not one. Forty captures of the same stretch of work are one keystroke back.
 
-Only captures group this way. A verb's operation is a decision somebody made, so it is always its own step — a switch and a commit are two undos, never one.
-
-That is also what keeps undo from rolling past a commit by accident. [Closing a change](changes.md) always ends a run, so no amount of capture noise around it can fold the commit into a larger step.
+Only captures group this way. A verb's operation is a decision somebody made, so it is always its own step — a switch and a commit are two undos, never one. That is also what keeps undo from rolling past a commit by accident, since [closing a change](changes.md) always ends a run.
 
 Undo says what a run collapsed, because a keystroke that moved forty operations should not have to be inferred. The finer address survives untouched: [`ff op restore <op>`](../reference/cli/op-restore.md) still lands on any single operation, captures included.
 
@@ -70,7 +75,15 @@ The ids are the ones the `ff op` verbs take, so any row is also an [`ff op show 
 
 Undo reaches back to the moment fufu started watching, and no further.
 
-In a repository fufu did not create, the log's first entry is a floor operation reading `operation log initialized from observed state; earlier operations not undoable`. fufu builds its picture from what it observes, and everything before its arrival is git's history rather than fufu's timeline.
+In a repository fufu did not create, the log's first entry is a floor operation:
+
+```
+operation log initialized from observed state; earlier operations not undoable
+```
+
+fufu builds its picture from what it observes, and everything before its arrival is git's history rather than fufu's timeline.
+
+### Gaps of raw git motion
 
 The same bound shapes what foreign work can offer. A gap of raw git motion collapses into a single foreign operation with restore points only at its endpoints.
 

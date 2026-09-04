@@ -16,13 +16,21 @@ Someone who stays on the fufu surface never meets a conflict at a moment they di
 
 ## Outside: around fufu
 
-Everything else is outside — a GUI's branch switcher, a raw `git pull` in another terminal, an IDE's commit button, a teammate's push, a script that shells out to git.
+Everything else is outside:
+
+- a GUI's branch switcher
+- a raw `git pull` in another terminal
+- an IDE's commit button
+- a teammate's push
+- a script that shells out to git
 
 Outside, you get git's exact documented behavior, including git's conflicts at git's usual moments. That is expected, and it belongs to you. fufu does not reach into operations it did not perform: no hooks that intercept, no wrappers that second-guess, no state a foreign write can corrupt.
 
 Guards obey the same boundary. [`ff sync`](../reference/cli/sync.md) refuses to publish a stack with held rewrites, because that guard is a property of fufu's verb. Raw `git push` is git, and it pushes. The status channel gets loud afterward rather than a hook getting in the way.
 
 This makes GUIs and IDEs first-class writers rather than tolerated exceptions. Every git GUI keeps working identically — showing status, making commits, switching branches — because fufu's conveniences accrue to whoever goes through fufu, one operation at a time, and cost nothing to whoever does not.
+
+### Which program ran
 
 The boundary is which program ran, not what you typed. The recommended shell alias, `alias git='ff git'`, moves typed git onto the fufu surface: captured first, absorbed as fufu's own. Anything that finds git on PATH stays foreign.
 
