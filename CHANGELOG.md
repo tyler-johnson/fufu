@@ -1,29 +1,30 @@
 # Changelog
 
-## Unreleased
+## v0.12.0 — 2026-09-04
 
 ### Added
 
-- The cascade: `ff restack`, `ff sync`, `ff absorb`, `ff lift`, `ff describe <rev>`, and `ff done` replay every branch stacked on the one they moved, parent before child, inside the verb's own operation, so one `ff undo` takes the whole cascade back with the rewrite. A branch whose replay conflicts is held on its own with everything above it left alone; one checked out elsewhere, already holding a rewrite, or carrying a merge is skipped and named. `ff restack` and `ff sync` exit 3 when any branch held.
-- `ff sync` runs over the whole repository. After one fetch, every local branch is brought up to date with its shared copy and then with the base beneath it, parent before child, cascading into whatever is stacked above. A branch you have not changed follows its shared copy wherever it went, force-push included; one you have changed takes in new work and replays your commits on top. The run is one operation, and it says what moved, what held, and what was skipped for every branch.
-- `ff mcp`: a Model Context Protocol server on stdio exposing one tool for fufu's own verbs, `ff`, whose input is the command line after `ff` as an array. Every call runs the binary as a child with `--json`, so capture, `fufu.gitPolicy`, sessions, and error ids hold unchanged. `ff hook claude`, `codex`, `cursor`, and `gemini` register it beside the capture hook; `ff unhook` removes exactly that, and a registration written by hand is reported and left alone.
-- `fufu.toolPolicy`: what `ff trigger` tells an agent that runs `ff` in its shell while the `ff` tool is up for it. `observe` says nothing, `coach` names the tool once per session, and `strict`, the default, refuses and carries the call to make instead. Presence means a server this client spawned is alive, so the hook is silent when none is.
-- Declared extensions. `ff extension add <name>` runs `ff-<name> --ff-manifest`, checks the contract and the name the manifest claims, and records it under the user's config directory; `ff extension list` and `ff extension remove` complete it. Declaring buys the extension no capability and no environment — an undeclared `ff-<name>` on PATH runs from a shell exactly as it always did. What it buys is that fufu will describe the verb to an agent.
-- A declared extension reaches an agent everywhere fufu already speaks: served by the `ff` tool and named on its card, delegated to by `ff help <name>` and `ff explain <name>/<id>`, one capped line in the briefing, skill files shipped with the hook install, a subscription to the neutral agent event under a shared time box, and an MCP server of its own registered beside fufu's.
-- `tools: true` on a manifest, and the `ff-<name> --ff-tools` handshake it promises: an extension produces MCP tool descriptors from the definitions its own CLI is built from rather than spelling them in a file, so there is no second list to keep in step. `ff mcp` lists each as `<extension>__<tool>` beside its own, asked for once when the server starts. `readOnlyHint` and `destructiveHint` are required, because a produced tool is offered on what it says about itself — which is why an extension whose writes are not undoable is refused only on the args-array route and keeps its produced tools.
-- `ff doctor` reports extensions: every `ff-<name>` found on PATH and whether it is declared, drift between what `ff extension add` recorded and what the binary now answers, a registration left behind for a name nothing declares, and a manifest that promised tools its binary never produced.
-- `ff config` refuses a write to `fufu.gitPolicy` or `fufu.toolPolicy` through the `ff` tool with `usage/mcp-policy-write`, naming a shell as the place to make it, so an agent cannot lower the tier it is being policed by. Reading is untouched.
+- The cascade: `ff restack`, `ff sync`, `ff absorb`, `ff lift`, `ff describe <rev>`, and `ff done` replay the branches stacked on the one they moved, inside the same operation. A branch that conflicts is held on its own; `ff restack` and `ff sync` exit 3 when any did.
+- `ff sync` covers the whole repository: one fetch, then every local branch is brought up to date with its shared copy and its base, parent before child.
+- `ff mcp`, a Model Context Protocol server on stdio serving fufu's verbs as one tool. `ff hook <client>` registers it beside the capture hook.
+- `fufu.toolPolicy`: what fufu says when an agent runs `ff` in its shell while that tool is up. `observe`, `coach`, or `strict`, the default.
+- Extensions can declare themselves. `ff extension add <name>` records what `ff-<name>` says it is, and fufu then describes that verb to an agent everywhere it already speaks. `docs/reference/extensions.md` is the reference.
+- `ff config` refuses a write to `fufu.gitPolicy` or `fufu.toolPolicy` through the `ff` tool, so an agent cannot lower the tier policing it.
+
+### Changed
+
+- `ff <verb> --help` is shorter, and the pages take subheadings and lists.
 
 ### Fixed
 
-- `ff restack` and `ff resolve` on a branch whose base was rewritten replay the branch's own commits alone. The range is bounded where the branch forked from the base's history, read from the base's reflog the way `git rebase --fork-point` reads it, rather than at the merge base with the rewritten tip, which handed the base's old commits back as the branch's and conflicted on them once the rewrite changed their content.
+- `ff restack` and `ff resolve` on a branch whose base was rewritten replay the branch's own commits alone, bounded at the fork point rather than at the merge base with the rewritten tip.
 
 ### Known issues
 
 - A subscriber's injected `context` is uncapped, where fufu's own briefing line is dropped past 240 characters.
-- A declared extension's tool list is held for the life of the connection, so an extension that gains, loses, or renames a tool is not served differently until the client restarts the server. Two produced tools can also land on one name when an extension name itself carries `_`, and the later one is dropped without a word.
-- `ff doctor` compares a declared extension's recorded version, so an extension that edits a skill file without bumping it drifts with nothing to report it; rerunning `ff hook <slug>` refreshes it. A manifest that changes its `mcp.args` likewise leaves the old registration in place, reported as stale and not repaired by `--fix`.
-- `ff extension remove <name>` before `ff unhook <slug>` leaves that extension's skills directory and its Cursor and Gemini registrations behind, because unhook takes back only what is still declared.
+- An extension's tool list is held for the life of the connection, so a client restart is what picks up an edited one. Two produced tools can collide on one name, and the later is dropped without a word.
+- `ff doctor` compares a declared extension's recorded version, so an edit without a version bump drifts unreported. A changed `mcp.args` is reported stale and not repaired by `--fix`.
+- `ff extension remove` before `ff unhook` leaves that extension's skills directory and its Cursor and Gemini registrations behind.
 
 ## v0.11.0 — 2026-09-02
 
