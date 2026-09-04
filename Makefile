@@ -2,7 +2,7 @@
 # target/dogfood/ff, so the binary is live the moment it links.
 # `make release` is the honest fat-LTO build benches and releases use.
 
-.PHONY: build release bench bench-real bench-report bench-against docs docs-serve docs-gen demo demo-check
+.PHONY: build release bench bench-real bench-report bench-against docs docs-serve docs-gen demo demo-check bench-docs
 
 build:
 	cargo build --profile dogfood
@@ -30,6 +30,11 @@ bench-real: release
 # this skips run.sh entirely.
 bench-report:
 	scripts/bench/report.py
+
+# Rewrites the tables on docs/performance.md from the last measurement. The
+# numbers are this machine's, so this is a release-time step, not a gate.
+bench-docs:
+	scripts/bench/docs-table.py
 
 # The docs site. mkdocs comes from docs/requirements.txt (pip install -r);
 # docs-gen regenerates everything docsgen.rs owns — the CLI reference from

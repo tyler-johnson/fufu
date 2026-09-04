@@ -2,7 +2,7 @@
 
 **git that flies itself.**
 
-fufu (`ff`) is a version control interface for humans and agents: automatic snapshots, effortless branching, whole-repo undo. It is built on ordinary git, so your tools, your teammates, and your remotes all still work.
+fufu (`ff`) is a version control interface for humans and agents: automatic snapshots that [stay flat as they pile up](performance.md), effortless branching, whole-repo undo. It is built on ordinary git, so your tools, your teammates, and your remotes all still work.
 
 <video class="demo" autoplay loop muted playsinline>
   <source src="assets/demo.webm" type="video/webm">

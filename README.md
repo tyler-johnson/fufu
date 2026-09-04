@@ -34,6 +34,7 @@ The documentation lives at **[tyler-johnson.github.io/fufu](https://tyler-johnso
 - [Guides](https://tyler-johnson.github.io/fufu/guides/recovery/) — recovery first, then rewriting history, stacked changes, plain-git teammates, worktrees.
 - [Command table](https://tyler-johnson.github.io/fufu/comparisons/command-table/) — what you'd type in git, and what it is in fufu.
 - [CLI reference](https://tyler-johnson.github.io/fufu/reference/cli/) — generated from the help pages, and `ff <verb> --help` says the same thing offline.
+- [Performance](https://tyler-johnson.github.io/fufu/performance/) — the snapshot chain costs the same at ten thousand deep as at a hundred, and the gate that keeps it that way.
 - [FAQ](https://tyler-johnson.github.io/fufu/faq/)
 
 ## Install

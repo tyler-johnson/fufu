@@ -92,6 +92,7 @@ nav:
       - fufu vs git: comparisons/vs-git.md
       - Command table: comparisons/command-table.md
       - Related work: comparisons/related-work.md
+      - Performance: performance.md
   - Internals:
       - Architecture: internals/architecture.md
       - Substrate: internals/substrate.md
