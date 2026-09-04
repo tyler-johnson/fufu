@@ -17,7 +17,7 @@
 //! leaves no second spelling to keep in step. That ask is time-boxed and
 //! the manifest one is not, for a reason [`ask_tools`] states.
 //!
-//! `docs/agents/machine-surface.md` types every field; this module is that
+//! `docs/reference/extensions.md` types every field; this module is that
 //! table in Rust.
 
 use std::path::{Path, PathBuf};
@@ -652,7 +652,7 @@ fn accept(manifest: &Manifest, name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// The worked payload from `docs/agents/machine-surface.md`, with every
+    /// The worked payload from `docs/reference/extensions.md`, with every
     /// optional field present.
     const WORKED: &str = r#"{
         "name": "tower",

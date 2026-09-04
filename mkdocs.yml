@@ -82,6 +82,7 @@ nav:
           - Codex: reference/hooks/codex.md
           - Cursor: reference/hooks/cursor.md
           - Gemini CLI: reference/hooks/gemini.md
+      - Extensions: reference/extensions.md
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md
       - Doctor: reference/doctor.md

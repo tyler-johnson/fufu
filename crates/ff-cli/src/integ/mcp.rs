@@ -93,7 +93,7 @@ impl Server {
 
     /// A declared extension's own, keyed by the extension's name — the
     /// namespace everything else about it hangs off, and what
-    /// `machine-surface.md` promises a client's file carries it under.
+    /// `docs/reference/extensions.md` promises a client's file carries it under.
     fn extension(name: &str, mcp: &crate::manifest::McpServer) -> Server {
         let env = mcp
             .env
