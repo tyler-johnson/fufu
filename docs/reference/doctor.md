@@ -1,6 +1,6 @@
 # Doctor
 
-A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly: a log ref moved by something that is not fufu, a reflog that never got created, the gc guard deleted out of local config, a branch that answers to no remote anything can name, hooks never installed, a stale binary, a declared extension whose manifest has drifted. [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix). The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
+A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly: a log ref moved by something that is not fufu, a reflog that never got created, the gc guard deleted out of local config, a branch that answers to no remote anything can name, hooks never installed, a stale binary, a declared extension whose manifest has drifted, tools it promised and never produced. [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix). The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
 
 ## Verdicts
 
@@ -122,6 +122,8 @@ Every `ff-<name>` a PATH walk finds, whether it is declared with [`ff extension 
 
 **One row per declared extension, named for it** — the same shape a wiring row takes for a client. `ok` names the version and says it matches what is on PATH. Three things are findings: the binary has left PATH since it was declared (dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep); the handshake fails when doctor asks again (`ff-<name> --ff-manifest` no longer answers the way it did at `ff extension add`); and the binary's live manifest names a different version or contract than what was recorded, which is drift, reported with both values and the `ff extension add <name>` that re-declares it. Doctor runs the handshake for every declared extension found on PATH — one spawn apiece — because it is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
 
+**A manifest promising tools folds a second handshake into the same row.** Most manifests promise none. When one does, doctor also asks `ff-<name> --ff-tools` — a second spawn beside the manifest ask, and the same tradeoff doctor already makes for the first: `ff mcp` and the trigger fan-out never ask, on the trigger doctrine of silence, so this row is the only place a failed or missing tools handshake is ever reported. A handshake that fails is a `WARN` on the same row an otherwise healthy extension gets, naming what fufu saw; one that answers is a clause naming the tools that came back.
+
 **A manifest naming a server of its own folds that server's state into the same row.** Most manifests name none, and say nothing about it. When one does, the row adds a clause for each client whose file it checked: registered, once any client has it; a client whose hook is wired and whose entry is missing, `WARN` and fixable the same way a missing fufu server is, because `ff hook <slug>` writes both together; an entry that still runs the extension's own binary but with arguments the manifest has since moved past, `WARN` but never fixable, because the same ownership test that lets `ff hook <slug>` rewrite an entry it owns is the one a changed argument list fails — the row says to remove the entry by hand and run the hook again. An entry somebody wrote themselves is `info`, the same rule a hand-written fufu entry gets: reported, and never touched.
 
 **A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`.** It is the trace `ff extension remove` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
@@ -222,6 +224,20 @@ The row names the repair: `ff extension add tower` reads the manifest again and 
 ```
 
 Neither is a finding `--fix` repairs — re-declaring is a decision about which version to trust, not a mechanical rewrite — so both stay yours to run.
+
+### A declared extension promised tools and produced none
+
+`ff-tower`'s manifest sets `tools: true`, but `ff-tower --ff-tools` no longer answers with a list — the one place this shows up, since `ff mcp` and the trigger fan-out stay silent about it:
+
+```console
+  WARN  tower          0.4.1 matches ff-tower on PATH; promises tools, but the handshake failed: ff-tower --ff-tools did not answer with a tool list: its stdout is not one envelope on one line
+```
+
+There is no repair to name — nothing here is fufu's to fix — so the row is a pointer at the extension's own binary. A binary that answers is a clause on the same, otherwise `ok`, row instead:
+
+```console
+  ok    tower          0.4.1 matches ff-tower on PATH; produces 2 tools: board, file
+```
 
 ## The one write: --fix
 

@@ -43,6 +43,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `edit/not-in-history` | 1 | that commit is not in the branch you are standing on |
 | `editor/failed` | 1 | the editor did not produce a description |
 | `extension/bad-manifest` | 1 | the manifest came back, and fufu cannot read it |
+| `extension/bad-tools` | 1 | the tool list came back, and fufu cannot read it |
 | `extension/delegate-failed` | 1 | the extension did not answer when fufu delegated to it |
 | `extension/handshake-failed` | 1 | the extension did not answer the manifest handshake |
 | `extension/name-mismatch` | 1 | the manifest claims a name other than the binary's |
@@ -50,6 +51,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `extension/not-found` | 1 | no extension of that name is on PATH to ask for a manifest |
 | `extension/registry-unreadable` | 1 | the registry is there and does not read as one |
 | `extension/registry-unwritable` | 1 | there is nowhere to record the declaration |
+| `extension/tools-failed` | 1 | the extension did not answer the tool handshake |
 | `extension/unsupported-contract` | 1 | the extension speaks a contract this fufu does not |
 | `held/already-held` | 3 | a rewrite is already held on this branch |
 | `held/expired` | 3 | the held rewrite no longer has a question to answer |
@@ -116,7 +118,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/foreign-verb` | 2 | that is a git verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
 | `usage/lift-from-open` | 2 | lift was named the open change as its source |
-| `usage/mcp-extension-not-undoable` | 2 | that extension declares undoable: false, and the tool cannot honestly serve it |
+| `usage/mcp-extension-not-undoable` | 2 | that extension declares undoable: false, and the args array cannot relay it |
 | `usage/mcp-extension-undeclared` | 2 | the tool serves declared extensions, and that name is not declared |
 | `usage/mcp-policy-write` | 2 | that setting is only writable from a shell |
 | `usage/mcp-verb-unavailable` | 2 | that verb is not offered through the MCP tool |
