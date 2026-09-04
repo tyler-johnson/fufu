@@ -48,11 +48,21 @@ fufu is a daily interface layered on an ordinary git repository. It owns the eph
 
 ## What the inversion buys
 
-**Legibility.** A colocated jj repo keeps the git-visible picture close — commits land in the git object store as jj makes them, and bookmarks export to git branches — but a seam remains, with its own etiquette: a detached git HEAD as the normal state, anonymous working-copy commits a GUI shows without explanation, and the rule that motion made with raw git is only settled once jj has imported it. fufu has no seam to keep settled: there is one store, so collaborators, CI, IDEs, GUIs, and every plain-git tool see an attached HEAD and ordinary branches, always.
+### Legibility
 
-**Abandonability.** Deleting fufu loses convenience, never data or comprehension. The strong form: fufu is abandonable and returnable at any moment — a GUI session, a teammate's raw git, a weekend on a machine without fufu are all legitimate, all absorbed. When fufu's records disagree with the repository, the repository wins and fufu rebuilds its picture, loudly. Colocation narrows jj's version of this gap without closing it: the commits and exported bookmarks are already in the git repository, so walking away strands no branch — but the op log and undo, the change ids, and any unresolved conflict live in `.jj` and nowhere else, so deleting `.jj` is accepting those losses, and a weekend of raw git is a desync to import on return rather than a shrug.
+A colocated jj repo keeps the git-visible picture close — commits land in the git object store as jj makes them, and bookmarks export to git branches — but a seam remains, with its own etiquette: a detached git HEAD as the normal state, anonymous working-copy commits a GUI shows without explanation, and the rule that motion made with raw git is only settled once jj has imported it.
 
-**git fluency keeps paying.** Your reflexes, your team's review habits, and twenty years of git tooling all still apply. fufu asks for a workflow shift — rebase-onto-main, malleable unpublished commits, leased force-pushes as routine — but never a translation layer over what a repository *is*.
+fufu has no seam to keep settled. There is one store, so collaborators, CI, IDEs, GUIs, and every plain-git tool see an attached HEAD and ordinary branches, always.
+
+### Abandonability
+
+Deleting fufu loses convenience, never data or comprehension. The strong form: fufu is abandonable and returnable at any moment — a GUI session, a teammate's raw git, a weekend on a machine without fufu are all legitimate, all absorbed. When fufu's records disagree with the repository, the repository wins and fufu rebuilds its picture, loudly.
+
+Colocation narrows jj's version of this gap without closing it. The commits and exported bookmarks are already in the git repository, so walking away strands no branch — but the op log and undo, the change ids, and any unresolved conflict live in `.jj` and nowhere else. Deleting `.jj` is accepting those losses, and a weekend of raw git is a desync to import on return rather than a shrug.
+
+### git fluency keeps paying
+
+Your reflexes, your team's review habits, and twenty years of git tooling all still apply. fufu asks for a workflow shift — rebase-onto-main, malleable unpublished commits, leased force-pushes as routine — but never a translation layer over what a repository *is*.
 
 ## What fufu gives up
 

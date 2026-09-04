@@ -1,6 +1,8 @@
 # Architecture
 
-**fufu is three floors, and each floor is what licenses the one above it.** Capture makes loss impossible, futures make outcomes knowable before anything is spent, and the verbs move the repository between ordinary git states. This page is the contributor's tour of how that stands in the code and on disk. The reader-facing story lives in the [concepts section](../concepts/invariant.md), and the argumentative founding text is the [design document](design.md) — where the two disagree, this page follows the code.
+**fufu is three floors, and each floor is what licenses the one above it.** Capture makes loss impossible, futures make outcomes knowable before anything is spent, and the verbs move the repository between ordinary git states.
+
+This page is the contributor's tour of how that stands in the code and on disk. The reader-facing story lives in the [concepts section](../concepts/invariant.md), and the argumentative founding text is the [design document](design.md) — where the two disagree, this page follows the code.
 
 In the source, the floors map roughly to modules in `crates/ff-core/src`: capture is `snapshot/` and `ops/`, futures is `futures.rs`, and the verb floor is `rewrite.rs`, `restack.rs`, and the per-verb modules around them.
 

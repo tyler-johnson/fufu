@@ -6,7 +6,13 @@ fufu (`ff`) is a version control interface for humans and agents: automatic snap
 
 At every instant, the repository is a boring git repository. fufu never creates a state plain git cannot represent; it only automates the transitions between such states. That one promise — [the invariant](concepts/invariant.md) — settles every design question in the tool.
 
-The cost is up front: fufu is opinionated and will not meet you halfway. Branches rebase onto trunk (the main line of development), unpublished commits stay malleable, and there is no staging area. Where that fits and where it does not is on [fufu vs git](comparisons/vs-git.md#the-honest-costs).
+The cost is up front: fufu is opinionated and will not meet you halfway.
+
+- Branches rebase onto trunk — the main line of development — rather than merging it in.
+- Unpublished commits stay malleable.
+- There is no staging area.
+
+Where that fits and where it does not is on [fufu vs git](comparisons/vs-git.md#the-honest-costs).
 
 The daily loop is five verbs:
 

@@ -64,13 +64,11 @@ So the chain stops rather than write the tangle. `ff resolve` presents the steps
 
 Deferring a conflict is only safe if you cannot forget it. Holds get three disciplines for that.
 
-**A hold is announced at creation.** The verb says what conflicts and where before it exits.
-
-**A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working tree are the more urgent fact.
+- **A hold is announced at creation.** The verb says what conflicts and where before it exits.
+- **A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working tree are the more urgent fact.
+- **Exits are blocked**, which is the next section.
 
 [`ff branch list`](../reference/cli/branch-list.md) marks a held branch the same way it marks an unfinished session, so standing work is visible wherever branches are listed.
-
-**Exits are blocked**, which is the next section.
 
 Deferred and quiet is how work rots. The disclosure is what makes the deferral safe.
 

@@ -57,49 +57,32 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 
 ### The engine
 
-**repository** — where the `.git` directory is. A bare repository or a directory outside git is `info`, and the repo checks are skipped: there is nothing to snapshot, so there is no net to read.
-
-**log** — the operation log's ref and the age of its newest operation. One log, so one row; a repository where the engine has never run gets a `WARN` here instead (see [common failures](#the-engine-has-never-run-here)).
-
-**identity** — whether the log tip is a fufu operation. Anything else means the ref was moved by something other than fufu, which is a `WARN`.
-
-**pointers** — the per-branch refs that point *into* the log, one per branch with the age of its newest operation. A pointer naming an operation the log does not hold is what fufu's two-ref append exists to prevent, so healthy pointers are worth a row.
-
-**reflogs** — whether the log ref has a reflog. It is load-bearing: [`ff undo`](../reference/cli/undo.md) steps the ref back rather than appending, so where the pointer has stood is recorded only here — it is what [`ff redo`](../reference/cli/redo.md) walks forward along and what keeps an abandoned branch of the log addressable. No reflog is a `WARN`.
-
-**gc config** — whether reflog expiry is disabled for `refs/fufu/*` in local config. Without those keys, a manual `git gc` could expire fufu reflog entries. Missing keys are a `WARN`, and the one `--fix` writes.
-
-**trash** — `info`, only when present: pre-trim tips held until the next trim.
-
-**objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff trim`](../reference/cli/trim.md), which nudges git to pack them.
-
-**id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
-
-**last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
-
-**drift** — `info`, only when present: refs moved outside fufu since the last operation, absorbed on the next one. Doctor reports the drift and deliberately does not absorb it — that would be the observer changing what it observes.
-
-**legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
-
-**parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding.
-
-**settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
-
-**trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
-
-**auto-trim** — whether the automatic trim is on, its cadence, and when it last rode an ff command. Always `info`.
+- **repository** — where the `.git` directory is. A bare repository or a directory outside git is `info`, and the repo checks are skipped: there is nothing to snapshot, so there is no net to read.
+- **log** — the operation log's ref and the age of its newest operation. One log, so one row; a repository where the engine has never run gets a `WARN` here instead (see [common failures](#the-engine-has-never-run-here)).
+- **identity** — whether the log tip is a fufu operation. Anything else means the ref was moved by something other than fufu, which is a `WARN`.
+- **pointers** — the per-branch refs that point *into* the log, one per branch with the age of its newest operation. A pointer naming an operation the log does not hold is what fufu's two-ref append exists to prevent, so healthy pointers are worth a row.
+- **reflogs** — whether the log ref has a reflog. It is load-bearing: [`ff undo`](../reference/cli/undo.md) steps the ref back rather than appending, so where the pointer has stood is recorded only here — it is what [`ff redo`](../reference/cli/redo.md) walks forward along and what keeps an abandoned branch of the log addressable. No reflog is a `WARN`.
+- **gc config** — whether reflog expiry is disabled for `refs/fufu/*` in local config. Without those keys, a manual `git gc` could expire fufu reflog entries. Missing keys are a `WARN`, and the one `--fix` writes.
+- **trash** — `info`, only when present: pre-trim tips held until the next trim.
+- **objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff trim`](../reference/cli/trim.md), which nudges git to pack them.
+- **id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
+- **last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
+- **drift** — `info`, only when present: refs moved outside fufu since the last operation, absorbed on the next one. Doctor reports the drift and deliberately does not absorb it — that would be the observer changing what it observes.
+- **legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
+- **parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding.
+- **settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
+- **trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
+- **auto-trim** — whether the automatic trim is on, its cadence, and when it last rode an ff command. Always `info`.
 
 ### The remote floor
 
-**remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md) will both refuse until `ff publish --to <remote>` chooses one.
-
-**upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch delete`](../reference/cli/branch-delete.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
-
-**tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because [`ff status`](../reference/cli/status.md) already reports `remote is gone` for the branch underfoot; repo-wide it is news.
+- **remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md) will both refuse until `ff publish --to <remote>` chooses one.
+- **upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch delete`](../reference/cli/branch-delete.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
+- **tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because [`ff status`](../reference/cli/status.md) already reports `remote is gone` for the branch underfoot; repo-wide it is news.
 
 ### Raw git
 
-**raw git** — `info`, only when the [git policy](../agents/setup.md#pick-a-git-policy) has counted something: how many raw git writes this repository has seen, how many were refused, and when the last one happened. Under the `observe` tier it adds the nudge that tier exists to earn:
+- **raw git** — `info`, only when the [git policy](../agents/setup.md#pick-a-git-policy) has counted something: how many raw git writes this repository has seen, how many were refused, and when the last one happened. Under the `observe` tier it adds the nudge that tier exists to earn:
 
 ```console
   info  raw git        1 write(s), last 0s ago — `ff config gitPolicy coach` names the alternative
@@ -109,39 +92,63 @@ Silent when nothing has been counted — a row saying zero would be a row about 
 
 ### The wiring
 
-These rows come from the same status vector [`ff hook -l`](../reference/cli/hook.md) renders, so the two commands cannot disagree about what is wired.
+These rows come from the same status vector [`ff hook -l`](../reference/cli/hook.md) renders, so the two commands cannot disagree about what is wired. [The hook reference](hooks/index.md) shows what lands where.
 
-**One row per agent client** (`claude`, `codex`, …) — `ok` when wired, naming where the hook landed; [the hook reference](hooks/index.md) shows what lands there. A client that is present on the machine yet unwired is `info` with the `ff hook <slug>` that would wire it; a client that is neither present nor wired earns no row, because a client you do not have is not a hole in the net. Two states are findings: wired but with an event missing (capture is partial), and wired in a spelling this fufu no longer writes. Both are repaired by `ff hook <slug>`, and both are among the things `--fix` rewires.
-
-**alias** — whether `git='ff git'` is wired in a shell rc file, folded across the shells: one shell wired answers the question. A hand-written alias is `info` (heuristic — check `type git` in your shell), never a finding.
-
-**ambient** — the prompt hook that snapshots at every prompt, reported separately from the alias because the shells wire the two pieces independently.
-
-**skill** — fufu's shipped manual, aggregated across the clients that read one. Absence is never a finding: without the skill an agent is down to the once-per-session briefing, which costs it spelling and not file state. Drift is the one thing worth a `WARN`, because a manual describing a fufu that has moved teaches commands that fail.
-
-**mcp** — [`ff mcp`](cli/mcp.md) itself, fufu's own server, aggregated across the agent clients. `ok` names the clients that have it; `info` when none does, because an agent without it shells out to `ff` and loses nothing but a typed tool. The one `WARN` is a client whose hook is wired and whose server is not, the shape an install predating the server leaves, and `--fix` runs that client's installer again. A declared extension's own server is a different question, answered on its own row under [Extensions](#extensions) below.
-
-**triggers** — the one finding about the whole net rather than any piece of it. When nothing at all feeds capture — no agent hook, no alias, no prompt hook, not even a hand-written line — doctor warns that snapshots only happen when you run `ff` by hand, and points at `ff hook`. A silent engine feels safe while capturing nothing.
+- **One row per agent client** (`claude`, `codex`, …) — `ok` when wired, naming where the hook landed. A client present on the machine yet unwired is `info` with the `ff hook <slug>` that would wire it; one neither present nor wired earns no row. Two wired states are findings: an event missing, so capture is partial, and a spelling this fufu no longer writes. `ff hook <slug>` repairs both, and `--fix` rewires them.
+- **alias** — whether `git='ff git'` is wired in a shell rc file, folded across the shells: one shell wired answers the question. A hand-written alias is `info` (heuristic — check `type git` in your shell), never a finding.
+- **ambient** — the prompt hook that snapshots at every prompt, reported separately from the alias because the shells wire the two pieces independently.
+- **skill** — fufu's shipped manual, aggregated across the clients that read one. Absence is never a finding: without the skill an agent is down to the once-per-session briefing, which costs it spelling and not file state. Drift is the one thing worth a `WARN`, because a manual describing a fufu that has moved teaches commands that fail.
+- **mcp** — [`ff mcp`](cli/mcp.md), fufu's own server, aggregated across the agent clients. `ok` names the clients that have it; `info` when none does, since an agent without it shells out to `ff`. The one `WARN` is a client whose hook is wired and whose server is not, the shape an install predating the server leaves; `--fix` runs that client's installer again. A declared extension's own server gets its own row under [Extensions](#extensions).
+- **triggers** — the one finding about the whole net rather than any piece of it. When nothing at all feeds capture — no agent hook, no alias, no prompt hook, not even a hand-written line — doctor warns that snapshots only happen when you run `ff` by hand, and points at `ff hook`. A silent engine feels safe while capturing nothing.
 
 ### Extensions
 
 Every `ff-<name>` a PATH walk finds, whether it is declared with [`ff extension add`](cli/extension-add.md), and for a declared one whether the binary still matches what was recorded. Declaring is a decision about the machine, not the repository, so this floor runs the same whether or not you are standing in one.
 
-**An undeclared extension is never a finding.** It is git's own idiom working as designed — an `ff-<name>` on PATH runs exactly as it did before anyone registered it — so doctor names it once, aggregated, as `info`: how many were found and their names, with the `ff extension add` that would vouch for one. Nothing on this machine is a hole in the net for the fact of being undeclared.
+#### Undeclared extensions
 
-**One row per declared extension, named for it** — the same shape a wiring row takes for a client. `ok` names the version and says it matches what is on PATH. Three things are findings: the binary has left PATH since it was declared (dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep); the handshake fails when doctor asks again (`ff-<name> --ff-manifest` no longer answers the way it did at `ff extension add`); and the binary's live manifest names a different version or contract than what was recorded, which is drift, reported with both values and the `ff extension add <name>` that re-declares it. Doctor runs the handshake for every declared extension found on PATH — one spawn apiece — because it is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
+An undeclared extension is never a finding. It is git's own idiom working as designed — an `ff-<name>` on PATH runs exactly as it did before anyone registered it — so doctor names it once, aggregated, as `info`: how many were found and their names, with the `ff extension add` that would vouch for one.
 
-**A manifest promising tools folds a second handshake into the same row.** Most manifests promise none. When one does, doctor also asks `ff-<name> --ff-tools` — a second spawn beside the manifest ask, and the same tradeoff doctor already makes for the first: `ff mcp` and the trigger fan-out never ask, on the trigger doctrine of silence, so this row is the only place a failed or missing tools handshake is ever reported. A handshake that fails is a `WARN` on the same row an otherwise healthy extension gets, naming what fufu saw; one that answers is a clause naming the tools that came back.
+#### Declared extensions
 
-**A manifest naming a server of its own folds that server's state into the same row.** Most manifests name none, and say nothing about it. When one does, the row adds a clause for each client whose file it checked: registered, once any client has it; a client whose hook is wired and whose entry is missing, `WARN` and fixable the same way a missing fufu server is, because `ff hook <slug>` writes both together; an entry that still runs the extension's own binary but with arguments the manifest has since moved past, `WARN` but never fixable, because the same ownership test that lets `ff hook <slug>` rewrite an entry it owns is the one a changed argument list fails — the row says to remove the entry by hand and run the hook again. An entry somebody wrote themselves is `info`, the same rule a hand-written fufu entry gets: reported, and never touched.
+Every declared extension gets a row named for it, the same shape a wiring row takes for a client. `ok` names the version and says it matches what is on PATH.
 
-**A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`.** It is the trace `ff extension remove` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
+Three things are findings:
 
-**The registry itself is two more findings.** A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal [`ff extension list`](cli/extension-list.md) reports. A record naming a contract this fufu does not speak is a `WARN` too, naming the extension and the contract it claims; it is kept in the file and described to nobody until a fufu that speaks that contract reads it.
+- the binary has left PATH since it was declared — dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep;
+- the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension add`;
+- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension add <name>` that re-declares it.
+
+Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
+
+#### A manifest promising tools
+
+Most manifests promise no tools. When one does, doctor also asks `ff-<name> --ff-tools` — a second spawn beside the manifest ask — and folds the answer into the same row.
+
+`ff mcp` and the trigger fan-out never ask, on the trigger doctrine of silence, so this row is the only place a failed or missing tools handshake is ever reported. A handshake that fails is a `WARN` on the same row an otherwise healthy extension gets, naming what fufu saw; one that answers is a clause naming the tools that came back.
+
+#### A manifest naming a server of its own
+
+Most manifests name none, and say nothing about it. When one does, the row adds a clause for each client whose file it checked:
+
+- registered, once any client has it;
+- a client whose hook is wired and whose entry is missing — a `WARN`, fixable the same way a missing fufu server is, because `ff hook <slug>` writes both together;
+- an entry that still runs the extension's own binary but with arguments the manifest has since moved past — a `WARN`, never fixable: the same ownership test that lets `ff hook <slug>` rewrite an entry it owns is the one a changed argument list fails, so the row says to remove the entry by hand and run the hook again;
+- an entry somebody wrote themselves — `info`, the same rule a hand-written fufu entry gets: reported, and never touched.
+
+#### A registration nothing declares any more
+
+A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`. It is the trace `ff extension remove` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
+
+#### The registry itself
+
+A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal [`ff extension list`](cli/extension-list.md) reports.
+
+A record naming a contract this fufu does not speak is a `WARN` too, naming the extension and the contract it claims. It is kept in the file and described to nobody until a fufu that speaks that contract reads it.
 
 ### The update lane
 
-**update** — always `info`: up to date, an available version and the [`ff update`](../reference/cli/update.md) that fetches it, a source build that updates via cargo, or no check yet.
+- **update** — always `info`: up to date, an available version and the [`ff update`](../reference/cli/update.md) that fetches it, a source build that updates via cargo, or no check yet.
 
 ## Common failures
 

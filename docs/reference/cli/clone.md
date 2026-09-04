@@ -4,11 +4,11 @@ Clones a repository and arms it on arrival: the gc guard written, the operation 
 
 fufu speaks the git protocol itself here rather than running `git clone` — it negotiates the pack, writes it, and checks out the worktree. What it still reaches outside the process for is git's configuration and authentication surface: the installation config (so `url.<base>.insteadOf` and `http.proxy` keep working), your credential helper when a remote asks for one, and `ssh` for an ssh URL. Those are inherited whole rather than reimplemented.
 
-Ctrl-C leaves nothing behind: a clone that does not finish takes its half-built directory with it.
+## What lands on disk
 
---depth takes only the last N commits. A shallow clone is a smaller download and a shorter history; fufu's own operations work the same way on one.
-
-The directory is the URL's last path segment with .git stripped, unless you name one. An existing directory with anything in it is refused rather than merged into.
+- The directory is the URL's last path segment with .git stripped, unless you name one. An existing directory with anything in it is refused rather than merged into.
+- --depth takes only the last N commits. A shallow clone is a smaller download and a shorter history; fufu's own operations work the same way on one.
+- Ctrl-C leaves nothing behind: a clone that does not finish takes its half-built directory with it.
 
 ## Usage
 

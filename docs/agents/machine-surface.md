@@ -8,7 +8,7 @@ So `--json` is not the human layout re-serialized. [`ff status`](../reference/cl
 
 That is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
 
-Every transcript below is real `ff` output. Where one is piped through `jq .`, that is for the page's eye — the actual emission is always a single line.
+> Every transcript below is real `ff` output. Where one is piped through `jq .`, that is for the page's eye — the actual emission is always a single line.
 
 ## The envelope
 

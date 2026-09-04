@@ -2,21 +2,29 @@ The changes view, jj-style: the open change (@) sits atop the commit walk (●),
 
 --commits drops to plain history, no operation identity. The operation log itself is `ff op log`: every mutation fufu has made, newest first, carrying the ids the `ff op` verbs take.
 
+### Choosing the rows
+
 -r takes a revset and replaces where the rows come from: gitrevisions' whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @ row appears only when the open change is a member of the set, because `ff log -r main` is a question about main.
 
-Paths narrow the log to the commits that touch them, by the rule `ff restore` speaks: a file, or a directory prefix. No globs.
+Paths narrow the log to the commits that touch them, by the rule `ff restore` speaks: a file, or a directory prefix. No globs. The @ row appears when the open change touches them, the same rule -r has.
 
 No `--` is needed, the opposite of what git teaches: revisions go to -r and the positional is only ever paths, so `ff log main` is a question about the path main, even where a branch called main exists.
 
+### Renames
+
 A path that names a blob is followed through its renames, on by default. A directory gets no follow — git tracks no such thing as a directory rename, so there is nothing to follow.
 
--r filters but does not follow: a revset names a set, and a set has no line of descent to carry a name along. `ff log -r 'trunk..@' src/` is a good question and still works — it filters.
+-r filters but does not follow: a revset names a set, and a set has no line of descent to carry a name along. `ff log -r 'trunk..@' src/` still works — it filters.
 
-The @ row appears when the open change touches the paths, the same rule -r already has.
+### Signatures
 
-A commit that carries a signature says `signed` beside it. That is free — the header is on an object the walk already read — so it is on by default, and it is a claim about the commit rather than about the key: it says a signature is there, not that anybody checked it.
+A commit that carries a signature says `signed` beside it. That is free — the header is on an object the walk already read — so it is on by default. It is a claim about the commit rather than about the key: a signature is there, not that anybody checked it.
 
---signatures checks them, replacing `signed` with the verdict, the tool, and the short id of the key — `verified gpg 9B295D68` — or `bad signature`, `untrusted key`, `expired signature`, `expired key`, `revoked key`, `unverifiable`. The checks run in parallel, one per core up to eight. That costs one signer run per signed row, which is why it is a flag. Unsigned commits say nothing either way — most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
+--signatures checks them, replacing `signed` with the verdict, the tool, and the short id of the key — `verified gpg 9B295D68` — or `bad signature`, `untrusted key`, `expired signature`, `expired key`, `revoked key`, `unverifiable`.
+
+The checks run in parallel, one per core up to eight, and cost one signer run per signed row, which is why it is a flag. Unsigned commits say nothing either way.
+
+### Paging
 
 The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER, then PAGER, then less. Piped output and --json never page.
 

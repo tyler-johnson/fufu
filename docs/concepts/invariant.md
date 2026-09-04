@@ -6,7 +6,10 @@ HEAD is attached to a branch. Commits are ordinary commits. `git status` reads t
 
 This is the one promise that never bends. Every other design question in fufu is settled by asking what preserves it.
 
-You can see it in the mechanisms. [Snapshots](snapshots-and-undo.md) live in refs outside the visible graph, so the history you and your teammates read is untouched. A [parked change](branches.md) — work fufu sets aside when you leave a branch — is an ordinary stash entry labeled with its branch, sitting in the same stash panel every GUI already has.
+You can see it in the mechanisms.
+
+- [Snapshots](snapshots-and-undo.md) live in refs outside the visible graph, so the history you and your teammates read is untouched.
+- A [parked change](branches.md) — work fufu sets aside when you leave a branch — is an ordinary stash entry labeled with its branch, sitting in the same stash panel every GUI already has.
 
 jj takes the other road. Its own store is authoritative and the git repository is projected out of it, which is where detached HEADs and machine-generated conflict commits come from. fufu keeps git authoritative and stays inside states git already understands. [fufu vs jj](../comparisons/vs-jj.md) is the full comparison.
 
