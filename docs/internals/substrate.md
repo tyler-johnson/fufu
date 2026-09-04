@@ -1,24 +1,55 @@
 # Substrate
 
-fufu is written in Rust on [gitoxide](https://github.com/GitoxideLabs/gitoxide) (`gix`), a pure-Rust implementation of git. One rule governs how every operation executes: git defines the semantics, and fufu chooses the execution per call-site. Whether a given operation runs in-process through gix or reaches the git binary is an implementation decision made where the call happens, invisible at the surface, and revisited as the substrate matures. This page describes where that line sits today and how it is held in place.
+fufu is written in Rust on [gitoxide](https://github.com/GitoxideLabs/gitoxide) (`gix`), a pure-Rust implementation of git. One rule governs how every operation executes: git defines the semantics, and fufu chooses the execution per call-site.
+
+Whether a given operation runs in-process through gix or reaches the git binary is an implementation decision made where the call happens. It is invisible at the surface, and revisited as the substrate matures.
+
+This page describes where that line sits today, and how it is held in place.
 
 ## Reads are native
 
-Every read runs in-process: refs, objects, the index, status, log walks, revset evaluation. This is not an optimization preference but a budget. A capture runs before every agent action and at every shell prompt, and a subprocess spawn costs 5–15ms per `git` exec — a floor that a per-prompt operation cannot carry. The same in-process core is what makes [futures](architecture.md) affordable: a rebase probe replays every commit of `base..branch_tip` as an in-memory three-way tree merge inside a memory-backed clone of the object store, so a repository that has never run a probe is byte-identical to one that has run a thousand.
+Every read runs in-process: refs, objects, the index, status, log walks, revset evaluation.
+
+This is a budget rather than an optimization preference. A capture runs before every agent action and at every shell prompt, and a subprocess spawn costs 5–15ms per `git` exec — a floor a per-prompt operation cannot carry.
+
+The same in-process core is what makes [futures](architecture.md) affordable. A rebase probe replays every commit of `base..branch_tip` as an in-memory three-way tree merge inside a memory-backed clone of the object store, so a repository that has never run a probe is byte-identical to one that has run a thousand.
 
 ## The execution ladder, as it stands
 
 The design projected a ladder for writes: object writes go native early, disk-materializing operations start on the git binary and go native as coverage earns it. The ladder has been climbed further than that projection assumed. Today every local write is native — snapshots, commits, the index rebuild, branch moves, switch's park-and-resume, restack's replay, undo. There is no local verb that shells out to git porcelain to do its work.
 
-The wire is climbed too, except for sending. [`ff clone`](../reference/cli/clone.md) and [`ff sync`](../reference/cli/sync.md)'s fetch speak the git protocol themselves — gix's blocking transport over reqwest and rustls — so the negotiation, the pack, and clone's checkout all happen in-process. What those verbs still reach outside the process for is git's configuration and authentication surface rather than its porcelain: one `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy`, and `credential.helper` from the installation config are honored; a credential helper when a remote asks for auth; `ssh` for an ssh URL; and `git-upload-pack` for a filesystem remote, because a local transport is a spawned upload-pack in git as well. That surface is inherited whole rather than reimplemented, and it degrades gracefully — fetching works on a machine with no git on PATH.
+The wire is climbed too, except for sending. [`ff clone`](../reference/cli/clone.md) and [`ff sync`](../reference/cli/sync.md)'s fetch speak the git protocol themselves, over gix's blocking transport on reqwest and rustls, so the negotiation, the pack, and clone's checkout all happen in-process.
 
-[`ff publish`](../reference/cli/publish.md)'s push is the one operation that stays spawned, and the reason is a fact about the dependency rather than a trust decision: gix implements the half of the protocol that receives a pack and nothing that sends one, so there is no native rung to climb to yet. The spawn is a single `git push` per invocation (`crates/ff-cli/src/net.rs`), with stderr captured so a failure is classified into a coded error — a lease violation, a remote refusal, an unreachable remote — rather than merely echoed.
+What those verbs still reach outside the process for is git's configuration and authentication surface, not its porcelain:
 
-The remaining sanctioned spawns are deliberate and enumerated: the user's own commit hooks (below), the commit signer when the repository asks for one — `gpg`, `gpgsm` or `ssh-keygen`, whichever `gpg.format` names, since gix implements no signing at all (`crates/ff-core/src/sign/`) — a best-effort `git gc --auto` at the end of [`ff trim`](../reference/cli/trim.md) that is skipped silently on a machine without git, the user's editor and pager, and the [`ff git`](../reference/cli/git.md) escape hatch, which execs git verbatim by design. Everything else is proven spawn-free by a standing test (`crates/ff-cli/tests/zero_spawn.rs`): the suite runs the real `ff` binary with PATH pointing at a booby-trap directory whose only executable is a fake `git` that logs its argv and fails, so any stray shell-out both surfaces as a failure and leaves a log.
+- One `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy`, and `credential.helper` from the installation config are honored.
+- A credential helper when a remote asks for auth.
+- `ssh` for an ssh URL.
+- `git-upload-pack` for a filesystem remote, because a local transport is a spawned upload-pack in git as well.
+
+That surface is inherited whole rather than reimplemented, and it degrades gracefully: fetching works on a machine with no git on PATH.
+
+[`ff publish`](../reference/cli/publish.md)'s push is the one operation that stays spawned, and the reason is a fact about the dependency rather than a trust decision. gix implements the half of the protocol that receives a pack and nothing that sends one, so there is no native rung to climb to yet.
+
+The spawn is a single `git push` per invocation (`crates/ff-cli/src/net.rs`), with stderr captured so a failure is classified into a coded error — a lease violation, a remote refusal, an unreachable remote — rather than merely echoed.
+
+The remaining sanctioned spawns are deliberate and enumerated:
+
+- The user's own commit hooks, covered below.
+- The commit signer when the repository asks for one — `gpg`, `gpgsm` or `ssh-keygen`, whichever `gpg.format` names — since gix implements no signing at all (`crates/ff-core/src/sign/`).
+- A best-effort `git gc --auto` at the end of [`ff trim`](../reference/cli/trim.md), skipped silently on a machine without git.
+- The user's editor and pager.
+- The [`ff git`](../reference/cli/git.md) escape hatch, which runs git verbatim by design.
+
+Everything else is proven spawn-free by a standing test (`crates/ff-cli/tests/zero_spawn.rs`). The suite runs the real `ff` binary with PATH pointing at a booby-trap directory whose only executable is a fake `git` that logs its argv and fails, so any stray shell-out both fails the test and leaves a log.
 
 ## Differential testing is the compatibility contract
 
-A native operation that differs from git's by one edge case silently breaks the [boring-repo invariant](../concepts/invariant.md), so compatibility is a standing test suite rather than a port milestone. The harness lives in `crates/ff-testsupport`: it parses real git's `status --porcelain=v2 --branch` and `git log` output into a normalized shape, converts `ff_core`'s results into the same shape, and asserts equality. A shared scenario matrix — unborn branches, detached heads, staged-only trees, renames, conflicts — feeds the comparison, and around two dozen differential suites in `crates/ff-core/tests` (`diff_status`, `diff_snapshot`, `diff_close`, `diff_switch`, `diff_sync`, `diff_restack`, `diff_undo`, `diff_index`, and the rest) run every native operation against the git binary in CI, permanently.
+A native operation that differs from git's by one edge case silently breaks the [boring-repo invariant](../concepts/invariant.md). So compatibility is a standing test suite rather than a port milestone.
+
+The harness lives in `crates/ff-testsupport`. It parses real git's `status --porcelain=v2 --branch` and `git log` output into a normalized shape, converts `ff_core`'s results into the same shape, and asserts equality.
+
+A shared scenario matrix feeds the comparison — unborn branches, detached heads, staged-only trees, renames, conflicts. Around two dozen differential suites in `crates/ff-core/tests` (`diff_status`, `diff_snapshot`, `diff_close`, `diff_switch`, `diff_sync`, `diff_restack`, `diff_undo`, `diff_index`, and the rest) run every native operation against the git binary in CI, permanently.
 
 The index contract is the instructive case. gix serializes the index in a form git's own `read-tree` would not produce byte-for-byte, so the test asserts semantic identity instead: after fufu rewrites the index, real git must see exactly the tree's content staged (`ls-files --stage` parity with its own `read-tree`), must agree the worktree is clean when it is, and must accept the index for its next operation.
 
@@ -26,9 +57,25 @@ The index contract is the instructive case. gix serializes the index in a form g
 
 Byte-correct formats are not the whole obligation; git's observable behavior is included. fufu writes commit objects natively, and the user's commit-time hooks still run — fufu execs them itself (`crates/ff-core/src/hooks.rs`), resolving through `core.hooksPath`, skipping non-executable hooks, setting `GIT_EDITOR=:` because no fufu verb brings an editor up at close time, and aborting the verb on a non-zero exit, exactly as git does.
 
-All four of git's commit-time hooks are implemented — `pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit` — and each runs from every verb where git's equivalent operation would run it. One rule decides that: the tree hook runs where worktree content becomes commit content, and the message hooks run where a message is authored for a commit. So `pre-commit` guards [`ff commit`](../reference/cli/commit.md), [`ff absorb`](../reference/cli/absorb.md), and both of [`ff done`](../reference/cli/done.md)'s landings — the edit session and the resolution, which is fufu's `rebase --continue`; the message hooks run for `ff commit`, [`ff describe <rev>`](../reference/cli/describe.md), and an `ff done` whose session carries a new description; and `post-commit` stays on `ff commit`, the one verb git would call a commit rather than a rebase. [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md) and `ff sync` run none, because neither `git rebase` nor a reattribution between commits runs any. `--no-verify` suppresses `pre-commit` and `commit-msg`; githooks(5) is explicit that `prepare-commit-msg` is not suppressed by it, and fufu follows. The [FAQ](../faq.md#does-fufu-run-my-git-hooks) carries the table.
+All four of git's commit-time hooks are implemented — `pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit` — and each runs from every verb where git's equivalent operation would run it.
 
-That extends to what the hooks see. A hook-runner like lefthook, lint-staged, or husky asks git what is staged and does nothing when the answer is empty, so before the first hook runs, fufu writes the index to the tree that is about to become commit content — the slice for a partial `ff commit <paths>` or `ff absorb <path>`, matching git's pathspec form — and restores the previous index byte-for-byte when the verb does not land, as git rolls its own index back after a refused `commit -a`. The index stays a derived surface the user never sees or maintains; it is simply written at the moment hook-runners expect it. One divergence stands, in fufu's favor: a formatter's fixes land via the worktree re-scan after `pre-commit` returns, so lefthook's `stage_fixed: true` is decorative here, where under git a formatter that rewrites without re-staging loses its fixes.
+One rule decides that: the tree hook runs where worktree content becomes commit content, and the message hooks run where a message is authored for a commit.
+
+- `pre-commit` guards [`ff commit`](../reference/cli/commit.md), [`ff absorb`](../reference/cli/absorb.md), and both of [`ff done`](../reference/cli/done.md)'s landings — the edit session, and the resolution that is fufu's `rebase --continue`.
+- The message hooks run for `ff commit`, [`ff describe <rev>`](../reference/cli/describe.md), and an `ff done` whose session carries a new description. `post-commit` stays on `ff commit`, the one verb git would call a commit rather than a rebase.
+- [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md) and `ff sync` run none, because neither `git rebase` nor a reattribution between commits runs any.
+
+`--no-verify` suppresses `pre-commit` and `commit-msg`. githooks(5) is explicit that `prepare-commit-msg` is not suppressed by it, and fufu follows. The [FAQ](../faq.md#does-fufu-run-my-git-hooks) carries the table.
+
+### What the hooks see
+
+The obligation extends to what a hook finds when it looks. A hook-runner like lefthook, lint-staged, or husky asks git what is staged and does nothing when the answer is empty.
+
+So before the first hook runs, fufu writes the index to the tree that is about to become commit content — the slice, for a partial `ff commit <paths>` or `ff absorb <path>`, matching git's pathspec form. When the verb does not land, the previous index is restored byte-for-byte, as git rolls its own index back after a refused `commit -a`.
+
+The index stays a derived surface the user never sees or maintains. It is simply written at the moment hook-runners expect it.
+
+One divergence stands, in fufu's favor. A formatter's fixes land via the worktree re-scan after `pre-commit` returns, so lefthook's `stage_fixed: true` is decorative here — where under git, a formatter that rewrites without re-staging loses its fixes.
 
 ## No daemon
 
@@ -36,4 +83,10 @@ fufu runs no background process. Millisecond cold start plus in-process caching 
 
 ## The git-free destination
 
-The destination is a machine where `ff` alone is a fully working development setup, the way a jj user never installs git. That is direction, and the staging toward it is deliberately honest about what works today. The daily surface — status, commit, describe, new, switch, edit, absorb, sync's fetch, undo, log, restore — already runs without git installed. What still wants git on the machine: the push (until gix can send a pack), the inherited credential and installation-config surface where it applies, trim's best-effort `gc --auto` (skipped without it), and the `ff git` escape hatch, whose territory — bisect, plumbing, forensics — either arrives inside fufu over time or waits for a machine that has git. The long tail of git's ecosystem contracts (credential helpers, filters and LFS, submodules) follows as the substrate matures, with the differential suite standing guard at every step.
+The destination is a machine where `ff` alone is a fully working development setup, the way a jj user never installs git. That is direction, and the staging toward it is deliberately honest about what works today.
+
+The daily surface — status, commit, describe, new, switch, edit, absorb, sync's fetch, undo, log, restore — already runs without git installed.
+
+What still wants git on the machine is the push (until gix can send a pack), the inherited credential and installation-config surface where it applies, trim's best-effort `gc --auto` (skipped without it), and the `ff git` escape hatch. That hatch's territory — bisect, plumbing, forensics — either arrives inside fufu over time or waits for a machine that has git.
+
+The long tail of git's ecosystem contracts — credential helpers, filters and LFS, submodules — follows as the substrate matures, with the differential suite standing guard at every step.

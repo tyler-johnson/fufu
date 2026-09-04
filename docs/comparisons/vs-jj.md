@@ -15,9 +15,18 @@ If you already live in jj, nothing in that list will feel new in fufu. The disag
 
 ## The architectural difference
 
-jj achieves its workflow by being a **new VCS that treats git as a storage backend**. Its own store is authoritative; the git-visible repository is a projection of it. In a bare jj repository, one with no git worktree beside it, that one decision is the source of everything uncomfortable about jj for a git-fluent user: detached HEADs, branches that don't move as you work, commits with machine-generated `.jjconflict-*` trees, git commands demoted to second class.
+jj achieves its workflow by being a **new VCS that treats git as a storage backend**. Its own store is authoritative, and the git-visible repository is a projection of it.
 
-A bare repository is not how most people run jj. The usual answer is colocation, a `.jj` beside the `.git`, which keeps the git picture close: commits land in the git object store as jj makes them, bookmarks export to git branches, and raw git stays legal. What it leaves is a seam with its own etiquette, and that seam, not the bare case, is the fair comparison with fufu. The [side by side](#side-by-side) and [what the inversion buys](#what-the-inversion-buys) below treat the colocated case specifically.
+In a bare jj repository — one with no git worktree beside it — that single decision is the source of everything uncomfortable about jj for a git-fluent user:
+
+- a detached HEAD as the normal state
+- branches that sit still until you move them, rather than following your work
+- commits carrying machine-generated `.jjconflict-*` trees
+- git commands demoted to second class
+
+A bare repository is not how most people run jj. The usual answer is colocation, a `.jj` beside the `.git`, which keeps the git picture close: commits land in the git object store as jj makes them, bookmarks export to git branches, and raw git stays legal.
+
+What it leaves is a seam with its own etiquette, and that seam — not the bare case — is the fair comparison with fufu. The [side by side](#side-by-side) and [what the inversion buys](#what-the-inversion-buys) below treat the colocated case specifically.
 
 None of the workflow benefits require that decision. fufu inverts it:
 
@@ -52,15 +61,23 @@ The inversion has real costs, and DESIGN.md names them rather than hiding them:
 - **You cannot build on a post-rewrite state before its conflicts are resolved.** jj lets you keep stacking on top of a conflicted commit; in fufu the rewrite is held, and you keep working at the existing tip while the pending rewrite replays over whatever you add.
 - **Conflicted commits cannot be shipped around.** In jj a conflict is an object you could in principle push; fufu never creates one — which you would never want to push anyway, but the capability is genuinely absent.
 - **jj's conflicts simplify as they propagate**, because they are expressions; fufu carries conflicts forward as literal marker text, and text does not simplify itself. A later commit can leave a mark alone, not dissolve it.
-- **The operation log has a floor.** jj is present from a repository's birth in a way an adopted overlay is not: [`ff undo`](../reference/cli/undo.md) reaches back to the moment the repository was armed, and no further.
+- **The operation log has a floor.** jj is present from a repository's birth in a way an adopted overlay is not: [`ff undo`](../reference/cli/undo.md) reaches back to the moment fufu was armed in the repository — switched on, with its log floor laid — and no further.
 
 ## Two answers to conflicts
 
 This is the deepest divergence, and it deserves its own sentence-length summary: jj stores an unresolved conflict *inside* the resulting commit; fufu stores it as the *absence* of the resulting commit.
 
-fufu's observation is that for a human, conflicts are operation-shaped, not edit-shaped — and the user-visible benefit of jj's model is scheduling: the conflict doesn't interrupt you, and you resolve it when you choose. That benefit survives translation. When a rewrite would conflict, nothing is touched; the intent is held, both inputs stay ordinary git commits, and [`ff resolve`](../reference/cli/resolve.md) materializes the whole thing on your schedule — every standing region in one editing session, each side labeled with the step that wrote it, and the entire rebased stack landing at once when you finish. No conflicted state ever exists in the graph.
+fufu's observation is that for a person, conflicts are operation-shaped rather than edit-shaped. The user-visible benefit of jj's model is scheduling: the conflict does not interrupt you, and you resolve it when you choose. That benefit survives translation: when a rewrite would conflict, nothing is touched — the rewrite is held, recorded as an intent waiting to be applied, and both inputs stay ordinary git commits.
 
-Deferral only works because jj paired it with relentless disclosure, and held rewrites inherit all three of its disciplines: announced at creation, pinned in every status until gone, and blocking the exit — [`ff publish`](../reference/cli/publish.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits. [Held rewrites](../concepts/held-rewrites.md) has the full model.
+[`ff resolve`](../reference/cli/resolve.md) then materializes the whole thing on your schedule: every standing region in one editing session, each side labeled with the step that wrote it, and the entire rebased stack landing at once when you finish. No conflicted state ever exists in the graph.
+
+Deferral only works because jj paired it with relentless disclosure, and held rewrites inherit all three of its disciplines:
+
+- announced at creation
+- pinned in every status until it is gone
+- blocking the exit: [`ff publish`](../reference/cli/publish.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits
+
+[Held rewrites](../concepts/held-rewrites.md) has the full model.
 
 ## Choosing
 

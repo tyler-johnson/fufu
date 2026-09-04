@@ -22,9 +22,19 @@ The reflex-by-reflex mapping — what you would have typed in git, and what to t
 
 ## What your aliases cannot do
 
-A git veteran's first response to the list above is that aliases and scripts already cover it, and for the typing they can: an alias can spell `commit -am`, a script can stash, rebase, and pop. What no alias can do is act before you type. fufu snapshots the working tree before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible. A safety net you have to remember to throw is a checkpoint, and the manual checkpoint is exactly the ritual [snapshots and undo](../concepts/snapshots-and-undo.md) exists to delete.
+A git veteran's first response to the list above is that aliases and scripts already cover it. For the typing, they can: an alias can spell `commit -am`, and a script can stash, rebase, and pop.
 
-The second thing an alias cannot give you is one account of what happened. Wrappers leave their records where each underlying command left them — some motion in the reflog, some files in the stash, some state nowhere at all — and reconstructing an afternoon means reading all three. Every fufu operation, captures and raw-git motion included, lands on [one log](../concepts/snapshots-and-undo.md), so `ff history` is the whole account and one `ff undo` steps the repository — refs and tree together — back through it.
+### It cannot act before you type
+
+fufu snapshots the working tree before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible.
+
+A safety net you have to remember to throw is a checkpoint, and the manual checkpoint is exactly the ritual [snapshots and undo](../concepts/snapshots-and-undo.md) exists to delete.
+
+### It cannot give one account of what happened
+
+Wrappers leave their records where each underlying command left them — some motion in the reflog, some files in the stash, some state nowhere at all — and reconstructing an afternoon means reading all three.
+
+Every fufu operation, captures and raw-git motion included, lands on [one log](../concepts/snapshots-and-undo.md). So `ff history` is the whole account, and one `ff undo` steps the repository back through it, refs and tree together.
 
 ## The opinions, and where they stop
 

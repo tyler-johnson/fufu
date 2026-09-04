@@ -106,11 +106,10 @@ The installer wires five more (`SessionStart`, `Stop`, `SubagentStop`, `Subagent
 }
 ```
 
-Two honest differences from the Claude Code wiring.
+Two honest differences from the Claude Code wiring:
 
-fufu wires Codex with the floor and nothing wider. The turn-end and subagent events the Claude Code installer adds have no counterpart here today, so whatever an agent writes as its final action waits for the next turn's capture.
-
-And Codex trusts hooks by their hash. After `ff hook codex`, run `/hooks` inside Codex once to review and accept the new hook, or Codex skips it and nothing captures. `ff doctor` keeps showing that reminder whenever the wiring is present, because fufu cannot read Codex's trust list — an unreviewed hook and a reviewed one look identical from outside.
+- **The floor and nothing wider.** The turn-end and subagent events the Claude Code installer adds have no counterpart here today, so whatever an agent writes as its final action waits for the next turn's capture.
+- **Codex trusts hooks by their hash.** After `ff hook codex`, run `/hooks` inside Codex once to review and accept the new hook, or Codex skips it and nothing captures. `ff doctor` keeps showing that reminder whenever the wiring is present, because fufu cannot read Codex's trust list — an unreviewed hook and a reviewed one look identical from outside.
 
 [`ff trigger <source>`](../reference/cli/trigger.md) is built for this seat. It reads the client's payload on stdin, always exits 0 whatever went wrong, and never vetoes a tool call on its own judgment.
 
@@ -122,9 +121,8 @@ A source name fufu does not know exits 0 silently, so the same command is safe t
 
 This is a supported shape, and the wiring above is all it takes.
 
-Give each agent its own worktree with [`ff worktree add`](../reference/cli/worktree-add.md), and their operation logs never touch. Each worktree writes its own chain under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work.
-
-Two agents sharing a single worktree settle at that chain's lock instead. A capture that loses the lock is skipped, because the winner is already recording. A verb waits briefly and then refuses with `ref/contended`, exit 4, rather than interleaving — run it again.
+- **A worktree each.** Give every agent its own with [`ff worktree add`](../reference/cli/worktree-add.md), and their operation logs never touch. Each worktree writes its own chain — its own line of captures and operations — under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work.
+- **One worktree shared.** Two agents there settle at that chain's lock instead. A capture that loses the lock is skipped, because the winner is already recording. A verb waits briefly and then refuses with `ref/contended`, exit 4, rather than interleaving — run it again.
 
 One chain is also one undo. `ff undo` takes back the last operation whoever wrote it, so undoing agent A's mistake after agent B has moved on takes back B's work first.
 
@@ -148,7 +146,10 @@ $ ff hook --skill
 
 An extension declared with [`ff extension add`](../reference/cli/extension-add.md) may add one line to the same briefing, and one line is the whole of what it may add.
 
-A string in the manifest's `briefing` is the line. `true` there means fufu runs `ff-<name> briefing` when the briefing is built, in the event's own directory, and takes its stdout.
+The manifest's `briefing` field says where the line comes from:
+
+- a string there is the line itself.
+- `true` there means fufu runs `ff-<name> briefing` when the briefing is built, in the event's own directory, and takes its stdout.
 
 Either way the line is trimmed to one line and capped at 240 characters. A line past the cap is dropped rather than cut, because half a sentence is still prose the agent reads as instructions.
 
@@ -166,11 +167,14 @@ It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose in
 
 Every call runs the binary as a child with `--json`, so nothing changes underneath. The child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt.
 
-What the agent gains is a typed, allowlistable tool with structured results, in place of a shell string it has to quote.
+What the agent gains:
+
+- a typed, allowlistable tool with structured results, in place of a shell string it has to quote.
+- a tool description naming every verb, with a digest of recovery and the landmines, in under two thousand characters. That budget is what a client shows the model of a description, and it is why there is one tool rather than one per verb.
 
 A declared extension's verbs are relayed through that same array, and an extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside `ff`.
 
-The agent also gains a tool description naming every verb, with a digest of recovery and the landmines, in under two thousand characters. That budget is what a client shows the model of a description, and it is why there is one tool rather than one per verb. The briefing and the skill both say to prefer the tool when it is offered.
+The briefing and the skill both say to prefer the tool when it is offered.
 
 ### Keeping the agent on the tool
 

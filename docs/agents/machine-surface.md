@@ -32,7 +32,9 @@ $ echo $?
 
 [`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand. [The error id index](../reference/errors.md) lists every id with its exit code, and `ff explain --list` prints the same table from the binary.
 
-Here is what is promised. Within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know.
+### What is promised
+
+Within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know.
 
 A change that breaks an existing field is what bumps the `ff` number, which is why a strict consumer asserts it before parsing.
 
@@ -180,11 +182,9 @@ Five codes, one meaning each:
 
 The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1.
 
-Exit 3 is the code git has no use for, because only a tool that lands if clean produces the outcome. [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
-
-Exit 4 asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
-
-[`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict, 0 healthy and 1 findings, so CI can gate on it.
+- **Exit 3** is the code git has no use for, because only a tool that lands if clean produces the outcome. [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) — the replay recorded and waiting rather than applied — is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
+- **Exit 4** asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
+- **Exit 1** is also [`ff doctor`](../reference/cli/doctor.md)'s verdict, 0 healthy and 1 findings, so CI can gate on it.
 
 Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses any git word fufu has a verb for, before the capture and before anything runs:
 
@@ -224,6 +224,8 @@ The envelope arrives twice, as the text content and as `structuredContent`, so a
 
 The exit-code rules restate as tool rules. An id under `held/*` means nothing moved and a person is needed, so the agent stops and says so. `ref/contended` means the same call run once more.
 
+### What the tool serves
+
 A `help` call returns the page as text with no structured content. The verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp`, and `extension` — answer with `usage/mcp-verb-unavailable`.
 
 A declared extension is relayed the way a verb is. An undeclared one answers with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`. A declared one whose manifest says `undoable: false` answers with `usage/mcp-extension-not-undoable`, which costs it the args array and not the tools it produces.
@@ -231,6 +233,8 @@ A declared extension is relayed the way a verb is. An undeclared one answers wit
 An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations.
 
 Beside the one tool, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools). The args array stays the route for every verb, an extension's included. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
+
+### `toolPolicy` in the shell
 
 While the server is up for a Claude Code session, `fufu.toolPolicy` (default `strict`) refuses an `ff` the agent runs through its shell tool instead, on the hook's `PreToolUse` channel. The refusal is the same JSON shape as `gitPolicy`'s, and its reason names the tool and carries the `args` to call it with, so the agent can rewrite the call without a lookup:
 
@@ -251,17 +255,28 @@ A declared extension's refusal names it, so an agent can tell it from the undecl
 
 `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, which is git's own extension model. There are two kinds of extension, and what separates them is not what one is allowed to do — it is what fufu will say about it.
 
+### Undeclared
+
 An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
 
-Nothing else passes, and fufu says nothing about the verb. The tool refuses it with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, it is not on the tool's card, and `ff help <name>` does not reach it.
+Nothing else passes, and fufu says nothing about the verb. The tool refuses it with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, it is not on the tool's card — the tool description an agent reads — and `ff help <name>` does not reach it.
 
 Under `fufu.toolPolicy=strict` the shell refusal lets `ff <name>` through, because a shell is the only place an undeclared extension runs.
+
+### Declared
 
 A **declared** extension is one somebody registered with [`ff extension add <name>`](../reference/cli/extension-add.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory.
 
 The record is per machine rather than per repository, since the binary is on PATH and declaring it is a decision about the machine. A declared extension is handed the same three variables, and declaring adds none.
 
-What declaring buys is that fufu will describe it to an agent. The MCP tool serves its verbs, the card names them, `ff help <name>` and `ff explain <name>/<id>` delegate to the binary, its briefing line rides fufu's, its skills install beside fufu's, the neutral agent event fans out to it, and an MCP server of its own registers beside fufu's.
+What declaring buys is that fufu will describe it to an agent:
+
+- the MCP tool serves its verbs, and the card names them
+- `ff help <name>` and `ff explain <name>/<id>` delegate to the binary
+- its briefing line rides fufu's
+- its skills install beside fufu's
+- the neutral agent event fans out to it
+- an MCP server of its own registers beside fufu's
 
 The card's line is `Extensions: tower (next, file, done, …)`, built from the manifest's verb list and capped in every direction: how many extensions get named, how many verbs each, and the length of the line. The card has about two thousand characters to fit in, and a registry is a person's file with nothing in fufu bounding it. An extension the cap left off is served exactly as one on the line.
 
@@ -270,6 +285,8 @@ Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way i
 [`ff extension`](../reference/cli/extension.md) is itself one of the verbs the tool does not offer. The registry is the allowlist for all of the above, so an agent must not be able to write it through the tool.
 
 `ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
+
+### What a served extension owes
 
 An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position.
 
