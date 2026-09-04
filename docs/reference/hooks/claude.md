@@ -116,13 +116,27 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
 }
 ```
 
-The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`; the server entry carries the same path with the one argument `mcp`. A plugin's hooks do not go looking on `PATH`, so the path is baked in. After moving or reinstalling the binary somewhere else, run `ff hook claude` again; the moved plugin still reads as wired and registered in the meantime, because fufu recognizes its own command by its tail.
+The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`; the server entry carries the same path with the one argument `mcp`. A plugin's hooks do not go looking on `PATH`, so the path is baked in.
 
-`PreToolUse` and `UserPromptSubmit` are the floor: the snapshot before every tool call, and the turn boundary the briefing rides. The other five widen capture. `SessionStart` rebuilds the briefing after a resume, a `/clear`, a compaction, or a fork dropped the context it was in. `Stop` and `SubagentStop` make the last edit of a turn durable, since capture is a snapshot before an action and a session that ends on an edit would otherwise never snapshot it. `SubagentStart` lays a floor before a subagent writes anything, and `CwdChanged` lays one in the repository the agent just entered. A plugin missing one of the five is stale, which [`ff doctor --fix`](../../reference/cli/doctor.md) repairs; a plugin missing one of the two is partial, which is a finding.
+After moving or reinstalling the binary somewhere else, run `ff hook claude` again. The moved plugin still reads as wired and registered in the meantime, because fufu recognizes its own command by its tail.
 
 Claude Code loads the plugin on its next restart. `claude plugin list` shows it as `fufu@skills-dir`.
 
-`ff hook claude --settings` is the escape hatch: it merges the same seven events into `~/.claude/settings.json` with the command [`ff trigger claude`](../../reference/cli/trigger.md), carries no skill and no server, and removes the plugin if there is one. The plugin is the mechanism a bare `ff hook claude` prefers. On a machine wired through settings entries, `ff hook claude` writes the plugin, verifies it, and only then strips the entries, so there is never a moment with no capture. Entries written under the older spellings `ff hook agent trigger claude` and `ff hook claude` are recognized as fufu's and upgraded in place.
+### The seven events
+
+`PreToolUse` and `UserPromptSubmit` are the floor: the snapshot before every tool call, and the turn boundary the briefing rides. The other five widen capture.
+
+- `SessionStart` rebuilds the briefing after a resume, a `/clear`, a compaction, or a fork dropped the context it was in.
+- `Stop` and `SubagentStop` make the last edit of a turn durable, since capture is a snapshot before an action and a session that ends on an edit would otherwise never snapshot it.
+- `SubagentStart` lays a floor before a subagent writes anything, and `CwdChanged` lays one in the repository the agent just entered.
+
+A plugin missing one of the five is stale, which [`ff doctor --fix`](../../reference/cli/doctor.md) repairs; a plugin missing one of the two is partial, which is a finding.
+
+### The settings escape hatch
+
+`ff hook claude --settings` merges the same seven events into `~/.claude/settings.json` with the command [`ff trigger claude`](../../reference/cli/trigger.md), carries no skill and no server, and removes the plugin if there is one. The plugin is the mechanism a bare `ff hook claude` prefers.
+
+On a machine wired through settings entries, `ff hook claude` writes the plugin, verifies it, and only then strips the entries, so there is never a moment with no capture. Entries written under the older spellings `ff hook agent trigger claude` and `ff hook claude` are recognized as fufu's and upgraded in place.
 
 ## What `ff unhook claude` removes
 

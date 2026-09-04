@@ -14,7 +14,9 @@ alias git='ff git'  # fufu — added by `ff hook`
 [[ $PROMPT_COMMAND == *"ff trigger shell"* ]] || PROMPT_COMMAND="ff trigger shell;$PROMPT_COMMAND"  # fufu — added by `ff hook`
 ```
 
-Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, and the marker is how fufu tells its own lines from yours. The two pieces are independent. A hand-written `alias git=` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed. Running [`ff hook bash`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
+Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, and the marker is how fufu tells its own lines from yours. Running [`ff hook bash`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
+
+The two pieces are independent. A hand-written `alias git=` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed.
 
 Older installs carry the markers `# fufu — added by \`ff hook shell install\`` and `# fufu — added by \`ff shell install\``, and an older prompt line calls `ff hook shell trigger`. All of them still count as fufu's. The next `ff hook bash` rewrites them in place to the current spelling, and [`ff doctor`](../../reference/cli/doctor.md) reports them as stale until then.
 

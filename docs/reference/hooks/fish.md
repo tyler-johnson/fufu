@@ -14,7 +14,9 @@ alias git 'ff git'  # fufu — added by `ff hook`
 function _fufu_ambient --on-event fish_prompt; ff trigger shell; end  # fufu — added by `ff hook`
 ```
 
-Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, which is how fufu tells its own lines from yours. The alias and the prompt hook are independent: a hand-written `alias git` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed. Running [`ff hook fish`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
+Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, which is how fufu tells its own lines from yours. Running [`ff hook fish`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
+
+The alias and the prompt hook are independent: a hand-written `alias git` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed.
 
 Older markers (`ff hook shell install`, `ff shell install`) and the older prompt command `ff hook shell trigger` still count as fufu's. The next `ff hook fish` rewrites them in place, and [`ff doctor`](../../reference/cli/doctor.md) reports them as stale until then.
 

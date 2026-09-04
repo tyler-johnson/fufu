@@ -1,16 +1,29 @@
 # Configuration
 
-fufu's settings are plain git config under `fufu.<key>`, read and written with [`ff config`](cli/config.md). No subcommands — arity decides: bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker; a key alone prints the effective value; a key plus a value sets it; `--unset` returns it to the default. Keys are case-insensitive and the `fufu.` prefix is optional, so `ff config keep`, `ff config Keep`, and `ff config fufu.keep` all name the same setting.
+fufu's settings are plain git config under `fufu.<key>`, read and written with [`ff config`](cli/config.md). There are no subcommands — arity decides:
+
+- bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker;
+- a key alone prints the effective value;
+- a key plus a value sets it;
+- `--unset` returns it to the default.
+
+Keys are case-insensitive and the `fufu.` prefix is optional, so `ff config keep`, `ff config Keep`, and `ff config fufu.keep` all name the same setting.
 
 ## Where values live
 
 A plain `ff config <key> <value>` writes this repo's config; `--global` writes user-level git config instead, so the value applies to every repo. Precedence between the scopes is git's own — environment overrides, then repo, then global, then system — and when a non-default value applies, `ff config` says which scope it came from.
 
-Because storage is ordinary git config, `git config fufu.keep` reads and writes the very same value, and the two tools can never disagree. What `ff config` adds over raw `git config` is the registry below: it knows what settings exist and what they default to, and it validates a new value through the same parser that will later read it, so a typo is refused before it touches disk. Set the same typo with raw `git config` and every fufu reader quietly falls back to its default — the setting looks set and does nothing.
+Because storage is ordinary git config, `git config fufu.keep` reads and writes the very same value, and the two tools can never disagree.
+
+What `ff config` adds over raw `git config` is the registry below: it knows what settings exist and what they default to, and it validates a new value through the same parser that will later read it, so a typo is refused before it touches disk.
+
+Set the same typo with raw `git config` and every fufu reader quietly falls back to its default — the setting looks set and does nothing.
 
 ## Policy keys are written from a shell
 
-`fufu.gitPolicy` and `fufu.toolPolicy` decide what fufu refuses an agent, so an agent that could set its own tier through the tool policing it is not policed at all. A write to either through the [`ff mcp`](cli/mcp.md) tool is refused with `usage/mcp-policy-write`, naming the shell as the place to make it; `--unset` counts as a write, since taking a value away lowers the tier to the default. The same command typed at a shell writes, which is where a person changing their own policy already is.
+`fufu.gitPolicy` and `fufu.toolPolicy` decide what fufu refuses an agent, so an agent that could set its own tier through the tool policing it is not policed at all.
+
+A write to either through the [`ff mcp`](cli/mcp.md) tool is refused with `usage/mcp-policy-write`, naming the shell as the place to make it; `--unset` counts as a write, since taking a value away lowers the tier to the default. The same command typed at a shell writes, which is where a person changing their own policy already is.
 
 Reading is untouched: through the tool, bare `ff config` still lists every setting and a key alone still prints what applies. Every other setting writes through the tool as before.
 
@@ -18,10 +31,10 @@ Reading is untouched: through the tool, bare `ff config` still lists every setti
 
 [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op log`](../reference/cli/op-log.md) page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
 
-1. `fufu.pager` git config — when set, it overrides both environment variables.
-2. `FF_PAGER`.
-3. `PAGER`.
-4. `less`.
+- `fufu.pager` git config — when set, it overrides both environment variables.
+- `FF_PAGER`.
+- `PAGER`.
+- `less`.
 
 The value is whitespace-split with no shell quoting, and `cat` means no pager — git's own convention. When the pager runs and `LESS` or `LESSCHARSET` is unset, fufu supplies `LESS=FR` (quit if one screen, keep ANSI colors) and `LESSCHARSET=utf-8`. A pager that fails to spawn falls back to direct printing, silently.
 
@@ -83,7 +96,7 @@ What fufu says when git is reached for directly — through ff git, or in an age
 
 `fufu.toolPolicy` — choice of `observe`, `coach`, `strict`; default `strict`
 
-What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. What it speaks to is what the tool serves: a builtin verb or a declared extension. The shell-only verbs pass, and so does an ff <name> the tool will not serve, since a shell is the only place that one runs. Nothing is said at all when no fufu server is serving that client.
+What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. It speaks only to what the tool serves: the shell-only verbs pass, so does an ff <name> the tool will not serve, and nothing is said when no server is up.
 
 ### futuresDepth
 

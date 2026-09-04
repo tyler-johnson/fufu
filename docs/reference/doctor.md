@@ -1,6 +1,15 @@
 # Doctor
 
-A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly: a log ref moved by something that is not fufu, a reflog that never got created, the gc guard deleted out of local config, a branch that answers to no remote anything can name, hooks never installed, a stale binary, a declared extension whose manifest has drifted, tools it promised and never produced. [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix). The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
+A safety net you cannot inspect is not trustworthy, and every floor of fufu's can degrade quietly:
+
+- a log ref moved by something that is not fufu, a reflog that never got created, or the gc guard deleted out of local config;
+- a branch that answers to no remote anything can name;
+- hooks never installed, or a stale binary;
+- a declared extension whose manifest has drifted, or tools it promised and never produced.
+
+[`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix).
+
+The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
 
 ## Verdicts
 
@@ -241,7 +250,13 @@ There is no repair to name — nothing here is fufu's to fix — so the row is a
 
 ## The one write: --fix
 
-Read-only is the design, because doctor must never absorb the drift it reports. `--fix` is the one consented write, and it repairs exactly the findings whose rows say so: the gc reflog-expiry keys, a `[branch]` config section that names nothing on either side, and wiring stored in a retired or partial spelling. Everything else — a moved log ref, a missing reflog, an invalid setting — is reported with the repair named in the row, and the repair stays yours to run. The summary line counts what `--fix` would take:
+Read-only is the design, because doctor must never absorb the drift it reports. `--fix` is the one consented write, and it repairs exactly the findings whose rows say so:
+
+- the gc reflog-expiry keys;
+- a `[branch]` config section that names nothing on either side;
+- wiring stored in a retired or partial spelling.
+
+Everything else — a moved log ref, a missing reflog, an invalid setting — is reported with the repair named in the row, and the repair stays yours to run. The summary line counts what `--fix` would take:
 
 ```console
 2 finding(s) — `ff doctor --fix` repairs 1 of them

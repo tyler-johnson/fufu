@@ -88,9 +88,15 @@ Checking is what `--signatures` buys, and it replaces the mark with the verdict,
 | `revoked key` | `R` | it checks out, made by a revoked key |
 | `unverifiable` | `E` | could not be checked — no key, no allowed-signers file, no verifier |
 
-That costs one signer run per signed row, which is why it is a flag rather than the default; unsigned rows are skipped, so the cost is proportional to how much there is to check. The runs go in parallel — up to one per core, capped at eight — because they are independent and almost entirely process startup. Verifying twenty ssh-signed commits (two `ssh-keygen` runs apiece) costs about 94ms on four cores against 245ms in a row.
+That costs one signer run per signed row, which is why it is a flag rather than the default. Unsigned rows are skipped, so the cost is proportional to how much there is to check.
 
-Only verification is parallel. Signing is not, and will not be: it can stop for a passphrase, and several pinentry prompts racing for one terminal is not a speed-up. A rewrite signs its commits one after another for the same reason `git rebase -S` does. An unsigned commit is marked nothing at all, with or without the flag: most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
+The runs go in parallel — up to one per core, capped at eight — because they are independent and almost entirely process startup. Verifying twenty ssh-signed commits (two `ssh-keygen` runs apiece) costs about 94ms on four cores against 245ms in a row.
+
+Only verification is parallel. Signing is not, and will not be: it can stop for a passphrase, and several pinentry prompts racing for one terminal is not a speed-up. A rewrite signs its commits one after another for the same reason `git rebase -S` does.
+
+### What the marks print
+
+An unsigned commit is marked nothing at all, with or without the flag: most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
 
 git's `%G?` letters are still what the machine surface carries — `ff show --json` and `ff log --signatures --json` both report `code` — but a row prints words. A bare `G` in a column reads as "gpg" about as readily as "good".
 

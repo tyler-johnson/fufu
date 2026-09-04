@@ -246,7 +246,9 @@ Subscribe in the manifest:
 
 `kind` is one of `SessionStart`, `ContextStart`, `BeforeTool`, `SubagentStart`, `TurnEnd`, `SessionEnd`.
 
-`matcher` is the tool names that subscription wants, with `|` between them. It is **required on `BeforeTool` and refused on every other kind**, because every `BeforeTool` subscriber is a process spawn on the agent's critical path. It is not a regular expression — only the alternation every client's own hook matcher already writes. A name matches whole and case-sensitively, so `Edit` is `Edit` and not `NotebookEdit`. A matcher carrying anything but tool names and `|` is refused at `ff extension add`, rather than left to quietly never fire.
+`matcher` is the tool names that subscription wants, with `|` between them. It is **required on `BeforeTool` and refused on every other kind**, because every `BeforeTool` subscriber is a process spawn on the agent's critical path.
+
+It is not a regular expression — only the alternation every client's own hook matcher already writes. A name matches whole and case-sensitively, so `Edit` is `Edit` and not `NotebookEdit`. A matcher carrying anything but tool names and `|` is refused at `ff extension add`, rather than left to quietly never fire.
 
 When the event fires, fufu runs `ff-<name> trigger` **after** the capture — never before it, because a subscriber that fails must not cost a snapshot — in the event's own directory, with the three variables, and the event as one JSON object on stdin followed by EOF.
 
@@ -286,7 +288,9 @@ Reply with an envelope, and fufu reads exactly one field of it:
 {"ff":1,"cmd":"hello trigger","data":{"context":"hello: 3 flights are in progress on this branch."}}
 ```
 
-`context` is text to put in front of the agent, and in this contract it is the whole of what you may say. It is merged into the one reply the client already gets — fufu's own lines first, then each subscriber in the order the extensions were declared. Where the client has no channel for that kind of event, nothing is printed and every subscriber still ran. Any other field in `data` is ignored rather than refused.
+`context` is text to put in front of the agent, and in this contract it is the whole of what you may say. Any other field in `data` is ignored rather than refused.
+
+The text is merged into the one reply the client already gets — fufu's own lines first, then each subscriber in the order the extensions were declared. Where the client has no channel for that kind of event, nothing is printed and every subscriber still ran.
 
 Four rules govern the handler, and they exist because it rides an event whose real job is a snapshot:
 
@@ -303,7 +307,13 @@ Beside relaying your verbs through its one `ff` tool, fufu can serve **typed too
 
 Say `"tools": true` in the manifest. That is a promise rather than a list: fufu then asks `ff-<name> --ff-tools` for the list itself. Writing the list into the manifest would be a second spelling of your own CLI, kept in step by hand and stale the moment the binary moved on; generating it from the definitions your flags already come from makes drift impossible rather than policed. `briefing: true` draws the same rule.
 
-`--ff-tools` behaves exactly like `--ff-manifest` — recognized before anything else on the command line, answers outside a repository, takes no other argument, prints one envelope, exits 0 — with one difference. **It is time-boxed, at about a second.** `ff extension add` and `ff doctor` are verbs a person typed and can interrupt; this one is asked by a server starting up with nobody in front of it, where a binary that hangs would hang the server before it served anything. Nothing is handed down but `FF_NONINTERACTIVE=1`: you need neither the repository nor the contract to say what tools you have.
+### `--ff-tools`
+
+`--ff-tools` behaves exactly like `--ff-manifest` — recognized before anything else on the command line, answers outside a repository, takes no other argument, prints one envelope, exits 0 — with one difference. **It is time-boxed, at about a second.**
+
+`ff extension add` and `ff doctor` are verbs a person typed and can interrupt; this one is asked by a server starting up with nobody in front of it, where a binary that hangs would hang the server before it served anything.
+
+Nothing is handed down but `FF_NONINTERACTIVE=1`: you need neither the repository nor the contract to say what tools you have.
 
 The envelope's `data` is an array of descriptors, pretty-printed here:
 

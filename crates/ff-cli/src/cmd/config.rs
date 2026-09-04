@@ -136,11 +136,10 @@ pub(crate) fn registry() -> &'static [Setting] {
             desc: &[
                 "What fufu says when an agent runs ff in its shell while the ff tool is",
                 "up for it. observe stays quiet; coach names the tool once per session;",
-                "strict (the default) refuses and names the call to make instead. What",
-                "it speaks to is what the tool serves: a builtin verb or a declared",
-                "extension. The shell-only verbs pass, and so does an ff <name> the",
-                "tool will not serve, since a shell is the only place that one runs.",
-                "Nothing is said at all when no fufu server is serving that client.",
+                "strict (the default) refuses and names the call to make instead. It",
+                "speaks only to what the tool serves: the shell-only verbs pass, so does",
+                "an ff <name> the tool will not serve, and nothing is said when no",
+                "server is up.",
             ],
         },
         Setting {

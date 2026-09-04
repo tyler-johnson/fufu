@@ -1,6 +1,8 @@
 # ff hook codex
 
-Two entries merged into `~/.codex/hooks.json`, [fufu's skill](../../agents/setup.md) in a directory of its own at `~/.codex/skills/fufu/`, and the [`ff mcp`](../cli/mcp.md) server as a marked block in `~/.codex/config.toml`. The hooks file belongs to you: fufu parses it, adds its entries, and writes everything else back untouched. The skill directory belongs to fufu, written whole and removed whole. The config file belongs to you too, and fufu carries no TOML parser, so the block is appended between two marker comments and removed by them, the way the shells take marked lines.
+Two entries merged into `~/.codex/hooks.json`, [fufu's skill](../../agents/setup.md) in a directory of its own at `~/.codex/skills/fufu/`, and the [`ff mcp`](../cli/mcp.md) server as a marked block in `~/.codex/config.toml`.
+
+The hooks file belongs to you: fufu parses it, adds its entries, and writes everything else back untouched. The skill directory belongs to fufu, written whole and removed whole. The config file belongs to you too, and fufu carries no TOML parser, so the block is appended between two marker comments and removed by them, the way the shells take marked lines.
 
 A declared extension gets a directory of its own the same way, `~/.codex/skills/<name>/`, holding whatever files its manifest's `skills` field names — a file that is missing, unreadable, or too large is left out, and an extension naming none gets no directory at all. [`ff hook --skill <name>`](../../reference/cli/hook.md) prints one without installing anything.
 
@@ -57,7 +59,9 @@ $ find ~/.codex -type f | sort
 
 The block in `config.toml` is the server: Codex reads `[mcp_servers.<name>]` tables, and this one runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, with the one argument `mcp`, so the tool is `fufu`'s `ff`. Anything else in the file stays where it was, above the block. A `[mcp_servers.fufu]` table outside the markers was written by hand and is reported and left alone.
 
-The trust line is the one thing to act on. Codex trusts a hook by its hash: run `/hooks` in Codex to review this one, or it is skipped and nothing captures. `ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) keep saying so for as long as the hook is wired, because fufu cannot read Codex's trust list and an unreviewed hook looks the same as a reviewed one from outside. The skill needs no review: it is a file Codex reads, not a command it runs.
+The trust line is the one thing to act on. Codex trusts a hook by its hash: run `/hooks` in Codex to review this one, or it is skipped and nothing captures.
+
+`ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) keep saying so for as long as the hook is wired, because fufu cannot read Codex's trust list and an unreviewed hook looks the same as a reviewed one from outside. The skill needs no review: it is a file Codex reads, not a command it runs.
 
 ## What `ff unhook codex` removes
 
