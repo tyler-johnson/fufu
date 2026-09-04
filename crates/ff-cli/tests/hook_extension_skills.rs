@@ -6,9 +6,9 @@
 //! binary on PATH.
 //!
 //! PATH is pinned to the test's own bin directory rather than prepended to
-//! the real one, and `XDG_CONFIG_HOME` is removed — the landmine
-//! `tests/doctor_extensions.rs` and `tests/extension.rs` document: this
-//! machine can carry a real `ff-tower` on PATH and a real declared
+//! the real one, and the user roots are pinned under the test's home — the
+//! landmine `tests/doctor_extensions.rs` and `tests/extension.rs` document:
+//! this machine can carry a real `ff-tower` on PATH and a real declared
 //! registry, and either would decide a test's outcome instead of the
 //! fixture.
 
@@ -19,15 +19,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 use serde_json::Value;
 use tempfile::TempDir;
 
 fn ff(home: &Path, bin: Option<&Path>, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(home)
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(home).args(args);
+    userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
@@ -79,7 +78,7 @@ fn declare(home: &Path, bin: &Path, name: &str, skills: &[String]) {
         "declared_at": 1_788_462_398_i64,
         "manifest": manifest(name, skills),
     });
-    let file = home.join(".config").join("fufu").join("extensions.json");
+    let file = userdirs::registry(home);
     std::fs::create_dir_all(file.parent().expect("parent")).expect("create config dir");
     std::fs::write(
         &file,

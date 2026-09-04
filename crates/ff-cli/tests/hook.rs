@@ -18,6 +18,7 @@ use std::process::{Command, Output, Stdio};
 
 use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 
 /// A HOME no test may escape. Every runner here pins it, because a trigger
 /// that fell through to the installer would otherwise rewrite the config of
@@ -39,11 +40,11 @@ fn ff_stdin_home(cwd: &Path, args: &[&str], payload: &str, home: &Path) -> Outpu
     ff_stdin_with(cwd, args, payload, home, &[])
 }
 
-/// The same, with variables of the caller's own on top. The user cache is
+/// The same, with variables of the caller's own on top. Both user roots are
 /// pinned under `home` on every platform, so the tool steer's presence
-/// marker resolves inside the scratch home and never the real one, and
-/// `CLAUDE_PID` is removed unless a test sets it — the suite itself may be
-/// running under a Claude that set one.
+/// marker and the extension registry resolve inside the scratch home and
+/// never the real one, and `CLAUDE_PID` is removed unless a test sets it —
+/// the suite itself may be running under a Claude that set one.
 fn ff_stdin_with(
     cwd: &Path,
     args: &[&str],
@@ -52,13 +53,8 @@ fn ff_stdin_with(
     envs: &[(&str, &str)],
 ) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
-    cmd.args(args)
-        .current_dir(cwd)
-        .env("HOME", home)
-        .env("XDG_CACHE_HOME", cache_under(home))
-        .env("LOCALAPPDATA", cache_under(home))
-        .env("XDG_CONFIG_HOME", config_under(home))
-        .env("APPDATA", config_under(home))
+    cmd.args(args).current_dir(cwd);
+    userdirs::pin(&mut cmd, home)
         .env_remove("CLAUDE_PID")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
@@ -74,28 +70,6 @@ fn ff_stdin_with(
     // resulting broken pipe on our side is expected.
     let _ = child.stdin.take().unwrap().write_all(payload.as_bytes());
     child.wait_with_output().expect("wait ff")
-}
-
-/// Where the binary resolves its cache root under `home`, given the
-/// variables `ff_stdin_with` pins: macOS reads only HOME, and the other
-/// two platforms read the variable that is pinned here.
-fn cache_under(home: &Path) -> std::path::PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Caches")
-    } else {
-        home.join(".cache")
-    }
-}
-
-/// Where the binary resolves its config root under `home`, the same way.
-/// The extension registry lives here, so a machine with a real declaration
-/// of its own cannot decide what the tool steer says.
-fn config_under(home: &Path) -> std::path::PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else {
-        home.join(".config")
-    }
 }
 
 fn ff(cwd: &Path, args: &[&str]) -> Output {
@@ -307,7 +281,7 @@ fn ff_payload(session: &str, cwd: &Path, command: &str) -> String {
 /// `<cache>/fufu/mcp/<pid>/`, as the binary resolves it under the scratch
 /// HOME: a directory per client, holding a marker per server name.
 fn marker_dir(pid: u32) -> std::path::PathBuf {
-    cache_under(scratch_home())
+    userdirs::cache_root(scratch_home())
         .join("fufu")
         .join("mcp")
         .join(pid.to_string())
@@ -492,9 +466,7 @@ fn declare(name: &str) {
 /// The same, saying whether the extension's writes can be taken back. The
 /// tool will not serve one that answers no, so the shell keeps it.
 fn declare_undoable(name: &str, undoable: bool) {
-    let file = config_under(scratch_home())
-        .join("fufu")
-        .join("extensions.json");
+    let file = userdirs::registry(scratch_home());
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     let body = serde_json::json!({
         "ff": 1,
@@ -1578,7 +1550,7 @@ mod declared_extensions {
                 .to_string()
             })
             .collect();
-        let file = config_under(home).join("fufu").join("extensions.json");
+        let file = userdirs::registry(home);
         std::fs::create_dir_all(file.parent().expect("parent")).expect("create config dir");
         std::fs::write(
             &file,

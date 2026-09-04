@@ -4,6 +4,7 @@ pub mod hooks;
 pub mod paths;
 pub mod porcelain;
 pub mod scenarios;
+pub mod userdirs;
 
 pub use fixtures::Fixture;
 pub use scenarios::scenarios;

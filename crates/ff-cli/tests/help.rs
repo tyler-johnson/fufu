@@ -3,11 +3,13 @@
 
 use std::process::{Command, Output};
 
+use ff_testsupport::fixtures::null_device;
+
 fn ff(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
         .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("spawn ff")
@@ -247,8 +249,8 @@ fn the_command_list_wears_claps_styles() {
     let out = Command::new(env!("CARGO_BIN_EXE_ff"))
         .args(["--help"])
         .env("CLICOLOR_FORCE", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("spawn ff");

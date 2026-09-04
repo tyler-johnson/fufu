@@ -20,15 +20,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 use serde_json::Value;
 use tempfile::TempDir;
 
 fn ff(home: &Path, bin: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(home)
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(home).args(args);
+    userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())

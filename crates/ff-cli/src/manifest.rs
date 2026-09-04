@@ -652,20 +652,6 @@ fn accept(manifest: &Manifest, name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// One envelope on one line, which is the whole of what the handshake
-    /// reads. The manifests below are written for the eye, so the data is
-    /// compacted on the way in rather than echoed as it is spelled.
-    fn envelope(data: &str) -> String {
-        let data = serde_json::to_string(&value(data)).expect("compact");
-        format!(r#"{{"ff":1,"cmd":"tower --ff-manifest","data":{data}}}"#)
-    }
-
-    /// The same, for the other handshake.
-    fn tools_envelope(data: &str) -> String {
-        let data = serde_json::to_string(&value(data)).expect("compact");
-        format!(r#"{{"ff":1,"cmd":"tower --ff-tools","data":{data}}}"#)
-    }
-
     /// The worked payload from `docs/agents/machine-surface.md`, with every
     /// optional field present.
     const WORKED: &str = r#"{
@@ -1073,6 +1059,21 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         use super::*;
+
+        /// One envelope on one line, which is the whole of what the
+        /// handshake reads. The manifests above are written for the eye, so
+        /// the data is compacted on the way in rather than echoed as it is
+        /// spelled.
+        fn envelope(data: &str) -> String {
+            let data = serde_json::to_string(&value(data)).expect("compact");
+            format!(r#"{{"ff":1,"cmd":"tower --ff-manifest","data":{data}}}"#)
+        }
+
+        /// The same, for the other handshake.
+        fn tools_envelope(data: &str) -> String {
+            let data = serde_json::to_string(&value(data)).expect("compact");
+            format!(r#"{{"ff":1,"cmd":"tower --ff-tools","data":{data}}}"#)
+        }
 
         /// An `ff-<name>` in a fresh directory the caller keeps alive.
         fn ext_bin(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {

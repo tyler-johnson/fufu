@@ -18,18 +18,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 use serde_json::Value;
 use tempfile::TempDir;
 
 /// The whole environment a declaration and a doctor run read: PATH for the
-/// walk, HOME for the config root the registry sits under. See
-/// `tests/extension.rs` for why PATH is pinned rather than prepended.
+/// walk, and the user roots pinned under `home` so the registry is the
+/// fixture's rather than this machine's. See `tests/extension.rs` for why
+/// PATH is pinned rather than prepended.
 fn ff(home: &Path, bin: Option<&Path>, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(home)
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(home).args(args);
+    userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
@@ -338,9 +338,9 @@ fn a_declared_extension_whose_binary_is_gone_is_a_finding() {
 #[test]
 fn a_corrupt_registry_is_a_finding() {
     let (home, bin) = machine();
-    let dir = home.path().join(".config").join("fufu");
-    std::fs::create_dir_all(&dir).expect("create the fufu dir");
-    std::fs::write(dir.join("extensions.json"), "{ this was hand-edited").expect("write it");
+    let file = userdirs::registry(home.path());
+    std::fs::create_dir_all(file.parent().expect("parent")).expect("create the fufu dir");
+    std::fs::write(&file, "{ this was hand-edited").expect("write it");
 
     let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
     let checks = checks(&out);

@@ -3,27 +3,26 @@
 //! written over a registration somebody made themselves.
 //!
 //! Unix only, and PATH is pinned to the test's own directory rather than
-//! prepended to the real one, with `XDG_CONFIG_HOME` removed — the
-//! landmine `tests/hook_extension_skills.rs` and `tests/extension.rs`
-//! document: this machine can carry a real `ff-tower` on PATH and a real
-//! declared registry, and either would decide a test's outcome instead of
-//! the fixture.
+//! prepended to the real one, with the user roots pinned under the test's
+//! home — the landmine `tests/hook_extension_skills.rs` and
+//! `tests/extension.rs` document: this machine can carry a real `ff-tower`
+//! on PATH and a real declared registry, and either would decide a test's
+//! outcome instead of the fixture.
 
 #![cfg(unix)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 use serde_json::Value;
 use tempfile::TempDir;
 
 fn ff(home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(home)
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(home).args(args);
+    userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
@@ -49,15 +48,6 @@ fn text_at(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 
-/// The directory `registry::path` reads on this platform.
-fn config_dir(home: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else {
-        home.join(".config")
-    }
-}
-
 /// Write the registry this machine reads, declaring one extension with the
 /// given `mcp` field. Bypasses `ff extension add`'s handshake, the same
 /// shortcut `tests/hook_extension_skills.rs` takes: these tests are about
@@ -78,7 +68,7 @@ fn declare(home: &Path, name: &str, mcp: Option<Value>) {
         "declared_at": 1_788_462_398_i64,
         "manifest": manifest,
     });
-    let file = config_dir(home).join("fufu").join("extensions.json");
+    let file = userdirs::registry(home);
     std::fs::create_dir_all(file.parent().expect("parent")).expect("create config dir");
     std::fs::write(
         &file,
@@ -254,7 +244,7 @@ fn a_forgotten_extension_leaves_the_codex_block() {
     assert!(ff(home.path(), &["hook", "codex"]).status.success());
     assert!(text_at(&home.path().join(".codex/config.toml")).contains("[mcp_servers.tower]"));
 
-    let file = config_dir(home.path()).join("fufu").join("extensions.json");
+    let file = userdirs::registry(home.path());
     std::fs::write(
         &file,
         serde_json::json!({"ff": 1, "extensions": []}).to_string(),

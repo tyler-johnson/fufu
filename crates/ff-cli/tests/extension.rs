@@ -11,14 +11,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use ff_testsupport::userdirs;
 use serde_json::Value;
 use tempfile::TempDir;
 
-/// The whole environment a declaration reads: PATH for the walk, and HOME
-/// for the config root the registry sits under. `XDG_CONFIG_HOME` is
-/// cleared rather than set, so linux falls back to `$HOME/.config` and
-/// macOS takes `$HOME/Library/Application Support` — one redirect covers
-/// both, and both are inside the temporary directory the test owns.
+/// The whole environment a declaration reads: PATH for the walk, and the
+/// user roots pinned under `home` by `userdirs::pin`, so the registry the
+/// binary reads is the one inside the temporary directory the test owns
+/// rather than this machine's.
 ///
 /// PATH is the test's own directory and nothing else, where `tests/ext.rs`
 /// prepends to the process's. These tests turn on which names resolve and
@@ -28,11 +28,9 @@ use tempfile::TempDir;
 /// extensions are shell scripts with an absolute shebang, so nothing here
 /// needs a PATH of its own.
 fn ff(home: &Path, bin: Option<&Path>, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(home)
-        .args(args)
-        .env("HOME", home)
-        .env_remove("XDG_CONFIG_HOME")
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(home).args(args);
+    userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
         .env(
             "PATH",
@@ -113,8 +111,7 @@ fn machine() -> (TempDir, TempDir) {
 
 /// The registry file as it stands, or `None` when nothing wrote one.
 fn registry(home: &Path) -> Option<Value> {
-    let file = home.join(".config").join("fufu").join("extensions.json");
-    let body = std::fs::read_to_string(file).ok()?;
+    let body = std::fs::read_to_string(userdirs::registry(home)).ok()?;
     Some(serde_json::from_str(&body).expect("the registry is json"))
 }
 
@@ -479,9 +476,8 @@ fn removing_a_name_that_was_never_declared_is_refused() {
 #[test]
 fn a_registry_that_does_not_read_as_one_stops_both_surfaces() {
     let (home, bin) = machine();
-    let file = home.path().join(".config").join("fufu");
-    std::fs::create_dir_all(&file).expect("create the fufu dir");
-    let file = file.join("extensions.json");
+    let file = userdirs::registry(home.path());
+    std::fs::create_dir_all(file.parent().expect("parent")).expect("create the fufu dir");
     std::fs::write(&file, "{ this was hand-edited").expect("write it");
 
     let out = ff(home.path(), Some(bin.path()), &["extension", "list"]);
@@ -523,11 +519,7 @@ fn a_record_from_another_contract_is_listed_apart() {
         &["extension", "add", "tower"],
     );
 
-    let file = home
-        .path()
-        .join(".config")
-        .join("fufu")
-        .join("extensions.json");
+    let file = userdirs::registry(home.path());
     let mut written: Value =
         serde_json::from_str(&std::fs::read_to_string(&file).expect("read")).expect("json");
     written["extensions"][0]["manifest"]["contract"] = serde_json::json!(99);

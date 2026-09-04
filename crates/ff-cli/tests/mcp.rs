@@ -19,6 +19,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::userdirs;
 use serde_json::{Value, json};
 
 struct Server {
@@ -40,14 +41,8 @@ fn start(dir: &Path, extra: &[&str], envs: &[(&str, &str)]) -> Server {
 /// [`start`] under a HOME the test prepared first.
 fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, &str)]) -> Server {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
-    cmd.current_dir(dir)
-        .arg("mcp")
-        .args(extra)
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", cache_under(home.path()))
-        .env("LOCALAPPDATA", cache_under(home.path()))
-        .env("XDG_CONFIG_HOME", config_under(home.path()))
-        .env("APPDATA", config_under(home.path()))
+    cmd.current_dir(dir).arg("mcp").args(extra);
+    userdirs::pin(&mut cmd, home.path())
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -71,32 +66,6 @@ fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, 
     }
 }
 
-/// Where the binary resolves its cache root under `home`, given the
-/// variables `start` pins: macOS reads only HOME, and the other two
-/// platforms read the variable pinned here.
-fn cache_under(home: &Path) -> std::path::PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Caches")
-    } else {
-        home.join(".cache")
-    }
-}
-
-/// Where the binary resolves its config root under `home`, and so where it
-/// reads the extension registry.
-///
-/// Pinned for the reason the cache root is, and for one more: the registry
-/// decides which extensions the tool serves and names on its card, and a
-/// developer running this suite has a registry of their own. macOS reads
-/// only HOME; the other two platforms read a variable `start` pins.
-fn config_under(home: &Path) -> std::path::PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else {
-        home.join(".config")
-    }
-}
-
 /// Declare one extension on the machine `home` stands for, the way
 /// `ff extension add` records one.
 fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
@@ -105,8 +74,8 @@ fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
 
 /// [`declare`], with the manifest promising tools or not.
 fn declare_promising(home: &Path, name: &str, verbs: &[&str], undoable: bool, tools: bool) {
-    let dir = config_under(home).join("fufu");
-    std::fs::create_dir_all(&dir).expect("the config root");
+    let file = userdirs::registry(home);
+    std::fs::create_dir_all(file.parent().expect("parent")).expect("the config root");
     let verbs: Vec<Value> = verbs
         .iter()
         .map(|verb| json!({ "name": verb, "read_only": true }))
@@ -126,13 +95,13 @@ fn declare_promising(home: &Path, name: &str, verbs: &[&str], undoable: bool, to
             },
         }],
     });
-    std::fs::write(dir.join("extensions.json"), body.to_string()).expect("write the registry");
+    std::fs::write(&file, body.to_string()).expect("write the registry");
 }
 
 /// `<cache>/fufu/mcp/` under a scratch HOME, which holds a directory per
 /// client and a marker per server name inside it.
 fn marker_dir(home: &Path) -> std::path::PathBuf {
-    cache_under(home).join("fufu").join("mcp")
+    userdirs::cache_root(home).join("fufu").join("mcp")
 }
 
 /// One client's directory of markers.

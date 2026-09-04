@@ -4,13 +4,14 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
+use ff_testsupport::fixtures::null_device;
 
 fn ff_cfg(dir: &Path, args: &[&str], global: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
         .current_dir(dir)
         .args(args)
         .env("GIT_CONFIG_GLOBAL", global)
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("spawn ff")
@@ -332,7 +333,7 @@ fn update_check_syncs_cache() {
             .current_dir(dir)
             .args(args)
             .env("GIT_CONFIG_GLOBAL", global)
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", null_device())
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("XDG_CACHE_HOME", cache_home)
             .output()
@@ -570,7 +571,7 @@ fn ff_cfg_as_tool(dir: &Path, args: &[&str], global: &Path) -> Output {
         .current_dir(dir)
         .args(args)
         .env("GIT_CONFIG_GLOBAL", global)
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("FF_TOOL_CALL", "1")
         .output()
