@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Bare `ff` counts a parked change's untracked files, so the map's `(+ parked change, N)` and the number `ff switch` prints on arrival agree.
+
 ## v0.12.0 — 2026-09-04
 
 ### Added

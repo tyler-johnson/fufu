@@ -2,7 +2,7 @@
 $ ff
 @  <id> <sha>   <age> ago  ▸ [main]
 │  (no description)
-●  —        <sha>   <age> ago  ▸ [unicode-escapes]  (+ parked change, 1 file)
+●  —        <sha>   <age> ago  ▸ [unicode-escapes]  (+ parked change, 2 files)
 │  lexer: a token at a time
 ~
 

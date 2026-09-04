@@ -336,14 +336,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
         let parked = crate::stash::parked_entry(repo, name)
             .ok()
             .flatten()
-            .and_then(|stash_id| {
-                crate::stash::read_stash_commit(repo, stash_id)
-                    .and_then(|stash| {
-                        crate::changestat::tree_diff_stat(repo, stash.base_tree, stash.wip_tree)
-                    })
-                    .map(|stat| stat.files.len())
-                    .ok()
-            });
+            .and_then(|stash_id| crate::stash::parked_file_count(repo, stash_id).ok());
         let pending_description = crate::branchmeta::read(repo, name)?.pending_description;
         refs_by_tip.entry(*id).or_default().push(MapRef {
             name: name.clone(),

@@ -542,3 +542,44 @@ fn a_clean_open_change_says_no_changes_and_keeps_its_branch() {
         "the branch survives either way: {text:?}"
     );
 }
+
+/// A parked change is one change, so it is one number. The map counted only
+/// the tracked half of a park, so a branch carrying an edit and a new file
+/// read `(+ parked change, 1 file)` while `ff switch` back to it resumed
+/// `2 file(s)` — the same change, and the smaller number first.
+#[test]
+fn a_parked_change_counts_its_untracked_files_too() {
+    let fx = captured_repo();
+    fx.write("a.txt", "a\n");
+    ff_commit(&fx, "one");
+    fx.git(&["switch", "-c", "feature"]);
+    fx.write("b.txt", "b\n");
+    ff_commit(&fx, "two");
+
+    // The park's two halves: an edit to a tracked file, and a new one.
+    fx.write("b.txt", "edited\n");
+    fx.write("c.txt", "new\n");
+    let out = ff(&fx, &["switch", "main"]);
+    assert!(
+        out.status.success(),
+        "ff switch main: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let text = stdout(&ff(&fx, &[]));
+    let row = text
+        .lines()
+        .find(|line| line.split_whitespace().any(|token| token == "[feature]"))
+        .unwrap_or_else(|| panic!("a row naming feature: {text:?}"));
+    assert!(
+        row.contains("(+ parked change, 2 files)"),
+        "the parked row counts both halves: {text:?}"
+    );
+
+    // The claim is the agreement: arrival puts back what the map counted.
+    let text = stdout(&ff(&fx, &["switch", "feature"]));
+    assert!(
+        text.contains("resumed the parked change (2 file(s))"),
+        "and arrival says the same number: {text:?}"
+    );
+}

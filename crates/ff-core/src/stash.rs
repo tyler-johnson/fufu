@@ -7,6 +7,8 @@
 //! (`git stash drop/pop` outside fufu) demotes the parked ref — never lose
 //! work, never guess.
 
+use std::collections::BTreeSet;
+
 use crate::error::{Error, Result};
 use crate::model::HeadState;
 use crate::refs::{self, EditOutcome};
@@ -345,6 +347,23 @@ pub fn read_stash_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<St
         index_tree,
         untracked_tree,
     })
+}
+
+/// How many files a parked change carries: the tracked diff its wip tree
+/// makes against its base, plus the untracked files parked alongside it.
+/// The number `ff switch` prints on arrival, asked of the entry itself.
+pub fn parked_file_count(repo: &gix::Repository, stash: gix::ObjectId) -> Result<usize> {
+    let stash = read_stash_commit(repo, stash)?;
+    let mut paths: BTreeSet<String> =
+        crate::changestat::tree_diff_stat(repo, stash.base_tree, stash.wip_tree)?
+            .files
+            .into_iter()
+            .map(|file| file.path)
+            .collect();
+    for (path, _, _) in tree_files(repo, stash.untracked_tree)? {
+        paths.insert(path);
+    }
+    Ok(paths.len())
 }
 
 /// Whether `sha` is present in the stash reflog (any line's new value).
