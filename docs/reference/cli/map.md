@@ -2,19 +2,19 @@
 
 a friendlier interface to plain git
 
-fufu snapshots your working tree as you work — before every command it runs, before every git command you type through the alias, before every tool call your agent makes — so the last hour of work is always recoverable. Snapshots are ordinary git objects under refs/fufu/, beside your history rather than in it: nothing fufu stores reaches a remote, and nothing it stores needs fufu to read back.
+fufu snapshots your working tree as you work — before every command it runs, before every git command you type through the alias, before every tool call your agent makes — so the last hour of work is always recoverable. You never type a capture: every verb takes one first.
 
-Bare `ff` is the map: recent work across every branch, parked changes included — where you left things. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row.
+Snapshots are ordinary git objects under refs/fufu/, beside your history rather than in it: nothing fufu stores reaches a remote, and nothing it stores needs fufu to read back.
 
-History that relates only itself, like a merged-and-deleted branch, earns no row: the shape is the answer, and the shape is how the branches stand to each other.
+## What the map draws
 
-You never type a capture. Every verb takes one first.
+Bare `ff` is the map: recent work across every branch, parked changes included — where you left things. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row. History that relates only itself, like a merged-and-deleted branch, earns no row.
 
-Seven verbs take a short spelling too — st, ci, sw, br, ev, desc, cfg — for status, commit, switch, branch, evolog, describe, and config.
+## Spelling a command
 
-Every verb takes `-C <dir>` (`--cwd`) as well: run as if fufu had been started in `<dir>`, git's spelling of the same idea. It is a chdir, so a relative path argument after it reads from `<dir>` too, and any directory inside the repository you mean will do — a linked worktree included, which is how you ask one bay a question without leaving another.
-
-`ff <name>` runs `ff-<name>` from PATH when no verb matches, git-style. The child inherits three variables: FF_REPO, the worktree it was invoked against, unset outside one or in a bare repository; FF_CONTRACT, the version number every --json envelope carries; and FF_SESSION, the session tag when one is set.
+- Seven verbs take a short spelling: st, ci, sw, br, ev, desc, cfg — for status, commit, switch, branch, evolog, describe, and config.
+- Every verb takes `-C <dir>` (`--cwd`) as well: run as if fufu had been started in `<dir>`, git's spelling of the same idea. It is a chdir, so a relative path argument after it reads from `<dir>` too, and any directory inside the repository you mean will do — a linked worktree included, which is how you ask one worktree a question without leaving another.
+- `ff <name>` runs `ff-<name>` from PATH when no verb matches, git-style. The child inherits three variables: FF_REPO, the worktree it was invoked against; FF_CONTRACT, the version number every --json envelope carries; and FF_SESSION, the session tag when one is set.
 
 ## Usage
 

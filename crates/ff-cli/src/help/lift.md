@@ -2,6 +2,8 @@ The other direction of absorb: takes paths out of a commit that has already clos
 
 Everything above the target re-parents in the same operation, so a branch inside that range comes along with it. If the lift takes everything the commit held, the commit is dropped, because fufu writes no empty commit. What moves is the commit's identity and the stack above it; no file is copied or renamed in the re-point.
 
+### Branches stacked above
+
 The branches stacked on this one follow it. Once the lift has landed, every local branch whose base resolves to the rewritten branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the lift.
 
 A branch above whose replay conflicts is held on its own, with everything above it left alone, and the lift still lands; `ff status` shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named.

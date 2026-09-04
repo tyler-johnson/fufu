@@ -1,18 +1,20 @@
-Wires fufu into the agent clients and shells on this machine, so a snapshot lands before every tool call your agent makes, before every git command you type, and at every shell prompt. That is the difference between "the agent broke something" and "the agent broke something, and here is the tree from thirty seconds ago".
+Wires fufu into the agent clients and shells on this machine, so a snapshot lands before every tool call your agent makes, before every git command you type, and at every shell prompt. With none of them wired, fufu snapshots only when you type an ff command, and `ff doctor` warns that nothing is feeding capture.
 
-Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. The slugs are flat: claude, codex, cursor, gemini, bash, zsh, fish, powershell. `cursor` is the agent client — a future editor integration gets its own name. `powershell` writes `$PROFILE`, a `git` function and a wrapped `prompt`, for PowerShell 7 or Windows PowerShell 5.1.
+Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. The slugs are flat:
 
-What gets written depends on the client, and is not a choice you make: Claude Code takes a plugin directory fufu owns outright, the others take entries merged into their own settings file, and the shells take marked lines in an rc file. A line you wrote yourself is detected, reported, and never touched.
+```
+claude  codex  cursor  gemini  bash  zsh  fish  powershell
+```
 
-Claude Code and Codex take fufu's own skill along with the wiring: the manual for everything the once-per-session briefing has no room for — recovery, rewriting commits that have closed, held rewrites, the JSON. It costs the agent nothing until it is read. Claude's skill rides inside the plugin, so --settings wires capture and no skill.
+`cursor` is the agent client — a future editor integration gets its own name. `powershell` writes `$PROFILE`, a `git` function and a wrapped `prompt`, for PowerShell 7 or Windows PowerShell 5.1.
 
-An extension declared with `ff extension add` adds one line to the same briefing: the text its manifest carries, or whatever `ff-<name> briefing` prints when the briefing is built, run in the event's own directory with the three variables an extension is handed anywhere else.
+### What gets written
 
-The line rides the same boundaries fufu's own notice does and is capped at the same kind of budget, and an extension that is gone from PATH, broken, or slow contributes nothing and costs the briefing nothing.
+Not a choice you make. Claude Code takes a plugin directory fufu owns outright, the other three clients take entries merged into their own settings file, and the shells take marked lines in an rc file. A line you wrote yourself is detected, reported, and never touched.
 
-A declared extension's own skill files ship the same way fufu's does, for the same two clients: `skills/<name>/` beside `skills/fufu/`, read from wherever the manifest named them. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more.
+Claude Code and Codex also take fufu's skill — the manual for what the once-per-session briefing has no room for, from recovery to rewriting commits that have closed. Claude's skill rides inside the plugin, so --settings wires capture and no skill.
 
-A file the manifest names but that is missing, unreadable, or too large to be a manual is left out rather than failing the install. `ff hook --skill <name>` prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own.
+### The MCP server
 
 The four agent clients also get `ff mcp` registered as a server, so the agent can reach fufu as a typed tool:
 
@@ -25,11 +27,15 @@ gemini   mcpServers.fufu in settings.json
 
 The hook and the server do different jobs — the hook snapshots before every tool call, whatever the tool; the server only sees fufu verbs — so both are wired. A registration you wrote yourself is left alone.
 
-A declared extension whose manifest names a server of its own is registered beside fufu's in the same file, as `mcpServers.<name>` and as a second table inside Codex's one block, with whatever command, arguments and environment the manifest asked for. `ff unhook` takes them back together.
+### Declared extensions
 
-That is where an extension wanting what only a live process can hold goes — resources, a notification when state moves, a subscription; typed tools alone are the manifest's `tools` field and need no server. A registration under its name that you wrote yourself is left alone the same way.
+An extension declared with `ff extension add` rides along in three ways:
 
-Hooks are what make capture ambient instead of something you remember. With none of them wired, fufu snapshots only when you type an ff command — which works, and misses the whole point. `ff doctor` warns when nothing at all feeds capture, because a silent engine feels safe while capturing nothing.
+- One line on the same briefing: the text its manifest carries, or whatever `ff-<name> briefing` prints when the briefing is built. An extension that is gone from PATH, broken, or slow contributes nothing and costs the briefing nothing.
+- Its skill files, installed as `skills/<name>/` beside `skills/fufu/` for the same two clients. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more. A file the manifest names but that is missing, unreadable, or too large to be a manual is left out rather than failing the install.
+- Its own MCP server, when the manifest names one, registered beside fufu's as `mcpServers.<name>` and as a second table inside Codex's one block. A registration under its name that you wrote yourself is left alone the same way.
+
+`ff hook --skill <name>` prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own. `ff unhook` takes fufu's wiring and the extensions' back together.
 
 ## Examples
 

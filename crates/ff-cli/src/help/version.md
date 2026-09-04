@@ -1,12 +1,10 @@
-Which fufu this is: the full name, the release, and the commit and date it was built from, with the project's home under it. `ff` is two letters and not a searchable string, so the name and the URL go where a bug report gets pasted from.
+Which fufu this is: the full name, the release, and the commit and date it was built from, with the project's home under it.
 
 A build made without git available (a source tarball, a crates.io vendor, a docker context with no .git) names the release alone — there is no commit to name.
 
-The second half is whether it is the current one. The passive update lane already keeps the latest release in a cache on disk, so this reads it rather than the network: nothing here reaches out, and nothing here waits. A line appears only when a newer release is cached; up to date says nothing, because saying it every time teaches people to stop reading.
+Then whether it is the current one, read from the cache the passive update lane keeps rather than from the network: nothing here reaches out, and nothing here waits. A line appears only when a newer release is cached; up to date says nothing.
 
---json splits the line into fields — version, commit, date, and the update status — so a caller never takes the display string apart.
-
-There is one answer and two ways to type it: `ff -v` is the verb, spelled as a flag — it reads the update cache, says the "available" line, and takes --json exactly as the verb does.
+--json splits the line into fields — version, commit, date, and the update status. `ff -v` is the same answer spelled as a flag: it reads the update cache, says the "available" line, and takes --json exactly as the verb does.
 
 ## Examples
 
