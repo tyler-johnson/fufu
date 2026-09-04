@@ -1,6 +1,8 @@
 Every operation, newest first, wearing the ids the `ff op` verbs take. Every one: captures outnumber verb operations by more than an order of magnitude, and the log reports what happened rather than deciding what is worth reading. Narrowing is the expression's job — `ff op log 'kind(op)'` — and where you can go *back* to is `ff history`, which is a different question and has its own verb.
 
-The argument is the set language over operations: the same operators as `ff log`, reading the other address space, and positional here for the same reason an operation id is positional in `ff op show` — the position differs only in how many members it accepts. Ancestry follows the log, so `@^` is the operation before the newest and `::@` is the whole log. Operations bring three functions of their own — on_branch(), session() and kind() — and share latest(), heads() and roots(). Filtering to one session is `session(<name>)`, and that is the only session filter there is.
+The argument is the set language over operations: the same operators as `ff log`, reading the other address space, and positional here for the same reason an operation id is positional in `ff op show` — the position differs only in how many members it accepts.
+
+Ancestry follows the log, so `@^` is the operation before the newest and `::@` is the whole log. Operations bring three functions of their own — on_branch(), session() and kind() — and share latest(), heads() and roots(). Filtering to one session is `session(<name>)`, and that is the only session filter there is.
 
 --at-op and --at bound the walk at a past operation rather than the tip, so `ff op log --at 2h` is the log as it read two hours ago, and an expression alongside them is evaluated against that bounded log.
 

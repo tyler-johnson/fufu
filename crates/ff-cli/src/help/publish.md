@@ -2,7 +2,9 @@ Send this branch to its remote. The outgoing half of lining up, and the one thin
 
 There is a way back, and it is this verb rather than ff undo: undo the commit and publish again, and the lease rolls the shared copy back to where the branch now stands. That is not erasure — other clones may hold the commits, CI ran, a webhook fired — but the shared copy is yours to move, and fufu records every push so it knows which commits out there are your own.
 
-The push carries a lease: it goes through only if the shared copy still stands where you last saw it. If somebody pushed since, nothing is sent and nothing is lost — ff sync takes their work in first, and this sends afterwards. A branch with no shared copy yet gets one, tracking set up in the same step. One that was deleted is put back under a lease that says it must not exist; one that was never created is simply created, and telling those two apart is why fufu keeps a record of what it has sent.
+The push carries a lease: it goes through only if the shared copy still stands where you last saw it. If somebody pushed since, nothing is sent and nothing is lost — ff sync takes their work in first, and this sends afterwards.
+
+A branch with no shared copy yet gets one, tracking set up in the same step. One that was deleted is put back under a lease that says it must not exist; one that was never created is simply created, and telling those two apart is why fufu keeps a record of what it has sent.
 
 Publish does not fetch, on purpose. The lease is worth something precisely because it means the tip you last looked at; refreshing it first would ask git to guard you against a change you accepted without reading.
 

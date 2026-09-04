@@ -6,9 +6,15 @@ A replay that would conflict stops with nothing changed rather than leaving you 
 
 It is one operation — the amend, the replay and the return move together — so one [`ff undo`](undo.md) takes the whole session back.
 
-The branches stacked on the branch you land on follow it. Once the session has landed, every local branch whose base resolves to that branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the session. A branch above whose replay conflicts is held on its own, with everything above it left alone, and the session still lands; [`ff status`](status.md) shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named. Landing a resolution does the same from the branch the hold stood on, which is how the branches a hold stopped resume once it lands.
+The branches stacked on the branch you land on follow it. Once the session has landed, every local branch whose base resolves to that branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the session.
 
-The session's content is about to become the amended commit's content, so your `pre-commit` hook runs over it, and a hook that exits non-zero refuses the landing with the session still open. A session that also carries a new description runs the message hooks over that description. Landing a resolution — the `ff done` that finishes [`ff resolve`](resolve.md) — runs `pre-commit` too, the way `git rebase --continue` does. `--no-verify` skips them; `--abandon` runs none, since nothing is being committed.
+A branch above whose replay conflicts is held on its own, with everything above it left alone, and the session still lands; [`ff status`](status.md) shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named.
+
+Landing a resolution does the same from the branch the hold stood on, which is how the branches a hold stopped resume once it lands.
+
+The session's content is about to become the amended commit's content, so your `pre-commit` hook runs over it, and a hook that exits non-zero refuses the landing with the session still open. A session that also carries a new description runs the message hooks over that description.
+
+Landing a resolution — the `ff done` that finishes [`ff resolve`](resolve.md) — runs `pre-commit` too, the way `git rebase --continue` does. `--no-verify` skips them; `--abandon` runs none, since nothing is being committed.
 
 ## Usage
 

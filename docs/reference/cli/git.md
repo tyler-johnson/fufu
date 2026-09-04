@@ -2,7 +2,9 @@
 
 Snapshots first, then runs the git command. This is what the shell alias runs — `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md) — so typed git keeps working exactly as it did, and simply stops being able to lose anything.
 
-Nothing is ever translated: the command that runs is the one you typed, or none at all. What `fufu.gitPolicy` decides is what fufu *says* about a git word it has a verb for. observe records it and stays quiet. coach — the default — adds one line naming the fufu verb, once per word. strict refuses that word outright and says what to run instead; words fufu has no verb for (`apply`, `bisect`, `gc`) are never touched under any tier, so the escape hatch stays open.
+Nothing is ever translated: the command that runs is the one you typed, or none at all. What `fufu.gitPolicy` decides is what fufu *says* about a git word it has a verb for.
+
+observe records it and stays quiet. coach — the default — adds one line naming the fufu verb, once per word. strict refuses that word outright and says what to run instead; words fufu has no verb for (`apply`, `bisect`, `gc`) are never touched under any tier, so the escape hatch stays open.
 
 The same setting governs raw git in an agent's own shell, through the hook: there coach injects the alternative into the model's context and strict asks the client to stop the call.
 

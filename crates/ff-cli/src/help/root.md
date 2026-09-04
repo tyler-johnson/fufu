@@ -2,7 +2,9 @@ a friendlier interface to plain git
 
 fufu snapshots your working tree as you work — before every command it runs, before every git command you type through the alias, before every tool call your agent makes — so the last hour of work is always recoverable. Snapshots are ordinary git objects under refs/fufu/, beside your history rather than in it: nothing fufu stores reaches a remote, and nothing it stores needs fufu to read back.
 
-Bare `ff` is the map: recent work across every branch, parked changes included — where you left things. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row. History that relates only itself, like a merged-and-deleted branch, earns no row: the shape is the answer, and the shape is how the branches stand to each other.
+Bare `ff` is the map: recent work across every branch, parked changes included — where you left things. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row.
+
+History that relates only itself, like a merged-and-deleted branch, earns no row: the shape is the answer, and the shape is how the branches stand to each other.
 
 You never type a capture. Every verb takes one first.
 
