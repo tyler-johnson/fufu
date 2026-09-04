@@ -2,7 +2,11 @@
 
 **A script, a CI job, or an agent calling `ff` is a first-class reader: every reader takes `--json`, every failure carries a stable id, and every exit code means one thing.**
 
-A verb computes one data model, and the human rendering and the JSON rendering are both consumers of it, never translations of each other. `--json` is therefore not the human layout re-serialized: [`ff status`](../reference/cli/status.md) crops to what an eye wants, while its JSON carries the model whole — the full change list, the [open change](../concepts/changes.md), the parent commit, the sync futures. This is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
+A verb computes one data model, and the human rendering and the JSON rendering are both readers of it. Neither is a translation of the other.
+
+So `--json` is not the human layout re-serialized. [`ff status`](../reference/cli/status.md) crops to what an eye wants, while its JSON carries the model whole: the full change list, the [open change](../concepts/changes.md), the parent commit, the sync futures.
+
+That is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
 
 Every transcript below is real `ff` output. Where one is piped through `jq .`, that is for the page's eye — the actual emission is always a single line.
 
@@ -24,9 +28,15 @@ $ echo $?
 2
 ```
 
-`error.id` is the stable machine name: prose gets reworded, ids do not, so a script branches on the id and never matches a sentence. `error.exits` is the same block the human rendering prints — the commands somebody would type next — handed to the machine as data. [`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand. [The error id index](../reference/errors.md) lists every id with its exit code, and `ff explain --list` prints the same table from the binary.
+`error.id` is the stable machine name. Prose gets reworded and ids do not, so a script branches on the id and never matches a sentence. `error.exits` is the same block the human rendering prints — the commands somebody would type next — handed over as data.
 
-What is promised: within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know. A change that breaks an existing field is what bumps the `ff` number, which is why a strict consumer asserts it before parsing. The human rendering promises none of this — layout, wording, and color are free to change in any release.
+[`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand. [The error id index](../reference/errors.md) lists every id with its exit code, and `ff explain --list` prints the same table from the binary.
+
+Here is what is promised. Within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know.
+
+A change that breaks an existing field is what bumps the `ff` number, which is why a strict consumer asserts it before parsing.
+
+The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
 Timestamps are unix seconds, always named `time`. Commit ids are hex; operation ids are spelled in the letters k–z, never hex — see [Snapshots and undo](../concepts/snapshots-and-undo.md) for why the two address spaces never mix.
 
@@ -89,7 +99,15 @@ $ ff status --json | jq .
 }
 ```
 
-Reading it: `changes` is every uncommitted path with per-file counts — `kind` is `modified`, `added`, `deleted`, `renamed` or `copied` (those two with `from` carrying the source path), `type_change`, or `intent_to_add`, and `binary` marks files whose counts are not line counts. `open` is the open change: `clean` says whether the tree matches the commit beneath it, `id_letters` is the operation id of the capture holding its current state, and `pending` is the pending description commit when one exists. `futures` carries the sync verdicts the human header compresses into one line — each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`. `upstream`, when a remote tracking branch exists, carries `ahead`, `behind`, and `gone`. `foreign`, `held`, and `resolving` are null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open — a script that checks those three fields before acting knows whether the repository needs a human first.
+Reading it:
+
+- **`changes`** — every uncommitted path with per-file counts. `kind` is `modified`, `added`, `deleted`, `renamed` or `copied` (those two carry the source path in `from`), `type_change`, or `intent_to_add`. `binary` marks files whose counts are not line counts.
+- **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `id_letters` is the operation id of the capture holding its current state, and `pending` is the pending description commit when one exists.
+- **`futures`** — the sync verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
+- **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
+- **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open.
+
+A script that checks those last three fields before acting knows whether the repository needs a human first.
 
 ## `ff log --json`
 
@@ -142,7 +160,11 @@ $ ff history --json | jq -c '.data.steps[]'
 {"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","landing":"undo","kind":"note","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"collapsed":1,"distance":4}
 ```
 
-`landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo — redo rows carry negative `distance`, so `distance` alone says how many presses in which direction. `collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, `note` records something that moved no tree — a publish, the log's floor. The envelope also carries `data.floor`, true when the log bottoms out at the initialized-from-observed-state entry. Every `id` here is a valid argument to the [`ff op`](../reference/cli/op.md) verbs.
+`landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo. Redo rows carry negative `distance`, so `distance` alone says how many presses in which direction.
+
+`collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, and `note` records something that moved no tree, such as a publish or the log's floor.
+
+The envelope also carries `data.floor`, true when the log bottoms out at the initialized-from-observed-state entry. Every `id` here is a valid argument to the [`ff op`](../reference/cli/op.md) verbs.
 
 ## Exit codes
 
@@ -156,7 +178,13 @@ Five codes, one meaning each:
 | 3 | held — a human decision is required, and the branch that held was not touched |
 | 4 | contended — nothing was touched, and the same command run again is the answer |
 
-The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1. Exit 3 is the code git has no use for, because only a tool with land-if-clean produces the outcome: [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry. Exit 4 asks the opposite: another writer held the ref for a moment, so retry the same command, with a cap, because a lock file nobody clears gives the same answer every time. [`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict — 0 healthy, 1 findings — so CI can gate on it.
+The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1.
+
+Exit 3 is the code git has no use for, because only a tool that lands if clean produces the outcome. [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
+
+Exit 4 asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
+
+[`ff doctor`](../reference/cli/doctor.md) uses 1 as its verdict, 0 healthy and 1 findings, so CI can gate on it.
 
 Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses any git word fufu has a verb for, before the capture and before anything runs:
 
@@ -190,7 +218,19 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
  "isError": true}
 ```
 
-The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it. `isError` follows the exit code: false on 0, true on anything else, and a fufu failure is a *successful* tool call carrying it, never a protocol error, because a client renders a protocol error opaquely and the `error.id` inside is what the agent has to read. The exit-code rules restate as tool rules: an id under `held/*` means nothing moved and a person is needed, so the agent stops and says so; `ref/contended` means the same call run once more. A `help` call returns the page as text with no structured content, and the verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp`, and `extension` — answer with `usage/mcp-verb-unavailable`. A declared extension is relayed the way a verb is; an undeclared one answers with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, and a declared one whose manifest says `undoable: false` with `usage/mcp-extension-not-undoable`, which costs it the args array and not the tools it produces. An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations. Beside the one tool the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools); the args array stays the route for every verb, an extension's included. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
+The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it.
+
+`isError` follows the exit code: false on 0, true on anything else. A fufu failure is a *successful* tool call carrying it, never a protocol error — a client renders a protocol error opaquely, and the `error.id` inside is what the agent has to read.
+
+The exit-code rules restate as tool rules. An id under `held/*` means nothing moved and a person is needed, so the agent stops and says so. `ref/contended` means the same call run once more.
+
+A `help` call returns the page as text with no structured content. The verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp`, and `extension` — answer with `usage/mcp-verb-unavailable`.
+
+A declared extension is relayed the way a verb is. An undeclared one answers with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`. A declared one whose manifest says `undoable: false` answers with `usage/mcp-extension-not-undoable`, which costs it the args array and not the tools it produces.
+
+An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations.
+
+Beside the one tool, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools). The args array stays the route for every verb, an extension's included. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
 
 While the server is up for a Claude Code session, `fufu.toolPolicy` (default `strict`) refuses an `ff` the agent runs through its shell tool instead, on the hook's `PreToolUse` channel. The refusal is the same JSON shape as `gitPolicy`'s, and its reason names the tool and carries the `args` to call it with, so the agent can rewrite the call without a lookup:
 
@@ -199,21 +239,51 @@ While the server is up for a Claude Code session, `fufu.toolPolicy` (default `st
  "permissionDecisionReason": "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool (mcp__plugin_fufu_fufu__ff) with {\"args\":[\"status\"]} instead of running ff in the shell — load the tool's schema first if it is deferred"}}
 ```
 
-`--json` is dropped from the args, since the tool adds it. What the refusal speaks to is the args array, the one route it can name: a builtin verb and a declared extension are both refused and pointed at the tool, while the seven shell-only verbs pass, and so does any `ff <name>` the args array will not carry — one nobody declared, and one declaring `undoable: false`. A non-undoable extension passes there even when it produced tools of its own: the registry records that it promised tools and never which verb each one covers, and a refusal naming a `<name>__<verb>` that is not there would leave the verb nowhere to run. A declared extension's refusal names it, so an agent can tell it from the undeclared one beside it. Nothing is said at all when no server is serving that client.
+`--json` is dropped from the args, since the tool adds it.
+
+What the refusal speaks to is the args array, the one route it can name. A builtin verb and a declared extension are both refused and pointed at the tool. The seven shell-only verbs pass, and so does any `ff <name>` the args array will not carry: one nobody declared, and one declaring `undoable: false`.
+
+A non-undoable extension passes even when it produced tools of its own. The registry records that it promised tools and never which verb each one covers, so a refusal naming a `<name>__<verb>` that is not there would leave the verb nowhere to run.
+
+A declared extension's refusal names it, so an agent can tell it from the undeclared one beside it. Nothing is said at all when no server is serving that client.
 
 ## Extensions
 
 `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, which is git's own extension model. There are two kinds of extension, and what separates them is not what one is allowed to do — it is what fufu will say about it.
 
-An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and execs: `FF_REPO` is the worktree it was invoked against, absolute with symlinks resolved and forward slashes, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set. Nothing else passes, and fufu says nothing about the verb — the tool refuses it with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, it is not on the tool's card, and `ff help <name>` does not reach it. Under `fufu.toolPolicy=strict` the shell refusal lets `ff <name>` through, because a shell is the only place an undeclared extension runs.
+An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
 
-A **declared** extension is one somebody registered with [`ff extension add <name>`](../reference/cli/extension-add.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory — per machine rather than per repository, since the binary is on PATH and declaring it is a decision about the machine. A declared extension is handed the same three variables, and declaring adds none. What declaring buys is that fufu will describe it to an agent: the MCP tool serves its verbs, the card names them, `ff help <name>` and `ff explain <name>/<id>` delegate to the binary, its briefing line rides fufu's, its skills install beside fufu's, the neutral agent event fans out to it, and an MCP server of its own registers beside fufu's. The card's line is `Extensions: tower (next, file, done, …)`, built from the manifest's verb list and capped in every direction — how many extensions get named, how many verbs each, and the length of the line — because the card has about two thousand characters to fit in and a registry is a person's file with nothing in fufu bounding it. An extension the cap left off is served exactly as one on the line. Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way it fires for a builtin verb, and names the extension, because the tool is now where the verb answers — unless the manifest says `undoable: false`, which the args array will not carry and the shell therefore keeps. [`ff extension`](../reference/cli/extension.md) is itself one of the verbs the tool does not offer: the registry is the allowlist for all of that, so an agent must not be able to write it through the tool. `ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
+Nothing else passes, and fufu says nothing about the verb. The tool refuses it with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, it is not on the tool's card, and `ff help <name>` does not reach it.
 
-An extension that fufu serves owes more than a binary on PATH does: it prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. Beyond that it answers a manifest handshake, and may also answer a tool-list handshake, produce a briefing line, ship skills, and subscribe to the agent event that fans out after each capture. [Extensions](../reference/extensions.md) is the reference for building one, and types every field of all of it.
+Under `fufu.toolPolicy=strict` the shell refusal lets `ff <name>` through, because a shell is the only place an undeclared extension runs.
+
+A **declared** extension is one somebody registered with [`ff extension add <name>`](../reference/cli/extension-add.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory.
+
+The record is per machine rather than per repository, since the binary is on PATH and declaring it is a decision about the machine. A declared extension is handed the same three variables, and declaring adds none.
+
+What declaring buys is that fufu will describe it to an agent. The MCP tool serves its verbs, the card names them, `ff help <name>` and `ff explain <name>/<id>` delegate to the binary, its briefing line rides fufu's, its skills install beside fufu's, the neutral agent event fans out to it, and an MCP server of its own registers beside fufu's.
+
+The card's line is `Extensions: tower (next, file, done, …)`, built from the manifest's verb list and capped in every direction: how many extensions get named, how many verbs each, and the length of the line. The card has about two thousand characters to fit in, and a registry is a person's file with nothing in fufu bounding it. An extension the cap left off is served exactly as one on the line.
+
+Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way it fires for a builtin verb, and names the extension, because the tool is now where the verb answers. The exception is a manifest saying `undoable: false`, which the args array will not carry and the shell therefore keeps.
+
+[`ff extension`](../reference/cli/extension.md) is itself one of the verbs the tool does not offer. The registry is the allowlist for all of the above, so an agent must not be able to write it through the tool.
+
+`ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
+
+An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position.
+
+Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, produce a briefing line, ship skills, and subscribe to the agent event that fans out after each capture.
+
+[Extensions](../reference/extensions.md) is the reference for building one, and types every field of all of it.
 
 ## Piped output never pages
 
-The log family — [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human. Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes. Color follows the same discipline: ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.
+The log family — [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), `ff op log` — pages on a terminal, git-style: `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. A pager spawns only when stdout is a real TTY and the view is human.
+
+Piped output and `--json` never page, so a script never needs `| cat`, never inherits a hung `less`, and never sees pager chrome in its bytes.
+
+Color follows the same discipline. ANSI is emitted only where a terminal will read it, and `NO_COLOR` is honored, so piped human output is plain text.
 
 ## Detecting fufu programmatically
 
@@ -230,7 +300,9 @@ $ echo $?
 
 In a git repository, the readers simply work — fufu arms itself on first contact, and the operation log's first entry is the floor operation `operation log initialized from observed state; earlier operations not undoable`. Whether the safety net is actually wired in — hooks installed, gc guard set, reflogs present — is [`ff doctor --json`](../reference/cli/doctor.md)'s question, and its exit code is the verdict.
 
-An extension gets the answers handed to it: `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, and the child inherits `FF_REPO` (the worktree it was invoked against, unset outside one), `FF_CONTRACT` (the envelope version it is about to parse), and `FF_SESSION` (the session tag when one is set) — [Extensions](#extensions) has the two kinds and the contract a declared one answers in. For the repository root in any other context, `ff git rev-parse --show-toplevel` is the passthrough spelling.
+An extension gets the answers handed to it. `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, and the child inherits `FF_REPO` (the worktree it was invoked against, unset outside one), `FF_CONTRACT` (the envelope version it is about to parse), and `FF_SESSION` (the session tag when one is set).
+
+[Extensions](#extensions) has the two kinds, and [the reference page](../reference/extensions.md) has the contract a declared one answers in. For the repository root in any other context, `ff git rev-parse --show-toplevel` is the passthrough spelling.
 
 ## Reading the operation log from a script
 
@@ -279,7 +351,9 @@ $ ff op show ksrn --json | jq .
 }
 ```
 
-From there the rest of the family acts on the same ids: [`ff op restore <id>`](../reference/cli/op-restore.md) rewinds the whole repository to one, [`ff op diff`](../reference/cli/op-diff.md) compares two, and `--at-op <id>` on the verbs that take it reads a path as it stood at one — which is also the only place an operation id is legal outside the `ff op` family, because operations and revisions are separate address spaces and passing one where the other belongs is a refused error, not a convenience.
+From there the rest of the family acts on the same ids. [`ff op restore <id>`](../reference/cli/op-restore.md) rewinds the whole repository to one, [`ff op diff`](../reference/cli/op-diff.md) compares two, and `--at-op <id>` on the verbs that take it reads a path as it stood at one.
+
+`--at-op` is also the only place an operation id is legal outside the `ff op` family. Operations and revisions are separate address spaces, and passing one where the other belongs is a refused error rather than a convenience.
 
 ### Sessions: tagging work, and asking about it
 
@@ -293,4 +367,6 @@ $ ff op log 'session(flight-3)' --json | jq -c '.data.ops[]'
 
 `kind(capture)`, `kind(op)`, and the rest of the grammar compose the same way, so "everything agent flight-3 did that was a real verb" is one expression. Two agents interleaving in one repository stay separable forever, because the tag rides each operation rather than a range between two points.
 
-For a consumer that wants the log pushed rather than polled, [`ff watch`](../reference/cli/watch.md) streams it: one JSON object per line as operations land, opening on a `start` line naming the tip, with `--session` and `--kind` filters and `--all` to merge every worktree into one stream. It is a foreground process you started, not a daemon, and when a trim rewrites the log under it the stream says so and exits 1 — every id you were holding stopped resolving, so reconnect rather than carry on.
+For a consumer that wants the log pushed rather than polled, [`ff watch`](../reference/cli/watch.md) streams it: one JSON object per line as operations land, opening on a `start` line naming the tip. `--session` and `--kind` filter it, and `--all` merges every worktree into one stream.
+
+It is a foreground process you started, not a daemon. When a trim rewrites the log under it, the stream says so and exits 1 — every id you were holding stopped resolving, so reconnect rather than carry on.
