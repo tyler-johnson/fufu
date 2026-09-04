@@ -11,7 +11,7 @@ The once-per-session briefing already gave the agent four verbs and the git rule
 
 ## The tool
 
-When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words: every command on this page is `{"args": […]}` with the leading `ff` dropped, `--json` is added for you, and the envelope described under Machine surface comes back as structured content with `isError` following the exit code. No quoting, no pager, and nothing can prompt. Seven verbs stay in the shell, because each owns its stream, wires the machine, or decides what fufu vouches for: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, `ff mcp`, and `ff extension`; the tool refuses them with `usage/mcp-verb-unavailable`. While the tool is up, `fufu.toolPolicy` refuses every other `ff` run in the shell and names the call to make instead; those seven are the exception.
+When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words, so every command on this page translates by dropping the leading `ff`. No quoting, no pager, and nothing can prompt. Seven verbs stay in the shell, because each owns its stream, wires the machine, or decides what fufu vouches for: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, `ff mcp`, and `ff extension`; the tool refuses them with `usage/mcp-verb-unavailable`. A write to `fufu.gitPolicy` or `fufu.toolPolicy` is refused the same way, `usage/mcp-policy-write`: an agent cannot lower the tier policing it.
 
 ## The model
 
@@ -83,23 +83,24 @@ Find the id first — `ff history` for undo steps, `ff evolog` for the open chan
 
 ## Rewriting
 
-Descendants rebase automatically. Every verb here is one operation, so one `ff undo` takes the whole thing back.
+Descendants rebase automatically, on both axes: the commits above the one you touched re-parent, and every local branch whose base is the branch that moved is replayed onto its new tip, parent before child, through the whole tree. It all rides the verb's one operation, so one `ff undo` takes it back.
 
 - `ff edit <rev>` opens an editing session on a commit: a branch is minted there and you switch to it, so the commit's real content is what your toolchain sees. The branch you came from stays where it stands, its commits waiting ahead. Your open change parks and returns when the session ends.
 - `ff done` amends the commit with what the worktree now holds, replays what waited onto it, and lands you back. `ff done --abandon` drops the session instead, stashing rather than discarding what is uncommitted.
-- `ff restack` replays a branch's commits onto the base it sits on. It takes a branch name, so a branch you are not standing on restacks without touching a file on disk.
+- `ff restack` replays a branch's commits onto the base it sits on, and the branches stacked on it follow onto its new tip. It takes a branch name, so a branch you are not standing on restacks without touching a file on disk.
 - `ff restack --onto <branch>` records a new parent first. This is the only way to re-aim a branch. A base is a branch wherever it lives, so `origin/main` names one too.
 
-A replay that would conflict stops with nothing changed rather than leaving a half-finished rebase on disk.
+A replay that would conflict stops with nothing changed rather than leaving a half-finished rebase on disk. In the cascade that is per branch: a branch above whose replay conflicts is held on its own, everything above it is left alone, the rest still lands, and the exit is 3.
 
 ## Held rewrites and conflicts
 
-A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb that hit it recorded a hold in the branch's metadata and moved nothing. `ff status` reports it, and `ff publish` refuses to send while one stands.
+A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb that hit it recorded a hold in the branch's metadata and wrote nothing there; when it is a branch the cascade reached, the operation landed and that branch alone stayed put. `ff status` reports it, `ff publish` refuses to send while one stands, and a hold on a branch above takes `ff switch <branch>` to reach.
 
 - `ff resolve` materializes every surviving conflict region into the working tree at once, as ordinary labeled markers. Nothing moves — the branch stays, a parked change keeps waiting. Fix the markers, then `ff done` lands the rewrite behind them.
 - If the world has moved and the rewrite now applies cleanly, `ff resolve` releases the hold instead, and re-running the verb that recorded it lands it.
 - `ff resolve --abandon` drops the hold, and an open session's markers with it.
 - Either way, the way back is one `ff undo`.
+- A cascade leaves alone, and names, a branch checked out in another worktree, one already holding a rewrite, and one whose commits hold a merge. `ff restack <branch>` replays it once it is free.
 
 ## Branches, parking, worktrees
 
@@ -111,7 +112,7 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 
 ## Remotes
 
-- `ff sync` fetches, takes in whatever arrived, and replays onto the base. Nothing leaves the machine, and everything it does is undoable. A replay that conflicts holds.
+- `ff sync` is the whole repository, not the branch you stand on: one fetch, then every local branch lined up with both things it answers to — the shared copy of itself and the base it sits on — parent before child, cascading as it goes. Nothing leaves the machine, and the whole run is one `ff undo` away. A branch whose replay conflicts holds and the run continues; exit 3 says one did.
 - `ff publish` sends the branch under a lease: the push goes through only if the shared copy still stands where you last saw it. It does not fetch first, on purpose. It is the one thing fufu does that no operation log can take back, which is why it is a verb you type rather than a step riding inside another.
 - `ff publish -n` says which of the four pushes this would be — create, replace, restore a deleted copy, or roll one back — while the answer still costs nothing.
 - `ff publish --to <remote>` records which remote a branch answers to, once.
@@ -119,11 +120,9 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 
 ## Landmines
 
-- **Do not stage.** `ff git add`, `ff git reset`, and `ff git stash` fight the model rather than extending it. Path-limited `ff commit` replaces `add -p`; `ff switch <branch>` replaces stash; `ff restore <path>` replaces `checkout --`.
-- **Do not reach for `git rebase -i`.** `ff edit <rev>` with `ff done`, `ff absorb`, `ff lift`, and `ff describe <rev>` cover splitting, squashing, reordering, and rewording, and each is one undoable operation.
-- **`ff git <args…>` is the escape hatch, not the default.** It snapshots and then runs git verbatim, so it is always safe, but a fufu verb that covers the same ground keeps the operation on the log where undo can reach it. Use it for what fufu genuinely does not do — `bisect`, `grep`, `tag`, `show HEAD:file`.
+- **Neither staging nor `rebase -i` has a place here.** `ff commit <path>`, `ff switch <branch>`, and `ff restore <path>` cover `add -p`, stash, and `checkout --`; `ff edit <rev>` with `ff done`, `ff absorb`, `ff lift`, and `ff describe <rev>` cover splitting, squashing, reordering, and rewording.
 - **Only fufu writes fufu state.** Never hand-edit `refs/fufu/*`. Extensions read fufu state and call fufu verbs.
-- **A conflict is never left half-applied.** If a verb reports a hold, the repository did not move; do not go looking for a rebase to continue.
+- **A conflict is never left half-applied.** A hold means nothing was written on the branch it names, so there is no rebase in progress to go looking for.
 
 ## Raw git, and what fufu says about it
 
@@ -133,7 +132,7 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 - **coach** (the default) — names the fufu verb the first time each git word comes up in a session. `git commit` earns `ff commit`, `git stash` earns `ff switch <branch>`, `git push` earns `ff publish`.
 - **strict** — refuses those words and says what to run instead. `ff git commit` exits 2 rather than running, and an agent's raw `git commit` is denied before it starts.
 
-Only the git words fufu actually has a verb for are ever touched. `git apply`, `git bisect`, `git gc`, `git show HEAD:file` and the rest run capture-first under every tier, which is what keeps `ff git <args…>` an honest escape hatch. So does anything fufu cannot read with certainty: a compound command, a `git` behind `sudo`, a `-C` naming another repository — those pass through untouched, counted or not.
+Only the git words fufu actually has a verb for are ever touched; everything else, and anything fufu cannot read with certainty, runs capture-first under every tier, which is what keeps `ff git <args…>` an honest escape hatch.
 
 `ff doctor` reports what the lane has seen. `ff config gitPolicy <tier>` moves it.
 
@@ -155,7 +154,7 @@ Every verb takes `--json` and emits a versioned envelope, `{"ff": 1, "cmd": "sta
 - `ff explain <id>` looks up an error id; `ff explain --list` shows them all.
 - `ff config` lists every setting with its value and default, validated through the readers' own parsers. Storage is plain git config under `fufu.*`.
 - `ff doctor` reads the whole safety net in one pass and exits 1 on findings, so CI can gate on it. It is read-only except `--fix`.
-- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`.
+- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`. `ff extension add <name>` records what `ff-<name>` says it is, and declaring it is what makes fufu describe the verb to an agent everywhere it already speaks — the briefing, `ff explain`, `ff doctor`, and the tool.
 
 ## The authority
 
