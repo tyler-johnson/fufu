@@ -1,4 +1,4 @@
-Every operation on the change you have open, newest first — the drill-in behind the letters column in `ff log`. This is where a lost hour is found: each row is a whole worktree, and `ff restore --at-op <id>` brings any of them back.
+Every operation on the change you have open, newest first — the drill-in behind the letters column in `ff log`. This is where a lost hour is found: each row is a whole worktree, and `ff restore --at-op <id>` brings any of them back. `ff ev` is the short spelling.
 
 Because fufu captures before it works, the newest row is often this command's own capture, taken a moment ago when it found the tree dirty. That is intended.
 

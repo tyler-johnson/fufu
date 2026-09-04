@@ -1,6 +1,6 @@
 # ff config
 
-No subcommands — arity decides. Bare `ff config` lists every setting with its value, its meaning, and a (default) marker. A key alone gets it; a key plus a value sets it; --unset returns it to the default; --global widens the set or unset to every repo.
+No subcommands — arity decides. Bare `ff config` lists every setting with its value, its meaning, and a (default) marker. A key alone gets it; a key plus a value sets it; --unset returns it to the default; --global widens the set or unset to every repo. `ff cfg` is the short spelling.
 
 Storage is plain git config under `fufu.<key>`, so `git config fufu.keep` and fufu can never disagree, and precedence is git's own. Values here are validated through the readers' own parsers before anything touches disk — a reader falls back to its default on a value it cannot read, so a typo'd setting looks set and does nothing.
 

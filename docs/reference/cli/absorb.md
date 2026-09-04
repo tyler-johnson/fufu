@@ -1,6 +1,6 @@
 # ff absorb
 
-Folds the open change into a commit that has already closed — the revision you name, or the one it sits on when you name none. An absorb does not attribute hunks: the change is the unit, and a path filter only chooses which of its files fold in, leaving the rest open.
+Folds the open change into a commit that has already closed — the revision you name, or the one it sits on when you name none. An absorb does not attribute hunks: the change is the unit, and a path filter only chooses which of its files fold in, leaving the rest open. `ff squash` is jj's name for the move, and an alias here.
 
 Everything above the target re-parents in the same operation, so a branch inside that range comes along with it. What moves is the commit's identity and the stack above it; no file is copied or renamed in the re-point.
 

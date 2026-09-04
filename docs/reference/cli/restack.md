@@ -1,6 +1,6 @@
 # ff restack
 
-Replays a branch's commits onto the base it sits on — the branch it was forked from when one was recorded, trunk otherwise. `--onto` records a new parent first, which is how a branch is re-aimed and the only way to change it. A base is a branch wherever it lives: `origin/main` names one that lives on a remote, and re-aiming at it records it like any other.
+Replays a branch's commits onto the base it sits on — the branch it was forked from when one was recorded, trunk otherwise. `--onto` records a new parent first, which is how a branch is re-aimed and the only way to change it. A base is a branch wherever it lives: `origin/main` names one that lives on a remote, and re-aiming at it records it like any other. `ff rebase` is an alias: jj's word, and the git habit, land here.
 
 The positional names the branch being moved, so a branch you are not standing on restacks without touching a file on disk. Offline: it never reaches the network.
 

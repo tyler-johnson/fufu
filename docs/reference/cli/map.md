@@ -12,7 +12,7 @@ Bare `ff` is the map: recent work across every branch, parked changes included �
 
 ## Spelling a command
 
-- Seven verbs take a short spelling: st, ci, sw, br, ev, desc, cfg — for status, commit, switch, branch, evolog, describe, and config.
+- A row's `[alias: …]` is a second spelling of the same verb: the short forms (st, ci, sw, br, ev, desc, cfg), and jj's names where a fufu verb is what jj's means — new, bookmark, workspace, squash, rebase. jj's abandon and split are answered with the moves that cover them.
 - Every verb takes `-C <dir>` (`--cwd`) as well: run as if fufu had been started in `<dir>`, git's spelling of the same idea. It is a chdir, so a relative path argument after it reads from `<dir>` too, and any directory inside the repository you mean will do — a linked worktree included, which is how you ask one worktree a question without leaving another.
 - `ff <name>` runs `ff-<name>` from PATH when no verb matches, git-style. The child inherits three variables: FF_REPO, the worktree it was invoked against; FF_CONTRACT, the version number every --json envelope carries; and FF_SESSION, the session tag when one is set.
 

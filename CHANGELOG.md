@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- jj's names are aliases where a fufu verb is what jj's means: `ff bookmark` is `ff branch`, `ff workspace` is `ff worktree`, `ff squash` is `ff absorb`, and `ff rebase` is `ff restack`, beside the `ff new` that `ff start` already had.
+- `ff abandon` and `ff split`, jj's two words with no one verb here, are answered with `usage/foreign-verb` naming the moves that cover them.
+
+### Changed
+
+- Every alias is visible: `ff --help` shows `[alias: st]` on the verb's row, and each aliased verb's page names its spellings. The root page's list of short forms goes.
+- `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
+- A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
+
 ## v0.12.1 — 2026-09-04
 
 ### Fixed

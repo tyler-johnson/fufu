@@ -1,6 +1,6 @@
 # ff branch
 
-Bookkeeping for lines of work: [`ff branch list`](branch-list.md) says what exists and [`ff branch delete`](branch-delete.md) takes one away. Bare `ff branch` is the list.
+Bookkeeping for lines of work: [`ff branch list`](branch-list.md) says what exists and [`ff branch delete`](branch-delete.md) takes one away. Bare `ff branch` is the list. `ff br` is the short spelling, and `ff bookmark` is jj's name for the same verb.
 
 Naming is not here. [`ff describe -b <name>`](describe.md) names the branch you are on, on the same axis as -m — one verb for saying what work is, whether the subject is the change's description or the branch's name.
 

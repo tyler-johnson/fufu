@@ -1,6 +1,6 @@
 # ff status
 
-Where you are and what is uncommitted: the branch, its upstream, the open change, and the files that differ from the commit underneath it.
+Where you are and what is uncommitted: the branch, its upstream, the open change, and the files that differ from the commit underneath it. `ff st` is the short spelling.
 
 The files are a diffstat — counts, not content. [`ff diff`](diff.md) is the same change read down to the line, and it sees the untracked files `git diff` does not.
 

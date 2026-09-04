@@ -120,7 +120,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/bad-session` | 2 | that is not a usable session name |
 | `usage/bad-value` | 2 | the value did not parse as this setting's type |
 | `usage/collide-same-branch` | 2 | collide was given one branch twice |
-| `usage/foreign-verb` | 2 | that is a git verb fufu answers rather than runs |
+| `usage/foreign-verb` | 2 | that is a git or jj verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
 | `usage/lift-from-open` | 2 | lift was named the open change as its source |
 | `usage/mcp-extension-not-undoable` | 2 | that extension declares undoable: false, and the args array cannot relay it |

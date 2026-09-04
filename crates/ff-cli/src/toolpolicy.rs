@@ -452,6 +452,7 @@ mod tests {
     fn an_alias_a_foreign_verb_and_help_are_builtins() {
         assert_eq!(words("ff st"), some(&["st"]));
         assert_eq!(words("ff ci -m x"), some(&["ci", "-m", "x"]));
+        assert_eq!(words("ff bookmark"), some(&["bookmark"]));
         assert_eq!(words("ff push"), some(&["push"]));
         assert_eq!(words("ff help status"), some(&["help", "status"]));
     }

@@ -89,6 +89,24 @@ Deferral only works because jj paired it with relentless disclosure, and held re
 
 [Held rewrites](../concepts/held-rewrites.md) has the full model.
 
+## Typing jj's words
+
+Most of jj's vocabulary types as it is. [`ff log`](../reference/cli/log.md), [`ff show`](../reference/cli/show.md), [`ff diff`](../reference/cli/diff.md), [`ff describe`](../reference/cli/describe.md), [`ff edit`](../reference/cli/edit.md), [`ff restore`](../reference/cli/restore.md), [`ff resolve`](../reference/cli/resolve.md), [`ff undo`](../reference/cli/undo.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op`](../reference/cli/op.md) are the same words for the same things, and the short spellings `st`, `ci`, and `desc` are shared too.
+
+Where a fufu verb is what jj's means under another name, jj's name is an alias, visible on the verb's row in `ff --help`:
+
+| jj | fufu |
+| --- | --- |
+| `jj new` | [`ff start`](../reference/cli/start.md), or `ff new` |
+| `jj bookmark` | [`ff branch`](../reference/cli/branch.md), or `ff bookmark` |
+| `jj workspace` | [`ff worktree`](../reference/cli/worktree.md), or `ff workspace` |
+| `jj squash` | [`ff absorb`](../reference/cli/absorb.md), or `ff squash` |
+| `jj rebase` | [`ff restack`](../reference/cli/restack.md), or `ff rebase` |
+
+Two of jj's words have no one verb here, because fufu spreads the act over verbs it already has, so typing either is answered rather than run. `ff abandon` points at what drops a change at each stage: `ff restore --all` for the open change, [`ff done`](../reference/cli/done.md) `--abandon` for an editing session or a held rewrite, and [`ff lift`](../reference/cli/lift.md) `--from <rev>` for a commit that has closed. `ff split` points at closing in slices: [`ff commit`](../reference/cli/commit.md) `<paths>` closes part of the open change, and `ff lift --from <rev> <paths>` brings part of a closed commit back to close again.
+
+`jj git fetch` and `jj git push` are [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md). [`ff git`](../reference/cli/git.md) is not their spelling: it is the passthrough, and runs git itself, capture-first.
+
 ## Choosing
 
 Choose jj if you want conflicts as first-class mergeable objects, you are happy to let a new VCS be the authority, and the people and tools around you can live with the projection. It is the more radical design, executed with taste, and fufu's debt to it is total.

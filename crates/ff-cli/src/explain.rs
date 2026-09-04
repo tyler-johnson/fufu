@@ -655,18 +655,21 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/foreign-verb",
-        summary: "that is a git verb fufu answers rather than runs",
-        detail: "A handful of git words name something fufu does differently, so typing one is a \
-                 question rather than a typo and it gets an answer instead of a parse error. \
-                 checkout was two jobs and is two verbs here; diff and stash describe states fufu \
-                 keeps rather than commands you run. rebase already has an answer — ff restack \
-                 replays a branch onto its base — and so does pull: ff sync lines a branch up \
-                 with its base and its remote in one move and publishes under a lease. merge is \
-                 the position rather than the gap: fufu replays instead, and a merge commit is \
-                 what a forge makes when work lands. blame and tag stay git's, and each is \
-                 answered for the half git has not got — the operations behind a file since you \
-                 last committed, and putting back a tag that was deleted. The passthrough still \
-                 runs the real thing, capture-first, when you want git's own behavior instead.",
+        summary: "that is a git or jj verb fufu answers rather than runs",
+        detail: "A handful of git's and jj's words name something fufu does differently, so \
+                 typing one is a question rather than a typo and it gets an answer instead of a \
+                 parse error. checkout was two jobs and is two verbs here; stash describes a \
+                 state fufu keeps rather than a command you run. pull is ff sync, which lines \
+                 every branch up with its base and its remote in one move, and push is ff \
+                 publish, which sends under a lease. merge is the position rather than the gap: \
+                 fufu replays instead, and a merge commit is what a forge makes when work lands. \
+                 blame and tag stay git's, and each is answered for the half git has not got — \
+                 the operations behind a file since you last committed, and putting back a tag \
+                 that was deleted. rebase is not on this list: it is ff restack's alias, jj's \
+                 word and the git habit landing on the verb that replays. jj's abandon and split \
+                 are answered with the moves that cover them — restore, done --abandon and lift \
+                 for one, commit <paths> and lift for the other. The passthrough still runs the \
+                 real thing, capture-first, when you want git's own behavior instead.",
         exits: &["ff status", "ff git <args>"],
     },
     Entry {

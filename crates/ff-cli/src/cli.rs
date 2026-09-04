@@ -125,7 +125,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff status`
     /// Show the working tree status
-    #[command(alias = "st", long_about = help::term(help::STATUS), after_long_help = help::term_examples(help::STATUS_EXAMPLES))]
+    #[command(visible_alias = "st", long_about = help::term(help::STATUS), after_long_help = help::term_examples(help::STATUS_EXAMPLES))]
     Status {
         #[command(flatten)]
         past: Past,
@@ -182,7 +182,7 @@ pub enum Command {
         count: usize,
     },
     /// Show the open change's operations, newest first (the evolution log)
-    #[command(alias = "ev", long_about = help::term(help::EVOLOG), after_long_help = help::term_examples(help::EVOLOG_EXAMPLES))]
+    #[command(visible_alias = "ev", long_about = help::term(help::EVOLOG), after_long_help = help::term_examples(help::EVOLOG_EXAMPLES))]
     Evolog {
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
@@ -233,7 +233,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff commit -m`
     /// Close the open change into a commit (the working tree is the change)
-    #[command(alias = "ci", long_about = help::term(help::COMMIT), after_long_help = help::term_examples(help::COMMIT_EXAMPLES))]
+    #[command(visible_alias = "ci", long_about = help::term(help::COMMIT), after_long_help = help::term_examples(help::COMMIT_EXAMPLES))]
     Commit {
         /// Describe what is closing; wins over the pending description
         #[arg(short = 'm', value_name = "msg")]
@@ -256,7 +256,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff switch <branch>`
     /// Switch branches; a dirty tree is parked, a parked change resumes
-    #[command(alias = "sw", long_about = help::term(help::SWITCH), after_long_help = help::term_examples(help::SWITCH_EXAMPLES))]
+    #[command(visible_alias = "sw", long_about = help::term(help::SWITCH), after_long_help = help::term_examples(help::SWITCH_EXAMPLES))]
     Switch {
         /// Branch name, or a unique prefix of one
         #[arg(value_name = "branch")]
@@ -294,7 +294,7 @@ pub enum Command {
         branch: Option<String>,
     },
     /// Edit the pending description of the open change
-    #[command(alias = "desc", long_about = help::term(help::DESCRIBE), after_long_help = help::term_examples(help::DESCRIBE_EXAMPLES))]
+    #[command(visible_alias = "desc", long_about = help::term(help::DESCRIBE), after_long_help = help::term_examples(help::DESCRIBE_EXAMPLES))]
     Describe {
         /// The revision to reword; omitted describes the open change
         #[arg(value_name = "rev", conflicts_with = "branch")]
@@ -311,7 +311,7 @@ pub enum Command {
     },
     // agent notice quotes this: `ff absorb --into <rev>`
     /// Fold working changes into a commit that has already closed
-    #[command(long_about = help::term(help::ABSORB), after_long_help = help::term_examples(help::ABSORB_EXAMPLES))]
+    #[command(visible_alias = "squash", long_about = help::term(help::ABSORB), after_long_help = help::term_examples(help::ABSORB_EXAMPLES))]
     Absorb {
         /// Commit to absorb into; without it, the commit under the change
         #[arg(long, value_name = "rev")]
@@ -334,7 +334,7 @@ pub enum Command {
         paths: Vec<String>,
     },
     /// Replay a branch's commits onto the base it sits on
-    #[command(long_about = help::term(help::RESTACK), after_long_help = help::term_examples(help::RESTACK_EXAMPLES))]
+    #[command(visible_alias = "rebase", long_about = help::term(help::RESTACK), after_long_help = help::term_examples(help::RESTACK_EXAMPLES))]
     Restack {
         /// Branch to restack; without it, the one you are on
         #[arg(value_name = "branch")]
@@ -419,7 +419,7 @@ pub enum Command {
         abandon: bool,
     },
     /// Manage lines of work: what exists, and removing one
-    #[command(alias = "br", long_about = help::term(help::BRANCH), after_long_help = help::term_examples(help::BRANCH_EXAMPLES))]
+    #[command(visible_aliases = ["br", "bookmark"], long_about = help::term(help::BRANCH), after_long_help = help::term_examples(help::BRANCH_EXAMPLES))]
     Branch {
         #[command(subcommand)]
         action: Option<BranchAction>,
@@ -427,7 +427,7 @@ pub enum Command {
         past: Past,
     },
     /// Worktrees of this repository, and the chains of ones that are gone
-    #[command(long_about = help::term(help::WORKTREE), after_long_help = help::term_examples(help::WORKTREE_EXAMPLES))]
+    #[command(visible_alias = "workspace", long_about = help::term(help::WORKTREE), after_long_help = help::term_examples(help::WORKTREE_EXAMPLES))]
     Worktree {
         #[command(subcommand)]
         action: Option<WorktreeAction>,
@@ -509,7 +509,7 @@ pub enum Command {
     #[command(long_about = help::term(help::MCP), after_long_help = help::term_examples(help::MCP_EXAMPLES))]
     Mcp,
     /// Read and write fufu's settings (plain git config under fufu.*)
-    #[command(alias = "cfg", long_about = help::term(help::CONFIG), after_long_help = help::term_examples(help::CONFIG_EXAMPLES))]
+    #[command(visible_alias = "cfg", long_about = help::term(help::CONFIG), after_long_help = help::term_examples(help::CONFIG_EXAMPLES))]
     Config {
         /// Setting name — case-insensitive, the fufu. prefix optional
         #[arg(value_name = "key")]
@@ -554,13 +554,14 @@ pub enum Command {
         yes: bool,
     },
 
-    // The foreign verbs: git words fufu answers rather than runs. They are
-    // declared for the same reason the retired `-m` and `--ops` are — a word
-    // fufu deliberately does not have is a question, and clap's bare
-    // "unrecognized subcommand" answers a question it never asked. Hidden,
-    // because the command list is what fufu *does*; each one carries its own
-    // arguments so `ff checkout main` reaches the answer instead of dying on
-    // an unexpected argument first.
+    // The foreign verbs: git's and jj's words fufu answers rather than runs.
+    // They are declared for the same reason the retired `-m` and `--ops` are
+    // — a word fufu deliberately does not have is a question, and clap's
+    // bare "unrecognized subcommand" answers a question it never asked.
+    // Hidden, because the command list is what fufu *does*; each one carries
+    // its own arguments so `ff checkout main` reaches the answer instead of
+    // dying on an unexpected argument first. A jj word whose meaning *is* a
+    // fufu verb is a visible alias on that verb instead, not a row here.
     /// git's checkout, split in two: `ff switch` moves, `ff restore` brings files back
     #[command(hide = true, alias = "co")]
     Checkout {
@@ -585,12 +586,6 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// No `ff rebase` yet: `ff status` costs it, `ff git rebase` runs it capture-first
-    #[command(hide = true)]
-    Rebase {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
     /// No `ff merge`: fufu replays — `ff restack --onto`, `ff sync` — rather than merging
     #[command(hide = true)]
     Merge {
@@ -606,6 +601,18 @@ pub enum Command {
     /// No `ff tag`: `ff git tag` makes one, and `ff undo` is what puts a lost one back
     #[command(hide = true)]
     Tag {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff abandon`: `ff restore --all` drops the open change, `ff lift --from` a closed one
+    #[command(hide = true)]
+    Abandon {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// No `ff split`: `ff commit <paths>` closes a slice, `ff lift --from <rev> <paths>` reopens one
+    #[command(hide = true)]
+    Split {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -1010,10 +1017,11 @@ impl Command {
             Command::Stash { .. } => "stash",
             Command::Pull { .. } => "pull",
             Command::Push { .. } => "push",
-            Command::Rebase { .. } => "rebase",
             Command::Merge { .. } => "merge",
             Command::Blame { .. } => "blame",
             Command::Tag { .. } => "tag",
+            Command::Abandon { .. } => "abandon",
+            Command::Split { .. } => "split",
         }
     }
 
@@ -1096,10 +1104,11 @@ impl Command {
             | Command::Publish { .. }
             | Command::Pull { .. }
             | Command::Push { .. }
-            | Command::Rebase { .. }
             | Command::Merge { .. }
             | Command::Blame { .. }
-            | Command::Tag { .. } => None,
+            | Command::Tag { .. }
+            | Command::Abandon { .. }
+            | Command::Split { .. } => None,
         }
     }
 
@@ -1159,10 +1168,11 @@ impl Command {
             | Command::Stash { .. }
             | Command::Pull { .. }
             | Command::Push { .. }
-            | Command::Rebase { .. }
             | Command::Merge { .. }
             | Command::Blame { .. }
-            | Command::Tag { .. } => Lanes::NONE,
+            | Command::Tag { .. }
+            | Command::Abandon { .. }
+            | Command::Split { .. } => Lanes::NONE,
             // `watch` must ride nothing, and neither half of that is
             // optional. `Lanes::READ` sets `capture: true`, and the capture
             // fires in `lanes::preflight` *before* dispatch — so a watch on

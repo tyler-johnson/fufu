@@ -1,11 +1,13 @@
-//! The foreign verbs: git words fufu deliberately does not have, answered
-//! with where the thing they name went.
+//! The foreign verbs: git's and jj's words fufu deliberately does not have,
+//! answered with where the thing they name went.
 //!
-//! Typing one of these is a question — "how do I do the git thing?" — and
-//! the parser's "unrecognized subcommand" answers a different one. So each
-//! is declared hidden in `cli.rs` and lands here, on the precedent of the
-//! retired `-m` and `ff log --ops`: a word fufu chose not to have is worth
-//! more than a word it never heard of.
+//! Typing one of these is a question — "how do I do the git thing?", or the
+//! jj thing — and the parser's "unrecognized subcommand" answers a different
+//! one. So each is declared hidden in `cli.rs` and lands here, on the
+//! precedent of the retired `-m` and `ff log --ops`: a word fufu chose not
+//! to have is worth more than a word it never heard of. A jj word whose
+//! meaning already *is* a fufu verb — `new`, `bookmark`, `squash`, `rebase`
+//! — is an alias on that verb rather than an answer here.
 //!
 //! These never touch the repository. A refusal that captured first would be
 //! writing on behalf of a command that does not exist.
@@ -110,16 +112,6 @@ pub fn push(args: &[OsString]) -> Result<()> {
     )
 }
 
-pub fn rebase(args: &[OsString]) -> Result<()> {
-    refuse(
-        "there is no ff rebase yet: ff status says whether this branch still replays cleanly onto \
-         its base, and ff git rebase runs the real thing capture-first — snapshot taken before it \
-         starts, so ff undo is enough"
-            .into(),
-        vec!["ff status".into(), passthrough("rebase", args)],
-    )
-}
-
 /// The one on this list that is a *position* rather than a gap: principle 12
 /// names rebase over merge outright, and the replay verbs are what fufu has
 /// instead. So the answer is where the act went, not an apology for a verb
@@ -172,5 +164,50 @@ pub fn tag(args: &[OsString]) -> Result<()> {
             "ff undo".into(),
             "ff op log".into(),
         ],
+    )
+}
+
+/// jj's abandon drops a change wherever it stands, and fufu has no one
+/// verb for that because the thing dropped is a different thing at each
+/// stage: the open change is files, a session or a held rewrite is a
+/// pending act, and a closed commit is history. Each has its own drop.
+pub fn abandon(args: &[OsString]) -> Result<()> {
+    let exits = match subject(args) {
+        Some(rev) => vec![
+            format!("ff lift --from {rev}"),
+            "ff restore --all".into(),
+            "ff done --abandon".into(),
+        ],
+        None => vec![
+            "ff restore --all".into(),
+            "ff done --abandon".into(),
+            "ff lift --from <rev>".into(),
+        ],
+    };
+    refuse(
+        "there is no ff abandon: the open change is dropped with ff restore --all, an editing \
+         session or a held rewrite with ff done --abandon, and a commit that has closed comes \
+         apart with ff lift --from <rev>, which drops it once nothing is left. A branch goes \
+         with ff branch delete"
+            .into(),
+        exits,
+    )
+}
+
+/// jj's split takes one commit apart into two. fufu never needs the verb:
+/// the open change closes a slice at a time, and a closed commit's files
+/// lift back into the open change to close again.
+pub fn split(args: &[OsString]) -> Result<()> {
+    let commit = match subject(args) {
+        Some(path) => format!("ff commit {path}"),
+        None => "ff commit <paths>".into(),
+    };
+    refuse(
+        "there is no ff split: the open change closes in slices — ff commit <paths> lands what \
+         lies under those paths and leaves the rest open — and a commit that has closed comes \
+         apart with ff lift --from <rev> <paths>, which brings those files back into the open \
+         change to close again"
+            .into(),
+        vec![commit, "ff lift --from <rev> <paths>".into()],
     )
 }

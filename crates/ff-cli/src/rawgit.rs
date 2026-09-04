@@ -28,12 +28,12 @@ pub struct Word {
 }
 
 impl Word {
-    /// Whether fufu's answer *is* the passthrough. `rebase` and `tag` are
-    /// the two: fufu has no verb of its own, and what it has to say is that
-    /// `ff git <word>` runs the real thing capture-first. Naming that at
-    /// somebody who already typed `ff git rebase` would be answering them
-    /// with their own command line, so the alias path stays quiet on these
-    /// and only the raw-git path hears about them.
+    /// Whether fufu's answer *is* the passthrough. `tag` is the one: fufu
+    /// has no verb of its own, and what it has to say is that `ff git tag`
+    /// runs the real thing capture-first. Naming that at somebody who
+    /// already typed `ff git tag` would be answering them with their own
+    /// command line, so the alias path stays quiet on it and only the
+    /// raw-git path hears about it.
     pub fn is_passthrough(&self) -> bool {
         self.ff.starts_with("ff git ")
     }
@@ -102,8 +102,8 @@ pub const TABLE: &[Word] = &[
     },
     Word {
         git: "rebase",
-        ff: "ff git rebase",
-        why: "there is no ff rebase yet, and ff git rebase runs the real thing capture-first",
+        ff: "ff restack",
+        why: "ff restack replays the branch onto its base in memory and lands only if clean",
     },
     Word {
         git: "stash",
@@ -348,7 +348,6 @@ mod tests {
             ("stash", crate::cmd::foreign::stash),
             ("pull", crate::cmd::foreign::pull),
             ("push", crate::cmd::foreign::push),
-            ("rebase", crate::cmd::foreign::rebase),
             ("merge", crate::cmd::foreign::merge),
             ("tag", crate::cmd::foreign::tag),
             ("blame", crate::cmd::foreign::blame),

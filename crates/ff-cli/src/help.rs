@@ -409,8 +409,9 @@ pub fn root_template(long: bool) -> String {
 
     // What clap would have printed for each row, minus the name: the `about`
     // line plus any visible alias, spelled the way clap spells it. Hidden
-    // subcommands drop out here — which is exactly what keeps the eight
-    // foreign git words off the page.
+    // subcommands drop out here — which is exactly what keeps the nine
+    // foreign words (checkout, stash, pull, push, merge, blame, tag, abandon,
+    // split) off the page.
     let live: Vec<(&str, String)> = root
         .get_subcommands()
         .filter(|sc| !sc.is_hide_set())
@@ -517,6 +518,51 @@ mod tests {
                 "{name} is grouped but is not live, non-hidden surface"
             );
         }
+    }
+
+    /// An alias rides its verb's row in the list, and the verb's own page
+    /// says so in a sentence of its own — one that is hand-written, so this
+    /// is the guard that keeps it from drifting. Every visible alias of a
+    /// live command, and of a live command's live children, must be named
+    /// as `` `ff <alias>` `` on the page file that verb owns.
+    #[test]
+    fn every_alias_is_named_on_its_page() {
+        use clap::CommandFactory;
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/help");
+        let root = crate::cli::Cli::command();
+        let mut pending: Vec<(String, &clap::Command)> = root
+            .get_subcommands()
+            .filter(|sc| !sc.is_hide_set())
+            .map(|sc| (sc.get_name().to_string(), sc))
+            .collect();
+        let mut missing: Vec<String> = Vec::new();
+        while let Some((path, sc)) = pending.pop() {
+            pending.extend(
+                sc.get_subcommands()
+                    .filter(|child| !child.is_hide_set())
+                    .map(|child| (format!("{path}-{}", child.get_name()), child)),
+            );
+            let aliases: Vec<&str> = sc.get_visible_aliases().collect();
+            if aliases.is_empty() {
+                continue;
+            }
+            // Bare `ff` is `map`, and the root page is its page.
+            let file = if path == "map" {
+                "root".to_string()
+            } else {
+                path.clone()
+            };
+            let page = std::fs::read_to_string(dir.join(format!("{file}.md")))
+                .unwrap_or_else(|_| panic!("{path} has aliases and no page help/{file}.md"));
+            for alias in aliases {
+                let spelled = format!("`ff {alias}`");
+                if !page.contains(&spelled) {
+                    missing.push(format!("help/{file}.md never names {spelled}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "{}", missing.join("\n"));
     }
 
     /// clap echoes an unknown `{tag}` back verbatim, so a brace anywhere in

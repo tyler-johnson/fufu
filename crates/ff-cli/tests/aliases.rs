@@ -68,9 +68,11 @@ fn op_count(fx: &Fixture) -> usize {
         .len()
 }
 
-/// The four aliases whose verb reads and can be run for free. The envelope
-/// name is the proof: it comes from the variant that was dispatched, so a
-/// wrong one cannot be papered over by the alias resolving to a help page.
+/// The aliases whose verb reads and can be run for free. The envelope name
+/// is the proof: it comes from the variant that was dispatched, so a wrong
+/// one cannot be papered over by the alias resolving to a help page. jj's
+/// `bookmark` and `workspace` are on the same list, since they are the
+/// same kind of thing: a second spelling of a verb fufu has.
 #[test]
 fn short_spellings_dispatch_to_their_verbs() {
     let fx = repo();
@@ -79,6 +81,8 @@ fn short_spellings_dispatch_to_their_verbs() {
         ("ev", "evolog"),
         ("br", "branch list"),
         ("cfg", "config"),
+        ("bookmark", "branch list"),
+        ("workspace", "worktree list"),
     ] {
         let out = ff(&fx, &[alias, "--json"]);
         assert!(out.status.success(), "ff {alias} failed: {}", stderr(&out));
@@ -90,12 +94,18 @@ fn short_spellings_dispatch_to_their_verbs() {
     }
 }
 
-/// The other three mutate, so they are pinned at the parser instead: clap
+/// The others mutate, so they are pinned at the parser instead: clap
 /// prints the canonical name in the usage line, never the alias.
 #[test]
 fn the_mutating_aliases_resolve_to_their_verbs() {
     let fx = repo();
-    for (alias, verb) in [("ci", "commit"), ("sw", "switch"), ("desc", "describe")] {
+    for (alias, verb) in [
+        ("ci", "commit"),
+        ("sw", "switch"),
+        ("desc", "describe"),
+        ("squash", "absorb"),
+        ("rebase", "restack"),
+    ] {
         let out = ff(&fx, &[alias, "--help"]);
         assert!(out.status.success(), "ff {alias} --help failed");
         assert!(
@@ -105,16 +115,13 @@ fn the_mutating_aliases_resolve_to_their_verbs() {
     }
 }
 
-/// Hidden, because the command list is what fufu does and these are how it
-/// is spelled. The root page is where they are taught instead.
+/// An alias is a second spelling of a verb, so it rides that verb's row as
+/// a suffix rather than taking a row of its own: the command list is what
+/// fufu does, and a row per spelling would list some verbs twice.
 #[test]
-fn the_aliases_stay_out_of_the_command_list() {
+fn the_aliases_ride_their_rows() {
     let fx = repo();
     let page = stdout(&ff(&fx, &["--help"]));
-    assert!(
-        page.contains("st, ci, sw, br, ev, desc, cfg"),
-        "the root page teaches all seven: {page}"
-    );
     // The list is grouped now, so there is no one `Commands:` header to split
     // on: it runs from the usage line to the options, and a row is indented
     // where a heading is not.
@@ -123,22 +130,48 @@ fn the_aliases_stay_out_of_the_command_list() {
         .and_then(|(_, rest)| rest.split_once("\nOptions:"))
         .map(|(list, _)| list.to_string())
         .expect("a command list");
+    // The suffix is on the verb's row: one alias singular, two plural, and
+    // jj's name beside the short form where a verb has both.
+    for (verb, suffix) in [
+        ("status", "[alias: st]"),
+        ("branch", "[aliases: br, bookmark]"),
+        ("restack", "[alias: rebase]"),
+    ] {
+        let row = list
+            .lines()
+            .find(|line| line.strip_prefix("  ").is_some_and(|r| r.starts_with(verb)))
+            .unwrap_or_else(|| panic!("a row for {verb}: {list}"));
+        assert!(row.contains(suffix), "{verb}'s row carries {suffix}: {row}");
+    }
     // The row's own name, not a substring of it: `  status` starts with `st`.
     let rows: Vec<&str> = list
         .lines()
         .filter_map(|line| line.strip_prefix("  "))
         .filter_map(|row| row.split_whitespace().next())
         .collect();
-    for alias in ["st", "ci", "sw", "br", "ev", "desc", "cfg"] {
+    for alias in [
+        "st",
+        "ci",
+        "sw",
+        "br",
+        "ev",
+        "desc",
+        "cfg",
+        "new",
+        "bookmark",
+        "workspace",
+        "squash",
+        "rebase",
+    ] {
         assert!(
             !rows.contains(&alias),
             "{alias} should not be a row in the command list: {rows:?}"
         );
     }
-    // The list is of what fufu does, so a git word it merely answers is not
-    // a row either.
+    // The list is of what fufu does, so a git or jj word it merely answers
+    // is not a row either.
     for foreign in [
-        "checkout", "stash", "pull", "rebase", "merge", "blame", "tag",
+        "checkout", "stash", "pull", "merge", "blame", "tag", "abandon", "split",
     ] {
         assert!(
             !rows.contains(&foreign),
@@ -186,8 +219,8 @@ fn the_map_takes_its_scope_after_its_name() {
     assert_eq!(json(&out)["error"]["id"].as_str(), Some("usage/bad-flags"));
 }
 
-/// A git word fufu chose not to have is a question, not a typo, so it gets
-/// an answer with an id rather than a parse error.
+/// A git or jj word fufu chose not to have is a question, not a typo, so it
+/// gets an answer with an id rather than a parse error.
 #[test]
 fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
     let fx = repo();
@@ -196,7 +229,6 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
         ("co", "ff switch"),
         ("stash", "ff switch"),
         ("pull", "ff sync"),
-        ("rebase", "ff git rebase"),
         // A position rather than a gap: principle 12 names rebase over
         // merge, and the replay verbs are what fufu has instead.
         ("merge", "ff restack"),
@@ -206,6 +238,10 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
         // Making a tag is git's. Losing one is not — refs/tags/ rides every
         // operation's ref table, so undo is the answer git has not got.
         ("tag", "ff undo"),
+        // jj's two: a change is dropped by a different verb at each stage,
+        // and a commit comes apart by closing slices rather than splitting.
+        ("abandon", "ff restore --all"),
+        ("split", "ff commit"),
     ] {
         let out = ff(&fx, &[verb]);
         assert_eq!(out.status.code(), Some(2), "ff {verb} exits 2");
@@ -253,11 +289,26 @@ fn a_foreign_verb_carries_what_you_typed_into_its_exits() {
     );
 
     // Where the answer is the passthrough, the whole tail rides along.
-    let out = ff(&fx, &["--json", "rebase", "main"]);
+    let out = ff(&fx, &["--json", "tag", "v1"]);
     let exits = json(&out)["error"]["exits"].to_string();
     assert!(
-        exits.contains("ff git rebase main"),
+        exits.contains("ff git tag v1"),
         "the passthrough exit is runnable: {exits}"
+    );
+
+    // jj's words fold what was typed in the same way: a path into the
+    // close, a revision into the lift.
+    let out = ff(&fx, &["--json", "split", "src/"]);
+    let exits = json(&out)["error"]["exits"].to_string();
+    assert!(
+        exits.contains("ff commit src/"),
+        "the path rides into the close: {exits}"
+    );
+    let out = ff(&fx, &["--json", "abandon", "abc123"]);
+    let exits = json(&out)["error"]["exits"].to_string();
+    assert!(
+        exits.contains("ff lift --from abc123"),
+        "the revision rides into the lift: {exits}"
     );
 }
 
@@ -270,7 +321,7 @@ fn foreign_verbs_never_touch_the_repository() {
     fx.write("a.txt", "dirty\n");
     let before = op_count(&fx);
     for verb in [
-        "checkout", "stash", "pull", "rebase", "merge", "blame", "tag",
+        "checkout", "stash", "pull", "merge", "blame", "tag", "abandon", "split",
     ] {
         assert!(!ff(&fx, &[verb]).status.success(), "ff {verb} refuses");
     }

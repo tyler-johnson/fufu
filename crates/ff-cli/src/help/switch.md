@@ -1,4 +1,4 @@
-Branches without the stash dance. Whatever is open here is parked with the branch you are leaving, and whatever was parked where you are going comes back exactly as you left it — same files, same edits, same pending description. Both halves are reported, so you always know where your work went and what came back.
+Branches without the stash dance. Whatever is open here is parked with the branch you are leaving, and whatever was parked where you are going comes back exactly as you left it — same files, same edits, same pending description. Both halves are reported, so you always know where your work went and what came back. `ff sw` is the short spelling.
 
 The target is a branch name, or any unique prefix of one. An ambiguous prefix is an error that lists the candidates.
 

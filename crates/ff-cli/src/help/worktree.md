@@ -1,4 +1,4 @@
-Worktrees are how parallel work gets parallel trees: one checkout per line of work, each standing on a branch of its own. `add` makes one, `remove` takes one away, and bare `ff worktree` is the list.
+Worktrees are how parallel work gets parallel trees: one checkout per line of work, each standing on a branch of its own. `add` makes one, `remove` takes one away, and bare `ff worktree` is the list. `ff workspace` is jj's name for it, and an alias here.
 
 A worktree's operation chain is keyed by the worktree, so each one has its own log, its own undo, and its own lock.
 
