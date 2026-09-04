@@ -41,6 +41,11 @@ The letters column next to each commit (here just `—`) is an operation id: whi
 
 ## Start work
 
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/start-work.webm" type="video/webm">
+  <img src="assets/tutorial/start-work.gif" alt="ff start minting a branch, an edit to notes/parser.md, and ff status showing the open change">
+</video>
+
 [`ff start`](reference/cli/start.md) begins a new line of work, always on a fresh branch forked from trunk. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
 
 ```console
@@ -66,6 +71,11 @@ on ff/vivid-sparrow · nothing to sync
 [`ff status`](reference/cli/status.md) answers where you are and what is uncommitted, as a diffstat. [`ff diff`](reference/cli/diff.md) is the same change read down to the line — and it sees untracked files, which `git diff` does not.
 
 ## Name it, then close it
+
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/name-it-then-close-it.webm" type="video/webm">
+  <img src="assets/tutorial/name-it-then-close-it.gif" alt="ff describe naming the change, ff commit closing it, a second commit, and ff log">
+</video>
 
 The open change can carry a description before it is ever a commit, so you can name work while you are doing it:
 
@@ -111,6 +121,11 @@ $ ff log -n 5
 The two commits fufu made now wear operation ids. [`ff evolog`](reference/cli/evolog.md) drills into a commit's history of rewrites through that column, and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
 
 ## Switch without stashing
+
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/switch-without-stashing.webm" type="video/webm">
+  <img src="assets/tutorial/switch-without-stashing.gif" alt="ff switch parking a mid-edit change on one branch and resuming it on the other">
+</video>
 
 Start another edit — a stray note in `README.md`, say — and leave mid-thought. Switching parks whatever is open with the branch you are leaving:
 
@@ -164,6 +179,11 @@ undo: ff undo
 
 ## Fix an earlier commit
 
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/fix-an-earlier-commit.webm" type="video/webm">
+  <img src="assets/tutorial/fix-an-earlier-commit.gif" alt="ff log finding the commit, an edit, and ff absorb folding it into that commit">
+</video>
+
 Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
 ```console
@@ -176,6 +196,11 @@ undo: ff undo
 The target commit was amended in place and everything above it re-parented in the same operation — no interactive rebase, no autosquash dance, and no file moved on disk. This is the shape of all history rewriting in fufu: you say where the change belongs, and the restacking is automatic. [Rewriting history](guides/rewriting-history.md) has the rest of the family.
 
 ## Line up, then send
+
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/line-up-then-send.webm" type="video/webm">
+  <img src="assets/tutorial/line-up-then-send.gif" alt="ff sync taking in a teammate's commit, then ff publish pushing the branch">
+</video>
 
 (This section and the publish below were captured against a copy of the repository with push access — on your clone of fufu, read these two beats along, and replay them the day you point fufu at a repository of your own.)
 
@@ -209,6 +234,11 @@ The bound is worth stating. fufu never force-pushes `main` or anyone else's bran
 If somebody pushed to your branch since, nothing is sent and nothing is lost — `ff sync` takes their work in, and you publish after. [The push boundary](concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
 
 ## Undo anything
+
+<video class="demo" autoplay loop muted playsinline>
+  <source src="assets/tutorial/undo-anything.webm" type="video/webm">
+  <img src="assets/tutorial/undo-anything.gif" alt="git reset --hard destroying two commits, and ff undo putting refs and the tree back">
+</video>
 
 fufu snapshots the repository around every operation — including operations it didn't make. So when an overeager agent, or you at 4pm on a Friday, runs something destructive with raw git:
 

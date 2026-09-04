@@ -1,0 +1,62 @@
+
+$ ff
+@  <id> <sha>   <age> ago  ▸ [main]
+│  (no description)
+●  —        <sha>   <age> ago  ▸ [unicode-escapes]  (+ parked change, 1 file)
+│  lexer: a token at a time
+~
+
+$ ff status
+on main · 1 to sync
+@  <id> <sha>   <age> ago
+│  (no description)
+│  M README.md +2  -0  ++++++++++++++++++++
+│    1 file    +2  -0
+●  —        <sha>   <age> ago
+│  lexer: a token at a time
+
+$ # one switch: parks main's work, resumes the branch's
+
+$ ff switch unicode-escapes
+parked the open change on main (<sha>)
+switched to unicode-escapes
+resumed the parked change (2 file(s))
+undo: ff undo
+
+$ # no add, no staging: the tree is the change
+
+$ ff commit -m 'lexer: handle unicode escapes'
+closed <sha> on unicode-escapes: lexer: handle unicode escapes (2 file(s))
+undo: ff undo
+
+$ # oops, forgot to wire it up
+
+$ echo 'mod unicode;' >> src/lib.rs
+
+$ ff absorb
+absorbed into <sha>: lexer: handle unicode escapes
+undo: ff undo
+
+$ ff status
+on unicode-escapes · base moved — rebases cleanly (1 commit replayed)
+@  no changes
+│  (no description)
+●  —        <sha>   <age> ago
+│  lexer: handle unicode escapes
+
+$ # main moved while I worked
+
+$ ff sync
+fetching from origin
+main moved ahead by 1 commit(s)
+replayed 1 commit(s) onto main
+updated the working tree (1 file(s))
+not published yet — ff publish
+main
+    fast-forwarded to origin/main (1 commit(s))
+undo: ff undo
+
+$ ff publish
+created origin/unicode-escapes and set unicode-escapes to track it
+the push left the machine — ff undo cannot reach it
+ff undo then ff publish rolls the shared copy back, under a lease

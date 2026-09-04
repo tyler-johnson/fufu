@@ -135,6 +135,28 @@ jobs:
           name: ff-linux
           path: target/release/ff
 
+  # The recordings -- the demo on the README and the docs home page, and one
+  # per tutorial section -- are rendered by hand: rendering wants a browser, a
+  # terminal server and ffmpeg, none of which this job needs. What it does is
+  # prove they are not stale. The demo's commands are replayed with no
+  # terminal at all against a golden transcript; the tutorial's are replayed
+  # for their exit status, which is what catches a renamed verb without a
+  # golden file that would churn on every release. A failure means a verb
+  # moved and a recording still shows the old one, so re-render with
+  # `make demo`.
+  demo:
+    needs: release-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: ff-linux
+          path: target/release
+      - run: chmod +x target/release/ff
+      - run: FF=target/release/ff scripts/docs/demo-check.sh
+      - run: FF=target/release/ff scripts/docs/tutorial-tapes.sh --check
+
   # Guards fufu's core claim -- no linear-time costs -- by failing when a
   # flat-declared row scales with its axis. Reduced matrix only (100/1000
   # points, ff alone, no jj); the full 10 000-point comparison matrix is

@@ -9,6 +9,8 @@
 
 The tutorial's transcripts follow the release the way install.md's `ff version` block does: when a release changes verb output or moves history, rerun `scripts/docs/tutorial-transcript.sh` and reconcile `docs/tutorial.md`.
 
+The recordings follow it too, and CI says when: `make demo-check` replays the demo's commands against `scripts/docs/demo.golden.txt` and every tutorial step for its exit status. When it fails, `make demo` re-renders `docs/assets/demo.*` and the six under `docs/assets/tutorial/` — then `scripts/docs/demo-check.sh --bless`. Rendering needs vhs, ttyd, ffmpeg, a headless chromium, and JetBrains Mono. The tutorial's videos and its transcripts come from one file, `scripts/docs/tutorial-steps.sh`, so a change to the tutorial's commands is a change there.
+
 The tag push runs `release.yml`: six native builds, a GitHub release whose body is the notes file, and a formula bump into the tap. It reads the notes from the tag's tree, so a later edit needs `gh release edit vX.Y.Z --notes-file`. Under `fufu.gitPolicy=strict` the tag push is wrongly refused; prefix it with `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.gitPolicy GIT_CONFIG_VALUE_0=observe`.
 
 No code changes ride a release commit, so trust CI on the base rather than running the suite locally.

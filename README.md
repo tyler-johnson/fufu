@@ -10,6 +10,8 @@ so your tools and your remotes all still work.*
 
 [![ci](https://github.com/tyler-johnson/fufu/actions/workflows/ci.yml/badge.svg)](https://github.com/tyler-johnson/fufu/actions/workflows/ci.yml)
 
+<img src="docs/assets/demo.gif" alt="A terminal running ff: a glance at the branches, changes on main parked by a single switch, a commit, a fix folded into it, then sync and publish." width="900">
+
 </div>
 
 ---

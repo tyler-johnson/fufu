@@ -6,3 +6,12 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* The demo recordings: a terminal frame that keeps its own dark ground in
+   either color scheme, and never overflows the column it sits in. */
+.demo {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0.4rem;
+}
