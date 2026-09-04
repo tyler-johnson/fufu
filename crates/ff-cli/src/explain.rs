@@ -958,7 +958,7 @@ pub static ENTRIES: &[Entry] = &[
                  reason, so between the two there is always one place it runs. The other way \
                  to reach this is a misspelled verb, which is no extension either. Declare the \
                  extension, or run it in a shell.",
-        exits: &["ff extension add <name>", "ff extension list"],
+        exits: &["ff <name>", "ff extension add <name>", "ff extension list"],
     },
     Entry {
         id: "usage/mcp-extension-not-undoable",

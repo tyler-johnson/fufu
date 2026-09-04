@@ -192,11 +192,15 @@ fn refuse_in(args: &[String], route: Route, registry: &crate::registry::Registry
         return Some(Error::coded(
             "usage/mcp-extension-undeclared",
             format!(
-                "ff {first} is no verb of fufu's, and nothing on this machine is declared under \
-                 the name {first}: the tool serves the extensions a person declared, and an \
-                 ff-{first} nobody declared runs from a shell"
+                "ff {first} is no verb of fufu's and nothing here declares the name {first}, so \
+                 run ff {first} in a shell: toolPolicy leaves an undeclared extension to the \
+                 shell even when it is strict. Declaring it is what makes the tool serve it."
             ),
-            vec![format!("ff extension add {first}"), "ff help".into()],
+            vec![
+                format!("ff {first}"),
+                format!("ff extension add {first}"),
+                "ff help".into(),
+            ],
         ));
     };
     if route == Route::Relay && !declared.manifest.undoable {
