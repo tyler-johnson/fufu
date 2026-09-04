@@ -5,6 +5,8 @@
 ### Fixed
 
 - Bare `ff` counts a parked change's untracked files, so the map's `(+ parked change, N)` and the number `ff switch` prints on arrival agree.
+- The agent skill described `ff restack`, `ff sync`, and held rewrites as they were before the cascade, so an agent was told a conflicted replay left nothing changed and that `ff sync` covered one branch.
+- The refusal for an undeclared extension names `ff <name>` as the command to run, where it showed only the `ff-<name>` binary on PATH and left the shell exemption to `ff explain`.
 
 ## v0.12.0 — 2026-09-04
 
