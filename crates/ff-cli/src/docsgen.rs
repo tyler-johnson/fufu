@@ -117,6 +117,29 @@ fn linkify(md: &str, this: &str, verbs: &[String]) -> String {
     out
 }
 
+/// A page's `### ` subheadings become `## ` on the web copy.
+///
+/// In the terminal they are subsections of one flat page. Here the page has
+/// gained an `# ff <verb>` title above them and `## Usage` and `## Examples`
+/// beside them, so the honest level is the one those two already sit at —
+/// and a jump from `#` straight to `###` would leave the table of contents
+/// nesting them under a level that is not there.
+fn promote(description: &str) -> String {
+    let mut out = String::with_capacity(description.len());
+    let mut fenced = false;
+    for line in description.split_inclusive('\n') {
+        if line.starts_with("```") {
+            fenced = !fenced;
+        }
+        if !fenced && line.starts_with("### ") {
+            out.push_str(&line[1..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 /// One command's page: title, the markdown description with the other verbs
 /// linked on first mention, the fenced usage block, and the `## Examples`
 /// section verbatim.
@@ -131,7 +154,7 @@ fn page(path: &str, cmd: &clap::Command, verbs: &[String]) -> Page {
             let _ = write!(
                 content,
                 "{}\n\n## Usage\n\n```\n{}\n```\n\n{}",
-                &src[..seam],
+                promote(&src[..seam]),
                 usage(cmd),
                 src[seam + 2..].trim_end()
             );

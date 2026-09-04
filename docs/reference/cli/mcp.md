@@ -1,52 +1,48 @@
 # ff mcp
 
-A Model Context Protocol server on stdin and stdout, for an agent client that wants fufu as a tool rather than as a shell command. It exposes one tool, `ff`, whose input is the command line after `ff` as an array of words: `{"args": ["commit", "-m", "parser: skeleton"]}`.
+A Model Context Protocol server on stdin and stdout, for an agent client that wants fufu as a tool rather than as a shell command. [`ff hook <client>`](hook.md) registers it with claude, codex, cursor, or gemini; this verb is what that registration runs.
 
-Every call runs this same binary as a child with `--json` and hands back the envelope, so capture, `fufu.gitPolicy`, sessions, error ids, and the no-prompt guarantee all hold. The child is an ordinary invocation, and the server adds nothing to it.
+It exposes one tool, `ff`, whose input is the command line after `ff` as an array of words:
 
-One tool instead of one per verb, because the client transmits every tool's description on every turn and shows the model only the first two thousand characters or so of each. Forty typed tools would be forty cards, and a second spelling of the CLI to keep in step.
+```
+{"args": ["commit", "-m", "parser: skeleton"]}
+```
 
-The one description is a card under that cut: how to call it, the doctrine, every verb by name in `ff --help`'s groups, and a digest of recovery and the landmines. The verb list is walked from the same table `ff --help` reads, so it cannot drift, and the rest is one call away — `ff help <verb>` through the tool, and the shipped skill where the client has one.
+Every call runs this same binary as a child with `--json` and hands back the envelope, so capture, `fufu.gitPolicy`, sessions, error ids, and the no-prompt guarantee all hold. There is one tool rather than one per verb because a client shows the model only the first two thousand characters of each description, and forty of them would be forty cards.
 
-Seven verbs are not offered:
+Two options change what a call does:
+
+- `cwd` on the call names the directory to run in, for a client that works across repositories. Without it the child runs where the client started the server.
+- `--session <name>` here, or `FF_SESSION` in the environment, tags every operation the server's children record, which is how an agent's work stays separable from a person's.
+
+## What is not served
 
 ```
 git  update  watch  hook  unhook  mcp  extension
 ```
 
-Each owns its stream, talks a person through something, or wires the machine, and none of them makes sense inside a tool call. Asking for one returns `usage/mcp-verb-unavailable` and names a shell as the place to run it.
+Each owns its stream, talks a person through something, or wires the machine. Asking for one returns `usage/mcp-verb-unavailable` and names a shell as the place to run it.
 
-`extension` is the one that is more than a bad fit: the registry it writes is the allowlist for everything fufu says about an extension, so declaring is a person's decision about a machine.
+`extension` is the one that is more than a bad fit: the registry it writes is the allowlist for everything fufu says about an extension, so declaring stays a person's decision about a machine.
 
-An extension is served when it is declared. [`ff extension add <name>`](extension-add.md) records the manifest, and from then on `ff <name>` through the tool is relayed the way a verb is: the child dispatches to `ff-<name>` and the envelope it printed comes back as structured content.
+## Extensions
 
-An `ff <name>` nobody declared is refused with `usage/mcp-extension-undeclared`, whose exit is `ff extension add <name>`, and a shell is where it runs until then — `fufu.toolPolicy` lets an undeclared one through there for exactly that reason, so between the two there is always one place it runs.
+A declared extension is relayed the way a verb is. [`ff extension add <name>`](extension-add.md) records its manifest, and from then on the child dispatches to `ff-<name>` and hands back the envelope it printed. Two refusals stand in the way:
 
-A declared extension whose manifest says `undoable: false` is refused on that route, with `usage/mcp-extension-not-undoable`: the one tool's annotations say that nothing it relays is destructive, which is honest only of an extension whose writes [`ff undo`](undo.md) takes back.
+- `usage/mcp-extension-undeclared` — nobody declared it. The exit names `ff extension add <name>`, and a shell is where it runs until then.
+- `usage/mcp-extension-not-undoable` — its manifest says `undoable: false`. This tool's annotations promise that nothing it relays is destructive, which is honest only of an extension whose writes [`ff undo`](undo.md) takes back.
 
-What that refusal costs is the args array and nothing else — the tools such an extension produces are listed and called beside it, under annotations of their own. An `undoable: true` extension gets both routes, and a non-undoable one gets its produced tools.
+That second refusal costs the args array and nothing else. An extension whose manifest says `tools: true` gets the typed tools it produces listed beside `ff` as `<extension>__<tool>`, undoable or not, because a produced tool carries hints of its own. The list is asked for once when the server starts and held for the life of the connection, so a restart is what picks up an edited extension.
 
-Every declared extension is named on the card, `Extensions: tower (next, file, done, …)`, built from the manifest's verb list and capped in both directions so a long registry cannot push the card past the client's cut.
+A handshake that fails or hangs costs nothing and says nothing at the time. [`ff doctor`](doctor.md) is where it shows.
 
-An extension may also produce typed tools of its own. A manifest saying `tools: true` promises them, and the server asks `ff-<name> --ff-tools` for the list when it starts — once, and holds it for the life of the connection, so a restart is what picks up an edited extension.
+## Beside the capture hook
 
-Each descriptor is listed beside the one `ff` tool as `<extension>__<tool>`, carrying the description, the schema and the annotations the extension wrote. A call on one routes back through the same child as `ff <name> <verb> …`, where the arguments object becomes the verb's command line: a property the schema's `positional` array names is a bare word, and every other is a long option, spelled verbatim.
+The two do different jobs, so wire both. The hook snapshots before every tool call the agent makes, whatever tool that is; the server only ever sees fufu verbs.
 
-Two extensions cannot collide, since the extension is in the name, and where two namespaced names would meet the first declared keeps it. A handshake that fails or hangs costs nothing and says nothing — the ask is time-boxed, the extension's verbs are still relayed in the args array, and [`ff doctor`](doctor.md) is where it shows.
+They also talk. While it serves, the server holds a presence marker under the user cache directory, keyed by the client that spawned it. That marker is what lets the hook refuse `ff` in the shell under `fufu.toolPolicy` only while the tool is actually up — one nobody holds counts for nothing.
 
-The card says nothing about produced tools: each is already a tool in the client's own list with a description of its own, where the card exists for the one tool whose args array has none. Every extension that promised tools is asked, undoable or not — a produced tool states its own `readOnlyHint` and `destructiveHint`, so what makes it honest is the descriptor rather than the one tool's blanket promise.
-
-A call may carry `cwd`, the directory to run in, for a client that works across repositories. Without it, the child runs where the server was started, which is the directory the client launched it in. `--session <name>` on `ff mcp`, or `FF_SESSION` in its environment, tags every operation the server's children record, which is how an agent's work stays separable from a person's.
-
-[`ff hook <client>`](hook.md) registers the server with claude, codex, cursor, or gemini, alongside the capture hook it already wires; [`ff unhook <client>`](unhook.md) removes it, and `ff doctor` reports it. The two mechanisms do different jobs: the hook snapshots before every tool call the agent makes, whatever tool that is, while the server only sees fufu verbs. Wire both.
-
-They also talk. While it serves, the server holds a presence marker under the user cache directory, keyed by the client process that spawned it and by the name it is registered under, and that is what lets the hook refuse `ff` in the shell under `fufu.toolPolicy` only while the tool is actually up — a marker nobody holds counts for nothing.
-
-Only fufu's own marker is read there: a declared extension's own server is a process the client starts and fufu never sees, so a registration on disk says it is installed and nothing says it is running.
-
-That refusal follows the args array, which is the only route it can name: a builtin verb and a declared extension are both refused and pointed at the tool, while the seven shell-only verbs pass, and so does any `ff <name>` the args array will not carry — one nobody declared, and one declaring `undoable: false`.
-
-A non-undoable extension passes even when it produced tools, because the registry records that it promised them and never which verb each one covers, and a refusal naming a `<name>__<verb>` that is not there would leave the verb nowhere to run.
+Only fufu's own marker is read there. A declared extension's own MCP server is a process the client starts and fufu never sees, so a registration on disk says it is installed and nothing says it is running.
 
 ## Usage
 

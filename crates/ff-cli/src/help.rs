@@ -148,11 +148,13 @@ const FILL: usize = 72;
 
 /// Render one markdown half for the terminal.
 ///
-/// Three translations, everything else verbatim: a column-0 paragraph (one
+/// Five translations, everything else verbatim: a column-0 paragraph (one
 /// line in the file) is filled to [`FILL`] columns; `## Examples` prints as
-/// `Examples:`; a fenced block loses its fence lines and its content gains a
+/// `Examples:`, and a `### ` heading as its own text with the same colon; a
+/// `- ` bullet fills under a two-space marker with its continuations hanging
+/// at four; a fenced block loses its fence lines and its content gains a
 /// two-space indent. The blank line markdown wants between a lead-in
-/// paragraph and a fence — or after the heading — is not printed, so a table
+/// paragraph and a fence — or after a heading — is not printed, so a table
 /// hugs the colon line that introduces it, the way these pages always read.
 pub fn term(md: &str) -> String {
     let mut out = String::new();
@@ -197,6 +199,12 @@ pub fn term(md: &str) -> String {
         if line == "## Examples" {
             out.push_str("Examples:\n");
             swallow_blank = true;
+        } else if let Some(text) = line.strip_prefix("### ") {
+            out.push_str(text);
+            out.push_str(":\n");
+            swallow_blank = true;
+        } else if let Some(item) = line.strip_prefix("- ") {
+            fill_at(&mut out, item, "  - ", "    ");
         } else if line.starts_with(' ') {
             // Markdown holds no indented prose — the formatter test refuses
             // it — but a renderer never eats a line it does not understand.
@@ -221,14 +229,27 @@ pub fn term_examples(md: &str) -> String {
 /// is full of em dashes. A word is never broken, so a token wider than the
 /// fill stands alone on its line.
 fn fill(out: &mut String, paragraph: &str) {
+    fill_at(out, paragraph, "", "");
+}
+
+/// [`fill`], with `lead` in front of the first line and `hang` in front of
+/// every line after it — which is the whole of what a bullet needs, and the
+/// reason the two share one filler rather than drifting apart.
+fn fill_at(out: &mut String, paragraph: &str, lead: &str, hang: &str) {
     let mut width = 0;
+    let mut first = true;
     for word in paragraph.split_whitespace() {
         let wide = word.chars().count();
         if width > 0 && width + 1 + wide > FILL {
             out.push('\n');
             width = 0;
+            first = false;
         }
-        if width > 0 {
+        if width == 0 {
+            let prefix = if first { lead } else { hang };
+            out.push_str(prefix);
+            width = prefix.chars().count();
+        } else {
             out.push(' ');
             width += 1;
         }
@@ -535,11 +556,13 @@ mod tests {
     /// not rewrapped.
     const CAP: usize = 80;
 
-    /// What a page file should hold, byte for byte: one line per paragraph.
-    /// Consecutive column-0 prose lines are joined — that is the whole
-    /// formatter, and it is what `FF_HELP_FMT=1` uses to unwrap a paragraph
-    /// somebody hand-wrapped. Fences, their content, headings, and blank
-    /// lines pass through with trailing whitespace trimmed.
+    /// What a page file should hold, byte for byte: one line per paragraph,
+    /// and one per bullet. Consecutive column-0 prose lines are joined — that
+    /// is the whole formatter, and it is what `FF_HELP_FMT=1` uses to unwrap
+    /// a paragraph somebody hand-wrapped. A `- ` line opens a paragraph of
+    /// its own, so a wrapped bullet unwraps the same way and the paragraph
+    /// before it is not swallowed. Fences, their content, headings, and
+    /// blank lines pass through with trailing whitespace trimmed.
     fn formatted(page: &str) -> String {
         let mut out = String::new();
         let mut para: Vec<&str> = Vec::new();
@@ -564,6 +587,9 @@ mod tests {
                 flush(&mut out, &mut para);
                 out.push_str(line);
                 out.push('\n');
+            } else if line.starts_with("- ") {
+                flush(&mut out, &mut para);
+                para.push(line);
             } else {
                 para.push(line);
             }
@@ -594,9 +620,14 @@ mod tests {
             }
             if line == "## Examples" {
                 headings += 1;
+            } else if let Some(text) = line.strip_prefix("### ") {
+                if text.trim().is_empty() {
+                    findings.push(format!("help/{name}:{row} is an empty `### ` heading"));
+                }
             } else if line.starts_with('#') {
                 findings.push(format!(
-                    "help/{name}:{row} is a heading; `## Examples` is the only one a page holds"
+                    "help/{name}:{row} is a heading; a page holds one `## Examples` and \
+                     any number of `### `"
                 ));
             }
             if line.starts_with(' ') && !line.trim().is_empty() {
