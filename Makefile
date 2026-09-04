@@ -35,7 +35,10 @@ bench-report:
 # docs-gen regenerates everything docsgen.rs owns — the CLI reference from
 # the help pages, the config registry region — the same walks CI runs as
 # drift checks.
+# asset-paths.py first: mkdocs --strict checks markdown links and says
+# nothing about a src= in raw HTML, which is how a 404 shipped once.
 docs:
+	scripts/docs/asset-paths.py
 	mkdocs build --strict
 
 docs-serve:
