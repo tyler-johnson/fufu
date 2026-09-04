@@ -76,22 +76,56 @@ fn manifest(name: &str, version: &str) -> String {
     )
 }
 
-/// An `ff-<name>` that answers the handshake with `data`, on one line.
+/// The same, promising tools — the manifest half of the second handshake.
+fn manifest_with_tools(name: &str, version: &str) -> String {
+    format!(
+        r#"{{"name":"{name}","version":"{version}","contract":1,
+            "verbs":[{{"name":"board","read_only":true}}],"undoable":true,"tools":true}}"#
+    )
+}
+
+/// An `ff-<name>` that answers `--ff-manifest` with `data`, on one line.
 fn ext_bin(dir: &Path, name: &str, data: &str) -> PathBuf {
+    ext_bin_with_tools(dir, name, data, None)
+}
+
+/// The same, and — when given — a shell fragment run when `$1` is
+/// `--ff-tools`, so a test can make the second handshake answer or fail on
+/// its own terms.
+fn ext_bin_with_tools(dir: &Path, name: &str, data: &str, tools_body: Option<&str>) -> PathBuf {
     let compact = serde_json::to_string(
         &serde_json::from_str::<Value>(data).expect("the manifest is valid json"),
     )
     .expect("compact");
+    let tools_clause = tools_body
+        .map(|body| format!("if [ \"$1\" = \"--ff-tools\" ]; then\n{body}\nfi\n"))
+        .unwrap_or_default();
     let path = dir.join(format!("ff-{name}"));
     std::fs::write(
         &path,
         format!(
-            "#!/bin/sh\nif [ \"$1\" = \"--ff-manifest\" ]; then\n  echo '{{\"ff\":1,\"cmd\":\"{name} --ff-manifest\",\"data\":{compact}}}'\n  exit 0\nfi\necho \"$@\"\n"
+            "#!/bin/sh\nif [ \"$1\" = \"--ff-manifest\" ]; then\n  echo '{{\"ff\":1,\"cmd\":\"{name} --ff-manifest\",\"data\":{compact}}}'\n  exit 0\nfi\n{tools_clause}echo \"$@\"\n"
         ),
     )
     .expect("write script");
     std::fs::set_permissions(&path, Permissions::from_mode(0o755)).expect("chmod script");
     path
+}
+
+/// The tool list a `--ff-tools` body can answer with, as one envelope on
+/// one line — `one_envelope` refuses anything spread over more than one.
+fn tools_envelope(name: &str) -> String {
+    let data = serde_json::json!([
+        {"name": "board", "description": "what is filed", "inputSchema": {"type": "object"},
+         "annotations": {"readOnlyHint": true, "destructiveHint": false}},
+        {"name": "file", "description": "file a flight", "inputSchema": {"type": "object"},
+         "annotations": {"readOnlyHint": false, "destructiveHint": false}},
+    ]);
+    let envelope = serde_json::json!({"ff": 1, "cmd": format!("{name} --ff-tools"), "data": data});
+    format!(
+        "echo '{}'\n  exit 0",
+        serde_json::to_string(&envelope).expect("compact")
+    )
 }
 
 /// A machine: a home with nothing declared, and a directory on PATH to put
@@ -167,6 +201,72 @@ fn a_declared_extension_that_matches_is_ok() {
     let row = row_named(&checks, "tower").expect("a row for tower");
     assert_eq!(row["level"], "ok", "{row}");
     assert!(row["detail"].as_str().unwrap().contains("0.4.1"), "{row}");
+    // A manifest that promises nothing gets no second spawn and no clause
+    // about it.
+    assert!(!row["detail"].as_str().unwrap().contains("tool"), "{row}");
+}
+
+/// A declared extension whose manifest promises tools gets a second
+/// handshake, and a healthy answer is a clause naming what came back —
+/// folded into the same `ok` row rather than a row of its own.
+#[test]
+fn a_declared_extension_that_produces_tools_names_them() {
+    let (home, bin) = machine();
+    ext_bin_with_tools(
+        bin.path(),
+        "tower",
+        &manifest_with_tools("tower", "0.4.1"),
+        Some(&tools_envelope("tower")),
+    );
+    let added = ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower"],
+    );
+    assert!(added.status.success(), "{:?}", stdout(&added));
+
+    let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
+    let checks = checks(&out);
+
+    let row = row_named(&checks, "tower").expect("a row for tower");
+    assert_eq!(row["level"], "ok", "{row}");
+    let detail = row["detail"].as_str().unwrap();
+    assert!(detail.contains("0.4.1"), "{detail}");
+    assert!(detail.contains("produces 2 tools"), "{detail}");
+    assert!(detail.contains("board"), "{detail}");
+    assert!(detail.contains("file"), "{detail}");
+}
+
+/// A manifest that promises tools and a binary that fails the second
+/// handshake is a `WARN` — the finding this flight exists for, since `ff
+/// mcp` and the trigger fan-out stay silent about it.
+#[test]
+fn a_declared_extension_whose_tools_handshake_fails_is_a_warning() {
+    let (home, bin) = machine();
+    ext_bin_with_tools(
+        bin.path(),
+        "tower",
+        &manifest_with_tools("tower", "0.4.1"),
+        Some("echo 'no tools here' >&2\n  exit 1"),
+    );
+    let added = ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower"],
+    );
+    assert!(added.status.success(), "{:?}", stdout(&added));
+
+    let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
+    let checks = checks(&out);
+
+    let row = row_named(&checks, "tower").expect("a row for tower");
+    assert_eq!(row["level"], "warn", "{row}");
+    let detail = row["detail"].as_str().unwrap();
+    assert!(detail.contains("0.4.1"), "{detail}");
+    assert!(
+        detail.contains("promises tools, but the handshake failed"),
+        "{detail}"
+    );
 }
 
 /// A declared extension whose binary now answers a different version than

@@ -57,10 +57,34 @@ pub fn is_tool_call() -> bool {
     std::env::var_os(TOOL_CALL).is_some_and(|value| !value.is_empty())
 }
 
+/// Which of the two routes a call arrived on.
+///
+/// The one `ff` tool carries a single set of annotations over everything it
+/// relays, and "nothing here is destructive" is honest only while `ff undo`
+/// takes all of it back, so the args array serves an extension only when
+/// its manifest says `undoable: true`. A tool a declared extension produced
+/// states its own `readOnlyHint` and `destructiveHint` and is honest on its
+/// own, so it needs neither the blanket promise nor `undoable: true`. The
+/// two routes stand together: an undoable extension gets both, and a
+/// non-undoable one gets its produced tools.
+///
+/// The one thing [`refuse_in`] reads this for is that difference. Every
+/// other question it asks is asked of both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The one `ff` tool's args array, under fufu's own annotations.
+    Relay,
+    /// A tool a declared extension produced, under its own.
+    Produced,
+}
+
 /// One call, as the schema shapes it.
 pub struct Call {
     pub args: Vec<String>,
     pub cwd: Option<String>,
+    /// Which tool the client called. Not a word of the command line — the
+    /// child is the same ordinary invocation either way.
+    pub route: Route,
 }
 
 /// The schema, enforced. `Err` is a JSON-RPC error, which is the right
@@ -102,7 +126,11 @@ pub fn parse(arguments: Option<JsonObject>) -> Result<Call, ErrorData> {
             ));
         }
     };
-    Ok(Call { args, cwd })
+    Ok(Call {
+        args,
+        cwd,
+        route: Route::Relay,
+    })
 }
 
 /// The verb the envelope names: the first word, or the map when there is
@@ -111,12 +139,12 @@ fn verb(args: &[String]) -> &str {
     args.first().map_or("map", String::as_str)
 }
 
-/// The refusal for a call the tool does not relay: nothing to run, one of
-/// the seven verbs that belong in a shell, or an extension the tool will
-/// not serve. Raised through `Error::coded` so the explain registry
-/// carries it like every other id.
-fn refuse(args: &[String]) -> Option<Error> {
-    refuse_in(args, crate::registry::read())
+/// The refusal for a call this server does not run: nothing to run, one of
+/// the seven verbs that belong in a shell, or an extension the route it
+/// came in on does not serve. Raised through `Error::coded` so the explain
+/// registry carries it like every other id.
+fn refuse(call: &Call) -> Option<Error> {
+    refuse_in(&call.args, call.route, crate::registry::read())
 }
 
 /// [`refuse`] against a registry of the caller's own. The tests' door, and
@@ -126,17 +154,24 @@ fn refuse(args: &[String]) -> Option<Error> {
 /// for the same reason: a builtin verb always wins, so the registry is read
 /// only for a word clap would decline, and `ff status` reaches no file.
 ///
-/// What the tool serves is what the registry says it serves. A declared
+/// What the server serves is what the registry says it serves. A declared
 /// extension is relayed the way a verb is — the child dispatches to
 /// `ff-<name>` itself, and the envelope comes back through `shape` — and an
 /// undeclared one is refused here, because fufu has read no manifest for it
 /// and so knows neither what it answers to nor whether its writes can be
-/// taken back. A declared one saying its writes are not undoable is refused
-/// too, because the tool's annotations promise the opposite of everything
-/// it serves. Both are the other half of `fufu.toolPolicy`'s rule, which
-/// lets exactly those two through the shell: refused in both places, the
-/// verb would have nowhere at all to run.
-fn refuse_in(args: &[String], registry: &crate::registry::Registry) -> Option<Error> {
+/// taken back. That is the other half of `fufu.toolPolicy`'s rule, which
+/// lets an undeclared `ff <name>` through the shell: refused in both
+/// places, the verb would have nowhere at all to run.
+///
+/// The last question is the one [`Route`] answers. A declared extension
+/// saying its writes are not undoable is refused on the args array, because
+/// the one tool's annotations promise the opposite of everything it relays,
+/// and is not refused on a tool it produced, because that tool states its
+/// own hints. `toolPolicy` reads the same rule back and keeps letting a
+/// non-undoable `ff <name>` through the shell: the registry says an
+/// extension promised tools but never which verb each covers, so the shell
+/// is the one place such a verb is certainly still runnable.
+fn refuse_in(args: &[String], route: Route, registry: &crate::registry::Registry) -> Option<Error> {
     let first = args.first()?;
     if EXCLUDED.contains(&first.as_str()) {
         return Some(Error::coded(
@@ -164,15 +199,15 @@ fn refuse_in(args: &[String], registry: &crate::registry::Registry) -> Option<Er
             vec![format!("ff extension add {first}"), "ff help".into()],
         ));
     };
-    if !declared.manifest.undoable {
+    if route == Route::Relay && !declared.manifest.undoable {
         return Some(Error::coded(
             "usage/mcp-extension-not-undoable",
             format!(
-                "ff {first} declares undoable: false, and this tool's annotations say that \
-                 nothing it serves is destructive: run it in a shell, or serve it from the MCP \
-                 server the extension registers of its own"
+                "ff {first} declares undoable: false, and this one tool's annotations say that \
+                 nothing it relays is destructive: call a {first}__<tool> this server lists, \
+                 which carries annotations of its own, or run the verb in a shell"
             ),
-            vec![format!("ff {first}"), "ff extension list".into()],
+            vec![format!("ff {first}"), "ff doctor".into()],
         ));
     }
     None
@@ -216,7 +251,7 @@ pub async fn run(exe: &Path, session: Option<&str>, call: Call) -> CallToolResul
         );
         return refused(&call.args, &err);
     }
-    if let Some(err) = refuse(&call.args) {
+    if let Some(err) = refuse(&call) {
         return refused(&call.args, &err);
     }
 
@@ -368,22 +403,22 @@ mod tests {
     #[test]
     fn the_shell_only_verbs_are_refused_by_id() {
         for verb in EXCLUDED {
-            let err = refuse_in(&args(&[verb, "status"]), &bare()).expect(verb);
+            let err = refuse_in(&args(&[verb, "status"]), Route::Relay, &bare()).expect(verb);
             assert_eq!(err.id(), "usage/mcp-verb-unavailable");
         }
-        assert!(refuse_in(&args(&["status"]), &bare()).is_none());
-        assert!(refuse_in(&args(&["op", "log"]), &bare()).is_none());
+        assert!(refuse_in(&args(&["status"]), Route::Relay, &bare()).is_none());
+        assert!(refuse_in(&args(&["op", "log"]), Route::Relay, &bare()).is_none());
         // A word that is no verb and names no extension either: a flag, or
         // the value of a global. The child parses those, as it always did.
-        assert!(refuse_in(&args(&["--help"]), &bare()).is_none());
-        assert!(refuse_in(&args(&["-C", "sub", "status"]), &bare()).is_none());
+        assert!(refuse_in(&args(&["--help"]), Route::Relay, &bare()).is_none());
+        assert!(refuse_in(&args(&["-C", "sub", "status"]), Route::Relay, &bare()).is_none());
     }
 
     /// The tool serves the extensions a person declared and refuses the
     /// rest by id, which is the whole of what the registry decides here.
     #[test]
     fn an_undeclared_extension_is_refused_and_a_declared_one_is_relayed() {
-        let err = refuse_in(&args(&["tower", "next"]), &bare()).expect("undeclared");
+        let err = refuse_in(&args(&["tower", "next"]), Route::Relay, &bare()).expect("undeclared");
         assert_eq!(err.id(), "usage/mcp-extension-undeclared");
         assert!(
             err.exits()
@@ -394,21 +429,46 @@ mod tests {
         );
 
         let (_dir, declared) = declaring("tower", true);
-        assert!(refuse_in(&args(&["tower", "next"]), &declared).is_none());
+        assert!(refuse_in(&args(&["tower", "next"]), Route::Relay, &declared).is_none());
         // And declaring one name says nothing about another.
         assert_eq!(
-            refuse_in(&args(&["bay", "warm"]), &declared).map(|err| err.id().to_string()),
+            refuse_in(&args(&["bay", "warm"]), Route::Relay, &declared)
+                .map(|err| err.id().to_string()),
             Some("usage/mcp-extension-undeclared".into())
         );
     }
 
-    /// The tool's annotations say nothing it serves is destructive, which
-    /// is honest only of an extension whose writes `ff undo` takes back.
+    /// The one tool's annotations say nothing it relays is destructive,
+    /// which is honest only of an extension whose writes `ff undo` takes
+    /// back — and a tool the extension produced says its own, so the same
+    /// verb on that route is not refused. The refusal is the args array's
+    /// alone, which is the whole of what [`Route`] decides.
     #[test]
-    fn an_extension_that_is_not_undoable_is_refused_on_the_tool() {
+    fn the_undoable_gate_is_the_args_arrays_and_not_a_produced_tools() {
         let (_dir, declared) = declaring("tower", false);
-        let err = refuse_in(&args(&["tower", "next"]), &declared).expect("not undoable");
+        let err =
+            refuse_in(&args(&["tower", "next"]), Route::Relay, &declared).expect("not undoable");
         assert_eq!(err.id(), "usage/mcp-extension-not-undoable");
+        assert!(
+            err.exits().iter().any(|exit| exit == "ff tower"),
+            "a shell is still named: {:?}",
+            err.exits()
+        );
+        assert!(
+            err.to_string().contains("tower__<tool>"),
+            "and so is the route that does serve it: {err}"
+        );
+
+        assert!(
+            refuse_in(&args(&["tower", "next"]), Route::Produced, &declared).is_none(),
+            "a produced tool carries its own hints"
+        );
+        // Every other question is still asked of both routes.
+        assert_eq!(
+            refuse_in(&args(&["bay", "warm"]), Route::Produced, &declared)
+                .map(|err| err.id().to_string()),
+            Some("usage/mcp-extension-undeclared".into())
+        );
     }
 
     #[test]

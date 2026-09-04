@@ -100,6 +100,11 @@ fn config_under(home: &Path) -> std::path::PathBuf {
 /// Declare one extension on the machine `home` stands for, the way
 /// `ff extension add` records one.
 fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
+    declare_promising(home, name, verbs, undoable, false);
+}
+
+/// [`declare`], with the manifest promising tools or not.
+fn declare_promising(home: &Path, name: &str, verbs: &[&str], undoable: bool, tools: bool) {
     let dir = config_under(home).join("fufu");
     std::fs::create_dir_all(&dir).expect("the config root");
     let verbs: Vec<Value> = verbs
@@ -117,6 +122,7 @@ fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
                 "contract": 1,
                 "verbs": verbs,
                 "undoable": undoable,
+                "tools": tools,
             },
         }],
     });
@@ -742,13 +748,14 @@ fn a_declared_extensions_help_is_text_with_no_structured_content() {
     assert_eq!(code, 0);
 }
 
-/// The one tool's annotations say that nothing it serves is destructive,
+/// The one tool's annotations say that nothing it relays is destructive,
 /// which is honest only of an extension whose writes `ff undo` takes back.
-/// One declaring otherwise is refused and pointed at a server of its own —
-/// and stays on the card, the way the shell-only verbs stay on it, because
-/// an agent told where to run something has to know the word.
+/// One declaring otherwise, and promising no tools of its own, is refused
+/// on the args array and has the shell — and stays on the card, the way the
+/// shell-only verbs stay on it, because an agent told where to run
+/// something has to know the word.
 #[test]
-fn an_extension_that_is_not_undoable_is_refused_on_the_one_tool() {
+fn an_extension_that_is_not_undoable_is_refused_on_the_args_array() {
     let fx = repo();
     let home = tempfile::TempDir::new().expect("a scratch HOME");
     declare(home.path(), "tower", &["next"], false);
@@ -774,3 +781,191 @@ fn an_extension_that_is_not_undoable_is_refused_on_the_one_tool() {
     let (code, _) = server.close();
     assert_eq!(code, 0);
 }
+
+/// A declared extension that promised tools is asked once, when the server
+/// starts, and each descriptor it answered with is listed beside fufu's own
+/// tool under `<extension>__<tool>`. A call on one of those routes back
+/// through the same child, so the envelope comes back the way a relayed
+/// call's does — and the object the client sent arrives as a command line.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn a_promised_tool_is_listed_beside_the_one_tool_and_routes_to_the_verb() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(&script, TOWER).expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare_promising(home.path(), "tower", &["brief"], true, true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let listed = server.request(2, "tools/list", Value::Null);
+    let tools = listed["result"]["tools"].as_array().expect("a tool list");
+    assert_eq!(
+        tools.len(),
+        2,
+        "fufu's own, and the one tower produced: {listed}"
+    );
+    assert_eq!(
+        tools[0]["name"], "ff",
+        "the pass-through route is unchanged"
+    );
+    assert_eq!(tools[0]["inputSchema"]["required"], json!(["args"]));
+    assert_eq!(tools[1]["name"], "tower__brief");
+    assert_eq!(tools[1]["description"], "One flight, whole.");
+    assert_eq!(tools[1]["inputSchema"]["type"], "object");
+    assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
+    assert_eq!(tools[1]["annotations"]["destructiveHint"], false);
+    // The card says nothing new: a produced tool is already a tool in the
+    // client's own list, carrying its own description.
+    let description = tools[0]["description"].as_str().expect("a description");
+    assert!(
+        description.contains("\nExtensions: tower (brief)\n"),
+        "{description}"
+    );
+    assert!(!description.contains("tower__brief"), "{description}");
+
+    // The arguments object becomes the command line the extension sees:
+    // the positional as a bare word, the rest as options, `--json` last.
+    let brief = server.request(
+        3,
+        "tools/call",
+        json!({
+            "name": "tower__brief",
+            "arguments": { "flight": 98, "board": "ff tower" }
+        }),
+    )["result"]
+        .clone();
+    assert_ne!(brief["isError"], true, "{brief}");
+    assert_eq!(brief["structuredContent"]["cmd"], "tower brief");
+    assert_eq!(
+        brief["structuredContent"]["data"]["argv"],
+        "brief 98 --board ff tower --json"
+    );
+
+    // And a name nothing here answers to is a protocol error, since no
+    // child ever ran and there is no envelope to hand over.
+    let unknown = server.request(4, "tools/call", json!({ "name": "bay__warm" }));
+    assert!(unknown["error"]["message"].as_str().is_some(), "{unknown}");
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// The undoable gate is the args array's alone. A produced tool carries the
+/// hints it stated about itself, so an extension declaring `undoable: false`
+/// is listed and called on that route and refused on the other — and the
+/// refusal names the route that does serve it.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn a_promised_tool_is_served_for_an_extension_the_args_array_will_not_relay() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(&script, TOWER).expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare_promising(home.path(), "tower", &["brief"], false, true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let listed = server.request(2, "tools/list", Value::Null);
+    let tools = listed["result"]["tools"].as_array().expect("a tool list");
+    assert_eq!(tools.len(), 2, "fufu's own, and tower's: {listed}");
+    assert_eq!(tools[1]["name"], "tower__brief");
+    assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
+    assert_eq!(tools[1]["annotations"]["destructiveHint"], false);
+
+    // And it runs: the child is the same ordinary invocation.
+    let brief = server.request(
+        3,
+        "tools/call",
+        json!({ "name": "tower__brief", "arguments": { "flight": 98 } }),
+    )["result"]
+        .clone();
+    assert_ne!(brief["isError"], true, "{brief}");
+    assert_eq!(
+        brief["structuredContent"]["data"]["argv"],
+        "brief 98 --json"
+    );
+
+    // The same verb in the args array is still refused, and the refusal
+    // names both places it does run.
+    let refused = call(&mut server, 4, &["tower", "brief", "98"]);
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert_eq!(
+        refused["structuredContent"]["error"]["id"],
+        "usage/mcp-extension-not-undoable"
+    );
+    let message = refused["structuredContent"]["error"]["message"]
+        .as_str()
+        .expect("a message");
+    assert!(message.contains("tower__<tool>"), "{message}");
+    assert!(message.contains("shell"), "{message}");
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// A handshake that hangs costs the server nothing: the ask is time-boxed,
+/// the binary is killed when the box expires, and what is lost is the tools
+/// it promised. Nothing is said about it, on the trigger doctrine.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn an_extension_that_hangs_on_the_handshake_costs_the_server_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    // `sleep` by absolute path: PATH is pinned to this directory, so a
+    // bare one would not be found and the script would exit at once.
+    std::fs::write(&script, "#!/bin/sh\n/bin/sleep 30\n").expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare_promising(home.path(), "tower", &["brief"], true, true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let listed = server.request(2, "tools/list", Value::Null);
+    let tools = listed["result"]["tools"].as_array().expect("a tool list");
+    assert_eq!(tools.len(), 1, "one tool, and no complaint: {listed}");
+    // The args-array route is untouched by a handshake that failed.
+    let description = tools[0]["description"].as_str().expect("a description");
+    assert!(
+        description.contains("Extensions: tower (brief)"),
+        "{description}"
+    );
+
+    let (code, stderr) = server.close();
+    assert_eq!(code, 0);
+    assert_eq!(stderr, "", "nothing is said about it");
+}
+
+/// An extension answering the tools handshake, and echoing its own argv
+/// back so a test can read the command line fufu built.
+#[cfg(unix)]
+const TOWER: &str = r#"#!/bin/sh
+if [ "$1" = "--ff-tools" ]; then
+  echo '{"ff":1,"cmd":"tower --ff-tools","data":[{"name":"brief","description":"One flight, whole.","inputSchema":{"type":"object","positional":["flight"],"properties":{"flight":{"type":"integer"},"board":{"type":"string"}}},"annotations":{"readOnlyHint":true,"destructiveHint":false}}]}'
+  exit 0
+fi
+printf '{"ff":1,"cmd":"tower %s","data":{"argv":"%s"}}\n' "$1" "$*"
+"#;

@@ -962,18 +962,20 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/mcp-extension-not-undoable",
-        summary: "that extension declares undoable: false, and the tool cannot honestly serve it",
-        detail: "The one tool carries annotations for everything it serves, and they say that \
-                 nothing it serves is destructive. That is honest of fufu, whose every write is \
-                 captured first and taken back by ff undo, and of an extension whose manifest \
-                 says undoable: true because it writes through fufu's own verbs. An extension \
-                 declaring undoable: false is saying the opposite, and serving it under those \
-                 annotations would tell an agent a call is recoverable when it is not. The \
-                 manifest is not refused — the extension is declared, on the card's terms, and \
-                 runs from a shell exactly as it always did — and the place it gets tools of \
-                 its own is the MCP server a manifest's mcp field registers, where it writes \
-                 its own annotations.",
-        exits: &["ff extension list", "ff doctor"],
+        summary: "that extension declares undoable: false, and the args array cannot relay it",
+        detail: "The one ff tool carries a single set of annotations over everything its args \
+                 array relays, and they say that nothing it relays is destructive. That is \
+                 honest of fufu, whose every write is captured first and taken back by ff undo, \
+                 and of an extension whose manifest says undoable: true because it writes \
+                 through fufu's own verbs. An extension declaring undoable: false is saying the \
+                 opposite, and relaying it under those annotations would tell an agent a call \
+                 is recoverable when it is not. Only that one route is refused. A tool the \
+                 extension produced states its own readOnlyHint and destructiveHint, so it is \
+                 listed beside the one tool as <name>__<tool> and called there whether or not \
+                 the writes are undoable — ff doctor names the tools an extension produces, and \
+                 the manifest's tools field is what asks for them. A shell runs the verb either \
+                 way, which is why fufu.toolPolicy lets ff <name> through there.",
+        exits: &["ff doctor", "ff extension list"],
     },
     Entry {
         id: "extension/not-found",
@@ -1009,6 +1011,35 @@ pub static ENTRIES: &[Entry] = &[
                  field fufu has never heard of is not the problem — unknown fields are kept. A \
                  manifest is refused whole rather than in part, because a half-declared \
                  extension is one fufu would describe and could not serve.",
+        exits: &[],
+    },
+    Entry {
+        id: "extension/tools-failed",
+        summary: "the extension did not answer the tool handshake",
+        detail: "An extension whose manifest says tools: true is asked for its tools with \
+                 ff-<name> --ff-tools, which it answers with one envelope on one line, exiting \
+                 0. This binary did something else: it would not run, it exited nonzero, it \
+                 printed something that is not one envelope, it answered with an error in place \
+                 of the list, or it ran past the time box fufu gives it. The box is fufu's \
+                 rather than the extension's, because the caller is a server starting up with \
+                 nobody in front of it to interrupt a binary that hangs. Nothing is refused to \
+                 the agent over it — the extension's verbs are relayed exactly as they were, \
+                 and what is lost is the tools it promised.",
+        exits: &["ff doctor"],
+    },
+    Entry {
+        id: "extension/bad-tools",
+        summary: "the tool list came back, and fufu cannot read it",
+        detail: "The handshake answered with an envelope whose data is not the tool list the \
+                 machine surface types: an array of descriptors, each carrying name, one word \
+                 in the characters a client spells a tool with; description, which is what an \
+                 agent reads before it calls; inputSchema, a JSON Schema object of type object; \
+                 and annotations stating readOnlyHint and destructiveHint, which MCP leaves \
+                 optional and fufu requires, since a tool is offered on what it says about \
+                 itself. Two descriptors may not share a name, and a list that promised tools \
+                 may not be empty. The list is refused whole rather than in part, because a \
+                 tool an agent can call by a name that is sometimes there is worse than one it \
+                 cannot call at all.",
         exits: &[],
     },
     Entry {

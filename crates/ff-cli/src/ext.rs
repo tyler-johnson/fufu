@@ -381,11 +381,6 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
     cmd.arg(question.verb)
         .args(question.rest)
         .current_dir(question.cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        // Not shown to anyone: whatever an extension has to say to a person
-        // has no person in front of it here.
-        .stderr(Stdio::null())
         .env("FF_CONTRACT", crate::machine::CONTRACT.to_string());
     match question.repo {
         Some(workdir) => cmd.env("FF_REPO", repo_var(workdir)),
@@ -395,9 +390,42 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
         cmd.env("FF_SESSION", session);
     }
 
+    match time_boxed(&mut cmd, question.stdin, question.budget) {
+        Ok(said) => Some(said),
+        Err(why) => quiet(question, why),
+    }
+}
+
+/// Run a child under a budget and answer with its stdout, when it exited 0
+/// inside that budget.
+///
+/// The caller builds the command — the program, its arguments, its directory
+/// and its environment are the caller's own policy — and this owns the part
+/// that is easy to get wrong: both pipes drained on threads of their own, a
+/// poll against a deadline, a kill when it expires, and a bounded wait for
+/// the pipe after the process is gone. Every out-of-band question fufu puts
+/// to an extension runs through here, so the deadlock the time box cannot
+/// see is answered in one place rather than once per asker.
+///
+/// stdio is set here rather than by the caller, because the pipes are what
+/// this function is for. stderr goes nowhere: whatever an extension has to
+/// say to a person has no person in front of it here.
+///
+/// `Err` is one phrase saying what happened, for a caller that reports one.
+/// [`ask_at`] puts it behind `FF_DEBUG` on the trigger doctrine, and the
+/// `--ff-tools` handshake puts it in the refusal it raises.
+pub fn time_boxed(
+    cmd: &mut Command,
+    stdin: &[u8],
+    budget: Duration,
+) -> std::result::Result<Vec<u8>, String> {
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
     let mut child = match cmd.spawn() {
         Ok(child) => child,
-        Err(err) => return quiet(question, format!("it would not run: {err}")),
+        Err(err) => return Err(format!("it would not run: {err}")),
     };
 
     // Both pipes are drained on threads of their own. A child that never
@@ -406,7 +434,7 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
     // and a deadlock is the one failure the time box below cannot see,
     // since the child is still perfectly alive.
     if let Some(mut pipe) = child.stdin.take() {
-        let payload = question.stdin.to_vec();
+        let payload = stdin.to_vec();
         std::thread::spawn(move || {
             use std::io::Write;
             let _ = pipe.write_all(&payload);
@@ -422,7 +450,7 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
         });
     }
 
-    let deadline = Instant::now() + question.budget;
+    let deadline = Instant::now() + budget;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
@@ -436,10 +464,10 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
         }
     };
     let Some(status) = status else {
-        return quiet(question, "it did not answer inside the time box");
+        return Err("it did not answer inside the time box".into());
     };
     if !status.success() {
-        return quiet(question, format!("it exited with {status}"));
+        return Err(format!("it exited with {status}"));
     }
 
     // The pipe is on the same budget as the process, and for a reason the
@@ -452,8 +480,8 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
         .saturating_duration_since(Instant::now())
         .max(POLL * 10);
     match rx.recv_timeout(grace) {
-        Ok(said) => Some(said),
-        Err(_) => quiet(question, "it exited without closing its stdout"),
+        Ok(said) => Ok(said),
+        Err(_) => Err("it exited without closing its stdout".into()),
     }
 }
 

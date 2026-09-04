@@ -16,6 +16,13 @@ use super::Row;
 /// than pay that cost on every call; doctor is the one place slow and
 /// thorough is the point, so it asks each binary directly rather than
 /// taking the registry's word for what is still true.
+///
+/// An extension whose manifest promises tools costs a second spawn beside
+/// the first — `--ff-manifest`, then `--ff-tools` — doubling doctor's cost
+/// for exactly the extensions that promised tools. That is the same
+/// tradeoff on the same side: `ff mcp` and the trigger fan-out stay silent
+/// on a failed or missing tools handshake, on the trigger doctrine, which
+/// is exactly why this is the one place a person finds out.
 pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Vec<Row> {
     let registry = crate::registry::read();
     let mut rows = Vec::new();
@@ -123,16 +130,53 @@ fn declared_row(
             )
         }
         Ok(live) => {
-            let base = Row::ok(
+            let mut row = Row::ok(
                 name.to_string(),
                 format!("{} matches ff-{name} on PATH", live.version),
             );
-            match mcp_extension_row(declared, statuses, fix) {
-                Some(mcp) => merge(base, mcp),
-                None => base,
+            if let Some(mcp) = mcp_extension_row(declared, statuses, fix) {
+                row = merge(row, mcp);
             }
+            if let Some(tools) = tools_row(name, &path, &live) {
+                row = merge(row, tools);
+            }
+            row
         }
     }
+}
+
+/// A declared extension's own tools, asked for when its manifest promises
+/// them — the second spawn `extension_rows` argues for, hung off the same
+/// row `mcp_extension_row` hangs a server clause on. `None` when the
+/// manifest promises none, which is most of them.
+///
+/// A failed or missing handshake is a `WARN`: `ff mcp` and the trigger
+/// fan-out are silent about it on the trigger doctrine, so a promise kept
+/// only in the manifest and never in what the binary produces is invisible
+/// everywhere but here. A count that came back is a clause on an otherwise
+/// healthy row, naming the tools rather than only how many.
+fn tools_row(name: &str, path: &std::path::Path, live: &crate::manifest::Manifest) -> Option<Row> {
+    if !live.tools {
+        return None;
+    }
+    Some(match crate::manifest::ask_tools(path, name) {
+        Err(err) => Row::warn(
+            name.to_string(),
+            format!("promises tools, but the handshake failed: {err}"),
+        ),
+        Ok(tools) => {
+            let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
+            Row::ok(
+                name.to_string(),
+                format!(
+                    "produces {} tool{}: {}",
+                    tools.len(),
+                    if tools.len() == 1 { "" } else { "s" },
+                    names.join(", ")
+                ),
+            )
+        }
+    })
 }
 
 /// `base` and an added clause about the same extension, folded into one

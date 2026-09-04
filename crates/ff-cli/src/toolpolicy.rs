@@ -39,8 +39,12 @@
 //! the only place an undeclared extension runs — the tool does not serve
 //! one — and a repository that refused it in both places would have nowhere
 //! to run it at all. A declared extension whose manifest says its writes
-//! are not undoable passes for that same reason: the tool will not serve
-//! one either. The registry is read only for a word that is neither
+//! are not undoable passes for that same reason: the one tool's args array
+//! will not relay one. Such an extension may have produced tools of its
+//! own, which this refusal deliberately says nothing about — the registry
+//! records that an extension promised tools and never which verb each one
+//! covers, and asking the binary is a spawn on every shell command the
+//! agent runs. The registry is read only for a word that is neither
 //! shell-only nor a builtin verb, so `ff status` reaches no file; the read
 //! itself is `registry::read`, one cached parse and no PATH walk.
 
@@ -154,11 +158,22 @@ fn classify_in(command: &str, registry: &crate::registry::Registry) -> Option<Ca
 /// extension nobody declared, or a declared one whose manifest says its
 /// writes are not undoable.
 ///
-/// That last one is the tool's own refusal read back. The one tool's
-/// annotations say nothing it serves is destructive, so it will not serve
-/// an extension declaring `undoable: false`, and a shell has to be left
-/// holding it for the reason it is left holding an undeclared one: refused
-/// in both places, the verb would have nowhere at all to run.
+/// That last one is the relay's own refusal read back. The one tool's
+/// annotations say nothing it relays is destructive, so its args array will
+/// not carry an extension declaring `undoable: false`, and a shell has to
+/// be left holding it for the reason it is left holding an undeclared one:
+/// refused in both places, the verb would have nowhere at all to run.
+///
+/// The filter stays even though such an extension's produced tools are now
+/// served, because what this refusal can name is only ever the one `ff`
+/// tool and an args array, and that is the route the extension is refused
+/// on. Naming a `<name>__<verb>` instead would be a guess: the registry
+/// says an extension promised tools, never which ones, never which verb
+/// each covers, and never whether the handshake that would have produced
+/// them answered at all. A guess that missed would refuse the shell and
+/// send the agent to a tool that is not there, which is the one outcome
+/// this rule exists to prevent. Reading the truth costs a spawn per shell
+/// command, and this path fails open rather than pay it.
 fn served(first: Option<&str>, registry: &crate::registry::Registry) -> Option<Option<String>> {
     let Some(first) = first else {
         // Bare `ff` is the map, which the tool serves.
@@ -293,13 +308,15 @@ mod tests {
     /// A registry with one name on it, written the way `ff extension add`
     /// writes one. The directory is returned so the caller keeps it alive.
     fn declaring(name: &str) -> (tempfile::TempDir, crate::registry::Registry) {
-        declaring_undoable(name, true)
+        declaring_undoable(name, true, false)
     }
 
-    /// The same, saying whether the extension's writes can be taken back.
+    /// The same, saying whether the extension's writes can be taken back
+    /// and whether its manifest promises tools.
     fn declaring_undoable(
         name: &str,
         undoable: bool,
+        tools: bool,
     ) -> (tempfile::TempDir, crate::registry::Registry) {
         let dir = tempfile::TempDir::new().expect("create tempdir");
         let file = dir.path().join("extensions.json");
@@ -314,6 +331,7 @@ mod tests {
                     "contract": crate::machine::CONTRACT,
                     "verbs": [{"name": "brief", "read_only": true}],
                     "undoable": undoable,
+                    "tools": tools,
                 },
             }],
         });
@@ -384,12 +402,32 @@ mod tests {
         assert_eq!(call.extension, None);
     }
 
-    /// The tool refuses a declared extension whose writes it cannot promise
-    /// are undoable, so the shell is what is left holding it.
+    /// The args array refuses a declared extension whose writes it cannot
+    /// promise are undoable, so the shell is what is left holding it —
+    /// whether or not the extension promised tools of its own. The registry
+    /// says it promised them and not which verb each covers, so a refusal
+    /// here could only guess, and a guess that missed would leave the verb
+    /// nowhere to run.
     #[test]
     fn a_declared_extension_that_is_not_undoable_is_the_shells() {
-        let (_dir, declared) = declaring_undoable("tower", false);
-        assert_eq!(classify_in("ff tower brief 65", &declared), None);
+        for tools in [false, true] {
+            let (_dir, declared) = declaring_undoable("tower", false, tools);
+            assert_eq!(
+                classify_in("ff tower brief 65", &declared),
+                None,
+                "tools: {tools}"
+            );
+        }
+    }
+
+    /// Promising tools does not take the tool's refusal off an undoable
+    /// extension: the args array still relays it, so the shell is still
+    /// where it is refused.
+    #[test]
+    fn promising_tools_changes_nothing_for_an_undoable_extension() {
+        let (_dir, declared) = declaring_undoable("tower", true, true);
+        let call = classify_in("ff tower brief 65", &declared).expect("declared and undoable");
+        assert_eq!(call.extension.as_deref(), Some("tower"));
     }
 
     /// An undeclared extension passing is one segment passing, not the

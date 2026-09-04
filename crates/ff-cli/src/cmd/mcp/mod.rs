@@ -19,6 +19,14 @@
 //! `describe.rs` assembles the verb list from the same source `ff --help`
 //! reads, so it cannot drift from it.
 //!
+//! One tool of fufu's, and beside it the tools a declared extension
+//! produced. An extension promising `tools` in its manifest is asked what
+//! they are when the server starts, and each answer is listed under
+//! `<extension>__<tool>` and routed back through the same child. That is an
+//! addition and not a replacement: the args array stays the route for every
+//! verb, an extension's included. `tools.rs` has the fetch, the names, and
+//! how a typed call becomes a command line.
+//!
 //! The protocol has two handshake eras. Revisions through 2025-11-25 open
 //! with an `initialize` exchange and hold a session; 2026-07-28 dropped
 //! the handshake, made `server/discover` mandatory, and carries the
@@ -41,6 +49,7 @@
 pub(crate) mod child;
 pub mod describe;
 pub mod presence;
+mod tools;
 
 use std::path::PathBuf;
 
@@ -66,13 +75,23 @@ struct Server {
     /// settled by `Ctx` with the flag winning. Server-level only: a tag per
     /// call would be a second session mechanism to explain.
     session: Option<String>,
+    /// The tools declared extensions produced, asked for once and served
+    /// for the life of the connection — the way the registry itself is read
+    /// once, and for the same reason: what was advertised at handshake is
+    /// what answers until the client closes.
+    produced: Vec<tools::Produced>,
 }
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     let exe = std::env::current_exe().map_err(Error::repo)?;
+    // Before the transport, so the first `tools/list` is answered from a
+    // list that is already there. Each ask is time-boxed, and a machine
+    // that has declared nothing spawns nothing.
+    let produced = tools::produced(crate::registry::read());
     let server = Server {
         exe,
         session: ctx.session.clone(),
+        produced,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -109,6 +128,25 @@ fn complain(err: &dyn std::fmt::Display) -> Error {
     Error::msg(format!("mcp: {err}"))
 }
 
+impl Server {
+    /// What to say about a name nothing here answers to. The shape rather
+    /// than the list, since a registry is a person's file and naming every
+    /// produced tool would be a message as long as one.
+    fn unknown(&self, name: &str) -> String {
+        if self.produced.is_empty() {
+            return format!(
+                "no tool named {name:?}; the one tool is {:?}",
+                describe::NAME
+            );
+        }
+        format!(
+            "no tool named {name:?}; this server serves {:?} and the tools a declared extension \
+             produced, each named <extension>__<tool>",
+            describe::NAME
+        )
+    }
+}
+
 impl ServerHandler for Server {
     /// The instructions field carries the short doctrine only. The rich
     /// text goes on the tool, because every client transmits tool
@@ -122,12 +160,17 @@ impl ServerHandler for Server {
             .with_instructions(crate::integ::briefing::NOTICE)
     }
 
+    /// fufu's one tool first, then a tool per descriptor a declared
+    /// extension produced, in the order the registry declared them.
     fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = std::result::Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(vec![describe::tool()])))
+        let listed = std::iter::once(describe::tool())
+            .chain(self.produced.iter().map(tools::Produced::tool))
+            .collect();
+        std::future::ready(Ok(ListToolsResult::with_all_items(listed)))
     }
 
     /// `Err` only for input the schema already forbids — no `args`, an item
@@ -139,17 +182,19 @@ impl ServerHandler for Server {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
-        if request.name != describe::NAME {
-            return Err(ErrorData::invalid_params(
-                format!(
-                    "no tool named {:?}; the one tool is {:?}",
-                    request.name,
-                    describe::NAME
-                ),
-                None,
-            ));
-        }
-        let call = child::parse(request.arguments)?;
+        // A produced tool's call is the same child as an args-array call,
+        // and only the words are arrived at differently.
+        let call = if request.name == describe::NAME {
+            child::parse(request.arguments)?
+        } else if let Some(produced) = self
+            .produced
+            .iter()
+            .find(|produced| produced.name() == request.name)
+        {
+            produced.call(request.arguments)?
+        } else {
+            return Err(ErrorData::invalid_params(self.unknown(&request.name), None));
+        };
         Ok(child::run(&self.exe, self.session.as_deref(), call)
             .await
             .into())

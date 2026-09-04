@@ -152,6 +152,14 @@ const LINE: usize = 72;
 /// machine that has declared nothing adds nothing to the card, which is
 /// most machines. What is not on the line is what the tool refuses:
 /// `child::refuse_in` reads the same registry.
+///
+/// The tools a declared extension produced are not named here, and the line
+/// is the manifest's verbs whether an extension promised tools or not. A
+/// produced tool is already in the client's own list under its own name,
+/// carrying its own description and its own schema; the card exists for the
+/// one tool whose args array has none of that. Naming them again would
+/// spend a budget of about two thousand characters twice on one thing, and
+/// would put a person's file back inside a line already capped against it.
 fn extensions(registry: &crate::registry::Registry) -> String {
     let declared = registry.declared();
     if declared.is_empty() {
@@ -249,6 +257,17 @@ mod tests {
         verbs: usize,
         width: usize,
     ) -> (tempfile::TempDir, crate::registry::Registry) {
+        registry_promising(count, verbs, width, false)
+    }
+
+    /// [`registry_of`], with every extension on it promising tools or none
+    /// of them doing so.
+    fn registry_promising(
+        count: usize,
+        verbs: usize,
+        width: usize,
+        tools: bool,
+    ) -> (tempfile::TempDir, crate::registry::Registry) {
         let dir = tempfile::TempDir::new().expect("create tempdir");
         let file = dir.path().join("extensions.json");
         // A name of exactly `width` characters, distinct from every other,
@@ -274,6 +293,7 @@ mod tests {
                         "contract": crate::machine::CONTRACT,
                         "verbs": verbs,
                         "undoable": true,
+                        "tools": tools,
                     },
                 })
             })
@@ -390,6 +410,25 @@ mod tests {
         assert!(line.ends_with('…'), "and says it was cut: {line:?}");
         // The whole cost of a registry, however hostile, is that one line.
         assert_eq!(count, card(&bare()).chars().count() + LINE + 1);
+    }
+
+    /// The card names verbs, and a produced tool is not one of them: it
+    /// reaches the agent as a tool of its own, in the client's own list,
+    /// with a description the extension wrote. So the card is the same
+    /// whether an extension promised tools or not, and the budget below is
+    /// still the whole cost of a registry.
+    #[test]
+    fn a_promised_tool_costs_the_card_nothing() {
+        let (_dir, plain) = registry_promising(3, 3, 0, false);
+        let (_dir, promising) = registry_promising(3, 3, 0, true);
+        assert!(
+            promising
+                .declared()
+                .iter()
+                .all(|entry| entry.manifest.tools),
+            "the fixture promises tools"
+        );
+        assert_eq!(card(&plain), card(&promising));
     }
 
     #[test]
