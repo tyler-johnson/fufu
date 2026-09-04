@@ -2,7 +2,12 @@
 
 The cookbook for when something is already wrong. Every transcript below is real `ff` output, from a repository a few commits into the tutorial's story: a `parser-stream` branch carrying two commits on top of `main`.
 
-The model that makes all of it work is one sentence: fufu snapshots the working tree before every action and records every mutation on one operation log, so recovery is never reconstruction — it is naming where to go back to. [Snapshots and undo](../concepts/snapshots-and-undo.md) is that model in full. Two verbs cover almost everything here, and telling them apart is the main skill: [`ff undo`](../reference/cli/undo.md) moves refs and the working tree together, one step at a time, while [`ff restore <path>`](../reference/cli/restore.md) writes only worktree files and leaves refs, HEAD, and the index exactly where they stand.
+The model that makes all of it work is one sentence: fufu snapshots the working tree before every action — each snapshot a capture — and records every mutation on one operation log, so recovery is naming where to go back to rather than reconstructing it. [Snapshots and undo](../concepts/snapshots-and-undo.md) is that model in full.
+
+Two verbs cover almost everything here, and telling them apart is the main skill:
+
+- [`ff undo`](../reference/cli/undo.md) moves refs and the working tree together, one step at a time.
+- [`ff restore <path>`](../reference/cli/restore.md) writes only worktree files, and leaves refs, HEAD, and the index exactly where they stand.
 
 ## "An agent ran `git reset --hard`"
 
@@ -165,7 +170,11 @@ reverted qnnvvtlspsorxzooruqkylozzzokqyztnpytmzxn: commit on parser-stream: READ
 undo: ff undo
 ```
 
-B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too. Revert inverts refs, and it applies only where the refs the wrong operation moved still stand where it left them: a later commit on the same branch moves that ref, so had B committed on parser-stream as well, the revert would hold and change nothing. That case is a rewrite rather than a recovery — [`ff lift --from <rev>`](../reference/cli/lift.md) takes A's files back out of the closed commit, and drops the commit when it takes everything; [rewriting history](rewriting-history.md#split-a-commit-that-already-closed) has it.
+B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too.
+
+Revert inverts refs, and it applies only where the refs the wrong operation moved still stand where it left them: a later commit on the same branch moves that ref, so had B committed on parser-stream as well, the revert would hold and change nothing.
+
+That case is a rewrite rather than a recovery. [`ff lift --from <rev>`](../reference/cli/lift.md) takes A's files back out of the closed commit, and drops the commit when it takes everything; [rewriting history](rewriting-history.md#split-a-commit-that-already-closed) has it.
 
 ## "I committed to the wrong branch, or with the wrong message"
 
@@ -183,7 +192,15 @@ reworded ea9920b5 on parser-stream: parser: string literals
 undo: ff undo
 ```
 
-A commit on the wrong branch, if it just happened, is one `ff undo`: the close comes back open, tree and refs together, and you close it again where it belongs — [`ff commit -b <branch>`](../reference/cli/commit.md) lands the close on a fresh branch in the same step. Once later work has piled on top, this stops being a recovery problem and becomes a rewriting one: [`ff absorb --into <rev>`](../reference/cli/absorb.md) folds the open change into the commit it should have joined, `ff lift --from <rev>` takes files back out of a closed commit, and [`ff edit <rev>`](../reference/cli/edit.md) reopens one in place. [Rewriting history](rewriting-history.md) is the guide for that whole family.
+A commit on the wrong branch, if it just happened, is one `ff undo`: the close comes back open, tree and refs together, and you close it again where it belongs — [`ff commit -b <branch>`](../reference/cli/commit.md) lands the close on a fresh branch in the same step.
+
+Once later work has piled on top, this stops being a recovery problem and becomes a rewriting one:
+
+- [`ff absorb --into <rev>`](../reference/cli/absorb.md) folds the open change into the commit it should have joined.
+- `ff lift --from <rev>` takes files back out of a closed commit.
+- [`ff edit <rev>`](../reference/cli/edit.md) reopens one in place.
+
+[Rewriting history](rewriting-history.md) is the guide for that whole family.
 
 ## "Someone force-pushed over my branch"
 
@@ -249,4 +266,8 @@ $ ff history
     (the floor)
 ```
 
-Everything before fufu's arrival is git's history, not fufu's timeline: reachable with git's own tools, but not a place `ff undo` can land. The same bound has a sharper edge in day-to-day work — a foreign tree change that moves no ref, like a raw `git restore` or an editor discarding a buffer, is invisible until the next capture, so how far back you can reach is set by the last time fufu was looking. For everything done through fufu's own surface, that is always the moment before it happened. [Snapshots and undo](../concepts/snapshots-and-undo.md) closes the loop on why.
+Everything before fufu's arrival is git's history, not fufu's timeline: reachable with git's own tools, but not a place `ff undo` can land.
+
+The same bound has a sharper edge in day-to-day work. A foreign tree change that moves no ref — a raw `git restore`, an editor discarding a buffer — is invisible until the next capture, so how far back you can reach is set by the last time fufu was looking.
+
+For everything done through fufu's own surface, that is always the moment before it happened. [Snapshots and undo](../concepts/snapshots-and-undo.md) closes the loop on why.

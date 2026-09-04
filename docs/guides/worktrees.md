@@ -1,6 +1,10 @@
 # Worktrees
 
-[`ff switch`](../reference/cli/switch.md) already covers most parallel work: the open change parks with the branch you leave and resumes when you come back, so one tree serves many branches. A worktree is for the moments when one tree is the bottleneck — a long build or test run that should keep going while you edit something else, an agent working a branch alongside you, a review checkout you keep standing. `ff worktree add` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working tree, the index, HEAD, and the operation log are the worktree's own.
+[`ff switch`](../reference/cli/switch.md) already covers most parallel work: the open change — the uncommitted work in your tree — parks with the branch you leave and resumes when you come back, so one tree serves many branches.
+
+A worktree is for the moments when one tree is the bottleneck — a long build or test run that should keep going while you edit something else, an agent working a branch alongside you, a review checkout you keep standing.
+
+`ff worktree add` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working tree, the index, HEAD, and the operation log are the worktree's own.
 
 Every transcript below is real `ff` output. fufu calls a secondary worktree a bay in places, and this page does too.
 
@@ -98,9 +102,15 @@ Note the `add worktree bay on bay` row: making the bay was itself an operation, 
 
 ## Two writers, one repository
 
-Two trees writing one repository is this guide's normal case — you in one, a build or an agent in the other — so the locking is worth saying plainly. Each chain has one write lock, a file at `<common-dir>/fufu/oplog-<chain>.lock`, and no lock spans the repository: a verb in the bay and a verb in the first tree write two different chains and never wait on each other. The commits and refs underneath stay safe by git's own rules, the same as any two git processes sharing a repository.
+Two trees writing one repository is this guide's normal case — you in one, a build or an agent in the other — so the locking is worth saying plainly. Each chain has one write lock, a file at `<common-dir>/fufu/oplog-<chain>.lock`, and no lock spans the repository: a verb in the bay and a verb in the first tree write two different chains and never wait on each other.
 
-Inside one tree, two fufu processes at once — an agent's hook capturing while you type a verb — settle at that chain's one lock, and the loser loses cleanly. A capture that finds the lock held is skipped outright, because another process is already recording and the next capture is moments away. A verb waits up to two seconds, then refuses with `ref/contended: another fufu process is writing the operation log` rather than writing over what the other holds — run it again. That refusal exits 4, the one code that means exactly that; [the error id index](../reference/errors.md) has the rest. Neither case can corrupt the log.
+The commits and refs underneath stay safe by git's own rules, the same as any two git processes sharing a repository.
+
+### Two processes in one tree
+
+Inside one tree, two fufu processes at once — an agent's hook capturing while you type a verb — settle at that chain's one lock, and the loser loses cleanly. A capture that finds the lock held is skipped outright, because another process is already recording and the next capture is moments away.
+
+A verb waits up to two seconds, then refuses with `ref/contended: another fufu process is writing the operation log` rather than writing over what the other holds — run it again. That refusal exits 4, the one code that means exactly that; [the error id index](../reference/errors.md) has the rest. Neither case can corrupt the log.
 
 [Architecture](../internals/architecture.md#where-fufus-state-lives) places the lock file among the rest of fufu's on-disk state.
 
@@ -216,7 +226,10 @@ on main · 1 to publish
 │  docs: say what this is
 ```
 
-The removal is one operation on the chain of the tree that ran it, so `ff undo` right after it puts the whole checkout back, uncommitted work included. Two limits to know: ignored files — build outputs, `node_modules`, virtualenvs — are not captured and do not come back, the same trade any worktree removal makes; and gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff trim`](../reference/cli/trim.md) gets there.
+The removal is one operation on the chain of the tree that ran it, so `ff undo` right after it puts the whole checkout back, uncommitted work included. Two limits to know:
+
+- Ignored files — build outputs, `node_modules`, virtualenvs — are not captured and do not come back, the same trade any worktree removal makes.
+- Gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff trim`](../reference/cli/trim.md) gets there.
 
 ## From here
 

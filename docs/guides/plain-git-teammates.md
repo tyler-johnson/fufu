@@ -1,6 +1,8 @@
 # Plain-git teammates
 
-Nobody else has to know you run fufu. [The invariant](../concepts/invariant.md) is the reason: at every instant the repository is a boring git repository, so every person and every tool that speaks git keeps working without noticing you. This page is what that looks like in practice — what your teammates see, what happens when you type git yourself, and what fufu does and does not ask of the people around you. Every transcript is real `ff` output.
+Nobody else has to know you run fufu. [The invariant](../concepts/invariant.md) is the reason: at every instant the repository is a boring git repository, so every person and every tool that speaks git keeps working without noticing you.
+
+This page is what that looks like in practice — what your teammates see, what happens when you type git yourself, and what fufu does and does not ask of the people around you. Every transcript is real `ff` output.
 
 The console blocks below share one scene: a fresh clone, a branch named `parser` with a commit on it, all made through fufu.
 
@@ -64,7 +66,9 @@ The notice stays pinned in [`ff status`](../reference/cli/status.md) while the l
 
 ## `ff git`: the escape hatch that keeps undo working
 
-The gap in the lazy story is the working tree. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture. [`ff git <args…>`](../reference/cli/git.md) closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
+The gap in the lazy story is the working tree. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture.
+
+[`ff git <args…>`](../reference/cli/git.md) closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
 
 The demonstration is the most destructive habit in git's repertoire:
 
@@ -124,7 +128,9 @@ Coming back is reconciliation. At your first fufu operation, everything that hap
 
 ## What fufu asks of the branch, and of the repo
 
-Of the repository and the people in it, fufu asks nothing. No server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business. The same fact is a limit: fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
+Of the repository and the people in it, fufu asks nothing: no server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business.
+
+The same fact is a limit. fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
 
 Of your own unpublished branches, fufu is opinionated: they rebase onto main rather than merging it in, unpublished commits stay malleable, and updating the remote copy of your branch after a rewrite is a leased force-push — sent only if the shared copy still stands where you last saw it. Those opinions are confined to work only you can see, and they stop at [the push boundary](../concepts/push-boundary.md): published history is append-only.
 

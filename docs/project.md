@@ -12,7 +12,9 @@ Report vulnerabilities through [GitHub private vulnerability reporting](https://
 
 ## Stability and releases
 
-fufu is pre-1.0: the command surface is settling, and a minor version may change flags, output, or configuration — every breaking change is named in the [changelog](changelog.md), never slipped in silently. The latest release is the supported release; fixes land at the tip rather than being backported. Releases are cut from tags and built in CI for six targets — Linux, macOS, and Windows, each on amd64 and arm64 — and published with checksums; [install](install.md#pin-and-verify) covers pinning and verifying one.
+fufu is pre-1.0: the command surface is settling, and a minor version may change flags, output, or configuration. Every breaking change is named in the [changelog](changelog.md), never slipped in silently.
+
+The latest release is the supported release; fixes land at the tip rather than being backported. Releases are cut from tags and built in CI for six targets — Linux, macOS, and Windows, each on amd64 and arm64 — and published with checksums; [install](install.md#pin-and-verify) covers pinning and verifying one.
 
 ## What fufu needs from git
 
@@ -20,4 +22,6 @@ No declared minimum version. The daily surface — status, commit, switch, undo,
 
 ## How it is tested
 
-fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially: a permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, sync, stash, signing, the index, the revset grammar, and the rest. The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the full suite on Linux, macOS, and Windows for every code change — [platforms](install.md#platforms) says what that covers per OS.
+fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially. A permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, sync, stash, signing, the index, the revset grammar, and the rest.
+
+The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the full suite on Linux, macOS, and Windows for every code change — [platforms](install.md#platforms) says what that covers per OS.

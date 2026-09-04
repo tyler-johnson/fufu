@@ -1,6 +1,8 @@
 # Stacked changes
 
-A stack is a branch whose base is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review. This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, syncs the whole repository, and publishes each branch under its own lease. The repository is the tutorial's demo, and every console block is real `ff` output.
+A stack is a branch whose base — the branch it forked from and rebases onto — is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review.
+
+This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, syncs the whole repository, and publishes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
 
 The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff sync`](../reference/cli/sync.md) lines every branch up with its base and its remote, and [`ff publish`](../reference/cli/publish.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
@@ -65,7 +67,9 @@ $ ff
    init: hello world
 ```
 
-`@` is the open change on parser-cli, `▸ [parser-core]` stands mid-column because parser-cli's commit sits directly on its tip, and a `~` row elides commits the map does not need to show. A stack in good shape has no forks in this picture. Every rewrite below carries the branches above with it, so a fork here is the map telling you a branch was left behind, and the verb that left it said so at the time.
+`@` is the open change on parser-cli, `▸ [parser-core]` stands mid-column because parser-cli's commit sits directly on its tip, and a `~` row elides commits the map does not need to show.
+
+A stack in good shape has no forks in this picture. Every rewrite below carries the branches above with it, so a fork here is the map telling you a branch was left behind, and the verb that left it said so at the time.
 
 ## Land review feedback with absorb
 
@@ -104,7 +108,11 @@ $ ff
 
 ## The cascade
 
-Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree, riding the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together. Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so. `ff switch` to the held branch and [`ff resolve`](../reference/cli/resolve.md) picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
+Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree. The replays ride the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together.
+
+Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so.
+
+`ff switch` to the held branch and [`ff resolve`](../reference/cli/resolve.md) picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
 
 Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
 

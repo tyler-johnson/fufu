@@ -4,7 +4,11 @@
 
 ## What does not change
 
-Nothing that anyone else can see. Refs, history, remotes, hooks, CI, and teammates all continue exactly as before, because [the invariant](concepts/invariant.md) holds from the first moment: at every instant the repository is a boring git repository. There is no server-side setup, no hook a teammate must install, and no trace in pushed history that fufu was involved. `ff init` adds config keys and refs in fufu's own namespace; it rewrites nothing, moves nothing, and installs no hooks that intercept anything. A teammate cloning the repository, a GUI opening it, a CI job checking it out — none of them can tell fufu is there.
+Nothing that anyone else can see. Refs, history, remotes, hooks, CI, and teammates all continue exactly as before, because [the invariant](concepts/invariant.md) holds from the first moment: at every instant the repository is a boring git repository.
+
+There is no server-side setup, no hook a teammate must install, and no trace in pushed history that fufu was involved. `ff init` adds config keys and refs in fufu's own namespace; it rewrites nothing, moves nothing, and installs no hooks that intercept anything.
+
+A teammate cloning the repository, a GUI opening it, a CI job checking it out — none of them can tell fufu is there.
 
 ## What arming does
 
@@ -22,9 +26,13 @@ Those opinions stop at [the push boundary](concepts/push-boundary.md). Published
 
 ## Trying it and leaving
 
-fufu is abandonable and returnable at any moment, and deleting it loses convenience, never data. Everything fufu writes is ordinary git: snapshots are refs outside the visible graph, parked changes are labeled stash entries, and the operation log is a cache over the repository, never an authority over it. Uninstall the binary and the repository is complete and legible without it — the stash dance comes back, the manual rebase comes back, but no commit, no branch, and no file state is lost.
+fufu is abandonable and returnable at any moment, and deleting it loses convenience, never data. Everything fufu writes is ordinary git: snapshots are refs outside the visible graph, parked changes — the edits fufu sets aside when you switch away from a branch — are labeled stash entries, and the operation log is a cache over the repository, never an authority over it.
 
-Leaving does not have to be permanent, and it does not have to be total. A GUI session, a weekend of raw git, a machine without fufu installed — all are absorbed when you return: the first fufu operation back compares what it remembered against what it finds, folds the difference into the log as foreign operations, and says out loud anything that no longer matches. [The two regimes](concepts/two-regimes.md) covers that boundary in full; the short version is that coming back is reconciliation, not recovery.
+Uninstall the binary and the repository is complete and legible without it — the stash dance comes back, the manual rebase comes back, but no commit, no branch, and no file state is lost.
+
+Leaving does not have to be permanent, and it does not have to be total. A GUI session, a weekend of raw git, a machine without fufu installed — all are absorbed when you return.
+
+The first fufu operation back compares what it remembered against what it finds, folds the difference into the log as foreign operations — ref motion fufu did not perform itself — and says out loud anything that no longer matches. [The two regimes](concepts/two-regimes.md) covers that boundary in full; the short version is that coming back is reconciliation, not recovery.
 
 ## Adopting mid-flight
 

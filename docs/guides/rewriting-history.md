@@ -1,6 +1,8 @@
 # Rewriting history
 
-Everything you would reach for `rebase -i` for — rewording, squashing, splitting, editing an earlier commit — without the todo list. Every verb here has the same shape: you say where a change belongs, and the restack of everything above the target happens in the same operation. Each one is a single entry on the operation log, so one [`ff undo`](../reference/cli/undo.md) takes the whole thing back, and a replay that would conflict stops with nothing changed and records a [held rewrite](../concepts/held-rewrites.md) instead of leaving a stopped rebase on disk.
+Everything you would reach for `rebase -i` for — rewording, squashing, splitting, editing an earlier commit — without the todo list. Every verb here has the same shape: you say where a change belongs, and the restack of everything above the target happens in the same operation.
+
+Each one is a single entry on the operation log, so one [`ff undo`](../reference/cli/undo.md) takes the whole thing back. A replay that would conflict stops with nothing changed and records a [held rewrite](../concepts/held-rewrites.md) — a rewrite parked mid-replay, waiting on you — instead of leaving a stopped rebase on disk.
 
 Every transcript below is real `ff` output from one scratch repository: a `lexer` branch forked from `main`, carrying two commits.
 
@@ -78,7 +80,9 @@ undo: ff undo
 
 ## Reopen a closed commit
 
-Some fixes cannot be written blind against the tip, because the commit that needs them has been rewritten over since. [`ff edit`](../reference/cli/edit.md) opens an editing session on a commit: a branch is minted at the commit and you switch to it, so the commit's real content is what sits on disk, with your whole toolchain pointed at it. The branch you came from stays where it stands, its commits waiting ahead, and your open change parks until the session ends.
+Some fixes cannot be written blind against the tip, because the commit that needs them has been rewritten over since.
+
+[`ff edit`](../reference/cli/edit.md) opens an editing session on a commit: a branch is minted at the commit and you switch to it, so the commit's real content is what sits on disk, with your whole toolchain pointed at it. The branch you came from stays where it stands, its commits waiting ahead, and your open change parks until the session ends.
 
 ```console
 $ ff edit 601cd64d
@@ -422,7 +426,9 @@ updated the working tree (1 file(s))
 undo: ff undo
 ```
 
-That is the boundary in full. fufu has no verb that rewrites history the team shares: the shared copy of a branch moves only through a publish you type, the lease stops a rewrite the moment anyone else has moved the branch, and sync treats the shared line as append-only fact. Inside your own unpublished work, every commit is malleable and every rewrite is one undo away; the moment other people hold the commits, the verbs on this page are for the history you have not sent yet. A [held rewrite](../concepts/held-rewrites.md) blocks publish for the same reason — nothing leaves the machine while its history is still about to change under it.
+That is the boundary in full. fufu has no verb that rewrites history the team shares: the shared copy of a branch moves only through a publish you type, the lease stops a rewrite the moment anyone else has moved the branch, and sync treats the shared line as append-only fact.
+
+Inside your own unpublished work, every commit is malleable and every rewrite is one undo away. The moment other people hold the commits, that stops: the verbs on this page are for the history you have not sent yet. A [held rewrite](../concepts/held-rewrites.md) blocks publish for the same reason — nothing leaves the machine while its history is still about to change under it.
 
 ## Where next
 

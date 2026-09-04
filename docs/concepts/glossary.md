@@ -2,6 +2,8 @@
 
 One or two sentences per term, each linking to the page that owns it.
 
+## A–C
+
 **arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and [`ff undo`](../reference/cli/undo.md) reaches back to the moment of arming and no further.
 
 **bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working tree, an index, HEAD, and an operation chain of its own. [`ff worktree add`](../reference/cli/worktree-add.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
@@ -18,6 +20,8 @@ One or two sentences per term, each linking to the page that owns it.
 
 **close** — Turn the [open change](changes.md) into a commit: [`ff commit`](../reference/cli/commit.md) is the verb, paths close a slice, and closing is the only way a change enters history. A closed change is an ordinary git commit.
 
+## F–L
+
 **the floor** — The operation log's first entry, taken when the repository was armed. [Undo](snapshots-and-undo.md) reaches back to the floor and no further: everything before fufu's arrival is git's history, not fufu's timeline.
 
 **foreign operation** — An operation recording what raw git did behind fufu's back, absorbed lazily into the operation log at the next fufu invocation — labeled as foreign, quoted with git's own reflog messages, and undoable like anything fufu did itself. [The two regimes](two-regimes.md) covers the boundary it crosses.
@@ -25,6 +29,8 @@ One or two sentences per term, each linking to the page that owns it.
 **held rewrite** — A pending rewrite that stopped at a conflict: no ref moved, no half-applied tree touched the repository, and the verb's question — the branch, the target — is recorded for a moment you choose. A hold blocks [`ff publish`](push-boundary.md) and nothing local; [held rewrites](held-rewrites.md) is the full story, and [`ff resolve`](../reference/cli/resolve.md) is the way out.
 
 **lease** — The guard every [publish](push-boundary.md) carries: the push goes through only if the shared copy still stands where you last saw it, and stops otherwise with nothing sent and nothing lost.
+
+## M–P
 
 **map** — What bare `ff` draws: recent work across every branch, parked changes included — where you left things. It shows only the commits that relate the branches shown and contracts the runs between them; [`ff map`](../reference/cli/map.md) is its spelled-out name.
 
@@ -43,6 +49,8 @@ One or two sentences per term, each linking to the page that owns it.
 **petname** — The generated name of an anonymous branch, like `ff/hidden-wren`: a genuine ref under a reserved prefix that every GUI shows, every git command addresses, and no push refspec matches by accident. See [branches](branches.md).
 
 **publish** — The outgoing half of [the push boundary](push-boundary.md): [`ff publish`](../reference/cli/publish.md) sends the branch to its one remote, under a lease, and never rides along as a default inside any other verb.
+
+## R–T
 
 **replay** — Recreate commits one by one onto a new base, in memory, landing only when the result is clean; the first step that conflicts stops the run and becomes a [held rewrite](held-rewrites.md). Sync, restack, and fufu's other rewrites all move history this way.
 
