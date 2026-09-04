@@ -6,6 +6,7 @@
 //! parked at `refs/fufu/wt/main/trash/@ops`.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::thread::scope;
 
 use ff_core::ops::index::{self, Kind};
@@ -442,9 +443,14 @@ fn racing_captures_leave_a_usable_index() {
     build_log(&fx, 3);
     let repo_path = fx.path();
 
+    // Every id an append handed back, from both threads. These are what the
+    // log owes: a capture that reported `Created` was told it was recorded.
+    let created = Mutex::new(Vec::new());
+
     scope(|s| {
         for thread_id in 0..2 {
             let tpath = repo_path.clone();
+            let created = &created;
             s.spawn(move || {
                 let thread_repo = ff_core::discover_isolated(&tpath).expect("discover");
                 for round in 0..5 {
@@ -454,32 +460,45 @@ fn racing_captures_leave_a_usable_index() {
                         format!("thread {thread_id} round {round}"),
                     )
                     .expect("write file");
-                    let _ = ff_core::capture(
+                    let outcome = ff_core::capture(
                         &thread_repo,
                         &Provenance::new("racer", Some(format!("thread-{thread_id}"))),
                     );
+                    if let Ok(CaptureOutcome::Created { id, .. }) = outcome {
+                        created.lock().expect("the created ids").push(id.hex());
+                    }
                 }
             });
         }
     });
 
+    let created = created.into_inner().expect("the created ids");
     let final_repo = fx.repo();
     let live_ids = log_ids(&final_repo, Domain::Live);
 
     // The invariant underneath the index one, and the reason this test used
-    // to fail about once in fifty. Every position the ref has held must be
-    // on the walk from the tip: an append that reported success and then got
-    // written over is an operation the reflog reaches and the log does not,
-    // which is a lost write wearing a rewind's clothes. Assert it before the
-    // index, because the index disagreeing is only how it happened to show.
+    // to fail about once in fifty: an append that reported success and was
+    // then written over is a lost write wearing a rewind's clothes. Assert
+    // it before the index, because the index disagreeing is only how it
+    // happened to show.
+    //
+    // What a capture was told is the oracle, rather than the ref's own
+    // reflog this read before. gix writes the reflog line before it renames
+    // the lock file over the ref and never takes the line back, so a commit
+    // that fails at the rename — on Windows another process holding the
+    // target open is enough — leaves the reflog naming a position the ref
+    // never held. That capture returned an error, and a write nobody was
+    // promised is not one the log lost. The reflog stays in the message,
+    // where it says which of the two happened.
     let reflog = fx.git(&["reflog", "show", OPS_REF, "--format=%H"]);
-    let strays: Vec<&str> = reflog
-        .lines()
-        .filter(|line| !line.is_empty() && !live_ids.iter().any(|id| id == line))
+    let lost: Vec<&str> = created
+        .iter()
+        .filter(|id| !live_ids.iter().any(|live| live == *id))
+        .map(String::as_str)
         .collect();
     assert!(
-        strays.is_empty(),
-        "operations the reflog reaches and the walk does not: {strays:#?}\nreflog:\n{reflog}\nwalk:\n{}",
+        lost.is_empty(),
+        "appends that reported success and are not on the walk: {lost:#?}\nreflog:\n{reflog}\nwalk:\n{}",
         live_ids.join("\n")
     );
 
