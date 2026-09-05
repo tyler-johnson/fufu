@@ -57,6 +57,11 @@ const LEGACY: [&str; 2] = ["ff hook agent trigger claude", "ff hook claude"];
 /// read as wired rather than as gone.
 const TAIL: &str = "trigger claude";
 
+/// What Claude Code sets in the environment of every MCP server it starts:
+/// the session that launched it. `/clear` hands the hook a new id and
+/// leaves this process, and this variable, as they were.
+pub const SESSION_VAR: &str = "CLAUDE_CODE_SESSION_ID";
+
 /// Every event fufu wires, and what each one is for.
 ///
 /// The first two found the floor and are required. `PreToolUse` is the one

@@ -47,6 +47,7 @@ fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, 
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("FF_DEBUG")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -480,6 +481,88 @@ fn the_environment_session_is_read_and_the_flag_wins() {
     server.close();
 }
 
+/// With neither `--session` nor `FF_SESSION`, the session the client says
+/// it launched the server under is the tag, so a commit through the tool
+/// carries the session the client's hook captures do.
+#[test]
+fn the_clients_session_is_read_when_fufu_names_none() {
+    let fx = repo();
+    fx.write("b.txt", "b\n");
+    let mut server = start(
+        &fx.path(),
+        &[],
+        &[(
+            "CLAUDE_CODE_SESSION_ID",
+            "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+        )],
+    );
+    handshake(&mut server);
+
+    let commit = call(&mut server, 2, &["commit", "-m", "through the tool"]);
+    assert_ne!(commit["isError"], true, "{commit}");
+
+    let ops = call(&mut server, 3, &["op", "log", "kind(op)"]);
+    let op = &ops["structuredContent"]["data"]["ops"][0];
+    assert_eq!(op["verb"], "commit", "{ops}");
+    assert_eq!(
+        op["session"], "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+        "{ops}"
+    );
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// The client's session is the lowest of the three sources: `FF_SESSION`
+/// wins over it, and `--session` wins over both.
+#[test]
+fn fufus_own_session_wins_over_the_clients() {
+    let fx = repo();
+    fx.write("b.txt", "b\n");
+    let mut server = start(
+        &fx.path(),
+        &[],
+        &[
+            ("FF_SESSION", "from-env"),
+            (
+                "CLAUDE_CODE_SESSION_ID",
+                "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+            ),
+        ],
+    );
+    handshake(&mut server);
+    let commit = call(&mut server, 2, &["commit", "-m", "env"]);
+    assert_ne!(commit["isError"], true, "{commit}");
+    let ops = call(&mut server, 3, &["op", "log", "kind(op)"]);
+    assert_eq!(
+        ops["structuredContent"]["data"]["ops"][0]["session"],
+        "from-env"
+    );
+    server.close();
+
+    fx.write("c.txt", "c\n");
+    let mut server = start(
+        &fx.path(),
+        &["--session", "from-flag"],
+        &[
+            ("FF_SESSION", "from-env"),
+            (
+                "CLAUDE_CODE_SESSION_ID",
+                "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+            ),
+        ],
+    );
+    handshake(&mut server);
+    let commit = call(&mut server, 2, &["commit", "-m", "flag"]);
+    assert_ne!(commit["isError"], true, "{commit}");
+    let ops = call(&mut server, 3, &["op", "log", "kind(op)"]);
+    assert_eq!(
+        ops["structuredContent"]["data"]["ops"][0]["session"],
+        "from-flag"
+    );
+    server.close();
+}
+
 // ---- the modern era --------------------------------------------------------
 
 /// 2026-07-28 has no handshake: the first request is `server/discover`,
@@ -671,6 +754,55 @@ fn a_declared_extension_is_served_and_named_on_the_card() {
     assert_eq!(
         refused["structuredContent"]["error"]["id"],
         "usage/mcp-extension-undeclared"
+    );
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
+/// The client's session reaches a declared extension the way fufu's own
+/// does: the tag travels as `--session` to the child `ff`, which sets
+/// `FF_SESSION` before it execs `ff-<name>`.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn the_clients_session_reaches_a_declared_extension() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho '{\"ff\":1,\"cmd\":\"tower next\",\"data\":{\"session\":\"'\"$FF_SESSION\"'\"}}'\n",
+    )
+    .expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare(home.path(), "tower", &["next"], true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(
+        home,
+        &fx.path(),
+        &[],
+        &[
+            ("PATH", path.as_str()),
+            (
+                "CLAUDE_CODE_SESSION_ID",
+                "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+            ),
+        ],
+    );
+    handshake(&mut server);
+
+    let next = call(&mut server, 2, &["tower", "next"]);
+    assert_ne!(next["isError"], true, "{next}");
+    assert_eq!(next["structuredContent"]["cmd"], "tower next");
+    assert_eq!(
+        next["structuredContent"]["data"]["session"], "95b36d9d-efdc-4564-9b06-91842f51ef6b",
+        "{next}"
     );
 
     let (code, _) = server.close();

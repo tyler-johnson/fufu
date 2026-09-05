@@ -50,16 +50,20 @@ pub fn resolve(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> 
     if let Some(raw) = flag {
         return Ok(Some(parse(raw)?));
     }
-    let Some(raw) = env else {
-        return Ok(None);
-    };
+    Ok(ambient("FF_SESSION", env))
+}
+
+/// An ambient source: the environment rather than this command line, so an
+/// unusable value is ignored and named under `FF_DEBUG` instead of aborting.
+pub fn ambient(var: &str, raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
     match parse(raw) {
-        Ok(name) => Ok(Some(name)),
+        Ok(name) => Some(name),
         Err(err) => {
             if std::env::var_os("FF_DEBUG").is_some() {
-                eprintln!("ff[debug]: FF_SESSION ignored: {err}");
+                eprintln!("ff[debug]: {var} ignored: {err}");
             }
-            Ok(None)
+            None
         }
     }
 }
@@ -120,5 +124,22 @@ mod tests {
     #[test]
     fn parse_allows_unicode_and_emoji() {
         assert!(parse("hello 🌍/world").is_ok());
+    }
+
+    #[test]
+    fn ambient_returns_the_parsed_name() {
+        assert_eq!(
+            ambient("CLAUDE_CODE_SESSION_ID", Some("  abc-123 ")).as_deref(),
+            Some("abc-123")
+        );
+        assert_eq!(ambient("CLAUDE_CODE_SESSION_ID", None), None);
+    }
+
+    #[test]
+    fn ambient_ignores_an_unusable_value() {
+        assert_eq!(ambient("CLAUDE_CODE_SESSION_ID", Some("")), None);
+        assert_eq!(ambient("CLAUDE_CODE_SESSION_ID", Some("   ")), None);
+        assert_eq!(ambient("CLAUDE_CODE_SESSION_ID", Some("\n")), None);
+        assert_eq!(ambient("CLAUDE_CODE_SESSION_ID", Some("a\tb")), None);
     }
 }

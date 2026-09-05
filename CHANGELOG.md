@@ -7,6 +7,7 @@
 - jj's names are aliases where a fufu verb is what jj's means: `ff bookmark` is `ff branch`, `ff workspace` is `ff worktree`, `ff squash` is `ff absorb`, and `ff rebase` is `ff restack`, beside the `ff new` that `ff start` already had.
 - `ff abandon` and `ff split`, jj's two words with no one verb here, are answered with `usage/foreign-verb` naming the moves that cover them.
 - `extension/skill-failed` and `extension/bad-skill`, the skill handshake's two refusals.
+- `ff mcp` tags its children with the client's session when neither `--session` nor `FF_SESSION` is set, read from `CLAUDE_CODE_SESSION_ID` under Claude Code, so a commit through the tool carries the session its hook captures do. Read once at start, so it stays the launching session across `/clear`.
 
 ### Changed
 

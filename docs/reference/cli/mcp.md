@@ -13,7 +13,7 @@ Every call runs this same binary as a child with `--json` and hands back the env
 Two options change what a call does:
 
 - `cwd` on the call names the directory to run in, for a client that works across repositories. Without it the child runs where the client started the server.
-- `--session <name>` here, or `FF_SESSION` in the environment, tags every operation the server's children record, which is how an agent's work stays separable from a person's.
+- `--session <name>` here, `FF_SESSION` in the environment, or failing both the session the client says it is running (`CLAUDE_CODE_SESSION_ID` under Claude Code) tags every operation the server's children record, which is how an agent's work stays separable from a person's. All three are read once when the server starts: a client that changes its session without restarting the server, as Claude Code's `/clear` does, keeps the one it launched under.
 
 ## What is not served
 
