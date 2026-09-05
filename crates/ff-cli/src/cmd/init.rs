@@ -125,7 +125,7 @@ pub fn run(ctx: &Ctx, dir: Option<String>, bare: bool) -> Result<()> {
     if bare {
         return Err(Error::coded(
             "init/bare",
-            "a bare repository has no working tree, so there is no floor for ff undo to \
+            "a bare repository has no working copy, so there is no floor for ff undo to \
              land on and nothing for a capture to hold",
             vec!["ff git init --bare".into()],
         ));
@@ -158,7 +158,7 @@ pub fn run(ctx: &Ctx, dir: Option<String>, bare: bool) -> Result<()> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
-            "this is a bare repository, and there is no working tree for the capture \
+            "this is a bare repository, and there is no working copy for the capture \
              floor to hold",
             vec![],
         ));

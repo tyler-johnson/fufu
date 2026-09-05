@@ -93,10 +93,10 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "repo/bare",
-        summary: "this is a bare repository, and the verb needs a working tree",
-        detail: "A bare repository has no working tree, so there is nothing to snapshot, commit, \
+        summary: "this is a bare repository, and the verb needs a working copy",
+        detail: "A bare repository has no working copy, so there is nothing to snapshot, commit, \
                  restore into, or switch. Read-only verbs still work here; anything that touches \
-                 files does not. Run the command from a clone that has a working tree.",
+                 files does not. Run the command from a clone that has a working copy.",
         exits: &[],
     },
     Entry {
@@ -125,7 +125,7 @@ pub static ENTRIES: &[Entry] = &[
         summary: "git is in the middle of something",
         detail: "A rebase, a merge, a cherry-pick or a bisect leaves the repository in a state \
                  only that operation knows how to finish, and a verb that moved refs or the \
-                 working tree underneath it would strand it. Finish or abort it with git — fufu \
+                 working copy underneath it would strand it. Finish or abort it with git — fufu \
                  owns merges in a later phase — and the verb will run.",
         exits: &["git rebase --abort", "git merge --abort"],
     },
@@ -177,7 +177,7 @@ pub static ENTRIES: &[Entry] = &[
         id: "undo/not-undoable",
         summary: "that operation has nothing in it to invert",
         detail: "ff op revert inverts the ref transitions an operation made, so it has nothing to \
-                 do with the two kinds that made none. A capture only records the working tree — \
+                 do with the two kinds that made none. A capture only records the working copy — \
                  that invariant is what keeps the log small — and a note marks something that \
                  happened rather than something that was done. To go back to what a capture \
                  holds, restore to it: that is a worktree question, not a rollback. Note that \
@@ -242,7 +242,7 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "commit/empty",
         summary: "there is nothing to close: the tree matches HEAD",
-        detail: "The working tree is the open change, so a tree that matches HEAD is a change \
+        detail: "The working copy is the open change, so a tree that matches HEAD is a change \
                  that does not exist — and a description does not make one, because a commit \
                  that says something while changing nothing is exactly the placeholder state \
                  fufu refuses to keep. Nothing was written, so a pending description is still \
@@ -794,7 +794,7 @@ pub static ENTRIES: &[Entry] = &[
         summary: "a resolution is already open on this branch",
         detail: "Re-running ff resolve would materialize the same conflicts again over the \
                  very edits the open session is collecting, so it refuses instead. The \
-                 markers are in your working tree right now: fix them and the rewrite lands, \
+                 markers are in your working copy right now: fix them and the rewrite lands, \
                  or ff resolve --abandon drops the session and the hold together.",
         exits: &["ff done", "ff resolve --abandon", "ff status"],
     },
@@ -804,14 +804,14 @@ pub static ENTRIES: &[Entry] = &[
         detail: "A resolution session is built on the conflicts it was given, and ff done \
                  re-derives them before it lands anything. This time they came out different: \
                  a commit landed, a branch moved, or the base changed while the markers were \
-                 in your working tree, so the fixes would land in the wrong place. Nothing \
+                 in your working copy, so the fixes would land in the wrong place. Nothing \
                  moved. Re-resolve to look at the conflicts as they stand now, or abandon \
                  to drop the session and the hold together.",
         exits: &["ff resolve", "ff resolve --abandon", "ff status"],
     },
     Entry {
         id: "held/unresolved",
-        summary: "conflict markers are still standing in the working tree",
+        summary: "conflict markers are still standing in the working copy",
         detail: "ff done attributes your fixes to the commits that owned each region, and a \
                  region still carrying its markers is a fix that is not finished — or a fix \
                  that created a conflict further up the stack. Nothing moved: the branch, \
@@ -897,7 +897,7 @@ pub static ENTRIES: &[Entry] = &[
         id: "session/moved",
         summary: "the session branch has commits of its own now",
         detail: "Only a foreign git commit can add one, and landing the session would fold it \
-                 into the amended commit. Its content is already in the working tree and would \
+                 into the amended commit. Its content is already in the working copy and would \
                  survive the amend, but its message would not, and dropping a message nobody \
                  asked to lose is the guess fufu will not make. ff done --abandon drops the \
                  session without landing it, and ff restack is the move to make once you have \
@@ -1242,7 +1242,7 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "init/bare",
         summary: "ff init was asked for a bare repository",
-        detail: "A bare repository has no working tree, which is the thing fufu captures — so \
+        detail: "A bare repository has no working copy, which is the thing fufu captures — so \
                  there would be no floor for ff undo to land on and nothing for a capture to \
                  hold. That is not a repository fufu has anything to add to, so it does not \
                  pretend otherwise: git makes bare repositories, and ff git init --bare runs \
@@ -1299,7 +1299,7 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "clone/failed",
-        summary: "the pack arrived and the working tree could not be written",
+        summary: "the pack arrived and the working copy could not be written",
         detail: "The download finished and the checkout did not: a path the filesystem would \
                  not take, a name that collides case-insensitively, a disk that filled. The \
                  half-built directory is removed, so this is a clone to run again rather than \
@@ -1370,7 +1370,7 @@ pub static ENTRIES: &[Entry] = &[
         id: "repo/not-found",
         summary: "no git repository here, or in any parent directory",
         detail: "fufu works inside a git repository, and searches upward from the current \
-                 directory to find one. Either this is not a working tree, or you are outside \
+                 directory to find one. Either this is not a working copy, or you are outside \
                  the one you meant to be in. If there is no repository yet, ff init makes one \
                  with the safety net already on, and ff clone brings one down the same way.",
         exits: &["ff init", "ff clone <url>"],

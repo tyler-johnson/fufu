@@ -47,7 +47,7 @@ page as text. Shell only: git, update, watch, hook, unhook, mcp, extension.";
 /// The doctrine, in one breath: the briefing's four verbs and the git
 /// rule, for a client that never shows the server's instructions.
 pub(crate) const DOCTRINE: &str = "\
-Use this tool, not git, for anything that writes. The worktree is the change: `ff commit` closes it, no staging; `ff switch <branch>` moves; `ff undo` takes back the last \
+Use this tool, not git, for anything that writes. The working copy is the change: `ff commit` closes it, no staging; `ff switch <branch>` moves; `ff undo` takes back the last \
 operation; `ff restore <path>` discards a file's edits. Reading with git is fine.";
 
 /// The skill's recovery table in one line, and where the rest is. The

@@ -493,7 +493,7 @@ pub fn capture_with(
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
-            "bare repository: capture requires a working tree",
+            "bare repository: capture requires a working copy",
             vec![],
         ));
     }

@@ -32,7 +32,7 @@ END = "<!-- bench:end -->"
 AXES = {
     "chain-depth": (
         "Snapshot chain depth",
-        "Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working tree.",
+        "Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working copy.",
     ),
     "history-depth": (
         "Commit history depth",

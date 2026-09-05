@@ -10,7 +10,7 @@ pub fn status(repo: &gix::Repository) -> Result<Status> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
-            "bare repository: status requires a working tree",
+            "bare repository: status requires a working copy",
             vec![],
         ));
     }

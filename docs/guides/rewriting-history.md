@@ -422,7 +422,7 @@ fetching from origin
 took in 2 commit(s) from origin/lexer
 replayed 0 of yours on top
 dropped 37bcef6e "notes: eating chars, explained" — it changes nothing
-updated the working tree (1 file(s))
+updated the working copy (1 file(s))
 undo: ff undo
 ```
 

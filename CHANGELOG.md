@@ -9,6 +9,7 @@
 
 ### Changed
 
+- "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff sync`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
 - Changes made outside fufu render as one summary line on both surfaces, the reconcile preamble every mutating verb writes to stderr and the block `ff status` pins: a single change keeps its ref and git's reflog hint, and more than one folds to counts by kind. `ff status --json` still carries every ref, and `ff op show @` lists them.
 - Every alias is visible: `ff --help` shows `[alias: st]` on the verb's row, and each aliased verb's page names its spellings. The root page's list of short forms goes.
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.

@@ -124,7 +124,7 @@ fn status_pins_an_open_resolution() {
         "the resolution is named: {text}"
     );
     assert!(
-        text.contains("in your working tree"),
+        text.contains("in your working copy"),
         "the markers' location is said: {text}"
     );
     assert!(text.contains("ff done"), "and the way out: {text}");

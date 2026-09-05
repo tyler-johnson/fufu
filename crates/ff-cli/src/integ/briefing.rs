@@ -39,12 +39,12 @@ use crate::manifest::Briefing;
 /// means adding that marker at its definition, so the trail stays two-way:
 /// `grep -rn "agent notice" crates/ff-cli/src`.
 pub const NOTICE: &str = "\
-fufu (`ff`) is capturing this repository: the worktree is snapshotted before every \
+fufu (`ff`) is capturing this repository: the working copy is snapshotted before every \
 tool action, so no edit can lose file state. Work directly — no backup copies, no \
 hedging.
 
 Use `ff`, not `git`, for anything that writes. `ff commit -m \"…\"` closes the open \
-change — no add, no staging, the worktree is the change. `ff switch <branch>` moves. \
+change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. \
 `ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. \
 Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
 

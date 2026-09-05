@@ -167,7 +167,7 @@ fn plugin_body() -> (String, String) {
     let manifest = serde_json::json!({
         "name": "fufu",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "fufu (ff) snapshots the working tree before every tool action",
+        "description": "fufu (ff) snapshots the working copy before every tool action",
         "homepage": env!("CARGO_PKG_REPOSITORY"),
     });
     let mut events = serde_json::Map::new();

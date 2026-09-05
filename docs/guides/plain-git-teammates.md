@@ -102,7 +102,7 @@ $ ff config gitPolicy strict
 gitPolicy = strict (this repo)
 
 $ ff git commit -m wip
-ff: fufu.gitPolicy is strict, and fufu has a verb for git commit: ff commit — the working tree is the change, and ff commit closes it onto the log
+ff: fufu.gitPolicy is strict, and fufu has a verb for git commit: ff commit — the working copy is the change, and ff commit closes it onto the log
   try:
     ff commit
     ff config gitPolicy coach

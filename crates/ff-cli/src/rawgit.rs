@@ -63,7 +63,7 @@ pub const TABLE: &[Word] = &[
     Word {
         git: "commit",
         ff: "ff commit",
-        why: "the working tree is the change, and ff commit closes it onto the log",
+        why: "the working copy is the change, and ff commit closes it onto the log",
     },
     Word {
         git: "switch",

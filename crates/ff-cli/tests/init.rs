@@ -157,7 +157,7 @@ fn init_takes_a_directory() {
     assert!(tmp.path().join("made-here/.git").is_dir());
 }
 
-/// A bare repository has no working tree, so there is nothing for the floor
+/// A bare repository has no working copy, so there is nothing for the floor
 /// to hold — refused, and answered with the spelling that does work.
 #[test]
 fn bare_is_refused_and_names_the_git_form() {
@@ -165,7 +165,7 @@ fn bare_is_refused_and_names_the_git_form() {
     let out = ff(tmp.path(), &["init", "--bare"]);
     assert!(!out.status.success(), "--bare is refused");
     let err = stderr(&out);
-    assert!(err.contains("no working tree"), "{err}");
+    assert!(err.contains("no working copy"), "{err}");
     assert!(err.contains("ff git init --bare"), "the way out: {err}");
     assert!(
         !tmp.path().join(".git").exists() && !tmp.path().join("HEAD").exists(),
@@ -174,7 +174,7 @@ fn bare_is_refused_and_names_the_git_form() {
 }
 
 /// The other bare shape: standing *inside* a bare repository git made. There
-/// is still no working tree, so there is still nothing to arm — refused with
+/// is still no working copy, so there is still nothing to arm — refused with
 /// the id that names the state rather than the flag.
 #[test]
 fn init_inside_a_bare_repository_is_refused() {

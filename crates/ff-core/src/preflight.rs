@@ -119,7 +119,7 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
             "held/resolving",
             match verb {
                 Verb::Sync => format!(
-                    "a resolution is open on {branch}: its conflicts are in your working tree, and syncing over them would move the ground they were computed against"
+                    "a resolution is open on {branch}: its conflicts are in your working copy, and syncing over them would move the ground they were computed against"
                 ),
                 Verb::Publish => format!(
                     "a resolution is open on {branch}: the exit stays blocked until the rewrite under it lands"

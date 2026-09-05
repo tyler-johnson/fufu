@@ -124,7 +124,7 @@ pub enum Command {
         names: Vec<String>,
     },
     // agent notice quotes this: `ff status`
-    /// Show the working tree status
+    /// Show the working copy status
     #[command(visible_alias = "st", long_about = help::term(help::STATUS), after_long_help = help::term_examples(help::STATUS_EXAMPLES))]
     Status {
         #[command(flatten)]
@@ -232,7 +232,7 @@ pub enum Command {
         gone: bool,
     },
     // agent notice quotes this: `ff commit -m`
-    /// Close the open change into a commit (the working tree is the change)
+    /// Close the open change into a commit (the working copy is the change)
     #[command(visible_alias = "ci", long_about = help::term(help::COMMIT), after_long_help = help::term_examples(help::COMMIT_EXAMPLES))]
     Commit {
         /// Describe what is closing; wins over the pending description
@@ -371,7 +371,7 @@ pub enum Command {
         /// Where to create it; the current directory when omitted
         #[arg(value_name = "dir")]
         dir: Option<String>,
-        /// Refused: a bare repository has no working tree to capture
+        /// Refused: a bare repository has no working copy to capture
         #[arg(long, hide = true)]
         bare: bool,
     },
@@ -476,7 +476,7 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<ExtensionAction>,
     },
-    /// Snapshot the working tree now
+    /// Snapshot the working copy now
     #[command(long_about = help::term(help::TRIGGER), after_long_help = help::term_examples(help::TRIGGER_EXAMPLES))]
     Trigger {
         /// The source; absent or `manual` is the hand-taken snapshot

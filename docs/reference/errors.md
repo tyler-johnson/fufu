@@ -40,7 +40,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `branch/not-found` | 1 | no branch here goes by that name |
 | `branch/shared-lease-refused` | 1 | the shared copy moved since you last looked, so it was not deleted |
 | `clone/bad-url` | 1 | that is not a URL fufu can address |
-| `clone/failed` | 1 | the pack arrived and the working tree could not be written |
+| `clone/failed` | 1 | the pack arrived and the working copy could not be written |
 | `clone/refused` | 1 | the remote answered, and said no |
 | `clone/target-exists` | 1 | the directory to clone into already has something in it |
 | `clone/unreachable` | 1 | the remote never answered |
@@ -65,7 +65,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `held/op-revert` | 3 | the inversion conflicts with work done since |
 | `held/resolving` | 3 | a resolution is already open on this branch |
 | `held/rewrite-conflict` | 3 | the rewrite stops at a commit it cannot replay |
-| `held/unresolved` | 3 | conflict markers are still standing in the working tree |
+| `held/unresolved` | 3 | conflict markers are still standing in the working copy |
 | `held/unsupported` | 3 | the held rewrite selected paths, and the open change reaches beyond them |
 | `hook/declined` | 1 | one of your git hooks refused the commit |
 | `identity/missing` | 1 | git has no name and email to sign work with |
@@ -87,7 +87,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `publish/unreachable` | 1 | the remote never answered |
 | `publish/unrecorded` | 1 | the push went through and the log could not write it down |
 | `ref/contended` | 4 | another process is holding that ref |
-| `repo/bare` | 1 | this is a bare repository, and the verb needs a working tree |
+| `repo/bare` | 1 | this is a bare repository, and the verb needs a working copy |
 | `repo/detached` | 1 | HEAD is not on a branch |
 | `repo/mid-operation` | 1 | git is in the middle of something |
 | `repo/not-found` | 1 | no git repository here, or in any parent directory |

@@ -110,7 +110,7 @@ pub fn resolve(
         return Err(Error::coded(
             "held/resolving",
             format!(
-                "a resolution is already open on {branch}: its conflicts are in your working tree"
+                "a resolution is already open on {branch}: its conflicts are in your working copy"
             ),
             vec![
                 "ff done".into(),

@@ -186,7 +186,7 @@ fn list(ctx: &Ctx) -> Result<()> {
         .iter()
         .map(|w| match &w.path {
             Some(path) => path.display().to_string().chars().count(),
-            None => "no working tree".chars().count(),
+            None => "no working copy".chars().count(),
         })
         .max()
         .unwrap_or_default();
@@ -196,7 +196,7 @@ fn list(ctx: &Ctx) -> Result<()> {
         let marker = if w.current { "* " } else { "  " };
         let path = match &w.path {
             Some(path) => cell(&path.display().to_string(), path_width, false, colored),
-            None => cell("no working tree", path_width, true, colored),
+            None => cell("no working copy", path_width, true, colored),
         };
         let branch = match &w.branch {
             Some(branch) => branch.clone(),

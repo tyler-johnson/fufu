@@ -217,7 +217,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         // end the warn colour for the rest of the line.
         out.push_str(&paint_warn(
             &format!(
-                "resolving: {} {} from ff {} {} in your working tree",
+                "resolving: {} {} from ff {} {} in your working copy",
                 resolving.conflicts, noun, resolving.verb, be,
             ),
             colored,

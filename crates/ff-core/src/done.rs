@@ -318,7 +318,7 @@ fn finish_resolution(
         return Err(Error::coded(
             "held/unresolved",
             format!(
-                "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working tree \
+                "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working copy \
                  again and re-run ff done",
                 crate::sha::short_oid(id),
                 subject

@@ -1,6 +1,6 @@
 ---
 name: fufu
-description: Advanced use of fufu (ff), the git interface that snapshots the working tree before every action. Use when recovering file state or a whole tree after a bad edit, undoing or reverting an operation, splitting or reordering commits that have already closed, resolving a held rewrite, re-aiming a branch onto a new base, reading fufu's JSON from a script, or whenever git's usual advice — staging, stash, reflog, rebase -i — would fight fufu's model.
+description: Advanced use of fufu (ff), the git interface that snapshots the working copy before every action. Use when recovering file state or a whole tree after a bad edit, undoing or reverting an operation, splitting or reordering commits that have already closed, resolving a held rewrite, re-aiming a branch onto a new base, reading fufu's JSON from a script, or whenever git's usual advice — staging, stash, reflog, rebase -i — would fight fufu's model.
 ---
 
 # fufu
@@ -15,13 +15,13 @@ When an `ff` tool is offered — the MCP server `ff mcp` registers with the clie
 
 ## The model
 
-**The worktree is the change.** There is no staging area and no verb that adds to one. What is on disk is what `ff commit` closes. Selection happens as an argument at the moment of the close, not as state maintained between commits.
+**The working copy is the change.** There is no staging area and no verb that adds to one. What is on disk is what `ff commit` closes. Selection happens as an argument at the moment of the close, not as state maintained between commits.
 
 **Capture is ambient.** Every verb takes a snapshot before it does anything, and the hooks take one before every agent tool call and every typed git command. Snapshots are ordinary git objects under `refs/fufu/`, beside history rather than in it. Nothing fufu stores reaches a remote, and nothing it stores needs fufu to read back. The practical consequence: file state from the last hour is nearly always recoverable, so work directly and never write backup copies.
 
 **Two address spaces, and they never collide.** Commits are hex. Operations are spelled in the letters k–z, never hex digits. `@` is the newest operation, and git's first-parent suffixes work on it: `@^` is the one before, `@~3` is three back. `ff show` takes revisions and refuses operations; `ff op show` takes operations. That separation is why an id is never ambiguous about what kind of thing it names.
 
-**Undo is repo-wide; restore is per-path.** `ff undo` moves refs, HEAD, the index, and the working tree together, one *run* of work at a time. `ff restore <path>` writes only worktree files and leaves refs, HEAD, and the index exactly as they are. Reaching for the wrong one is the most common mistake — see the recovery table below.
+**Undo is repo-wide; restore is per-path.** `ff undo` moves refs, HEAD, the index, and the working copy together, one *run* of work at a time. `ff restore <path>` writes only worktree files and leaves refs, HEAD, and the index exactly as they are. Reaching for the wrong one is the most common mistake — see the recovery table below.
 
 **Undo navigates rather than appends.** `ff undo` and `ff op restore <id>` move the log's pointer; nothing is discarded and no entry records that you navigated. `ff redo` walks forward along the branch an undo stepped off. Landing new work after an undo forks the log instead of truncating it, so redo stops offering a path it can no longer take, while the forked-off ids stay resolvable until `ff trim` ages them out.
 
@@ -96,7 +96,7 @@ A replay that would conflict stops with nothing changed rather than leaving a ha
 
 A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb that hit it recorded a hold in the branch's metadata and wrote nothing there; when it is a branch the cascade reached, the operation landed and that branch alone stayed put. `ff status` reports it, `ff publish` refuses to send while one stands, and a hold on a branch above takes `ff switch <branch>` to reach.
 
-- `ff resolve` materializes every surviving conflict region into the working tree at once, as ordinary labeled markers. Nothing moves — the branch stays, a parked change keeps waiting. Fix the markers, then `ff done` lands the rewrite behind them.
+- `ff resolve` materializes every surviving conflict region into the working copy at once, as ordinary labeled markers. Nothing moves — the branch stays, a parked change keeps waiting. Fix the markers, then `ff done` lands the rewrite behind them.
 - If the world has moved and the rewrite now applies cleanly, `ff resolve` releases the hold instead, and re-running the verb that recorded it lands it.
 - `ff resolve --abandon` drops the hold, and an open session's markers with it.
 - Either way, the way back is one `ff undo`.

@@ -13,10 +13,10 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 ## work on the current change
 
-- [`ff status`](status.md) — Show the working tree status
+- [`ff status`](status.md) — Show the working copy status
 - [`ff diff`](diff.md) — Show the open change as a patch — content, not just counts
 - [`ff restore`](restore.md) — Restore worktree files from the timeline
-- [`ff commit`](commit.md) — Close the open change into a commit (the working tree is the change)
+- [`ff commit`](commit.md) — Close the open change into a commit (the working copy is the change)
 - [`ff describe`](describe.md) — Edit the pending description of the open change
 
 ## examine the history and state
@@ -68,7 +68,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
     - [`ff extension add`](extension-add.md) — Ask an ff-<name> for its manifest, check it, and record it here
     - [`ff extension list`](extension-list.md) — Every extension declared on this machine, and what each answers to
     - [`ff extension remove`](extension-remove.md) — Take one off the list; fufu stops describing it
-- [`ff trigger`](trigger.md) — Snapshot the working tree now
+- [`ff trigger`](trigger.md) — Snapshot the working copy now
 - [`ff watch`](watch.md) — Stream operations as they land, one JSON object per line
 - [`ff mcp`](mcp.md) — Serve fufu to an agent client over the Model Context Protocol, on stdio
 - [`ff config`](config.md) — Read and write fufu's settings (plain git config under fufu.*)

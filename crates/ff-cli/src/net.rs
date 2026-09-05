@@ -376,7 +376,7 @@ pub fn clone(opts: Clone<'_>) -> Result<gix::Repository> {
     let (repo, _outcome) = checked_out.map_err(|err| {
         Error::coded(
             "clone/failed",
-            format!("the pack arrived and the working tree could not be written: {err}"),
+            format!("the pack arrived and the working copy could not be written: {err}"),
             vec![],
         )
     })?;

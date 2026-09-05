@@ -98,11 +98,11 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
             if report.files > 0 {
                 if report.still_open {
                     println!(
-                        "updated the working tree ({} file(s)); your change is still open",
+                        "updated the working copy ({} file(s)); your change is still open",
                         report.files
                     );
                 } else {
-                    println!("updated the working tree ({} file(s))", report.files);
+                    println!("updated the working copy ({} file(s))", report.files);
                 }
             }
             if let Some(parked) = &report.parked {

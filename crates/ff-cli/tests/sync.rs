@@ -467,7 +467,7 @@ fn the_working_tree_line_prints_when_a_cascade_carried_the_branch_underfoot() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.starts_with("updated the working tree (2 file(s)); your change is still open\n"),
+        text.starts_with("updated the working copy (2 file(s)); your change is still open\n"),
         "{text}"
     );
     assert!(

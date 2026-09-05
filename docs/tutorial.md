@@ -211,7 +211,7 @@ $ ff sync
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 2 commit(s) onto main
-updated the working tree (1 file(s))
+updated the working copy (1 file(s))
 not published yet — ff publish
 main
     fast-forwarded to origin/main (1 commit(s))
