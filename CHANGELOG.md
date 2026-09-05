@@ -6,8 +6,11 @@
 
 - jj's names are aliases where a fufu verb is what jj's means: `ff bookmark` is `ff branch`, `ff workspace` is `ff worktree`, `ff squash` is `ff absorb`, and `ff rebase` is `ff restack`, beside the `ff new` that `ff start` already had.
 - `ff abandon` and `ff split`, jj's two words with no one verb here, are answered with `usage/foreign-verb` naming the moves that cover them.
+- `extension/skill-failed` and `extension/bad-skill`, the skill handshake's two refusals.
 
 ### Changed
+
+- The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.
 
 - "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff sync`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
 - Changes made outside fufu render as one summary line on both surfaces, the reconcile preamble every mutating verb writes to stderr and the block `ff status` pins: a single change keeps its ref and git's reflog hint, and more than one folds to counts by kind. `ff status --json` still carries every ref, and `ff op show @` lists them.
@@ -18,6 +21,10 @@
 ### Removed
 
 - `ff co`, the hidden alias on the `checkout` foreign verb. `ff checkout` still answers with `usage/foreign-verb`.
+
+### Fixed
+
+- `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.
 
 ## v0.12.1 — 2026-09-04
 

@@ -14,11 +14,15 @@
 //! that is written whole and removed whole either way. `--settings` gets
 //! no skill, because the skill rides the plugin.
 //!
-//! A declared extension's own skill files land the same way, beside
-//! `skills/fufu/` under `skills/<name>/` — one directory per extension,
-//! nested inside the plugin fufu already owns, so writing and removing it
-//! whole with the rest costs nothing structural either. `--settings` gets
-//! none of them, on the same rule fufu's own skill does not.
+//! A declared extension's own skills land the same way, beside
+//! `skills/fufu/` under `skills/<skill>/` — one directory per skill,
+//! produced by the extension's binary through `--ff-skill` and typed
+//! `/fufu:<skill>`, nested inside the plugin fufu already owns, so writing
+//! and removing it whole with the rest costs nothing structural either. The
+//! plugin's `skills/` is wholly fufu's, so an install sweeps it: a skill of
+//! an extension no longer declared goes on the next `ff hook claude`.
+//! `--settings` gets none of them, on the same rule fufu's own skill does
+//! not.
 //!
 //! The MCP server rides the plugin too, as its `.mcp.json`: the fourth
 //! file in the directory, written and removed with the other three. That
@@ -32,7 +36,7 @@
 
 use std::path::PathBuf;
 
-use ff_core::Result;
+use ff_core::{Error, Result};
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
@@ -265,33 +269,67 @@ fn plugin_stale() -> bool {
     missing.len() < EVENTS.len() && missing.iter().any(|(_, need)| *need == Need::Extra)
 }
 
-/// A declared extension's own skill directory, beside `skills/fufu` inside
-/// the plugin — nested inside a directory fufu already owns outright, so
-/// writing and removing it whole costs nothing structural either.
-fn ext_skill_dir(name: &str) -> Result<PathBuf> {
-    Ok(plugin_dir()?.join("skills").join(name))
+/// Where the plugin's skills live: fufu's own under `skills/fufu`, and every
+/// declared extension's under `skills/<skill>` beside it. Nested inside a
+/// directory fufu already owns outright, so writing and removing them whole
+/// costs nothing structural either.
+fn skills_root() -> Result<PathBuf> {
+    Ok(plugin_dir()?.join("skills"))
 }
 
-/// Every declared extension's skill, written or refreshed beside fufu's own.
-/// Answers the ones that actually landed a file, in registry order, so the
-/// caller can report each and say nothing about one that named no readable
-/// skill.
-fn write_ext_skills() -> Result<Vec<String>> {
-    let mut written = Vec::new();
-    for declared in crate::registry::read().declared() {
-        let dir = ext_skill_dir(declared.name())?;
-        if skill::write_sources(&dir, declared)? > 0 {
-            written.push(declared.name().to_string());
+/// What one declared extension's skills came to on an install: the names
+/// that landed, and the names that did not with why.
+struct ExtSkills {
+    name: String,
+    written: Vec<String>,
+    failed: Vec<(String, Error)>,
+}
+
+/// Every declared extension's skills, asked for and written beside fufu's
+/// own, in registry order.
+///
+/// The plugin's `skills/` is wholly fufu's, so everything under it that is
+/// not fufu's own skill goes first: what this install then rewrites, and
+/// what an extension no longer declared left behind. A skill that did not
+/// come back whole is left out and reported, and never fails the install.
+fn write_ext_skills() -> Result<Vec<ExtSkills>> {
+    let root = skills_root()?;
+    if root.is_dir() {
+        for entry in std::fs::read_dir(&root).map_err(Error::repo)? {
+            let entry = entry.map_err(Error::repo)?;
+            if entry.file_name() == skill::NAME {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path).map_err(Error::repo)?;
+            } else {
+                std::fs::remove_file(&path).map_err(Error::repo)?;
+            }
         }
     }
-    Ok(written)
+    let mut report = Vec::new();
+    for declared in crate::registry::read().declared() {
+        let (skills, failed) = skill::ext_skills(declared);
+        let mut written = Vec::new();
+        for ext_skill in &skills {
+            skill::write_ext_skill(&root, ext_skill)?;
+            written.push(ext_skill.name.clone());
+        }
+        report.push(ExtSkills {
+            name: declared.name().to_string(),
+            written,
+            failed,
+        });
+    }
+    Ok(report)
 }
 
-/// Writes the plugin whole, and answers the extensions whose own skill
-/// landed along with the server registration's own report — which names a
+/// Writes the plugin whole, and answers what each extension's skills came
+/// to along with the server registration's own report — which names a
 /// declared extension's server as well as fufu's, and is therefore the
 /// installer's word on it rather than a line this adapter can spell.
-fn write_plugin() -> Result<(Vec<String>, Change)> {
+fn write_plugin() -> Result<(Vec<ExtSkills>, Change)> {
     let (manifest, hooks) = plugin_body();
     let manifest_path = manifest_path()?;
     let hooks_path = hooks_path()?;
@@ -308,6 +346,28 @@ fn write_plugin() -> Result<(Vec<String>, Change)> {
     // file, and the engine is what keeps the entries' shape in one place.
     let servers = mcp::install(&mcp_spec()?)?;
     Ok((ext_skills, servers))
+}
+
+/// One line per extension whose skills landed, naming them, and one per
+/// skill that did not, saying why. An extension that named none says
+/// nothing.
+fn skill_lines(report: &[ExtSkills], root: &std::path::Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for ext in report {
+        if !ext.written.is_empty() {
+            let plural = if ext.written.len() == 1 { "" } else { "s" };
+            lines.push(format!(
+                "{} skill{plural} written to {}: {}",
+                ext.name,
+                root.display(),
+                ext.written.join(", ")
+            ));
+        }
+        for (name, why) in &ext.failed {
+            lines.push(format!("{name} left out: {why}"));
+        }
+    }
+    lines
 }
 
 fn remove_plugin() -> Result<bool> {
@@ -410,12 +470,9 @@ impl Integration for Claude {
         change
             .lines
             .push(format!("skill written to {}", skill_dir()?.display()));
-        for name in &ext_skills {
-            change.lines.push(format!(
-                "{name} skill written to {}",
-                ext_skill_dir(name)?.display()
-            ));
-        }
+        change
+            .lines
+            .extend(skill_lines(&ext_skills, &skills_root()?));
         change.lines.extend(servers.lines);
         change.lines.push(
             "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"

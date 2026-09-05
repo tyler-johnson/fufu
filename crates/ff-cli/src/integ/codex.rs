@@ -18,13 +18,14 @@
 //! one TOML file among the four clients, appended and removed by its
 //! markers. No install can take another down with it.
 //!
-//! A declared extension's own skill files take a directory of their own
-//! beside fufu's, `~/.codex/skills/<name>/`, on the same written-whole,
-//! removed-whole rule. Namespaced by the extension's name rather than
-//! nested inside a directory fufu owns outright the way Claude's plugin
-//! makes possible, so a name collision with something already living under
-//! `~/.codex/skills/` is a risk this mechanism accepts rather than one it
-//! can detect.
+//! A declared extension's own skills take a directory each beside fufu's,
+//! `~/.codex/skills/<skill>/`, produced by the binary through `--ff-skill`
+//! and mentioned `$<skill>`, on the same written-whole, removed-whole rule.
+//! Carrying the extension's name as a prefix rather than nested inside a
+//! directory fufu owns outright the way Claude's plugin makes possible, so a
+//! name collision with something already living under `~/.codex/skills/` is
+//! a risk this mechanism accepts rather than one it can detect, and a skill
+//! of an extension no longer declared is one nothing here prunes.
 
 use std::path::PathBuf;
 
@@ -64,11 +65,11 @@ fn skill_wiring() -> Wiring {
     }
 }
 
-/// A declared extension's own directory beside `skills/fufu`, under
-/// `~/.codex/skills/`. Namespaced by the extension's own name, the same
-/// namespace everything else about it hangs off.
-fn ext_skill_dir(name: &str) -> Result<PathBuf> {
-    Ok(config_dir()?.join("skills").join(name))
+/// Where every skill lives, fufu's own and a declared extension's alike:
+/// `~/.codex/skills/<skill>/`. An extension's skills carry its name as a
+/// prefix, the same namespace everything else about it hangs off.
+fn skills_root() -> Result<PathBuf> {
+    Ok(config_dir()?.join("skills"))
 }
 
 fn spec() -> Result<settings::Spec> {
@@ -144,14 +145,25 @@ impl Integration for Codex {
             "skill written to {}",
             dir.display()
         )));
+        let root = skills_root()?;
         for declared in crate::registry::read().declared() {
-            let ext_dir = ext_skill_dir(declared.name())?;
-            if skill::write_sources(&ext_dir, declared)? > 0 {
+            let (skills, failed) = skill::ext_skills(declared);
+            let mut written = Vec::new();
+            for ext_skill in &skills {
+                skill::write_ext_skill(&root, ext_skill)?;
+                written.push(ext_skill.name.as_str());
+            }
+            if !written.is_empty() {
+                let plural = if written.len() == 1 { "" } else { "s" };
                 change.absorb(Change::changed(format!(
-                    "{} skill written to {}",
+                    "{} skill{plural} written to {}: {}",
                     declared.name(),
-                    ext_dir.display()
+                    root.display(),
+                    written.join(", ")
                 )));
+            }
+            for (name, why) in &failed {
+                change.lines.push(format!("{name} left out: {why}"));
             }
         }
         change.absorb(mcp::install(&mcp_spec()?)?);
@@ -165,14 +177,18 @@ impl Integration for Codex {
         if skill::remove(&dir)? {
             change.absorb(Change::changed(format!("removed {}", dir.display())));
         }
-        // Only the extensions still declared: an extension taken back with
-        // `ff extension remove` before this runs leaves its own directory
-        // behind, the same way its manifest's other traces do once nothing
-        // reads the registry for its name any more.
+        // Only the extensions still declared, and by the names on record
+        // with no handshake: an extension taken back with `ff extension
+        // remove` before this runs leaves its directories behind, the same
+        // way its manifest's other traces do once nothing reads the registry
+        // for its name any more.
+        let root = skills_root()?;
         for declared in crate::registry::read().declared() {
-            let ext_dir = ext_skill_dir(declared.name())?;
-            if skill::remove(&ext_dir)? {
-                change.absorb(Change::changed(format!("removed {}", ext_dir.display())));
+            for name in &declared.manifest.skills {
+                let ext_dir = root.join(name);
+                if skill::remove(&ext_dir)? {
+                    change.absorb(Change::changed(format!("removed {}", ext_dir.display())));
+                }
             }
         }
         change.absorb(mcp::uninstall(&mcp_spec()?)?);

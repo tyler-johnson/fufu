@@ -115,7 +115,7 @@ fn bought(manifest: &Manifest) -> Vec<String> {
     if !manifest.skills.is_empty() {
         let plural = if manifest.skills.len() == 1 { "" } else { "s" };
         notes.push(format!(
-            "it ships {} skill file{plural}, installed beside fufu's by ff hook",
+            "it ships {} skill{plural}, produced on ff hook and installed beside fufu's",
             manifest.skills.len()
         ));
     }

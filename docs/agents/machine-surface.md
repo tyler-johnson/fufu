@@ -290,7 +290,7 @@ Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way i
 
 An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position.
 
-Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, produce a briefing line, ship skills, and subscribe to the agent event that fans out after each capture.
+Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, and subscribe to the agent event that fans out after each capture.
 
 [Extensions](../reference/extensions.md) is the reference for building one, and types every field of all of it.
 

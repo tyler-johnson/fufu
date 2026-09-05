@@ -48,6 +48,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `edit/not-in-history` | 1 | that commit is not in the branch you are standing on |
 | `editor/failed` | 1 | the editor did not produce a description |
 | `extension/bad-manifest` | 1 | the manifest came back, and fufu cannot read it |
+| `extension/bad-skill` | 1 | the skill came back, and fufu cannot read it |
 | `extension/bad-tools` | 1 | the tool list came back, and fufu cannot read it |
 | `extension/delegate-failed` | 1 | the extension did not answer when fufu delegated to it |
 | `extension/handshake-failed` | 1 | the extension did not answer the manifest handshake |
@@ -56,6 +57,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `extension/not-found` | 1 | no extension of that name is on PATH to ask for a manifest |
 | `extension/registry-unreadable` | 1 | the registry is there and does not read as one |
 | `extension/registry-unwritable` | 1 | there is nowhere to record the declaration |
+| `extension/skill-failed` | 1 | the extension did not answer the skill handshake |
 | `extension/tools-failed` | 1 | the extension did not answer the tool handshake |
 | `extension/unsupported-contract` | 1 | the extension speaks a contract this fufu does not |
 | `held/already-held` | 3 | a rewrite is already held on this branch |

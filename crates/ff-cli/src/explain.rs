@@ -1046,6 +1046,32 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
+        id: "extension/skill-failed",
+        summary: "the extension did not answer the skill handshake",
+        detail: "An extension whose manifest names skills is asked for each one's files with \
+                 ff-<name> --ff-skill <skill>, which it answers with one envelope on one line, \
+                 exiting 0. This binary did something else: it would not run, it exited \
+                 nonzero, it printed something that is not one envelope, or it answered with an \
+                 error in place of the files — which is also how an extension says it has no \
+                 skill by that name. There is no time box, because the callers are ff hook and \
+                 ff hook --skill, verbs a person typed and can interrupt. A hook install leaves \
+                 that one skill out, says so, and writes the rest.",
+        exits: &["ff doctor"],
+    },
+    Entry {
+        id: "extension/bad-skill",
+        summary: "the skill came back, and fufu cannot read it",
+        detail: "The handshake answered with an envelope whose data is not the skill the \
+                 machine surface types: an object carrying files, a non-empty array in which \
+                 each entry has a path and a content string. Every path is relative and stays \
+                 inside the skill's own directory — normal components only, no .. and no \
+                 leading . — one of them is SKILL.md at the root, no two are the same, and the \
+                 files weigh at most 8 MiB together. The skill is refused whole rather than in \
+                 part, because a skill a client loads half of is one its SKILL.md describes \
+                 and its scripts cannot back.",
+        exits: &[],
+    },
+    Entry {
         id: "extension/unsupported-contract",
         summary: "the extension speaks a contract this fufu does not",
         detail: "contract is the machine-surface version the extension answers in — the number \
@@ -1075,7 +1101,8 @@ pub static ENTRIES: &[Entry] = &[
                  because the two are different facts about the machine and a typo reads as \
                  the first. Nothing about the binary changed either way: an ff-<name> on PATH \
                  runs from a shell whether it is declared or not, and what removing takes \
-                 away is fufu describing it.",
+                 away is fufu describing it. ff hook --skill <skill> refuses the same way when \
+                 no declared extension's manifest names a skill by that name.",
         exits: &["ff extension list"],
     },
     Entry {

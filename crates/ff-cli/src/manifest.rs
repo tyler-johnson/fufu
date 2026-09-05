@@ -17,10 +17,17 @@
 //! leaves no second spelling to keep in step. That ask is time-boxed and
 //! the manifest one is not, for a reason [`ask_tools`] states.
 //!
+//! A manifest naming `skills` brings a third, on the same terms again:
+//! `ff-<name> --ff-skill <skill>` prints the files one skill is made of.
+//! Asked for rather than read from paths for the reason the tool list is,
+//! and one more: an extension shipped as a single binary out of a tarball
+//! has nothing beside it on disk to name. That ask is not time-boxed, for
+//! a reason [`ask_skill`] states.
+//!
 //! `docs/reference/extensions.md` types every field; this module is that
 //! table in Rust.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use ff_core::{Error, Result};
@@ -42,6 +49,27 @@ pub const FLAG: &str = "--ff-manifest";
 /// definitions its CLI is built from and there is no second spelling to keep
 /// in step.
 pub const TOOLS_FLAG: &str = "--ff-tools";
+
+/// The flag an extension answers with the files one of its skills is made
+/// of, `--ff-skill <skill>`, on [`FLAG`]'s terms: recognized before anything
+/// else on the command line, answered outside a repository, and taking the
+/// skill's name as its one argument.
+///
+/// The manifest names skills and the binary produces them, on the rule
+/// [`TOOLS_FLAG`] draws. A path written into a manifest names a file that a
+/// binary shipped alone out of a tarball does not have beside it, and the
+/// markdown embedded in that binary is where the extension's own build
+/// already put the text.
+pub const SKILL_FLAG: &str = "--ff-skill";
+
+/// The one file every skill carries at its root, which is the name both
+/// clients that read skills read one by.
+pub const SKILL_FILE: &str = "SKILL.md";
+
+/// The cap on what one skill may weigh, all its files together. A skill is
+/// a manual and not an arbitrary blob, and the cap is what keeps a hook
+/// install from writing one into a client's directory sight unseen.
+const MAX_SKILL_BYTES: usize = 8 * 1024 * 1024;
 
 /// What a declared extension tells fufu about itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,8 +96,11 @@ pub struct Manifest {
     /// `false`, which nobody has a reason to write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub briefing: Option<Briefing>,
-    /// The skill files the extension ships, absolute or relative to the
-    /// directory the binary lives in.
+    /// The skills the extension ships, by name. Each is the extension's own
+    /// name or carries it as a prefix, `<name>-…`, and its files are asked
+    /// for with `ff-<name> --ff-skill <skill>` when a hook install writes
+    /// them. Names rather than paths, so a binary with nothing beside it on
+    /// disk still ships a skill.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
     /// Which neutral agent events the extension subscribes to.
@@ -190,6 +221,24 @@ fn tool_name(name: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
 }
 
+/// Whether a string is a name a skill of extension `ext` can have: the
+/// characters a tool name takes, and either the extension's own name or that
+/// name followed by `-` and more.
+///
+/// The prefix is what keeps one plugin's skills apart. Every extension's
+/// skills land in one `skills/` directory beside fufu's own, typed
+/// `/fufu:<skill>` in Claude Code and `$<skill>` in Codex, so a skill called
+/// `plan` would be whichever extension wrote it last, and `tower-plan` is
+/// tower's.
+fn skill_name(ext: &str, name: &str) -> bool {
+    tool_name(name)
+        && (name == ext
+            || name
+                .strip_prefix(ext)
+                .and_then(|rest| rest.strip_prefix('-'))
+                .is_some_and(|more| !more.is_empty()))
+}
+
 /// The extension's own MCP server. This is where an extension wanting what
 /// only a live process can hold goes — resources a client attaches and
 /// re-reads, a notification when state moves, a subscription, session
@@ -269,6 +318,23 @@ pub struct Annotations {
     /// name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+}
+
+/// The files one skill is made of, as `ff-<name> --ff-skill <skill>` prints
+/// them: a list under `files`, each a path relative to the skill's own
+/// directory and the text that goes there. Read whole and refused whole by
+/// [`check_skill`], for the reason a tool list is.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFiles {
+    pub files: Vec<SkillFile>,
+}
+
+/// One file of a skill. `path` is where it lands under `skills/<skill>/`,
+/// and [`SKILL_FILE`] at the root is the one every skill has to carry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillFile {
+    pub path: PathBuf,
+    pub content: String,
 }
 
 /// The six kinds a manifest may subscribe to, spelled in `events` exactly
@@ -511,6 +577,133 @@ fn check_tools(tools: &[ToolDescriptor]) -> Result<()> {
     Ok(())
 }
 
+/// Ask a declared extension for the files one of its skills is made of:
+/// `ff-<name> --ff-skill <skill>`, against a binary the caller has already
+/// resolved.
+///
+/// Asked only for a skill the manifest names. Nothing here reads that list
+/// — a caller holding a manifest has already read it — and a binary that
+/// named no such skill has no reason to answer.
+///
+/// **This asker is not time-boxed**, where [`ask_tools`] is, and the
+/// difference is the caller again. The callers here are `ff hook` and
+/// `ff hook --skill`, verbs a person typed, watching, able to interrupt a
+/// binary that hangs; nothing asks a binary for a skill with nobody there.
+/// So it runs the way [`ask`] runs, and hands down what [`ask`] hands down,
+/// which is `FF_NONINTERACTIVE` and nothing else: an extension needs
+/// neither the repository nor the contract to print a manual it carries.
+pub fn ask_skill(path: &Path, name: &str, skill: &str) -> Result<Vec<SkillFile>> {
+    let output = Command::new(path)
+        .arg(SKILL_FLAG)
+        .arg(skill)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("FF_NONINTERACTIVE", "1")
+        .output()
+        .map_err(|err| skill_failed(name, skill, format!("it would not run: {err}")))?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        let said = stderr.trim();
+        return Err(skill_failed(
+            name,
+            skill,
+            if said.is_empty() {
+                format!("it exited with {} and said nothing", output.status)
+            } else {
+                format!("it exited with {}: {said}", output.status)
+            },
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(envelope) = crate::machine::one_envelope(&stdout) else {
+        return Err(skill_failed(
+            name,
+            skill,
+            "its stdout is not one envelope on one line — a banner, a progress line, or a \
+             pretty-printed envelope costs it the handshake",
+        ));
+    };
+    if let Some(error) = envelope.get("error") {
+        let id = error.get("id").and_then(|id| id.as_str()).unwrap_or("");
+        return Err(skill_failed(
+            name,
+            skill,
+            format!("it answered with an error, {id}"),
+        ));
+    }
+    let Some(data) = envelope.get("data") else {
+        return Err(skill_failed(
+            name,
+            skill,
+            "its envelope carries neither data nor error",
+        ));
+    };
+    parse_skill(data.clone())
+}
+
+/// One skill's files, read and checked against the shape they are typed by.
+pub fn parse_skill(value: serde_json::Value) -> Result<Vec<SkillFile>> {
+    let skill: SkillFiles =
+        serde_json::from_value(value).map_err(|err| bad_skill(err.to_string()))?;
+    check_skill(&skill.files)?;
+    Ok(skill.files)
+}
+
+/// What a type cannot say about a skill's files, on the model of
+/// [`check_tools`]: that there is at least one, that every path stays
+/// inside the skill's own directory, that `SKILL.md` is at the root and
+/// nowhere twice, and that the whole weighs no more than a manual.
+///
+/// Refused whole rather than in part, for the reason a tool list is: a
+/// skill a client loads half of is one its `SKILL.md` describes and its
+/// scripts cannot back.
+fn check_skill(files: &[SkillFile]) -> Result<()> {
+    if files.is_empty() {
+        return Err(bad_skill(
+            "files is empty: a skill is at least its SKILL.md",
+        ));
+    }
+    let mut seen: Vec<&Path> = Vec::new();
+    let mut bytes = 0usize;
+    for file in files {
+        let path = file.path.as_path();
+        let inside = !path.as_os_str().is_empty()
+            && path
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)));
+        if !inside {
+            return Err(bad_skill(format!(
+                "`{}` is not a path a skill's file can have: relative, with no `..` and no \
+                 leading `.`, so it lands inside the skill's own directory",
+                path.display()
+            )));
+        }
+        if seen.contains(&path) {
+            return Err(bad_skill(format!(
+                "two files are at `{}`, and one path holds one file",
+                path.display()
+            )));
+        }
+        seen.push(path);
+        bytes += file.content.len();
+    }
+    if !seen.contains(&Path::new(SKILL_FILE)) {
+        return Err(bad_skill(
+            "no SKILL.md at the root, and SKILL.md is the file a client reads a skill by",
+        ));
+    }
+    if bytes > MAX_SKILL_BYTES {
+        return Err(bad_skill(format!(
+            "its files weigh {bytes} bytes together, and a skill is a manual: the cap is \
+             {MAX_SKILL_BYTES}"
+        )));
+    }
+    Ok(())
+}
+
 /// The handshake's own refusal: the binary ran, and what came back was not
 /// a manifest fufu could get as far as parsing.
 fn failed(name: &str, why: impl std::fmt::Display) -> Error {
@@ -555,6 +748,15 @@ pub fn check(manifest: &Manifest) -> Result<()> {
             return Err(bad(format!(
                 "`{}` is not one word, and a verb's name is one word",
                 verb.name
+            )));
+        }
+    }
+    for skill in &manifest.skills {
+        if !skill_name(&manifest.name, skill) {
+            return Err(bad(format!(
+                "`{skill}` is not a name a skill of ff-{name} can have: ASCII letters and \
+                 digits, `-` and `_`, and either `{name}` itself or starting with `{name}-`",
+                name = manifest.name
             )));
         }
     }
@@ -621,6 +823,26 @@ fn bad_tools(why: impl std::fmt::Display) -> Error {
     )
 }
 
+/// The skill handshake's own refusal, [`tools_failed`]'s twin: the binary
+/// ran, and what came back was not a skill fufu could get as far as
+/// parsing. Its own id, so a reader can tell which of the three handshakes
+/// the extension fell down on.
+fn skill_failed(name: &str, skill: &str, why: impl std::fmt::Display) -> Error {
+    Error::coded(
+        "extension/skill-failed",
+        format!("ff-{name} {SKILL_FLAG} {skill} did not answer with a skill: {why}"),
+        vec!["ff doctor".into()],
+    )
+}
+
+fn bad_skill(why: impl std::fmt::Display) -> Error {
+    Error::coded(
+        "extension/bad-skill",
+        format!("that is not a skill fufu can read: {why}"),
+        vec![],
+    )
+}
+
 /// The two checks that are about this fufu and this binary rather than
 /// about the manifest's own shape, in the order the contract states them.
 fn accept(manifest: &Manifest, name: &str) -> Result<()> {
@@ -664,7 +886,7 @@ mod tests {
         ],
         "undoable": true,
         "briefing": "Work is filed as flights on a board.",
-        "skills": ["/usr/local/share/tower/skills/tower.md"],
+        "skills": ["tower", "tower-plan", "tower-loop"],
         "events": [{"kind": "SessionStart"}, {"kind": "BeforeTool", "matcher": "Edit|Write"}],
         "tools": true,
         "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]}
@@ -701,6 +923,15 @@ mod tests {
         }
     ]"#;
 
+    /// The worked skill from the same page, which is what `--ff-skill`
+    /// answers with: `SKILL.md` at the root and one file beside it.
+    const SKILL: &str = r##"{
+        "files": [
+            {"path": "SKILL.md", "content": "---\nname: tower-plan\ndescription: Load the board with a person.\n---\n# Plan\n"},
+            {"path": "scripts/run.sh", "content": "#!/bin/sh\nff tower\n"}
+        ]
+    }"##;
+
     fn value(text: &str) -> serde_json::Value {
         serde_json::from_str(text).expect("valid json")
     }
@@ -719,7 +950,7 @@ mod tests {
         assert!(!manifest.verbs[1].read_only);
         assert_eq!(manifest.verbs[1].summary, None);
         assert!(matches!(manifest.briefing, Some(Briefing::Line(_))));
-        assert_eq!(manifest.skills.len(), 1);
+        assert_eq!(manifest.skills, ["tower", "tower-plan", "tower-loop"]);
         assert_eq!(manifest.events[0].kind, EventKind::SessionStart);
         assert_eq!(manifest.events[1].kind, EventKind::BeforeTool);
         assert_eq!(manifest.events[1].matcher.as_deref(), Some("Edit|Write"));
@@ -851,10 +1082,101 @@ mod tests {
                 "events":[{"kind":"BeforeTool","matcher":"*"}]}"#,
             r#"{"name":"tower","version":"1","contract":1,"undoable":true,
                 "verbs":[{"name":"b","read_only":true}],"mcp":{"command":""}}"#,
+            // A skill named outside the extension's own namespace: bare,
+            // another extension's, a path, and the prefix without the dash.
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"skills":["plan"]}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"skills":["bay-plan"]}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],
+                "skills":["/usr/local/share/tower/skills/tower.md"]}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"skills":["towerplan"]}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"skills":["tower-"]}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"skills":[""]}"#,
         ] {
             let err = parse(value(text)).expect_err(text);
             assert_eq!(err.id(), "extension/bad-manifest", "{text}");
         }
+    }
+
+    /// A skill's name is the extension's own, or carries it as a prefix.
+    #[test]
+    fn a_skill_is_named_under_the_extension() {
+        for skills in [
+            r#"["tower"]"#,
+            r#"["tower-plan"]"#,
+            r#"["tower-plan", "tower-loop", "tower"]"#,
+            r#"["tower-a_b-2"]"#,
+        ] {
+            let text = format!(
+                r#"{{"name":"tower","version":"1","contract":1,"undoable":true,
+                    "verbs":[{{"name":"b","read_only":true}}],"skills":{skills}}}"#
+            );
+            parse(value(&text)).unwrap_or_else(|err| panic!("{skills}: {err}"));
+        }
+    }
+
+    #[test]
+    fn the_worked_skill_parses_field_for_field() {
+        let files = parse_skill(value(SKILL)).expect("the page's own skill");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].path, Path::new("SKILL.md"));
+        assert!(files[0].content.starts_with("---\nname: tower-plan"));
+        assert_eq!(files[1].path, Path::new("scripts/run.sh"));
+    }
+
+    #[test]
+    fn a_skill_that_does_not_hold_together_is_refused() {
+        let skill = |files: &str| format!(r#"{{"files":{files}}}"#);
+        for text in [
+            // Nothing at all, and not the shape at all.
+            skill("[]"),
+            r#"[{"path":"SKILL.md","content":"x"}]"#.to_string(),
+            r#"{"files":"SKILL.md"}"#.to_string(),
+            // Content that is not text.
+            skill(r#"[{"path":"SKILL.md","content":42}]"#),
+            skill(r#"[{"path":"SKILL.md"}]"#),
+            // No SKILL.md at the root: none, one nested, one spelled
+            // through `.`.
+            skill(r#"[{"path":"README.md","content":"x"}]"#),
+            skill(r#"[{"path":"docs/SKILL.md","content":"x"}]"#),
+            skill(r#"[{"path":"./SKILL.md","content":"x"}]"#),
+            // A path that leaves the directory, and one that names no file.
+            skill(r#"[{"path":"SKILL.md","content":"x"},{"path":"../evil.sh","content":"x"}]"#),
+            skill(r#"[{"path":"SKILL.md","content":"x"},{"path":"a/../../b","content":"x"}]"#),
+            skill(r#"[{"path":"SKILL.md","content":"x"},{"path":"/etc/passwd","content":"x"}]"#),
+            skill(r#"[{"path":"SKILL.md","content":"x"},{"path":"","content":"x"}]"#),
+            // One path twice.
+            skill(r#"[{"path":"SKILL.md","content":"x"},{"path":"SKILL.md","content":"y"}]"#),
+            skill(
+                r#"[{"path":"SKILL.md","content":"x"},{"path":"a.md","content":"x"},{"path":"a.md","content":"y"}]"#,
+            ),
+        ] {
+            let err = parse_skill(value(&text)).expect_err(&text);
+            assert_eq!(err.id(), "extension/bad-skill", "{text}");
+        }
+    }
+
+    /// The cap is on the whole skill, so two files under it together over
+    /// it are refused as one.
+    #[test]
+    fn a_skill_heavier_than_a_manual_is_refused() {
+        let half = "x".repeat(MAX_SKILL_BYTES / 2 + 1);
+        let err = parse_skill(serde_json::json!({"files": [
+            {"path": "SKILL.md", "content": half},
+            {"path": "more.md", "content": half},
+        ]}))
+        .expect_err("over the cap");
+        assert_eq!(err.id(), "extension/bad-skill");
+        assert!(err.to_string().contains("weigh"), "{err}");
+
+        let whole = "x".repeat(MAX_SKILL_BYTES);
+        parse_skill(serde_json::json!({"files": [{"path": "SKILL.md", "content": whole}]}))
+            .expect("exactly the cap is under it");
     }
 
     /// The matchers a subscription can be written with: one tool name, the
@@ -1075,6 +1397,16 @@ mod tests {
             format!(r#"{{"ff":1,"cmd":"tower --ff-tools","data":{data}}}"#)
         }
 
+        /// The same, for the third — as the command that prints it, since a
+        /// skill's content carries `\n` escapes and `sh`'s `echo` would
+        /// expand them across lines.
+        fn skill_envelope(data: &str) -> String {
+            let data = serde_json::to_string(&value(data)).expect("compact");
+            format!(
+                r#"printf '%s\n' '{{"ff":1,"cmd":"tower --ff-skill tower-plan","data":{data}}}'"#
+            )
+        }
+
         /// An `ff-<name>` in a fresh directory the caller keeps alive.
         fn ext_bin(name: &str, body: &str) -> (tempfile::TempDir, PathBuf) {
             let dir = tempfile::TempDir::new().expect("create tempdir");
@@ -1092,6 +1424,11 @@ mod tests {
         fn asking_tools(body: &str) -> Result<Vec<ToolDescriptor>> {
             let (_dir, path) = ext_bin("tower", body);
             ask_tools(&path, "tower")
+        }
+
+        fn asking_skill(body: &str) -> Result<Vec<SkillFile>> {
+            let (_dir, path) = ext_bin("tower", body);
+            ask_skill(&path, "tower", "tower-plan")
         }
 
         #[test]
@@ -1151,7 +1488,10 @@ mod tests {
                 asking(&format!("echo '{}'", envelope(&bad_contract))).expect_err("contract 99");
             assert_eq!(err.id(), "extension/unsupported-contract");
 
-            let other = WORKED.replace("\"name\": \"tower\"", "\"name\": \"bay\"");
+            // The skills carry the name as well, so they move with it: what
+            // is refused is the name against the binary's, not the skills
+            // against the name.
+            let other = WORKED.replace("tower", "bay");
             let err = asking(&format!("echo '{}'", envelope(&other))).expect_err("not tower");
             assert_eq!(err.id(), "extension/name-mismatch");
         }
@@ -1231,6 +1571,63 @@ mod tests {
             let err = asking_tools(&format!("echo '{}'", tools_envelope("[]")))
                 .expect_err("promised tools and produced none");
             assert_eq!(err.id(), "extension/bad-tools");
+        }
+
+        #[test]
+        fn one_envelope_on_one_line_is_the_skill() {
+            let files = asking_skill(&skill_envelope(SKILL)).expect("handshake");
+            assert_eq!(files.len(), 2);
+            assert_eq!(files[0].path, Path::new("SKILL.md"));
+        }
+
+        /// The flag and the skill's name are the whole command line, and
+        /// nothing is handed down but `FF_NONINTERACTIVE`.
+        #[test]
+        fn the_skill_flag_and_the_name_are_the_only_arguments() {
+            let files = asking_skill(&format!(
+                "test \"$1\" = '--ff-skill' && test \"$2\" = 'tower-plan' && test $# -eq 2 \
+                 && test \"$FF_NONINTERACTIVE\" = 1 && {}",
+                skill_envelope(SKILL)
+            ))
+            .expect("handshake");
+            assert_eq!(files.len(), 2);
+        }
+
+        /// Nothing on stdin, so a binary that reads it is not left waiting.
+        #[test]
+        fn the_skill_handshake_closes_stdin() {
+            let files = asking_skill(&format!("cat >/dev/null; {}", skill_envelope(SKILL)))
+                .expect("handshake");
+            assert_eq!(files.len(), 2);
+        }
+
+        #[test]
+        fn a_binary_that_fails_the_skill_handshake_is_refused() {
+            for body in [
+                "echo 'no skill here' >&2; exit 1",
+                "exit 3",
+                "echo hello",
+                "echo",
+                &format!("{}; {}", skill_envelope(SKILL), skill_envelope(SKILL)),
+                &format!("echo tower 0.4.1; {}", skill_envelope(SKILL)),
+                // The answer for a skill the extension does not have.
+                r#"echo '{"ff":1,"cmd":"tower --ff-skill tower-plan","error":{"id":"tower/skill/unknown","message":"no","exits":[]}}'"#,
+                r#"echo '{"ff":1,"cmd":"tower --ff-skill tower-plan"}'"#,
+                r#"echo '{"tower":1,"data":{"files":[]}}'"#,
+            ] {
+                let err = asking_skill(body).expect_err(body);
+                assert_eq!(err.id(), "extension/skill-failed", "{body}");
+            }
+        }
+
+        /// A binary that answered is still refused on what it answered.
+        #[test]
+        fn the_skill_checks_run_on_what_the_binary_said() {
+            let err = asking_skill(&skill_envelope(
+                r#"{"files":[{"path":"../SKILL.md","content":"x"}]}"#,
+            ))
+            .expect_err("a path outside the skill");
+            assert_eq!(err.id(), "extension/bad-skill");
         }
 
         /// The landmine this asker exists for. `ask` waits as long as a

@@ -157,7 +157,7 @@ Here is one with every optional field present, pretty-printed for the page:
   ],
   "undoable": true,
   "briefing": "Work is filed as flights on a board; `ff tower` is the board.",
-  "skills": ["/usr/local/share/tower/skills/tower.md"],
+  "skills": ["tower", "tower-plan", "tower-loop"],
   "events": [{"kind": "SessionStart"}, {"kind": "BeforeTool", "matcher": "Edit|Write"}],
   "tools": true,
   "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]}
@@ -172,7 +172,7 @@ Here is one with every optional field present, pretty-printed for the page:
 | `verbs` | array of objects | yes, non-empty | The verbs you answer to, in the order you want them listed. Each carries `name`, one word; `read_only`, where false means the verb writes something; and an optional one-line `summary`. Read-only is per verb because most extensions are mostly readers with a few writers. |
 | `undoable` | boolean | yes | Whether [`ff undo`](cli/undo.md) takes back every write you make. See [below](#undoable-and-what-false-costs). |
 | `briefing` | string or `true` | no | One line for fufu's briefing to an agent. See [below](#optional-a-briefing-line). |
-| `skills` | array of strings | no | Skill files you ship. See [below](#optional-skills). |
+| `skills` | array of strings | no | The names of skills you ship, each produced by `--ff-skill`. See [below](#optional-skills). |
 | `events` | array of objects | no | Agent events you subscribe to. See [below](#optional-agent-events). |
 | `tools` | `true` | no | Whether you produce MCP tool descriptors. See [below](#optional-mcp-tools). |
 | `mcp` | object | no | An MCP server of your own. See [below](#optional-an-mcp-server-of-your-own). |
@@ -228,11 +228,50 @@ Failing to produce a line costs nothing and says nothing. A binary that has left
 
 ## Optional: skills
 
-`skills` is a list of paths to files you ship. Wherever an `ff hook` install has somewhere to put skills, yours are installed under `skills/<name>/` beside fufu's own.
+A skill is a manual a client loads when the situation calls for it, and one a person can type: `/fufu:tower-plan` in Claude Code, `$tower-plan` in Codex. `skills` is the list of the ones you ship, **by name**, and `ff hook` asks your binary for each one's files at install time. Wherever an install has somewhere to put skills, each of yours lands whole in a directory of its own beside fufu's.
 
-Paths are absolute, or relative to the directory your binary lives in.
+Names rather than paths, on the rule `tools` draws: a path written into the manifest names a file that a binary shipped alone out of a tarball does not have beside it, and the markdown embedded in that binary is where your build already put the text.
 
-`ff extension remove` stops the *next* install from carrying them. Files an earlier install already wrote stay where they were written.
+A skill's name is ASCII letters and digits, `-` and `_`, and is either your extension's name or starts with it and a dash: `tower`, `tower-plan`, `tower-loop`. Every declared extension's skills share one directory beside fufu's, so a bare `plan` would be whichever extension wrote it last. A manifest naming a skill outside its own namespace is refused with `extension/bad-manifest`.
+
+### `--ff-skill`
+
+`--ff-skill <skill>` behaves exactly like `--ff-manifest` — recognized before anything else on the command line, answers outside a repository, prints one envelope on one line, exits 0 — and takes the skill's name as its one argument. Nothing is handed down but `FF_NONINTERACTIVE=1`.
+
+It is **not** time-boxed. The callers are `ff hook` and `ff hook --skill`, verbs a person typed and can interrupt, and nothing asks a binary for a skill with nobody there.
+
+The envelope's `data` is the files the skill is made of, pretty-printed here:
+
+```json
+{
+  "files": [
+    {"path": "SKILL.md", "content": "---\nname: tower-plan\ndescription: Load the board with a person.\ndisable-model-invocation: true\n---\n# Plan\n…"},
+    {"path": "scripts/run.sh", "content": "#!/bin/sh\nff tower\n"}
+  ]
+}
+```
+
+| field | type | required | meaning |
+| --- | --- | --- | --- |
+| `files` | array of objects | yes, non-empty | The files, each carrying `path` and `content`. |
+| `path` | string | yes | Where the file lands under the skill's directory. Relative, normal components only: no `..`, no leading `.`, not absolute. Exactly one of them is `SKILL.md` at the root, and no two are the same. |
+| `content` | string | yes | The file's text. |
+
+The files weigh at most 8 MiB together. The skill is refused whole rather than in part, with `extension/bad-skill`, because a skill a client loads half of is one its `SKILL.md` describes and its scripts cannot back. A skill you have no answer for gets an error envelope, `<name>/skill/unknown` or the like; fufu reads only that it is an error, and refuses with `extension/skill-failed`.
+
+A skill that does not come back whole is left out of the install and said, one dim line naming the skill and the reason. It never fails the install, and it costs no other skill its place.
+
+### Where a skill lands
+
+Claude Code takes each skill inside fufu's plugin, at `~/.claude/skills/fufu/skills/<skill>/`, and a person types it as `/fufu:<skill>`. The plugin's `skills/` directory is wholly fufu's, so a rerun of `ff hook claude` sweeps it: a skill of an extension no longer declared goes.
+
+Codex takes each skill at `~/.codex/skills/<skill>/`, and a person mentions it as `$<skill>`. That directory is shared with everything else Codex has, so nothing sweeps it: `ff extension remove` before `ff unhook codex` leaves the extension's skills behind.
+
+Cursor and Gemini read no skills directory and get nothing.
+
+Both clients want `name` and `description` in `SKILL.md`'s front matter, and `disable-model-invocation: true` keeps a skill for people to type rather than one the model may load on its own.
+
+Rerunning `ff hook` refreshes every skill from the binary. `ff extension remove` stops the *next* install from carrying them; `ff hook --skill <skill>` prints any declared skill's `SKILL.md` without installing anything.
 
 ## Optional: agent events
 

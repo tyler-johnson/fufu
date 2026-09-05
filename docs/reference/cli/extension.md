@@ -6,7 +6,7 @@ What declaring buys is that fufu will describe the extension:
 
 - the [`ff mcp`](mcp.md) tool serves its verbs, and the card names them
 - `ff help <name>` and [`ff explain <name>/<id>`](explain.md) reach the binary
-- its briefing line rides fufu's, and its skills install beside fufu's with [`ff hook`](hook.md)
+- its briefing line rides fufu's, and [`ff hook`](hook.md) asks the binary for its skills and installs them beside fufu's
 - the agent event fans out to it
 
 It buys the extension no capability and no environment — an undeclared `ff-<name>` runs from a shell exactly as it always did, on the same three variables.

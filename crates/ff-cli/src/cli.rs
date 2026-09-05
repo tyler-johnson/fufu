@@ -450,7 +450,7 @@ pub enum Command {
         #[arg(long)]
         settings: bool,
         /// Print a skill and stop: fufu's own with no name, a declared
-        /// extension's with one
+        /// extension's with a skill's name
         #[arg(
             long,
             value_name = "name",

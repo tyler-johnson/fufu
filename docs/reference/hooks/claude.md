@@ -7,7 +7,7 @@ A plugin directory at `~/.claude/skills/fufu/`, which fufu owns outright: writte
 - `skills/fufu/SKILL.md`, [fufu's skill](../../agents/setup.md), the manual an agent reads for recovery, rewriting closed commits, and the JSON. [`ff hook --skill`](../../reference/cli/hook.md) prints the same text.
 - `.mcp.json`, the [`ff mcp`](../cli/mcp.md) server, so the agent has fufu as a tool named `mcp__plugin_fufu_fufu__ff`.
 
-A declared extension's own skill files land beside `skills/fufu/`, under `skills/<name>/` — one file per entry in its manifest's `skills` field, under the name it had on disk. [`ff hook --skill <name>`](../../reference/cli/hook.md) prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own. A file the manifest names but that is missing, unreadable, or too large is left out, and an extension naming none gets no directory at all.
+A declared extension's own skills land beside `skills/fufu/`, one directory per skill under `skills/<skill>/`, and a person types one as `/fufu:<skill>`. The manifest names the skills and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. [`ff hook --skill <skill>`](../../reference/cli/hook.md) prints a skill's `SKILL.md` the way a bare `ff hook --skill` prints fufu's own. A skill the binary will not produce is left out and said, and the rest of the install lands. The plugin's `skills/` is wholly fufu's, so a rerun sweeps it: a skill of an extension no longer declared goes.
 
 ## What it writes
 
@@ -140,7 +140,7 @@ On a machine wired through settings entries, `ff hook claude` writes the plugin,
 
 ## What `ff unhook claude` removes
 
-The plugin directory, the server registration and any declared extension's skill directory nested inside it, and any fufu entries in `~/.claude/settings.json`, whichever of the two an earlier install wrote. Both are checked every time.
+The plugin directory, the server registration and every extension skill nested inside it, and any fufu entries in `~/.claude/settings.json`, whichever of the two an earlier install wrote. Both are checked every time.
 
 ```console
 $ ff unhook claude

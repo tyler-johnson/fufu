@@ -52,28 +52,42 @@ pub fn hook(
 /// the same string, because anything fufu tells a person a script can read
 /// as data.
 ///
-/// A `name` beyond fufu's own is a declared extension's, printed the same
-/// bytes an install would write into `skills/<name>/` — concatenated in the
-/// manifest's own order when it names more than one file. A name nothing on
+/// A `name` beyond fufu's own is a skill some declared extension names,
+/// asked for through `--ff-skill` the way an install asks, and printed as
+/// its `SKILL.md` — the file a client reads a skill by. A name nothing on
 /// this machine declares is refused the way `ff extension remove` refuses
-/// one; a name that is declared but names no file fufu could read prints
-/// nothing, on the same doctrine a hook install applies to it.
+/// one; the handshake's own refusals carry through as they are.
 fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
     let text = if name == super::skill::NAME {
         super::skill::SKILL.to_string()
     } else {
-        let declared = crate::registry::read().get(name).ok_or_else(|| {
+        let registry = crate::registry::read();
+        let declared = registry
+            .declared()
+            .iter()
+            .find(|declared| declared.manifest.skills.iter().any(|skill| skill == name))
+            .ok_or_else(|| {
+                Error::coded(
+                    "extension/not-declared",
+                    format!("nothing on this machine declares a skill named `{name}`"),
+                    vec!["ff extension list".into()],
+                )
+            })?;
+        let binary = declared.resolve().ok_or_else(|| {
             Error::coded(
-                "extension/not-declared",
-                format!("nothing on this machine is declared under `{name}`"),
-                vec!["ff extension list".into()],
+                "extension/not-found",
+                format!(
+                    "no ff-{} on PATH, so there is nothing to ask for the skill",
+                    declared.name()
+                ),
+                vec!["ff doctor".into()],
             )
         })?;
-        super::skill::sources(declared)
+        crate::manifest::ask_skill(&binary, declared.name(), name)?
             .into_iter()
-            .map(|file| String::from_utf8_lossy(&file.bytes).into_owned())
-            .collect::<Vec<_>>()
-            .join("\n")
+            .find(|file| file.path == std::path::Path::new(crate::manifest::SKILL_FILE))
+            .map(|file| file.content)
+            .unwrap_or_default()
     };
     if ctx.json {
         return crate::machine::emit(ctx.command, &serde_json::json!({ "skill": text }));

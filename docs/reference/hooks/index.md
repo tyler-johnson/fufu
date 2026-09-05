@@ -9,7 +9,7 @@ Two mechanisms cover the eight slugs.
 
 An agent client also gets a third thing beside its hook: [`ff mcp`](../cli/mcp.md) registered as a server, one key in the client's own MCP file, so the agent can reach fufu as a typed tool as well as through the shell.
 
-Claude Code and Codex carry a fourth thing for every extension declared with `ff extension add`: its own skill files, named by its manifest, installed under `skills/<name>/` beside fufu's own. Cursor and Gemini read no skills directory, for an extension exactly as for fufu, and get its briefing line alone.
+Claude Code and Codex carry a fourth thing for every extension declared with `ff extension add`: its own skills, named by its manifest and produced by its binary, installed one directory each under `skills/<skill>/` beside fufu's own. Cursor and Gemini read no skills directory, for an extension exactly as for fufu, and get its briefing line alone.
 
 The rules are the same everywhere:
 

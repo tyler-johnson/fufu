@@ -153,7 +153,7 @@ fn the_declaration_envelope_carries_the_manifest() {
     let full = r#"{"name":"tower","version":"0.4.1","contract":1,
         "verbs":[{"name":"board","read_only":true,"summary":"what is filed"}],
         "undoable":true,"briefing":"Work is filed as flights.",
-        "skills":["/usr/local/share/tower/skills/tower.md"],
+        "skills":["tower","tower-plan","tower-loop"],
         "events":[{"kind":"SessionStart"}],
         "mcp":{"command":"ff","args":["tower","serve","--mcp"]},
         "colors":{"badge":"amber"}}"#;
@@ -171,6 +171,7 @@ fn the_declaration_envelope_carries_the_manifest() {
     assert_eq!(manifest["name"], "tower");
     assert_eq!(manifest["verbs"][0]["summary"], "what is filed");
     assert_eq!(manifest["events"][0]["kind"], "SessionStart");
+    assert_eq!(manifest["skills"][1], "tower-plan");
     assert_eq!(manifest["colors"]["badge"], "amber");
     // Nothing was replaced: the name was not on the list.
     assert_eq!(envelope["data"]["replaced"], Value::Null);
@@ -187,7 +188,7 @@ fn the_declaration_says_what_it_bought() {
         r#"{"name":"tower","version":"0.4.1","contract":1,
             "verbs":[{"name":"board","read_only":true}],"undoable":false,
             "briefing":"Work is filed as flights.",
-            "skills":["/usr/local/share/tower/skills/tower.md"],
+            "skills":["tower","tower-plan"],
             "events":[{"kind":"SessionStart"},{"kind":"BeforeTool","matcher":"Edit"}],
             "mcp":{"command":"ff","args":["tower","serve"]}}"#,
     );
@@ -199,12 +200,46 @@ fn the_declaration_says_what_it_bought() {
     ));
     assert!(said.contains("ff undo does not reach them"), "{said}");
     assert!(said.contains("its briefing line rides fufu's"), "{said}");
-    assert!(said.contains("1 skill file,"), "{said}");
+    assert!(
+        said.contains("2 skills, produced on ff hook and installed beside fufu's"),
+        "{said}"
+    );
     assert!(
         said.contains("it subscribes to SessionStart, BeforeTool"),
         "{said}"
     );
     assert!(said.contains("a server of its own"), "{said}");
+}
+
+/// A skill's name is the extension's own or carries it as a prefix, because
+/// every extension's skills share one directory beside fufu's. A bare
+/// `plan` is refused with the manifest, and nothing is recorded.
+#[test]
+fn a_skill_not_under_the_extensions_name_is_refused() {
+    let (home, bin) = machine();
+    ext_bin(
+        bin.path(),
+        "tower",
+        r#"{"name":"tower","version":"0.4.1","contract":1,
+            "verbs":[{"name":"board","read_only":true}],"undoable":true,
+            "skills":["tower","plan"]}"#,
+    );
+    let out = ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower", "--json"],
+    );
+    assert!(!out.status.success());
+    assert_eq!(error_id(&out), "extension/bad-manifest");
+    assert!(
+        envelope(&out)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`plan` is not a name a skill of ff-tower can have"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(registry(home.path()).is_none());
 }
 
 /// A binary that will not answer the handshake is refused, and nothing is
