@@ -30,7 +30,7 @@ Instead of a strange commit that exists, you get a pending rewrite that does not
 
 A hold records the verb's own question — the branch, the target, what it was asked to become. It never records the plan it could not finish computing.
 
-Every input is a ref or the working tree, so nothing has to be pinned, and resolving is a recomputation rather than a comparison. That is [cache-not-authority](invariant.md#a-cache-over-git-never-an-authority) taken literally, and it is what makes a hold durable rather than fragile.
+Every input is a ref or the working copy, so nothing has to be pinned, and resolving is a recomputation rather than a comparison. That is [cache-not-authority](invariant.md#a-cache-over-git-never-an-authority) taken literally, and it is what makes a hold durable rather than fragile.
 
 So you keep committing at the existing tip, and the pending rewrite replays over whatever you add, because the replan sees what you added. If the world moves such that the rewrite now applies cleanly, the hold is released rather than resolved.
 
@@ -44,7 +44,7 @@ fufu runs that propagation in memory instead. Each step of the held rewrite repl
 
 ### The session
 
-[`ff resolve`](../reference/cli/resolve.md) then puts every surviving conflict region into the working tree together, as ordinary conflict markers, in one editing session.
+[`ff resolve`](../reference/cli/resolve.md) then puts every surviving conflict region into the working copy together, as ordinary conflict markers, in one editing session.
 
 The current side is labeled `the rewrite so far`. The incoming side carries the step that wrote it — `>>>>>>> rebasing "add parser options" (3/10)` — because the incoming side is where git puts the commit, and therefore where a reader already looks. Those labels are not decoration: they are what attributes each fix back to its owning step when the session lands.
 
@@ -65,7 +65,7 @@ So the chain stops rather than write the tangle. `ff resolve` presents the steps
 Deferring a conflict is only safe if you cannot forget it. Holds get three disciplines for that.
 
 - **A hold is announced at creation.** The verb says what conflicts and where before it exits.
-- **A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working tree are the more urgent fact.
+- **A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working copy are the more urgent fact.
 - **Exits are blocked**, which is the next section.
 
 [`ff branch list`](../reference/cli/branch-list.md) marks a held branch the same way it marks an unfinished session, so standing work is visible wherever branches are listed.

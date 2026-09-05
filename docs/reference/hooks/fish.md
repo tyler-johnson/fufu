@@ -37,6 +37,6 @@ A hand-written alias or prompt hook is reported and stays.
 
 Restart the shell or source the file to activate it.
 
-The prompt hook prints nothing. `ff trigger shell` captures the working tree and says nothing.
+The prompt hook prints nothing. `ff trigger shell` captures the working copy and says nothing.
 
 Event handlers are additive, so the order against a prompt framework does not matter. `functions _fufu_ambient` in a new shell shows the handler, and `type git` shows the alias.

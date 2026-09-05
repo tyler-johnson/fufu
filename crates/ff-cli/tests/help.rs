@@ -43,7 +43,7 @@ fn bare_help_prints_the_root_page() {
         assert!(body.contains(heading), "missing heading {heading:?}");
     }
     assert!(
-        body.contains("snapshots your working tree"),
+        body.contains("snapshots your working copy"),
         "missing root page fragment"
     );
 }

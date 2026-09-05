@@ -1,4 +1,4 @@
-A second checkout of the same repository: one object store and one ref namespace are shared, and the working tree, the index, and HEAD are what is new.
+A second checkout of the same repository: one object store and one ref namespace are shared, and the working copy, the index, and HEAD are what is new.
 
 The chain floor is laid as the worktree is made, so ff undo works there from the first command. A checkout written by hand gets its floor on its first fufu command instead, and undo in it is blind until then.
 

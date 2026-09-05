@@ -56,7 +56,7 @@ Size is bounded by retention. `ff trim` drops operations past the `fufu.keep` wi
 
 ## Why is there no staging area? I liked the staging area.
 
-Because the working tree is the change. There is no object to assemble before committing, and [`ff commit`](reference/cli/commit.md) closes the tree into a commit in one step.
+Because the working copy is the change. There is no object to assemble before committing, and [`ff commit`](reference/cli/commit.md) closes the tree into a commit in one step.
 
 What the index gave you survives as an argument instead of a state. `ff commit <paths>` closes a slice and leaves the rest open — selection made once at the moment of the close, with nothing to maintain between commits.
 

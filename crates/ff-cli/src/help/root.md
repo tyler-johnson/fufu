@@ -1,6 +1,6 @@
 a friendlier interface to plain git
 
-fufu snapshots your working tree as you work — before every command it runs, before every git command you type through the alias, before every tool call your agent makes — so the last hour of work is always recoverable. You never type a capture: every verb takes one first.
+fufu snapshots your working copy as you work — before every command it runs, before every git command you type through the alias, before every tool call your agent makes — so the last hour of work is always recoverable. You never type a capture: every verb takes one first.
 
 Snapshots are ordinary git objects under refs/fufu/, beside your history rather than in it: nothing fufu stores reaches a remote, and nothing it stores needs fufu to read back.
 

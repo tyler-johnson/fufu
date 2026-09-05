@@ -6,7 +6,7 @@
 
 The commands fufu retires are the dangerous-but-daily ones — the rituals that exist to move state by hand that git could have moved for you.
 
-- **`add` and the staging area.** There is no index to maintain between commits. [The working tree is the change](../concepts/changes.md): [`ff commit`](../reference/cli/commit.md) closes it into a commit in one step, and a partial commit is a slice picked at the moment of the close — path arguments naming files or directories — with nothing persisting afterward.
+- **`add` and the staging area.** There is no index to maintain between commits. [The working copy is the change](../concepts/changes.md): [`ff commit`](../reference/cli/commit.md) closes it into a commit in one step, and a partial commit is a slice picked at the moment of the close — path arguments naming files or directories — with nothing persisting afterward.
 - **The stash dance.** [`ff switch`](../reference/cli/switch.md) parks whatever is open with the branch you leave and reopens whatever was parked where you arrive, untracked files included. The stash itself survives — a parked change is an ordinary stash entry labeled with its branch, visible in every GUI's stash panel — but the two-step dance, and remembering which entry belonged to which branch, is gone.
 - **Detached HEAD.** Editing a commit mid-stack is [`ff edit <rev>`](../reference/cli/edit.md), which mints an anonymous branch at that commit and switches to it; [`ff done`](../reference/cli/done.md) amends, replays the commits that were ahead, and returns you to the tip. HEAD stays attached to a branch throughout, because a detached HEAD is a state fufu never creates.
 - **`rebase -i`.** Its jobs split into verbs that each do one thing: [`ff describe <rev>`](../reference/cli/describe.md) rewords any commit, [`ff absorb`](../reference/cli/absorb.md) folds working changes into a past commit — which also retires the `fixup!`-plus-`--autosquash` ritual — and `ff edit` covers the `edit` stop. Descendants restack automatically and the replay runs in memory, landing only when clean; a conflicting replay becomes a [held rewrite](../concepts/held-rewrites.md) you resolve on your schedule, so the stop-fix-continue treadmill goes too.
@@ -21,7 +21,7 @@ A git veteran's first response to the list above is that aliases and scripts alr
 
 ### It cannot act before you type
 
-fufu snapshots the working tree before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible.
+fufu snapshots the working copy before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible.
 
 A safety net you have to remember to throw is a checkpoint, and the manual checkpoint is exactly the ritual [snapshots and undo](../concepts/snapshots-and-undo.md) exists to delete.
 

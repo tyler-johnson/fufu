@@ -1,4 +1,4 @@
-Bring every local branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. One fetch, then each branch is replayed onto whatever moved, and the whole run is one operation — one `ff undo` puts every branch and the working tree back.
+Bring every local branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. One fetch, then each branch is replayed onto whatever moved, and the whole run is one operation — one `ff undo` puts every branch and the working copy back.
 
 Nothing leaves the machine. Sync takes in; `ff publish` sends, and a push is the one act undo cannot take back. When a branch is ahead of its shared copy, sync says so and leaves it for publish.
 
@@ -14,7 +14,7 @@ Only a branch tracking the remote this run fetched from gets this half. With `--
 
 One question: did it move? If so, the branch's commits replay onto where it now stands, and the branches stacked on this one follow, parent before child, the way `ff restack` does.
 
-Only the branch you are standing on has a working tree, so the others move as refs and objects and touch no file.
+Only the branch you are standing on has a working copy, so the others move as refs and objects and touch no file.
 
 ### What holds, and what is skipped
 
@@ -31,7 +31,7 @@ Four kinds of branch are named and left where they stand:
 
 The branch you are standing on comes first, then one block per other branch that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A repository with nothing to do reads `nothing to sync`.
 
-With `--json`, the other branches are the `branches` array, one row per branch tagged `Synced`, `Elsewhere`, or `Held`; a `Synced` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-tree write.
+With `--json`, the other branches are the `branches` array, one row per branch tagged `Synced`, `Elsewhere`, or `Held`; a `Synced` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-copy write.
 
 The exit is 3 when any branch held, and the last line names the branch to switch to before resolve.
 

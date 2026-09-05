@@ -44,7 +44,7 @@ A hand-written function or prompt hook is reported and stays.
 
 Restart PowerShell or dot-source the profile (`. $PROFILE`) to activate it. A file is not a running shell.
 
-The prompt hook prints nothing. `ff trigger shell` captures the working tree and says nothing, so a prompt with fufu wired looks like a prompt without it.
+The prompt hook prints nothing. `ff trigger shell` captures the working copy and says nothing, so a prompt with fufu wired looks like a prompt without it.
 
 The prompt line wraps whatever `prompt` is when the profile reaches it. A prompt framework initialized below fufu's lines that redefines `prompt` outright drops the hook. fufu appends at the end of the file, so a framework already in the file is already above the marked lines. If you add one later, keep its init line above them. Check in a new shell:
 

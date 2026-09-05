@@ -44,7 +44,7 @@ Timestamps are unix seconds, always named `time`. Commit ids are hex; operation 
 
 ## `ff status --json`
 
-The whole working-tree model in one read: where you are, what changed, the open change, its parent, conflicts, foreign drift, and what a sync would do.
+The whole working-copy model in one read: where you are, what changed, the open change, its parent, conflicts, foreign drift, and what a sync would do.
 
 ```console
 $ ff status --json | jq .

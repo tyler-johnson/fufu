@@ -4,7 +4,7 @@
 
 [`ff start`](../reference/cli/start.md) begins every new line of work on a fresh branch. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead.
 
-The [open change](changes.md) — the edits sitting in your working tree — parks with the branch you are leaving, and the new branch opens clean. Nothing ever crosses a fork. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
+The [open change](changes.md) — the edits sitting in your working copy — parks with the branch you are leaving, and the new branch opens clean. Nothing ever crosses a fork. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
 
 ## Minted names
 
@@ -95,7 +95,7 @@ The verb says what followed, what held, and what was skipped. `ff restack` and `
 
 [`ff sync`](../reference/cli/sync.md) fetches once and brings every local branch up to date with both things it answers to: first the shared copy of each branch, then the base beneath it, parent before child. A trunk that moved therefore carries every branch started from it, in one run.
 
-Standing on a branch changes nothing about how it is treated. It only decides whether a working tree moves — the branches you are not on move as refs and objects and touch no file.
+Standing on a branch changes nothing about how it is treated. It only decides whether a working copy moves — the branches you are not on move as refs and objects and touch no file.
 
 The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what sync takes in and what publish sends.
 

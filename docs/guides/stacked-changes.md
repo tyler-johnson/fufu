@@ -133,7 +133,7 @@ main
 undo: ff undo
 ```
 
-Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working tree moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The whole run is one operation, offline, and one `ff undo` away.
+Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working copy moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The whole run is one operation, offline, and one `ff undo` away.
 
 ## Publish each branch under its own lease
 

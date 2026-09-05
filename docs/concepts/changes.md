@@ -1,14 +1,14 @@
 # Changes
 
-**The working tree is the change.**
+**The working copy is the change.**
 
-There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working tree are the change, from the first keystroke.
+There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working copy are the change, from the first keystroke.
 
 fufu saves them for you as you work: every command takes a [capture](snapshots-and-undo.md) — an automatic snapshot of the tree — before it acts. Every verb that talks about work in progress is talking about this one thing.
 
 A change is in exactly one of three states:
 
-- **Open** — the working tree, being edited right now. Every worktree has exactly one open change. When the tree matches the commit beneath it, the open change is empty, not absent.
+- **Open** — the working copy, being edited right now. Every worktree has exactly one open change. When the tree matches the commit beneath it, the open change is empty, not absent.
 - **Parked** — set aside with a branch when you switched away. A parked change is the open change that branch had, held as you left it, and it becomes the open change again when you switch back.
 - **Closed** — a commit. Closing is how a change enters history, and [`ff commit`](../reference/cli/commit.md) is the verb that does it.
 

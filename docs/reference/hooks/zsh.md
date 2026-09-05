@@ -38,6 +38,6 @@ A hand-written alias or prompt hook is reported and stays.
 
 Restart the shell or source the file to activate it.
 
-The prompt hook prints nothing. `ff trigger shell` captures the working tree and says nothing.
+The prompt hook prints nothing. `ff trigger shell` captures the working copy and says nothing.
 
 `precmd_functions+=` is additive, so the order against a prompt framework does not matter: a framework that adds its own `precmd` function before or after fufu's lines leaves the hook in place. `echo $precmd_functions` in a new shell lists `_fufu_ambient`, and `type git` shows the alias.

@@ -11,12 +11,12 @@ Git's destructive commands — `reset --hard`, `checkout .`, `clean -fd`, `resto
 The exposure is wider than the dramatic commands:
 
 - **The valuable state is uncommitted.** An agent edits at machine rate and may commit nothing for an hour, so at any given moment the work that matters is uncommitted — precisely the state git protects least.
-- **The reflog records refs, not trees.** It says where branch pointers moved and nothing about what the working tree held. An uncommitted tree that gets clobbered — by a reset, by a bad merge, by the agent overwriting a file it misread — is simply gone.
+- **The reflog records refs, not trees.** It says where branch pointers moved and nothing about what the working copy held. An uncommitted tree that gets clobbered — by a reset, by a bad merge, by the agent overwriting a file it misread — is simply gone.
 - **There is no `git undo`.** The recovery rituals that do exist — `reflog`, `fsck --lost-found`, stash archaeology — assume a human who checkpointed along the way. Agents do not checkpoint.
 
 ## The net
 
-fufu [snapshots the working tree before every action](../concepts/snapshots-and-undo.md), automatically, with no verb for asking. With the agent hooks wired — [setup](setup.md) shows how — that happens before every tool call the agent makes: every edit, every shell command, at machine rate.
+fufu [snapshots the working copy before every action](../concepts/snapshots-and-undo.md), automatically, with no verb for asking. With the agent hooks wired — [setup](setup.md) shows how — that happens before every tool call the agent makes: every edit, every shell command, at machine rate.
 
 Each snapshot records the tree and all refs together on one operation log. So fufu holds a running record of the agent's work that no other tool has, taken the moment before each action rather than whenever someone remembered to save.
 
@@ -32,13 +32,13 @@ The one honest gap is a foreign tree change that moves no ref, which is invisibl
 
 ### The human keeps the last word
 
-[`ff undo`](../reference/cli/undo.md) takes back the last operation, refs and working tree together, whether the agent did it through fufu or behind its back. A run of machine-rate captures collapses into one undo step, so unwinding an agent's session is a few keystrokes rather than an archaeology project.
+[`ff undo`](../reference/cli/undo.md) takes back the last operation, refs and working copy together, whether the agent did it through fufu or behind its back. A run of machine-rate captures collapses into one undo step, so unwinding an agent's session is a few keystrokes rather than an archaeology project.
 
 ## A surface with fewer ways to go wrong
 
 Part of the argument is what fufu removes.
 
-- **No staging area**, so there is no half-staged index for an agent to mangle, and no class of bug where the commit contains something other than the tree. The working tree is the change, and [`ff commit -m`](../reference/cli/commit.md) closes it.
+- **No staging area**, so there is no half-staged index for an agent to mangle, and no class of bug where the commit contains something other than the tree. The working copy is the change, and [`ff commit -m`](../reference/cli/commit.md) closes it.
 - **No stash**, so there is nothing for an agent to stash and forget. Switching branches parks whatever is uncommitted with the branch you leave, and switching back resumes it.
 
 Each ritual git demands is a place an agent can leave the repository in a state neither it nor you expected. fufu deletes the rituals rather than documenting them.

@@ -1,6 +1,6 @@
 # ff undo
 
-Whole-repo undo: refs and the working tree together, not one without the other. It takes no argument and repeats — each one goes one step further back.
+Whole-repo undo: refs and the working copy together, not one without the other. It takes no argument and repeats — each one goes one step further back.
 
 A step is a *run*, not an operation. Captures happen at machine rate and a person's undo does not, so undo steps over the longest stretch of adjacent captures carrying the same session, ending at the first operation that is not one. A verb's operation is always its own step: a switch and a commit are two undos, never one.
 

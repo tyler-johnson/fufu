@@ -1,6 +1,6 @@
 # Command table
 
-Every row maps a git habit to the fufu verb that replaces it. One difference is shared by all of them and not repeated below: every fufu verb captures the working tree before it acts, and lands on the operation log where [`ff undo`](../reference/cli/undo.md) can take it back.
+Every row maps a git habit to the fufu verb that replaces it. One difference is shared by all of them and not repeated below: every fufu verb captures the working copy before it acts, and lands on the operation log where [`ff undo`](../reference/cli/undo.md) can take it back.
 
 Where fufu has no verb, [`ff git <args>`](../reference/cli/git.md) runs your git command verbatim after the snapshot, so no habit is left without a home. [The two regimes](../concepts/two-regimes.md) is the full account of that boundary.
 

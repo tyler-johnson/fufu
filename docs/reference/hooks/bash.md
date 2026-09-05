@@ -37,7 +37,7 @@ A hand-written alias or prompt hook is reported and stays. Unhook only takes bac
 
 Restart the shell or source the file to activate it. A file is not a running shell.
 
-The prompt hook prints nothing. `ff trigger shell` captures the working tree and says nothing, so a prompt with fufu wired looks like a prompt without it.
+The prompt hook prints nothing. `ff trigger shell` captures the working copy and says nothing, so a prompt with fufu wired looks like a prompt without it.
 
 The bash line prepends to whatever `PROMPT_COMMAND` holds when the rc file reaches it. A prompt framework initialized below fufu's lines that assigns `PROMPT_COMMAND` outright drops the hook. fufu appends at the end of the file, so a framework already in the file is already above the marked lines. If you add one later, keep its init line above them. Check in a new shell:
 

@@ -6,15 +6,15 @@ One or two sentences per term, each linking to the page that owns it.
 
 **arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and [`ff undo`](../reference/cli/undo.md) reaches back to the moment of arming and no further.
 
-**bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working tree, an index, HEAD, and an operation chain of its own. [`ff worktree add`](../reference/cli/worktree-add.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
+**bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working copy, an index, HEAD, and an operation chain of its own. [`ff worktree add`](../reference/cli/worktree-add.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
 
-**capture** — An automatic [snapshot](snapshots-and-undo.md) of the working tree, taken before every fufu command and around every mutation an agent or editor makes through it, at machine rate. A capture is an operation that moves no ref — the tree alone — and its description is written by fufu, never by a person.
+**capture** — An automatic [snapshot](snapshots-and-undo.md) of the working copy, taken before every fufu command and around every mutation an agent or editor makes through it, at machine rate. A capture is an operation that moves no ref — the tree alone — and its description is written by fufu, never by a person.
 
 **cascade** — What follows a branch's tip moving: every local branch whose base is that branch is replayed onto its new tip, parent before child, through the whole tree, inside the same operation. Every verb that moves a tip runs one; a replay that conflicts holds that branch and leaves the branches above it alone. [Branches](branches.md#stacking-a-branch-records-its-parent) has the rule.
 
 **chain** — One worktree's own line of the [operation log](snapshots-and-undo.md): every operation belongs to the chain of the worktree that ran it, `ff undo` steps back the chain of the tree it runs in, and a chain outlives its worktree. The [worktrees guide](../guides/worktrees.md#one-repository-a-log-per-tree) shows the split.
 
-**change** — The unit of work in progress: the working tree is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working tree being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
+**change** — The unit of work in progress: the working copy is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working copy being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
 
 **claim** — Give a branch a name you chose with [`ff describe -b <name>`](../reference/cli/describe.md), replacing its petname or an earlier name; there is no separate rename command. The rename carries everything fufu associates with the branch — the capture chain, any parked change, the pending description — as [branches](branches.md) describes.
 

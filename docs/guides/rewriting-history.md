@@ -35,7 +35,7 @@ The commit and everything above it now have new ids, because a reword is a rewri
 
 ## Fold the open change into a closed commit
 
-Review feedback usually lands on a commit that already closed, and the fix usually lands in your working tree. [`ff absorb`](../reference/cli/absorb.md) folds the open change into the commit it belongs to — the revision you name with `--into`, or the commit under the change when you name none. Here the tree holds two edits: a helper that belongs in the first lexer commit, and a stray note that does not belong anywhere.
+Review feedback usually lands on a commit that already closed, and the fix usually lands in your working copy. [`ff absorb`](../reference/cli/absorb.md) folds the open change into the commit it belongs to — the revision you name with `--into`, or the commit under the change when you name none. Here the tree holds two edits: a helper that belongs in the first lexer commit, and a stray note that does not belong anywhere.
 
 ```console
 $ ff status

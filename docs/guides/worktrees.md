@@ -4,7 +4,7 @@
 
 A worktree is for the moments when one tree is the bottleneck — a long build or test run that should keep going while you edit something else, an agent working a branch alongside you, a review checkout you keep standing.
 
-`ff worktree add` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working tree, the index, HEAD, and the operation log are the worktree's own.
+`ff worktree add` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working copy, the index, HEAD, and the operation log are the worktree's own.
 
 Every transcript below is real `ff` output. fufu calls a secondary worktree a bay in places, and this page does too.
 

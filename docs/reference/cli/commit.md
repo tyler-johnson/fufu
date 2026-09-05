@@ -1,6 +1,6 @@
 # ff commit
 
-There is no staging step: the working tree is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by [`ff describe`](describe.md). `ff ci` is the short spelling.
+There is no staging step: the working copy is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by [`ff describe`](describe.md). `ff ci` is the short spelling.
 
 -b lands the close on a branch — it claims the anonymous branch you are standing on, or forks a fresh one from here, leaving the branch you were on where it was.
 

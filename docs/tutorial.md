@@ -2,7 +2,7 @@
 
 This walks the whole loop once: get a repository, make commits, switch branches mid-edit, fold a fix into an earlier commit, line up with a teammate, publish, and undo a disaster. Twenty minutes. Every transcript below is real `ff` output.
 
-One thing to unlearn before you start: there is no staging area, no stash, and no dirty state. fufu snapshots the working tree before every action, the tree itself is the change you are working on, and every operation is undoable. You never prepare a commit; you close one.
+One thing to unlearn before you start: there is no staging area, no stash, and no dirty state. fufu snapshots the working copy before every action, the tree itself is the change you are working on, and every operation is undoable. You never prepare a commit; you close one.
 
 ## Get a repository
 
@@ -35,7 +35,7 @@ $ ff
 ~
 ```
 
-Reading the rows: `@` is the open change — the working tree, as a change in progress. It always exists; `no changes` means the tree matches the commit beneath it. `●` rows are commits, newest first, and `▸ [main]` marks where a branch stands. The `~` says history continues below what is shown.
+Reading the rows: `@` is the open change — the working copy, as a change in progress. It always exists; `no changes` means the tree matches the commit beneath it. `●` rows are commits, newest first, and `▸ [main]` marks where a branch stands. The `~` says history continues below what is shown.
 
 The letters column next to each commit (here just `—`) is an operation id: which fufu operation last touched that commit. Nothing here has one yet, because fufu didn't make these commits.
 
@@ -55,7 +55,7 @@ open change on ff/vivid-sparrow
 undo: ff undo
 ```
 
-Now edit. Add a file — a design note, say — and notice what you don't do next: no `add`, no staging. Capture is automatic; the working tree is the change.
+Now edit. Add a file — a design note, say — and notice what you don't do next: no `add`, no staging. Capture is automatic; the working copy is the change.
 
 ```console
 $ ff status
@@ -247,7 +247,7 @@ $ git reset --hard HEAD~2
 HEAD is now at 3b738f7 docs: a line from a teammate
 ```
 
-…one `ff undo` brings refs and working tree back together:
+…one `ff undo` brings refs and working copy back together:
 
 ```console
 $ ff undo

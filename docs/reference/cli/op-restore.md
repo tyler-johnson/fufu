@@ -1,6 +1,6 @@
 # ff op restore
 
-Rewind the whole repository to an operation: refs, HEAD, the working tree and the index together, exactly as that operation recorded them.
+Rewind the whole repository to an operation: refs, HEAD, the working copy and the index together, exactly as that operation recorded them.
 
 It moves the log's pointer rather than appending, so what it steps off stays reachable and [`ff redo`](redo.md) walks back forward along it. Nothing is discarded and no entry is written saying you navigated — the log records work, not movement.
 

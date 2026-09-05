@@ -2,16 +2,16 @@
 
 The cookbook for when something is already wrong. Every transcript below is real `ff` output, from a repository a few commits into the tutorial's story: a `parser-stream` branch carrying two commits on top of `main`.
 
-The model that makes all of it work is one sentence: fufu snapshots the working tree before every action — each snapshot a capture — and records every mutation on one operation log, so recovery is naming where to go back to rather than reconstructing it. [Snapshots and undo](../concepts/snapshots-and-undo.md) is that model in full.
+The model that makes all of it work is one sentence: fufu snapshots the working copy before every action — each snapshot a capture — and records every mutation on one operation log, so recovery is naming where to go back to rather than reconstructing it. [Snapshots and undo](../concepts/snapshots-and-undo.md) is that model in full.
 
 Two verbs cover almost everything here, and telling them apart is the main skill:
 
-- [`ff undo`](../reference/cli/undo.md) moves refs and the working tree together, one step at a time.
+- [`ff undo`](../reference/cli/undo.md) moves refs and the working copy together, one step at a time.
 - [`ff restore <path>`](../reference/cli/restore.md) writes only worktree files, and leaves refs, HEAD, and the index exactly where they stand.
 
 ## "An agent ran `git reset --hard`"
 
-The symptom: an agent, a script, or you in a hurry ran something destructive with raw git, and now the branch points somewhere earlier and the working tree has been rewritten to match.
+The symptom: an agent, a script, or you in a hurry ran something destructive with raw git, and now the branch points somewhere earlier and the working copy has been rewritten to match.
 
 ```console
 $ git reset --hard HEAD~2

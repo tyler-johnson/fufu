@@ -38,7 +38,7 @@ Optional, and recommended.
 ff hook
 ```
 
-fufu captures only when something invokes it, so without hooks only an `ff` command takes a capture — the snapshot of your working tree that undo returns you to. With hooks a snapshot lands before every agent tool call, every git command you type, and every shell prompt.
+fufu captures only when something invokes it, so without hooks only an `ff` command takes a capture — the snapshot of your working copy that undo returns you to. With hooks a snapshot lands before every agent tool call, every git command you type, and every shell prompt.
 
 What each surface gets:
 

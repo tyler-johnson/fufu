@@ -12,7 +12,7 @@ Measured on Cortex-A76 (aarch64, 4 cores, linux) with hyperfine 1.19.0, against 
 
 ### Snapshot chain depth
 
-Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working tree.
+Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working copy.
 
 | operation | fufu runs | n = 100 | n = 1 000 | n = 10 000 | per decade |
 |---|---|---|---|---|---|
@@ -54,13 +54,13 @@ At n = 10 000, against git and jj:
 
 The milliseconds are this machine's and mean nothing on yours. Ratios are what port between machines, and the ratio is what the suite gates on: the `per decade` column is the floor-subtracted growth per 10× of n, so flat is about 1.0 and linear would be about 10.
 
-git is faster on a plain read, and that is the shape of the trade rather than a defect. [`ff status`](reference/cli/status.md) reads the operation log and the snapshot chain as well as the working tree, and `git status` reads the tree; the tables say the difference is a small constant that does not open up as a repository ages. Against jj, which snapshots the working copy on every command the way fufu does, the same operations run three to eight times slower on this box.
+git is faster on a plain read, and that is the shape of the trade rather than a defect. [`ff status`](reference/cli/status.md) reads the operation log and the snapshot chain as well as the working copy, and `git status` reads the tree; the tables say the difference is a small constant that does not open up as a repository ages. Against jj, which snapshots the working copy on every command the way fufu does, the same operations run three to eight times slower on this box.
 
-A capture is not a commit. The `capture` row is fufu's snapshot of the working tree — the thing that happens before every operation and every agent tool call — and it is measured against `git add -A && git commit`, which is the closest git has.
+A capture is not a commit. The `capture` row is fufu's snapshot of the working copy — the thing that happens before every operation and every agent tool call — and it is measured against `git add -A && git commit`, which is the closest git has.
 
 ## What is not flat, and why
 
-Scanning the working tree is O(files), for fufu exactly as for git: [`ff status`](reference/cli/status.md) on a tree of fifty thousand files costs more than on a tree of five hundred, and nothing in the design pretends otherwise. `scripts/bench/rows.tsv` declares those rows `linear` rather than `flat`, and they are measured for visibility, never gated. The first capture of a repository is the same story — it reads every file once, because it has to.
+Scanning the working copy is O(files), for fufu exactly as for git: [`ff status`](reference/cli/status.md) on a tree of fifty thousand files costs more than on a tree of five hundred, and nothing in the design pretends otherwise. `scripts/bench/rows.tsv` declares those rows `linear` rather than `flat`, and they are measured for visibility, never gated. The first capture of a repository is the same story — it reads every file once, because it has to.
 
 What is gated is everything that could have been made to scale with the history: reading the log, reading the operation log, restoring a file from an old operation, and taking the snapshot itself.
 

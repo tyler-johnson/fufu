@@ -6,8 +6,8 @@ fufu's guarantees follow its surface. Work that goes through fufu gets fufu's ru
 
 An operation that goes through fufu gets everything fufu promises:
 
-- The working tree is [snapshotted](snapshots-and-undo.md) before the operation runs, so nothing it does can lose file state.
-- The operation lands in the operation log, so one [`ff undo`](../reference/cli/undo.md) takes it back — refs and working tree together.
+- The working copy is [snapshotted](snapshots-and-undo.md) before the operation runs, so nothing it does can lose file state.
+- The operation lands in the operation log, so one [`ff undo`](../reference/cli/undo.md) takes it back — refs and working copy together.
 - Switching branches [parks](branches.md) dirty work, so it resumes with its branch.
 - Syncing replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose.
 - [`ff status`](../reference/cli/status.md) reports futures rather than just facts: not "12 commits behind main" but "rebases cleanly onto main," worked out in memory before you commit to anything.

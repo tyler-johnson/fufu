@@ -1,6 +1,6 @@
 # ff done
 
-Ends the editing session [`ff edit`](edit.md) opened: the commit the session was opened on is amended with what the working tree now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing.
+Ends the editing session [`ff edit`](edit.md) opened: the commit the session was opened on is amended with what the working copy now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing.
 
 A replay that would conflict stops with nothing changed rather than leaving you mid-rewrite. It is one operation — the amend, the replay and the return move together — so one [`ff undo`](undo.md) takes the whole session back.
 

@@ -1,4 +1,4 @@
-A held rewrite is a conflict fufu chose not to interrupt you with — and this is where you choose to deal with it, all at once. Every surviving conflict region lands in the working tree together, as ordinary labeled markers, in one session: fix them, then `ff done` lands the rewrite.
+A held rewrite is a conflict fufu chose not to interrupt you with — and this is where you choose to deal with it, all at once. Every surviving conflict region lands in the working copy together, as ordinary labeled markers, in one session: fix them, then `ff done` lands the rewrite.
 
 Nothing moves. Your branch does not move and the parked change, if there is one, waits where it was — the session is recorded in the branch's own metadata, and the hold stays, because it is what the session is resolving. If the world has moved and the rewrite applies cleanly now, the hold is released instead, and re-running the verb that recorded it lands it.
 

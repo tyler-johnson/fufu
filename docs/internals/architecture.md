@@ -8,7 +8,7 @@ In the source, the floors map roughly to modules in `crates/ff-core/src`: captur
 
 ## Floor 1 — capture
 
-Every working-tree state is snapshotted before anything acts on it. Every ff verb rides a pre-command capture lane before its own work, and [`ff git`](../reference/cli/git.md) captures before handing the arguments to git verbatim.
+Every working-copy state is snapshotted before anything acts on it. Every ff verb rides a pre-command capture lane before its own work, and [`ff git`](../reference/cli/git.md) captures before handing the arguments to git verbatim.
 
 The hooks [`ff hook`](../reference/cli/hook.md) installs make capture ambient rather than something anyone remembers: before every tool call a wired agent makes, before every git command typed through the shell alias, and at every shell prompt. All of them arrive through [`ff trigger`](../reference/cli/trigger.md) with the source named.
 

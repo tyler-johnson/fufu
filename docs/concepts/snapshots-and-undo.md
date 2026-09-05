@@ -1,6 +1,6 @@
 # Snapshots and undo
 
-**The working tree is snapshotted before every action, so no action can lose file state.**
+**The working copy is snapshotted before every action, so no action can lose file state.**
 
 fufu calls each snapshot a **capture**, and taking one is entirely automatic. There is no verb for asking. Captures happen:
 
@@ -87,7 +87,7 @@ fufu builds its picture from what it observes, and everything before its arrival
 
 The same bound shapes what foreign work can offer. A gap of raw git motion collapses into a single foreign operation with restore points only at its endpoints.
 
-The reason is that git's reflogs record where refs moved but never what the working tree held at each step. Expanding the gap would manufacture entries with nothing to restore. The *account* inside the operation can still be rich, quoting git's own reflog messages — explanation and restore have different granularities, and only the second is bounded by what git left behind.
+The reason is that git's reflogs record where refs moved but never what the working copy held at each step. Expanding the gap would manufacture entries with nothing to restore. The *account* inside the operation can still be rich, quoting git's own reflog messages — explanation and restore have different granularities, and only the second is bounded by what git left behind.
 
 Sharper still: a foreign tree change that moves no ref — a raw `git restore <file>`, an editor discarding a buffer — is invisible until the next capture, so it can destroy work fufu never saw.
 

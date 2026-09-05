@@ -65,7 +65,7 @@ The notice stays pinned in [`ff status`](../reference/cli/status.md) while the l
 
 ## `ff git`: the escape hatch that keeps undo working
 
-The gap in the lazy story is the working tree. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture.
+The gap in the lazy story is the working copy. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture.
 
 [`ff git <args…>`](../reference/cli/git.md) closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
 
