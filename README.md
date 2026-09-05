@@ -16,13 +16,13 @@ so your tools and your remotes all still work.*
 
 ---
 
-fufu (`ff`) is a version control interface built on ordinary git. It snapshots the working tree before every action, parks work automatically when you switch branches, folds fixes into the commits they belong to, and makes every operation undoable in one keystroke — including operations made behind its back with raw git.
+fufu is version control done the right way:
 
-Its one non-negotiable promise: at every instant, the repository is a boring git repository. fufu never creates a state plain git cannot represent; it only automates the transitions between such states. Teammates, CI, IDEs, and forges see nothing unusual, and deleting fufu loses convenience, never data or history. That promise — [the invariant](https://tyler-johnson.github.io/fufu/concepts/invariant/) — settles every design question in the tool.
-
-fufu takes jj's working model — the tree as the change, no staging area, first-class undo — and rebuilds it as a layer over an unmodified git repository, abandonable and returnable at any moment. [fufu vs jj](https://tyler-johnson.github.io/fufu/comparisons/vs-jj/) is the thesis, and [related work](https://tyler-johnson.github.io/fufu/comparisons/related-work/) places the neighbors.
-
-It is built for repositories agents work in as much as humans. An agent with shell access and git is one confident `reset --hard` from destroying an afternoon; under fufu the tree is snapshotted before every tool action, and the human reviews and reverses the lot with `ff history` and `ff undo`. [Why agents want fufu](https://tyler-johnson.github.io/fufu/agents/why/) is the argument, [setup](https://tyler-johnson.github.io/fufu/agents/setup/) is the wiring, and [the machine surface](https://tyler-johnson.github.io/fufu/agents/machine-surface/) is the JSON contract.
+- **Commits, all the way down.** Your working copy is an open commit. There is nothing to stage, nothing to stash, and nothing to track. When you are done making changes, close the current commit and start on the next.
+- **Move HEAD, without friction.** The working copy stays with the branch. Switch, and the open commit goes with it. When you return, everything is right where it should be. Step back onto any commit and edit it; the commits above it reflow on their own.
+- **Undo anything.** Every operation is recorded, which makes everything undoable. Git has the reflog, and this is a whole new level — mid-commit file edits, a bad merge on top of changes, a hard git reset. Building with version control becomes _forgiving and carefree_, as it should be.
+- **First-class agent support.** Native MCP, leveraged skills, and built-in nudging. With minimal configuration, agents instinctively reach for fufu over git. Plus, a snapshot lands before every agent tool call, letting a sloppy agent reverse its bad decisions.
+- **It's still git.** Real commits, real branches, an ordinary repository that every tool and teammate reads as one. Worktrees, remotes, hooks, and the rest of git are all still there. And it stays quick no matter how much history piles up.
 
 ## Documentation
 
