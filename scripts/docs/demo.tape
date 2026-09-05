@@ -56,23 +56,29 @@ Show
 # line does not explain itself.
 
 Sleep 1s
-Type "ff" Sleep 400ms Enter Sleep 3s
+Type "ff st" Sleep 300ms Enter Sleep 3s
 
-Type "ff status" Sleep 300ms Enter Sleep 3s
-
-Type "# one switch: parks main's work, resumes the branch's" Enter Sleep 700ms
+Type "# a dirty working copy, but I need to switch branches" Enter Sleep 700ms
+Type "ff" Sleep 400ms Enter Sleep 1200ms
 Type "ff switch unicode-escapes" Sleep 400ms Enter Sleep 2500ms
 
-Type "# no add, no staging: the tree is the change" Enter Sleep 700ms
-Type "ff commit -m 'lexer: handle unicode escapes'" Sleep 500ms Enter Sleep 2500ms
+Type "ff st" Sleep 300ms Enter Sleep 3s
 
-Type "# oops, forgot to wire it up" Enter Sleep 700ms
+Type "# the changes I made earlier on this branch..." Enter Sleep 700ms
+Type "# looks like it's ready to commit" Enter Sleep 600ms
+Type "ff commit" Sleep 400ms Enter Sleep 2500ms
+
+Type "# oops, forgot to add one thing" Enter Sleep 700ms
 Type "echo 'mod unicode;' >> src/lib.rs" Sleep 400ms Enter Sleep 600ms
 Type "ff absorb" Sleep 400ms Enter Sleep 2500ms
 
-Type "ff status" Sleep 300ms Enter Sleep 3s
+Type "ff st" Sleep 300ms Enter Sleep 3s
 
-Type "# main moved while I worked" Enter Sleep 700ms
-Type "ff sync" Sleep 400ms Enter Sleep 3s
+Type "# oh, main moved while I worked, so let's catch up" Enter Sleep 700ms
+Type "ff sync" Sleep 400ms Enter Sleep 2500ms
 
-Type "ff publish" Sleep 400ms Enter Sleep 4s
+Type "# time to push my changes for review" Enter Sleep 700ms
+Type "ff publish" Sleep 400ms Enter Sleep 3s
+
+Type "# what was I doing on main again?" Enter Sleep 700ms
+Type "ff switch main" Sleep 400ms Enter Sleep 5s

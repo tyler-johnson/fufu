@@ -91,6 +91,9 @@ pub fn unicode_escape(s: &str) -> char {
 }
 EOF
 printf '    esc: bool,\n' >> src/lexer.rs
+# Described before it is parked, so the demo's bare `ff commit` has a
+# message to close with and `ff status` shows one waiting.
+"$FF" describe -m "lexer: handle unicode escapes" >/dev/null
 "$FF" switch main >/dev/null
 printf '\nRun `cargo test` before you push.\n' >> README.md
 
