@@ -22,8 +22,7 @@ The reset was never dangerous, because fufu snapshotted the tree before it ran. 
 
 ```console
 $ ff undo
-ff: absorbed changes made outside fufu:
-  refs/heads/parser-stream moved to 441fd61c (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 441fd61c (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
   now at sunquylzttrv (commit on parser-stream: parser: drop whitespace from the stream)
   refs/heads/parser-stream → 57145cd3

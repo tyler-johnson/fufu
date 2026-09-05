@@ -33,29 +33,127 @@ pub fn reconcile_notice(report: &ReconcileReport) {
         eprintln!("ff: operation log initialized; operations from here on are undoable");
     }
     if !report.foreign.is_empty() {
-        eprintln!("ff: absorbed changes made outside fufu:");
-        for change in &report.foreign {
-            let what = match (&change.old, &change.new) {
-                (Some(_), Some(new)) => match ref_display(new) {
-                    Some(name) => format!("moved to {name}"),
-                    None => format!(
-                        "moved to {}",
-                        paint_sha(ff_core::sha::short(new.as_str()), colored)
-                    ),
-                },
-                (None, Some(new)) => match ref_display(new) {
-                    Some(name) => format!("created at {name}"),
-                    None => format!(
-                        "created at {}",
-                        paint_sha(ff_core::sha::short(new.as_str()), colored)
-                    ),
-                },
-                (Some(_), None) => "deleted".to_string(),
-                (None, None) => "changed".to_string(),
-            };
-            match &change.hint {
-                Some(hint) => eprintln!("  {} {what} ({hint})", change.name),
-                None => eprintln!("  {} {what}", change.name),
+        eprintln!("{}", absorbed_line(&report.foreign, colored));
+    }
+}
+
+/// How one foreign ref moved, read off its old and new values. `(None,
+/// None)` is a change with no shape — it counts, and joins no kind.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Motion {
+    Moved,
+    Created,
+    Deleted,
+}
+
+impl Motion {
+    /// The order the shape lists kinds in.
+    const ALL: [Motion; 3] = [Motion::Moved, Motion::Created, Motion::Deleted];
+
+    fn classify(old: Option<&str>, new: Option<&str>) -> Option<Motion> {
+        match (old, new) {
+            (Some(_), Some(_)) => Some(Motion::Moved),
+            (None, Some(_)) => Some(Motion::Created),
+            (Some(_), None) => Some(Motion::Deleted),
+            (None, None) => None,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Motion::Moved => "moved",
+            Motion::Created => "created",
+            Motion::Deleted => "deleted",
+        }
+    }
+}
+
+/// The shape of several foreign changes as counts by kind — `2 moved, 1
+/// created` — listing only the kinds that occurred, moved first, then
+/// created, then deleted. Empty when no change has a shape.
+fn shape<'a>(changes: impl IntoIterator<Item = (Option<&'a str>, Option<&'a str>)>) -> String {
+    let mut counts = [0usize; 3];
+    for (old, new) in changes {
+        if let Some(motion) = Motion::classify(old, new) {
+            counts[motion as usize] += 1;
+        }
+    }
+    Motion::ALL
+        .iter()
+        .filter(|m| counts[**m as usize] > 0)
+        .map(|m| format!("{} {}", counts[*m as usize], m.word()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One ref's motion as a phrase: `moved to <name|sha>`, `created at …`,
+/// `deleted`. A sha is short and painted; a `ref:` value shows the branch
+/// it names. Both surfaces that speak of a single foreign change use this,
+/// so they cannot drift apart in wording.
+fn motion_phrase(old: Option<&str>, new: Option<&str>, colored: bool) -> String {
+    let target = |new: &str| match ref_display(new) {
+        Some(name) => name,
+        None => paint_sha(ff_core::sha::short(new), colored),
+    };
+    match (Motion::classify(old, new), new) {
+        (Some(Motion::Moved), Some(new)) => format!("moved to {}", target(new)),
+        (Some(Motion::Created), Some(new)) => format!("created at {}", target(new)),
+        (Some(Motion::Deleted), _) => "deleted".to_string(),
+        _ => "changed".to_string(),
+    }
+}
+
+/// `N change(s)`, painted as a warning: the count is the fact, and it wears
+/// the role the preamble's other warnings already wear.
+fn change_count(n: usize, colored: bool) -> String {
+    paint_warn(&format!("{n} {}", noun(n, "change", "changes")), colored)
+}
+
+/// The one preamble line for absorbed foreign motion. A single change is
+/// the common interactive case — a reset, an amend, a teammate's commit —
+/// and there the ref is the shape, so it stays on the line with git's
+/// reflog hint. More than one folds to counts by kind: one `git fetch`
+/// moves every remote ref, and a line per ref is a wall. `ff op show @`
+/// has the per-ref detail.
+fn absorbed_line(foreign: &[ff_core::ForeignChange], colored: bool) -> String {
+    let count = change_count(foreign.len(), colored);
+    let what = match foreign {
+        [only] => {
+            let phrase = motion_phrase(only.old.as_deref(), only.new.as_deref(), colored);
+            match &only.hint {
+                Some(hint) => format!("{} {phrase} ({hint})", only.name),
+                None => format!("{} {phrase}", only.name),
+            }
+        }
+        many => shape(many.iter().map(|c| (c.old.as_deref(), c.new.as_deref()))),
+    };
+    if what.is_empty() {
+        format!("ff: absorbed {count} made outside fufu")
+    } else {
+        format!("ff: absorbed {count} made outside fufu: {what}")
+    }
+}
+
+/// The one line `ff status` pins while the log's tip is foreign: the same
+/// count and shape as the preamble, with the undo hint in place of git's,
+/// which the status record does not carry.
+fn pinned_line(foreign: &[crate::cmd::status::ForeignEntry], colored: bool) -> String {
+    let count = change_count(foreign.len(), colored);
+    let undo = format!(
+        "(absorbed; ff undo can roll {} back)",
+        noun(foreign.len(), "it", "them")
+    );
+    match foreign {
+        [only] => {
+            let phrase = motion_phrase(only.old.as_deref(), only.new.as_deref(), colored);
+            format!("{count} made outside fufu: {} {phrase} {undo}", only.r#ref)
+        }
+        many => {
+            let shape = shape(many.iter().map(|e| (e.old.as_deref(), e.new.as_deref())));
+            if shape.is_empty() {
+                format!("{count} made outside fufu {undo}")
+            } else {
+                format!("{count} made outside fufu, {shape} {undo}")
             }
         }
     }
@@ -243,26 +341,12 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         }
     }
 
-    // Foreign changes block
+    // Foreign changes line
     if let Some(foreign) = &model.foreign
         && !foreign.is_empty()
     {
-        out.push_str("changes made outside fufu (absorbed; ff undo can roll them back):\n");
-        for entry in foreign {
-            let what = match (&entry.old, &entry.new) {
-                (_, Some(new)) => match ref_display(new) {
-                    Some(name) => format!("moved to {name}"),
-                    None => format!("moved to {}", ff_core::sha::short(new.as_str())),
-                },
-                (Some(_), None) => "deleted".to_string(),
-                (None, None) => continue,
-            };
-            out.push_str("  ");
-            out.push_str(&entry.r#ref);
-            out.push(' ');
-            out.push_str(&what);
-            out.push('\n');
-        }
+        out.push_str(&pinned_line(foreign, colored));
+        out.push('\n');
     }
 
     out
@@ -684,7 +768,110 @@ fn operation_phrase(op: InProgress) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{axis_phrase, to_publish, to_sync};
+    use super::{absorbed_line, axis_phrase, pinned_line, shape, to_publish, to_sync};
+    use crate::cmd::status::ForeignEntry;
+    use ff_core::ForeignChange;
+
+    fn change(
+        name: &str,
+        old: Option<&str>,
+        new: Option<&str>,
+        hint: Option<&str>,
+    ) -> ForeignChange {
+        ForeignChange {
+            name: name.into(),
+            old: old.map(String::from),
+            new: new.map(String::from),
+            hint: hint.map(String::from),
+        }
+    }
+
+    fn entry(name: &str, old: Option<&str>, new: Option<&str>) -> ForeignEntry {
+        ForeignEntry {
+            r#ref: name.into(),
+            old: old.map(String::from),
+            new: new.map(String::from),
+        }
+    }
+
+    const A: &str = "3dbae0c0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "5a56e702bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn the_shape_lists_kinds_in_order_and_skips_the_empty_ones() {
+        // Deleted before created in the input, and a `(None, None)` change
+        // that counts toward nothing: the shape is still moved, created,
+        // deleted, and names only the kinds that happened.
+        let changes = [
+            (Some(A), None),
+            (None, Some(B)),
+            (Some(A), Some(B)),
+            (None, None),
+            (Some(B), Some(A)),
+        ];
+        assert_eq!(shape(changes), "2 moved, 1 created, 1 deleted");
+        assert_eq!(shape([(None, Some(A)), (None, Some(B))]), "2 created");
+        assert_eq!(shape([(None, None)]), "");
+    }
+
+    #[test]
+    fn a_single_change_keeps_its_ref_and_hint() {
+        let one = [change(
+            "refs/heads/parser",
+            Some(B),
+            Some(A),
+            Some("reset: moving to HEAD~2"),
+        )];
+        assert_eq!(
+            absorbed_line(&one, false),
+            "ff: absorbed 1 change made outside fufu: refs/heads/parser moved to 3dbae0c0 (reset: \
+             moving to HEAD~2)"
+        );
+        let pinned = [entry("refs/heads/parser", Some(B), Some(A))];
+        assert_eq!(
+            pinned_line(&pinned, false),
+            "1 change made outside fufu: refs/heads/parser moved to 3dbae0c0 (absorbed; ff undo \
+             can roll it back)"
+        );
+        // A symbolic value shows the branch it names, as the table does.
+        let unborn = [entry("HEAD", Some(A), Some("ref:refs/heads/next"))];
+        assert_eq!(
+            pinned_line(&unborn, false),
+            "1 change made outside fufu: HEAD moved to next (absorbed; ff undo can roll it back)"
+        );
+    }
+
+    #[test]
+    fn several_changes_fold_to_counts_and_name_no_ref() {
+        let many = [
+            change("refs/remotes/origin/main", Some(A), Some(B), Some("fetch")),
+            change(
+                "refs/remotes/origin/parser",
+                Some(B),
+                Some(A),
+                Some("fetch"),
+            ),
+            change("refs/remotes/origin/new", None, Some(A), Some("fetch")),
+            change("refs/remotes/origin/old", Some(B), None, None),
+        ];
+        let line = absorbed_line(&many, false);
+        assert_eq!(
+            line,
+            "ff: absorbed 4 changes made outside fufu: 2 moved, 1 created, 1 deleted"
+        );
+        assert!(!line.contains("refs/"), "no ref names: {line:?}");
+        let pinned: Vec<ForeignEntry> = many
+            .iter()
+            .map(|c| entry(&c.name, c.old.as_deref(), c.new.as_deref()))
+            .collect();
+        let line = pinned_line(&pinned, false);
+        assert_eq!(
+            line,
+            "4 changes made outside fufu, 2 moved, 1 created, 1 deleted (absorbed; ff undo can \
+             roll them back)"
+        );
+        assert!(!line.contains("refs/"), "no ref names: {line:?}");
+    }
 
     #[test]
     fn the_row_and_the_axis_word_pending_work_alike() {

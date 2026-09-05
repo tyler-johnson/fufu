@@ -251,8 +251,7 @@ HEAD is now at 3b738f7 docs: a line from a teammate
 
 ```console
 $ ff undo
-ff: absorbed changes made outside fufu:
-  refs/heads/parser-stream moved to 3b738f7f (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 3b738f7f (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
   now at vpyrqznqrozv (published parser-stream to origin/parser-stream)
   refs/heads/parser-stream → 7400e88e

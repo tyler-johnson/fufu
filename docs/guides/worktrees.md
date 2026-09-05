@@ -156,16 +156,13 @@ Now take that branch from the bay. The parked change resumes there — same file
 
 ```console
 $ ff switch ff/nimble-badger
-ff: absorbed changes made outside fufu:
-  refs/fufu/parked/ff/nimble-badger created at 87fd8ffd (park: wip on ff/nimble-badger)
-  refs/heads/ff/nimble-badger created at dd510982 (branch: forked from main)
-  refs/stash created at 87fd8ffd (On ff/nimble-badger: fufu: wip on ff/nimble-badger)
+ff: absorbed 3 changes made outside fufu: 3 created
 switched to ff/nimble-badger
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
 
-The absorbed lines are the two chains staying honest with each other. Each worktree's chain keeps its own record of the repository's refs, and the parking refs the first tree wrote are new to the bay's chain, so its next verb absorbs them out loud before acting — [the two regimes](../concepts/two-regimes.md) explains why motion a chain did not perform is never silently blended in.
+The absorbed line is the two chains staying honest with each other. Each worktree's chain keeps its own record of the repository's refs, and the parking refs the first tree wrote are new to the bay's chain, so its next verb absorbs them out loud before acting — [the two regimes](../concepts/two-regimes.md) explains why motion a chain did not perform is never silently blended in.
 
 While the branch is open in the bay, the first tree cannot take it. git allows one branch in two checkouts behind a flag; fufu refuses outright:
 

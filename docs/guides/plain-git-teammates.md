@@ -58,8 +58,7 @@ on parser · nothing to sync
 │  (no description)
 ●  —        3dbae0c0   0s ago
 │  docs: say what this is
-changes made outside fufu (absorbed; ff undo can roll them back):
-  refs/heads/parser moved to 3dbae0c0
+1 change made outside fufu: refs/heads/parser moved to 3dbae0c0 (absorbed; ff undo can roll it back)
 ```
 
 The notice stays pinned in [`ff status`](../reference/cli/status.md) while the log's tip is foreign, so motion fufu did not perform is never silently blended into motion it did. And because the commit is in the operation log now, [`ff undo`](../reference/cli/undo.md) can take it back like anything fufu did itself — here the commit was wanted, so it simply stays.
@@ -78,8 +77,7 @@ ff: tip: that's ff undo
 HEAD is now at 5a56e70 lexer: skeleton
 
 $ ff undo
-ff: absorbed changes made outside fufu:
-  refs/heads/parser moved to 5a56e702 (reset: moving to HEAD~1)
+ff: absorbed 1 change made outside fufu: refs/heads/parser moved to 5a56e702 (reset: moving to HEAD~1)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
   now at xlrtxownxrrw (absorbed 1 foreign ref change(s))
   refs/heads/parser → 3dbae0c0

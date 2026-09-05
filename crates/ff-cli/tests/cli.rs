@@ -49,6 +49,10 @@ fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).expect("utf-8 stdout")
 }
 
+fn stderr(out: &Output) -> String {
+    String::from_utf8(out.stderr.clone()).expect("utf-8 stderr")
+}
+
 /// The letters spelling of a hex id's first 8 digits: the alphabet is the
 /// k–z run, so an id can never be misread as a commit sha.
 fn letters8(hex: &str) -> String {
@@ -211,6 +215,101 @@ fn status_json_reports_foreign_motion() {
     assert!(first.get("ref").is_some(), "has ref key");
     assert!(first.get("old").is_some(), "has old key");
     assert!(first.get("new").is_some(), "has new key");
+}
+
+#[test]
+fn status_human_reports_one_foreign_change_on_one_line() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("made outside fufu"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one summary line: {text:?}");
+    assert!(
+        lines[0].starts_with("1 change "),
+        "singular count: {text:?}"
+    );
+    assert!(
+        lines[0].contains("refs/heads/"),
+        "the one ref is named: {text:?}"
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("  refs/")),
+        "no per-ref rows: {text:?}"
+    );
+}
+
+#[test]
+fn reconcile_preamble_is_one_line_carrying_the_ref_and_hint() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Foreign Motion");
+    fx.set_config("user.email", "foreign@motion.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    // The next mutating verb absorbs the amend and says so once, on stderr.
+    fx.write("b.txt", "b\n");
+    let out = ff(&fx, &["commit", "-m", "two"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    let lines: Vec<&str> = err
+        .lines()
+        .filter(|l| l.starts_with("ff: absorbed"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one absorbed line: {err:?}");
+    assert!(
+        lines[0].starts_with("ff: absorbed 1 change made outside fufu: refs/heads/main moved to "),
+        "the ref and its motion: {err:?}"
+    );
+    assert!(
+        lines[0].ends_with("(commit (amend): one)"),
+        "git's reflog hint in parentheses: {err:?}"
+    );
+}
+
+#[test]
+fn several_foreign_changes_fold_to_counts_by_kind() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Foreign Motion");
+    fx.set_config("user.email", "foreign@motion.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["branch", "a"]);
+    fx.git(&["branch", "b"]);
+    // Status pins the folded line while the log's tip is foreign.
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("2 changes made outside fufu, 2 created"),
+        "status folds to counts: {text:?}"
+    );
+    assert!(
+        !text.contains("refs/heads/a"),
+        "no ref names when folded: {text:?}"
+    );
+    // Status absorbed those two; two more, and the next mutating verb's
+    // preamble folds the same way.
+    fx.git(&["branch", "c"]);
+    fx.git(&["branch", "d"]);
+    fx.write("b.txt", "b\n");
+    let out = ff(&fx, &["commit", "-m", "two"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.lines()
+            .any(|l| l == "ff: absorbed 2 changes made outside fufu: 2 created"),
+        "preamble folds to counts: {err:?}"
+    );
 }
 
 #[test]
