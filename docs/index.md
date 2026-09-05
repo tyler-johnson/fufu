@@ -2,34 +2,20 @@
 
 **git that flies itself.**
 
-fufu (`ff`) is a version control interface for humans and agents: automatic snapshots that [stay flat as they pile up](performance.md), effortless branching, whole-repo undo. It is built on ordinary git, so your tools, your teammates, and your remotes all still work.
+fufu (`ff`) is an opinionated version control interface for humans and agents: automatic snapshots, effortless branching, whole-repo undo. It is [built on ordinary git](concepts/invariant.md), so your tools, your teammates, and your remotes all still work.
 
 <video class="demo" autoplay loop muted playsinline>
   <source src="assets/demo.webm" type="video/webm">
   <img src="assets/demo.gif" alt="A terminal running ff: a glance at the branches, changes on main parked by a single switch, a commit, a fix folded into it, then sync and publish.">
 </video>
 
-At every instant, the repository is a boring git repository. fufu never creates a state plain git cannot represent; it only automates the transitions between such states. That one promise — [the invariant](concepts/invariant.md) — settles every design question in the tool.
+fufu is version control done the right way:
 
-The cost is up front: fufu is opinionated and will not meet you halfway.
-
-- Branches rebase onto trunk — the main line of development — rather than merging it in.
-- Unpublished commits stay malleable.
-- There is no staging area.
-
-Where that fits and where it does not is on [fufu vs git](comparisons/vs-git.md#the-honest-costs).
-
-The daily loop is five verbs:
-
-```console
-$ ff start                        # begin new work — a fresh branch off trunk, nothing to name yet
-$ ff commit -m "parser: handle unicode escapes"    # no add, no staging: the tree is the change
-$ ff switch main                  # mid-edit is fine — this parks, that resumes
-$ ff sync                         # line up with base and remote, replayed in memory, undoable
-$ ff publish                      # the one thing fufu can't undo, so it's the one you type
-```
-
-And when anything goes wrong — including things done behind fufu's back with raw git — one [`ff undo`](reference/cli/undo.md) brings refs and working tree back together. It reaches as far back as the last capture — the snapshot fufu takes of the working tree before an action — and what gets captured is what the [hooks decide](comparisons/vs-git.md#the-honest-costs).
+- **Commits, all the way down.** Your working copy is an open commit. There is nothing to stage, nothing to stash, and nothing to track. When you are done making changes, close the current commit and start on the next.
+- **Move HEAD, without friction.** The working copy stays with the branch. Switch, and the open commit goes with it. When you return, everything is right where it should be. Step back onto any commit and edit it; the commits above it reflow on their own.
+- **Undo anything.** Every operation is recorded, which makes everything undoable. Git has the reflog, and this is a whole new level — mid-commit file edits, a bad merge on top of changes, a hard git reset. Building with version control becomes _forgiving and carefree_, as it should be.
+- **First-class agent support.** Native MCP, leveraged skills, and built-in nudging. With minimal configuration, agents instinctively reach for fufu over git. Plus, a snapshot lands before every agent tool call, letting a sloppy agent reverse its bad decisions.
+- **It's still git.** Real commits, real branches, an ordinary repository that every tool and teammate reads as one. Worktrees, remotes, hooks, and the rest of git are all still there. And it stays quick no matter how much history piles up.
 
 ## Where to go
 
