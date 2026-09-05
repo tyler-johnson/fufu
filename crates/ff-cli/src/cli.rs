@@ -563,7 +563,7 @@ pub enum Command {
     // dying on an unexpected argument first. A jj word whose meaning *is* a
     // fufu verb is a visible alias on that verb instead, not a row here.
     /// git's checkout, split in two: `ff switch` moves, `ff restore` brings files back
-    #[command(hide = true, alias = "co")]
+    #[command(hide = true)]
     Checkout {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,

@@ -226,7 +226,6 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
     let fx = repo();
     for (verb, expected) in [
         ("checkout", "ff switch"),
-        ("co", "ff switch"),
         ("stash", "ff switch"),
         ("pull", "ff sync"),
         // A position rather than a gap: principle 12 names rebase over
@@ -259,7 +258,7 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
         );
         assert_eq!(
             json(&out)["cmd"].as_str(),
-            Some(if verb == "co" { "checkout" } else { verb }),
+            Some(verb),
             "the envelope names the word that was typed"
         );
     }

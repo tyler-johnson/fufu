@@ -13,6 +13,10 @@
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
 - A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
 
+### Removed
+
+- `ff co`, the hidden alias on the `checkout` foreign verb. `ff checkout` still answers with `usage/foreign-verb`.
+
 ## v0.12.1 — 2026-09-04
 
 ### Fixed
