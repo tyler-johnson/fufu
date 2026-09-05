@@ -2,13 +2,35 @@
 # target/dogfood/ff, so the binary is live the moment it links.
 # `make release` is the honest fat-LTO build benches and releases use.
 
-.PHONY: build release bench bench-real bench-report bench-against docs docs-serve docs-gen demo demo-check bench-docs
+.PHONY: build release test fmt fmt-check lint install clean bench bench-real bench-report bench-against bench-docs docs docs-serve docs-gen demo demo-check
 
 build:
 	cargo build --profile dogfood
 
 release:
 	cargo build --release
+
+test:
+	cargo test --workspace
+
+fmt:
+	cargo fmt --all
+
+fmt-check:
+	cargo fmt --all --check
+
+lint:
+	cargo clippy --workspace --all-targets -- -D warnings
+
+# Point ~/.cargo/bin/ff at the dogfood binary. That is the whole install:
+# the symlink is what makes `make` live. Idempotent; rerun after a move.
+install: build
+	@mkdir -p $(HOME)/.cargo/bin
+	ln -sfn $(CURDIR)/target/dogfood/ff $(HOME)/.cargo/bin/ff
+	@echo "linked $(HOME)/.cargo/bin/ff -> $(CURDIR)/target/dogfood/ff"
+
+clean:
+	cargo clean
 
 # The full local matrix: both axes, default points (100/1000/10000), against
 # target/release/ff -- never target/dogfood/ff (see line 1, Cargo.toml's
