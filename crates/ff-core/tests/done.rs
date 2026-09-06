@@ -522,6 +522,58 @@ fn undo_takes_the_whole_session_back_in_one() {
     );
 }
 
+#[test]
+fn undo_after_done_reparks_the_untracked_file() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let repo = fx.repo();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
+    let (_c0, c1, _c2, _c3) = base(&fx);
+    fx.write("wip.txt", "wip\n");
+
+    let (edit_outcome, _ctx) = edit_call(&fx, &c1, NOW);
+    let edit_report = opened(edit_outcome);
+    assert!(edit_report.parked.is_some(), "the untracked file parks");
+    fx.write("c1.txt", "c1 edited\n");
+
+    let (outcome, _ctx) = done_call(&fx, false, NOW + 100);
+    let report = landed(outcome);
+    assert!(
+        matches!(report.arrival, ArrivalReport::Restored { .. }),
+        "the landing resumes the park: {:?}",
+        report.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("wip.txt")).unwrap(),
+        "wip\n"
+    );
+
+    // The landing's record must hold the untracked file, or this undo reads
+    // it as drift since the landing and deletes it instead of stepping back.
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(NOW + 200),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        edit_report.session,
+        "HEAD must be back on the session branch"
+    );
+    assert!(
+        !fx.path().join("wip.txt").exists(),
+        "the untracked file is parked again, not on disk"
+    );
+    assert!(
+        ff_core::stash::parked_entry(&fx.repo(), "main")
+            .unwrap()
+            .is_some(),
+        "main's park is back"
+    );
+}
+
 /// A rewrite of the anchor in place — absorb amending the session tip — must
 /// not block the landing: the anchor's *position* is what lands, and the
 /// session branch changed sha, not position. Before the fix this refused

@@ -560,7 +560,7 @@ fn abandon_hold(
     // stands when it does not — the tip's tree would claim a clean state a
     // dirty tree is not.
     let (end_tree, end_index) = match &landing {
-        Some((_, tree, arrive)) => held::Return::end_trees(arrive, *tree),
+        Some((_, tree, arrive)) => stash::end_trees(repo, arrive, *tree)?,
         None => (ctx.pre_tree, crate::index::tree_from_index(repo)?),
     };
 

@@ -207,16 +207,9 @@ pub fn switch(
     pins.extend(ctx.pre_op.map(|id| id.object_id()));
     // The planned end state: the destination's tree, unless a parked change is
     // about to be laid back over it — in which case that is what the working
-    // tree will hold, and saying "target tree" would make an undo of the next
-    // operation throw the resumed change away.
-    let (end_tree, end_index) = match &arrive_plan {
-        ArrivePlan::Restore {
-            target_wip,
-            target_index,
-            ..
-        } => (*target_wip, *target_index),
-        _ => (target_tree, target_tree),
-    };
+    // tree will hold, untracked files included, and saying "target tree"
+    // would make an undo of the next operation throw the resumed change away.
+    let (end_tree, end_index) = stash::end_trees(repo, &arrive_plan, target_tree)?;
     verb::append_op(
         repo,
         OpKind::Op,

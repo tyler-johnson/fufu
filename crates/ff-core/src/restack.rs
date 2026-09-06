@@ -1163,12 +1163,11 @@ fn commit_restack(
     // when the head branch is carried, and a resolution landing moves the
     // worktree to the landed tip, or the restored change over it. The
     // recorded end tree must be what the tree will actually hold, or an
-    // undo of the next operation throws the carried change away
-    // (switch.rs:203-214). The index is the new tip's tree, so the next
-    // foreign `git status` sees the open change against the commit it now
-    // sits on.
+    // undo of the next operation throws the carried change away, as switch
+    // does. The index is the new tip's tree, so the next foreign
+    // `git status` sees the open change against the commit it now sits on.
     let (end_tree, end_index) = match return_trip {
-        Some(_) => held::Return::end_trees(&plan.arrive_plan, new_tip_tree),
+        Some(_) => stash::end_trees(repo, &plan.arrive_plan, new_tip_tree)?,
         None => (
             plan.new_worktree.unwrap_or(ctx.pre_tree),
             plan.new_head_tip

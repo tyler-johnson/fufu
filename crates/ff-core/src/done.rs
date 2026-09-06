@@ -1115,14 +1115,7 @@ pub fn done_with(
         }
     }
 
-    let (end_tree, end_index) = match &arrive_plan {
-        ArrivePlan::Restore {
-            target_wip,
-            target_index,
-            ..
-        } => (*target_wip, *target_index),
-        _ => (new_onto_tree, new_onto_tree),
-    };
+    let (end_tree, end_index) = stash::end_trees(repo, &arrive_plan, new_onto_tree)?;
 
     let summary = if abandon {
         format!("done --abandon: {anchor_short} on {onto}")

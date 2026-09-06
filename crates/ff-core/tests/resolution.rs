@@ -1344,10 +1344,8 @@ fn the_landing_record_carries_the_return_trip_and_one_undo_restores_it() {
     let fx = Fixture::new();
     ident(&fx);
     restack_stack(&fx);
-    // A tracked edit rather than a new file: a park's untracked half is not
-    // in the end tree `switch` and the landing record, so an undo over one
-    // steps onto the landing instead of back over it — `switch`'s own
-    // behavior, and not what this test is about.
+    // A tracked edit; `one_undo_reparks_the_landings_untracked_file` covers
+    // the park's untracked half.
     fx.write("a.txt", "a1 dirty\n");
     hold_a_restack(&fx);
     let opened = open_resolution(&fx, NOW + 100);
@@ -1442,6 +1440,43 @@ fn the_landing_record_carries_the_return_trip_and_one_undo_restores_it() {
         std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
         "a1\n",
         "and the open change is parked again, not on disk"
+    );
+}
+
+#[test]
+fn one_undo_reparks_the_landings_untracked_file() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    fx.write("open.txt", "dirty\n");
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    let session = opened.session.clone();
+    let parked = opened.parked.clone().expect("the open change was parked");
+
+    fix(&fx, "f.txt", "RESOLVED\n");
+    resolved(&fx, NOW + 200);
+    assert_eq!(head_branch(&fx), "feature");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("open.txt")).unwrap(),
+        "dirty\n",
+        "the landing brings the untracked file back"
+    );
+
+    // The landing's record must hold the untracked file, or this undo reads
+    // it as drift since the landing and deletes it instead of stepping back.
+    undo(&fx, NOW + 300);
+    assert_eq!(head_branch(&fx), session, "HEAD is back on the session");
+    assert!(
+        !fx.path().join("open.txt").exists(),
+        "the untracked file is parked again, not on disk"
+    );
+    assert_eq!(
+        ff_core::stash::parked_entry(&fx.repo(), "feature")
+            .unwrap()
+            .map(|id| id.to_string()),
+        Some(parked),
+        "the park is parked again"
     );
 }
 

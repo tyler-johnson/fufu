@@ -513,6 +513,89 @@ fn switch_then_undo_returns_with_the_parked_change_reopened() {
 }
 
 #[test]
+fn switching_back_then_undo_reparks_the_untracked_file() {
+    let fx = Fixture::new();
+    fx.write("shared.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "feature"]);
+    ident(&fx);
+    let repo = fx.repo();
+    ff_core::ops::reconcile(&repo, NOW - 10).unwrap();
+    fx.write("loose.txt", "untracked\n");
+
+    let switch = |target: &str, now: i64| {
+        ff_core::switch(
+            &repo,
+            &SwitchOptions {
+                target: target.into(),
+                now: Some(now),
+                argv: Vec::new(),
+            },
+            &prov(),
+        )
+        .unwrap()
+        .0
+    };
+    let away = switch("feature", NOW);
+    assert!(away.parked.is_some(), "the untracked file parks");
+    assert!(!fx.path().join("loose.txt").exists());
+    let back = switch("main", NOW + 10);
+    assert!(
+        matches!(back.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "the park resumes on the way back: {:?}",
+        back.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("loose.txt")).unwrap(),
+        "untracked\n"
+    );
+
+    // The arrival's record must hold the untracked file, or this undo reads
+    // it as drift since the switch and deletes it instead of stepping back.
+    let undo_report = run_undo_at(&fx, NOW + 100);
+    assert!(
+        undo_report
+            .stepped_summary
+            .as_deref()
+            .unwrap_or_default()
+            .contains("switch"),
+        "the undo steps back over the switch: {:?}",
+        undo_report.stepped_summary
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        "feature"
+    );
+    assert!(
+        !fx.path().join("loose.txt").exists(),
+        "the untracked file is parked again, not on disk"
+    );
+    assert!(
+        ff_core::stash::parked_entry(&fx.repo(), "main")
+            .unwrap()
+            .is_some(),
+        "main's park is back"
+    );
+
+    // A second undo takes back the first switch and reopens it on main.
+    run_undo_at(&fx, NOW + 200);
+    assert_eq!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        "main"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("loose.txt")).unwrap(),
+        "untracked\n",
+        "the untracked file is open on main again"
+    );
+    assert!(
+        ff_core::stash::parked_entry(&fx.repo(), "main")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn foreign_ops_undo_with_a_label() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");

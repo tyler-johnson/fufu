@@ -510,6 +510,40 @@ pub fn plan_arrival(
     })
 }
 
+/// The end state a verb records after an arrival: the restored change laid
+/// over the target, untracked files included, when the arrival brings one
+/// back — the working copy holds both halves, and the record must say so or
+/// the next undo reads the untracked half as drift and deletes it. Else the
+/// fallback on both axes.
+pub fn end_trees(
+    repo: &gix::Repository,
+    plan: &ArrivePlan,
+    fallback: gix::ObjectId,
+) -> Result<(gix::ObjectId, gix::ObjectId)> {
+    let ArrivePlan::Restore {
+        target_wip,
+        target_index,
+        untracked_tree,
+        ..
+    } = plan
+    else {
+        return Ok((fallback, fallback));
+    };
+    if *untracked_tree == gix::ObjectId::empty_tree(repo.object_hash()) {
+        return Ok((*target_wip, *target_index));
+    }
+    // Collisions were refused in `plan_arrival`, so no upsert overwrites a
+    // tracked entry.
+    let mut editor = repo.edit_tree(*target_wip).map_err(Error::repo)?;
+    for (path, kind, id) in tree_files(repo, *untracked_tree)? {
+        editor
+            .upsert(path.as_str(), kind, id)
+            .map_err(Error::repo)?;
+    }
+    let tree = editor.write().map_err(Error::repo)?.detach();
+    Ok((tree, *target_index))
+}
+
 /// The mutating half of an arrival. For `Restore`, the worktree must
 /// currently match `current_tree` (HEAD's tree after the switch).
 pub fn execute_arrival(

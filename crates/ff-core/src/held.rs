@@ -513,22 +513,6 @@ impl Return {
         }
     }
 
-    /// The end state the verb records: the restored change when the arrival
-    /// brings one back, else the landed tip's tree on both axes.
-    pub(crate) fn end_trees(
-        arrive: &ArrivePlan,
-        new_tip_tree: gix::ObjectId,
-    ) -> (gix::ObjectId, gix::ObjectId) {
-        match arrive {
-            ArrivePlan::Restore {
-                target_wip,
-                target_index,
-                ..
-            } => (*target_wip, *target_index),
-            _ => (new_tip_tree, new_tip_tree),
-        }
-    }
-
     /// Point HEAD at the landing branch. Before the verb's ref transaction,
     /// which deletes the branch HEAD stands on.
     pub(crate) fn leave(&self, repo: &gix::Repository, now: i64) -> Result<()> {

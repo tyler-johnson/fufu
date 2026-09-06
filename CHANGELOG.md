@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- `ff switch`, `ff done`, and the resolution landing recorded an end tree without the untracked files of the park they resumed, so the next `ff undo` deleted the files instead of stepping back.
 - `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree: the fixes park on the session branch and come back when you switch to it.
 - `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.
 
