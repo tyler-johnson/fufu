@@ -1,10 +1,14 @@
 //! Session plumbing: resolve the current session name and validate names.
 //!
-//! Sessions are stateless: the only source is the `FF_SESSION` environment
-//! variable or the `--session` flag. There is no marker file, no mode, and
-//! nothing to open or close — a session is a tag an operation wears, so
-//! whoever sets one already knows its name and there is nothing to list. It
-//! rides every row of `ff op log`, and filtering by one is
+//! Sessions are stateless: the sources are the `--session` flag, the
+//! `FF_SESSION` environment variable, and behind both the session the client
+//! that launched this process is running (`CLAUDE_CODE_SESSION_ID`). Fufu's
+//! own words win: the flag beats `FF_SESSION`, and either beats the client's
+//! variable, so a shell verb under an agent carries the same tag its hook
+//! captures do without the agent setting anything. There is no marker file,
+//! no mode, and nothing to open or close — a session is a tag an operation
+//! wears, so whoever sets one already knows its name and there is nothing to
+//! list. It rides every row of `ff op log`, and filtering by one is
 //! `ff op log 'session(<name>)'` — the set language, not a flag of its own.
 
 use ff_core::error::{Error, Result};
@@ -39,18 +43,23 @@ pub fn parse(raw: &str) -> Result<String> {
 }
 
 /// The session a snapshot belongs to: the `--session` flag wins, then
-/// `FF_SESSION`. Both go through the same `parse`, but only the flag is
-/// fatal — the environment is ambient rather than something typed on this
-/// command line, so an unusable value there is ignored (and named under
-/// `FF_DEBUG`) instead of aborting the command.
+/// `FF_SESSION`, then the client's own session variable. All three go through
+/// the same `parse`, but only the flag is fatal — the environment is ambient
+/// rather than something typed on this command line, so an unusable value
+/// there is ignored (and named under `FF_DEBUG`) instead of aborting the
+/// command, and the next source answers.
 ///
-/// Both sources are arguments: the answer belongs to one invocation, and
-/// `Ctx` settles it once at startup rather than letting each caller ask.
-pub fn resolve(flag: Option<&str>, env: Option<&str>) -> Result<Option<String>> {
+/// All three sources are arguments: the answer belongs to one invocation,
+/// and `Ctx` settles it once at startup rather than letting each caller ask.
+pub fn resolve(
+    flag: Option<&str>,
+    env: Option<&str>,
+    client: Option<&str>,
+) -> Result<Option<String>> {
     if let Some(raw) = flag {
         return Ok(Some(parse(raw)?));
     }
-    Ok(ambient("FF_SESSION", env))
+    Ok(ambient("FF_SESSION", env).or_else(|| ambient(crate::integ::claude::SESSION_VAR, client)))
 }
 
 /// An ambient source: the environment rather than this command line, so an

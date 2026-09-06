@@ -24,6 +24,8 @@ pub struct Provenance {
     pub detail: Option<String>,
     /// The session this capture belongs to, if any.
     pub session: Option<String>,
+    /// How the invocation that recorded this arrived, when known.
+    pub route: Option<Route>,
 }
 
 impl Provenance {
@@ -32,6 +34,7 @@ impl Provenance {
             source: source.into(),
             detail,
             session: None,
+            route: None,
         }
     }
 
@@ -40,11 +43,46 @@ impl Provenance {
         Provenance { session, ..self }
     }
 
+    /// Attach the route; like the session it lives in the trailer.
+    pub fn with_route(self, route: Option<Route>) -> Self {
+        Provenance { route, ..self }
+    }
+
     /// The raw subject line (before whitespace collapsing / capping).
     pub fn subject(&self) -> String {
         match &self.detail {
             Some(detail) if !detail.is_empty() => format!("{}: {}", self.source, detail),
             _ => self.source.clone(),
+        }
+    }
+}
+
+/// How an invocation arrived: typed at a shell, or relayed by the MCP tool.
+///
+/// Written beside the session on every operation recorded with a
+/// provenance, so the log can say which road an agent's work took. A missing
+/// value means unknown — an operation written before the field existed, or
+/// one of the few sites with no provenance in reach — and is never read as
+/// `Shell`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Shell,
+    Tool,
+}
+
+impl Route {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Route::Shell => "shell",
+            Route::Tool => "tool",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "shell" => Some(Route::Shell),
+            "tool" => Some(Route::Tool),
+            _ => None,
         }
     }
 }

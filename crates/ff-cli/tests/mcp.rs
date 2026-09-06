@@ -481,11 +481,12 @@ fn the_environment_session_is_read_and_the_flag_wins() {
     server.close();
 }
 
-/// With neither `--session` nor `FF_SESSION`, the session the client says
-/// it launched the server under is the tag, so a commit through the tool
-/// carries the session the client's hook captures do.
+/// The server's children inherit the session `Ctx` settled for `ff mcp`,
+/// which under a client that names one and no word of fufu's own is the
+/// client's: a commit through the tool carries the session the client's
+/// hook captures do. And it says which road it took.
 #[test]
-fn the_clients_session_is_read_when_fufu_names_none() {
+fn the_servers_child_carries_the_clients_session_and_the_tool_route() {
     let fx = repo();
     fx.write("b.txt", "b\n");
     let mut server = start(
@@ -508,59 +509,10 @@ fn the_clients_session_is_read_when_fufu_names_none() {
         op["session"], "95b36d9d-efdc-4564-9b06-91842f51ef6b",
         "{ops}"
     );
+    assert_eq!(op["route"], "tool", "{ops}");
 
     let (code, _) = server.close();
     assert_eq!(code, 0);
-}
-
-/// The client's session is the lowest of the three sources: `FF_SESSION`
-/// wins over it, and `--session` wins over both.
-#[test]
-fn fufus_own_session_wins_over_the_clients() {
-    let fx = repo();
-    fx.write("b.txt", "b\n");
-    let mut server = start(
-        &fx.path(),
-        &[],
-        &[
-            ("FF_SESSION", "from-env"),
-            (
-                "CLAUDE_CODE_SESSION_ID",
-                "95b36d9d-efdc-4564-9b06-91842f51ef6b",
-            ),
-        ],
-    );
-    handshake(&mut server);
-    let commit = call(&mut server, 2, &["commit", "-m", "env"]);
-    assert_ne!(commit["isError"], true, "{commit}");
-    let ops = call(&mut server, 3, &["op", "log", "kind(op)"]);
-    assert_eq!(
-        ops["structuredContent"]["data"]["ops"][0]["session"],
-        "from-env"
-    );
-    server.close();
-
-    fx.write("c.txt", "c\n");
-    let mut server = start(
-        &fx.path(),
-        &["--session", "from-flag"],
-        &[
-            ("FF_SESSION", "from-env"),
-            (
-                "CLAUDE_CODE_SESSION_ID",
-                "95b36d9d-efdc-4564-9b06-91842f51ef6b",
-            ),
-        ],
-    );
-    handshake(&mut server);
-    let commit = call(&mut server, 2, &["commit", "-m", "flag"]);
-    assert_ne!(commit["isError"], true, "{commit}");
-    let ops = call(&mut server, 3, &["op", "log", "kind(op)"]);
-    assert_eq!(
-        ops["structuredContent"]["data"]["ops"][0]["session"],
-        "from-flag"
-    );
-    server.close();
 }
 
 // ---- the modern era --------------------------------------------------------

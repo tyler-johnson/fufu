@@ -60,6 +60,7 @@ fn env(cmd: &mut Command) -> &mut Command {
         .env("GIT_COMMITTER_NAME", "Clone Committer")
         .env("GIT_COMMITTER_EMAIL", "committer@clone.test")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

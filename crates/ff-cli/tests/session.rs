@@ -23,6 +23,7 @@ fn ff_at(dir: &Path, args: &[&str]) -> Output {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff")
 }
@@ -33,7 +34,14 @@ fn ff(fx: &Fixture, args: &[&str]) -> Output {
 
 /// Like `ff` but with `FF_SESSION` set.
 fn ff_with_session(fx: &Fixture, session: &str, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
+    ff_env(fx, &[("FF_SESSION", session)], args)
+}
+
+/// Like `ff` but with the given session variables set and every other one
+/// scrubbed, so a suite run under an agent sees only what the test names.
+fn ff_env(fx: &Fixture, envs: &[(&str, &str)], args: &[&str]) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(fx.path())
         .current_dir(fx.path())
         .args(args)
         .env("GIT_CONFIG_GLOBAL", null_device())
@@ -46,9 +54,12 @@ fn ff_with_session(fx: &Fixture, session: &str, args: &[&str]) -> Output {
         .env_remove("GIT_COMMITTER_EMAIL")
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
-        .env("FF_SESSION", session)
-        .output()
-        .expect("spawn ff")
+        .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID");
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    cmd.output().expect("spawn ff")
 }
 
 fn stdout(out: &Output) -> String {
@@ -125,6 +136,7 @@ fn control_characters_are_refused() {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff");
 
@@ -160,6 +172,7 @@ fn over_length_is_refused() {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff");
 
@@ -186,6 +199,7 @@ fn over_length_is_refused() {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff");
 
@@ -374,6 +388,74 @@ fn env_provides_session_for_snapshot() {
     );
 }
 
+// --- the client's session is the third source ---
+
+const CLIENT: &str = "95b36d9d-efdc-4564-9b06-91842f51ef6b";
+
+/// With neither `--session` nor `FF_SESSION`, the session the client that
+/// launched this `ff` is running is the tag, so a shell verb under an agent
+/// carries the session its hook captures do.
+#[test]
+fn the_clients_session_is_read_when_fufu_names_none() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    fx.write("a.txt", "changed\n");
+    let out = ff_env(&fx, &[("CLAUDE_CODE_SESSION_ID", CLIENT)], &[]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let repo = fx.path();
+    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+    let msg = git_cat_file_commit(&repo, &snap_ref);
+    assert!(
+        msg.contains(&format!("fufu-session: {CLIENT}")),
+        "the client's session is stamped on the snapshot: {msg}"
+    );
+}
+
+/// The client's session is the lowest of the three sources: `FF_SESSION`
+/// wins over it, and `--session` wins over both.
+#[test]
+fn fufus_own_session_wins_over_the_clients() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "initial\n");
+    fx.commit("init");
+
+    fx.write("a.txt", "changed\n");
+    let out = ff_env(
+        &fx,
+        &[
+            ("FF_SESSION", "from-env"),
+            ("CLAUDE_CODE_SESSION_ID", CLIENT),
+        ],
+        &[],
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let repo = fx.path();
+    let msg = git_cat_file_commit(&repo, &read_ref(&repo, "refs/fufu/snap/main"));
+    assert!(
+        msg.contains("fufu-session: from-env"),
+        "FF_SESSION beats the client's variable: {msg}"
+    );
+
+    fx.write("a.txt", "changed again\n");
+    let out = ff_env(
+        &fx,
+        &[
+            ("FF_SESSION", "from-env"),
+            ("CLAUDE_CODE_SESSION_ID", CLIENT),
+        ],
+        &["--session", "from-flag"],
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let msg = git_cat_file_commit(&repo, &read_ref(&repo, "refs/fufu/snap/main"));
+    assert!(
+        msg.contains("fufu-session: from-flag"),
+        "--session beats both: {msg}"
+    );
+}
+
 // --- --session flag rides every verb ---
 
 #[test]
@@ -400,6 +482,7 @@ fn session_flag_rides_every_verb() {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff");
     assert!(out.status.success(), "stderr: {}", stderr(&out));
@@ -478,6 +561,7 @@ fn bad_session_flag_errors_before_work() {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff");
     assert_eq!(

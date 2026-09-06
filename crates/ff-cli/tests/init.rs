@@ -26,6 +26,7 @@ fn ff(dir: &Path, args: &[&str]) -> Output {
         .env("GIT_COMMITTER_NAME", "Init Committer")
         .env("GIT_COMMITTER_EMAIL", "committer@init.test")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff")
 }

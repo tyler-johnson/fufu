@@ -284,6 +284,7 @@ pub(crate) fn record(
             branch: branch.to_string(),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
+            route: prov.route,
             pins: &[],
         },
         now,

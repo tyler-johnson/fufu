@@ -35,7 +35,8 @@ fn ff_env(dir: &Path, args: &[&str], session: Option<&str>) -> Output {
         .env_remove("GIT_COMMITTER_NAME")
         .env_remove("GIT_COMMITTER_EMAIL")
         .env_remove("GIT_COMMITTER_DATE")
-        .env_remove("EMAIL");
+        .env_remove("EMAIL")
+        .env_remove("CLAUDE_CODE_SESSION_ID");
     match session {
         Some(name) => cmd.env("FF_SESSION", name),
         None => cmd.env_remove("FF_SESSION"),

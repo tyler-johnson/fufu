@@ -200,7 +200,7 @@ Seven verbs are not offered through the tool, because each owns its stream or wi
 
 `ff extension` is on that list because its registry is the allowlist for everything fufu says about an extension, so an agent must not be able to write it.
 
-`--session` on the server, `FF_SESSION` in its environment, or failing both the session the client launched it under (`CLAUDE_CODE_SESSION_ID` under Claude Code) tags every child's operations, read once at start. An agent's work through the tool is then separable in [`ff op log`](../reference/cli/op-log.md), the same way its hook captures are.
+The session tags every child's operations, settled with the same precedence every invocation has: `--session`, `FF_SESSION`, then the client's session (`CLAUDE_CODE_SESSION_ID` under Claude Code), read once at start. An agent's work through the tool is then separable in [`ff op log`](../reference/cli/op-log.md), the same way its hook captures are.
 
 ### Registering the server
 

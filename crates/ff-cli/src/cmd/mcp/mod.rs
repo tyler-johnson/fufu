@@ -71,10 +71,10 @@ struct Server {
     /// through `PATH`, because the `ff` on the client's `PATH` may not be
     /// the one serving.
     exe: PathBuf,
-    /// `--session` on `ff mcp`, then `FF_SESSION` in its environment, both
-    /// already settled by `Ctx` with the flag winning, then the session the
-    /// client says it launched this server under. Server-level only: a tag
-    /// per call would be a second session mechanism to explain.
+    /// The session `Ctx` settled for `ff mcp` itself — `--session`, then
+    /// `FF_SESSION`, then the session the client says it launched this
+    /// server under, the precedence every invocation has. Server-level only:
+    /// a tag per call would be a second session mechanism to explain.
     session: Option<String>,
     /// The tools declared extensions produced, asked for once and served
     /// for the life of the connection — the way the registry itself is read
@@ -91,7 +91,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
     let produced = tools::produced(crate::registry::read());
     let server = Server {
         exe,
-        session: ctx.session.clone().or_else(client_session),
+        session: ctx.session.clone(),
         produced,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -117,18 +117,6 @@ pub fn run(ctx: &Ctx) -> Result<()> {
             Err(err) => Err(complain(&err)),
         }
     })
-}
-
-/// The session the client that spawned this server is running, when it says
-/// so in the environment. Read once at start like the other two sources and
-/// below both: `--session` and `FF_SESSION` are fufu's own words and win.
-fn client_session() -> Option<String> {
-    [crate::integ::claude::SESSION_VAR]
-        .into_iter()
-        .find_map(|var| {
-            let raw = std::env::var(var).ok();
-            crate::session::ambient(var, raw.as_deref())
-        })
 }
 
 /// A server failure is a line on stderr only under `FF_DEBUG`, and an exit

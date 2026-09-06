@@ -22,7 +22,7 @@ use crate::ops::record::{OpRecord, RefsTable};
 use crate::ops::walk;
 use crate::ops::{BRANCH_PREFIX, OpKind, lock};
 use crate::refs::{self, EditOutcome};
-use crate::snapshot::{Provenance, TakeOptions};
+use crate::snapshot::{Provenance, Route, TakeOptions};
 
 /// Verb ops get three attempts at the CAS; a capture gets one, ever.
 const MAX_ATTEMPTS: usize = 3;
@@ -43,6 +43,8 @@ pub(crate) struct OpDraft {
     /// HEAD's commit when the op ran.
     pub base: Option<gix::ObjectId>,
     pub session: Option<String>,
+    /// How the invocation arrived, when the writer knew.
+    pub route: Option<Route>,
     pub skipped: Vec<String>,
     /// The PLANNED post-op ref table. `None` on a capture, which inherits
     /// its predecessor's blob oid instead.
@@ -114,6 +116,7 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         skeleton.prev = prev;
         skeleton.prev_on_branch = prev_on_branch;
         skeleton.session = draft.session.clone();
+        skeleton.route = draft.route;
         skeleton.prev_segment = Some(segment_link(repo, prev_on_branch, draft.base)?);
         skeleton.prev_verb = Some(verb_link(repo, prev)?);
         skeleton.refs_blob = match &draft.refs {
@@ -584,6 +587,7 @@ pub fn capture_with(
         branch,
         base,
         session: prov.session.clone(),
+        route: prov.route,
         skipped: skipped.clone(),
         refs: None,
         index_tree: None,

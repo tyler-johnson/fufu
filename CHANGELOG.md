@@ -7,7 +7,8 @@
 - jj's names are aliases where a fufu verb is what jj's means: `ff bookmark` is `ff branch`, `ff workspace` is `ff worktree`, `ff squash` is `ff absorb`, and `ff rebase` is `ff restack`, beside the `ff new` that `ff start` already had.
 - `ff abandon` and `ff split`, jj's two words with no one verb here, are answered with `usage/foreign-verb` naming the moves that cover them.
 - `extension/skill-failed` and `extension/bad-skill`, the skill handshake's two refusals.
-- `ff mcp` tags its children with the client's session when neither `--session` nor `FF_SESSION` is set, read from `CLAUDE_CODE_SESSION_ID` under Claude Code, so a commit through the tool carries the session its hook captures do. Read once at start, so it stays the launching session across `/clear`.
+- Every `ff` invocation reads `CLAUDE_CODE_SESSION_ID` when neither `--session` nor `FF_SESSION` is set, so a shell verb under Claude Code carries the session its hook captures do, and `ff mcp`'s children inherit the same rule. The server reads it once at start, so it stays the launching session across `/clear`.
+- Every operation carries its route, `shell` or `tool`, in its trailer: on `ff op show` and `ff op log --json` as `route`, and as the `route()` filter in the op log's set language. An operation recorded before the field existed has none.
 
 ### Changed
 

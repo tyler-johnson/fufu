@@ -32,6 +32,7 @@ fn ff(home: &Path, bin: Option<&Path>, args: &[&str]) -> Output {
     cmd.current_dir(home).args(args);
     userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .env(
             "PATH",
             bin.map(|bin| bin.display().to_string()).unwrap_or_default(),

@@ -1194,6 +1194,7 @@ fn commit_restack(
             },
             base: Some(plan.branch_tip),
             session: prov.session.clone(),
+            route: prov.route,
             pins: &pins,
         },
         now,

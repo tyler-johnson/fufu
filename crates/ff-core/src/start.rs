@@ -233,6 +233,7 @@ fn mint_branch(
             branch: crate::snapshot::chain::chain_name(&head),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
+            route: prov.route,
             pins: &[at],
         },
         now,

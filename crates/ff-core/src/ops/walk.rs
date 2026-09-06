@@ -13,6 +13,7 @@ use crate::ops::id::{CommitId, OpId};
 use crate::ops::message::{self, Skeleton};
 use crate::ops::record::{OpRecord, RefsTable};
 use crate::ops::{OpKind, is_fufu_commit};
+use crate::snapshot::Route;
 
 /// One operation, decoded as far as the commit itself goes.
 ///
@@ -60,6 +61,11 @@ impl<'r> Operation<'r> {
 
     pub fn session(&self) -> Option<&str> {
         self.skeleton.session.as_deref()
+    }
+
+    /// How the invocation that recorded this op arrived, when it said.
+    pub fn route(&self) -> Option<Route> {
+        self.skeleton.route
     }
 
     /// The chain the op ran on: a branch name, or `@detached`.

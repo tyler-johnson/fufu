@@ -29,6 +29,7 @@ fn ff(home: &Path, bin: Option<&Path>, args: &[&str]) -> Output {
     cmd.current_dir(home).args(args);
     userdirs::pin(&mut cmd, home)
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")

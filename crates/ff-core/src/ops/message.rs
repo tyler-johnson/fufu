@@ -15,6 +15,7 @@
 //! distinction a decoder needs when a chain predates a field.
 
 use crate::ops::OpKind;
+use crate::snapshot::Route;
 
 /// Subjects are capped so `log --oneline`-style rendering stays sane.
 pub const MAX_SUBJECT: usize = 120;
@@ -47,6 +48,8 @@ const PREV_VERB_KEY: &str = "fufu-prev-verb";
 const REFS_KEY: &str = "fufu-refs";
 /// The session tag, when one was set.
 const SESSION_KEY: &str = "fufu-session";
+/// How the invocation arrived, `shell` or `tool`, when the writer knew.
+const ROUTE_KEY: &str = "fufu-route";
 
 const NONE: &str = "none";
 
@@ -78,6 +81,7 @@ pub struct Skeleton {
     pub prev_verb: Option<SegmentLink>,
     pub refs_blob: Option<gix::ObjectId>,
     pub session: Option<String>,
+    pub route: Option<Route>,
 }
 
 impl Skeleton {
@@ -92,6 +96,7 @@ impl Skeleton {
             prev_verb: None,
             refs_blob: None,
             session: None,
+            route: None,
         }
     }
 }
@@ -171,6 +176,9 @@ pub fn build(subject: &str, skipped: &[String], skeleton: &Skeleton) -> String {
     if let Some(session) = &skeleton.session {
         trailer(&mut msg, SESSION_KEY, session);
     }
+    if let Some(route) = skeleton.route {
+        trailer(&mut msg, ROUTE_KEY, route.as_str());
+    }
     msg
 }
 
@@ -228,6 +236,7 @@ pub fn parse(message: &str) -> Option<Skeleton> {
         prev_verb: hop_of(message, PREV_VERB_KEY),
         refs_blob: oid_of(message, REFS_KEY),
         session: value_of(message, SESSION_KEY).map(str::to_string),
+        route: value_of(message, ROUTE_KEY).and_then(Route::parse),
     })
 }
 
@@ -288,6 +297,7 @@ mod tests {
             prev_verb: Some(SegmentLink::At(oid(0x66))),
             refs_blob: Some(oid(0x55)),
             session: Some("agent-7".into()),
+            route: Some(Route::Tool),
         }
     }
 

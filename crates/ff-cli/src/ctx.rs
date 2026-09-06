@@ -46,6 +46,8 @@ impl Ctx {
     /// at once.
     pub fn new(args: &Cli) -> Result<Self> {
         let env = std::env::var_os("FF_SESSION").map(|raw| raw.to_string_lossy().into_owned());
+        let client = std::env::var_os(crate::integ::claude::SESSION_VAR)
+            .map(|raw| raw.to_string_lossy().into_owned());
         // `ff -v` is the version verb spelled as a flag, so it settles as that
         // verb and not as the map.
         let synthesized = (args.version && args.command.is_none()).then_some(Command::Version);
@@ -54,15 +56,23 @@ impl Ctx {
         } else {
             &args.command
         };
-        Self::resolve(args.json, args.session.as_deref(), env.as_deref(), command)
+        Self::resolve(
+            args.json,
+            args.session.as_deref(),
+            env.as_deref(),
+            client.as_deref(),
+            command,
+        )
     }
 
     /// All of `new` except reading the process environment, so the
-    /// flag-then-`FF_SESSION` precedence can be tested without one.
+    /// flag-then-`FF_SESSION`-then-client precedence can be tested without
+    /// one.
     fn resolve(
         json: bool,
         session: Option<&str>,
         env: Option<&str>,
+        client: Option<&str>,
         command: &Option<Command>,
     ) -> Result<Self> {
         // Bare `ff` is the map, and its envelope says so.
@@ -98,7 +108,7 @@ impl Ctx {
         };
         Ok(Ctx {
             json: json && json_capable,
-            session: crate::session::resolve(session, env)?,
+            session: crate::session::resolve(session, env, client)?,
             command: name,
             at,
         })
@@ -135,7 +145,11 @@ mod tests {
     use super::*;
 
     fn ctx(flag: Option<&str>, env: Option<&str>) -> Result<Ctx> {
-        Ctx::resolve(false, flag, env, &None)
+        Ctx::resolve(false, flag, env, None, &None)
+    }
+
+    fn with_client(flag: Option<&str>, env: Option<&str>, client: Option<&str>) -> Ctx {
+        Ctx::resolve(false, flag, env, client, &None).unwrap()
     }
 
     #[test]
@@ -179,6 +193,36 @@ mod tests {
         );
     }
 
+    /// The client's own variable is the third source: it fills in when fufu
+    /// has no word of its own, and loses to either of them.
+    #[test]
+    fn the_clients_session_is_read_last() {
+        assert_eq!(
+            with_client(None, None, Some("client")).session.as_deref(),
+            Some("client")
+        );
+        assert_eq!(
+            with_client(None, Some("env"), Some("client"))
+                .session
+                .as_deref(),
+            Some("env")
+        );
+        assert_eq!(
+            with_client(Some("flag"), None, Some("client"))
+                .session
+                .as_deref(),
+            Some("flag")
+        );
+        assert_eq!(
+            with_client(Some("flag"), Some("env"), Some("client"))
+                .session
+                .as_deref(),
+            Some("flag")
+        );
+        // Ambient like `FF_SESSION`: an unusable value is ignored, not fatal.
+        assert_eq!(with_client(None, None, Some("a\nb")).session, None);
+    }
+
     fn status(at_op: Option<&str>, at: Option<&str>) -> Command {
         Command::Status {
             past: crate::cli::Past {
@@ -190,7 +234,11 @@ mod tests {
 
     #[test]
     fn json_is_ignored_by_the_verbs_that_own_their_stream() {
-        let json = |command| Ctx::resolve(true, None, None, &Some(command)).unwrap().json;
+        let json = |command| {
+            Ctx::resolve(true, None, None, None, &Some(command))
+                .unwrap()
+                .json
+        };
         assert!(json(status(None, None)));
         assert!(!json(Command::Git { args: vec![] }));
         assert!(!json(Command::Update {
@@ -198,14 +246,14 @@ mod tests {
             yes: false
         }));
         // And nothing turns it on that did not ask.
-        assert!(!Ctx::resolve(false, None, None, &None).unwrap().json);
+        assert!(!Ctx::resolve(false, None, None, None, &None).unwrap().json);
     }
 
     #[test]
     fn the_bare_command_is_named_map() {
         assert_eq!(ctx(None, None).unwrap().command, "map");
         assert_eq!(
-            Ctx::resolve(false, None, None, &Some(status(None, None)))
+            Ctx::resolve(false, None, None, None, &Some(status(None, None)))
                 .unwrap()
                 .command,
             "status"
@@ -218,7 +266,7 @@ mod tests {
     #[test]
     fn the_op_family_names_the_full_path() {
         let name = |action| {
-            Ctx::resolve(false, None, None, &Some(Command::Op { action }))
+            Ctx::resolve(false, None, None, None, &Some(Command::Op { action }))
                 .unwrap()
                 .command
         };
@@ -242,7 +290,7 @@ mod tests {
     /// rather than ranked, before any verb has run.
     #[test]
     fn the_two_context_flags_are_one_reach() {
-        let at = |op, time| Ctx::resolve(false, None, None, &Some(status(op, time)));
+        let at = |op, time| Ctx::resolve(false, None, None, None, &Some(status(op, time)));
         assert_eq!(at(None, None).unwrap().at, None);
         assert_eq!(
             at(Some("kqzm"), None).unwrap().at,

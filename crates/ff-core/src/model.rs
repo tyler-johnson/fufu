@@ -1139,6 +1139,8 @@ pub struct OpEntry {
     /// The tag the operation wears, if any. A session is a tag and nothing
     /// more, so it rides the row rather than grouping it.
     pub session: Option<String>,
+    /// How the invocation arrived, `shell` or `tool`; absent when unknown.
+    pub route: Option<String>,
     /// The operation this one undid, when the verb is `undo`.
     pub undo_of: Option<String>,
 }

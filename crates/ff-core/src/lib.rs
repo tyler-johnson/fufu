@@ -81,7 +81,7 @@ pub use restack::Aim;
 pub use restore::parse_time as restore_time;
 pub use restore::{RestoreOptions, RestoreSource, path_exists, restore};
 pub use revert::{OpVerbOptions, revert};
-pub use snapshot::{Provenance, TakeOptions};
+pub use snapshot::{Provenance, Route, TakeOptions};
 pub use start::{StartOptions, start};
 pub use status::status;
 pub use switch::{SwitchOptions, resolve_branch, switch};

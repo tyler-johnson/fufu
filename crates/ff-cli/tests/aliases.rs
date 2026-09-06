@@ -28,6 +28,7 @@ fn ff_at(dir: &Path, args: &[&str]) -> Output {
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff")
 }

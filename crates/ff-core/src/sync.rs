@@ -582,6 +582,7 @@ impl Run {
                 branch: pre.branch.clone(),
                 base: Some(pre.branch_tip),
                 session: prov.session.clone(),
+                route: prov.route,
                 pins: &pins,
             },
             ctx.now,

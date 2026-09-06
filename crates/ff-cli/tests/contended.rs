@@ -17,6 +17,7 @@ fn ff_at(dir: &Path, args: &[&str]) -> Output {
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env_remove("FF_SESSION")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
         .output()
         .expect("spawn ff")
 }

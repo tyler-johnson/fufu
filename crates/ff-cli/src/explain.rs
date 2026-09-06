@@ -512,8 +512,8 @@ pub static ENTRIES: &[Entry] = &[
         summary: "no revset function goes by that name",
         detail: "The registry holds every function the language has, and the error lists the ones \
                  that exist. Revision space has latest, heads, roots, description and author; \
-                 operation space has on_branch, session and kind, plus the same three set \
-                 functions. base() belongs to revision space and takes operations, because it is \
+                 operation space has on_branch, session, route and kind, plus the same three \
+                 set functions. base() belongs to revision space and takes operations, because it is \
                  the crossing between them.",
         exits: &["ff log -r 'latest(main)'", "ff op log 'kind(op)'"],
     },
@@ -531,8 +531,9 @@ pub static ENTRIES: &[Entry] = &[
         summary: "that function reads operations, and this position takes revisions",
         detail: "One grammar spans both address spaces — the same operators and the same functions \
                  over operations instead of over history — but the vocabularies differ, because \
-                 each space can only name what it has. on_branch(), session() and kind() are \
-                 questions about operations, so they belong in an ff op log expression. base() \
+                 each space can only name what it has. on_branch(), session(), route() and \
+                 kind() are questions about operations, so they belong in an ff op log \
+                 expression. base() \
                  goes the other way: it takes operations and returns the commits they ran on, which makes \
                  it a revision-space function with an op-space argument — and the only crossing \
                  between the two.",
