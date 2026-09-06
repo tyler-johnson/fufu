@@ -163,7 +163,7 @@ That is `ff trigger`'s doctrine applied to the one place fufu invites an extensi
 
 The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name.
 
-It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}`. The result is fufu's JSON envelope, as text and as structured content, with `isError` following the exit code.
+It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code.
 
 Every call runs the binary as a child with `--json`, so nothing changes underneath. The child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt.
 

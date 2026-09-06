@@ -760,6 +760,61 @@ fn a_declared_extension_is_served_and_named_on_the_card() {
     assert_eq!(code, 0);
 }
 
+/// `isError` is the envelope's kind and not the exit code. A declared
+/// extension doing what `ff sync` does — a `data` envelope at 3 for a held
+/// outcome with a report — comes back a successful call carrying the data,
+/// with the code in `_meta.exit`; an error envelope is an error and carries
+/// its code the same way; and a help page carries its 0.
+///
+/// Unix only, for the reason `a_declared_extension_is_served_and_named_on_the_card` is.
+#[cfg(unix)]
+#[test]
+fn a_held_outcome_is_data_at_exit_3_and_the_code_rides_meta() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = repo();
+    let home = tempfile::TempDir::new().expect("a scratch HOME");
+    let bin = tempfile::TempDir::new().expect("a scratch PATH");
+    let script = bin.path().join("ff-tower");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho '{\"ff\":1,\"cmd\":\"tower hold\",\"data\":{\"held\":[\"topic\"]}}'\nexit 3\n",
+    )
+    .expect("write the extension");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    declare(home.path(), "tower", &["hold"], true);
+
+    let path = bin.path().display().to_string();
+    let mut server = start_in(home, &fx.path(), &[], &[("PATH", path.as_str())]);
+    handshake(&mut server);
+
+    let held = call(&mut server, 2, &["tower", "hold"]);
+    assert_ne!(
+        held["isError"], true,
+        "a held outcome is not an error: {held}"
+    );
+    assert_eq!(held["structuredContent"]["cmd"], "tower hold");
+    assert_eq!(held["structuredContent"]["data"]["held"], json!(["topic"]));
+    assert_eq!(held["_meta"]["exit"], 3, "{held}");
+
+    // An error envelope is an error, and its code rides the same slot.
+    let missing = call(&mut server, 3, &["show", "doesnotexist"]);
+    assert_eq!(missing["isError"], true, "{missing}");
+    assert_eq!(
+        missing["structuredContent"]["error"]["id"],
+        "usage/revset-unknown-revision"
+    );
+    assert_eq!(missing["_meta"]["exit"], 2, "{missing}");
+
+    // And a help page, text with no envelope, still says how it exited.
+    let help = call(&mut server, 4, &["help", "status"]);
+    assert_ne!(help["isError"], true, "{help}");
+    assert_eq!(help["_meta"]["exit"], 0, "{help}");
+
+    let (code, _) = server.close();
+    assert_eq!(code, 0);
+}
+
 /// The client's session reaches a declared extension the way fufu's own
 /// does: the tag travels as `--session` to the child `ff`, which sets
 /// `FF_SESSION` before it execs `ff-<name>`.

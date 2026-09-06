@@ -10,6 +10,8 @@ It exposes one tool, `ff`, whose input is the command line after `ff` as an arra
 
 Every call runs this same binary as a child with `--json` and hands back the envelope, so capture, `fufu.gitPolicy`, sessions, error ids, and the no-prompt guarantee all hold. There is one tool rather than one per verb because a client shows the model only the first two thousand characters of each description, and forty of them would be forty cards.
 
+`isError` is true when an `error` envelope came back, and false on a `data` envelope whatever the exit code, so a [`ff sync`](sync.md) that held is a successful call whose data says which branch held; the child's exit code rides every result as `_meta.exit`.
+
 Two options change what a call does:
 
 - `cwd` on the call names the directory to run in, for a client that works across repositories. Without it the child runs where the client started the server.

@@ -18,6 +18,7 @@
 - Every alias is visible: `ff --help` shows `[alias: st]` on the verb's row, and each aliased verb's page names its spellings. The root page's list of short forms goes.
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
 - A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
+- `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff sync` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
 
 ### Removed
 

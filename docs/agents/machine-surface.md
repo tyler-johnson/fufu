@@ -182,9 +182,11 @@ Five codes, one meaning each:
 
 The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1.
 
-- **Exit 3** is the code git has no use for, because only a tool that lands if clean produces the outcome. [`ff sync`](../reference/cli/sync.md) exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) — the replay recorded and waiting rather than applied — is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
+Exit 3 also rides a `data` envelope. When [`ff sync`](../reference/cli/sync.md), [`ff restack`](../reference/cli/restack.md), [`ff done`](../reference/cli/done.md), [`ff lift`](../reference/cli/lift.md), [`ff absorb`](../reference/cli/absorb.md), or [`ff publish`](../reference/cli/publish.md) holds a rewrite, the verb prints its full report as `data` and exits 3, because a held rewrite is an outcome with a report and not an error with an id. [`ff doctor`](../reference/cli/doctor.md) does the same at 1, its findings as `data` and the code as the verdict. A script reads the envelope for what happened and the code for whether to stop.
+
+- **Exit 3** is the code git has no use for, because only a tool that lands if clean produces the outcome. `ff sync` exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) — the replay recorded and waiting rather than applied — is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
 - **Exit 4** asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
-- **Exit 1** is also [`ff doctor`](../reference/cli/doctor.md)'s verdict, 0 healthy and 1 findings, so CI can gate on it.
+- **Exit 1** is also `ff doctor`'s verdict, 0 healthy and 1 findings, so CI can gate on it.
 
 Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses any git word fufu has a verb for, before the capture and before anything runs:
 
@@ -215,12 +217,15 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
 ```json
 {"content": [{"type": "text", "text": "{\"ff\":1,\"cmd\":\"show\",\"error\":{\"id\":\"usage/revset-unknown-revision\",\"message\":\"no revision here answers to `doesnotexist`\",\"exits\":[\"ff log\",\"ff branch\"]}}"}],
  "structuredContent": {"ff": 1, "cmd": "show", "error": {"id": "usage/revset-unknown-revision", "message": "no revision here answers to `doesnotexist`", "exits": ["ff log", "ff branch"]}},
- "isError": true}
+ "isError": true,
+ "_meta": {"exit": 2}}
 ```
 
 The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it.
 
-`isError` follows the exit code: false on 0, true on anything else. A fufu failure is a *successful* tool call carrying it, never a protocol error — a client renders a protocol error opaquely, and the `error.id` inside is what the agent has to read.
+`isError` is the envelope's kind, not the exit code: true when an `error` envelope came back, or when the child failed without printing one, and false on a `data` envelope whatever the code beside it. `_meta.exit` carries the child's exit code as an integer on every result a child produced, and is absent when no child ran — the tool's own refusals, a spawn that failed — or the child died by signal. A fufu failure is a *successful* tool call carrying `isError`, never a protocol error — a client renders a protocol error opaquely, and the `error.id` inside is what the agent has to read.
+
+The held case is where the two part. A `ff sync` that held is a successful call, `isError` false, whose `data` says which branch held and carries `_meta.exit` of 3; a `ff doctor` with findings is the same at 1. A client may not show `_meta` to the model, so the agent's own signal for a held outcome is the report in `data`, and `_meta.exit` is for a strict client or a harness that wants the number.
 
 The exit-code rules restate as tool rules. An id under `held/*` means nothing moved and a person is needed, so the agent stops and says so. `ref/contended` means the same call run once more.
 
@@ -288,7 +293,7 @@ Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way i
 
 ### What a served extension owes
 
-An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position.
+An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. It may also do what `ff sync` does: a `data` envelope at 3 for a held outcome with a report, which the tool relays as a successful call.
 
 Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, and subscribe to the agent event that fans out after each capture.
 

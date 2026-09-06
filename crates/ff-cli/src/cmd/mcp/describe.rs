@@ -39,9 +39,9 @@ pub(crate) const CONTRACT: &str = "\
 fufu (`ff`), a friendlier interface to plain git. `args` is one word per item: \
 `ff commit -m \"…\"` is `[\"commit\", \"-m\", \"…\"]`. The \
 result is fufu's envelope, `{\"ff\":1,\"cmd\":…,\"data\":…}` or \
-`{…,\"error\":{\"id\",\"message\",\"exits\"}}`; `isError` follows the exit \
-code. `ff explain <id>` expands `error.id`. `held/*`: nothing moved, a person is \
-needed; stop and say so. `ref/contended`: run the same call once more. A verb's `--help` returns its \
+`{…,\"error\":{\"id\",\"message\",\"exits\"}}`; `isError` means an error envelope, \
+`_meta.exit` the exit code. `ff explain <id>` expands `error.id`. `held/*`: nothing moved, a person is \
+needed; stop and say so. `ref/contended`: run the call again. `--help` returns a verb's \
 page as text. Shell only: git, update, watch, hook, unhook, mcp, extension.";
 
 /// The doctrine, in one breath: the briefing's four verbs and the git

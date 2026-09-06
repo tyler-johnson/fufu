@@ -132,7 +132,7 @@ An agent reading your output should not have to know it left fufu. Five rules do
 
 If you have no such outcome, you simply have no id in that family.
 
-**Exit with fufu's codes, and make the code agree with the id.** `<name>/usage/*` exits 2, `<name>/held/*` exits 3, `<name>/ref/contended` exits 4, any other failure exits 1, and 0 is done — or yes, for a verb that answers a question. The MCP relay sets `isError` from the exit status alone, so a code that disagrees with its id tells the agent one thing in the envelope and the opposite beside it.
+**Exit with fufu's codes, and make the code agree with the id.** `<name>/usage/*` exits 2, `<name>/held/*` exits 3, `<name>/ref/contended` exits 4, any other failure exits 1, and 0 is done — or yes, for a verb that answers a question. The code must still agree with the id on an error envelope, because a shell caller reads the code and nothing else. The MCP relay sets `isError` from the envelope and carries the code in `_meta.exit`, so a held outcome may ride a `data` envelope at 3 with its report, as fufu's own [`ff sync`](cli/sync.md) does.
 
 **Accept `--json` anywhere on the line, and print one object on one line under it.** fufu appends `--json` *last*, after every word the caller sent, so a flag that is only legal before the verb will never be seen. fufu also strips its own globals before running you: `-C` and `--session` never reach your argv.
 
