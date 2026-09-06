@@ -262,13 +262,16 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             colored,
         ));
         out.push('\n');
-        out.push_str(&format!(
-            "    {hint}\n",
-            hint = paint_dim(
-                "ff resolve to fix them · ff resolve --abandon to drop it",
-                colored
-            )
-        ));
+        // With a resolution open, `ff resolve` here refuses: the fixes are
+        // being made on the session the line above names.
+        let hint = match &model.resolving {
+            Some(resolving) => format!(
+                "being fixed on {} · ff resolve --abandon to drop it",
+                resolving.session
+            ),
+            None => "ff resolve to fix them · ff resolve --abandon to drop it".to_string(),
+        };
+        out.push_str(&format!("    {hint}\n", hint = paint_dim(&hint, colored)));
         // The third of the three held-rewrite disciplines is exits blocked:
         // sync refuses to publish while a hold stands, and a guard nobody is
         // told about is a guard that surprises people.

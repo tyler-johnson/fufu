@@ -161,6 +161,10 @@ fn status_pins_an_open_resolution() {
         text.contains(&format!("ff switch {session} to fix them")),
         "and the way there: {text}"
     );
+    assert!(
+        text.contains(&format!("being fixed on {session}")) && !text.contains("ff resolve to fix"),
+        "the hold's own hint no longer points at ff resolve, which refuses here: {text}"
+    );
     let resolving = text.find("resolving:").expect("the resolution block");
     let held = text.find("held:").expect("the hold block");
     assert!(
