@@ -8,8 +8,8 @@ use ff_core::{Provenance, Route};
 
 use crate::ctx::Ctx;
 
-/// Which road this invocation arrived on. The relay marks every tool child
-/// and what it spawns, so an unmarked process is a shell. The trigger never
+/// Which road this invocation arrived on. The MCP server marks every tool
+/// child and what it spawns, so an unmarked process is a shell. The trigger never
 /// runs under the marker, so an agent's hook capture reads `shell`: the
 /// hook is not the tool.
 fn route() -> Route {

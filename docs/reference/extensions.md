@@ -6,17 +6,15 @@ This page is about the other half: **declaring** an extension, which is how fufu
 
 ## The two kinds
 
-An **undeclared** extension is any `ff-<name>` on PATH. fufu snapshots the worktree, sets three environment variables, and runs it. That is the whole relationship: fufu found a filename, so a filename is all it knows. The MCP tool will not relay it, `ff help <name>` does not reach it, and it is not on the tool's card.
+An **undeclared** extension is any `ff-<name>` on PATH. fufu snapshots the worktree, sets three environment variables, and runs it. That is the whole relationship: fufu found a filename, so a filename is all it knows. `ff help <name>` does not reach it, and no MCP tool of its own is served.
 
 A **declared** extension is one somebody ran [`ff extension add <name>`](cli/extension-add.md) on. fufu asked the binary for a manifest, checked it, and recorded it. Declaring buys no new capability and no new environment — a declared extension runs exactly as it did before. What it buys is that fufu will now *talk about* the extension:
 
-- The [`ff mcp`](cli/mcp.md) tool relays its verbs, so an agent can call them.
-- The tool's card names the extension and some of its verbs.
 - `ff help <name>` and [`ff explain <name>/<id>`](cli/explain.md) delegate to the binary.
 - A line from the extension rides fufu's briefing to an agent.
 - Its skills install beside fufu's on [`ff hook`](cli/hook.md).
 - Agent events fan out to it.
-- MCP tools of its own are served beside fufu's, and an MCP server of its own is registered beside fufu's.
+- The MCP tools it produces are served by [`ff mcp`](cli/mcp.md) beside fufu's own, and an MCP server of its own is registered beside fufu's.
 - [`ff doctor`](cli/doctor.md) reports on it.
 
 The record lives under your config directory, not in a repository, because the binary is on PATH and declaring it is a decision about the machine. Declaring is also the one thing an agent cannot do through the MCP tool: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
@@ -71,7 +69,7 @@ $ ff extension
 hello  0.1.0  greet
 ```
 
-From here an agent can call `ff hello greet` through fufu's MCP tool, and gets the envelope back:
+From here an agent reaches `ff hello greet` from the shell, and gets the envelope back:
 
 ```console
 $ ff hello greet --json
@@ -170,7 +168,7 @@ Here is one with every optional field present, pretty-printed for the page:
 | `version` | string | yes | Your own version. fufu records it and never parses it; `ff doctor` compares the binary against it to report drift. |
 | `contract` | integer | yes | The machine-surface contract you speak — the number `FF_CONTRACT` carries, currently `1`. A manifest naming a contract fufu does not speak is refused. |
 | `verbs` | array of objects | yes, non-empty | The verbs you answer to, in the order you want them listed. Each carries `name`, one word; `read_only`, where false means the verb writes something; and an optional one-line `summary`. Read-only is per verb because most extensions are mostly readers with a few writers. |
-| `undoable` | boolean | yes | Whether [`ff undo`](cli/undo.md) takes back every write you make. See [below](#undoable-and-what-false-costs). |
+| `undoable` | boolean | yes | Whether [`ff undo`](cli/undo.md) takes back every write you make. Informational: [`ff extension add`](cli/extension-add.md) reports it. See [below](#undoable-and-what-false-costs). |
 | `briefing` | string or `true` | no | One line for fufu's briefing to an agent. See [below](#optional-a-briefing-line). |
 | `skills` | array of strings | no | The names of skills you ship, each produced by `--ff-skill`. See [below](#optional-skills). |
 | `events` | array of objects | no | Agent events you subscribe to. See [below](#optional-agent-events). |
@@ -183,11 +181,7 @@ Unknown fields are tolerated and kept, so a later contract can add one without b
 
 Say `true` only when every write you make goes through fufu's own verbs, so that `ff undo` takes all of it back.
 
-The reason it matters: fufu's MCP tool is a single tool, `ff`, whose input is an args array, and it carries one set of annotations over everything that array relays. Those annotations say nothing relayed is destructive. That is honest only of an undoable extension, so an extension declaring `undoable: false` is refused on that route with `usage/mcp-extension-not-undoable`.
-
-What `false` costs is that one route, and nothing else. You are still declared, still on the card, `ff help <name>` still delegates, and any [MCP tools you produce](#optional-mcp-tools) are still listed and called — they carry annotations of their own and are honest without the blanket promise. The `fufu.toolPolicy=strict` shell refusal also lets `ff <name>` through for you, so a shell is always somewhere the verb can still run.
-
-Both routes stand together. An `undoable: true` extension that also produces tools gets its verbs relayed through the args array *and* its tools listed beside them. You never give up one to gain the other.
+fufu reports it — `ff extension add` says so when it is `false` — and nothing refuses on it: a person reads it, and any [MCP tools you produce](#optional-mcp-tools) carry annotations of their own.
 
 ## Declaring it, checking it, taking it back
 
@@ -200,7 +194,7 @@ $ ff extension list --json      # the manifests as they were recorded
 $ ff extension remove hello     # fufu stops describing it; ff-hello still runs
 ```
 
-Declaring the same name again replaces the record and keeps its place in the order, which is the order subscribers are fanned out in and the order the card names extensions in. Upgrading a binary is not a reordering.
+Declaring the same name again replaces the record and keeps its place in the order, which is the order subscribers are fanned out in and the order [`ff mcp`](cli/mcp.md) lists produced tools in. Upgrading a binary is not a reordering.
 
 What gets recorded is the manifest as it was read, unknown fields and all, plus the path the walk landed on and the time. The path is evidence, not a route — dispatch stays a fresh PATH walk, so a binary that moves is still found.
 
@@ -342,7 +336,7 @@ Most events are ones you have nothing to say about, and printing nothing at all 
 
 ## Optional: MCP tools
 
-Beside relaying your verbs through its one `ff` tool, fufu can serve **typed tools** of your own — each with its own name, description, input schema, and annotations, exactly as any MCP server's tools have.
+fufu can serve **typed tools** of your own beside its seven — each with its own name, description, input schema, and annotations, exactly as any MCP server's tools have.
 
 Say `"tools": true` in the manifest. That is a promise rather than a list: fufu then asks `ff-<name> --ff-tools` for the list itself. Writing the list into the manifest would be a second spelling of your own CLI, kept in step by hand and stale the moment the binary moved on; generating it from the definitions your flags already come from makes drift impossible rather than policed. `briefing: true` draws the same rule.
 
@@ -391,13 +385,13 @@ The envelope's `data` is an array of descriptors, pretty-printed here:
 
 The field names are MCP's camel case rather than the manifest's snake case, because a descriptor is MCP's object — if you already have one, copy it across. Unknown fields are tolerated and dropped, since nothing records a descriptor and there is no round trip for one to survive.
 
-Both hints are required because a produced tool is offered on what it says about itself, which is what lets a non-undoable extension serve tools at all.
+Both hints are required because a produced tool is offered on what it says about itself.
 
 The list is refused whole rather than in part: a tool an agent can call by a name that is sometimes there is worse than one it cannot call at all. A list that promised tools may not come back empty.
 
 ### How a call becomes a command line
 
-**The client sees `<extension>__<tool>`** — `tower__board` for tower's `board` — which is the shape MCP itself uses when a client prefixes a server's tools. Two extensions cannot collide by both producing a `list`. An extension name may itself carry `_`, so two namespaced names can still meet; the first extension declared keeps the name and the later tool is not listed. fufu's own tool keeps its bare `ff`.
+**The client sees `<extension>__<tool>`** — `tower__board` for tower's `board` — which is the shape MCP itself uses when a client prefixes a server's tools. Two extensions cannot collide by both producing a `list`. An extension name may itself carry `_`, so two namespaced names can still meet; the first extension declared keeps the name and the later tool is not listed. fufu's own tools are the bare verb names, and a produced name always carries `__`, so the two never meet.
 
 **A tool's bare name is the verb it calls.** `tower__board` with `{"branch": "main"}` runs `ff tower board --branch main --json`.
 
@@ -413,11 +407,13 @@ The list is refused whole rather than in part: a tool an agent can call by a nam
 
 `inputSchema` may carry one keyword of fufu's own beside JSON Schema's: **`positional`**, an array of property names spelled as bare words, in that array's order, before every option. A positional left out ends the line there rather than shifting the words after it onto the wrong argument.
 
+**`cwd` is a name fufu reserves on every produced tool.** It is added to the schema's properties when your descriptor has none, lifted out of the arguments before spelling, and passed to the child as `-C`, so it never reaches your argv; a descriptor that declares its own `cwd` keeps its description and the same handling.
+
 A call arriving through a produced tool is an ordinary invocation of your binary, so [the five rules](#speaking-fufus-contract) hold unchanged — the envelope key, `cmd`, the id prefix, the exit codes, and `--json` last on the line.
 
 **The list is asked for once, when the server starts, and held for the life of the connection.** What was advertised at handshake is what answers until the client closes, so restarting the client is what picks up an edited extension.
 
-A failed handshake costs the agent nothing and says nothing: fufu serves its own tool, your verbs are relayed exactly as they were, and what is lost is the tools you promised. `ff doctor` is where that shows.
+A failed handshake costs the agent nothing and says nothing: fufu serves its own seven, and what is lost is the tools you promised. `ff doctor` is where that shows.
 
 ## Optional: an MCP server of your own
 
@@ -446,8 +442,6 @@ These come from declaring — where a refusal records nothing — and from the h
 | `extension/delegate-failed` | `help`, `explain`, or `briefing` went unanswered |
 | `extension/registry-unreadable` | the record file is there and does not read as one |
 | `extension/registry-unwritable` | there is nowhere to record the declaration |
-
-Two more come from the MCP tool rather than from declaring. `usage/mcp-extension-undeclared` means an agent called an extension nobody declared, and its exits name `ff extension add <name>`. `usage/mcp-extension-not-undoable` means the extension is declared and said `undoable: false`, so the args array will not carry it.
 
 [The error id index](errors.md) lists all of these with their exit codes, and `ff explain <id>` prints prose for any one of them.
 

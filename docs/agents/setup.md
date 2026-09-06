@@ -113,7 +113,7 @@ Two honest differences from the Claude Code wiring:
 
 [`ff trigger <source>`](../reference/cli/trigger.md) is built for this seat. It reads the client's payload on stdin, always exits 0 whatever went wrong, and never vetoes a tool call on its own judgment.
 
-The two vetoes that exist — `fufu.gitPolicy strict` for raw git, and `fufu.toolPolicy strict` for `ff` in the shell while the `ff` tool is up — are config saying so, and each travels as JSON the client enforces.
+The one veto that exists, `fufu.gitPolicy strict` for raw git, is config saying so, and it travels as JSON the client enforces.
 
 A source name fufu does not know exits 0 silently, so the same command is safe to wire into a client fufu has never heard of. When your agent is a script rather than a client with hooks, [the machine surface](machine-surface.md) is the contract to build against.
 
@@ -163,42 +163,17 @@ That is `ff trigger`'s doctrine applied to the one place fufu invites an extensi
 
 The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name.
 
-It is a Model Context Protocol server on stdio exposing one tool, `ff`, whose input is the command line after `ff` as an array — `{"args": ["commit", "-m", "parser: skeleton"]}`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code.
+It is a Model Context Protocol server on stdio serving seven typed tools: `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions the verb's `--help` reads, and a `cwd` — `{"name": "publish", "arguments": {"dry-run": true}}` is `ff publish --dry-run`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code. `help` takes the words after `ff help` as `verb` and returns the page as text.
 
 Every call runs the binary as a child with `--json`, so nothing changes underneath. The child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt.
 
-What the agent gains:
+These seven are the verbs where the shell adds nothing: fixed and short inputs, no output an agent would pipe, and a result whose structure matters more than its text. Each states its own hints, so `publish` is the one that says it is destructive. An extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside the seven.
 
-- a typed, allowlistable tool with structured results, in place of a shell string it has to quote.
-- a tool description naming every verb, with a digest of recovery and the landmines, in under two thousand characters. That budget is what a client shows the model of a description, and it is why there is one tool rather than one per verb.
+### What the tools do not replace
 
-A declared extension's verbs are relayed through that same array, and an extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside `ff`.
+They do not replace the hook. The server sees only fufu verbs — the snapshot before every *other* tool call, an edit or a shell command, still rides `PreToolUse`. Wire both.
 
-The briefing and the skill both say to prefer the tool when it is offered.
-
-### Keeping the agent on the tool
-
-Prose does not get to 100%, so `fufu.toolPolicy` backs it with the same channel `gitPolicy` uses. While the server is up for a client, an `ff` the agent runs in its shell tool is:
-
-- **`strict`** (the default) — refused, with a reason naming the tool and the exact `args` to call it with.
-- **`coach`** — allowed, and the tool is named once per session as context.
-- **`observe`** — nothing is said.
-
-The seven shell-only verbs pass under every tier. A path to a binary, or a `sudo` in front of `ff`, is not `ff`. A compound command is refused by its `ff` segment, since `cd sub && ff status` is exactly what the tool's `cwd` is for.
-
-Presence is what makes this safe to default on. The server holds an exclusive lock on a marker file for as long as it serves, under the user cache directory, in a directory named by the pid of the client that spawned it.
-
-The hook is handed that pid by Claude Code and tries a shared lock. A refused lock is the only thing that counts as "up". The OS releases the lock on any exit, so a killed server refuses nothing, and a marker nobody holds is swept by the first hook that reads it or the next server that starts.
-
-Only Claude Code sets the pid and only Claude Code has a deny channel, so the other clients are never refused. `ff config toolPolicy coach` moves it.
-
-### What the tool does not replace
-
-It does not replace the hook. The server sees only fufu verbs — the snapshot before every *other* tool call, an edit or a shell command, still rides `PreToolUse`. Wire both.
-
-Seven verbs are not offered through the tool, because each owns its stream or wires the machine: `git`, `update`, `watch`, `hook`, `unhook`, `mcp`, and [`ff extension`](../reference/cli/extension.md). Asking for one returns `usage/mcp-verb-unavailable`.
-
-`ff extension` is on that list because its registry is the allowlist for everything fufu says about an extension, so an agent must not be able to write it.
+Everything else is the shell, where the agent has the whole surface and `ff help <verb>` for each piece of it. `ff extension` in particular stays there because its registry is the allowlist for everything fufu says about an extension, so an agent must not be able to write it.
 
 The session tags every child's operations, settled with the same precedence every invocation has: `--session`, `FF_SESSION`, then the client's session (`CLAUDE_CODE_SESSION_ID` under Claude Code), read once at start. An agent's work through the tool is then separable in [`ff op log`](../reference/cli/op-log.md), the same way its hook captures are.
 
@@ -208,10 +183,10 @@ The session tags every child's operations, settled with the same precedence ever
 
 | client | file | tool |
 | --- | --- | --- |
-| Claude Code | `.mcp.json` in the plugin at `~/.claude/skills/fufu/` | `mcp__plugin_fufu_fufu__ff` |
-| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `ff` |
-| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `ff` |
-| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `ff` |
+| Claude Code | `.mcp.json` in the plugin at `~/.claude/skills/fufu/` | `mcp__plugin_fufu_fufu__status` and six siblings |
+| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `status`, `sync`, … |
+| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `status`, `sync`, … |
+| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `status`, `sync`, … |
 
 For a client that registers servers from a file you manage yourself, the entry is one key:
 
@@ -229,7 +204,7 @@ For a client that registers servers from a file you manage yourself, the entry i
 
 `command` is the absolute path of your `ff`. The installer bakes it in so the server does not depend on the client's `PATH`.
 
-In Claude Code that entry goes in `~/.claude.json` at user scope, which is also what `claude mcp add --scope user fufu -- ff mcp` writes, and the tool is then `mcp__fufu__ff`. Codex takes the same thing as TOML:
+In Claude Code that entry goes in `~/.claude.json` at user scope, which is also what `claude mcp add --scope user fufu -- ff mcp` writes, and the tools are then `mcp__fufu__status` and its siblings. Codex takes the same thing as TOML:
 
 ```toml
 [mcp_servers.fufu]

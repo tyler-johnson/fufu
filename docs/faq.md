@@ -91,16 +91,6 @@ Reads pass untouched at every level. So do writes with no fufu answer, such as `
 
 The capture already happened before the command ran either way, so the policy is a nudge with teeth rather than the safety net itself. See [plain-git teammates](guides/plain-git-teammates.md#the-alias-and-gitpolicy) and [why agents](agents/why.md).
 
-## Why was `ff status` refused in the shell?
-
-Because the `ff` tool was up for that session, and `fufu.toolPolicy` is `strict` by default.
-
-Claude Code's plugin registers [`ff mcp`](reference/cli/mcp.md) as a tool beside the capture hook. While that server is serving, an `ff` run through the shell tool is refused with a reason naming the tool and the exact `{"args": […]}` to call it with — the same words, no quoting, structured results.
-
-The seven shell-only verbs always pass: `ff git`, [`ff update`](reference/cli/update.md), [`ff watch`](reference/cli/watch.md), [`ff hook`](reference/cli/hook.md), [`ff unhook`](reference/cli/unhook.md), `ff mcp`, and [`ff extension`](reference/cli/extension.md). Nothing is refused when no server is up.
-
-[`ff config toolPolicy coach`](reference/cli/config.md) turns the refusal into a one-line nudge, and `observe` turns it off. See [agent setup](agents/setup.md#serve-the-verbs-as-a-tool).
-
 ## How far back can undo reach? What about before I ran `ff init`?
 
 Undo reaches back to the floor: the operation log's first entry, taken from observed state at the moment fufu was armed.

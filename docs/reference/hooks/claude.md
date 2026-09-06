@@ -5,7 +5,7 @@ A plugin directory at `~/.claude/skills/fufu/`, which fufu owns outright: writte
 - `.claude-plugin/plugin.json`, the manifest: the plugin's name `fufu`, the version of the fufu that wrote it, a one-line description, and the repository as its homepage.
 - `hooks/hooks.json`, the seven events below.
 - `skills/fufu/SKILL.md`, [fufu's skill](../../agents/setup.md), the manual an agent reads for recovery, rewriting closed commits, and the JSON. [`ff hook --skill`](../../reference/cli/hook.md) prints the same text.
-- `.mcp.json`, the [`ff mcp`](../cli/mcp.md) server, so the agent has fufu as a tool named `mcp__plugin_fufu_fufu__ff`.
+- `.mcp.json`, the [`ff mcp`](../cli/mcp.md) server, so the agent has fufu's seven typed tools, `mcp__plugin_fufu_fufu__<verb>` for `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`.
 
 A declared extension's own skills land beside `skills/fufu/`, one directory per skill under `skills/<skill>/`, and a person types one as `/fufu:<skill>`. The manifest names the skills and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. [`ff hook --skill <skill>`](../../reference/cli/hook.md) prints a skill's `SKILL.md` the way a bare `ff hook --skill` prints fufu's own. A skill the binary will not produce is left out and said, and the rest of the install lands. The plugin's `skills/` is wholly fufu's, so a rerun sweeps it: a skill of an extension no longer declared goes.
 
@@ -153,8 +153,8 @@ Settings entries written by hand that run something other than `ff trigger claud
 
 ## Notes
 
-The two-event floor for a settings file you manage yourself, `PreToolUse` and `UserPromptSubmit` with the command `ff trigger claude`, is on [the setup page](../../agents/setup.md). It captures and briefs; it does not carry the skill, the server, or the five wider events. To register the server by hand instead, the same `mcpServers.fufu` entry goes in `~/.claude.json`, the user-scope file `claude mcp add --scope user` writes; the tool is then `mcp__fufu__ff`.
+The two-event floor for a settings file you manage yourself, `PreToolUse` and `UserPromptSubmit` with the command `ff trigger claude`, is on [the setup page](../../agents/setup.md). It captures and briefs; it does not carry the skill, the server, or the five wider events. To register the server by hand instead, the same `mcpServers.fufu` entry goes in `~/.claude.json`, the user-scope file `claude mcp add --scope user` writes; the tools are then `mcp__fufu__<verb>`.
 
-The `PreToolUse` matcher stays `Bash|Edit|Write|NotebookEdit` and does not name the MCP tool: every call through the server is a child `ff` that captures for itself, and a hook on it would capture twice. It is also why the `fufu.toolPolicy` refusal lands on `Bash` and not on the tool — the thing being refused is `ff` typed into the shell while the tool is up, and `Bash` is where that happens.
+The `PreToolUse` matcher stays `Bash|Edit|Write|NotebookEdit` and does not name the MCP tool: every call through the server is a child `ff` that captures for itself, and a hook on it would capture twice.
 
 In a script, give `ff hook claude` a closed stdin (`< /dev/null`). When stdin is a pipe rather than a terminal, the command first looks there for a hook payload, because `ff hook claude` was once the spelling that meant trigger and a stale hook entry may still run it.

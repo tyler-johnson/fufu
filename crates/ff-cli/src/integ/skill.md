@@ -11,7 +11,7 @@ The once-per-session briefing already gave the agent four verbs and the git rule
 
 ## The tool
 
-When an `ff` tool is offered — the MCP server `ff mcp` registers with the client as `fufu` — prefer it over the shell. It takes the same words, so every command on this page translates by dropping the leading `ff`. No quoting, no pager, and nothing can prompt. Seven verbs stay in the shell, because each owns its stream, wires the machine, or decides what fufu vouches for: `ff git`, `ff update`, `ff watch`, `ff hook`, `ff unhook`, `ff mcp`, and `ff extension`; the tool refuses them with `usage/mcp-verb-unavailable`. A write to `fufu.gitPolicy` or `fufu.toolPolicy` is refused the same way, `usage/mcp-policy-write`: an agent cannot lower the tier policing it.
+The MCP server `ff mcp` registers with the client as `fufu` and serves seven typed tools: `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields — `{"dry-run": true}` on `publish` is `ff publish --dry-run` — and a `cwd`, and returns the envelope as structured content. `help` takes a verb's words as `verb`, `["op", "log"]` for the op log's page, and returns the page as text. Everything else on this page is the shell.
 
 ## The model
 
@@ -135,16 +135,6 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 Only the git words fufu actually has a verb for are ever touched; everything else, and anything fufu cannot read with certainty, runs capture-first under every tier, which is what keeps `ff git <args…>` an honest escape hatch.
 
 `ff doctor` reports what the lane has seen. `ff config gitPolicy <tier>` moves it.
-
-## The tool, and what fufu says about the shell
-
-`fufu.toolPolicy` decides what fufu does when `ff` is run in a shell tool while the `ff` tool is up for the same client. It never rewrites the command, and it says nothing at all when no fufu server is serving that client.
-
-- **observe** — says nothing.
-- **coach** — names the tool once per session, as context, with the exact `args` to call it with.
-- **strict** (the default) — refuses the shell call before it starts and names the tool and the call: `{"args": ["status"]}` for `ff status`.
-
-The seven shell-only verbs pass under every tier, and so does anything that is not a bare `ff`: a path to a binary, `sudo ff`, a variable in front of it. A compound command is read per segment, so `cd sub && ff status` is refused by its `ff` segment, which is what the tool's `cwd` is for. `ff config toolPolicy <tier>` moves it.
 
 ## Machine surface
 

@@ -1,36 +1,38 @@
-//! The tools a declared extension produced, listed beside fufu's own.
+//! One route: how a typed tool's arguments object becomes a command line.
+//!
+//! fufu's own seven tools (`verbs.rs`) and the tools a declared extension
+//! produced go out through the same [`Typed`], so there is one spelling of
+//! an object into words and one set of promises about the child that runs
+//! them: this same binary, `<exe> [-C <cwd>] [--session <s>] <prefix…>
+//! <words…> --json`, which is what keeps capture-first, the git policy,
+//! sessions, and error ids true of every call. Spawning `ff-<name>` here
+//! for an extension would be a second spawn path with a second set of
+//! promises to keep.
+//!
+//! `cwd` is the server's own option, not the tool's, the way `--json` is,
+//! so it is uniform: every served tool carries a `cwd` string property that
+//! [`Typed::call`] lifts out of the arguments object before spelling and
+//! the child is given as `-C <dir>`. A produced descriptor that already
+//! declares `cwd` keeps its own; otherwise fufu adds the property.
 //!
 //! An extension whose manifest promises `tools` is asked `ff-<name>
 //! --ff-tools` once, when the server starts, and what it answered is what
 //! the connection serves until it closes. That is how `registry::read` is
-//! held too: the verbs advertised at handshake are the verbs served for the
-//! life of the connection, so the card, the relay, and this list cannot
-//! disagree with each other halfway through. A restart is what picks up an
-//! edited extension.
+//! held too: what was advertised at handshake is what answers until the
+//! client closes. A restart is what picks up an edited extension.
 //!
 //! A handshake that fails or never answers is silence, on `ff trigger`'s
-//! doctrine: fufu serves its own tool, the extension's verbs are relayed in
-//! the args array exactly as they were, and what is lost is the tools it
-//! promised. `ff doctor` is where that shows. The ask is time-boxed for the
-//! reason [`crate::manifest::ask_tools`] states — nobody is in front of a
-//! server starting up, and a binary that hangs would hang it before it ever
-//! served anything.
+//! doctrine: fufu serves its own seven, and what is lost is the tools the
+//! extension promised. `ff doctor` is where that shows. The ask is
+//! time-boxed for the reason [`crate::manifest::ask_tools`] states — nobody
+//! is in front of a server starting up, and a binary that hangs would hang
+//! it before it ever served anything.
 //!
-//! A tool is named `<extension>__<tool>`, which is the shape MCP itself
-//! uses when a client prefixes a server's tools, so two extensions both
-//! producing a `list` cannot collide and a name routes back to a binary and
-//! a verb by reading it. The bare `ff` tool keeps its own name: it is
-//! spelled into the `fufu.toolPolicy` refusal, and an agent told to call it
-//! must not have to look it up.
-//!
-//! A call is routed the way an args-array call is — this same binary as a
-//! child, `<exe> <name> <verb> <words…> --json` — because that is what
-//! keeps capture-first, the git policy, sessions, and error ids true of a
-//! produced tool's call. Spawning `ff-<name>` here would be a second spawn
-//! path with a second set of promises to keep. What is new is only the
-//! words: the args array arrives as words already, and a produced tool
-//! arrives as an object, so [`Produced::call`] is where an object becomes
-//! a command line.
+//! A produced tool is named `<extension>__<tool>`, which is the shape MCP
+//! itself uses when a client prefixes a server's tools, so two extensions
+//! both producing a `list` cannot collide and a name routes back to a
+//! binary and a verb by reading it. fufu's own are the bare verb names, and
+//! a produced name always carries the separator, so the two cannot meet.
 
 use rmcp::ErrorData;
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
@@ -39,8 +41,7 @@ use serde_json::Value;
 use crate::manifest::ToolDescriptor;
 use crate::registry::Registry;
 
-use super::child::{self, Call, Route};
-use super::describe;
+use super::child::Call;
 
 /// What stands between the extension and the tool in the name a client
 /// calls. MCP's own separator, and one `manifest::honors` already tolerates
@@ -56,17 +57,32 @@ const SEPARATOR: &str = "__";
 /// flag it does not otherwise have, which is the second spelling the whole
 /// handshake exists to avoid. JSON Schema tolerates a keyword it has never
 /// heard of, so the schema goes to the client as it arrived.
-const POSITIONAL: &str = "positional";
+pub(super) const POSITIONAL: &str = "positional";
 
-/// One tool a declared extension produced, as this server serves it.
-pub struct Produced {
-    /// What a client calls it: `<extension>__<tool>`.
+/// The one property every served tool carries and no verb owns: the
+/// directory the child runs in. Lifted before spelling and passed as `-C`.
+pub(super) const CWD: &str = "cwd";
+
+/// The `cwd` property as every tool's schema states it.
+pub(super) fn cwd_property() -> Value {
+    serde_json::json!({
+        "type": "string",
+        "description": "The directory to run in, for a client that works across repositories; \
+                        without it, where the client started the server",
+    })
+}
+
+/// One tool as this server serves it: fufu's own, or one a declared
+/// extension produced.
+pub struct Typed {
+    /// What a client calls it: the bare verb for fufu's own, and
+    /// `<extension>__<tool>` for a produced one.
     name: String,
-    /// The extension the call routes to, and the verb under it. The bare
-    /// name a descriptor carries *is* the verb — `cmd` is spelled `<name>
-    /// <verb>` for a produced tool's call the same as for a relayed one.
-    extension: String,
-    verb: String,
+    /// The words the line opens with: `[verb]` for fufu's own, and
+    /// `[extension, verb]` for a produced one. The bare name a descriptor
+    /// carries *is* the verb — `cmd` is spelled `<name> <verb>` for a
+    /// produced tool's call the same as for a shell's.
+    prefix: Vec<String>,
     /// The properties spelled as bare words, in the order [`POSITIONAL`]
     /// listed them.
     positional: Vec<String>,
@@ -74,7 +90,17 @@ pub struct Produced {
     tool: Tool,
 }
 
-impl Produced {
+impl Typed {
+    /// One of fufu's own, under its bare verb.
+    pub(super) fn own(verb: &str, positional: Vec<String>, tool: Tool) -> Self {
+        Typed {
+            name: verb.to_string(),
+            prefix: vec![verb.to_string()],
+            positional,
+            tool,
+        }
+    }
+
     /// The name a client calls this by.
     pub fn name(&self) -> &str {
         &self.name
@@ -87,19 +113,31 @@ impl Produced {
 
     /// The arguments object as a command line, or the reason it is not one.
     ///
-    /// `Err` is a JSON-RPC error rather than an envelope, on the rule
-    /// [`child::parse`] keeps: nothing ran, there is no envelope to hand
-    /// over, and what is wrong is the shape of the arguments.
+    /// `Err` is a JSON-RPC error rather than an envelope: nothing ran, there
+    /// is no envelope to hand over, and what is wrong is the shape of the
+    /// arguments, which the tool's own schema already forbade.
     ///
-    /// Every property is spelled the way a person would spell it: a
-    /// positional as its value alone, a true boolean as `--key` and a false
-    /// one as nothing at all, anything else as `--key <value>`, and an
-    /// array by repeating its flag. The property is spelled verbatim, with
-    /// no case or underscore translation, because the extension generates
-    /// the schema from the same definitions its own flags come from.
+    /// `cwd` is lifted first and never spelled. Every other property is
+    /// spelled the way a person would spell it: a positional as its value
+    /// alone, a true boolean as `--key` and a false one as nothing at all,
+    /// anything else as `--key <value>`, and an array by repeating its
+    /// flag. The property is spelled verbatim, with no case or underscore
+    /// translation, because the schema is generated from the same
+    /// definitions the flags come from — clap's for fufu's own, and the
+    /// extension's for a produced one.
     pub fn call(&self, arguments: Option<JsonObject>) -> Result<Call, ErrorData> {
-        let arguments = arguments.unwrap_or_default();
-        let mut args = vec![self.extension.clone(), self.verb.clone()];
+        let mut arguments = arguments.unwrap_or_default();
+        let cwd = match arguments.remove(CWD) {
+            None | Some(Value::Null) => None,
+            Some(Value::String(dir)) => Some(dir),
+            Some(other) => {
+                return Err(ErrorData::invalid_params(
+                    format!("cwd must be a string; got {other}"),
+                    None,
+                ));
+            }
+        };
+        let mut args = self.prefix.clone();
         for key in &self.positional {
             // A gap stops the rest: a positional left out shifts every word
             // after it onto the wrong argument, and a line the extension
@@ -128,34 +166,28 @@ impl Produced {
             }
             args.extend(flag(key, value)?);
         }
-        Ok(Call {
-            args,
-            cwd: None,
-            route: Route::Produced,
-        })
+        Ok(Call { args, cwd })
     }
 }
 
-/// The tools this server serves beside its own, asked for once.
+/// The tools declared extensions produced, asked for once and pushed after
+/// fufu's own.
 ///
 /// Silent throughout: an extension that promised tools and would not answer
 /// costs the agent nothing and is not reported here.
 ///
 /// Every extension that promised tools is asked, undoable or not. What
 /// makes a produced tool honest is the `readOnlyHint` and `destructiveHint`
-/// the descriptor carries, not the one `ff` tool's blanket promise, so
-/// `undoable: false` bars the args array and nothing else — `child::Route`
-/// is where that line is drawn, and `toolpolicy::served` is where the shell
-/// reads it back.
-pub fn produced(registry: &Registry) -> Vec<Produced> {
-    let mut out = Vec::new();
+/// the descriptor carries; the manifest's `undoable` is what `ff extension
+/// add` reports, and nothing refuses on it.
+pub fn produced(out: &mut Vec<Typed>, registry: &Registry) {
     for entry in registry.declared() {
         if !entry.manifest.tools {
             continue;
         }
-        // A verb the relay refuses is a verb no produced tool could route
-        // to either, so its tools are never offered.
-        if child::EXCLUDED.contains(&entry.name()) {
+        // A name a builtin verb shadows is never reached by `ff <name>`, so
+        // its tools could route nowhere and are never offered.
+        if builtin(entry.name()) {
             continue;
         }
         let Some(path) = entry.resolve() else {
@@ -164,9 +196,28 @@ pub fn produced(registry: &Registry) -> Vec<Produced> {
         let Ok(descriptors) = crate::manifest::ask_tools(&path, entry.name()) else {
             continue;
         };
-        offer(&mut out, entry.name(), descriptors);
+        offer(out, entry.name(), descriptors);
     }
-    out
+}
+
+/// Whether a word is a verb of fufu's own, by name or alias, or `help`.
+/// Read from the command tree once.
+fn builtin(word: &str) -> bool {
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            use clap::CommandFactory;
+            crate::cli::Cli::command()
+                .get_subcommands()
+                .flat_map(|sub| std::iter::once(sub.get_name()).chain(sub.get_all_aliases()))
+                .chain(std::iter::once("help"))
+                .map(str::to_string)
+                .collect()
+        })
+        .contains(word)
 }
 
 /// One extension's descriptors, namespaced and folded into the list.
@@ -175,26 +226,34 @@ pub fn produced(registry: &Registry) -> Vec<Produced> {
 /// extensions cannot produce one name — the extension is in it — but an
 /// extension name may itself carry `_`, so `a__b` and `a` producing `b__c`
 /// can meet. The first declared keeps the name, which is the order
-/// `ff extension list` prints and the order a person can read. `ff` itself
-/// is never taken — the separator is in every produced name, and the check
-/// below is where that rule is written down rather than assumed.
-fn offer(out: &mut Vec<Produced>, extension: &str, descriptors: Vec<ToolDescriptor>) {
+/// `ff extension list` prints and the order a person can read. The list
+/// already holds fufu's seven, and a produced name carries the separator,
+/// so those cannot be taken either way.
+///
+/// `cwd` is added to the schema's properties when the descriptor has none,
+/// so every served tool takes it. `additionalProperties` is left as the
+/// extension declared it.
+fn offer(out: &mut Vec<Typed>, extension: &str, descriptors: Vec<ToolDescriptor>) {
     for descriptor in descriptors {
         let name = format!("{extension}{SEPARATOR}{}", descriptor.name);
-        if name == describe::NAME || out.iter().any(|produced| produced.name == name) {
+        if out.iter().any(|typed| typed.name == name) {
             continue;
         }
         let positional = positional(&descriptor.input_schema);
-        let tool = Tool::new(
-            name.clone(),
-            descriptor.description,
-            descriptor.input_schema,
-        )
-        .with_annotations(annotations(&descriptor.annotations));
-        out.push(Produced {
+        let mut input_schema = descriptor.input_schema;
+        let properties = input_schema
+            .entry("properties")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Value::Object(properties) = properties
+            && !properties.contains_key(CWD)
+        {
+            properties.insert(CWD.into(), cwd_property());
+        }
+        let tool = Tool::new(name.clone(), descriptor.description, input_schema)
+            .with_annotations(annotations(&descriptor.annotations));
+        out.push(Typed {
             name,
-            extension: extension.to_string(),
-            verb: descriptor.name,
+            prefix: vec![extension.to_string(), descriptor.name],
             positional,
             tool,
         });
@@ -312,7 +371,7 @@ mod tests {
         }
     }
 
-    fn one(extension: &str, name: &str, schema: Value) -> Produced {
+    fn one(extension: &str, name: &str, schema: Value) -> Typed {
         let mut out = Vec::new();
         offer(&mut out, extension, vec![descriptor(name, schema)]);
         out.pop().expect("one tool")
@@ -325,11 +384,6 @@ mod tests {
         let call = produced.call(None).expect("no arguments is a bare line");
         assert_eq!(call.args, vec!["tower", "brief"]);
         assert!(call.cwd.is_none(), "the server's own directory");
-        assert_eq!(
-            call.route,
-            Route::Produced,
-            "the undoable gate is the args array's"
-        );
         // And what the client is offered says what the descriptor said.
         let tool = produced.tool();
         assert_eq!(tool.name, "tower__brief");
@@ -339,8 +393,71 @@ mod tests {
         assert_eq!(annotations.idempotent_hint, None, "unsaid stays unsaid");
     }
 
-    /// Two extensions cannot take one name, and neither can take `ff`. The
-    /// first declared keeps it and the rest of a list stands.
+    /// fufu's own tool opens its line with the bare verb.
+    #[test]
+    fn a_bare_prefix_spells_the_verb_first() {
+        let own = Typed::own(
+            "explain",
+            vec!["id".into()],
+            Tool::new("explain", "what it does", JsonObject::new()),
+        );
+        assert_eq!(own.name(), "explain");
+        let call = own
+            .call(arguments(serde_json::json!({"id": "x", "list": true})))
+            .expect("a line");
+        assert_eq!(call.args, vec!["explain", "x", "--list"]);
+    }
+
+    /// `cwd` is the server's option: lifted out of the object, carried on
+    /// the call, and never spelled as a word.
+    #[test]
+    fn cwd_is_lifted_out_of_the_object_and_never_spelled() {
+        let produced = one("tower", "brief", object());
+        let call = produced
+            .call(arguments(
+                serde_json::json!({"cwd": "/somewhere", "board": "x"}),
+            ))
+            .expect("a line");
+        assert_eq!(call.cwd.as_deref(), Some("/somewhere"));
+        assert_eq!(call.args, vec!["tower", "brief", "--board", "x"]);
+        assert!(
+            produced
+                .call(arguments(serde_json::json!({"cwd": 1})))
+                .is_err(),
+            "a cwd that is not a string is a protocol error"
+        );
+        let call = produced
+            .call(arguments(serde_json::json!({"cwd": null})))
+            .expect("null is absent");
+        assert!(call.cwd.is_none());
+    }
+
+    /// Every served tool takes `cwd`: a descriptor without the property
+    /// gains it, and one that declares its own keeps its own.
+    #[test]
+    fn a_produced_schema_gains_cwd_only_when_it_had_none() {
+        let bare = one("tower", "brief", object());
+        let schema = bare.tool().input_schema;
+        assert_eq!(schema["properties"]["cwd"]["type"], "string");
+
+        let theirs = one(
+            "tower",
+            "file",
+            serde_json::json!({
+                "type": "object",
+                "properties": {"cwd": {"type": "string", "description": "theirs"}},
+            }),
+        );
+        let schema = theirs.tool().input_schema;
+        assert_eq!(schema["properties"]["cwd"]["description"], "theirs");
+        assert!(
+            schema.get("additionalProperties").is_none(),
+            "left as the extension declared it"
+        );
+    }
+
+    /// Two extensions cannot take one name. The first declared keeps it and
+    /// the rest of a list stands.
     #[test]
     fn a_name_already_taken_is_dropped_and_the_rest_of_the_list_stands() {
         let mut out = Vec::new();
@@ -350,9 +467,21 @@ mod tests {
             "a",
             vec![descriptor("b__c", object()), descriptor("d", object())],
         );
-        let names: Vec<&str> = out.iter().map(Produced::name).collect();
+        let names: Vec<&str> = out.iter().map(Typed::name).collect();
         assert_eq!(names, vec!["a__b__c", "a__d"]);
-        assert_eq!(out[0].extension, "a__b", "the first declared kept it");
+        assert_eq!(
+            out[0].prefix,
+            vec!["a__b", "c"],
+            "the first declared kept it"
+        );
+    }
+
+    #[test]
+    fn a_builtin_word_is_a_verb_of_fufus_own() {
+        assert!(builtin("status"));
+        assert!(builtin("st"), "an alias too");
+        assert!(builtin("help"));
+        assert!(!builtin("tower"));
     }
 
     #[test]

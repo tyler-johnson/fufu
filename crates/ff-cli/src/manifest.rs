@@ -89,7 +89,8 @@ pub struct Manifest {
     pub verbs: Vec<Verb>,
     /// Whether every write the extension makes is captured by fufu and
     /// taken back by `ff undo` — true only when it writes through fufu's
-    /// own verbs.
+    /// own verbs. Informational: `ff extension add` reports it, and nothing
+    /// refuses on it.
     pub undoable: bool,
     /// One line for fufu's briefing to an agent, or `true` to ask the
     /// binary for it at print time. Absent means no line, and so does
@@ -127,7 +128,8 @@ pub struct Manifest {
 
 /// One verb the extension answers to. Read-only is per verb rather than per
 /// extension because an extension is usually mostly readers with a few
-/// writers, and one set of annotations on the tool cannot say that.
+/// writers. Informational: a fact about the verb for a reader of the
+/// manifest, which nothing enforces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Verb {
     pub name: String,
@@ -297,12 +299,10 @@ pub struct ToolDescriptor {
 /// What a produced tool says about itself, in MCP's own hints.
 ///
 /// The first two are required, where MCP makes every one of them optional.
-/// The one `ff` tool carries a single blanket annotation over everything it
-/// relays, which is honest only when `ff undo` covers all of it; a tool that
-/// states these two is honest about itself instead, and that is what a
-/// produced tool is offered on. A descriptor that left them unsaid would
-/// fall back to MCP's defaults — not read-only, destructive — and be a tool
-/// fufu offered while knowing nothing about it.
+/// A produced tool is offered on what it says about itself, the way each of
+/// fufu's own seven states its hints. A descriptor that left them unsaid
+/// would fall back to MCP's defaults — not read-only, destructive — and be
+/// a tool fufu offered while knowing nothing about it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Annotations {
@@ -1189,7 +1189,7 @@ mod tests {
             "Bash|Edit|Write|NotebookEdit",
             "run_shell_command|write_file|replace",
             "apply_patch",
-            "mcp__plugin_fufu_fufu__ff",
+            "mcp__plugin_fufu_fufu__status",
         ] {
             let text = format!(
                 r#"{{"name":"tower","version":"1","contract":1,"undoable":true,
@@ -1268,7 +1268,7 @@ mod tests {
             "the manifest's snake case is not the descriptor's: {written}"
         );
 
-        // Read back into the type the relay will hand a client, since the
+        // Read back into the type the server will hand a client, since the
         // page promises these are the same four fields under both names.
         let tool: rmcp::model::Tool = serde_json::from_value(written).expect("an rmcp tool");
         assert_eq!(tool.name, "file");

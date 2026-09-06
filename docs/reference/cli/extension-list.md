@@ -1,6 +1,6 @@
 # ff extension list
 
-One row per declared extension — its name, the version recorded when it was declared, and the verbs it answers to — in the order they were declared, which is the order subscribers are fanned out in and the card names verbs in.
+One row per declared extension — its name, the version recorded when it was declared, and the verbs it answers to — in the order they were declared, which is the order subscribers are fanned out in and [`ff mcp`](mcp.md) lists produced tools in.
 
 A row whose binary has left PATH says so and stays: dispatch is a fresh walk every time, so a name that resolves to nothing today is a fact about PATH rather than a reason to forget the declaration.
 

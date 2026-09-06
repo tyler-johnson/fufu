@@ -1,6 +1,6 @@
 # ff extension add
 
-Runs `ff-<name> --ff-manifest` and reads the one envelope it prints: the verbs the extension answers to, whether its writes are undoable, and the contract it speaks. The flag is recognized before anything else on the command line, and answers outside a repository.
+Runs `ff-<name> --ff-manifest` and reads the one envelope it prints: the verbs the extension answers to, whether its writes are undoable, which is reported and not enforced, and the contract it speaks. The flag is recognized before anything else on the command line, and answers outside a repository.
 
 Three checks stand between the answer and the record:
 

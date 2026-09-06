@@ -2,20 +2,20 @@
 //! machine, and the one reader everything else asks.
 //!
 //! `ff extension add <name>` records the manifest the handshake just read,
-//! and from then on fufu will describe the extension — the MCP tool serves
-//! its verbs, the card names them, `ff help <name>` and `ff explain
-//! <name>/<id>` delegate to the binary, its briefing line rides fufu's, its
-//! skills install beside fufu's, the neutral agent event fans out to it, and
-//! a server of its own registers beside fufu's. This file is the allowlist
+//! and from then on fufu will describe the extension — `ff help <name>` and
+//! `ff explain <name>/<id>` delegate to the binary, its briefing line rides
+//! fufu's, its skills install beside fufu's, the neutral agent event fans
+//! out to it, the tools it produces are served beside fufu's own, and a
+//! server of its own registers beside fufu's. This file is the allowlist
 //! for all of that, which is why it sits under the user's config directory
-//! rather than in a repository, and why `ff extension` is one of the verbs
-//! the tool does not offer: declaring is a decision about this machine, and
-//! not one an agent makes for itself.
+//! rather than in a repository, and why `ff extension` is the shell's and
+//! no tool's: declaring is a decision about this machine, and not one an
+//! agent makes for itself.
 //!
 //! The file is `<config_root>/fufu/extensions.json`, pretty-printed because
 //! a person owns it, and it is a list rather than a map because the order is
-//! load-bearing: subscribers are fanned out in it and the card names verbs
-//! in it.
+//! load-bearing: subscribers are fanned out in it and produced tools are
+//! listed in it.
 //!
 //! ```json
 //! {
@@ -148,7 +148,7 @@ impl Registry {
 /// describe, and the two fields beside it are what `ff doctor` reports.
 ///
 /// Nothing is looked for on disk. A read is one file parse and no PATH walk,
-/// because the trigger fan-out and the MCP relay both call this per event
+/// because the trigger fan-out and the MCP server both call this per event
 /// and per tool call. [`Declared::resolve`] is the walk, taken by whoever is
 /// about to run the binary, and it answers `None` when the binary has left
 /// PATH — a record outliving its binary, which costs a caller a `None` and
@@ -157,8 +157,8 @@ impl Registry {
 /// The file is read once per process. `ff extension add` and `remove` are
 /// the only writers and each is a one-shot process, so nothing re-reads
 /// after a write. The one long-lived reader is `ff mcp`, where serving the
-/// verbs that were advertised at handshake for the life of the connection is
-/// what keeps the card and the tool agreeing.
+/// tools that were advertised at handshake for the life of the connection is
+/// what keeps the list and the calls agreeing.
 pub fn read() -> &'static Registry {
     static ONCE: OnceLock<Registry> = OnceLock::new();
     ONCE.get_or_init(|| load(path().as_deref()))

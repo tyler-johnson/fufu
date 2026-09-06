@@ -24,7 +24,6 @@ mod rawgit;
 mod registry;
 mod render;
 mod session;
-mod toolpolicy;
 mod userdirs;
 
 mod selfupdate;
@@ -156,7 +155,7 @@ fn report(json: bool, command: &str, err: &ff_core::Error) -> ! {
 
 /// `ff help <name>` where `<name>` is a declared extension: run its own
 /// help and hand it back as the page, verbatim and with no `--json` — the
-/// same shape a builtin's help prints, and the reason the tool's relay
+/// same shape a builtin's help prints, and the reason the `help` tool
 /// needs nothing extra to serve it as text with no structured content.
 ///
 /// A failure here is not silent the way `ext::ask`'s other callers are: a

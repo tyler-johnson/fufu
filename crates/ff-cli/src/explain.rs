@@ -932,64 +932,6 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff restack <branch> --onto <base>", "ff branch list"],
     },
     Entry {
-        id: "usage/mcp-verb-unavailable",
-        summary: "that verb is not offered through the MCP tool",
-        detail: "ff mcp serves one tool whose input is the command line after ff, and seven \
-                 verbs are left out of it on purpose: git, update, watch, hook, unhook, mcp \
-                 itself, and extension. Each either owns its stream — git passes real git's \
-                 output through, watch emits a stream of envelopes rather than one, mcp is the \
-                 server — or talks a person through something, or wires the machine. extension \
-                 is the one that is not merely a bad fit: the registry it writes is the \
-                 allowlist for everything fufu says about an extension, so declaring is a \
-                 person's decision about a machine and not one an agent makes for itself. Run \
-                 the verb in a shell; every other verb goes through the tool.",
-        exits: &["ff help"],
-    },
-    Entry {
-        id: "usage/mcp-policy-write",
-        summary: "that setting is only writable from a shell",
-        detail: "fufu.gitPolicy and fufu.toolPolicy decide what fufu refuses an agent, and a \
-                 call that could set them through the MCP tool would be turning off the thing \
-                 policing it. So a write to either of them — a value, or --unset, which lowers \
-                 the tier by taking the value away — is refused when it arrives through the \
-                 tool, and only through the tool: the same command typed at a shell writes, \
-                 which is where a person changing their own policy is. Reading is untouched \
-                 everywhere. Bare ff config still lists every setting, and ff config <key> \
-                 still prints what applies.",
-        exits: &["ff config toolPolicy", "ff config gitPolicy"],
-    },
-    Entry {
-        id: "usage/mcp-extension-undeclared",
-        summary: "the tool serves declared extensions, and that name is not declared",
-        detail: "ff <name> runs an ff-<name> from PATH, and there are two kinds of them. A \
-                 declared one is a manifest somebody recorded with ff extension add, which is \
-                 what tells fufu the verbs it answers to and whether its writes can be taken \
-                 back; the tool serves those the way it serves a verb. An undeclared one fufu \
-                 knows nothing about, so the tool refuses it and a shell is where it runs — \
-                 fufu.toolPolicy lets an undeclared ff <name> through the shell for the same \
-                 reason, so between the two there is always one place it runs. The other way \
-                 to reach this is a misspelled verb, which is no extension either. Declare the \
-                 extension, or run it in a shell.",
-        exits: &["ff <name>", "ff extension add <name>", "ff extension list"],
-    },
-    Entry {
-        id: "usage/mcp-extension-not-undoable",
-        summary: "that extension declares undoable: false, and the args array cannot relay it",
-        detail: "The one ff tool carries a single set of annotations over everything its args \
-                 array relays, and they say that nothing it relays is destructive. That is \
-                 honest of fufu, whose every write is captured first and taken back by ff undo, \
-                 and of an extension whose manifest says undoable: true because it writes \
-                 through fufu's own verbs. An extension declaring undoable: false is saying the \
-                 opposite, and relaying it under those annotations would tell an agent a call \
-                 is recoverable when it is not. Only that one route is refused. A tool the \
-                 extension produced states its own readOnlyHint and destructiveHint, so it is \
-                 listed beside the one tool as <name>__<tool> and called there whether or not \
-                 the writes are undoable — ff doctor names the tools an extension produces, and \
-                 the manifest's tools field is what asks for them. A shell runs the verb either \
-                 way, which is why fufu.toolPolicy lets ff <name> through there.",
-        exits: &["ff doctor", "ff extension list"],
-    },
-    Entry {
         id: "extension/not-found",
         summary: "no extension of that name is on PATH to ask for a manifest",
         detail: "fufu resolves an extension the way git does — the first executable ff-<name> a \
@@ -1035,8 +977,8 @@ pub static ENTRIES: &[Entry] = &[
                  of the list, or it ran past the time box fufu gives it. The box is fufu's \
                  rather than the extension's, because the caller is a server starting up with \
                  nobody in front of it to interrupt a binary that hangs. Nothing is refused to \
-                 the agent over it — the extension's verbs are relayed exactly as they were, \
-                 and what is lost is the tools it promised.",
+                 the agent over it — fufu's own tools are served exactly as they were, and \
+                 what is lost is the tools it promised.",
         exits: &["ff doctor"],
     },
     Entry {

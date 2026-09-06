@@ -1125,7 +1125,7 @@ impl Command {
             Command::Git { .. } | Command::Update { .. } | Command::Watch { .. } => false,
             // The server owns stdout: every byte on it is a JSON-RPC frame
             // the client parses, and an envelope there is a protocol
-            // violation. Each child it relays to takes `--json` for itself.
+            // violation. Each child it runs takes `--json` for itself.
             Command::Mcp => false,
             // `trigger` is two things under one name, and only one of them
             // owns its stream. The manual snapshot is a verb like any

@@ -4,16 +4,16 @@
 //! `add` is the whole of the verb's weight: it runs the `--ff-manifest`
 //! handshake, checks the contract the manifest claims against fufu's own,
 //! and records what came back. From then on fufu will describe the
-//! extension — the tool serves its verbs, the card names them, its briefing
-//! line rides fufu's, its skills install beside fufu's, the neutral agent
-//! event fans out to it. `list` is that record read back, and `remove`
-//! takes a name off it.
+//! extension — `ff help <name>` reaches it, its briefing line rides fufu's,
+//! its skills install beside fufu's, the neutral agent event fans out to
+//! it, and the tools it produces are served beside fufu's own. `list` is
+//! that record read back, and `remove` takes a name off it.
 //!
 //! Declaring buys the extension no capability and no environment; an
 //! undeclared `ff-<name>` runs from a shell exactly as it ran before. What
-//! it buys is fufu vouching for the verb, which is why the family is
-//! shell-only — the registry is the allowlist, so an agent must not be able
-//! to write it through the tool.
+//! it buys is fufu vouching for the verb, which is why the family is the
+//! shell's and no tool's — the registry is the allowlist, so an agent must
+//! not be able to write it through a tool.
 
 use ff_core::{Error, Result};
 

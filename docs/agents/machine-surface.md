@@ -208,15 +208,15 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
 
 ## The MCP surface
 
-[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: one tool, `ff`, whose input is the command line after `ff` as an array of words, and whose output is the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through the tool — it is a shell over one contract, not a second implementation.
+[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: seven typed tools, `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, and each answering with the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through a tool — it is a shell over one contract, not a second implementation.
 
 ```json
-{"name": "ff", "arguments": {"args": ["show", "doesnotexist"]}}
+{"name": "explain", "arguments": {"id": "no/such-id"}}
 ```
 
 ```json
-{"content": [{"type": "text", "text": "{\"ff\":1,\"cmd\":\"show\",\"error\":{\"id\":\"usage/revset-unknown-revision\",\"message\":\"no revision here answers to `doesnotexist`\",\"exits\":[\"ff log\",\"ff branch\"]}}"}],
- "structuredContent": {"ff": 1, "cmd": "show", "error": {"id": "usage/revset-unknown-revision", "message": "no revision here answers to `doesnotexist`", "exits": ["ff log", "ff branch"]}},
+{"content": [{"type": "text", "text": "{\"ff\":1,\"cmd\":\"explain\",\"error\":{\"id\":\"usage/unknown-error-id\",\"message\":\"no such error id: no/such-id\",\"exits\":[\"ff explain --list\"]}}"}],
+ "structuredContent": {"ff": 1, "cmd": "explain", "error": {"id": "usage/unknown-error-id", "message": "no such error id: no/such-id", "exits": ["ff explain --list"]}},
  "isError": true,
  "_meta": {"exit": 2}}
 ```
@@ -231,30 +231,9 @@ The exit-code rules restate as tool rules. An id under `held/*` means nothing mo
 
 ### What the tool serves
 
-A `help` call returns the page as text with no structured content. The verbs the tool does not offer — `git`, `update`, `watch`, `hook`, `unhook`, `mcp`, and `extension` — answer with `usage/mcp-verb-unavailable`.
+The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `sync` takes `no-fetch`; `publish` takes `dry-run` and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
 
-A declared extension is relayed the way a verb is. An undeclared one answers with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`. A declared one whose manifest says `undoable: false` answers with `usage/mcp-extension-not-undoable`, which costs it the args array and not the tools it produces.
-
-An optional `cwd` runs the call in another directory, and `--session` on the server tags every child's operations.
-
-Beside the one tool, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools). The args array stays the route for every verb, an extension's included. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
-
-### `toolPolicy` in the shell
-
-While the server is up for a Claude Code session, `fufu.toolPolicy` (default `strict`) refuses an `ff` the agent runs through its shell tool instead, on the hook's `PreToolUse` channel. The refusal is the same JSON shape as `gitPolicy`'s, and its reason names the tool and carries the `args` to call it with, so the agent can rewrite the call without a lookup:
-
-```json
-{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
- "permissionDecisionReason": "fufu.toolPolicy is strict here and the ff tool is up: call the ff tool (mcp__plugin_fufu_fufu__ff) with {\"args\":[\"status\"]} instead of running ff in the shell — load the tool's schema first if it is deferred"}}
-```
-
-`--json` is dropped from the args, since the tool adds it.
-
-What the refusal speaks to is the args array, the one route it can name. A builtin verb and a declared extension are both refused and pointed at the tool. The seven shell-only verbs pass, and so does any `ff <name>` the args array will not carry: one nobody declared, and one declaring `undoable: false`.
-
-A non-undoable extension passes even when it produced tools of its own. The registry records that it promised tools and never which verb each one covers, so a refusal naming a `<name>__<verb>` that is not there would leave the verb nowhere to run.
-
-A declared extension's refusal names it, so an agent can tell it from the undeclared one beside it. Nothing is said at all when no server is serving that client.
+Everything else is the shell. Beside the seven, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools), taking `cwd` the same way. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
 
 ## Extensions
 
@@ -264,9 +243,7 @@ A declared extension's refusal names it, so an agent can tell it from the undecl
 
 An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
 
-Nothing else passes, and fufu says nothing about the verb. The tool refuses it with `usage/mcp-extension-undeclared` and an exit naming `ff extension add <name>`, it is not on the tool's card — the tool description an agent reads — and `ff help <name>` does not reach it.
-
-Under `fufu.toolPolicy=strict` the shell refusal lets `ff <name>` through, because a shell is the only place an undeclared extension runs.
+Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does not reach it, and no tool of its own is served.
 
 ### Declared
 
@@ -276,18 +253,13 @@ The record is per machine rather than per repository, since the binary is on PAT
 
 What declaring buys is that fufu will describe it to an agent:
 
-- the MCP tool serves its verbs, and the card names them
 - `ff help <name>` and `ff explain <name>/<id>` delegate to the binary
 - its briefing line rides fufu's
 - its skills install beside fufu's
 - the neutral agent event fans out to it
-- an MCP server of its own registers beside fufu's
+- the MCP tools it produces are served beside fufu's seven, and an MCP server of its own registers beside fufu's
 
-The card's line is `Extensions: tower (next, file, done, …)`, built from the manifest's verb list and capped in every direction: how many extensions get named, how many verbs each, and the length of the line. The card has about two thousand characters to fit in, and a registry is a person's file with nothing in fufu bounding it. An extension the cap left off is served exactly as one on the line.
-
-Under `fufu.toolPolicy=strict` the shell refusal fires for `ff <name>` the way it fires for a builtin verb, and names the extension, because the tool is now where the verb answers. The exception is a manifest saying `undoable: false`, which the args array will not carry and the shell therefore keeps.
-
-[`ff extension`](../reference/cli/extension.md) is itself one of the verbs the tool does not offer. The registry is the allowlist for all of the above, so an agent must not be able to write it through the tool.
+[`ff extension`](../reference/cli/extension.md) is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
 
 `ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
 
@@ -390,7 +362,7 @@ $ ff op log 'session(flight-3)' --json | jq -c '.data.ops[]'
 
 `kind(capture)`, `kind(op)`, and the rest of the grammar compose the same way, so "everything agent flight-3 did that was a real verb" is one expression. Two agents interleaving in one repository stay separable forever, because the tag rides each operation rather than a range between two points.
 
-The route rides beside the session: `shell` for an invocation typed at a shell, `tool` for one relayed by the [`ff mcp`](../reference/cli/mcp.md) tool and anything it spawned, and `route(tool)` filters the same way `session()` does. An agent's hook captures read `shell`, since the hook is not the tool. An operation with no `route` is one recorded before the field existed, or by a path with no invocation behind it; absent means unknown and never reads as `shell`.
+The route rides beside the session: `shell` for an invocation typed at a shell, `tool` for one an [`ff mcp`](../reference/cli/mcp.md) tool ran and anything it spawned, and `route(tool)` filters the same way `session()` does. An agent's hook captures read `shell`, since the hook is not the tool. An operation with no `route` is one recorded before the field existed, or by a path with no invocation behind it; absent means unknown and never reads as `shell`.
 
 For a consumer that wants the log pushed rather than polled, [`ff watch`](../reference/cli/watch.md) streams it: one JSON object per line as operations land, opening on a `start` line naming the tip. `--session` and `--kind` filter it, and `--all` merges every worktree into one stream.
 

@@ -125,10 +125,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/foreign-verb` | 2 | that is a git or jj verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
 | `usage/lift-from-open` | 2 | lift was named the open change as its source |
-| `usage/mcp-extension-not-undoable` | 2 | that extension declares undoable: false, and the args array cannot relay it |
-| `usage/mcp-extension-undeclared` | 2 | the tool serves declared extensions, and that name is not declared |
-| `usage/mcp-policy-write` | 2 | that setting is only writable from a shell |
-| `usage/mcp-verb-unavailable` | 2 | that verb is not offered through the MCP tool |
 | `usage/needs-message` | 2 | a description was needed and there was no terminal to ask on |
 | `usage/no-such-directory` | 2 | -C names a directory that is not there |
 | `usage/no-such-path` | 2 | that path names nothing here |

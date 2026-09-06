@@ -19,14 +19,6 @@ What `ff config` adds over raw `git config` is the registry below: it knows what
 
 Set the same typo with raw `git config` and every fufu reader quietly falls back to its default — the setting looks set and does nothing.
 
-## Policy keys are written from a shell
-
-`fufu.gitPolicy` and `fufu.toolPolicy` decide what fufu refuses an agent, so an agent that could set its own tier through the tool policing it is not policed at all.
-
-A write to either through the [`ff mcp`](cli/mcp.md) tool is refused with `usage/mcp-policy-write`, naming the shell as the place to make it; `--unset` counts as a write, since taking a value away lowers the tier to the default. The same command typed at a shell writes, which is where a person changing their own policy already is.
-
-Reading is untouched: through the tool, bare `ff config` still lists every setting and a key alone still prints what applies. Every other setting writes through the tool as before.
-
 ## The pager
 
 [`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op log`](../reference/cli/op-log.md) page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
@@ -91,12 +83,6 @@ Color theme for ff output. muted gives desaturated 256-color (the default); vivi
 `fufu.gitPolicy` — choice of `observe`, `coach`, `strict`; default `coach`
 
 What fufu says when git is reached for directly — through ff git, or in an agent's own shell. observe records and stays quiet; coach (the default) names the fufu verb once per word; strict refuses the words fufu has verbs for. Nothing is ever silently run in its place.
-
-### toolPolicy
-
-`fufu.toolPolicy` — choice of `observe`, `coach`, `strict`; default `strict`
-
-What fufu says when an agent runs ff in its shell while the ff tool is up for it. observe stays quiet; coach names the tool once per session; strict (the default) refuses and names the call to make instead. It speaks only to what the tool serves: the shell-only verbs pass, so does an ff <name> the tool will not serve, and nothing is said when no server is up.
 
 ### futuresDepth
 

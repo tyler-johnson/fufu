@@ -10,7 +10,7 @@ Three rules hold for every one of them:
 
 - They exit 0 whatever went wrong, and say nothing. FF_DEBUG=1 makes them talk.
 - A source name fufu does not know exits 0 and says nothing too, which is what makes a fufu trigger safe to wire into a client fufu has never heard of.
-- They never veto the action they fired on. The two vetoes there are — `fufu.gitPolicy strict` for raw git, and `fufu.toolPolicy strict` for `ff` in the shell while the `ff` tool is up — are config saying so, and each travels as JSON the client may ignore rather than as an exit code.
+- They never veto the action they fired on. The one veto there is, `fufu.gitPolicy strict` for raw git, is config saying so, and it travels as JSON the client may ignore rather than as an exit code.
 
 ## Extensions
 

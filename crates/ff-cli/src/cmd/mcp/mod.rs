@@ -1,31 +1,26 @@
-//! `ff mcp`: fufu as one tool over the Model Context Protocol, on stdio.
+//! `ff mcp`: fufu's verbs as typed tools over the Model Context Protocol,
+//! on stdio.
 //!
 //! The server is a shell over the machine surface and nothing more. It
-//! exposes a single tool, `ff`, whose input is the command line after `ff`
-//! as an array of words, and every call runs this same binary as a child
-//! with `--json` and relays the envelope back. Capture-first, the git
+//! serves seven typed tools — `status`, `sync`, `publish`, `undo`, `redo`,
+//! `explain`, and `help` — for the verbs where the shell adds nothing:
+//! fixed and short inputs, no output an agent would pipe, and a result
+//! whose structure matters more than its text. Each takes the verb's own
+//! flags as fields and a `cwd`, and every call runs this same binary as a
+//! child with `--json` and hands the envelope back. Capture-first, the git
 //! policy, sessions, error ids, and the no-prompt guarantee all hold
 //! because the child is an ordinary invocation; the server decides
 //! nothing about any of them. That is what DESIGN.md promises of any
 //! further surface — a thin shell over one contract rather than a second
-//! implementation with its own opinions.
+//! implementation with its own opinions. Every other verb is the shell.
 //!
-//! One tool rather than one per verb, because a client transmits every
-//! tool's description on every turn, and shows the model only the first
-//! two thousand characters or so of each. The one description is a card
-//! under that cut — the contract, the doctrine, every verb by name, and a
-//! digest of recovery and the landmines — where forty typed tools would be
-//! forty cards and a second spelling of the CLI to keep in step.
-//! `describe.rs` assembles the verb list from the same source `ff --help`
-//! reads, so it cannot drift from it.
-//!
-//! One tool of fufu's, and beside it the tools a declared extension
-//! produced. An extension promising `tools` in its manifest is asked what
-//! they are when the server starts, and each answer is listed under
-//! `<extension>__<tool>` and routed back through the same child. That is an
-//! addition and not a replacement: the args array stays the route for every
-//! verb, an extension's included. `tools.rs` has the fetch, the names, and
-//! how a typed call becomes a command line.
+//! Beside the seven, the tools a declared extension produced. An extension
+//! promising `tools` in its manifest is asked what they are when the
+//! server starts, and each answer is listed under `<extension>__<tool>`
+//! and routed through the same child. `verbs.rs` generates fufu's seven
+//! from the command tree, and `tools.rs` has the fetch, the names, and the
+//! one spelling of an arguments object into a command line that both go
+//! through.
 //!
 //! The protocol has two handshake eras. Revisions through 2025-11-25 open
 //! with an `initialize` exchange and hold a session; 2026-07-28 dropped
@@ -38,18 +33,10 @@
 //! lanes. Stderr carries nothing unless `FF_DEBUG=1`, the same rule the
 //! trigger runtime keeps, because a client shows a server's stderr to
 //! nobody and a line there is a line lost.
-//!
-//! While it serves, the server holds a presence marker under the user's
-//! cache directory, keyed by the client process that spawned it and by the
-//! name the server is registered under. That is
-//! what lets `ff trigger claude` refuse `ff` in the shell under
-//! `fufu.toolPolicy` only when this tool is actually up for the client
-//! making the call — `presence.rs` has the mechanism.
 
 pub(crate) mod child;
-pub mod describe;
-pub mod presence;
 mod tools;
+mod verbs;
 
 use std::path::PathBuf;
 
@@ -76,23 +63,25 @@ struct Server {
     /// server under, the precedence every invocation has. Server-level only:
     /// a tag per call would be a second session mechanism to explain.
     session: Option<String>,
-    /// The tools declared extensions produced, asked for once and served
-    /// for the life of the connection — the way the registry itself is read
-    /// once, and for the same reason: what was advertised at handshake is
-    /// what answers until the client closes.
-    produced: Vec<tools::Produced>,
+    /// What is served: fufu's seven first, then the tools declared
+    /// extensions produced, asked for once and served for the life of the
+    /// connection — the way the registry itself is read once, and for the
+    /// same reason: what was advertised at handshake is what answers until
+    /// the client closes.
+    tools: Vec<tools::Typed>,
 }
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     let exe = std::env::current_exe().map_err(Error::repo)?;
     // Before the transport, so the first `tools/list` is answered from a
-    // list that is already there. Each ask is time-boxed, and a machine
-    // that has declared nothing spawns nothing.
-    let produced = tools::produced(crate::registry::read());
+    // list that is already there. Each ask of an extension is time-boxed,
+    // and a machine that has declared nothing spawns nothing.
+    let mut served = verbs::own();
+    tools::produced(&mut served, crate::registry::read());
     let server = Server {
         exe,
         session: ctx.session.clone(),
-        produced,
+        tools: served,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -107,11 +96,6 @@ pub fn run(ctx: &Ctx) -> Result<()> {
             Err(rmcp::service::ServerInitializeError::ConnectionClosed(_)) => return Ok(()),
             Err(err) => return Err(complain(&err)),
         };
-        // Up, and provably so: the marker is held for as long as this
-        // serves, and the hook reads it to decide whether `ff` in the
-        // shell is refused. After `serve` on purpose, so the probe path
-        // above writes nothing.
-        let _held = presence::hold();
         match running.waiting().await {
             Ok(_) => Ok(()),
             Err(err) => Err(complain(&err)),
@@ -129,29 +113,20 @@ fn complain(err: &dyn std::fmt::Display) -> Error {
     Error::msg(format!("mcp: {err}"))
 }
 
-impl Server {
-    /// What to say about a name nothing here answers to. The shape rather
-    /// than the list, since a registry is a person's file and naming every
-    /// produced tool would be a message as long as one.
-    fn unknown(&self, name: &str) -> String {
-        if self.produced.is_empty() {
-            return format!(
-                "no tool named {name:?}; the one tool is {:?}",
-                describe::NAME
-            );
-        }
-        format!(
-            "no tool named {name:?}; this server serves {:?} and the tools a declared extension \
-             produced, each named <extension>__<tool>",
-            describe::NAME
-        )
-    }
+/// What to say about a name nothing here answers to. The seven by name and
+/// the produced tools by shape, since a registry is a person's file and
+/// naming every produced tool would be a message as long as one.
+fn unknown(name: &str) -> String {
+    format!(
+        "no tool named {name:?}; this server serves status, sync, publish, undo, redo, explain, \
+         help, and the tools a declared extension produced, each named <extension>__<tool>"
+    )
 }
 
 impl ServerHandler for Server {
-    /// The instructions field carries the short doctrine only. The rich
-    /// text goes on the tool, because every client transmits tool
-    /// descriptions and not every client surfaces instructions.
+    /// The instructions field carries the briefing, the same notice the
+    /// hook injects, so a client that surfaces instructions has the
+    /// doctrine and one that does not has the tools' own descriptions.
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
@@ -161,21 +136,20 @@ impl ServerHandler for Server {
             .with_instructions(crate::integ::briefing::NOTICE)
     }
 
-    /// fufu's one tool first, then a tool per descriptor a declared
-    /// extension produced, in the order the registry declared them.
+    /// fufu's seven first, then a tool per descriptor a declared extension
+    /// produced, in the order the registry declared them.
     fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = std::result::Result<ListToolsResult, ErrorData>> + Send + '_ {
-        let listed = std::iter::once(describe::tool())
-            .chain(self.produced.iter().map(tools::Produced::tool))
-            .collect();
+        let listed = self.tools.iter().map(tools::Typed::tool).collect();
         std::future::ready(Ok(ListToolsResult::with_all_items(listed)))
     }
 
-    /// `Err` only for input the schema already forbids — no `args`, an item
-    /// that is not a string. A fufu failure is a *successful* tool call
+    /// `Err` only for a name nothing serves or input the tool's schema
+    /// already forbids — a `cwd` that is not a string, a value a command
+    /// line has no spelling for. A fufu failure is a *successful* tool call
     /// carrying `is_error`, because a client renders a JSON-RPC error
     /// opaquely and the envelope inside it is what the agent needs to read.
     async fn call_tool(
@@ -183,19 +157,10 @@ impl ServerHandler for Server {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
-        // A produced tool's call is the same child as an args-array call,
-        // and only the words are arrived at differently.
-        let call = if request.name == describe::NAME {
-            child::parse(request.arguments)?
-        } else if let Some(produced) = self
-            .produced
-            .iter()
-            .find(|produced| produced.name() == request.name)
-        {
-            produced.call(request.arguments)?
-        } else {
-            return Err(ErrorData::invalid_params(self.unknown(&request.name), None));
+        let Some(typed) = self.tools.iter().find(|typed| typed.name() == request.name) else {
+            return Err(ErrorData::invalid_params(unknown(&request.name), None));
         };
+        let call = typed.call(request.arguments)?;
         Ok(child::run(&self.exe, self.session.as_deref(), call)
             .await
             .into())

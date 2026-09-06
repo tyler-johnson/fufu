@@ -51,8 +51,8 @@ Anything else git does: `ff git <args…>`, which snapshots and then runs git ve
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.
 
-When an `ff` tool is offered, call it with the same words; while it is up, `ff` in the \
-shell is refused.
+The `ff` tools offered for status, sync, publish, undo, redo, explain, and help take the \
+verb's own flags as fields; every other verb is the shell.
 
 Every verb's own `--help` is the authority on it.
 ";
@@ -192,23 +192,11 @@ mod notice {
     #[test]
     fn only_live_documented_surface() {
         let root = Cli::command();
-        // The MCP tool's card is prose an agent reads the same way, and
-        // it rots the same way, so it is held to the same rule.
-        let card = {
-            use crate::cmd::mcp::describe::{CONTRACT, DOCTRINE, LANDMINES, RECOVERY};
-            format!("{CONTRACT}\n{DOCTRINE}\n{RECOVERY}\n{LANDMINES}")
-        };
-        let mut commands = quoted(NOTICE);
+        let commands = quoted(NOTICE);
         assert!(
             commands.len() >= 8,
             "the notice stopped teaching verbs: {commands:?}"
         );
-        let from_card = quoted(&card);
-        assert!(
-            from_card.len() >= 20,
-            "the card stopped teaching verbs: {from_card:?}"
-        );
-        commands.extend(from_card);
         for tokens in &commands {
             let line = tokens.join(" ");
             let mut cmd = &root;
@@ -306,15 +294,17 @@ mod notice {
     }
 
     /// The notice is context the agent pays for on every session. There is no
-    /// exact token count to assert, so the budget is bytes: roughly 160
+    /// exact token count to assert, so the budget is bytes: roughly 170
     /// tokens, and a rewrite that doubles it has to say so here. The number
     /// came down when the skill took the advanced surface off it; growing
     /// it back is choosing to charge every session for something one
-    /// session in twenty needs.
+    /// session in twenty needs. It went up by fifty when the typed tools
+    /// arrived, because naming the seven is what tells the agent which
+    /// verbs are tools and which are the shell.
     #[test]
     fn stays_within_its_budget() {
         assert!(
-            NOTICE.len() <= 800,
+            NOTICE.len() <= 850,
             "the notice is {} bytes; trim it or raise the budget deliberately",
             NOTICE.len()
         );

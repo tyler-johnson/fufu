@@ -1,11 +1,10 @@
 //! Where fufu keeps per-user state outside any repository.
 //!
 //! One resolver per root, injected with the OS name and an environment
-//! lookup so it is testable without either. Three lanes read them: the
-//! update check's state file and the MCP server's presence marker take the
-//! cache root, the extension registry takes the config root, and each pair
-//! must agree on its root or a reader looks in a directory a writer never
-//! used.
+//! lookup so it is testable without either. Two lanes read them: the
+//! update check's state file takes the cache root, the extension registry
+//! takes the config root, and each pair must agree on its root or a reader
+//! looks in a directory a writer never used.
 //!
 //! The two roots are separate because what they hold is: a cache is state
 //! fufu can rebuild and a person may delete, and the config root holds what

@@ -1,6 +1,6 @@
 # ff extension remove
 
-Takes the name off the list. fufu stops describing the extension — its verbs leave the tool and the card, `ff help <name>` stops reaching the binary, its briefing line and its skills and its subscriptions all stop being fufu's business.
+Takes the name off the list. fufu stops describing the extension — its produced tools leave [`ff mcp`](mcp.md), `ff help <name>` stops reaching the binary, its briefing line and its skills and its subscriptions all stop being fufu's business.
 
 Nothing is uninstalled. `ff-<name>` is still on PATH and `ff <name>` still runs it, on the same three variables it always had. Skills a [`ff hook`](hook.md) install already wrote stay where they were written; the next `ff hook claude` sweeps them from the plugin, and Codex's stay until the next install stops carrying them.
 

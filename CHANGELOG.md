@@ -22,11 +22,18 @@
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
 - A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
 - `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff sync` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
+- `ff mcp` serves seven typed tools, `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, in place of the one `ff` tool and its args array; every other verb is the shell. The tools a declared extension produces are served beside them as before, and take `cwd` the same way.
+- The manifest's `undoable` and `verbs[].read_only` are informational: `ff extension add` reports `undoable: false`, and nothing refuses on either.
 - The docs site plays the demo and the tutorial's clips as asciinema recordings, crisp at any width and with selectable text; the demo and tutorial webms are gone, and the gifs stay as the README's and the no-JavaScript fallback.
 
 ### Removed
 
 - `ff co`, the hidden alias on the `checkout` foreign verb. `ff checkout` still answers with `usage/foreign-verb`.
+- `fufu.toolPolicy`, with the presence marker `ff mcp` held for it and the `ff trigger claude` refusal it drove.
+- `usage/mcp-verb-unavailable`.
+- `usage/mcp-extension-undeclared`.
+- `usage/mcp-extension-not-undoable`.
+- `usage/mcp-policy-write`, and the sealed keys under the tool.
 
 ### Fixed
 

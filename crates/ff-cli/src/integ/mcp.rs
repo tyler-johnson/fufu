@@ -1,7 +1,7 @@
 //! The MCP servers' registration, per client.
 //!
-//! `ff mcp` is one tool over stdio, and a client has to be told where it
-//! is. Each agent adapter registers it beside the capture hook it already
+//! `ff mcp` is fufu's typed tools over stdio, and a client has to be told
+//! where it is. Each agent adapter registers it beside the capture hook it already
 //! wires, so `ff hook <slug>` does both, `ff unhook <slug>` removes both,
 //! and `ff doctor` reports both — with no new slug, because the server is
 //! a property of a client fufu already integrates with and not a thing of
@@ -45,7 +45,7 @@ use serde_json::{Map, Value};
 use super::{Change, Mechanism, Wiring, settings};
 
 /// The key fufu's own server goes under, and the name a client prefixes
-/// the tool with: `mcp__fufu__ff`.
+/// each tool with: `mcp__fufu__status`.
 pub const NAME: &str = "fufu";
 
 /// What fufu's own server is asked to run: this binary, and the one verb.

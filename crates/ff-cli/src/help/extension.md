@@ -2,14 +2,14 @@
 
 What declaring buys is that fufu will describe the extension:
 
-- the `ff mcp` tool serves its verbs, and the card names them
 - `ff help <name>` and `ff explain <name>/<id>` reach the binary
 - its briefing line rides fufu's, and `ff hook` asks the binary for its skills and installs them beside fufu's
 - the agent event fans out to it
+- the MCP tools it produces are served by `ff mcp` beside fufu's own
 
 It buys the extension no capability and no environment — an undeclared `ff-<name>` runs from a shell exactly as it always did, on the same three variables.
 
-The list lives under your config directory rather than in a repository, because the binary is on PATH and declaring it is a decision about this machine. It is also the one thing the MCP tool will not do: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
+The list lives under your config directory rather than in a repository, because the binary is on PATH and declaring it is a decision about this machine. It is also why no MCP tool reaches this verb: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
 
 ## Examples
 
