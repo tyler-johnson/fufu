@@ -1,7 +1,8 @@
 //! `ff resolve` — deal with a held rewrite. It materializes the conflicts
-//! into the working tree, all at once, as one editing session; `--abandon`
-//! drops the hold instead. Unlike a hold, none of its outcomes is a refusal:
-//! a resolution that opened is a success, so nothing here sets an exit code.
+//! all at once on a session branch, the way `ff edit` opens one, and
+//! switches you there; `--abandon` drops the hold instead. Unlike a hold,
+//! none of its outcomes is a refusal: a resolution that opened is a
+//! success, so nothing here sets an exit code.
 
 use ff_core::{ResolveOutcome, Result};
 
@@ -39,10 +40,11 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 );
             }
             println!(
-                "resolving {} conflict{} in {}",
+                "resolving {} conflict{} in {} on {}",
                 report.regions,
                 if report.regions == 1 { "" } else { "s" },
-                report.files.join(", ")
+                report.files.join(", "),
+                report.session
             );
             match &report.tangled {
                 Some(subject) => println!(
@@ -82,14 +84,25 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 crate::machine::emit("resolve", &payload)?;
                 return Ok(());
             }
-            if report.was_resolving {
-                println!(
-                    "dropped the held {} on {} and the markers with it",
+            let colored = crate::pager::color_enabled();
+            match &report.session {
+                Some(session) => println!(
+                    "dropped the held {} on {} and the session {} with it",
+                    report.verb, report.branch, session
+                ),
+                None if report.was_resolving => println!(
+                    "dropped the held {} on {} and the resolution with it",
                     report.verb, report.branch
-                );
-            } else {
-                println!("dropped the held {} on {}", report.verb, report.branch);
+                ),
+                None => println!("dropped the held {} on {}", report.verb, report.branch),
             }
+            // HEAD moved only when the abandon ran from the session; a
+            // session deleted from the held branch leaves HEAD where it stood.
+            if report.returned {
+                println!("back on {}", report.branch);
+                crate::cmd::switch::render_arrival(&report.arrival, colored);
+            }
+            println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
     }
     Ok(())

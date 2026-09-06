@@ -96,9 +96,9 @@ A replay that would conflict stops with nothing changed rather than leaving a ha
 
 A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb that hit it recorded a hold in the branch's metadata and wrote nothing there; when it is a branch the cascade reached, the operation landed and that branch alone stayed put. `ff status` reports it, `ff publish` refuses to send while one stands, and a hold on a branch above takes `ff switch <branch>` to reach.
 
-- `ff resolve` materializes every surviving conflict region into the working copy at once, as ordinary labeled markers. Nothing moves — the branch stays, a parked change keeps waiting. Fix the markers, then `ff done` lands the rewrite behind them.
+- `ff resolve` materializes every surviving conflict region at once, as ordinary labeled markers, on a session branch it mints and switches you to. The hold stays on the branch you left, and your open change parks there. Fix the markers, then `ff done` lands the rewrite and returns you. A switch away parks the fixes; switching back resumes them.
 - If the world has moved and the rewrite now applies cleanly, `ff resolve` releases the hold instead, and re-running the verb that recorded it lands it.
-- `ff resolve --abandon` drops the hold, and an open session's markers with it.
+- `ff resolve --abandon` drops the hold, and an open session with it, from either branch.
 - Either way, the way back is one `ff undo`.
 - A cascade leaves alone, and names, a branch checked out in another worktree, one already holding a rewrite, and one whose commits hold a merge. `ff restack <branch>` replays it once it is free.
 

@@ -205,7 +205,8 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     // The resolution outranks the hold, and both outrank the session block:
     // the more urgent fact about where you are standing goes highest, and a
     // tree full of markers is the most urgent of the three — a hold is only
-    // waiting, and a session is only editing.
+    // waiting, and a session is only editing. On the branch the hold stands
+    // on the line points at the session instead.
     if let Some(resolving) = &model.resolving {
         // Singular keeps the grammar honest: one conflict "is" in the tree.
         let (noun, be) = if resolving.conflicts == 1 {
@@ -215,21 +216,29 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         };
         // One painted line, no paint nested inside it — an inner reset would
         // end the warn colour for the rest of the line.
-        out.push_str(&paint_warn(
-            &format!(
-                "resolving: {} {} from ff {} {} in your working copy",
-                resolving.conflicts, noun, resolving.verb, be,
-            ),
-            colored,
-        ));
-        out.push('\n');
-        out.push_str(&format!(
-            "    {hint}\n",
-            hint = paint_dim(
-                "fix the markers, then ff done · ff resolve --abandon to drop it",
-                colored
+        let (line, hint) = if resolving.here {
+            (
+                format!(
+                    "resolving: {} {} from ff {} {} in your working copy",
+                    resolving.conflicts, noun, resolving.verb, be,
+                ),
+                "fix the markers, then ff done · ff resolve --abandon to drop it".to_string(),
             )
-        ));
+        } else {
+            (
+                format!(
+                    "resolving: {} {} from ff {} {} on {}",
+                    resolving.conflicts, noun, resolving.verb, be, resolving.session,
+                ),
+                format!(
+                    "ff switch {} to fix them · ff resolve --abandon to drop it",
+                    resolving.session
+                ),
+            )
+        };
+        out.push_str(&paint_warn(&line, colored));
+        out.push('\n');
+        out.push_str(&format!("    {hint}\n", hint = paint_dim(&hint, colored)));
     }
     if let Some(held) = &model.held {
         let where_it_stopped = match &held.at {

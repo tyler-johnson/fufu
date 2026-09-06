@@ -633,7 +633,11 @@ pub enum ResolveOutcome {
 /// A resolution session that opened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ResolveReport {
+    /// The branch the hold stands on, and the one the session lands on.
     pub branch: String,
+    /// The session branch: minted at a commit carrying the markers, with
+    /// HEAD on it now.
+    pub session: String,
     /// The verb that held.
     pub verb: String,
     /// Files carrying conflict markers, sorted.
@@ -663,8 +667,16 @@ pub struct ReleasedReport {
 pub struct AbandonedHold {
     pub branch: String,
     pub verb: String,
-    /// Set when a resolution session was open and its markers were thrown away.
+    /// Set when a resolution session was open and its fixes were thrown away.
     pub was_resolving: bool,
+    /// The session branch that was deleted, when one still existed.
+    pub session: Option<String>,
+    /// Whether HEAD came back to `branch`: the abandon ran from the session.
+    /// False when it ran from the branch itself, with the session open
+    /// elsewhere or not at all, and nothing moved.
+    pub returned: bool,
+    /// What became of `branch`'s parked change when HEAD came back to it.
+    pub arrival: ArrivalReport,
 }
 
 /// The result of `ff done`: an editing session ended, landed or abandoned.
@@ -689,7 +701,10 @@ pub enum DoneOutcome {
 /// A resolution that landed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ResolvedReport {
+    /// The branch the landed stack sits on, and the one HEAD is back on.
     pub branch: String,
+    /// The session branch the fixes were made on, gone now.
+    pub session: String,
     /// The verb whose rewrite this was.
     pub verb: String,
     /// Conflict regions the reader fixed.
@@ -703,6 +718,10 @@ pub struct ResolvedReport {
     /// comes back clean or expired. It is asked anyway, because the cost is
     /// one simulated replay and the alternative is a rewrite going quiet.
     pub still_held: Option<HeldReport>,
+    /// What became of the parked change waiting on `branch`: a restack's
+    /// open change comes back here; an absorb's or a lift's was folded into
+    /// the landing and its park is spent, so nothing arrives.
+    pub arrival: ArrivalReport,
     /// The branches stacked above the landed branch, replayed by the landing
     /// verb's cascade: the subtree the hold stopped, resumed from the new
     /// tip. A hold inside it is that branch's own and leaves `still_held`

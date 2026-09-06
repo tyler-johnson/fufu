@@ -15,7 +15,7 @@ use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::{EditOutcome, EditReport, HeadState};
-use crate::ops::record::{SessionTransition, observe_refs};
+use crate::ops::record::{ResolveTransition, SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 use crate::revset::{Rev, Revset};
 use crate::snapshot::Provenance;
@@ -173,7 +173,20 @@ pub fn edit(
     let name = crate::petname::mint(repo)?;
     let at_string = at.to_string();
 
-    mint_session(repo, &name, at, &current, resolve_now(now), &argv, prov)?;
+    mint_session(
+        repo,
+        Mint {
+            name: &name,
+            at,
+            onto: &current,
+            verb: "edit",
+            summary: format!("edit {at_short}: session {name} on {current}"),
+            resolving: None,
+        },
+        resolve_now(now),
+        &argv,
+        prov,
+    )?;
 
     // Park the open change, retarget HEAD, and materialize the commit's tree
     // — `start` makes exactly this call for exactly this reason.
@@ -200,6 +213,19 @@ pub fn edit(
     ))
 }
 
+/// What a session mint needs from the verb minting it: the branch to
+/// create, where, which branch it lands on, and how the operation reads.
+/// `resolving` is the record `ff resolve` writes on the branch it leaves,
+/// naming the session; `ff edit` passes `None`.
+pub(crate) struct Mint<'a> {
+    pub name: &'a str,
+    pub at: gix::ObjectId,
+    pub onto: &'a str,
+    pub verb: &'a str,
+    pub summary: String,
+    pub resolving: Option<ResolveTransition>,
+}
+
 /// Mint the session branch at the commit, recorded, with the session written
 /// into its metadata.
 ///
@@ -208,15 +234,25 @@ pub fn edit(
 /// safe precisely because it is write-ahead: the planned table it records
 /// already contains the branch it is about to create, so the switch's own
 /// reconcile finds the world exactly where this operation said it would be.
-fn mint_session(
+///
+/// The session's own transition rides `edit_session` for an editing session
+/// and `resolve_session` for a resolution's, the same split the landing
+/// records, so undo reads each from the field the verb wrote.
+pub(crate) fn mint_session(
     repo: &gix::Repository,
-    name: &str,
-    at: gix::ObjectId,
-    onto: &str,
+    mint: Mint<'_>,
     now: i64,
     argv: &[String],
     prov: &Provenance,
 ) -> Result<()> {
+    let Mint {
+        name,
+        at,
+        onto,
+        verb,
+        summary,
+        resolving,
+    } = mint;
     let at_short = crate::sha::short_oid(at);
     let session = branchmeta::Session {
         onto: onto.to_string(),
@@ -227,23 +263,35 @@ fn mint_session(
     planned
         .refs
         .insert(format!("refs/heads/{name}"), at.to_string());
-    let mut record = OpRecord::new(
-        "edit",
-        format!("edit {at_short}: session {name} on {onto}"),
-        now,
-    );
+    let mut record = OpRecord::new(verb, summary, now);
     record.argv = argv.to_vec();
     record.refs = vec![RefTransition {
         name: format!("refs/heads/{name}"),
         old: None,
         new: Some(at.to_string()),
     }];
-    record.edit_session = Some(SessionTransition {
+    let transition = SessionTransition {
         branch: name.to_string(),
         old: None,
         new: Some(session.clone()),
-    });
+    };
+    if resolving.is_some() {
+        record.resolve_session = Some(transition);
+    } else {
+        record.edit_session = Some(transition);
+    }
+    record.resolving = resolving.clone();
     let tree = crate::ops::verb::worktree_or_head(repo)?;
+    // The marker tree a resolution's commit carries is pinned beside the
+    // commit: the chain's tree is what `ff done` checks its re-run against.
+    let mut pins = vec![at];
+    if let Some(tree) = resolving
+        .as_ref()
+        .and_then(|t| t.new.as_ref())
+        .and_then(|r| gix::ObjectId::from_hex(r.from.as_bytes()).ok())
+    {
+        pins.push(tree);
+    }
     verb::append_op(
         repo,
         OpKind::Op,
@@ -260,7 +308,7 @@ fn mint_session(
             branch: crate::snapshot::chain::chain_name(&head),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
-            pins: &[at],
+            pins: &pins,
         },
         now,
     )?;
@@ -270,7 +318,14 @@ fn mint_session(
         name,
         at,
         now,
-        &format!("branch: editing session at {at_short}"),
+        &format!(
+            "branch: {} session at {at_short}",
+            if verb == "edit" {
+                "editing"
+            } else {
+                "resolution"
+            }
+        ),
     )?;
     branchmeta::write(
         repo,
@@ -284,5 +339,8 @@ fn mint_session(
             resolving: None,
         },
     )?;
+    if let Some(transition) = resolving {
+        crate::held::set_resolving(repo, &transition.branch, transition.new)?;
+    }
     Ok(())
 }

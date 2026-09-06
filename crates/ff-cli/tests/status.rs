@@ -104,13 +104,20 @@ fn status_pins_a_standing_hold() {
     );
 }
 
-/// An open resolution is the more urgent fact: it says the conflicts are in
-/// the working tree, names `ff done`, and stands above the hold.
+/// An open resolution is the more urgent fact: on the session it says the
+/// conflicts are in the working copy and names `ff done`; the hold itself
+/// stays on the branch you left, shown there beneath a line that names the
+/// session.
 #[test]
 fn status_pins_an_open_resolution() {
     let fx = repo();
     held_stack(&fx);
-    assert!(ff(&fx, &["resolve"]).status.success());
+    let opened = ff(&fx, &["--json", "resolve"]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    let session = json(&opened)["data"]["resolve"]["session"]
+        .as_str()
+        .expect("the session branch")
+        .to_string();
 
     let output = ff(&fx, &["status"]);
     assert!(
@@ -131,6 +138,28 @@ fn status_pins_an_open_resolution() {
     assert!(
         text.contains("ff resolve --abandon to drop it"),
         "and the way out of the session: {text}"
+    );
+    assert!(
+        !text.contains("held:"),
+        "the hold stands on the branch you left, not here: {text}"
+    );
+    assert!(
+        text.contains("editing") && text.contains("lands back on feature"),
+        "the session block reads as any editing session's: {text}"
+    );
+
+    // On the branch the hold stands on, the line points at the session.
+    assert!(ff(&fx, &["switch", "feature"]).status.success());
+    let text = stdout(&ff(&fx, &["status"]));
+    assert!(
+        text.contains(&format!(
+            "resolving: 1 conflict from ff restack is on {session}"
+        )),
+        "the session is named: {text}"
+    );
+    assert!(
+        text.contains(&format!("ff switch {session} to fix them")),
+        "and the way there: {text}"
     );
     let resolving = text.find("resolving:").expect("the resolution block");
     let held = text.find("held:").expect("the hold block");
@@ -180,6 +209,19 @@ fn status_json_carries_both() {
         !resolving["steps"].as_array().unwrap().is_empty(),
         "what the session will land: {resolving}"
     );
+    assert_eq!(resolving["here"], true, "HEAD is on the session");
+    let session = resolving["session"].as_str().unwrap().to_string();
+    assert_eq!(v["data"]["session"]["branch"], session);
+    assert_eq!(v["data"]["session"]["onto"], "feature");
+    assert!(
+        v["data"]["held"].is_null(),
+        "the hold stays on the branch the session left"
+    );
+
+    assert!(ff(&fx, &["switch", "feature"]).status.success());
+    let v = json(&ff(&fx, &["status", "--json"]));
+    assert_eq!(v["data"]["resolving"]["here"], false);
+    assert_eq!(v["data"]["resolving"]["session"], session);
     assert!(
         !v["data"]["held"].is_null(),
         "the hold stays: it is what the session is resolving"

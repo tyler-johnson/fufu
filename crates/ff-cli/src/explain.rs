@@ -791,12 +791,20 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "held/resolving",
-        summary: "a resolution is already open on this branch",
+        summary: "a resolution of this hold is already open",
         detail: "Re-running ff resolve would materialize the same conflicts again over the \
                  very edits the open session is collecting, so it refuses instead. The \
-                 markers are in your working copy right now: fix them and the rewrite lands, \
-                 or ff resolve --abandon drops the session and the hold together.",
-        exits: &["ff done", "ff resolve --abandon", "ff status"],
+                 session is a branch, minted at a commit carrying the markers the way ff edit \
+                 mints one. Standing on it, the markers are in your working copy: fix them \
+                 and ff done lands the rewrite. Standing on the branch the hold is recorded \
+                 on, ff switch <session> takes you to them. Either way ff resolve --abandon \
+                 drops the session and the hold together.",
+        exits: &[
+            "ff done",
+            "ff switch <session>",
+            "ff resolve --abandon",
+            "ff status",
+        ],
     },
     Entry {
         id: "held/moved",

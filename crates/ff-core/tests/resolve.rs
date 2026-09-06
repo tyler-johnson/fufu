@@ -114,7 +114,7 @@ fn hold_a_restack(fx: &Fixture) {
 }
 
 #[test]
-fn resolving_a_held_restack_puts_the_markers_in_the_working_tree() {
+fn resolving_a_held_restack_opens_a_session_branch_carrying_the_markers() {
     let fx = Fixture::new();
     ident(&fx);
     conflict_stack(&fx);
@@ -129,6 +129,48 @@ fn resolving_a_held_restack_puts_the_markers_in_the_working_tree() {
 
     assert_eq!(report.branch, "feature");
     assert_eq!(report.verb, "restack");
+    let session = report.session.clone();
+    assert!(
+        ff_core::branch::is_anonymous(&session),
+        "the session is an anonymous branch: {session}"
+    );
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        session,
+        "HEAD moved onto it"
+    );
+    // Its tip is one commit over the branch's tip, carrying the marker tree.
+    let marker_commit = fx.git(&["rev-parse", &session]).trim().to_string();
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{session}~1")]).trim(),
+        fx.git(&["rev-parse", "feature"]).trim()
+    );
+    let open = ff_core::held::resolving(&fx.repo(), "feature")
+        .unwrap()
+        .expect("the resolution is recorded on the held branch");
+    assert_eq!(open.session, session, "and it names the session");
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{marker_commit}^{{tree}}")])
+            .trim(),
+        open.from,
+        "the commit's tree is the marker tree"
+    );
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), &session)
+            .unwrap()
+            .session,
+        Some(ff_core::branchmeta::Session {
+            onto: "feature".into(),
+            at: marker_commit,
+        }),
+        "the session's own metadata points back at the held branch"
+    );
+    assert_eq!(
+        ff_core::held::session_of(&fx.repo(), &session)
+            .unwrap()
+            .map(|(onto, _)| onto),
+        Some("feature".to_string())
+    );
     assert!(
         report.files.iter().any(|f| f == "f.txt"),
         "the report names the conflicted file: {:?}",
@@ -147,8 +189,12 @@ fn resolving_a_held_restack_puts_the_markers_in_the_working_tree() {
         "the closer must name the commit: {on_disk}"
     );
 
-    // A resolve opens a session; it does not move a branch ref.
-    assert_eq!(head_refs(&fx), before, "a resolve moves no branch ref");
+    // A resolve mints a session; it moves no branch ref that existed.
+    let after: Vec<(String, String)> = head_refs(&fx)
+        .into_iter()
+        .filter(|(name, _)| !name.ends_with(&session))
+        .collect();
+    assert_eq!(after, before, "a resolve moves no existing branch ref");
 }
 
 #[test]
@@ -320,6 +366,21 @@ fn abandoning_an_open_resolution_puts_the_tree_back() {
     };
 
     assert!(report.was_resolving, "a session was open");
+    assert!(report.returned, "HEAD came back from the session");
+    let session = report
+        .session
+        .clone()
+        .expect("the session branch was deleted");
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&session)),
+        "the session branch is gone"
+    );
     let restored = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
     assert_eq!(
         restored, "two\n",
@@ -358,17 +419,43 @@ fn undoing_a_resolution_closes_it() {
         "the session is open before the undo"
     );
 
-    let opts = ff_core::RewindOptions {
-        force: false,
-        now: Some(NOW + 200),
-        argv: vec!["ff".into(), "undo".into()],
+    // Two operations opened it — the mint and the switch — so two undos take
+    // it back: the first returns to the branch, the second unmints.
+    let session = fx
+        .git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string();
+    let undo = |now: i64| {
+        let opts = ff_core::RewindOptions {
+            force: false,
+            now: Some(now),
+            argv: vec!["ff".into(), "undo".into()],
+        };
+        ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
     };
-    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+    undo(NOW + 200);
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "feature")
+            .unwrap()
+            .is_some(),
+        "one undo only takes the switch back; the session still stands"
+    );
+    undo(NOW + 300);
 
     assert_eq!(
         ff_core::held::resolving(&fx.repo(), "feature").unwrap(),
         None,
-        "the undo closes the session"
+        "the second undo closes the session"
+    );
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&session)),
+        "and unmints its branch"
     );
     assert_eq!(
         ff_core::held::of(&fx.repo(), "feature").unwrap(),

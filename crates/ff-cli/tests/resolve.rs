@@ -85,12 +85,17 @@ fn resolve_opens_and_reports() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("f.txt"),
-        "the report must name the file: {text}"
+        text.contains("resolving 1 conflict in f.txt on ff/"),
+        "the report names the file and the session branch: {text}"
     );
     assert!(
         text.contains("ff done"),
         "the report must name the way out: {text}"
+    );
+    let head = fx.git(&["symbolic-ref", "--short", "HEAD"]);
+    assert!(
+        head.trim().starts_with("ff/"),
+        "HEAD is on the session: {head}"
     );
 }
 
@@ -106,6 +111,14 @@ fn resolve_json_envelope() {
     assert_eq!(v["cmd"], "resolve");
     assert_eq!(v["data"]["resolve"]["regions"], 1);
     assert_eq!(v["data"]["resolve"]["files"][0], "f.txt");
+    assert_eq!(v["data"]["resolve"]["branch"], "feature");
+    assert!(
+        v["data"]["resolve"]["session"]
+            .as_str()
+            .unwrap()
+            .starts_with("ff/"),
+        "{v}"
+    );
 }
 
 #[test]
@@ -148,8 +161,16 @@ fn done_finishes_the_resolution_and_says_where_the_branch_landed() {
         "and where the branch ended up: {text}"
     );
     assert!(
+        text.contains("back on feature"),
+        "and that HEAD came back: {text}"
+    );
+    assert!(
         text.contains("undo: ff undo"),
         "one undo takes it all back: {text}"
+    );
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
     );
 }
 
@@ -195,6 +216,48 @@ fn done_abandon_over_a_resolution_names_the_resolution() {
     assert!(
         text.contains("abandoned the resolution on feature"),
         "a resolution is not an editing session, and the report says so: {text}"
+    );
+    assert!(text.contains("back on feature"), "{text}");
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+}
+
+#[test]
+fn resolve_abandon_from_the_session_names_it() {
+    let fx = repo();
+    held_stack(&fx);
+    let opened = json(&ff(&fx, &["--json", "resolve"]));
+    let session = opened["data"]["resolve"]["session"].as_str().unwrap();
+
+    let output = ff(&fx, &["resolve", "--abandon"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains(&format!(
+            "dropped the held restack on feature and the session {session} with it"
+        )),
+        "{text}"
+    );
+    assert!(text.contains("back on feature"), "{text}");
+}
+
+#[test]
+fn resolve_on_the_held_branch_names_the_open_session() {
+    let fx = repo();
+    held_stack(&fx);
+    let opened = json(&ff(&fx, &["--json", "resolve"]));
+    let session = opened["data"]["resolve"]["session"].as_str().unwrap();
+    assert!(ff(&fx, &["switch", "feature"]).status.success());
+
+    let output = ff(&fx, &["--json", "resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["error"]["id"], "held/resolving");
+    assert_eq!(
+        v["error"]["message"],
+        format!("a resolution of feature is open on {session}")
     );
 }
 

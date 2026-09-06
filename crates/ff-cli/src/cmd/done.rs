@@ -1,10 +1,12 @@
 //! `ff done` ends the editing session `ff edit` opened: the commit the
 //! session was opened on is amended with what the working tree now holds,
 //! what waited ahead is replayed onto it, and the worktree lands back on the
-//! branch the session left standing. `--abandon` drops the session instead,
-//! stashing whatever is uncommitted rather than discarding it. It is one
-//! operation — the amend, the replay and the return move together — so one
-//! `ff undo` takes the whole session back.
+//! branch the session left standing. It ends the resolution session
+//! `ff resolve` opened the same way, landing the fixes and returning.
+//! `--abandon` drops the session instead, stashing whatever is uncommitted
+//! rather than discarding it. It is one operation — the amend, the replay
+//! and the return move together — so one `ff undo` takes the whole session
+//! back.
 
 use ff_core::{DoneOutcome, Result};
 
@@ -115,14 +117,10 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             if report.editing.is_empty() {
                 // A resolution, not an editing session: there is no commit
                 // being edited to name, and saying so with an empty sha and
-                // an empty subject is worse than saying what happened. You
-                // never left the branch either, so there is nothing to say
-                // about coming back to it.
+                // an empty subject is worse than saying what happened.
                 println!("abandoned the resolution on {}", report.onto);
-                println!(
-                    "{}",
-                    crate::render::paint_dim("your open change is open again", colored)
-                );
+                println!("back on {}", report.onto);
+                crate::cmd::switch::render_arrival(&report.arrival, colored);
             } else {
                 println!(
                     "abandoned the session on {} \"{}\"",
@@ -170,6 +168,8 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 report.branch,
                 crate::render::paint_sha(ff_core::sha::short(report.new_tip.as_str()), colored)
             );
+            println!("back on {}", report.branch);
+            crate::cmd::switch::render_arrival(&report.arrival, colored);
             // The subtree the hold stopped, resumed from the landed tip. A
             // hold up there is that branch's own, recorded on its metadata,
             // and the landing stands, so the exit stays 0 and the line names

@@ -107,7 +107,7 @@ Reading it:
 - **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `id_letters` is the operation id of the capture holding its current state, and `pending` is the pending description commit when one exists.
 - **`futures`** — the sync verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
 - **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
-- **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open.
+- **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open. `resolving.session` names the session branch, and `resolving.here` says whether HEAD is on it; on the branch the hold stands on, `here` is false and `held` is set.
 
 A script that checks those last three fields before acting knows whether the repository needs a human first.
 

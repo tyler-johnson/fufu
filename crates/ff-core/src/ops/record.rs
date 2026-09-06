@@ -182,6 +182,13 @@ pub struct OpRecord {
     /// unrelated thing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit_session: Option<SessionTransition>,
+    /// A resolution session branch opened or ended: the session `ff resolve`
+    /// mints, and the landing or the abandon deletes. Its own field because a
+    /// `done` landing under a resolution ends two sessions in one operation,
+    /// the editing session it lands and the resolution session it returns
+    /// from, and `edit_session` carries the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_session: Option<SessionTransition>,
     /// A rewrite held or released. Recorded like a session, and for the same
     /// reason: undo has to be able to put it back. No `RECORD_VERSION` bump
     /// for this or `resolving`: both are optional and skipped when absent, so
@@ -246,6 +253,7 @@ impl OpRecord {
             description: None,
             parent: None,
             edit_session: None,
+            resolve_session: None,
             held: None,
             cascade_held: Vec::new(),
             resolving: None,

@@ -102,6 +102,56 @@ fn tip(fx: &Fixture, branch: &str) -> String {
     fx.git(&["rev-parse", branch]).trim().to_string()
 }
 
+fn head_branch(fx: &Fixture) -> String {
+    fx.git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+/// `ff switch <branch>`, asserting it worked.
+fn switch_to(fx: &Fixture, branch: &str, now: i64) -> ff_core::SwitchReport {
+    let repo = fx.repo();
+    ff_core::switch(
+        &repo,
+        &ff_core::SwitchOptions {
+            target: branch.to_string(),
+            now: Some(now),
+            argv: vec!["ff".into(), "switch".into(), branch.to_string()],
+        },
+        &prov(),
+    )
+    .map(|(report, _ctx)| report)
+    .unwrap()
+}
+
+/// The newest operation's record, read through the public reader.
+fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    op.record()
+        .unwrap()
+        .cloned()
+        .expect("a verb op has a record")
+}
+
+fn undo(fx: &Fixture, now: i64) {
+    let repo = fx.repo();
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            force: false,
+            now: Some(now),
+            argv: vec!["ff".into(), "undo".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+}
+
+fn stash_list(fx: &Fixture) -> String {
+    fx.git(&["stash", "list"]).trim().to_string()
+}
+
 /// A commit's tree, as (path, contents) pairs for every blob in it.
 fn tree_files(repo: &gix::Repository, commit: gix::ObjectId) -> Vec<(String, String)> {
     let tree = repo
@@ -437,9 +487,16 @@ fn a_repository_that_moved_refuses() {
 
     // The world moves under the session: a commit lands on the branch being
     // resolved, so the conflicts the reader was given are not the repository's
-    // conflicts any more.
+    // conflicts any more. The session is a branch of its own, so the commit
+    // is made on `feature` itself — the way there is a switch and back.
+    let session = fx
+        .git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string();
+    switch_to(&fx, "feature", NOW + 110);
     fx.write("unrelated.txt", "later\n");
     let _later = fx.commit("later");
+    switch_to(&fx, &session, NOW + 120);
 
     let before_refs = head_refs(&fx);
     let before_ops = verb_ops(&fx);
@@ -705,9 +762,9 @@ fn an_absorbs_open_change_does_not_come_back_twice() {
 
     let opened = open_resolution(&fx, NOW + 100);
     assert!(
-        opened.parked.is_none(),
-        "an absorb has already folded the open change into the chain's trees, \
-         so there is nothing to park"
+        opened.parked.is_some(),
+        "the switch onto the session parks the open change like any other; the landing \
+         spends the park, since the chain's trees already carry the change"
     );
     // The fold's own conflict is what the reader is shown, labeled as step one
     // of the chain — an absorb's fold IS step one, and a block nobody can
@@ -846,7 +903,10 @@ fn a_resolved_lift_lands_the_open_change_back() {
     drop(repo);
 
     let opened = open_resolution(&fx, NOW + 100);
-    assert!(opened.parked.is_none(), "a lift parks nothing either");
+    assert!(
+        opened.parked.is_none(),
+        "the tree was clean, so the switch onto the session parked nothing"
+    );
 
     let report = resolved(&fx, NOW + 200);
     assert_eq!(report.verb, "lift");
@@ -1056,10 +1116,10 @@ fn an_absorbs_resolution_lands_under_the_gate() {
 
     let report = resolved(&fx, NOW + 200);
     assert_eq!(report.verb, "absorb");
-    // The gate is told the worktree against HEAD, so only `g.txt` shows:
-    // the reader fixed `f.txt` back to the content `c2` — HEAD — already
-    // holds, which is exactly why the stack can land.
-    assert_eq!(staged_marker(&fx), vec!["g.txt"]);
+    // The gate is told the worktree against HEAD, which is the session's
+    // marker commit: `g.txt` is already in that tree — the fold landed it —
+    // so only the reader's fix to `f.txt` shows.
+    assert_eq!(staged_marker(&fx), vec!["f.txt"]);
     let repo = fx.repo();
     let landed = commits_between(
         &repo,
@@ -1068,6 +1128,409 @@ fn an_absorbs_resolution_lands_under_the_gate() {
     );
     let c1_new = oid(landed.last().expect("the oldest landed commit is c1'"));
     assert_eq!(file_in(&repo, c1_new, "g.txt").as_deref(), Some("gopen\n"));
+}
+
+// ---------------------------------------------------------------------------
+// The session is a branch: travel, the return trip, and what one undo takes
+// back
+// ---------------------------------------------------------------------------
+
+#[test]
+fn switching_away_parks_the_fixes_and_switching_back_resumes_them() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    fx.write("open.txt", "dirty\n");
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    let session = opened.session.clone();
+    assert_eq!(head_branch(&fx), session, "HEAD is on the session branch");
+
+    // Fixes in progress, then a switch away: the fixes park on the session,
+    // and the branch's own parked change comes back where it was.
+    fix(&fx, "f.txt", "PARTIAL\n");
+    let away = switch_to(&fx, "feature", NOW + 200);
+    assert!(away.parked.is_some(), "the fixes in progress are parked");
+    assert!(
+        matches!(away.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "the branch's own change comes back: {:?}",
+        away.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "two\n",
+        "the branch holds its own content, not the markers"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("open.txt")).unwrap(),
+        "dirty\n"
+    );
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "feature")
+            .unwrap()
+            .is_some(),
+        "the resolution stays open while you are away"
+    );
+
+    // Back to the session: the fixes resume exactly where they stood.
+    let back = switch_to(&fx, &session, NOW + 300);
+    assert!(
+        matches!(back.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "the fixes come back: {:?}",
+        back.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "PARTIAL\n"
+    );
+    assert!(!fx.path().join("open.txt").exists());
+
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let report = resolved(&fx, NOW + 400);
+    assert_eq!(report.session, session);
+    assert_eq!(head_branch(&fx), "feature");
+    assert!(
+        matches!(report.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "the restack's open change is back on the landed tip: {:?}",
+        report.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("open.txt")).unwrap(),
+        "dirty\n"
+    );
+    assert_eq!(stash_list(&fx), "", "no park is left behind");
+}
+
+#[test]
+fn a_commit_on_the_session_still_lands_its_fixes() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+
+    // The fix is committed on the session rather than left open, as it may
+    // be on any editing session.
+    fix(&fx, "f.txt", "RESOLVED\n");
+    fx.commit("my fix");
+
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.fixed, 1);
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    assert_eq!(
+        landed.len(),
+        3,
+        "the stack landed, and the fix commit is not in it"
+    );
+    assert_eq!(
+        file_in(&repo, oid(landed.last().unwrap()), "f.txt").as_deref(),
+        Some("RESOLVED\n"),
+        "the committed fix landed in the step that owned the conflict"
+    );
+    let heads = head_refs(&fx);
+    assert!(
+        !heads
+            .iter()
+            .any(|(name, _)| name.ends_with(&opened.session)),
+        "the session branch is gone: {heads:?}"
+    );
+}
+
+#[test]
+fn a_done_resolution_lands_the_session_and_brings_the_landing_branchs_park_back() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("shared.txt", "line1\nbase\nline3\n");
+    let _c0 = fx.commit("c0");
+    fx.write("shared.txt", "line1\nc1-edit\nline3\n");
+    let c1 = fx.commit("c1");
+    fx.write("shared.txt", "line1\nc2-edit\nline3\n");
+    let _c2 = fx.commit("c2");
+    // `main` has its own open change when the editing session opens, so
+    // `ff edit` parks it under `main`.
+    fx.write("mine.txt", "on main\n");
+
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::edit::edit(
+        &repo,
+        &c1,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "edit".into()],
+    )
+    .unwrap();
+    let edit_session = match outcome {
+        ff_core::EditOutcome::Opened(r) => {
+            assert!(r.parked.is_some(), "main's change is parked");
+            r.session
+        }
+        other => panic!("a session must open, got {other:?}"),
+    };
+    drop(repo);
+    fx.write("shared.txt", "line1\nsession-edit\nline3\n");
+    let held = done_call(&fx, NOW + 10).unwrap();
+    assert!(matches!(held, DoneOutcome::Held(_)), "{held:?}");
+
+    // The resolution session opens off the editing session, parking the
+    // session's edit under it.
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.branch, edit_session);
+    assert!(
+        opened.parked.is_some(),
+        "the editing session's change is parked"
+    );
+    let session = opened.session.clone();
+    assert_eq!(head_branch(&fx), session);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), &session)
+            .unwrap()
+            .session
+            .map(|s| s.onto),
+        Some(edit_session.clone()),
+        "the resolution session lands back on the editing session"
+    );
+
+    fix(&fx, "shared.txt", "line1\nRESOLVED\nline3\n");
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.verb, "done");
+    assert_eq!(report.branch, "main");
+    assert_eq!(
+        head_branch(&fx),
+        "main",
+        "HEAD is back on the landing branch"
+    );
+    let heads = head_refs(&fx);
+    assert!(
+        !heads
+            .iter()
+            .any(|(name, _)| name.ends_with(&session) || name.ends_with(&edit_session)),
+        "both sessions are gone: {heads:?}"
+    );
+    assert!(
+        matches!(report.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "main's own parked change comes back: {:?}",
+        report.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("mine.txt")).unwrap(),
+        "on main\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("shared.txt")).unwrap(),
+        "line1\nRESOLVED\nline3\n",
+        "the working copy is the landed tip's content"
+    );
+    assert_eq!(
+        stash_list(&fx),
+        "",
+        "the editing session's park was spent, not brought back a second time"
+    );
+    let repo = fx.repo();
+    let landed = commits_between(
+        &repo,
+        oid(&report.new_tip),
+        oid(&fx.git(&["rev-parse", "HEAD~2"])),
+    );
+    assert_eq!(
+        file_in(&repo, oid(landed.last().unwrap()), "shared.txt").as_deref(),
+        Some("line1\nsession-edit\nline3\n"),
+        "the amend carries the session's own content"
+    );
+}
+
+#[test]
+fn the_landing_record_carries_the_return_trip_and_one_undo_restores_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    // A tracked edit rather than a new file: a park's untracked half is not
+    // in the end tree `switch` and the landing record, so an undo over one
+    // steps onto the landing instead of back over it — `switch`'s own
+    // behavior, and not what this test is about.
+    fx.write("a.txt", "a1 dirty\n");
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    let session = opened.session.clone();
+    let marker_commit = tip(&fx, &session);
+    let parked = opened.parked.clone().expect("the open change was parked");
+    let held_before = ff_core::held::of(&fx.repo(), "feature").unwrap();
+    let resolving_before = ff_core::held::resolving(&fx.repo(), "feature").unwrap();
+    let session_meta_before = ff_core::branchmeta::read(&fx.repo(), &session)
+        .unwrap()
+        .session;
+
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(head_branch(&fx), "feature");
+
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "restack", "the landing is the verb's own op");
+    assert_eq!(
+        record.head,
+        Some((
+            format!("ref:refs/heads/{session}"),
+            "ref:refs/heads/feature".to_string()
+        )),
+        "the record carries the HEAD move off the session"
+    );
+    assert!(
+        record
+            .refs
+            .iter()
+            .any(|t| t.name == format!("refs/heads/{session}")
+                && t.old.as_deref() == Some(marker_commit.as_str())
+                && t.new.is_none()),
+        "and the session branch's deletion: {:?}",
+        record.refs
+    );
+    assert!(
+        record.stash.iter().any(|e| matches!(
+            e,
+            ff_core::ops::StashEffect::Drop { branch, stash } if branch == "feature" && *stash == parked
+        )),
+        "and the park brought home: {:?}",
+        record.stash
+    );
+    let ended = record
+        .resolve_session
+        .as_ref()
+        .expect("the session's end is recorded");
+    assert_eq!(ended.branch, session);
+    assert_eq!(ended.old, session_meta_before);
+    assert_eq!(ended.new, None);
+
+    // One undo puts the whole of it back: HEAD on the session, the session
+    // branch at its marker commit, the park, both records, and the fixes.
+    undo(&fx, NOW + 300);
+    assert_eq!(head_branch(&fx), session, "HEAD is back on the session");
+    assert_eq!(tip(&fx, &session), marker_commit);
+    assert_ne!(tip(&fx, "feature"), report.new_tip);
+    assert_eq!(
+        ff_core::stash::parked_entry(&fx.repo(), "feature")
+            .unwrap()
+            .map(|id| id.to_string()),
+        Some(parked),
+        "the park is parked again"
+    );
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap(),
+        held_before
+    );
+    assert_eq!(
+        ff_core::held::resolving(&fx.repo(), "feature").unwrap(),
+        resolving_before
+    );
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), &session)
+            .unwrap()
+            .session,
+        session_meta_before
+    );
+    assert!(
+        ff_core::held::session_of(&fx.repo(), &session)
+            .unwrap()
+            .is_some(),
+        "the session reads as one again"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "RESOLVED\n",
+        "the fixes are back in the working copy"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "a1\n",
+        "and the open change is parked again, not on disk"
+    );
+}
+
+#[test]
+fn abandoning_from_the_held_branch_deletes_the_session_elsewhere() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    let session = opened.session.clone();
+    fix(&fx, "f.txt", "PARTIAL\n");
+    switch_to(&fx, "feature", NOW + 200);
+    assert_ne!(stash_list(&fx), "", "the fixes in progress are parked");
+    let before_tip = tip(&fx, "feature");
+
+    let report = match resolve_call(&fx, true, NOW + 300).unwrap() {
+        ResolveOutcome::Abandoned(r) => r,
+        other => panic!("--abandon must abandon, got {other:?}"),
+    };
+    assert_eq!(report.branch, "feature");
+    assert!(report.was_resolving);
+    assert_eq!(report.session.as_deref(), Some(session.as_str()));
+    assert!(!report.returned, "HEAD never left the branch");
+    assert_eq!(head_branch(&fx), "feature");
+    assert_eq!(tip(&fx, "feature"), before_tip, "an abandon moves no ref");
+    let heads = head_refs(&fx);
+    assert!(
+        !heads.iter().any(|(name, _)| name.ends_with(&session)),
+        "the session branch is gone: {heads:?}"
+    );
+    assert_eq!(stash_list(&fx), "", "and its parked fixes with it");
+    let repo = fx.repo();
+    assert!(
+        ff_core::held::of(&repo, "feature").unwrap().is_none()
+            && ff_core::held::resolving(&repo, "feature")
+                .unwrap()
+                .is_none(),
+        "both records are cleared"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "two\n",
+        "the working copy was not touched"
+    );
+}
+
+#[test]
+fn resolving_the_held_branch_while_its_session_is_open_names_the_session() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    let session = opened.session.clone();
+    switch_to(&fx, "feature", NOW + 200);
+
+    let err = resolve_call(&fx, false, NOW + 300).expect_err("the session is open elsewhere");
+    assert_eq!(err.id(), "held/resolving", "{err}");
+    assert!(
+        err.to_string().contains(&session),
+        "the refusal names the session: {err}"
+    );
+    assert!(
+        err.exits()
+            .iter()
+            .any(|e| e == &format!("ff switch {session}")),
+        "and the way there: {:?}",
+        err.exits()
+    );
+
+    // `ff done` on the held branch says the same.
+    let err = done_call(&fx, NOW + 400).expect_err("done on the held branch refuses");
+    assert_eq!(err.id(), "held/resolving", "{err}");
+    assert!(err.to_string().contains(&session), "{err}");
+
+    // With the session branch deleted by hand, the hold is stale.
+    fx.git(&["branch", "-D", &session]);
+    let err = resolve_call(&fx, false, NOW + 500).expect_err("the session is gone");
+    assert_eq!(err.id(), "held/expired", "{err}");
+    match resolve_call(&fx, true, NOW + 600).unwrap() {
+        ResolveOutcome::Abandoned(r) => assert_eq!(r.session, None, "nothing left to delete"),
+        other => panic!("--abandon must abandon, got {other:?}"),
+    }
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "feature")
+            .unwrap()
+            .is_none()
+    );
 }
 
 // ---------------------------------------------------------------------------

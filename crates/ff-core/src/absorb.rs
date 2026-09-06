@@ -22,9 +22,26 @@ use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
 use crate::snapshot::tree as snaptree;
+use crate::stash::{self, ArrivePlan};
 
-/// The branch HEAD sits on and its tip commit.
-fn head_branch(repo: &gix::Repository, verb_noun: &str) -> Result<(String, gix::ObjectId)> {
+/// The branch the rewrite runs on and its tip: `on` when named — a
+/// resolution landing names the held branch, since HEAD stands on the
+/// session by then — and HEAD's otherwise.
+fn head_branch(
+    repo: &gix::Repository,
+    on: Option<&str>,
+    verb_noun: &str,
+) -> Result<(String, gix::ObjectId)> {
+    if let Some(name) = on {
+        let tip = refs::ref_target(repo, &format!("refs/heads/{name}"))?.ok_or_else(|| {
+            Error::coded(
+                "branch/not-found",
+                format!("no branch named {name}"),
+                vec![],
+            )
+        })?;
+        return Ok((name.to_string(), tip));
+    }
     let head = crate::head::head_state(repo)?;
     match head {
         HeadState::Branch { name, commit, .. } => {
@@ -269,14 +286,15 @@ fn in_history(repo: &gix::Repository, target: gix::ObjectId, tip: gix::ObjectId)
 /// is the caller's job, not the replan's.
 pub(crate) fn replan_absorb(
     repo: &gix::Repository,
+    on: Option<&str>,
     into: Option<gix::ObjectId>,
     paths: &[String],
     open: Option<gix::ObjectId>,
 ) -> Result<held::Replan> {
-    let (_branch, tip) = head_branch(repo, "absorb into")?;
+    let (_branch, tip) = head_branch(repo, on, "absorb into")?;
     let target = into.unwrap_or(tip);
     in_history(repo, target, tip)?;
-    let tip_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
+    let tip_tree = tree_of(repo, tip)?;
     // `open`, when given, is the working tree a resolution session recorded
     // before it wrote the markers over it — the same change this read
     // otherwise takes from disk.
@@ -308,10 +326,11 @@ pub(crate) fn replan_absorb(
 /// its parent's content, and its descendants follow.
 pub(crate) fn replan_lift(
     repo: &gix::Repository,
+    on: Option<&str>,
     from: Option<gix::ObjectId>,
     paths: &[String],
 ) -> Result<held::Replan> {
-    let (_branch, tip) = head_branch(repo, "lift from")?;
+    let (_branch, tip) = head_branch(repo, on, "lift from")?;
     let target = from.unwrap_or(tip);
     in_history(repo, target, tip)?;
     let target_tree = tree_of(repo, target)?;
@@ -385,28 +404,45 @@ pub fn absorb_with(
 
     let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
-    let (branch, tip) = head_branch(repo, "absorb into")?;
+    // A resolution landing runs on the held branch, named by the clearing:
+    // HEAD stands on the resolution session, and the return trip is what
+    // brings it back.
+    let clearing = decided.clearing.as_ref();
+    let return_trip = clearing.and_then(|c| c.return_trip.as_ref());
+    let (branch, tip) = head_branch(repo, clearing.map(|c| c.branch.as_str()), "absorb into")?;
 
-    let tip_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    let (mut open_tree, clean, scan) = open_tree(repo, tip_tree)?;
-    if clean || open_tree == tip_tree {
-        return Ok((
-            AbsorbOutcome::NothingToAbsorb {
-                branch: branch.clone(),
-            },
-            ctx,
-        ));
-    }
+    let tip_tree = tree_of(repo, tip)?;
+    // The open change: read off the working copy, or already decided. A
+    // resolution landing has the fold's result in `decided` — `chain` folded
+    // the change and the reader's fixes in — so the working copy, which
+    // holds the session's fixes rather than the change, is not read at all,
+    // and neither emptiness refusal can fire: the hold was recorded over a
+    // change that was not empty.
+    let (mut open_tree, mut theirs) = (tip_tree, tip_tree);
+    let mut scan = snaptree::Scan::default();
+    if clearing.is_none() {
+        let (read, clean, read_scan) = self::open_tree(repo, tip_tree)?;
+        open_tree = read;
+        scan = read_scan;
+        if clean || open_tree == tip_tree {
+            return Ok((
+                AbsorbOutcome::NothingToAbsorb {
+                    branch: branch.clone(),
+                },
+                ctx,
+            ));
+        }
 
-    // The tip's tree, with the selected paths taken from the worktree.
-    let mut theirs = filtered(repo, tip_tree, open_tree, &paths)?;
-    if theirs == tip_tree {
-        return Ok((
-            AbsorbOutcome::NothingToAbsorb {
-                branch: branch.clone(),
-            },
-            ctx,
-        ));
+        // The tip's tree, with the selected paths taken from the worktree.
+        theirs = filtered(repo, tip_tree, open_tree, &paths)?;
+        if theirs == tip_tree {
+            return Ok((
+                AbsorbOutcome::NothingToAbsorb {
+                    branch: branch.clone(),
+                },
+                ctx,
+            ));
+        }
     }
 
     // The pre-commit gate. `theirs` is precisely what is folding in — the
@@ -418,9 +454,7 @@ pub fn absorb_with(
     // A resolution landing has already run the gate in `finish_resolution`:
     // this re-entry must not run it a second time.
     let mut window = None;
-    if decided.clearing.is_none()
-        && verify == hooks::Verify::Run
-        && hooks::will_run(repo, &["pre-commit"])?
+    if clearing.is_none() && verify == hooks::Verify::Run && hooks::will_run(repo, &["pre-commit"])?
     {
         let differs = snaptree::unselected_paths(&scan, &paths);
         let (opened, ran) = hooks::Window::open(repo, theirs, &differs, verify, "absorb")?;
@@ -510,7 +544,7 @@ pub fn absorb_with(
         in_history(repo, target, tip)?;
         *tree
     } else {
-        let replan = replan_absorb(repo, into, &paths, None)?;
+        let replan = replan_absorb(repo, None, into, &paths, None)?;
         match &replan.change {
             rewrite::Change::Tree { tree, .. } => *tree,
             other => {
@@ -610,25 +644,38 @@ pub fn absorb_with(
         .collect::<Result<_>>()?;
     pins.push(tip);
 
+    // The return trip rides this record: the HEAD move off the resolution
+    // session, that branch's deletion, and the spent park — the change the
+    // fold already carries, which an arrival would apply a second time.
+    let new_tip_tree = tree_of(repo, plan.new_tip)?;
+    if let Some(ret) = return_trip {
+        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
+            .iter()
+            .map(|l| l.new)
+            .collect();
+        ret.fold_into(
+            &mut planned,
+            &mut record,
+            &mut pins,
+            &mut stash_lines,
+            &ArrivePlan::None,
+        );
+    }
     // The cascade rides this record: its ref moves, rewrites, drops, and
     // holds, and the planned table says where its branches will stand.
     cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     // Absorb writes no files, so the planned worktree is the one already
     // there, and the index is about to be rewritten to match the new tip.
-    // A resolution landing is the exception: `ff resolve` put the chain's
-    // markers in the working tree, and a chain that stopped at a tangle put
-    // the TARGET's tree there rather than the tip's — so the landing has to
-    // bring the tree to the tip it just wrote, or files the descendants
-    // reintroduce would read as deleted.
-    let new_tip_tree = tree_of(repo, plan.new_tip)?;
+    // A resolution landing is the exception: the working copy moves from
+    // the session's fixes to the tip it just wrote.
     verb::append_op(
         repo,
         OpKind::Op,
         verb::VerbOp {
             record,
             planned,
-            tree: if decided.clearing.is_some() {
+            tree: if return_trip.is_some() {
                 new_tip_tree
             } else {
                 ctx.pre_tree
@@ -642,6 +689,11 @@ pub fn absorb_with(
         now,
     )?;
 
+    // HEAD leaves the resolution session, whose branch the transaction below
+    // deletes.
+    if let Some(ret) = return_trip {
+        ret.leave(repo, now)?;
+    }
     // Move the refs: one atomic transaction over every carried head.
     let reflog_msg = format!("absorb: into {target_short}");
     let mut edits = Vec::new();
@@ -660,8 +712,12 @@ pub fn absorb_with(
             &reflog_msg,
         )?);
     }
-    // The branches above move in the same transaction: all of them or none.
+    // The branches above move in the same transaction: all of them or none,
+    // and the resolution session's deletion with them.
     edits.extend(cascade.edits(&reflog_msg)?);
+    if let Some(ret) = return_trip {
+        edits.extend(ret.edits()?);
+    }
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -688,17 +744,16 @@ pub fn absorb_with(
         window.landed();
     }
 
-    crate::index::write_index_for_tree(repo, new_tip_tree)?;
-
-    // A resolution landing: bring the working tree to the tip just written —
-    // the markers were standing in it and the reader's fixes are already in
-    // the commits — and clear the hold and the session it resolved, so one
-    // `ff undo` of this op takes the whole resolution back.
-    if let Some(clearing) = &decided.clearing {
-        let everything = |_: &str| true;
-        crate::worktree::apply_tree_transition(repo, open_tree, new_tip_tree, &everything)?;
-        crate::held::set(repo, &clearing.branch, None)?;
-        crate::held::set_resolving(repo, &clearing.branch, None)?;
+    // A resolution landing is the return trip's: the working copy moves
+    // from the session's fixes to the tip just written — the fixes are
+    // already in the commits — the park is spent, and the hold and the
+    // session it resolved are cleared, so one `ff undo` of this op takes the
+    // whole resolution back.
+    match return_trip {
+        Some(ret) => {
+            ret.land(repo, new_tip_tree, &ArrivePlan::None, now)?;
+        }
+        None => crate::index::write_index_for_tree(repo, new_tip_tree)?,
     }
 
     let branch_ref = format!("refs/heads/{branch}");
@@ -745,7 +800,7 @@ pub fn absorb_with(
             // would report work still open when there is none. A resolution
             // landing left the tree standing on the new tip, so nothing is
             // open there by construction.
-            still_open: decided.clearing.is_none() && open_tree != new_tip_tree,
+            still_open: return_trip.is_none() && open_tree != new_tip_tree,
             dropped: plan.dropped.clone(),
             cascade: cascade.report,
         }),
@@ -831,14 +886,19 @@ pub fn lift_with(
 
     let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
-    let (branch, tip) = head_branch(repo, "lift from")?;
-
+    // A resolution landing runs on the held branch, named by the clearing:
+    // HEAD stands on the resolution session, and the return trip is what
+    // brings it back.
+    let clearing = decided.clearing.as_ref();
+    let return_trip = clearing.and_then(|c| c.return_trip.as_ref());
+    let on = clearing.map(|c| c.branch.as_str());
+    let (branch, tip) = head_branch(repo, on, "lift from")?;
     let target = from.unwrap_or(tip);
     let target_tree = tree_of(repo, target)?;
 
     // The triple the lift replays — the same one `held::replan` re-derives, so
     // the verb and the replan cannot disagree.
-    let replan = replan_lift(repo, from, &paths)?;
+    let replan = replan_lift(repo, on, from, &paths)?;
     // The target's new tree: its own, with the selected paths reverted to the
     // parent's content. If the revert changes nothing there is nothing to lift.
     let lifted = match &replan.change {
@@ -933,20 +993,43 @@ pub fn lift_with(
         .collect::<Result<_>>()?;
     pins.push(tip);
 
+    // The return trip rides this record: the HEAD move off the resolution
+    // session, that branch's deletion, and the spent park — the change the
+    // lift's chain already carries, which an arrival would apply twice.
+    let new_tip_tree = tree_of(repo, plan.new_tip)?;
+    if let Some(ret) = return_trip {
+        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
+            .iter()
+            .map(|l| l.new)
+            .collect();
+        ret.fold_into(
+            &mut planned,
+            &mut record,
+            &mut pins,
+            &mut stash_lines,
+            &ArrivePlan::None,
+        );
+    }
     // The cascade rides this record: its ref moves, rewrites, drops, and
     // holds, and the planned table says where its branches will stand.
     cascade.fold_into(&mut record, &mut planned, &mut pins);
 
     // Lift writes no files, so the planned worktree is the one already
     // there, and the index is about to be rewritten to match the new tip.
+    // A resolution landing is the exception: the working copy moves from
+    // the session's fixes to the tip it just wrote.
     verb::append_op(
         repo,
         OpKind::Op,
         verb::VerbOp {
             record,
             planned,
-            tree: ctx.pre_tree,
-            index_tree: tree_of(repo, plan.new_tip)?,
+            tree: if return_trip.is_some() {
+                new_tip_tree
+            } else {
+                ctx.pre_tree
+            },
+            index_tree: new_tip_tree,
             branch: branch.clone(),
             base: Some(tip),
             session: prov.session.clone(),
@@ -955,6 +1038,11 @@ pub fn lift_with(
         now,
     )?;
 
+    // HEAD leaves the resolution session, whose branch the transaction below
+    // deletes.
+    if let Some(ret) = return_trip {
+        ret.leave(repo, now)?;
+    }
     // Move the refs: one atomic transaction over every carried head.
     let reflog_msg = format!("lift: out of {target_short}");
     let mut edits = Vec::new();
@@ -973,8 +1061,12 @@ pub fn lift_with(
             &reflog_msg,
         )?);
     }
-    // The branches above move in the same transaction: all of them or none.
+    // The branches above move in the same transaction: all of them or none,
+    // and the resolution session's deletion with them.
     edits.extend(cascade.edits(&reflog_msg)?);
+    if let Some(ret) = return_trip {
+        edits.extend(ret.edits()?);
+    }
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -990,15 +1082,17 @@ pub fn lift_with(
     // moved, and its futures caches.
     cascade.land(repo)?;
 
-    crate::index::write_index_for_tree(repo, tree_of(repo, plan.new_tip)?)?;
-
-    // A resolution landing: clear the hold and the session it resolved, so
-    // one `ff undo` of this op takes the whole resolution back. The tree is
-    // left standing, as every lift leaves it: what the lift took out of the
-    // commit is exactly what is open in it now.
-    if let Some(clearing) = &decided.clearing {
-        crate::held::set(repo, &clearing.branch, None)?;
-        crate::held::set_resolving(repo, &clearing.branch, None)?;
+    // A resolution landing is the return trip's: the working copy moves
+    // from the session's fixes to the tip just written, the park is spent,
+    // and the hold and the session it resolved are cleared, so one `ff undo`
+    // of this op takes the whole resolution back. What the lift took out of
+    // the commit was folded into the chain and is in the commits; nothing is
+    // open afterwards.
+    match return_trip {
+        Some(ret) => {
+            ret.land(repo, new_tip_tree, &ArrivePlan::None, now)?;
+        }
+        None => crate::index::write_index_for_tree(repo, new_tip_tree)?,
     }
 
     let branch_ref = format!("refs/heads/{branch}");

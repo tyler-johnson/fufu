@@ -46,7 +46,10 @@ fn describe_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<String> 
     Ok(format!("{short} {subject}"))
 }
 
-fn write_commit(
+/// One commit object over `tree`, signed as `sig` on both sides: the shape
+/// every stash commit takes, and the marker commit `ff resolve` mints its
+/// session at.
+pub(crate) fn write_commit(
     repo: &gix::Repository,
     tree: gix::ObjectId,
     parents: Vec<gix::ObjectId>,
@@ -402,6 +405,18 @@ pub enum Arrival {
     /// The stash entry vanished (dropped/popped outside fufu): the parked
     /// ref was demoted. The timeline still has the state.
     Invalidated { stash: String },
+}
+
+impl From<Arrival> for crate::model::ArrivalReport {
+    fn from(arrival: Arrival) -> Self {
+        use crate::model::ArrivalReport;
+        match arrival {
+            Arrival::None => ArrivalReport::None,
+            Arrival::Restored { stash, files } => ArrivalReport::Restored { stash, files },
+            Arrival::Conflicted { stash, paths } => ArrivalReport::StillParked { stash, paths },
+            Arrival::Invalidated { stash } => ArrivalReport::Invalidated { stash },
+        }
+    }
 }
 
 /// What an arrival will do, computed before any mutation — the planning is

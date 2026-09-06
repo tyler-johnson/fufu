@@ -23,14 +23,15 @@ fn a_hold() -> Held {
     }
 }
 
-/// A concrete resolution session: a hold, a marker-tree sha, three steps, and
-/// the working tree it took possession of.
+/// A concrete resolution session: a hold, a marker-tree sha, three steps,
+/// the working tree it took possession of, and the session branch.
 fn a_resolve() -> Resolve {
     Resolve {
         hold: a_hold(),
         from: "b".repeat(40),
         steps: vec!["first".into(), "second".into(), "third".into()],
         open: Some("c".repeat(40)),
+        session: "quiet-otter".into(),
     }
 }
 
@@ -176,4 +177,49 @@ fn a_held_record_serializes_without_its_absent_fields() {
     let json = serde_json::to_string(&meta).unwrap();
     assert!(!json.contains("\"held\""), "{json}");
     assert!(!json.contains("\"resolving\""), "{json}");
+}
+
+/// A `resolving` record from before sessions were branches carries no
+/// `session`: it reads back with an empty one, so the verbs can tell it
+/// apart from a live session and refuse it as expired.
+#[test]
+fn a_resolving_record_without_a_session_reads_back_empty() {
+    let fx = fixture();
+    let repo = fx.repo();
+    let path = repo.common_dir().join("fufu/branch").join("main");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let hold = serde_json::to_string(&a_hold()).unwrap();
+    std::fs::write(
+        &path,
+        format!(
+            r#"{{"held":{hold},"resolving":{{"hold":{hold},"from":"{}","steps":["first"]}}}}"#,
+            "b".repeat(40)
+        ),
+    )
+    .unwrap();
+
+    let open = held::resolving(&repo, "main")
+        .unwrap()
+        .expect("the record reads");
+    assert_eq!(open.session, "", "no session branch is named");
+    assert_eq!(open.open, None);
+    assert_eq!(
+        held::session_of(&repo, "main").unwrap(),
+        None,
+        "the branch itself is not a session"
+    );
+
+    let err = ff_core::resolve::resolve(
+        &repo,
+        false,
+        &ff_core::Provenance::new("pre", None),
+        Some(1_799_999_999),
+        vec!["ff".into(), "resolve".into()],
+    )
+    .expect_err("a resolution without a session cannot be resumed");
+    assert_eq!(err.id(), "held/expired", "{err}");
+    assert!(
+        err.to_string().contains("predates session branches"),
+        "{err}"
+    );
 }

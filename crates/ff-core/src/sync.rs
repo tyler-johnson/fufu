@@ -493,7 +493,7 @@ impl Run {
                 Ok(RestackOutcome::Held(plan.report.clone()))
             }
             RestackPlan::Replay(plan) => {
-                let report = plan.report(repo, 0, None)?;
+                let report = plan.report(repo, 0)?;
                 for t in plan.carried.iter().chain(plan.cascade.carried.iter()) {
                     if let Some(new) = &t.new {
                         let id = gix::ObjectId::from_hex(new.as_bytes()).map_err(Error::repo)?;

@@ -11,6 +11,8 @@
 
 ### Changed
 
+- `ff resolve` opens a session branch, the way `ff edit` does: an anonymous branch minted at a commit carrying the markers, switched to, with the hold staying on the branch you left. `ff done` lands the fixes and returns in one operation; `--abandon` returns too, and from the held branch deletes the session wherever it is. Opening is two operations, the mint and the switch, so two `ff undo` take a fresh session back.
+- `ff status` and `ff status --json` carry the session under `resolving` on both branches: on the session, the conflicts are in your working copy; on the held branch, the line names the session and `ff switch` to it. `held/resolving` on the held branch names the session.
 - The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.
 
 - "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff sync`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
@@ -27,6 +29,7 @@
 
 ### Fixed
 
+- `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree: the fixes park on the session branch and come back when you switch to it.
 - `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.
 
 ## v0.12.1 — 2026-09-04

@@ -1,6 +1,6 @@
 # ff done
 
-Ends the editing session [`ff edit`](edit.md) opened: the commit the session was opened on is amended with what the working copy now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing.
+Ends the editing session [`ff edit`](edit.md) opened: the commit the session was opened on is amended with what the working copy now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing. It ends the session [`ff resolve`](resolve.md) opened the same way: the fixes land in the steps that owned them, and you land back on the branch the hold stood on.
 
 A replay that would conflict stops with nothing changed rather than leaving you mid-rewrite. It is one operation — the amend, the replay and the return move together — so one [`ff undo`](undo.md) takes the whole session back.
 
@@ -21,7 +21,7 @@ Landing a resolution does the same from the branch the hold stood on, which is h
 
 The session's content is about to become the amended commit's content, so your `pre-commit` hook runs over it, and a hook that exits non-zero refuses the landing with the session still open. A session that also carries a new description runs the message hooks over that description.
 
-Landing a resolution — the `ff done` that finishes [`ff resolve`](resolve.md) — runs `pre-commit` too.
+Landing a resolution — the `ff done` that finishes `ff resolve` — runs `pre-commit` too.
 
 ## Usage
 

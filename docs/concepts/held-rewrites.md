@@ -24,7 +24,7 @@ That machinery exists mostly so jj's always-rebasing engine never has to stop, a
 
 fufu's observation is that for a person, conflicts are operation-shaped rather than edit-shaped. The user-visible benefit of jj's model is the deferral, and the deferral survives translation into states git already understands.
 
-Instead of a strange commit that exists, you get a pending rewrite that does not yet. A conflict is a pending decision, not a commit, and the graph never contains anything a teammate's GUI cannot display.
+Instead of a strange commit that exists, you get a pending rewrite that does not yet. The hold is operation-shaped, the resolution is an edit session, and the graph never contains anything a teammate's GUI cannot display.
 
 ## What a hold records
 
@@ -44,21 +44,21 @@ fufu runs that propagation in memory instead. Each step of the held rewrite repl
 
 ### The session
 
-[`ff resolve`](../reference/cli/resolve.md) then puts every surviving conflict region into the working copy together, as ordinary conflict markers, in one editing session.
+[`ff resolve`](../reference/cli/resolve.md) then puts every surviving conflict region into one editing session together, as ordinary conflict markers: a branch minted at a commit carrying the marker tree, which you switch to, the way [`ff edit`](../reference/cli/edit.md) opens one.
 
 The current side is labeled `the rewrite so far`. The incoming side carries the step that wrote it — `>>>>>>> rebasing "add parser options" (3/10)` — because the incoming side is where git puts the commit, and therefore where a reader already looks. Those labels are not decoration: they are what attributes each fix back to its owning step when the session lands.
 
-Nothing moves when the session opens. Your branch stays put, a [parked change](changes.md) — work set aside with another branch — waits where it was, and the hold stays, because it is what the session is resolving.
+The branch you left stays put, and the hold stays on it, because it is what the session is resolving. Your open change [parks](changes.md) there, as it does on any switch, and comes back when the session ends. The session travels the way any branch does: switching away parks the fixes in progress on it, switching back resumes them, and `ff status` and `ff branch list` show it as they show an editing session. A rogue `git checkout` away leaves a committed marker tree behind rather than a marker-laden working copy.
 
 ### Landing the session
 
-Fix the markers, then `ff done` lands it. Each resolution is folded back into the step that wrote it, the chain of steps re-runs in memory, and the whole rebased stack lands at once — refs move one time, every landed commit clean, no conflicted state ever existing in the graph.
+Fix the markers, then `ff done` lands it. Each resolution is folded back into the step that wrote it, the chain of steps re-runs in memory, and the whole rebased stack lands at once — refs move one time, every landed commit clean, no conflicted state ever existing in the graph. The landing deletes the session branch and returns you to the branch the hold stood on, in the same operation.
 
 Two commits conflicting on the same region is the one shape this cannot flatten. Carried markers do not nest — they interleave, and the earlier block stops bracketing anything.
 
 So the chain stops rather than write the tangle. `ff resolve` presents the steps before it, and what is left is held again. A stack of tangles unwinds one round at a time, without anyone having to know the word.
 
-`ff resolve --abandon` drops the hold instead, and an open session's markers with it. Either way the session is an operation like any other, so one [`ff undo`](snapshots-and-undo.md) takes it back — markers, resolutions, all of it.
+`ff resolve --abandon` drops the hold instead, and an open session with it, from either branch. Opening a session is two operations, the mint and the switch, so two [`ff undo`](snapshots-and-undo.md) take a fresh one back; landing or abandoning it is one, so one undo restores the session, the hold, and the fixes together.
 
 ## Deferred requires loud
 

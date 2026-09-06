@@ -66,6 +66,10 @@ pub struct Clearing {
     pub branch: String,
     pub held: Option<crate::held::Held>,
     pub resolve: Option<crate::held::Resolve>,
+    /// The way back from the session branch: planned once by the resolution
+    /// arm of `ff done`, executed by the verb that lands, inside its own
+    /// operation.
+    pub return_trip: Option<crate::held::Return>,
 }
 
 /// The trees a landing already knows. Empty for an ordinary invocation: every

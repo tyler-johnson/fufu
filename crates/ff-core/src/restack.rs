@@ -15,7 +15,7 @@ use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::{self, At, Verdict};
 use crate::held::{self, Held, Intent};
-use crate::model::{HeadState, HeldReport, Parked, RestackOutcome, RestackReport};
+use crate::model::{ArrivalReport, HeadState, HeldReport, Parked, RestackOutcome, RestackReport};
 use crate::ops::record::{ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, StashEffect, verb};
 use crate::overlay::Overlay;
@@ -365,6 +365,23 @@ pub fn restack_with(
     decided: &rewrite::Decided,
     aim: Aim,
 ) -> Result<(RestackOutcome, verb::VerbContext)> {
+    let (outcome, ctx, _arrival) =
+        restack_landing(repo, branch, onto, prov, invocation, decided, aim)?;
+    Ok((outcome, ctx))
+}
+
+/// `restack_with`, also answering what became of the parked change a
+/// resolution's return trip brought home — the one thing the report does
+/// not carry, since an ordinary restack moves no park.
+pub(crate) fn restack_landing(
+    repo: &gix::Repository,
+    branch: Option<String>,
+    onto: Option<String>,
+    prov: &Provenance,
+    invocation: (Option<i64>, Vec<String>),
+    decided: &rewrite::Decided,
+    aim: Aim,
+) -> Result<(RestackOutcome, verb::VerbContext, ArrivalReport)> {
     let (now, argv) = invocation;
     // 1. Guards.
     if repo.workdir().is_none() {
@@ -393,9 +410,11 @@ pub fn restack_with(
     // 3 to 10. The plan, against the repository as it stands.
     let plan = plan_restack(repo, branch, onto, now, decided, aim, &Overlay::default())?;
     match plan {
-        RestackPlan::Unchanged { branch, base } => {
-            Ok((RestackOutcome::NothingToRestack { branch, base }, ctx))
-        }
+        RestackPlan::Unchanged { branch, base } => Ok((
+            RestackOutcome::NothingToRestack { branch, base },
+            ctx,
+            ArrivalReport::None,
+        )),
         RestackPlan::Held(plan) => Ok((
             hold(
                 repo,
@@ -408,10 +427,15 @@ pub fn restack_with(
                 &plan,
             )?,
             ctx,
+            ArrivalReport::None,
         )),
         RestackPlan::Replay(plan) => {
-            let report = commit_restack(repo, &ctx, prov, argv, decided, *plan)?;
-            Ok((RestackOutcome::Restacked(Box::new(report)), ctx))
+            let (report, arrival) = commit_restack(repo, &ctx, prov, argv, decided, *plan)?;
+            Ok((
+                RestackOutcome::Restacked(Box::new(report)),
+                ctx,
+                arrival.into(),
+            ))
         }
     }
 }
@@ -475,7 +499,6 @@ pub(crate) struct ReplayPlan {
     pub new_worktree: Option<gix::ObjectId>,
     pub cascade: CascadePlan,
     arrive_plan: ArrivePlan,
-    arrive_target: gix::ObjectId,
 }
 
 impl ReplayPlan {
@@ -504,30 +527,17 @@ impl ReplayPlan {
     }
 
     /// The report, once the plan has landed. `files` is what the worktree
-    /// write touched, and `arrival` is what became of a parked change the
-    /// landing brought home, when one did.
-    pub(crate) fn report(
-        &self,
-        repo: &gix::Repository,
-        files: usize,
-        arrival: Option<&stash::Arrival>,
-    ) -> Result<RestackReport> {
+    /// write touched.
+    pub(crate) fn report(&self, repo: &gix::Repository, files: usize) -> Result<RestackReport> {
         let branch = &self.branch;
         // 13. The parked disclosure: say so, never move it. Skipped for the
         // branch underfoot — a branch you are standing on has no parked entry
-        // to speak of, its change being open rather than parked.
+        // to speak of, its change being open rather than parked. A
+        // resolution landing is never underfoot: HEAD stands on the session,
+        // and what its arrival could not put back is still parked here and
+        // read like any other entry.
         let parked = if self.head_carried && self.head_branch.as_deref() == Some(branch.as_str()) {
-            // A branch you are standing on has no parked entry to speak of,
-            // its change being open rather than parked — unless a resolution
-            // parked one and the arrival could not put it back, which is the
-            // one thing here that has to be said out loud.
-            match arrival {
-                Some(crate::stash::Arrival::Conflicted { stash, .. }) => Some(Parked {
-                    stash: stash.clone(),
-                    applies: false,
-                }),
-                _ => None,
-            }
+            None
         } else {
             match crate::stash::parked_entry(repo, branch)? {
                 Some(id) => {
@@ -1030,21 +1040,22 @@ pub(crate) fn plan_restack(
         new_worktree = Some(moved.worktree);
     }
 
-    // 10b. A resolution's park comes home. `ff resolve` parks the open change
-    // a restack CARRIES, to make room for the markers; this is the other half
-    // of that rule, and it runs inside the landing's own operation so one
-    // `ff undo` takes the park and the restack back together. An ordinary
-    // restack parked nothing — §13 only discloses what `ff switch` left
-    // behind — so it plans no arrival at all.
-    let arrive_target = new_worktree
-        .map(Ok)
-        .unwrap_or_else(|| tree_of(repo, new_tip))?;
-    let arrive_plan =
-        if decided.clearing.is_some() && head_branch.as_deref() == Some(branch.as_str()) {
-            stash::plan_arrival(repo, &branch, new_tip, arrive_target)?
-        } else {
-            ArrivePlan::None
-        };
+    // 10b. A resolution's park comes home. The switch `ff resolve` made
+    // parked the open change a restack CARRIES under the held branch, to
+    // make room for the markers; this is the other half of that rule, and
+    // it runs inside the landing's own operation so one `ff undo` takes the
+    // park and the restack back together. HEAD stands on the resolution
+    // session, never on the held branch, so the arrival is the return
+    // trip's. An ordinary restack parked nothing — §13 only discloses what
+    // `ff switch` left behind — so it plans no arrival at all.
+    let arrive_plan = match decided
+        .clearing
+        .as_ref()
+        .and_then(|c| c.return_trip.as_ref())
+    {
+        Some(ret) => ret.arrival(repo, new_tip, tree_of(repo, new_tip)?)?,
+        None => ArrivePlan::None,
+    };
 
     Ok(RestackPlan::Replay(Box::new(ReplayPlan {
         branch,
@@ -1070,7 +1081,6 @@ pub(crate) fn plan_restack(
         new_worktree,
         cascade,
         arrive_plan,
-        arrive_target,
     })))
 }
 
@@ -1084,10 +1094,14 @@ fn commit_restack(
     argv: Vec<String>,
     decided: &rewrite::Decided,
     plan: ReplayPlan,
-) -> Result<RestackReport> {
+) -> Result<(RestackReport, stash::Arrival)> {
     let now = ctx.now;
     let branch = plan.branch.clone();
     let base_name = plan.base.name.clone();
+    let return_trip = decided
+        .clearing
+        .as_ref()
+        .and_then(|c| c.return_trip.as_ref());
 
     // 11. Write-ahead: the planned table is the post-restack world.
     let mut planned = observe_refs(repo)?;
@@ -1097,50 +1111,8 @@ fn commit_restack(
         }
     }
 
-    let mut refs_transitions: Vec<RefTransition> = plan.carried.clone();
-    let mut stash_effects: Vec<StashEffect> = Vec::new();
-    if !matches!(plan.arrive_plan, ArrivePlan::None) {
-        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
-            .iter()
-            .map(|l| l.new)
-            .collect();
-        match &plan.arrive_plan {
-            ArrivePlan::Restore { stash: sha, .. } => {
-                if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                    stash_lines.remove(pos);
-                }
-                planned.refs.remove(&stash::parked_ref(&branch));
-                refs_transitions.push(RefTransition {
-                    name: stash::parked_ref(&branch),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-                stash_effects.push(StashEffect::Drop {
-                    branch: branch.clone(),
-                    stash: sha.to_string(),
-                });
-                match stash_lines.last() {
-                    Some(t) => {
-                        planned
-                            .refs
-                            .insert(stash::STASH_REF.to_string(), t.to_string());
-                    }
-                    None => {
-                        planned.refs.remove(stash::STASH_REF);
-                    }
-                }
-            }
-            ArrivePlan::Invalidate { stash: sha } => {
-                planned.refs.remove(&stash::parked_ref(&branch));
-                refs_transitions.push(RefTransition {
-                    name: stash::parked_ref(&branch),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-            }
-            ArrivePlan::None | ArrivePlan::Conflict { .. } => {}
-        }
-    }
+    let refs_transitions: Vec<RefTransition> = plan.carried.clone();
+    let stash_effects: Vec<StashEffect> = Vec::new();
 
     let summary = match plan.cascade.report.moved.len() {
         0 => format!("restack {branch} onto {base_name}"),
@@ -1167,39 +1139,60 @@ fn commit_restack(
 
     let mut pins = plan.own_pins()?;
 
+    // The return trip rides this record: the HEAD move off the resolution
+    // session, that branch's deletion, and the park that comes home.
+    let new_tip_tree = tree_of(repo, plan.new_tip)?;
+    if let Some(ret) = return_trip {
+        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
+            .iter()
+            .map(|l| l.new)
+            .collect();
+        ret.fold_into(
+            &mut planned,
+            &mut record,
+            &mut pins,
+            &mut stash_lines,
+            &plan.arrive_plan,
+        );
+    }
     // The cascade rides this record: its ref moves, rewrites, drops, and
     // holds, and the planned table says where its branches will stand.
     plan.cascade.fold_into(&mut record, &mut planned, &mut pins);
 
+    // Absorb passes ctx.pre_tree because it writes no files; restack does
+    // when the head branch is carried, and a resolution landing moves the
+    // worktree to the landed tip, or the restored change over it. The
+    // recorded end tree must be what the tree will actually hold, or an
+    // undo of the next operation throws the carried change away
+    // (switch.rs:203-214). The index is the new tip's tree, so the next
+    // foreign `git status` sees the open change against the commit it now
+    // sits on.
+    let (end_tree, end_index) = match return_trip {
+        Some(_) => held::Return::end_trees(&plan.arrive_plan, new_tip_tree),
+        None => (
+            plan.new_worktree.unwrap_or(ctx.pre_tree),
+            plan.new_head_tip
+                .map(|id| tree_of(repo, id))
+                .transpose()?
+                .unwrap_or(ctx.pre_tree),
+        ),
+    };
     verb::append_op(
         repo,
         OpKind::Op,
         verb::VerbOp {
             record,
             planned,
-            // Absorb passes ctx.pre_tree because it writes no files; restack
-            // does when the head branch is carried. The recorded end tree
-            // must be what the tree will actually hold, or an undo of the
-            // next operation throws the carried change away (switch.rs:203-214).
-            tree: match &plan.arrive_plan {
-                ArrivePlan::Restore { target_wip, .. } => *target_wip,
-                _ => plan.new_worktree.unwrap_or(ctx.pre_tree),
-            },
-            // The new tip's tree, so the next foreign `git status` sees the
-            // open change against the commit it now sits on.
-            index_tree: match &plan.arrive_plan {
-                ArrivePlan::Restore { target_index, .. } => *target_index,
-                _ => plan
-                    .new_head_tip
-                    .map(|id| tree_of(repo, id))
-                    .transpose()?
-                    .unwrap_or(ctx.pre_tree),
-            },
+            tree: end_tree,
+            index_tree: end_index,
             // The chain the op leaves you on: an off-branch restack leaves
             // you exactly where you stood, so HEAD's branch — and only when
             // HEAD is detached or unborn is the restacked one the honest
-            // answer.
-            branch: plan.head_branch.clone().unwrap_or_else(|| branch.clone()),
+            // answer. A resolution landing leaves you on the held branch.
+            branch: match return_trip {
+                Some(ret) => ret.to.clone(),
+                None => plan.head_branch.clone().unwrap_or_else(|| branch.clone()),
+            },
             base: Some(plan.branch_tip),
             session: prov.session.clone(),
             pins: &pins,
@@ -1208,6 +1201,11 @@ fn commit_restack(
     )?;
 
     // 12. Mutate.
+    // 12.0 HEAD leaves the resolution session, whose branch the transaction
+    // below deletes.
+    if let Some(ret) = return_trip {
+        ret.leave(repo, now)?;
+    }
     // 12.1 Refs: one atomic transaction over every carried head.
     let reflog_msg = format!("restack: onto {base_name}");
     let mut edits = Vec::new();
@@ -1226,8 +1224,12 @@ fn commit_restack(
             &reflog_msg,
         )?);
     }
-    // The branches above move in the same transaction: all of them or none.
+    // The branches above move in the same transaction: all of them or none,
+    // and the resolution session's deletion with them.
     edits.extend(plan.cascade.edits(&reflog_msg)?);
+    if let Some(ret) = return_trip {
+        edits.extend(ret.edits()?);
+    }
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -1252,20 +1254,29 @@ fn commit_restack(
     plan.cascade.land(repo)?;
 
     // 12.3 Worktree: index first, then the files — the order switch.rs uses.
+    // A resolution landing is the return trip's: from the session's fixes to
+    // the landed tip, the park brought home, and the hold and the session
+    // cleared, so one `ff undo` of this op takes the whole resolution back.
     let mut files = 0usize;
-    if let (Some(open_t), Some(new_wt), Some(new_ht)) =
-        (plan.open, plan.new_worktree, plan.new_head_tip)
-    {
-        crate::index::write_index_for_tree(repo, tree_of(repo, new_ht)?)?;
-        let everything = |_: &str| true;
-        let transition = crate::worktree::apply_tree_transition(repo, open_t, new_wt, &everything)?;
-        files = transition.written.len() + transition.deleted.len();
+    let mut arrival = stash::Arrival::None;
+    match return_trip {
+        Some(ret) => {
+            let (landed, touched) = ret.land(repo, new_tip_tree, &plan.arrive_plan, now)?;
+            arrival = landed;
+            files = touched;
+        }
+        None => {
+            if let (Some(open_t), Some(new_wt), Some(new_ht)) =
+                (plan.open, plan.new_worktree, plan.new_head_tip)
+            {
+                crate::index::write_index_for_tree(repo, tree_of(repo, new_ht)?)?;
+                let everything = |_: &str| true;
+                let transition =
+                    crate::worktree::apply_tree_transition(repo, open_t, new_wt, &everything)?;
+                files = transition.written.len() + transition.deleted.len();
+            }
+        }
     }
-
-    // 12.3b The parked change comes back, exactly the way `ff switch` brings
-    // one back — same plan, same executor, same journal entries.
-    let arrival =
-        stash::execute_arrival(repo, &branch, &plan.arrive_plan, plan.arrive_target, now)?;
 
     // 12.4 Futures caches: the restacked branch and every branch it carried.
     // Best-effort — it costs recomputation and nothing else.
@@ -1278,13 +1289,6 @@ fn commit_restack(
         }
     }
 
-    // 12.5 A resolution landing: clear the hold and the session it resolved,
-    // so one `ff undo` of this op takes the whole resolution back.
-    if let Some(clearing) = &decided.clearing {
-        held::set(repo, &clearing.branch, None)?;
-        held::set_resolving(repo, &clearing.branch, None)?;
-    }
-
     // 13 and 14. The disclosure and the report.
-    plan.report(repo, files, Some(&arrival))
+    Ok((plan.report(repo, files)?, arrival))
 }

@@ -27,8 +27,9 @@ pub struct StatusModel {
     /// A rewrite held on the branch underfoot — a conflict that stopped a
     /// replay and is waiting for `ff resolve`.
     pub held: Option<HeldStatus>,
-    /// A resolution open on the branch underfoot: the hold's conflicts are
-    /// standing in the working tree right now, waiting for `ff done`.
+    /// A resolution the branch underfoot is part of: its session, whose
+    /// working copy holds the hold's conflicts, or the branch the hold stands
+    /// on, whose session is open elsewhere.
     pub resolving: Option<ResolvingStatus>,
 }
 
@@ -48,17 +49,22 @@ pub struct HeldStatus {
     pub time: i64,
 }
 
-/// A resolution open on the branch underfoot, as `ff status --json` spells
-/// it. The conflicts are counted off what the session recorded, not off the
-/// working tree: a status render never runs a chain.
+/// A resolution the branch underfoot is part of, as `ff status --json`
+/// spells it. The conflicts are counted off what the session recorded, not
+/// off the working tree: a status render never runs a chain.
 #[derive(serde::Serialize)]
 pub struct ResolvingStatus {
     /// The verb whose rewrite the session is resolving.
     pub verb: String,
-    /// The conflicts standing in the working tree.
+    /// The conflicts standing in the session's working copy.
     pub conflicts: usize,
     /// Each step's subject, oldest-first — what the session will land.
     pub steps: Vec<String>,
+    /// The session branch carrying the markers.
+    pub session: String,
+    /// Whether HEAD is on that session, so the conflicts are in this working
+    /// copy; false on the branch the hold stands on.
+    pub here: bool,
 }
 
 /// An editing session running on the branch underfoot.
@@ -224,15 +230,20 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         _ => None,
     };
 
-    // A rewrite held on the branch underfoot, and the resolution, if one is
-    // open on it. Both read the branch's metadata and nothing else — the
-    // counts are carried, so a status render never replays a chain — and
-    // they follow the session block's rule exactly: a lookup that cannot
-    // run is a missing line, never a failed `ff status`.
+    // A rewrite held on the branch underfoot, and the resolution, if this
+    // branch is its session or the branch its hold stands on. Both read
+    // branch metadata and nothing else — the counts are carried, so a status
+    // render never replays a chain — and they follow the session block's
+    // rule exactly: a lookup that cannot run is a missing line, never a
+    // failed `ff status`.
     let (held, resolving) = match &status.head {
         ff_core::HeadState::Branch { name, .. } => {
             let compute = || -> ff_core::Result<(Option<HeldStatus>, Option<ResolvingStatus>)> {
                 let meta = ff_core::branchmeta::read(&repo, name)?;
+                let resolving = match ff_core::held::session_of(&repo, name)? {
+                    Some((_, r)) => Some((r, true)),
+                    None => meta.resolving.clone().map(|r| (r, false)),
+                };
                 Ok((
                     meta.held.as_ref().map(|h| HeldStatus {
                         verb: verb_of(&h.intent).to_string(),
@@ -240,10 +251,12 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
                         paths: h.paths.clone(),
                         time: h.time,
                     }),
-                    meta.resolving.as_ref().map(|r| ResolvingStatus {
+                    resolving.map(|(r, here)| ResolvingStatus {
                         verb: verb_of(&r.hold.intent).to_string(),
                         conflicts: r.hold.paths.len(),
                         steps: r.steps.clone(),
+                        session: r.session.clone(),
+                        here,
                     }),
                 ))
             };

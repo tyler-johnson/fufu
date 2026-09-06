@@ -65,7 +65,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `held/moved` | 3 | the repository changed while the resolution was open |
 | `held/none` | 3 | nothing is held on this branch |
 | `held/op-revert` | 3 | the inversion conflicts with work done since |
-| `held/resolving` | 3 | a resolution is already open on this branch |
+| `held/resolving` | 3 | a resolution of this hold is already open |
 | `held/rewrite-conflict` | 3 | the rewrite stops at a commit it cannot replay |
 | `held/unresolved` | 3 | conflict markers are still standing in the working copy |
 | `held/unsupported` | 3 | the held rewrite selected paths, and the open change reaches beyond them |
