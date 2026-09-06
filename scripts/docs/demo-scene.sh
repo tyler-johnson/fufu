@@ -98,13 +98,22 @@ printf '    esc: bool,\n' >> src/lexer.rs
 printf '\nRun `cargo test` before you push.\n' >> README.md
 
 # --- a teammate lands a commit on main, so sync has work to do ---
+# A file the demo never touches: the README edit parked on main has to
+# resume cleanly when the recording switches back at the end.
 (
   cd "$SCENE"
   git clone -q origin.git teammate
   cd teammate
   ident "Grace Hopper" grace@example.com
-  printf '\nBuilt for the toy language in `spec/`.\n' >> README.md
-  git commit -qam "docs: say what this is for"
+  cat > src/token.rs <<'EOF'
+pub enum Token {
+    Ident,
+    Number,
+    Str,
+    Char,
+}
+EOF
+  git commit -qam "token: a Char variant"
   git push -q origin main
 )
 

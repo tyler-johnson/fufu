@@ -62,7 +62,7 @@ $ ff sync
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 1 commit(s) onto main
-updated the working tree (1 file(s))
+updated the working copy (1 file(s))
 not published yet — ff publish
 main
     fast-forwarded to origin/main (1 commit(s))
@@ -79,7 +79,5 @@ $ # what was I doing on main again?
 
 $ ff switch main
 switched to main
-a parked change is waiting here but no longer applies cleanly:
-  conflicts: README.md
-it stays parked; resolve by hand with git stash, or continue working
+resumed the parked change (1 file(s))
 undo: ff undo
