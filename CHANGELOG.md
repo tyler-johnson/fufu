@@ -19,6 +19,7 @@
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
 - A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
 - `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff sync` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
+- The docs site plays the demo and the tutorial's clips as asciinema recordings, crisp at any width and with selectable text; the demo and tutorial webms are gone, and the gifs stay as the README's and the no-JavaScript fallback.
 
 ### Removed
 

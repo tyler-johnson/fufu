@@ -12,8 +12,8 @@
 # regenerate them when a release changes what the verbs print.
 #
 # The sequence itself lives in scripts/docs/tutorial-steps.sh, which
-# scripts/docs/tutorial-tapes.sh records one video per section from. Editing
-# the tutorial's commands means editing that file, and both follow.
+# scripts/docs/casts.sh records one clip per section from. Editing the
+# tutorial's commands means editing that file, and both follow.
 #
 # FF names the binary under test; default is `ff` on PATH.
 set -euo pipefail

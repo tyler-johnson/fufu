@@ -6,11 +6,11 @@
 # edits of your own sitting on main, and a commit a teammate landed on main
 # while you were working, so `ff sync` has something real to take in.
 #
-# Both consumers of the demo start here: scripts/docs/demo.tape cds into the
+# Both consumers of the demo start here: scripts/docs/casts.sh cds into the
 # printed path before recording, and scripts/docs/demo-check.sh cds into it
-# before replaying the tape's commands. Nothing here appears on screen, so
-# it is free to be verbose; what the viewer sees begins at the tape's first
-# visible command.
+# before replaying the demo's commands. Nothing here appears on screen, so
+# it is free to be verbose; what the viewer sees begins at the first line of
+# scripts/docs/demo-steps.sh.
 #
 # The caller owns the scene and deletes it. FF names the binary under test;
 # default is `ff` on PATH.
@@ -19,8 +19,8 @@ set -euo pipefail
 FF="${FF:-ff}"
 
 # Hermetic: no user or system git config reaches the scene, and no editor
-# ever opens. The tape and the check export these into their own shell too,
-# since the demo's own commands run there and not here.
+# ever opens. The recorder and the check export these into their own shell
+# too, since the demo's own commands run there and not here.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
 
@@ -28,6 +28,17 @@ SCENE=$(mktemp -d)
 cd "$SCENE"
 
 ident() { git config user.name "$1"; git config user.email "$2"; }
+
+# Commits with a past: the seed's history is days old and the teammate's
+# commit landed this morning, so the recording's ages read as a repository
+# with some life in it rather than one built seconds before. Author dates
+# are what `ff` shows, and they survive the rebase in `ff sync`. Kept under
+# a week, since demo-check.sh masks ages in s, m, h, and d only.
+NOW=$(date +%s)
+ago() {
+  local secs=$1; shift
+  GIT_AUTHOR_DATE="@$((NOW - secs)) +0000" GIT_COMMITTER_DATE="@$((NOW - secs)) +0000" "$@"
+}
 
 # --- the project the origin will hold ---
 # Short paths and small files: every line of this has to read at a glance in
@@ -60,7 +71,7 @@ pub enum Token {
 }
 EOF
 git add -A
-git commit -qm "seed the crate"
+ago $((3 * 24 * 3600)) git commit -qm "seed the crate"
 
 cat >> src/lexer.rs <<'EOF'
 
@@ -69,7 +80,7 @@ impl Lexer<'_> {
 }
 EOF
 git add -A
-git commit -qm "lexer: a token at a time"
+ago $((2 * 24 * 3600)) git commit -qm "lexer: a token at a time"
 
 # --- the origin, and the checkout the demo is recorded in ---
 cd "$SCENE"
@@ -81,9 +92,9 @@ ident "Ada Lovelace" ada@example.com
 "$FF" init >/dev/null
 
 # The state the demo opens in: work parked on a branch, and different work
-# open on main. It happens here rather than on screen because `Hide` in a
-# tape stops the recording, not the terminal — hidden commands still scroll
-# into the frame the moment it resumes.
+# open on main. It happens here rather than on screen because the recording
+# clears the screen once and then never again: anything typed before the
+# first visible command would sit in the frame above it.
 "$FF" start -b unicode-escapes >/dev/null
 cat > src/unicode.rs <<'EOF'
 pub fn unicode_escape(s: &str) -> char {
@@ -113,7 +124,7 @@ pub enum Token {
     Char,
 }
 EOF
-  git commit -qam "token: a Char variant"
+  ago $((2 * 3600)) git commit -qam "token: a Char variant"
   git push -q origin main
 )
 

@@ -75,18 +75,17 @@ docs-gen:
 	FF_DOCS_GEN=1 cargo test -p ff-cli --bins docsgen
 
 # The recordings: the demo on the README and the docs home page, and one per
-# tutorial section. Rendering runs the real binary in a real terminal, so it
-# needs vhs, ttyd, ffmpeg, a headless chromium and JetBrains Mono on the
-# machine; the checks need none of them, which is why CI runs the checks and
-# a human runs the render. A failing check is the signal that a recording is
-# stale.
+# tutorial section, each an asciicast under docs/assets and a gif beside it.
+# Rendering runs the real binary in a real shell, so it needs agg and
+# JetBrains Mono on the machine; the checks need neither, which is why CI
+# runs the checks and a human runs the render. A failing check is the
+# signal that a recording is stale.
 demo:
-	vhs scripts/docs/demo.tape
-	scripts/docs/tutorial-tapes.sh
+	scripts/docs/casts.sh
 
 demo-check:
 	scripts/docs/demo-check.sh
-	scripts/docs/tutorial-tapes.sh --check
+	scripts/docs/casts.sh --check
 
 # Compare the working tree against a rebuilt older binary, measured back to
 # back on the same fixtures. REF defaults to the most recent tag. Costs a

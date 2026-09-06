@@ -41,10 +41,9 @@ The letters column next to each commit (here just `—`) is an operation id: whi
 
 ## Start work
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/start-work.webm" type="video/webm">
-  <img src="../assets/tutorial/start-work.gif" alt="ff start minting a branch, an edit to notes/parser.md, and ff status showing the open change">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/start-work.cast">
+  <noscript><img src="../assets/tutorial/start-work.gif" alt="ff start minting a branch, an edit to notes/parser.md, and ff status showing the open change"></noscript>
+</div>
 
 [`ff start`](reference/cli/start.md) begins a new line of work, always on a fresh branch forked from trunk. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
 
@@ -72,10 +71,9 @@ on ff/vivid-sparrow · nothing to sync
 
 ## Name it, then close it
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/name-it-then-close-it.webm" type="video/webm">
-  <img src="../assets/tutorial/name-it-then-close-it.gif" alt="ff describe naming the change, ff commit closing it, a second commit, and ff log">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/name-it-then-close-it.cast">
+  <noscript><img src="../assets/tutorial/name-it-then-close-it.gif" alt="ff describe naming the change, ff commit closing it, a second commit, and ff log"></noscript>
+</div>
 
 The open change can carry a description before it is ever a commit, so you can name work while you are doing it:
 
@@ -122,10 +120,9 @@ The two commits fufu made now wear operation ids. [`ff evolog`](reference/cli/ev
 
 ## Switch without stashing
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/switch-without-stashing.webm" type="video/webm">
-  <img src="../assets/tutorial/switch-without-stashing.gif" alt="ff switch parking a mid-edit change on one branch and resuming it on the other">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/switch-without-stashing.cast">
+  <noscript><img src="../assets/tutorial/switch-without-stashing.gif" alt="ff switch parking a mid-edit change on one branch and resuming it on the other"></noscript>
+</div>
 
 Start another edit — a stray note in `README.md`, say — and leave mid-thought. Switching parks whatever is open with the branch you are leaving:
 
@@ -179,10 +176,9 @@ undo: ff undo
 
 ## Fix an earlier commit
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/fix-an-earlier-commit.webm" type="video/webm">
-  <img src="../assets/tutorial/fix-an-earlier-commit.gif" alt="ff log finding the commit, an edit, and ff absorb folding it into that commit">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/fix-an-earlier-commit.cast">
+  <noscript><img src="../assets/tutorial/fix-an-earlier-commit.gif" alt="ff log finding the commit, an edit, and ff absorb folding it into that commit"></noscript>
+</div>
 
 Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
@@ -197,10 +193,9 @@ The target commit was amended in place and everything above it re-parented in th
 
 ## Line up, then send
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/line-up-then-send.webm" type="video/webm">
-  <img src="../assets/tutorial/line-up-then-send.gif" alt="ff sync taking in a teammate's commit, then ff publish pushing the branch">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/line-up-then-send.cast">
+  <noscript><img src="../assets/tutorial/line-up-then-send.gif" alt="ff sync taking in a teammate's commit, then ff publish pushing the branch"></noscript>
+</div>
 
 (This section and the publish below were captured against a copy of the repository with push access — on your clone of fufu, read these two beats along, and replay them the day you point fufu at a repository of your own.)
 
@@ -235,10 +230,9 @@ If somebody pushed to your branch since, nothing is sent and nothing is lost —
 
 ## Undo anything
 
-<video class="demo" autoplay loop muted playsinline>
-  <source src="../assets/tutorial/undo-anything.webm" type="video/webm">
-  <img src="../assets/tutorial/undo-anything.gif" alt="git reset --hard destroying two commits, and ff undo putting refs and the tree back">
-</video>
+<div class="demo cast" data-cast="../assets/tutorial/undo-anything.cast">
+  <noscript><img src="../assets/tutorial/undo-anything.gif" alt="git reset --hard destroying two commits, and ff undo putting refs and the tree back"></noscript>
+</div>
 
 fufu snapshots the repository around every operation — including operations it didn't make. So when an overeager agent, or you at 4pm on a Friday, runs something destructive with raw git:
 

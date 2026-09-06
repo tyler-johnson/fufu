@@ -16,8 +16,9 @@ import re
 import sys
 
 DOCS = pathlib.Path("docs")
-# src= and poster= on raw HTML tags. Markdown's own links are MkDocs' job.
-ATTR = re.compile(r'(?:src|poster)="([^"]+)"')
+# src=, poster= and data-cast= on raw HTML tags. Markdown's own links are
+# MkDocs' job.
+ATTR = re.compile(r'(?:src|poster|data-cast)="([^"]+)"')
 
 
 def page_dir(md: pathlib.Path) -> pathlib.PurePosixPath:

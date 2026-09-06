@@ -37,8 +37,11 @@ plugins:
 
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/asciinema-player.css
 extra_javascript:
   - javascripts/console-copy.js
+  - javascripts/asciinema-player.min.js
+  - javascripts/casts.js
 
 # The generated per-verb pages are reached from reference/cli/index.md, which
 # is in the nav; listing 50 of them there would drown it.

@@ -2,7 +2,7 @@
 # The tutorial's command sequence, in one place. Two things consume it and
 # they must never drift apart: scripts/docs/tutorial-transcript.sh, which
 # prints the console blocks docs/tutorial.md carries, and
-# scripts/docs/tutorial-tapes.sh, which records one video per section.
+# scripts/docs/casts.sh, which records one clip per section.
 #
 # This file is sourced, not run.
 #
@@ -144,12 +144,17 @@ step_fix_an_earlier_commit() {
 }
 
 step_line_up_then_send() {
+  # The teammate's commit landed while the reader worked, so it carries a
+  # date from an hour or two back rather than the same second as the
+  # recording; under a week, the span demo-check.sh's age mask covers.
+  local landed
+  landed="@$(( $(date +%s) - 90 * 60 )) +0000"
   printf '%s\n' \
     "set|git clone -q $SCENE/fufu.git $SCENE/teammate" \
     "set|git -C $SCENE/teammate config user.name 'Grace Hopper'" \
     "set|git -C $SCENE/teammate config user.email grace@example.com" \
     "set|printf 'A line from a teammate.\\n' >> $SCENE/teammate/README.md" \
-    "set|git -C $SCENE/teammate commit -qam 'docs: a line from a teammate'" \
+    "set|GIT_AUTHOR_DATE='$landed' GIT_COMMITTER_DATE='$landed' git -C $SCENE/teammate commit -qam 'docs: a line from a teammate'" \
     "set|git -C $SCENE/teammate push -q origin main" \
     "note|# a teammate landed on main while I worked" \
     "run|ff sync" \

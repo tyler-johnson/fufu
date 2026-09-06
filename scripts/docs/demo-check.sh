@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# The gate on the demo recording. Reads the visible commands out of
-# scripts/docs/demo.tape, runs them in a fresh scene with no terminal
+# The gate on the demo recording. Reads the on-camera lines out of
+# scripts/docs/demo-steps.sh, runs them in a fresh scene with no terminal
 # involved, masks the fields that differ run to run — change ids, shas,
 # ages — and diffs the result against scripts/docs/demo.golden.txt. A
 # failure means the demo's commands or their output have moved and
-# docs/assets/demo.gif no longer shows what fufu prints: re-render it with
+# docs/assets/demo.cast no longer shows what fufu prints: re-render it with
 # `make demo`, then re-bless this file.
 #
 #   scripts/docs/demo-check.sh            check, exit 1 on drift
 #   scripts/docs/demo-check.sh --bless    rewrite the golden file
 #
-# The tape is the single source of the command list, so a command added to
-# the recording is a command this checks, with no second list to keep in
-# step. FF names the binary under test; default is `ff` on PATH.
+# demo-steps.sh is the single source of the command list, so a command
+# added to the recording is a command this checks, with no second list to
+# keep in step. FF names the binary under test; default is `ff` on PATH.
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-TAPE="$ROOT_DIR/scripts/docs/demo.tape"
 GOLDEN="$ROOT_DIR/scripts/docs/demo.golden.txt"
 
 FF="${FF:-ff}"
@@ -28,22 +27,21 @@ case "${1:-}" in
   *) echo "usage: demo-check.sh [--bless]" >&2; exit 2 ;;
 esac
 
-# The tape's demo region, one command per `Type` line. A tape line reads
-# `Type "cmd" Sleep 300ms Enter Sleep 3s`, and the command is the first
-# quoted string on it; vhs takes ", ' or ` as the quote, so this does too.
+# shellcheck source=scripts/docs/demo-steps.sh
+. "$ROOT_DIR/scripts/docs/demo-steps.sh"
+
+# The lines the recording types: the commands, and the narration, which is
+# shell comments and runs as such.
 commands() {
-  local in_demo=false line quote rest
+  local line
   while IFS= read -r line; do
-    if [[ $line == '# --- demo ---' ]]; then in_demo=true; continue; fi
-    $in_demo || continue
-    [[ $line =~ ^Type\ (\"|\'|\`)(.*)$ ]] || continue
-    quote=${BASH_REMATCH[1]}
-    rest=${BASH_REMATCH[2]}
-    printf '%s\n' "${rest%%"$quote"*}"
-  done < "$TAPE"
+    case "${line%%|*}" in
+      run|note) printf '%s\n' "${line#*|}" ;;
+    esac
+  done < <(demo_lines)
 }
 
-# The tape types a bare `ff`, because that is what a reader types, so a
+# The recording types a bare `ff`, because that is what a reader types, so a
 # binary named by FF is put on PATH under that name rather than substituted
 # into the commands. CI runs this against the release build it just made.
 if [ "$FF" != ff ]; then
@@ -54,9 +52,9 @@ if [ "$FF" != ff ]; then
   export PATH
 fi
 
-# Hermetic, exactly as the tape's own shell is: the scene's commits carry a
-# repository-local identity, and nothing else about this machine reaches the
-# output.
+# Hermetic, exactly as the recording's own shell is: the scene's commits
+# carry a repository-local identity, and nothing else about this machine
+# reaches the output.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
 
@@ -64,15 +62,15 @@ SCENE_ROOT=$(FF="$FF" "$ROOT_DIR/scripts/docs/demo-scene.sh")
 trap 'rm -rf "$(dirname "$SCENE_ROOT")" "${BIN_DIR:-}"' EXIT
 cd "$SCENE_ROOT"
 
-# The commands run through a shell so that the tape's quoting is the quoting
-# under test, and stderr joins stdout because a verb's diagnostics are part
-# of what the recording shows. A non-zero exit is the demo's own business —
-# `git reset --hard` succeeding is not what this file is about — so only the
-# text is compared.
+# The commands run through a shell so that the recording's quoting is the
+# quoting under test, and stderr joins stdout because a verb's diagnostics
+# are part of what the recording shows. A non-zero exit is the demo's own
+# business — `git reset --hard` succeeding is not what this file is about —
+# so only the text is compared.
 transcript() {
   local cmd
   while IFS= read -r cmd; do
-    # The blank line the tape's own prompt opens with, so that this file
+    # The blank line the recording's prompt opens with, so that this file
     # reads the way the recording does.
     printf '\n$ %s\n' "$cmd"
     eval "$cmd" 2>&1 || true
