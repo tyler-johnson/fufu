@@ -180,6 +180,24 @@ pub fn probe(
     probe_to_depth(repo, onto, branch_tip, open_tree, depth)
 }
 
+/// How far above `base` the branch at `tip` stands: the commits reachable
+/// from `tip` and not from `base`. The counting rule is the one every
+/// verdict's `ahead` uses — every merge base, so a criss-cross history is
+/// not misread — and unrelated histories count everything above `tip`.
+pub fn commits_above(
+    repo: &gix::Repository,
+    tip: gix::ObjectId,
+    base: gix::ObjectId,
+) -> Result<usize> {
+    let bases: Vec<gix::ObjectId> = repo
+        .merge_bases_many(tip, &[base])
+        .map_err(Error::repo)?
+        .into_iter()
+        .map(|id| id.detach())
+        .collect();
+    crate::upstream::count_exclusive(repo, tip, &bases)
+}
+
 /// As [`probe`], with the replay depth handed in instead of read from
 /// `fufu.futuresDepth`: the cap exists because status probes at prompt rate,
 /// and a verb the user asked for pays the real cost instead.

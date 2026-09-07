@@ -54,6 +54,12 @@ pub fn id(repo: &gix::Repository) -> String {
         .unwrap_or_else(|| MAIN_ID.to_string())
 }
 
+/// Whether this repository handle is open on a linked worktree rather than
+/// the main one — gix's own test, the one [`id`] keys the chain by.
+pub fn is_linked(repo: &gix::Repository) -> bool {
+    repo.git_dir() != repo.common_dir()
+}
+
 /// One other worktree, and the branch it is standing on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Holder {
@@ -314,7 +320,10 @@ fn head_branch(head_path: &Path) -> Option<String> {
 /// gitdir named `.git` sits inside its own worktree. Anything else — a
 /// separate git dir, a bare repository with linked worktrees — falls back to
 /// asking gix, which is the accurate answer and the rare one.
-fn main_worktree_path(repo: &gix::Repository) -> Option<PathBuf> {
+///
+/// The path is as git spelled it; a caller that records or reports it runs
+/// it through [`path::real`].
+pub fn main_worktree_path(repo: &gix::Repository) -> Option<PathBuf> {
     let common = repo.common_dir();
     if common.file_name().is_some_and(|name| name == ".git") {
         return common.parent().map(Path::to_path_buf);

@@ -393,3 +393,165 @@ fn a_settled_remote_still_says_nothing_to_sync() {
         "a named remote is not unnameable: {text}"
     );
 }
+
+/// A path the way `ff status --json` spells one: canonical, since the
+/// fixture's temp dir may sit behind a symlink.
+fn canonical(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .expect("canonicalize")
+        .display()
+        .to_string()
+}
+
+/// The orientation a fresh agent asks for first: the root, which worktree
+/// this is, and the remote. On trunk there is no base, so `base` is null the
+/// way `futures.base` is.
+#[test]
+fn status_json_says_where_it_stands() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    let commit = ff(&fx, &["commit", "-m", "one"]);
+    assert!(commit.status.success(), "{}", out(&commit));
+
+    let data = json(&ff(&fx, &["status", "--json"]))["data"].clone();
+    let root = canonical(&fx.path());
+    assert_eq!(data["root"], root, "the root is the canonical checkout");
+    assert_eq!(
+        data["worktree"],
+        serde_json::json!({"id": "main", "linked": false, "main": root}),
+        "the main worktree names itself"
+    );
+    assert!(
+        data["remote"].is_null(),
+        "no remote to name: {}",
+        data["remote"]
+    );
+    assert!(
+        data["base"].is_null(),
+        "trunk sits on nothing: {}",
+        data["base"]
+    );
+}
+
+/// Above trunk, `base` names what the branch sits on and counts the commits
+/// above it; back on trunk it is null again.
+#[test]
+fn status_json_names_the_base_and_the_count_above_it() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    fx.write("a.txt", "two\n");
+    fx.commit("two");
+    let start = ff(&fx, &["start", "-b", "feat"]);
+    assert!(start.status.success(), "{}", out(&start));
+    fx.write("b.txt", "three\n");
+    fx.commit("three");
+    fx.write("b.txt", "four\n");
+    fx.commit("four");
+
+    let base = json(&ff(&fx, &["status", "--json"]))["data"]["base"].clone();
+    assert_eq!(base["name"], "main", "{base}");
+    assert_eq!(base["ref"], "refs/heads/main", "{base}");
+    assert_eq!(base["role"], "trunk", "{base}");
+    assert_eq!(base["above"], 2, "{base}");
+    assert_eq!(
+        base["tip"].as_str().map(str::len),
+        Some(40),
+        "the base tip is a full sha: {base}"
+    );
+
+    let back = ff(&fx, &["switch", "main"]);
+    assert!(back.status.success(), "{}", out(&back));
+    let data = json(&ff(&fx, &["status", "--json"]))["data"].clone();
+    assert!(
+        data["base"].is_null(),
+        "trunk sits on nothing: {}",
+        data["base"]
+    );
+}
+
+/// A clone answers to `origin`, and `remote` says so.
+#[test]
+fn status_json_names_the_remote() {
+    let fx = ff_testsupport::Fixture::new_cloned();
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+
+    let data = json(&ff(&fx, &["status", "--json"]))["data"].clone();
+    assert_eq!(data["remote"], "origin", "{}", data["remote"]);
+}
+
+/// From a linked worktree, `worktree` carries the id its chain is keyed by
+/// and points back at the main checkout, and `root` is the bay itself.
+#[test]
+fn status_json_in_a_linked_worktree() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    let bay = fx.root().join("bay");
+    let add = ff(&fx, &["worktree", "add", bay.to_str().unwrap(), "side"]);
+    assert!(add.status.success(), "{}", out(&add));
+
+    let data = json(&ff_at(&bay, &["status", "--json"]))["data"].clone();
+    assert_eq!(data["root"], canonical(&bay), "the bay is the root");
+    assert_eq!(data["worktree"]["id"], "bay", "{}", data["worktree"]);
+    assert_eq!(data["worktree"]["linked"], true, "{}", data["worktree"]);
+    assert_eq!(
+        data["worktree"]["main"],
+        canonical(&fx.path()),
+        "the main checkout is named: {}",
+        data["worktree"]
+    );
+    assert_eq!(data["head"]["name"], "side", "{}", data["head"]);
+}
+
+/// `last_op` is `ff op log --json`'s own row for the newest operation,
+/// session and all. Status's own pre-capture on a dirty tree is stepped
+/// over, so a read never reports itself as the last thing that happened.
+#[test]
+fn status_json_carries_the_last_operation_and_its_session() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    let commit = ff(&fx, &["--session", "s1", "commit", "-m", "one"]);
+    assert!(commit.status.success(), "{}", out(&commit));
+
+    let last = json(&ff(&fx, &["status", "--json"]))["data"]["last_op"].clone();
+    assert_eq!(last["verb"], "commit", "{last}");
+    assert_eq!(last["kind"], "op", "{last}");
+    assert_eq!(last["session"], "s1", "{last}");
+    assert_eq!(last["branch"], "main", "{last}");
+    let id = last["id"].as_str().unwrap_or_default();
+    assert!(
+        id.len() == 40 && id.bytes().all(|b| b.is_ascii_lowercase()),
+        "an operation id is letters: {id:?}"
+    );
+
+    // A dirty tree makes status capture before it reads. The capture is
+    // this invocation's own, so the row is still the commit.
+    fx.write("a.txt", "two\n");
+    let last =
+        json(&ff(&fx, &["--session", "probe", "status", "--json"]))["data"]["last_op"].clone();
+    assert_eq!(
+        last["session"], "s1",
+        "the own capture was stepped over: {last}"
+    );
+    assert_eq!(last["verb"], "commit", "{last}");
+    assert!(
+        !last["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("pre: ff status"),
+        "status never reports itself: {last}"
+    );
+
+    // Motion outside fufu is reconciled before the row is read, so the row
+    // agrees with `foreign`.
+    fx.git(&["commit", "-q", "-am", "behind fufu's back"]);
+    let data = json(&ff(&fx, &["status", "--json"]))["data"].clone();
+    assert_eq!(data["last_op"]["kind"], "foreign", "{}", data["last_op"]);
+    assert!(
+        data["foreign"].is_array(),
+        "the foreign block agrees: {}",
+        data["foreign"]
+    );
+}

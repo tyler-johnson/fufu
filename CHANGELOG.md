@@ -9,6 +9,7 @@
 - `extension/skill-failed` and `extension/bad-skill`, the skill handshake's two refusals.
 - Every `ff` invocation reads `CLAUDE_CODE_SESSION_ID` when neither `--session` nor `FF_SESSION` is set, so a shell verb under Claude Code carries the session its hook captures do, and `ff mcp`'s children inherit the same rule. The server reads it once at start, so it stays the launching session across `/clear`.
 - Every operation carries its route, `shell` or `tool`, in its trailer: on `ff op show` and `ff op log --json` as `route`, and as the `route()` filter in the op log's set language. An operation recorded before the field existed has none.
+- `ff status --json` carries the orientation an agent asks for first: `root`, `worktree` with its id and the main checkout, `base` with the count above it, `remote`, and `last_op`, `ff op log --json`'s row for the newest operation on this worktree's chain.
 
 ### Changed
 

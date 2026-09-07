@@ -10,6 +10,16 @@ type ForeignRefTuple = (String, Option<String>, Option<String>);
 #[derive(serde::Serialize)]
 pub struct StatusModel {
     pub head: ff_core::HeadState,
+    /// This worktree's checkout root, absolute and canonical.
+    pub root: String,
+    /// Which checkout this is, and where the main one stands.
+    pub worktree: WorktreeStatus,
+    /// What the branch sits on, mirroring the sync axis: present exactly
+    /// when `futures.base` is, so null on trunk, detached, unborn, and in an
+    /// editing session.
+    pub base: Option<BaseStatus>,
+    /// The remote the branch answers to, when one can be named.
+    pub remote: Option<String>,
     pub operation: Option<ff_core::InProgress>,
     pub upstream: Option<ff_core::Upstream>,
     pub changes: Vec<ff_core::FileStat>,
@@ -31,6 +41,35 @@ pub struct StatusModel {
     /// working copy holds the hold's conflicts, or the branch the hold stands
     /// on, whose session is open elsewhere.
     pub resolving: Option<ResolvingStatus>,
+    /// The newest operation on this worktree's chain — `ff op log --json`'s
+    /// own row, captures included. Never this invocation's own capture: a
+    /// status read on a dirty tree records one, and reporting it would say
+    /// "you were here last" on every read.
+    pub last_op: Option<ff_core::model::OpEntry>,
+}
+
+/// Which checkout this is, and where the main one stands.
+#[derive(serde::Serialize)]
+pub struct WorktreeStatus {
+    /// The worktree's id — the name its operation chain is keyed by; `main`
+    /// for the main worktree.
+    pub id: String,
+    /// A linked worktree of another checkout.
+    pub linked: bool,
+    /// The main worktree's root, absolute. Null only when gix cannot name it.
+    pub main: Option<String>,
+}
+
+/// What this branch sits on, and how far above it the branch stands.
+#[derive(serde::Serialize)]
+pub struct BaseStatus {
+    pub name: String,
+    pub r#ref: String,
+    /// `trunk` or `parent`, the vocabulary `futures` uses.
+    pub role: ff_core::futures::Role,
+    pub tip: String,
+    /// Commits reachable from the branch tip and not from the base.
+    pub above: usize,
 }
 
 /// A rewrite held on the branch underfoot, as `ff status --json` spells it.
@@ -265,10 +304,89 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         _ => (None, None),
     };
 
+    // Orientation: the facts an agent arriving cold reads with git before it
+    // touches anything. `ff_core::status` already refused a bare repository,
+    // so the workdir is here; canonical, since the record it will be compared
+    // against is spelled that way.
+    let root = repo
+        .workdir()
+        .map(|dir| ff_core::linked::path::real(dir).display().to_string())
+        .unwrap_or_default();
+    let worktree = WorktreeStatus {
+        id: ff_core::linked::id(&repo),
+        linked: ff_core::linked::is_linked(&repo),
+        main: ff_core::linked::main_worktree_path(&repo)
+            .map(|p| ff_core::linked::path::real(&p).display().to_string()),
+    };
+
+    // The base mirrors the sync axis exactly, and the count follows the
+    // futures rule: a lookup that cannot run is a missing line.
+    let base = match (&futures.base, &status.head) {
+        (Some(future), ff_core::HeadState::Branch { commit, .. }) => {
+            let compute = || -> ff_core::Result<BaseStatus> {
+                let tip = ff_core::gix::ObjectId::from_hex(commit.as_bytes())
+                    .map_err(ff_core::Error::repo)?;
+                let onto = ff_core::gix::ObjectId::from_hex(future.against.tip.as_bytes())
+                    .map_err(ff_core::Error::repo)?;
+                let above = ff_core::futures::commits_above(&repo, tip, onto)?;
+                Ok(BaseStatus {
+                    name: future.against.name.clone(),
+                    r#ref: future.against.r#ref.clone(),
+                    role: future.against.role,
+                    tip: future.against.tip.clone(),
+                    above,
+                })
+            };
+            compute().ok()
+        }
+        _ => None,
+    };
+
+    // The same name futures measured from. Detached is `@detached`, which
+    // has no `branch.<n>.remote`, so the ladder falls through to the
+    // repository default — the honest answer there.
+    let chain_name = ff_core::snapshot::chain::chain_name(&status.head);
+    let remote = match ff_core::remote::for_branch(&repo, &chain_name) {
+        ff_core::remote::RemoteChoice::Named(name) => Some(name),
+        _ => None,
+    };
+
+    // The newest operation on this chain, read after the reconcile above so
+    // a foreign op it appended is the row an agent sees. This invocation's
+    // own pre-capture is the tip whenever the tree changed since the last
+    // one, and it is stepped over: the row is what `ff op log --json -n 1`
+    // would have printed before status ran.
+    let last_op = {
+        let compute = || -> ff_core::Result<Option<ff_core::model::OpEntry>> {
+            let log = ff_core::ops::OpLog::open(&repo)?;
+            let Some(tip) = log.tip()? else {
+                return Ok(None);
+            };
+            let op = log.get(tip)?;
+            let own = crate::provenance::pre_ff(ctx).subject();
+            let id =
+                if op.is_capture() && op.summary() == own && op.session() == ctx.session.as_deref()
+                {
+                    op.prev()
+                } else {
+                    Some(tip)
+                };
+            let Some(id) = id else {
+                return Ok(None);
+            };
+            Ok(ff_core::ops::verb::read_ops_of(&repo, std::iter::once(Ok(id)), 1, true)?.pop())
+        };
+        compute().unwrap_or(None)
+    };
+
     // Build the single data model both renderers consume
     let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
     let model = StatusModel {
         head: status.head.clone(),
+        root,
+        worktree,
+        base,
+        remote,
         operation: status.operation,
         upstream: status.upstream.clone(),
         changes: change_stat.files.clone(),
@@ -305,6 +423,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         session,
         held,
         resolving,
+        last_op,
     };
 
     let now = now_secs();
