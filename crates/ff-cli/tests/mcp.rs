@@ -66,12 +66,15 @@ fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, 
 }
 
 /// Declare one extension on the machine `home` stands for, the way
-/// `ff extension add` records one.
+/// `ff extension add` records one. Unix only, since every test that
+/// declares one then runs it as a shell script.
+#[cfg(unix)]
 fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
     declare_promising(home, name, verbs, undoable, false);
 }
 
 /// [`declare`], with the manifest promising tools or not.
+#[cfg(unix)]
 fn declare_promising(home: &Path, name: &str, verbs: &[&str], undoable: bool, tools: bool) {
     let file = userdirs::registry(home);
     std::fs::create_dir_all(file.parent().expect("parent")).expect("the config root");
