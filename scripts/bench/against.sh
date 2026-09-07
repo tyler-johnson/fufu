@@ -20,6 +20,13 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BENCH_DIR="$ROOT_DIR/scripts/bench"
 
+# Where cargo puts this workspace's artifacts. Asked rather than assumed: a
+# machine-wide `[build] target-dir` moves it out of the checkout.
+target_dir() {
+    (cd "$ROOT_DIR" && cargo metadata --format-version 1 --no-deps \
+        | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+}
+
 usage() {
     cat <<'EOF' >&2
 against.sh <ref> [--axis ...] [--points ...] [--rows ...] [--tools ...]
@@ -128,7 +135,7 @@ fi
 
 echo "info: measuring head (working tree)"
 if ! bash "$BENCH_DIR/run.sh" \
-    --ff-binary "$ROOT_DIR/target/release/ff" \
+    --ff-binary "$(target_dir)/release/ff" \
     --out "$ROOT_DIR/bench-results/against/head.json" \
     --fixtures "$FIXTURES_DIR" \
     "${RUN_ARGS[@]}"; then

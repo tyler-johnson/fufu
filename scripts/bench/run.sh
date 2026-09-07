@@ -13,6 +13,13 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
+# Where cargo puts this workspace's artifacts. Asked rather than assumed: a
+# machine-wide `[build] target-dir` moves it out of the checkout.
+target_dir() {
+    (cd "$ROOT_DIR" && cargo metadata --format-version 1 --no-deps \
+        | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+}
+
 AXIS=all
 POINTS_ARG=""
 ROWS_ARG=""
@@ -202,9 +209,9 @@ if [[ -n "$FF_BINARY_ARG" ]]; then
         exit 2
     fi
 else
-    FF="$ROOT_DIR/target/release/ff"
+    FF="$(target_dir)/release/ff"
     if [[ ! -x "$FF" ]]; then
-        info "building release binary (target/release/ff missing)..."
+        info "building release binary ($FF missing)..."
         (cd "$ROOT_DIR" && cargo build --release -q)
     fi
 fi

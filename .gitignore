@@ -2,3 +2,4 @@
 /dist
 /bench-fixtures
 /bench-results
+/.claude/settings.local.json

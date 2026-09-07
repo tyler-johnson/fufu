@@ -29,15 +29,22 @@ anstream = "1"
 tempfile = "3"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 
+# Debug and test builds keep line tables but drop full DWARF: panics and
+# backtraces still name their file and line, while the per-binary debuginfo
+# that grew target/debug/deps to 171G goes away. `[profile.test]` inherits
+# this, so `cargo test` artifacts shrink with it.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
 
-# Local dogfood builds: release semantics without the LTO link cost.
-# Separate target dir (target/dogfood), so it never thrashes the pristine
-# fat-LTO target/release that benches and shipping use.
+# Local dogfood builds: release semantics without the LTO link cost. Its own
+# profile dir (<target>/dogfood), so it never thrashes the pristine fat-LTO
+# release dir that benches and shipping use.
 [profile.dogfood]
 inherits = "release"
 lto = "off"

@@ -1,8 +1,9 @@
-# Daily driver: `make` = fast dogfood build; ~/.cargo/bin/ff symlinks to
-# target/dogfood/ff, so the binary is live the moment it links.
+# Daily driver: `make` = fast dogfood build. With cargo's target dir shared
+# machine-wide (`[build] target-dir` in ~/.cargo/config.toml) and its dogfood/
+# on PATH, the binary is live the moment it links; there is nothing to install.
 # `make release` is the honest fat-LTO build benches and releases use.
 
-.PHONY: build release test fmt fmt-check lint install clean bench bench-real bench-report bench-against bench-docs docs docs-serve docs-gen demo demo-check
+.PHONY: build release test fmt fmt-check lint clean bench bench-real bench-report bench-against bench-docs docs docs-serve docs-gen demo demo-check
 
 build:
 	cargo build --profile dogfood
@@ -22,18 +23,13 @@ fmt-check:
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings
 
-# Point ~/.cargo/bin/ff at the dogfood binary. That is the whole install:
-# the symlink is what makes `make` live. Idempotent; rerun after a move.
-install: build
-	@mkdir -p $(HOME)/.cargo/bin
-	ln -sfn $(CURDIR)/target/dogfood/ff $(HOME)/.cargo/bin/ff
-	@echo "linked $(HOME)/.cargo/bin/ff -> $(CURDIR)/target/dogfood/ff"
-
+# Only this workspace's own crates: the target dir is shared with every
+# other workspace on the machine, so a bare `cargo clean` would take theirs.
 clean:
-	cargo clean
+	cargo clean -p ff-core -p ff-cli -p ff-testsupport
 
 # The full local matrix: both axes, default points (100/1000/10000), against
-# target/release/ff -- never target/dogfood/ff (see line 1, Cargo.toml's
+# the release binary -- never the dogfood one (see line 1, Cargo.toml's
 # [profile.dogfood] comment). report.py's exit status is what make bench
 # reports, so a scaled row fails the build.
 bench: release
