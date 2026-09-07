@@ -394,13 +394,12 @@ fn a_settled_remote_still_says_nothing_to_sync() {
     );
 }
 
-/// A path the way `ff status --json` spells one: canonical, since the
-/// fixture's temp dir may sit behind a symlink.
+/// A path the way `ff status --json` spells one. Not `fs::canonicalize`:
+/// the fixture's temp dir may sit behind a symlink, which has to be
+/// resolved, but on Windows canonicalizing also adds the `\\?\` prefix
+/// that fufu drops from every path it prints.
 fn canonical(path: &Path) -> String {
-    std::fs::canonicalize(path)
-        .expect("canonicalize")
-        .display()
-        .to_string()
+    ff_core::linked::path::real(path).display().to_string()
 }
 
 /// The orientation a fresh agent asks for first: the root, which worktree
