@@ -347,6 +347,12 @@ pub enum Command {
     /// Line every branch up with its base and its remote
     #[command(visible_alias = "sync", long_about = help::term(help::PULL), after_long_help = help::term_examples(help::PULL_EXAMPLES))]
     Pull {
+        /// Branches to pull, each with the bases beneath it; without any, the one you are on
+        #[arg(value_name = "branch", conflicts_with = "all")]
+        branches: Vec<String>,
+        /// Every local branch
+        #[arg(long)]
+        all: bool,
         /// Skip the fetch: reconcile with what you already have
         #[arg(long)]
         no_fetch: bool,

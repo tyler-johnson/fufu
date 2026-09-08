@@ -10,7 +10,7 @@ So fufu splits reconciling with a remote along exactly that line. The incoming h
 
 ## Pull is the incoming half
 
-[`ff pull`](../reference/cli/pull.md) brings every local branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. [Tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to.
+[`ff pull`](../reference/cli/pull.md) brings a branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. Bare, that is the branch you stand on; names take others, and `--all` every local branch. [Tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to.
 
 It fetches once, then replays each branch's commits onto whatever moved, with the branches stacked above following.
 

@@ -2,9 +2,9 @@
 
 A stack is a branch whose base — the branch it forked from and rebases onto — is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review.
 
-This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the whole repository, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
+This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the stack, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
 
-The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines every branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
+The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
 ## Start a stack
 
@@ -116,9 +116,9 @@ Each replay is performed rather than predicted: a branch above whose replay conf
 
 Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
 
-## Pull the whole repository
+## Pull the stack
 
-Meanwhile a teammate landed a commit on `main`. `ff pull` fetches once and lines every local branch up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes.
+Meanwhile a teammate landed a commit on `main`. `ff pull` fetches once and lines the branch you stand on up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes. The base comes level with its own remote copy first, and the branch above follows in the replay; `ff pull --all` is every local branch.
 
 ```console
 $ ff pull

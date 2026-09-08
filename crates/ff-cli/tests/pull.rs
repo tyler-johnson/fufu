@@ -4,7 +4,8 @@
 //! ([`a_half_removed_worktree_admin_dir_does_not_stop_the_fetch`]) aims at a
 //! bare remote on the filesystem beside it. Nothing here reaches the
 //! network. Covers the base-axis replay, the JSON envelopes, the
-//! nothing-to-pull state, and a push with nowhere to send.
+//! nothing-to-pull state, the three scopes — bare, names, `--all` — and a
+//! push with nowhere to send.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -324,8 +325,8 @@ fn a_half_removed_worktree_admin_dir_does_not_stop_the_fetch() {
 }
 
 /// A branch you are not standing on follows its shared copy: `side` is
-/// pushed, a second clone moves it, and a pull from `main` fast-forwards it
-/// without a switch. The envelope carries the move under `branches`.
+/// pushed, a second clone moves it, and `--all` from `main` fast-forwards
+/// it without a switch. The envelope carries the move under `branches`.
 #[test]
 fn pull_moves_a_branch_you_are_not_on() {
     let fx = Fixture::new_cloned();
@@ -356,7 +357,7 @@ fn pull_moves_a_branch_you_are_not_on() {
     let theirs = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
     assert_ne!(theirs, s1);
 
-    let output = ff(&fx, &["--json", "pull"]);
+    let output = ff(&fx, &["--json", "pull", "--all"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
     assert_eq!(v["cmd"], "pull");
@@ -413,7 +414,7 @@ fn a_hold_on_another_branch_exits_3() {
     let mine = fx.commit("mine");
     fx.git(&["switch", "-q", "main"]);
 
-    let output = ff(&fx, &["--json", "pull"]);
+    let output = ff(&fx, &["--json", "pull", "--all"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
     let v = json(&output);
     assert_eq!(v["cmd"], "pull", "{v}");
@@ -579,7 +580,7 @@ fn the_human_render_names_every_branch_that_moved() {
     let fx = Fixture::new_cloned();
     let (s1, theirs) = side_moved_and_a_stale(&fx);
 
-    let output = ff(&fx, &["pull"]);
+    let output = ff(&fx, &["pull", "--all"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     let a_block = "a\n    main moved ahead by 1 commit(s)\n    replayed 1 commit(s) onto main\n";
@@ -638,7 +639,7 @@ fn a_skipped_worktree_branch_is_named_with_its_path() {
     fx.write("m.txt", "m\n");
     fx.commit("m1");
 
-    let output = ff(&fx, &["pull", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--all", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("side\n    checked out in "), "{text}");
@@ -670,7 +671,7 @@ fn a_held_branch_is_named_and_the_exit_is_3() {
     fx.write("shared.txt", "theirs\n");
     fx.commit("theirs");
 
-    let output = ff(&fx, &["pull", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--all", "--no-fetch"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("side\n    held: replaying "), "{text}");
@@ -711,7 +712,7 @@ fn nothing_to_pull_stays_one_line() {
         fx.git(&["branch", name]);
     }
 
-    let output = ff(&fx, &["pull", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--all", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     assert_eq!(stdout(&output), "nothing to pull\n");
 }
@@ -765,7 +766,7 @@ fn the_json_envelope_lists_the_other_branches() {
     let added = ff(&fx, &["worktree", "add", &bay.to_string_lossy(), "w"]);
     assert!(added.status.success(), "{}", out(&added));
 
-    let output = ff(&fx, &["--json", "pull"]);
+    let output = ff(&fx, &["--json", "pull", "--all"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
     assert_eq!(v["cmd"], "pull");
@@ -818,4 +819,323 @@ fn the_json_envelope_lists_the_other_branches() {
     assert_eq!(tag, "Held");
     assert_eq!(keys(h), ["branch", "verb"], "{v}");
     assert_eq!(h["verb"], "restack");
+}
+
+/// Standing on `topic`, off a pushed `main`, with `other` a sibling on the
+/// same base: a teammate's commit lands on `main` from a second clone.
+/// Returns `other`'s tip and the teammate's.
+fn topic_on_a_moved_main(fx: &Fixture) -> (String, String) {
+    fx.set_config("user.name", "Pull Tester");
+    fx.set_config("user.email", "pull@test.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["switch", "-q", "-c", "other"]);
+    fx.write("o.txt", "o\n");
+    let other_before = fx.commit("o1");
+    fx.git(&["switch", "-q", "-c", "topic", "main"]);
+    fx.write("t.txt", "t\n");
+    fx.commit("t1");
+
+    let teammate = fx.root().join("teammate");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &teammate.to_string_lossy(),
+        ],
+    );
+    std::fs::write(teammate.join("m.txt"), "m\n").unwrap();
+    fx.git_in(&teammate, &["add", "-A"]);
+    fx.git_in(&teammate, &["commit", "-q", "-m", "theirs"]);
+    fx.git_in(&teammate, &["push", "-q", "origin", "main"]);
+    let theirs = fx
+        .git_in(&teammate, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    (other_before, theirs)
+}
+
+/// Bare pull is the branch you stand on, and the base beneath it comes
+/// level with its own shared copy first: standing on `topic`, a teammate's
+/// commit on `main` fast-forwards `main` and `topic` replays onto it, while
+/// `other`, a sibling on the same stale base, is left where it stood — its
+/// shared copy unread, its block absent.
+#[test]
+fn bare_pull_is_the_branch_underfoot_and_the_base_beneath_it() {
+    let fx = Fixture::new_cloned();
+    let (other_before, theirs) = topic_on_a_moved_main(&fx);
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("main moved ahead by 1 commit(s)\n"), "{text}");
+    assert!(text.contains("replayed 1 commit(s) onto main\n"), "{text}");
+    assert!(
+        text.contains("main\n    fast-forwarded to origin/main (1 commit(s))\n"),
+        "the base beneath is in the run: {text}"
+    );
+    assert!(!text.contains("other\n"), "a sibling is not: {text}");
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        theirs,
+        "main is level"
+    );
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "topic"])
+            .status
+            .success(),
+        "topic sits on the moved main"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "other"]).trim(),
+        other_before,
+        "other stayed where it stood"
+    );
+}
+
+/// The same with trunk read off `origin/HEAD`, the way every clone of a
+/// repository with a HEAD has it: `topic`'s base is `refs/remotes/origin/
+/// main`, and local `main`, whose shared copy that is, is still in the run,
+/// so it fast-forwards rather than being left behind the branch that
+/// replayed onto what arrived.
+#[test]
+fn bare_pull_carries_local_main_when_trunk_is_origin_main() {
+    let fx = Fixture::new_cloned();
+    let (other_before, theirs) = topic_on_a_moved_main(&fx);
+    fx.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/main",
+    ]);
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("main moved ahead by 1 commit(s)\n"), "{text}");
+    assert!(
+        text.contains("main\n    fast-forwarded to origin/main (1 commit(s))\n"),
+        "local main is in the run: {text}"
+    );
+    assert!(!text.contains("other\n"), "a sibling is not: {text}");
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        theirs,
+        "main is level"
+    );
+    assert_eq!(fx.git(&["rev-parse", "other"]).trim(), other_before);
+}
+
+/// Standing on `main` with nothing beneath it, bare pull is `main` alone:
+/// `side` and `a` keep their tips and their blocks stay out of the report,
+/// and what is waiting to push is still named.
+#[test]
+fn bare_pull_from_main_leaves_the_other_branches_alone() {
+    let fx = Fixture::new_cloned();
+    let (s1, _theirs) = side_moved_and_a_stale(&fx);
+    let a_before = fx.git(&["rev-parse", "a"]).trim().to_string();
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("1 commit(s) to push — ff push"), "{text}");
+    assert!(!text.contains("side"), "{text}");
+    assert!(!text.contains("undo: ff undo"), "nothing moved: {text}");
+    assert_eq!(fx.git(&["rev-parse", "side"]).trim(), s1);
+    assert_eq!(fx.git(&["rev-parse", "a"]).trim(), a_before);
+}
+
+/// One name is that branch and the base beneath it: `side` fast-forwards to
+/// its shared copy and replays onto the moved `main`, `a` is left alone,
+/// and one undo hint closes the run.
+#[test]
+fn one_name_pulls_that_branch() {
+    let fx = Fixture::new_cloned();
+    let (s1, _theirs) = side_moved_and_a_stale(&fx);
+    let a_before = fx.git(&["rev-parse", "a"]).trim().to_string();
+
+    let output = ff(&fx, &["pull", "side"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    let side_block = "side\n    fast-forwarded to origin/side (1 commit(s))\n    main moved ahead by \
+                      1 commit(s)\n    replayed 2 commit(s) onto main\n";
+    assert!(text.contains(side_block), "{text}");
+    assert!(!text.contains("a\n    "), "a is not in the run: {text}");
+    assert!(text.trim_end().ends_with("undo: ff undo"), "{text}");
+    assert_ne!(fx.git(&["rev-parse", "side"]).trim(), s1, "side moved");
+    assert_eq!(fx.git(&["rev-parse", "a"]).trim(), a_before, "a stayed");
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "side"])
+            .status
+            .success(),
+        "side sits on the moved main"
+    );
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(fx.git(&["rev-parse", "side"]).trim(), s1, "one undo");
+}
+
+/// Several names are each pulled, reported in the order the ref namespace
+/// lists them whatever order they were typed in, and a name resolves the
+/// way `ff restack` resolves one: an unambiguous prefix names the branch.
+#[test]
+fn several_names_pull_each_in_namespace_order() {
+    let fx = Fixture::new_cloned();
+    let (s1, _theirs) = side_moved_and_a_stale(&fx);
+    let a_before = fx.git(&["rev-parse", "a"]).trim().to_string();
+
+    let output = ff(&fx, &["pull", "sid", "a"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    let a_block = "a\n    main moved ahead by 1 commit(s)\n    replayed 1 commit(s) onto main\n";
+    let side_block = "side\n    fast-forwarded to origin/side (1 commit(s))\n";
+    assert!(text.contains(a_block), "{text}");
+    assert!(text.contains(side_block), "{text}");
+    assert!(
+        text.find(a_block).unwrap() < text.find(side_block).unwrap(),
+        "report order: {text}"
+    );
+    assert_eq!(text.matches("undo: ff undo").count(), 1, "{text}");
+    assert_ne!(fx.git(&["rev-parse", "side"]).trim(), s1, "side moved");
+    assert_ne!(fx.git(&["rev-parse", "a"]).trim(), a_before, "a moved");
+}
+
+/// A named branch whose replay conflicts holds, the others in the run still
+/// move, the report names the hold and where to go, and the exit is 3.
+#[test]
+fn a_named_branch_that_holds_exits_3_and_the_rest_still_move() {
+    let fx = repo();
+    fx.write("shared.txt", "base\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("shared.txt", "mine\n");
+    let mine = fx.commit("mine");
+    fx.git(&["switch", "-q", "-c", "clean", "main"]);
+    fx.write("c.txt", "c\n");
+    let clean_before = fx.commit("c1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("shared.txt", "theirs\n");
+    fx.commit("theirs");
+
+    let output = ff(&fx, &["pull", "--no-fetch", "side", "clean"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains(
+            "clean\n    main moved ahead by 1 commit(s)\n    replayed 1 commit(s) onto main\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("side\n    held: replaying "), "{text}");
+    assert!(text.contains("undo: ff undo"), "clean landed: {text}");
+    assert!(
+        text.trim_end()
+            .ends_with("1 branch(es) held — ff switch side, then ff resolve"),
+        "{text}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "side"]).trim(),
+        mine,
+        "a hold touches nothing"
+    );
+    assert_ne!(
+        fx.git(&["rev-parse", "clean"]).trim(),
+        clean_before,
+        "clean moved"
+    );
+
+    let v = json(&ff(&fx, &["--json", "status"]));
+    assert!(v["data"]["held"].is_null(), "the hold is on side: {v}");
+}
+
+/// A name that resolves to nothing is refused before the fetch, with the
+/// error a misspelled branch gets everywhere else.
+#[test]
+fn an_unknown_name_is_refused_before_the_fetch() {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+
+    let output = ff(&fx, &["pull", "nope"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    assert!(
+        stderr(&output).contains("no branch named nope"),
+        "{}",
+        out(&output)
+    );
+    assert!(
+        !stdout(&output).contains("fetching from"),
+        "refused ahead of the network: {}",
+        out(&output)
+    );
+
+    let output = ff(&fx, &["--json", "pull", "nope"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    assert_eq!(json(&output)["error"]["id"], "branch/not-found");
+}
+
+/// Names and `--all` say two different things about which branches to
+/// visit, so together they are a usage error.
+#[test]
+fn names_and_all_are_refused_together() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["branch", "side"]);
+
+    let output = ff(&fx, &["pull", "--all", "side"]);
+    assert_eq!(output.status.code(), Some(2), "{}", out(&output));
+}
+
+/// Standing on `side` and naming `a`, a sibling on `main`: the run is `a`
+/// and `main` beneath it, and the branch underfoot is not in it. Both of
+/// its axes read `NotNamed`, no row is filed for it, and the human render
+/// says nothing about what it has waiting to push.
+#[test]
+fn the_envelope_says_when_the_branch_underfoot_was_not_named() {
+    let fx = Fixture::new_cloned();
+    let (s1, _theirs) = side_moved_and_a_stale(&fx);
+    fx.git(&["switch", "-q", "side"]);
+
+    let output = ff(&fx, &["--json", "pull", "a"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["data"]["pull"]["branch"], "side");
+    assert_eq!(v["data"]["pull"]["remote"], "NotNamed", "{v}");
+    assert_eq!(v["data"]["pull"]["base"], "NotNamed", "{v}");
+    let rows: Vec<&str> = v["data"]["pull"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            row.as_object().unwrap().values().next().unwrap()["branch"]
+                .as_str()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(rows, ["a", "main"], "the name and the base beneath it: {v}");
+    let (_, a) = row_of(&v, "a");
+    assert_eq!(
+        a["base"]["Ran"]["outcome"]["restacked"]["replayed"], 1,
+        "{v}"
+    );
+    assert_eq!(fx.git(&["rev-parse", "side"]).trim(), s1, "side stayed");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    let output = ff(&fx, &["pull", "a"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        !text.contains("ff push"),
+        "side is not being talked about: {text}"
+    );
+    assert!(
+        text.contains("a\n    main moved ahead by 1 commit(s)\n"),
+        "{text}"
+    );
 }

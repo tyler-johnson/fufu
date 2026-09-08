@@ -301,7 +301,11 @@ fn main() {
         }) => cmd::absorb::run(&ctx, into, paths, no_verify),
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
-        Some(cli::Command::Pull { no_fetch }) => cmd::pull::run(&ctx, no_fetch),
+        Some(cli::Command::Pull {
+            branches,
+            all,
+            no_fetch,
+        }) => cmd::pull::run(&ctx, branches, all, no_fetch),
         Some(cli::Command::Push { dry_run, to }) => cmd::push::run(&ctx, dry_run, to.as_deref()),
         Some(cli::Command::Remote) => cmd::remote::run(&ctx),
         // The two verbs that run before there is a repository to discover.

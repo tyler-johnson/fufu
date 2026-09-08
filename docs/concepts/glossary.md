@@ -48,7 +48,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **petname** — The generated name of an anonymous branch, like `ff/hidden-wren`: a genuine ref under a reserved prefix that every GUI shows, every git command addresses, and no push refspec matches by accident. See [branches](branches.md).
 
-**pull** — The incoming half of [the push boundary](push-boundary.md): [`ff pull`](../reference/cli/pull.md) fetches once and, for every local branch, takes in what arrived from the base beneath it and the shared copy of it, replaying the branch's commits onto the result. Nothing it does leaves the machine, and one `ff undo` takes the whole run back.
+**pull** — The incoming half of [the push boundary](push-boundary.md): [`ff pull`](../reference/cli/pull.md) fetches once and takes in what arrived for the branch you stand on, from the base beneath it and the shared copy of it, replaying the branch's commits onto the result; names take other branches, and `--all` every local branch. Nothing it does leaves the machine, and one `ff undo` takes the whole run back.
 
 **push** — The outgoing half of [the push boundary](push-boundary.md): [`ff push`](../reference/cli/push.md) sends the branch to its one remote, under a lease, and never rides along as a default inside any other verb.
 

@@ -1,8 +1,14 @@
 # ff pull
 
-Bring every local branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. Both halves, every run — what arrived on the remote is taken in, and a branch whose base moved beneath it is replayed onto where that base now stands. One fetch, then each branch is replayed onto whatever moved, and the whole run is one operation — one [`ff undo`](undo.md) puts every branch and the working copy back. `ff sync` is an alias: fufu's older word for this verb, kept for the fingers that learned it.
+Line a branch up with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. Both halves, every run — what arrived on the remote is taken in, and a branch whose base moved beneath it is replayed onto where that base now stands. One fetch opens the run, then each branch in it is replayed onto whatever moved, and the whole run is one operation — one [`ff undo`](undo.md) puts every branch and the working copy back. `ff sync` is an alias: fufu's older word for this verb, kept for the fingers that learned it.
 
 Nothing leaves the machine. This takes in; [`ff push`](push.md) sends, and a push is the one act undo cannot take back. When a branch is ahead of its shared copy, this says so and leaves it for the outgoing half.
+
+## Which branches
+
+Bare, this is the branch you stand on. Names take one or more branches instead, and `--all` is every local branch. A branch in the run brings the local bases beneath it in with it, down to trunk, each brought level with its own shared copy first: that is how a teammate's commit on `main` reaches the branch you stand on, and local `main` moves with it whether trunk is spelled `main` or `origin/main`. A name resolves the way [`ff restack`](restack.md) resolves one, an unambiguous prefix included, and a name no branch answers to is refused before the fetch.
+
+What is stacked above a branch in the run is not in the run: its shared copy is not read, and it moves only when a replay beneath it carries it, the way it would under `ff restack`. Name it, or run `--all`, to pull it on its own account.
 
 ## The shared copy
 
@@ -10,11 +16,11 @@ Two questions of each branch. Have you changed this branch since you last saw it
 
 If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone, and `ff push` replaces them; fufu knows them because it recorded the rewrite, or the push you undid.
 
-Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch`, or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read.
+Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch`, or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. A branch you are not standing on that only fast-forwards moves as a ref, and nothing above it follows; a replay carries what is stacked above it, as every replay does.
 
 ## The base
 
-One question: did it move? If so, the branch's commits replay onto where it now stands, and the branches stacked on this one follow, parent before child, the way [`ff restack`](restack.md) does. This half runs whether or not there is a remote at all.
+One question: did it move? If so, the branch's commits replay onto where it now stands, and the branches stacked on this one follow, parent before child, the way `ff restack` does. This half runs whether or not there is a remote at all.
 
 Only the branch you are standing on has a working copy, so the others move as refs and objects and touch no file.
 
@@ -31,18 +37,25 @@ Four kinds of branch are named and left where they stand:
 
 ## The report
 
-The branch you are standing on comes first, then one block per other branch that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A repository with nothing to do reads `nothing to pull`.
+The branch you are standing on comes first, then one block per other branch in the run that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A run with nothing to do reads `nothing to pull`. When names left the branch you stand on out of the run, it says nothing, and neither does the line about what it has waiting to push.
 
-With `--json`, the other branches are the `branches` array, one row per branch tagged `Pulled`, `Elsewhere`, or `Held`; a `Pulled` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-copy write.
+With `--json`, the other branches in the run are the `branches` array, one row per branch tagged `Pulled`, `Elsewhere`, or `Held`; a `Pulled` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-copy write. The branch you stand on has `remote` and `base` of its own, and both read `NotNamed` when the run did not reach it.
 
 The exit is 3 when any branch held, and the last line names the branch to switch to before resolve.
 
 ## Usage
 
 ```
-Usage: ff pull [OPTIONS]
+Usage: ff pull [OPTIONS] [branch]...
+
+Arguments:
+  [branch]...
+          Branches to pull, each with the bases beneath it; without any, the one you are on
 
 Options:
+      --all
+          Every local branch
+
       --no-fetch
           Skip the fetch: reconcile with what you already have
 
@@ -62,7 +75,10 @@ Options:
 ## Examples
 
 ```
-ff pull                        fetch, bring every branch up to date
-ff pull --no-fetch             the same, with what you already have
+ff pull                        fetch, then line this branch up
+ff pull side                   the same for side, from wherever you stand
+ff pull a b                    two branches, one fetch, one operation
+ff pull --all                  every local branch
+ff pull --no-fetch             with what you already have
 ff push                        send the branch you are on, once it lines up
 ```

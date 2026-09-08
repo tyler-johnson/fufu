@@ -91,9 +91,9 @@ The verb says what followed, what held, and what was skipped. `ff restack` and `
 
 [Stacked changes](../guides/stacked-changes.md) walks a stack through review.
 
-## Pull covers the whole repository
+## Pull reaches a branch and what it answers to
 
-`ff pull` fetches once and brings every local branch up to date with both things it answers to: first the shared copy of each branch, then the base beneath it, parent before child. A trunk that moved therefore carries every branch started from it, in one run.
+`ff pull` fetches once and brings the branch you stand on up to date with both things it answers to: the shared copy of itself, and the base beneath it. The base comes first, brought level with its own shared copy, and so does every local base beneath that down to trunk, so a teammate's commit on `main` reaches your branch through `main`. `ff pull <branch>...` does the same for the branches named, from wherever you stand, and `ff pull --all` is every local branch, parent before child, where a trunk that moved carries every branch started from it in one run.
 
 Standing on a branch changes nothing about how it is treated. It only decides whether a working copy moves — the branches you are not on move as refs and objects and touch no file.
 

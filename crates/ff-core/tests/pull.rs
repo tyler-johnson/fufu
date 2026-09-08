@@ -3,7 +3,7 @@
 //! handed in as parameters and the network reached zero times.
 
 use ff_core::gix;
-use ff_core::pull::{OtherBranch, PullOptions};
+use ff_core::pull::{OtherBranch, PullOptions, Scope};
 use ff_core::{
     BaseAxis, BranchPull, BranchRemote, Provenance, PullReport, RemoteAxis, RestackOutcome,
     SkipReason,
@@ -37,6 +37,7 @@ fn pull_run(
         PullOptions {
             fetched,
             tracking_after: after,
+            current: true,
             others: Vec::new(),
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],
@@ -738,10 +739,11 @@ fn the_base_axis_cascades_onto_the_branches_above() {
 fn pull_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> PullReport {
     let repo = fx.repo();
     let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
-    let before = ff_core::pull::other_branches(&repo, &pre.branch).unwrap();
+    let chosen = ff_core::pull::choose(&repo, &pre.branch, &Scope::All).unwrap();
+    let before = ff_core::pull::read_branches(&repo, &chosen.others).unwrap();
     fetch();
     let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
-    let others_after = ff_core::pull::other_branches(&repo, &pre.branch).unwrap();
+    let others_after = ff_core::pull::read_branches(&repo, &chosen.others).unwrap();
     let others: Vec<OtherBranch> = ff_core::pull::after_fetch(before, &others_after);
     ff_core::pull::pull(
         &repo,
@@ -749,6 +751,7 @@ fn pull_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> PullReport 
         PullOptions {
             fetched,
             tracking_after: after.tracking.as_ref().and_then(|t| t.tip),
+            current: true,
             others,
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],

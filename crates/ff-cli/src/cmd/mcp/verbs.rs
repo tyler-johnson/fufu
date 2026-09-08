@@ -377,9 +377,10 @@ mod tests {
 
             let mut arguments = JsonObject::new();
             for (key, property) in props {
-                // `--at` and `--at-op` conflict, which the schema does not
-                // say and the child answers with an envelope.
-                if name == "status" && key == "at" {
+                // `--at` and `--at-op` conflict, and so do pull's names and
+                // `--all`, which the schema does not say and the child
+                // answers with an envelope.
+                if (name == "status" && key == "at") || (name == "pull" && key == "all") {
                     continue;
                 }
                 let value = if key == CWD {
@@ -419,7 +420,11 @@ mod tests {
         let keys =
             |i: usize| -> Vec<String> { properties(&tools[i].tool()).keys().cloned().collect() };
         assert_eq!(keys(0), vec!["at-op", "at", "cwd"]);
-        assert_eq!(keys(1), vec!["no-fetch", "cwd"]);
+        assert_eq!(keys(1), vec!["branches", "all", "no-fetch", "cwd"]);
+        assert_eq!(
+            tools[1].tool().input_schema[POSITIONAL],
+            serde_json::json!(["branches"])
+        );
         assert_eq!(keys(2), vec!["dry-run", "to", "cwd"]);
         assert_eq!(keys(3), vec!["cwd"]);
         assert_eq!(keys(4), vec!["cwd"]);

@@ -112,7 +112,7 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 
 ## Remotes
 
-- `ff pull` is the whole repository, not the branch you stand on: one fetch, then every local branch lined up with both things it answers to — the shared copy of itself and the base it sits on — parent before child, cascading as it goes. Nothing leaves the machine, and the whole run is one `ff undo` away. A branch whose replay conflicts holds and the run continues; exit 3 says one did.
+- `ff pull` is the branch you stand on, with the bases beneath it: one fetch, then each lined up with both things it answers to — the shared copy of itself and the base it sits on — parent before child, cascading as it goes. `ff pull <branch>...` is those branches instead, and `ff pull --all` is every local branch. Nothing leaves the machine, and the whole run is one `ff undo` away. A branch whose replay conflicts holds and the run continues; exit 3 says one did.
 - `ff push` sends the branch under a lease: the push goes through only if the shared copy still stands where you last saw it. It does not fetch first, on purpose. It is the one thing fufu does that no operation log can take back, which is why it is a verb you type rather than a step riding inside another.
 - `ff push -n` says which of the four pushes this would be — create, replace, restore a deleted copy, or roll one back — while the answer still costs nothing.
 - `ff push --to <remote>` records which remote a branch answers to, once.

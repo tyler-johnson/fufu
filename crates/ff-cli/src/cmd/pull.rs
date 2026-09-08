@@ -3,6 +3,11 @@
 //! `ff restack` is one of its two axes; the other is the network, which this
 //! command owns and hands to the core as a number.
 //!
+//! Which branches the run visits is decided first, before the network is
+//! paid for: the branch underfoot, the ones named, or every local branch
+//! under `--all`, each with the local bases beneath it. A name that resolves
+//! to nothing is refused here, ahead of the fetch.
+//!
 //! The three steps run in order: read the tracking ref as it stands, fetch,
 //! read it again. The reason for reading it twice is the divergence rule —
 //! divergence this run's fetch created is somebody else's and your commits
@@ -17,15 +22,23 @@ use ff_core::{
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
+pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, no_fetch: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
 
     // The tracking ref as it stands before anything reaches the network,
-    // and every other branch's beside it.
+    // and every other branch in the run beside it.
     let before = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull)?;
-    let others_before = ff_core::pull::other_branches(&repo, &before.branch)?;
+    let scope = if all {
+        ff_core::pull::Scope::All
+    } else if branches.is_empty() {
+        ff_core::pull::Scope::Current
+    } else {
+        ff_core::pull::Scope::Named(branches)
+    };
+    let chosen = ff_core::pull::choose(&repo, &before.branch, &scope)?;
+    let others_before = ff_core::pull::read_branches(&repo, &chosen.others)?;
 
     let cwd = repo
         .workdir()
@@ -50,7 +63,7 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
     // same ref twice: one function, one definition, two moments.
     let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull)?;
     let tracking_after = after.tracking.as_ref().and_then(|t| t.tip);
-    let others_after = ff_core::pull::other_branches(&repo, &after.branch)?;
+    let others_after = ff_core::pull::read_branches(&repo, &chosen.others)?;
     let others = ff_core::pull::after_fetch(others_before, &others_after);
 
     let (report, verb_ctx) = ff_core::pull::pull(
@@ -59,6 +72,7 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
         ff_core::pull::PullOptions {
             fetched,
             tracking_after,
+            current: chosen.current,
             others,
             now: None,
             argv: std::env::args().collect(),
@@ -109,7 +123,7 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
     let mut said = false;
 
     match &report.remote {
-        RemoteAxis::NoRemote => {}
+        RemoteAxis::NotNamed | RemoteAxis::NoRemote => {}
         RemoteAxis::Gone { name } => {
             println!("{}", gone_line(name, colored));
             said = true;
@@ -159,8 +173,11 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
     // The other half, named but not done. A branch that just lined up and
     // still holds commits its shared copy does not is exactly when pointing
     // at `ff push` is useful — and pointing is all pull does, because
-    // sending is the one thing here that could not be undone.
+    // sending is the one thing here that could not be undone. A branch
+    // underfoot the run did not reach is not the branch being talked
+    // about, so nothing is said of it.
     let waiting = match report.pending {
+        _ if !chosen.current => None,
         ff_core::Pending::NoRemote | ff_core::Pending::Ahead(0) => None,
         ff_core::Pending::Unpublished => Some("not published yet — ff push".to_string()),
         ff_core::Pending::Ahead(n) => Some(format!("{n} commit(s) to push — ff push")),
@@ -275,7 +292,7 @@ fn remote_lines(name: &str, outcome: &RestackOutcome, colored: bool) -> Vec<Stri
 fn base_lines(base: &BaseAxis, colored: bool) -> Vec<String> {
     let mut out = Vec::new();
     match base {
-        BaseAxis::NoBase => {}
+        BaseAxis::NotNamed | BaseAxis::NoBase => {}
         BaseAxis::Skipped => out.push(crate::render::paint_dim(
             "the base was left alone: the first axis that conflicts stops the run",
             colored,

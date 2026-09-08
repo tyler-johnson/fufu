@@ -1152,11 +1152,14 @@ pub struct PullReport {
     /// A fetch ran this invocation. `false` for `--no-fetch`, and for a
     /// repository with no remote to fetch from.
     pub fetched: bool,
+    /// The branch underfoot's two axes. `NotNamed` on both when names were
+    /// given and the run did not reach it.
     pub remote: RemoteAxis,
     pub base: BaseAxis,
-    /// Every local branch other than the one underfoot, in the order the ref
-    /// namespace lists them. What each axis did to each, or why pull left
-    /// it alone.
+    /// Every branch in the run other than the one underfoot, in the order
+    /// the ref namespace lists them: the ones named and the bases beneath
+    /// them, or every local branch under `--all`. What each axis did to
+    /// each, or why pull left it alone.
     pub branches: Vec<BranchPull>,
     /// The files the run's one worktree write touched. The working tree
     /// moves when the branch underfoot is carried, by its own axis or by
@@ -1241,6 +1244,10 @@ pub struct PushReport {
 /// The remote axis: the shared copy of this same branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum RemoteAxis {
+    /// The run did not reach the branch underfoot: names were given, and
+    /// neither it nor a branch stacked on it was among them. Its shared
+    /// copy was not read.
+    NotNamed,
     /// No upstream is configured, so there is nothing to reconcile with and
     /// pushing is what creates one.
     NoRemote,
@@ -1272,6 +1279,10 @@ pub enum RemoteAxis {
 /// The base axis: what this work sits on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BaseAxis {
+    /// The run did not reach the branch underfoot: names were given, and
+    /// neither it nor a branch stacked on it was among them. Only the
+    /// branch underfoot reads this; every other branch in the run has a row.
+    NotNamed,
     /// Nothing beneath this branch to answer to — standing on trunk, an
     /// editing session, or a trunk fufu cannot name.
     NoBase,

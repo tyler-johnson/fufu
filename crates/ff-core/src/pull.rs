@@ -55,6 +55,12 @@
 //! after the fetch is handed in as a parameter — that is what keeps this
 //! whole module testable without a git binary.
 //!
+//! Which branches a run visits is the caller's to say, through [`Scope`]
+//! and [`choose`]: the branch underfoot, the ones named, or every local
+//! branch. A chosen branch brings the local bases beneath it into the run,
+//! since it is lined up with its base only once that base is level with
+//! its own shared copy.
+//!
 //! A pull is one operation, whatever moved. Every axis of every branch is
 //! planned through `restack`'s planning half against one overlay of what
 //! the run has already decided, and the run is written once: the record
@@ -83,12 +89,89 @@ pub struct PullOptions {
     /// The tracking ref's tip after the fetch — equal to `Tracking::tip` when
     /// nothing arrived, `None` when the ref is still absent.
     pub tracking_after: Option<gix::ObjectId>,
-    /// Every local branch other than the one underfoot, with its tracking
-    /// ref read on both sides of the fetch. [`other_branches`] reads them
-    /// and [`after_fetch`] carries the second reading into the first.
+    /// The branch underfoot is in the run, so its two axes run. False when
+    /// names were given and the run does not reach it; its report then
+    /// reads `NotNamed` on both axes. [`choose`] decides.
+    pub current: bool,
+    /// Every other branch in the run, with its tracking ref read on both
+    /// sides of the fetch. [`read_branches`] reads them and [`after_fetch`]
+    /// carries the second reading into the first.
     pub others: Vec<OtherBranch>,
     pub now: Option<i64>,
     pub argv: Vec<String>,
+}
+
+/// Which branches a run visits: the branch underfoot, the ones named, or
+/// every local branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    Current,
+    Named(Vec<String>),
+    All,
+}
+
+/// What a scope resolves to: whether the branch underfoot's own axes run,
+/// and every other branch in the run, in the order the ref namespace lists
+/// them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chosen {
+    pub current: bool,
+    pub others: Vec<String>,
+}
+
+/// The branches a scope reaches. `All` is every local branch. `Current` and
+/// `Named` are the branches asked for, each with the local bases beneath it
+/// down to trunk: a branch is lined up with its base only once that base is
+/// level with its own shared copy, which is how a teammate's commit on
+/// `main` reaches the branch you stand on. A base that is a tracking ref —
+/// trunk read off `origin/HEAD` is `refs/remotes/origin/main` — brings in
+/// the local branch whose shared copy it is, so local `main` follows what
+/// arrived rather than being left behind the branch that replayed onto it.
+/// A name resolves the way `ff restack` resolves one, an unambiguous prefix
+/// included, and one that resolves to nothing is refused before any fetch.
+/// The branches stacked above a chosen one are not chosen: a replay carries
+/// them, the way every replay does, and their own shared copies stay unread.
+pub fn choose(repo: &gix::Repository, current: &str, scope: &Scope) -> Result<Chosen> {
+    let names = crate::switch::branch_names(repo)?;
+    let seeds: Vec<String> = match scope {
+        Scope::All => {
+            return Ok(Chosen {
+                current: true,
+                others: names.into_iter().filter(|n| n != current).collect(),
+            });
+        }
+        Scope::Current => vec![current.to_string()],
+        Scope::Named(raw) => raw
+            .iter()
+            .map(|name| crate::switch::resolve_branch(repo, name))
+            .collect::<Result<_>>()?,
+    };
+    let mut chosen: HashSet<String> = HashSet::new();
+    for seed in seeds {
+        let mut name = seed;
+        // A parent link `--onto` aimed in a loop ends the walk at the first
+        // branch seen twice.
+        while chosen.insert(name.clone()) {
+            let Some(base) = crate::futures::base_for(repo, &name)? else {
+                break;
+            };
+            let parent = match base.r#ref.strip_prefix("refs/heads/") {
+                Some(local) => Some(local.to_string()),
+                None => tracking_branch(repo, &names, &base.r#ref)?,
+            };
+            let Some(parent) = parent else {
+                break;
+            };
+            name = parent;
+        }
+    }
+    Ok(Chosen {
+        current: chosen.contains(current),
+        others: names
+            .into_iter()
+            .filter(|n| n != current && chosen.contains(n))
+            .collect(),
+    })
 }
 
 /// A local branch other than the one underfoot, as the remote axis needs
@@ -118,15 +201,28 @@ pub struct OtherTracking {
     pub after: Option<gix::ObjectId>,
 }
 
-/// Every local branch other than `current`, with its tracking ref as it
+/// The local branch whose shared copy is `tracking`, a full
+/// `refs/remotes/…` ref, when one of `names` has it as its upstream.
+fn tracking_branch(
+    repo: &gix::Repository,
+    names: &[String],
+    tracking: &str,
+) -> Result<Option<String>> {
+    for name in names {
+        if crate::futures::remote_for(repo, name)?.is_some_and(|own| own.r#ref == tracking) {
+            return Ok(Some(name.clone()));
+        }
+    }
+    Ok(None)
+}
+
+/// The named branches, in the order given, with each tracking ref as it
 /// stands now filled into `before` and `after` left empty. Called twice
 /// around the fetch; [`after_fetch`] joins the two readings.
-pub fn other_branches(repo: &gix::Repository, current: &str) -> Result<Vec<OtherBranch>> {
-    let mut out = Vec::new();
-    for branch in crate::switch::branch_names(repo)? {
-        if branch == current {
-            continue;
-        }
+pub fn read_branches(repo: &gix::Repository, names: &[String]) -> Result<Vec<OtherBranch>> {
+    let mut out = Vec::with_capacity(names.len());
+    for branch in names {
+        let branch = branch.clone();
         let tip = crate::preflight::branch_tip(repo, &branch)?;
         let tracking = match crate::futures::remote_for(repo, &branch)? {
             None => None,
@@ -210,8 +306,10 @@ pub fn pull(
     // The remote axis of the branch underfoot: the shared copy of this same
     // branch. `restack` decides up-to-date versus fast-forward versus replay
     // from the same merge bases — the only thing this axis decides is
-    // whether to call it.
+    // whether to call it. A branch underfoot the run does not reach keeps
+    // its shared copy unread.
     let mut remote = match pre.tracking.as_ref() {
+        _ if !opts.current => RemoteAxis::NotNamed,
         None => RemoteAxis::NoRemote,
         Some(tracking) if opts.tracking_after.is_none() => RemoteAxis::Gone {
             name: tracking.name.clone(),
@@ -327,7 +425,11 @@ pub fn pull(
     let mut base = BaseAxis::NoBase;
     for name in base_order(repo)? {
         if name == pre.branch {
-            base = current_base_axis(repo, pre, &mut run)?;
+            base = if opts.current {
+                current_base_axis(repo, pre, &mut run)?
+            } else {
+                BaseAxis::NotNamed
+            };
             continue;
         }
         let row = branches.iter_mut().find(|row| match row {

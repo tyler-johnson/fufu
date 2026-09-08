@@ -12,9 +12,13 @@
 - `ff status --json` carries the orientation an agent asks for first: `root`, `worktree` with its id and the main checkout, `base` with the count above it, `remote`, and `last_op`, `ff op log --json`'s row for the newest operation on this worktree's chain.
 - Every `ff hook` install re-asks each declared extension's manifest first and re-records it in `extensions.json`, so the skills it writes are the ones the binary names now; a binary off PATH or failing the handshake keeps its record and is said. `ff hook --json` carries `extensions`, one row per declared extension with its `version`, `was`, `changed`, and `error`.
 - `ff hook -u` refreshes what is wired and adds nothing: the manifest pass, then the install re-run for every slug already wired. `install.sh` and `install.ps1` run it after placing the binary.
+- `ff pull <branch>...` pulls the branches named, from wherever you stand, each with the local bases beneath it; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before the fetch. `ff pull --all` is every local branch, the run bare `ff pull` used to be. Names and `--all` together are a usage error.
+- `ff pull --json` reads `NotNamed` on the report's `remote` and `base` when names left the branch you stand on out of the run.
+- `ff mcp`'s `pull` tool takes `branches` and `all`.
 
 ### Changed
 
+- Bare `ff pull` is the branch you stand on and the local bases beneath it, brought level with their shared copies first, rather than every local branch; what is stacked above follows a replay as before, and is not read against its own shared copy. `ff pull --all` is the whole-repository run.
 - `ff sync` is `ff pull` and `ff publish` is `ff push`. The old spellings stay as visible aliases, kept rather than deprecated, and `ff --help` shows each on its verb's row. `ff pull` and `ff push` were hidden foreign verbs that refused; they run now, and `ff git pull` still runs git's.
 - The error ids under `sync/` and `publish/` are `pull/` and `push/`: `pull/fetch-failed`, `pull/ambiguous-remote`, `push/no-git`, `push/unreachable`, `push/lease-refused`, `push/rejected`, `push/failed`, `push/unrecorded`, `push/unknown-remote`, `push/retarget`. The old ids resolve nowhere, `ff explain` included.
 - The operation log records the two verbs as `pull` and `push`, and a push's summary reads `pushed <branch> to <remote>/<branch>`. Operations already on a log keep the words they were written with.
