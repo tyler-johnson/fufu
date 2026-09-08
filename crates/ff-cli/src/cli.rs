@@ -353,6 +353,9 @@ pub enum Command {
         /// Every local branch
         #[arg(long)]
         all: bool,
+        /// Say what would move, hold, and be skipped, without writing it
+        #[arg(short = 'n', long)]
+        dry_run: bool,
         /// Skip the fetch: reconcile with what you already have
         #[arg(long)]
         no_fetch: bool,

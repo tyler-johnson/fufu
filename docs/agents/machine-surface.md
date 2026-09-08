@@ -256,7 +256,7 @@ The exit-code rules restate as tool rules. An id under `held/*` means nothing mo
 
 ### What the tool serves
 
-The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `pull` takes `branches`, `all`, and `no-fetch`; `push` takes `branches`, `dry-run`, and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
+The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `pull` takes `branches`, `all`, `dry-run`, and `no-fetch`; `push` takes `branches`, `dry-run`, and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
 
 Everything else is the shell. Beside the seven, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools), taking `cwd` the same way. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
 

@@ -23,7 +23,7 @@ fufu can tell those two apart because it recorded the rewrite, or the push you u
 
 The replay runs in memory and lands only when it is clean. A commit that conflicts holds the branch it belongs to: nothing moves there, no half-applied tree touches the repository, and the run goes on to the next branch. [`ff resolve`](../reference/cli/resolve.md) picks that [held rewrite](held-rewrites.md) up at a moment you choose.
 
-Nothing pull does leaves the machine. The fetch, the replay, the whole run is one operation, and one `ff undo` takes it back. That guarantee is why pull stops where it does — when your branch is ahead of its shared copy, pull names what is waiting and leaves it.
+Nothing pull does leaves the machine. The fetch, the replay, the whole run is one operation, and one `ff undo` takes it back. That guarantee is why pull stops where it does — when your branch is ahead of its shared copy, pull names what is waiting and leaves it. `ff pull --dry-run` says what the run would do, the fetch included, and writes none of it.
 
 ## Push carries a lease
 

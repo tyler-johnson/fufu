@@ -139,6 +139,29 @@ struct PathChange {
     action: Action,
 }
 
+/// The files [`apply_tree_transition`] would write or delete carrying the
+/// worktree from `from` to `to`, counted and not touched: every change but
+/// a gitlink, which the transition skips. What a dry run reports where a
+/// real run reports what it wrote.
+pub(crate) fn count_tree_transition(
+    repo: &gix::Repository,
+    from: gix::ObjectId,
+    to: gix::ObjectId,
+) -> Result<usize> {
+    Ok(tree_changes(repo, from, to)?
+        .into_iter()
+        .filter(|change| {
+            !matches!(
+                change.action,
+                Action::Materialize {
+                    kind: gix::objs::tree::EntryKind::Commit,
+                    ..
+                }
+            )
+        })
+        .count())
+}
+
 /// File-level changes that carry the worktree from `from` to `to`: paths only
 /// in `from` are deleted, everything else materializes `to`'s version.
 fn tree_changes(

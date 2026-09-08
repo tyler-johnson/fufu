@@ -1139,3 +1139,281 @@ fn the_envelope_says_when_the_branch_underfoot_was_not_named() {
         "{text}"
     );
 }
+
+/// The ids `ff op log --json` prints, captures included — the whole log,
+/// so a verb that wrote anything at all shows up here.
+fn op_count(fx: &Fixture) -> usize {
+    let output = ff(fx, &["op", "log", "--json", "-n", "0"]);
+    assert!(output.status.success(), "{}", out(&output));
+    json(&output)["data"]["ops"]
+        .as_array()
+        .expect("ops array")
+        .len()
+}
+
+/// The tips of `names`, for asserting that none of them moved.
+fn tips(fx: &Fixture, names: &[&str]) -> Vec<String> {
+    names
+        .iter()
+        .map(|name| fx.git(&["rev-parse", name]).trim().to_string())
+        .collect()
+}
+
+/// A bare dry run says what would fast-forward and what would replay, in
+/// the conditional, and writes nothing: standing on `topic` over a `main` a
+/// teammate moved, `main` would fast-forward and `topic` would replay onto
+/// it, and afterwards every tip, the working copy, and the operation log
+/// stand where they stood. `-n` is the same flag.
+#[test]
+fn a_dry_run_says_would_and_writes_nothing() {
+    let fx = Fixture::new_cloned();
+    let (_other_before, _theirs) = topic_on_a_moved_main(&fx);
+    let before = tips(&fx, &["main", "topic", "other"]);
+    let ops = op_count(&fx);
+
+    let output = ff(&fx, &["pull", "--dry-run"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        stdout(&output),
+        "fetching from origin\n\
+         main moved ahead by 1 commit(s)\n\
+         would replay 1 commit(s) onto main\n\
+         would update the working copy (1 file(s))\n\
+         not published yet — ff push\n\
+         main\n    would fast-forward to origin/main (1 commit(s))\n\
+         nothing was written — drop --dry-run to pull\n"
+    );
+    assert_eq!(
+        tips(&fx, &["main", "topic", "other"]),
+        before,
+        "no tip moved"
+    );
+    assert!(!fx.path().join("m.txt").exists(), "the working copy stayed");
+    assert_eq!(
+        fx.git(&["status", "--porcelain"]).trim(),
+        "",
+        "nothing open"
+    );
+    assert_eq!(op_count(&fx), ops, "nothing on the operation log");
+
+    let short = ff(&fx, &["pull", "-n"]);
+    assert_eq!(
+        stdout(&short),
+        stdout(&output),
+        "-n and --dry-run are one flag"
+    );
+}
+
+/// The dry run fetches: the report cannot say what the shared copy holds
+/// without it, and a fetch moves the remote-tracking ref and nothing a
+/// person stands on. So `origin/main` carries the teammate's commit
+/// afterwards while local `main` does not, and FETCH_HEAD is not written.
+#[test]
+fn a_dry_run_fetches_and_moves_only_the_tracking_ref() {
+    let fx = Fixture::new_cloned();
+    let (_other_before, theirs) = topic_on_a_moved_main(&fx);
+    let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
+    assert_ne!(
+        fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
+        theirs,
+        "test fixture: the tracking ref must not know the commit yet"
+    );
+
+    let output = ff(&fx, &["pull", "-n"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
+        theirs,
+        "the fetch moved the tracking ref"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        main_before,
+        "the local branch stayed"
+    );
+    assert!(
+        !fx.path().join(".git/FETCH_HEAD").exists(),
+        "the fetch writes tracking refs and objects and nothing else"
+    );
+}
+
+/// `--no-fetch` beside the dry run reads what is already here and writes
+/// nothing at all: no fetch line, the tracking ref where it stood, and a
+/// report with nothing to say about a base whose move has not arrived.
+#[test]
+fn a_dry_run_with_no_fetch_reads_what_you_have() {
+    let fx = Fixture::new_cloned();
+    let (_other_before, theirs) = topic_on_a_moved_main(&fx);
+    let tracking_before = fx
+        .git(&["rev-parse", "refs/remotes/origin/main"])
+        .trim()
+        .to_string();
+    let before = tips(&fx, &["main", "topic", "other"]);
+
+    let output = ff(&fx, &["pull", "-n", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(stdout(&output), "not published yet — ff push\n");
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
+        tracking_before,
+        "no fetch ran"
+    );
+    assert_ne!(tracking_before, theirs);
+    assert_eq!(tips(&fx, &["main", "topic", "other"]), before);
+
+    let v = json(&ff(&fx, &["--json", "pull", "-n", "--no-fetch"]));
+    assert_eq!(v["data"]["pull"]["fetched"], false, "{v}");
+    assert_eq!(v["data"]["pull"]["dry_run"], true, "{v}");
+}
+
+/// A dry run under a name is that branch and the base beneath it, in the
+/// conditional: `side` would fast-forward to its shared copy and replay
+/// onto the moved `main`, `a` is not in the run, and nothing moved.
+#[test]
+fn a_dry_run_under_names_says_would_for_each() {
+    let fx = Fixture::new_cloned();
+    let (_s1, _theirs) = side_moved_and_a_stale(&fx);
+    let before = tips(&fx, &["main", "side", "a"]);
+    let ops = op_count(&fx);
+
+    let output = ff(&fx, &["pull", "-n", "side"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        stdout(&output),
+        "fetching from origin\n\
+         1 commit(s) to push — ff push\n\
+         side\n    would fast-forward to origin/side (1 commit(s))\n    main moved ahead by \
+         1 commit(s)\n    would replay 2 commit(s) onto main\n\
+         nothing was written — drop --dry-run to pull\n"
+    );
+    assert_eq!(tips(&fx, &["main", "side", "a"]), before, "no tip moved");
+    assert_eq!(op_count(&fx), ops, "nothing on the operation log");
+}
+
+/// A dry run under `--all` names every branch that would do something, in
+/// report order, and moves none of them.
+#[test]
+fn a_dry_run_under_all_names_every_branch() {
+    let fx = Fixture::new_cloned();
+    let (_s1, _theirs) = side_moved_and_a_stale(&fx);
+    let before = tips(&fx, &["main", "side", "a"]);
+    let ops = op_count(&fx);
+
+    let output = ff(&fx, &["pull", "-n", "--all"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        stdout(&output),
+        "fetching from origin\n\
+         1 commit(s) to push — ff push\n\
+         a\n    main moved ahead by 1 commit(s)\n    would replay 1 commit(s) onto main\n\
+         side\n    would fast-forward to origin/side (1 commit(s))\n    main moved ahead by \
+         1 commit(s)\n    would replay 2 commit(s) onto main\n\
+         nothing was written — drop --dry-run to pull\n"
+    );
+    assert_eq!(tips(&fx, &["main", "side", "a"]), before, "no tip moved");
+    assert_eq!(op_count(&fx), ops, "nothing on the operation log");
+}
+
+/// A dry run says which branch would hold and where, beside the one that
+/// would move, exits 3 the way a real run does, and records no hold: the
+/// real run afterwards still finds the conflict for itself rather than a
+/// hold already standing.
+#[test]
+fn a_dry_run_shows_a_would_hold_beside_a_would_move() {
+    let fx = repo();
+    fx.write("shared.txt", "base\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("shared.txt", "mine\n");
+    let mine = fx.commit("mine");
+    fx.git(&["switch", "-q", "-c", "clean", "main"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("c1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("shared.txt", "theirs\n");
+    fx.commit("theirs");
+    let before = tips(&fx, &["main", "side", "clean"]);
+    let ops = op_count(&fx);
+
+    let output = ff(&fx, &["pull", "-n", "--no-fetch", "side", "clean"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "clean\n    main moved ahead by 1 commit(s)\n    would replay 1 commit(s) onto main\n\
+             side\n    would hold: replaying {} \"mine\" conflicts in shared.txt\n\
+             nothing was written — drop --dry-run to pull\n\
+             1 branch(es) would hold\n",
+            &mine[..8]
+        )
+    );
+    assert_eq!(
+        tips(&fx, &["main", "side", "clean"]),
+        before,
+        "no tip moved"
+    );
+    assert_eq!(op_count(&fx), ops, "nothing on the operation log");
+
+    let v = json(&ff(
+        &fx,
+        &["--json", "pull", "-n", "--no-fetch", "side", "clean"],
+    ));
+    assert_eq!(v["data"]["pull"]["dry_run"], true, "{v}");
+    let (_, side) = row_of(&v, "side");
+    assert_eq!(
+        side["base"]["Ran"]["outcome"]["held"]["paths"][0], "shared.txt",
+        "{v}"
+    );
+
+    let real = ff(&fx, &["pull", "--no-fetch", "side", "clean"]);
+    assert_eq!(real.status.code(), Some(3), "{}", out(&real));
+    assert!(
+        stdout(&real).contains("side\n    held: replaying "),
+        "the dry run recorded no hold: {}",
+        stdout(&real)
+    );
+}
+
+/// The dry run's envelope is the real run's with `dry_run` true and `undo`
+/// null: the same rows under `branches`, the same axes, the same numbers,
+/// and no tip moved.
+#[test]
+fn the_dry_run_envelope_carries_the_rows_and_says_so() {
+    let fx = Fixture::new_cloned();
+    let (s1, theirs) = side_moved_and_a_stale(&fx);
+    let before = tips(&fx, &["main", "side", "a"]);
+
+    let output = ff(&fx, &["--json", "pull", "-n", "--all"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "pull");
+    assert_eq!(v["data"]["pull"]["dry_run"], true, "{v}");
+    assert_eq!(v["data"]["pull"]["fetched"], true, "{v}");
+    assert!(v["data"]["undo"].is_null(), "nothing to undo: {v}");
+    let (tag, side) = row_of(&v, "side");
+    assert_eq!(tag, "Pulled");
+    let moved = &side["remote"]["Moved"];
+    assert_eq!(moved["fast_forward"], true, "{v}");
+    assert_eq!(moved["behind"], 1, "{v}");
+    assert_eq!(moved["old"], s1, "{v}");
+    assert_eq!(moved["new"], theirs, "{v}");
+    assert_eq!(
+        side["base"]["Ran"]["outcome"]["restacked"]["replayed"], 2,
+        "{v}"
+    );
+    let (_, a) = row_of(&v, "a");
+    assert_eq!(
+        a["base"]["Ran"]["outcome"]["restacked"]["replayed"], 1,
+        "{v}"
+    );
+    assert_eq!(tips(&fx, &["main", "side", "a"]), before, "no tip moved");
+
+    let real = json(&ff(&fx, &["--json", "pull", "--all"]));
+    assert_eq!(real["data"]["pull"]["dry_run"], false, "{real}");
+    assert_eq!(real["data"]["undo"], "ff undo", "{real}");
+    assert_ne!(
+        fx.git(&["rev-parse", "side"]).trim(),
+        s1,
+        "the real run moved it"
+    );
+}

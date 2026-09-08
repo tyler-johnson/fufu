@@ -46,6 +46,7 @@ fn pull_run(
             tracking_after: after,
             current: true,
             others: Vec::new(),
+            dry_run: false,
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],
         },

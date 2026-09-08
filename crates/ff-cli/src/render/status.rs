@@ -520,7 +520,7 @@ fn noun(n: usize, singular: &'static str, plural: &'static str) -> &'static str 
 /// Truncate a long subject so the futures line stays one line: cut to 40
 /// characters and append an ellipsis, trimming trailing whitespace first so
 /// the ellipsis never floats after a stray space.
-fn truncate_subject(subject: &str) -> String {
+pub(crate) fn truncate_subject(subject: &str) -> String {
     let chars: Vec<char> = subject.chars().collect();
     if chars.len() <= 40 {
         return subject.to_string();

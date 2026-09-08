@@ -66,6 +66,14 @@
 //! the run has already decided, and the run is written once: the record
 //! ahead of any ref move, the refs in one transaction, the holds onto their
 //! branches, and the worktree last. One `ff undo` takes the whole run back.
+//!
+//! A dry run is that same plan with the write left out. Every axis of every
+//! branch is planned the way a real run plans it, against the same overlay,
+//! so the report says what would fast-forward, replay, hold, and be skipped
+//! with the same numbers a real run would land; then nothing is committed.
+//! The planning half writes commit objects and no ref, so a dry run leaves
+//! unreferenced objects and nothing else: no branch, hold, file, or
+//! operation. Whether the fetch ran is the caller's, as always.
 
 use std::collections::HashSet;
 
@@ -97,6 +105,10 @@ pub struct PullOptions {
     /// sides of the fetch. [`read_branches`] reads them and [`after_fetch`]
     /// carries the second reading into the first.
     pub others: Vec<OtherBranch>,
+    /// Plan and report, and write nothing: no capture, no ref move, no
+    /// hold, no file, no operation. The report's numbers are the ones a
+    /// real run would land.
+    pub dry_run: bool,
     pub now: Option<i64>,
     pub argv: Vec<String>,
 }
@@ -281,14 +293,25 @@ pub fn after_fetch(mut before: Vec<OtherBranch>, after: &[OtherBranch]) -> Vec<O
     before
 }
 
+/// The run: planned in full, then written once. Under `dry_run` the
+/// context is `None`, since no capture was taken and nothing was written.
 pub fn pull(
     repo: &gix::Repository,
     pre: &Preflight,
     opts: PullOptions,
     prov: &Provenance,
-) -> Result<(PullReport, crate::ops::verb::VerbContext)> {
-    let ctx = crate::ops::verb::begin_verb(repo, prov, opts.now)?;
-    let mut run = Run::new(&pre.branch, ctx.now);
+) -> Result<(PullReport, Option<crate::ops::verb::VerbContext>)> {
+    // A dry run takes no capture: the capture is what a write is undone
+    // to, and a run that writes nothing has nothing to undo.
+    let ctx = if opts.dry_run {
+        None
+    } else {
+        Some(crate::ops::verb::begin_verb(repo, prov, opts.now)?)
+    };
+    let now = ctx
+        .as_ref()
+        .map_or_else(|| crate::ops::verb::now_or_wall_clock(opts.now), |c| c.now);
+    let mut run = Run::new(&pre.branch, now);
 
     // Two phases over the whole repository. The remote phase first, for
     // every branch: each branch against its own shared copy. Then the base
@@ -365,7 +388,7 @@ pub fn pull(
                     repo,
                     None,
                     Some(tracking.full.clone()),
-                    ctx.now,
+                    run.now,
                     &crate::rewrite::Decided::none(),
                     Aim::Settled,
                     &run.overlay,
@@ -441,13 +464,22 @@ pub fn pull(
         }
     }
 
+    // The tip the branch underfoot ends on, as the run planned it: the ref
+    // after the write, and under a dry run the tip it would have been.
+    let tip_now = run
+        .overlay
+        .branch_tip(repo, &pre.branch)?
+        .unwrap_or(pre.branch_tip);
+
     // The one operation: everything both phases planned, written ahead of
     // the first ref move, then the refs in one transaction, then the holds,
-    // then the worktree. A run that planned nothing records nothing.
-    let (files, still_open) = if run.is_empty() {
-        (0, false)
-    } else {
-        run.commit(repo, &ctx, pre, prov, opts.argv.clone())?
+    // then the worktree. A run that planned nothing records nothing, and a
+    // dry run records nothing either: it measures the worktree write it
+    // would have made and leaves the plan where it stands.
+    let (files, still_open) = match ctx.as_ref() {
+        _ if run.is_empty() => (0, false),
+        None => run.planned_worktree(repo)?,
+        Some(ctx) => run.commit(repo, ctx, pre, prov, opts.argv.clone())?,
     };
     // The files the one worktree write touched are the run's, since the
     // branch underfoot may have been carried by another branch's cascade
@@ -474,10 +506,10 @@ pub fn pull(
         }
     }
 
-    // What is left waiting. The tip is read again because both axes may have
-    // moved it, and the count is against the tracking ref as it now stands —
-    // the same fact `ff push` will lease against. Pull names it and sends
-    // nothing.
+    // What is left waiting. The tip is the planned one because both axes
+    // may have moved it, and the count is against the tracking ref as it
+    // now stands — the same fact `ff push` will lease against. Pull names
+    // it and sends nothing.
     let pending = match (pre.remote.as_ref(), opts.tracking_after) {
         (None, _) => Pending::NoRemote,
         // A remote is configured but this branch has no copy on it — either
@@ -485,7 +517,6 @@ pub fn pull(
         // and neither is a number.
         (Some(_), None) => Pending::Unpublished,
         (Some(_), Some(after)) => {
-            let tip_now = crate::preflight::branch_tip(repo, &pre.branch)?;
             let bases: Vec<gix::ObjectId> = repo
                 .merge_bases_many(tip_now, &[after])
                 .map_err(Error::repo)?
@@ -514,6 +545,7 @@ pub fn pull(
             files,
             still_open,
             pending,
+            dry_run: opts.dry_run,
         },
         ctx,
     ))
@@ -623,6 +655,21 @@ impl Run {
                 Ok(RestackOutcome::Restacked(Box::new(report)))
             }
         }
+    }
+
+    /// The worktree write the run would make, measured and not made: the
+    /// files the transition from the open change to the planned tree would
+    /// touch, counted the way [`Run::commit`] counts the ones it wrote, and
+    /// whether the planned tree still holds an open change against the tip
+    /// it would sit on. Zero and false when the branch underfoot would not
+    /// move.
+    fn planned_worktree(&self, repo: &gix::Repository) -> Result<(usize, bool)> {
+        let Some(head) = &self.overlay.head else {
+            return Ok((0, false));
+        };
+        let tip_tree = crate::futures::tree_of(repo, head.tip)?;
+        let files = crate::worktree::count_tree_transition(repo, head.open, head.worktree)?;
+        Ok((files, head.worktree != tip_tree))
     }
 
     /// The one operation: the record write-ahead, the refs in one

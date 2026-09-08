@@ -304,8 +304,9 @@ fn main() {
         Some(cli::Command::Pull {
             branches,
             all,
+            dry_run,
             no_fetch,
-        }) => cmd::pull::run(&ctx, branches, all, no_fetch),
+        }) => cmd::pull::run(&ctx, branches, all, dry_run, no_fetch),
         Some(cli::Command::Push {
             branches,
             dry_run,

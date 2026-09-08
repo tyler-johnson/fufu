@@ -420,7 +420,10 @@ mod tests {
         let keys =
             |i: usize| -> Vec<String> { properties(&tools[i].tool()).keys().cloned().collect() };
         assert_eq!(keys(0), vec!["at-op", "at", "cwd"]);
-        assert_eq!(keys(1), vec!["branches", "all", "no-fetch", "cwd"]);
+        assert_eq!(
+            keys(1),
+            vec!["branches", "all", "dry-run", "no-fetch", "cwd"]
+        );
         assert_eq!(
             tools[1].tool().input_schema[POSITIONAL],
             serde_json::json!(["branches"])

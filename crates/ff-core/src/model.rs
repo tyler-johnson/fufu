@@ -1174,6 +1174,11 @@ pub struct PullReport {
     /// a branch that just lined up and still has something waiting is
     /// exactly when naming the other half is useful.
     pub pending: Pending,
+    /// True when nothing was written (dry run): every axis was planned and
+    /// the report says what it would have done, and no branch, hold, file,
+    /// or operation moved. `files` and `still_open` then describe the
+    /// working-copy write the run would have made.
+    pub dry_run: bool,
 }
 
 impl PullReport {

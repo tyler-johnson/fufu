@@ -15,6 +15,9 @@
 - `ff pull <branch>...` pulls the branches named, from wherever you stand, each with the local bases beneath it; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before the fetch. `ff pull --all` is every local branch, the run bare `ff pull` used to be. Names and `--all` together are a usage error.
 - `ff pull --json` reads `NotNamed` on the report's `remote` and `base` when names left the branch you stand on out of the run.
 - `ff mcp`'s `pull` tool takes `branches` and `all`.
+- `ff pull --dry-run` (`-n`) says what the run would do — which branches would fast-forward, which would replay and onto what, which would hold and where, and which would be skipped and why — for bare, names, and `--all`, and writes nothing: no branch, file, hold, or operation. The fetch still runs and writes remote-tracking refs and nothing else; `--dry-run --no-fetch` reads what you already have. The exit is 3 when a branch would hold.
+- `ff pull --json` carries `dry_run` on the report, and `undo` is null under a dry run.
+- `ff mcp`'s `pull` tool takes `dry-run`.
 - `ff push <branch>...` pushes the branches named, from wherever you stand, each under its own lease; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before anything reaches the wire. Among several, a lease the remote refuses is that branch's alone: the rest go out, its block says what the wire said, and the exit is 1. There is no `--all`.
 - `ff push --json` carries `branches`, one row per branch in the run with its `push`, `pushed`, and `error`; `push` and `pushed` read `NotNamed` and false when names left the branch you stand on out of the run.
 - `ff mcp`'s `push` tool takes `branches`.
