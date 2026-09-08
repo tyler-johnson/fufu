@@ -2,6 +2,7 @@
 //! `ff-<name> --ff-skill <skill>`, installed one directory each beside
 //! fufu's for Claude and Codex, printed by `ff hook --skill <skill>`, and
 //! left alone for Cursor and Gemini, which read no skills directory at all.
+//! `ff hook -u`, which re-asks the manifest before the skills, is here too.
 //!
 //! Unix only, for the reason `tests/ext.rs` is: the stub `ff-<name>` is a
 //! shell script, and the handshake runs it.
@@ -78,6 +79,10 @@ fn manifest(name: &str, skills: &[&str]) -> Value {
 /// `ff extension add`'s handshake — these tests are about what a hook
 /// install does with a manifest already on record, not about declaring one,
 /// the same shortcut `tests/hook.rs`'s `declared_extensions` module takes.
+///
+/// The stub answers `--ff-manifest` with the same manifest, so a fixture
+/// declared here is one whose binary and record agree; `manifest_answer`
+/// moves the binary on without the record.
 fn declare(home: &Path, bin: &Path, name: &str, skills: &[&str]) {
     let record = serde_json::json!({
         "path": bin.join(format!("ff-{name}")),
@@ -91,6 +96,23 @@ fn declare(home: &Path, bin: &Path, name: &str, skills: &[&str]) {
         serde_json::json!({ "ff": 1, "extensions": [record] }).to_string(),
     )
     .expect("write registry");
+    manifest_answer(bin, name, skills);
+}
+
+/// What the stub answers `--ff-manifest` with, rewritten without touching
+/// the registry: the state a binary that was replaced behind the record
+/// leaves.
+fn manifest_answer(bin: &Path, name: &str, skills: &[&str]) {
+    std::fs::write(
+        bin.join(format!("{name}.manifest.json")),
+        manifest(name, skills).to_string(),
+    )
+    .expect("write manifest answer");
+}
+
+/// The registry file as this machine reads it back.
+fn registry(home: &Path) -> Value {
+    serde_json::from_str(&text_at(&userdirs::registry(home))).expect("a registry")
 }
 
 /// A registry with nothing in it, which is what `ff extension remove` of
@@ -116,7 +138,8 @@ enum Stub {
 }
 
 /// An executable `ff-<name>` on the bin directory that answers the skill
-/// handshake from the JSON files the test wrote beside it.
+/// handshake from the JSON files the test wrote beside it, and the manifest
+/// handshake from `<bin>/<name>.manifest.json`.
 fn ext_bin(bin: &Path, name: &str, stub: Stub) {
     let store = bin.join(format!("{name}.skills"));
     std::fs::create_dir_all(&store).expect("create skill store");
@@ -130,11 +153,23 @@ fn ext_bin(bin: &Path, name: &str, stub: Stub) {
 # PATH is the bin directory alone for the length of the ask, and `cat` is
 # not there.
 PATH=/bin:/usr/bin; export PATH
-if [ "$1" != "--ff-skill" ] || [ $# -ne 2 ]; then
-  echo "unexpected: $*" >&2
-  exit 2
+case "$1" in
+  --ff-manifest) [ $# -eq 1 ] || {{ echo "unexpected: $*" >&2; exit 2; }} ;;
+  --ff-skill) [ $# -eq 2 ] || {{ echo "unexpected: $*" >&2; exit 2; }} ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+{answer}if [ "$1" = "--ff-manifest" ]; then
+  file="{manifest}"
+  if [ ! -f "$file" ]; then
+    echo "no manifest beside the stub" >&2
+    exit 2
+  fi
+  printf '{{"ff":1,"cmd":"{name} --ff-manifest","data":'
+  cat "$file"
+  printf '}}\n'
+  exit 0
 fi
-{answer}file="{store}/$2.json"
+file="{store}/$2.json"
 if [ -f "$file" ]; then
   printf '{{"ff":1,"cmd":"{name} --ff-skill %s","data":' "$2"
   cat "$file"
@@ -144,6 +179,7 @@ else
 fi
 "#,
         store = store.display(),
+        manifest = bin.join(format!("{name}.manifest.json")).display(),
     );
     let path = bin.join(format!("ff-{name}"));
     std::fs::write(&path, script).expect("write stub");
@@ -594,4 +630,204 @@ fn a_binary_gone_from_path_leaves_every_skill_out() {
         assert!(!root.join("tower-plan").exists(), "{slug}");
         assert!(root.join("fufu/SKILL.md").exists(), "{slug}");
     }
+}
+
+// ---- `ff hook -u` ------------------------------------------------------------
+
+/// The binary moved on and names a skill its record does not: `-u` re-asks
+/// the manifest, re-records it, and the install that follows lands the new
+/// skill. This is the tower skill that went missing.
+#[test]
+fn update_re_asks_the_manifest_and_writes_the_skill_it_now_names() {
+    let (home, bin) = machine();
+    ext_bin(bin.path(), "tower", Stub::Answers);
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower",
+        &[("SKILL.md", &skill_md("tower"))],
+    );
+    declare(home.path(), bin.path(), "tower", &["tower"]);
+    assert!(
+        ff(home.path(), Some(bin.path()), &["hook", "claude"])
+            .status
+            .success()
+    );
+    let root = claude_skills(home.path());
+    assert!(root.join("tower/SKILL.md").exists());
+    assert!(!root.join("tower-plan").exists());
+
+    manifest_answer(bin.path(), "tower", &["tower", "tower-plan"]);
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower-plan",
+        &[("SKILL.md", &skill_md("tower-plan"))],
+    );
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    let said = stdout(&out);
+    assert!(said.contains("re-declared tower 0.1.0"), "{said}");
+    assert!(!said.contains("(was"), "the version did not move: {said}");
+    assert_eq!(
+        text_at(&root.join("tower-plan/SKILL.md")),
+        skill_md("tower-plan")
+    );
+    assert_eq!(text_at(&root.join("tower/SKILL.md")), skill_md("tower"));
+    assert_eq!(
+        registry(home.path())["extensions"][0]["manifest"]["skills"],
+        serde_json::json!(["tower", "tower-plan"]),
+        "the record caught up"
+    );
+}
+
+/// A record that already matches its binary is not rewritten and not
+/// mentioned: a run over a current machine has nothing to say about it.
+#[test]
+fn update_says_nothing_about_a_current_manifest() {
+    let (home, bin) = machine();
+    tower(home.path(), bin.path());
+    let before = text_at(&userdirs::registry(home.path()));
+    assert!(
+        ff(home.path(), Some(bin.path()), &["hook", "claude"])
+            .status
+            .success()
+    );
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u"]);
+    assert!(out.status.success(), "{}", stdout(&out));
+    let said = stdout(&out);
+    assert!(!said.contains("re-declared"), "{said}");
+    assert!(!said.contains("kept as recorded"), "{said}");
+    assert_eq!(text_at(&userdirs::registry(home.path())), before);
+}
+
+#[test]
+fn update_with_nothing_wired_touches_nothing() {
+    let (home, bin) = machine();
+    tower(home.path(), bin.path());
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    assert!(
+        stdout(&out).contains("nothing is wired on this machine"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!home.path().join(".claude/skills").exists());
+    assert!(!home.path().join(".codex/skills").exists());
+}
+
+/// A client that is on the machine and not wired stays not wired: `-u`
+/// refreshes and never adds.
+#[test]
+fn update_never_wires_a_detected_client() {
+    let (home, bin) = machine();
+    tower(home.path(), bin.path());
+    std::fs::create_dir_all(home.path().join(".claude")).expect("a claude config dir");
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    assert!(
+        stdout(&out).contains("nothing is wired on this machine"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!home.path().join(".claude/skills/fufu").exists());
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-l", "--json"]);
+    assert!(out.status.success());
+    let envelope: Value = serde_json::from_str(stdout(&out).trim()).expect("one envelope");
+    let claude = envelope["data"]["integrations"]
+        .as_array()
+        .expect("integrations")
+        .iter()
+        .find(|status| status["slug"] == "claude")
+        .expect("claude's row");
+    assert_eq!(claude["presence"]["state"], "present", "{claude}");
+    assert_eq!(claude["wiring"]["state"], "not-wired", "{claude}");
+}
+
+/// A binary that has left PATH is a line, not an error: the record stands
+/// and the slugs still refresh.
+#[test]
+fn update_reports_a_binary_off_path_and_still_refreshes() {
+    let (home, bin) = machine();
+    tower(home.path(), bin.path());
+    assert!(
+        ff(home.path(), Some(bin.path()), &["hook", "claude"])
+            .status
+            .success()
+    );
+    std::fs::remove_file(bin.path().join("ff-tower")).expect("take the binary off PATH");
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    let said = stdout(&out);
+    assert!(
+        said.contains("tower kept as recorded: ff-tower is not on PATH"),
+        "{said}"
+    );
+    assert!(
+        said.lines().any(|line| line.starts_with("claude ")),
+        "claude was still repaired: {said}"
+    );
+    assert_eq!(
+        registry(home.path())["extensions"][0]["manifest"]["skills"],
+        serde_json::json!(["tower", "tower-plan"]),
+        "the record stands"
+    );
+}
+
+/// `-u` acts on what is wired, so a slug beside it says less, not more.
+#[test]
+fn update_refuses_a_slug() {
+    let (home, bin) = machine();
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u", "claude"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+#[test]
+fn update_json_carries_extensions() {
+    let (home, bin) = machine();
+    ext_bin(bin.path(), "tower", Stub::Answers);
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower",
+        &[("SKILL.md", &skill_md("tower"))],
+    );
+    declare(home.path(), bin.path(), "tower", &["tower"]);
+    assert!(
+        ff(home.path(), Some(bin.path()), &["hook", "claude"])
+            .status
+            .success()
+    );
+    manifest_answer(bin.path(), "tower", &["tower", "tower-plan"]);
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower-plan",
+        &[("SKILL.md", &skill_md("tower-plan"))],
+    );
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-u", "--json"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    let envelope: Value = serde_json::from_str(stdout(&out).trim()).expect("one envelope");
+    let extensions = envelope["data"]["extensions"]
+        .as_array()
+        .expect("extensions");
+    assert_eq!(extensions.len(), 1, "{envelope}");
+    assert_eq!(extensions[0]["name"], "tower");
+    assert_eq!(extensions[0]["version"], "0.1.0");
+    assert_eq!(extensions[0]["changed"], true);
+    assert_eq!(extensions[0]["was"], Value::Null);
+    assert_eq!(extensions[0]["error"], Value::Null);
+    assert!(envelope["data"]["integrations"].is_array(), "{envelope}");
+    assert!(envelope["data"]["changed"].is_array(), "{envelope}");
+
+    // Every other spelling carries the field too, empty.
+    let out = ff(home.path(), Some(bin.path()), &["hook", "-l", "--json"]);
+    let envelope: Value = serde_json::from_str(stdout(&out).trim()).expect("one envelope");
+    assert_eq!(envelope["data"]["extensions"], serde_json::json!([]));
 }

@@ -449,6 +449,11 @@ pub enum Command {
         /// claude only: wire settings entries instead of the plugin
         #[arg(long)]
         settings: bool,
+        /// Refresh what is wired: re-ask every declared extension's
+        /// manifest, then re-run the install for every slug already wired,
+        /// adding none
+        #[arg(short = 'u', long = "update", conflicts_with_all = ["slugs", "all", "list", "settings", "skill"])]
+        update: bool,
         /// Print a skill and stop: fufu's own with no name, a declared
         /// extension's with a skill's name
         #[arg(

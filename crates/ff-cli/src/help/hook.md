@@ -1,6 +1,6 @@
 Wires fufu into the agent clients and shells on this machine, so a snapshot lands before every tool call your agent makes, before every git command you type, and at every shell prompt. With none of them wired, fufu snapshots only when you type an ff command, and `ff doctor` warns that nothing is feeding capture.
 
-Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. The slugs are flat:
+Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. -u refreshes what is already wired and adds nothing: every declared extension's manifest is re-asked and re-recorded, then the install is re-run for every slug already wired, on whatever mechanism it is on. The install scripts run it at their end, so an upgrade refreshes the machine. The slugs are flat:
 
 ```
 claude  codex  cursor  gemini  bash  zsh  fish  powershell
@@ -32,7 +32,7 @@ The hook and the server do different jobs — the hook snapshots before every to
 An extension declared with `ff extension add` rides along in three ways:
 
 - One line on the same briefing: the text its manifest carries, or whatever `ff-<name> briefing` prints when the briefing is built. An extension that is gone from PATH, broken, or slow contributes nothing and costs the briefing nothing.
-- Its skills, one directory each as `skills/<skill>/` beside `skills/fufu/` for the same two clients, typed `/fufu:<skill>` in Claude Code and `$<skill>` in Codex. The manifest names them and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more. A skill the binary will not produce, or produces in a shape fufu cannot read, is left out and said rather than failing the install.
+- Its skills, one directory each as `skills/<skill>/` beside `skills/fufu/` for the same two clients, typed `/fufu:<skill>` in Claude Code and `$<skill>` in Codex. The manifest names them and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more. A skill the binary will not produce, or produces in a shape fufu cannot read, is left out and said rather than failing the install. The names come from the manifest on record, so a binary that moved on names its new skills only after `ff hook -u` re-asks it; a binary off PATH or failing the handshake keeps its record and is said.
 - Its own MCP server, when the manifest names one, registered beside fufu's as `mcpServers.<name>` and as a second table inside Codex's one block. A registration under its name that you wrote yourself is left alone the same way.
 
 `ff hook --skill <skill>` prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own. `ff unhook` takes fufu's wiring and the extensions' back together.
@@ -44,6 +44,7 @@ ff hook                  what is on this machine, then asks
 ff hook claude codex     wire exactly those
 ff hook --all            everything detected, no question
 ff hook -l               report and stop
+ff hook -u               refresh what is wired, after a binary moved on
 ff hook --skill          print the manual, for a client that reads no skill
 ff hook --skill tower-plan   print one of a declared extension's skills
 ff unhook claude         take back exactly what hook added

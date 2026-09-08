@@ -118,7 +118,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
 
 The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`; the server entry carries the same path with the one argument `mcp`. A plugin's hooks do not go looking on `PATH`, so the path is baked in.
 
-After moving or reinstalling the binary somewhere else, run `ff hook claude` again. The moved plugin still reads as wired and registered in the meantime, because fufu recognizes its own command by its tail.
+After moving or reinstalling the binary somewhere else, run `ff hook -u`, which re-runs the install for everything wired, or `ff hook claude` for this one. The moved plugin still reads as wired and registered in the meantime, because fufu recognizes its own command by its tail.
 
 Claude Code loads the plugin on its next restart. `claude plugin list` shows it as `fufu@skills-dir`.
 

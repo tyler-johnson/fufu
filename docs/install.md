@@ -48,7 +48,7 @@ What each surface gets:
 
 What each slug writes, and what [`ff unhook`](reference/cli/unhook.md) takes back, is on [the hook reference](reference/hooks/index.md).
 
-Bare `ff hook` reports the shells and agent clients it found and asks; `--all` takes everything detected, `-l` reports and stops. Claude Code and Codex get [fufu's skill](agents/setup.md) with the wiring. Once per machine, not per repository.
+Bare `ff hook` reports the shells and agent clients it found and asks; `--all` takes everything detected, `-l` reports and stops. Claude Code and Codex get [fufu's skill](agents/setup.md) with the wiring. Once per machine, not per repository. The install script ends by running `ff hook -u`, which refreshes what is already wired and adds nothing, so an upgrade carries the new binary into every client and shell that was on the old one.
 
 ## What you installed
 

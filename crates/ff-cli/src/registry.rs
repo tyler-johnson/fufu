@@ -43,7 +43,7 @@
 //! here so a later change to the file's own shape has something to hang off.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use ff_core::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -154,14 +154,45 @@ impl Registry {
 /// PATH — a record outliving its binary, which costs a caller a `None` and
 /// costs every other caller nothing.
 ///
-/// The file is read once per process. `ff extension add` and `remove` are
-/// the only writers and each is a one-shot process, so nothing re-reads
-/// after a write. The one long-lived reader is `ff mcp`, where serving the
-/// tools that were advertised at handshake for the life of the connection is
-/// what keeps the list and the calls agreeing.
+/// The file is read once and the answer cached for the process, and the
+/// cache follows its writers: [`declare`] and [`forget`] drop it after a
+/// successful write, so the next `read` is the file as it stands. `ff hook
+/// -u` is why: it re-records every manifest and then runs the installs in
+/// the same process, and the installs read the list through here. Each
+/// reload leaks one registry, which is one small allocation per write in a
+/// process that writes at most a few times. The one long-lived reader is
+/// `ff mcp`, where serving the tools that were advertised at handshake for
+/// the life of the connection is what keeps the list and the calls
+/// agreeing; nothing writes in that process, so its one read stands.
 pub fn read() -> &'static Registry {
-    static ONCE: OnceLock<Registry> = OnceLock::new();
-    ONCE.get_or_init(|| load(path().as_deref()))
+    if let Some(registry) = *CACHE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    {
+        return registry;
+    }
+    let mut slot = CACHE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Checked again under the write lock: another thread may have filled
+    // the slot between the read above and this write.
+    if let Some(registry) = *slot {
+        return registry;
+    }
+    let registry: &'static Registry = Box::leak(Box::new(load(path().as_deref())));
+    *slot = Some(registry);
+    registry
+}
+
+/// What [`read`] answers, once it has answered; `None` before the first
+/// read and after every write.
+static CACHE: RwLock<Option<&'static Registry>> = RwLock::new(None);
+
+/// Drop the cached answer, so the next [`read`] parses the file again.
+fn reload_on_next_read() {
+    *CACHE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }
 
 /// [`read`] without the cache, against a named file. The tests' door, and
@@ -233,13 +264,19 @@ pub fn load(file: Option<&Path>) -> Registry {
 /// end: the order is the one subscribers are fanned out in and verbs are
 /// listed in, and upgrading a binary is not a reordering.
 pub fn declare(shook: &Handshake) -> Result<()> {
-    declare_into(&writable()?, shook)
+    declare_into(&writable()?, shook)?;
+    reload_on_next_read();
+    Ok(())
 }
 
 /// Take a name off the list. `false` when it was not on it, which is the
 /// verb's to refuse rather than this module's.
 pub fn forget(name: &str) -> Result<bool> {
-    forget_from(&writable()?, name)
+    let forgotten = forget_from(&writable()?, name)?;
+    if forgotten {
+        reload_on_next_read();
+    }
+    Ok(forgotten)
 }
 
 /// The two writers against a named file, which is the whole of them: the

@@ -15,7 +15,7 @@ The rules are the same everywhere:
 
 - A line or an entry you wrote by hand is detected, reported, and never touched. In a shell the two pieces are independent, so a hand-written alias leaves the prompt hook to be installed and the other way around.
 - A settings file that is not valid JSON is refused with the file untouched. fufu never rewrites a file into something the client cannot read.
-- Running `ff hook <slug>` on a wired machine reports it as already wired and changes nothing, except to rewrite a spelling fufu no longer writes.
+- Running `ff hook <slug>` on a wired machine reports it as already wired and changes nothing, except to rewrite a spelling fufu no longer writes. `ff hook -u` re-runs the install for every slug already wired and adds none, after re-asking every declared extension's manifest; the install scripts run it at their end.
 - `ff hook -l` reports the state of every slug and stops. [`ff doctor`](../doctor.md) reports the same state, one row per client plus rows for the alias, the prompt hook, the skill, and the MCP server, and `ff doctor --fix` rewires whatever is stale.
 
 Nothing here reaches the network: every slug writes local files and nothing else.
