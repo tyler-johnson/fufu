@@ -159,6 +159,80 @@ pub fn classify_install(exe: &std::path::Path, official: bool) -> InstallKind {
     classify_install_at(exe, official, &script)
 }
 
+/// Where an extension's install script places its binary when its manifest
+/// does not say: the directory fufu's own script uses on unix.
+pub const DEFAULT_EXTENSION_BIN: &str = "~/.local/bin";
+
+/// The directory an extension's install script places its binary in, from
+/// the manifest's `update.bin` or [`DEFAULT_EXTENSION_BIN`], with a leading
+/// `~` read as `HOME`. Canonicalized when it exists, so the comparison in
+/// [`classify_extension_at`] is between two resolved paths. `None` when
+/// the directory needs a home and the environment names none, which
+/// matches nothing.
+pub fn extension_bin_dir(bin: Option<&str>) -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty());
+    let path = extension_bin_dir_at(bin, home.as_deref().map(std::path::Path::new))?;
+    Some(path.canonicalize().unwrap_or(path))
+}
+
+/// The testable core of [`extension_bin_dir`]: the shape of the directory
+/// with the home injected and nothing canonicalized.
+pub fn extension_bin_dir_at(
+    bin: Option<&str>,
+    home: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let bin = bin.unwrap_or(DEFAULT_EXTENSION_BIN);
+    match bin.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
+            let home = home?;
+            let rest = rest.trim_start_matches(['/', '\\']);
+            Some(if rest.is_empty() {
+                home.to_path_buf()
+            } else {
+                home.join(rest)
+            })
+        }
+        // `~user` is not fufu's to expand: taken as a path, as a shell
+        // without that expansion would take it.
+        _ => Some(std::path::PathBuf::from(bin)),
+    }
+}
+
+/// The testable core of an extension's channel: where its binary sits,
+/// against the directory its install script places binaries in.
+///
+/// `official` is what the binary said about itself, and a source build is
+/// a source build wherever it sits. A Homebrew prefix is read the way it is
+/// for fufu. `Script` is the binary sitting in `bin`, and only when the
+/// manifest carries an `install` recipe — without a script nothing places
+/// binaries anywhere, so `bin` means nothing and a hand copy at
+/// `~/.local/bin` is a hand copy. Everything else is `Unmanaged`, which
+/// the walk answers with the releases page.
+///
+/// Both paths are expected to be canonicalized already; an empty `bin` (no
+/// HOME) matches nothing.
+pub fn classify_extension_at(
+    exe: &std::path::Path,
+    official: bool,
+    has_install: bool,
+    bin: &std::path::Path,
+) -> InstallKind {
+    if !official {
+        return InstallKind::Source;
+    }
+    let path = exe.to_string_lossy();
+    if path.contains("/Cellar/")
+        || path.contains("/opt/homebrew/")
+        || path.contains("/home/linuxbrew/")
+    {
+        return InstallKind::Homebrew;
+    }
+    if has_install && !bin.as_os_str().is_empty() && exe.parent() == Some(bin) {
+        return InstallKind::Script;
+    }
+    InstallKind::Unmanaged
+}
+
 /// Is `name` an executable on PATH? A scan, not a spawn — the zero-spawn
 /// proof holds while `ff update` is only deciding what to print.
 #[cfg(not(windows))]
@@ -171,16 +245,22 @@ fn on_path(name: &str) -> bool {
 
 /// The one command that updates a `Script` install, as a person would type it.
 pub fn install_command() -> String {
+    install_command_for(INSTALL_URL)
+}
+
+/// The command that runs an install script at `url`, as a person would
+/// type it: fufu's own, or a declared extension's `install` recipe.
+pub fn install_command_for(url: &str) -> String {
     #[cfg(windows)]
     {
-        format!("irm {INSTALL_URL} | iex")
+        format!("irm {url} | iex")
     }
     #[cfg(not(windows))]
     {
         if !on_path("curl") && on_path("wget") {
-            format!("wget -qO- {INSTALL_URL} | sh")
+            format!("wget -qO- {url} | sh")
         } else {
-            format!("curl -fsSL {INSTALL_URL} | sh")
+            format!("curl -fsSL {url} | sh")
         }
     }
 }
@@ -317,6 +397,164 @@ mod tests {
             classify_install_at(Path::new(SCRIPT), true, Path::new("")),
             InstallKind::Unmanaged,
         );
+    }
+
+    // ------------------------------------------------------------------
+    // classify_extension_at — the same channels read for a declared
+    // extension, with the manifest's bin directory injected
+    // ------------------------------------------------------------------
+
+    const BIN: &str = "/home/u/.local/bin";
+
+    #[test]
+    fn extension_source_beats_every_path() {
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/home/u/.local/bin/ff-tower"),
+                false,
+                true,
+                Path::new(BIN)
+            ),
+            InstallKind::Source,
+        );
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/opt/homebrew/bin/ff-tower"),
+                false,
+                true,
+                Path::new(BIN)
+            ),
+            InstallKind::Source,
+        );
+    }
+
+    #[test]
+    fn extension_homebrew_prefixes() {
+        for path in [
+            "/opt/homebrew/bin/ff-tower",
+            "/home/linuxbrew/.linuxbrew/bin/ff-tower",
+            "/usr/local/Cellar/tower/0.4.1/bin/ff-tower",
+        ] {
+            assert_eq!(
+                classify_extension_at(Path::new(path), true, true, Path::new(BIN)),
+                InstallKind::Homebrew,
+                "{path}",
+            );
+        }
+    }
+
+    /// The script channel is the binary's directory being the one the
+    /// script places binaries in, and only when there is a script: the
+    /// same directory with no install recipe is a hand copy.
+    #[test]
+    fn extension_script_is_the_bin_directory_with_an_install_recipe() {
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/home/u/.local/bin/ff-tower"),
+                true,
+                true,
+                Path::new(BIN)
+            ),
+            InstallKind::Script,
+        );
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/home/u/.local/bin/ff-tower"),
+                true,
+                false,
+                Path::new(BIN)
+            ),
+            InstallKind::Unmanaged,
+        );
+        // A subdirectory is not the directory.
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/home/u/.local/bin/tower/ff-tower"),
+                true,
+                true,
+                Path::new(BIN)
+            ),
+            InstallKind::Unmanaged,
+        );
+        // A manifest that names another directory is read there.
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/usr/local/bin/ff-tower"),
+                true,
+                true,
+                Path::new("/usr/local/bin")
+            ),
+            InstallKind::Script,
+        );
+    }
+
+    #[test]
+    fn extension_unmanaged_everywhere_else() {
+        for path in [
+            "/usr/local/bin/ff-tower",
+            "/nix/store/abc-tower/bin/ff-tower",
+            "/tmp/ff-tower",
+        ] {
+            assert_eq!(
+                classify_extension_at(Path::new(path), true, true, Path::new(BIN)),
+                InstallKind::Unmanaged,
+                "{path}",
+            );
+        }
+        // No HOME: the empty bin matches nothing.
+        assert_eq!(
+            classify_extension_at(
+                Path::new("/home/u/.local/bin/ff-tower"),
+                true,
+                true,
+                Path::new("")
+            ),
+            InstallKind::Unmanaged,
+        );
+    }
+
+    /// `~` is the home directory, absent is `~/.local/bin`, a bare path is
+    /// taken as it is, and no home means no directory for a `~`.
+    #[test]
+    fn the_bin_directory_reads_a_tilde_as_home() {
+        let home = Path::new("/home/u");
+        let at = |bin: Option<&str>| extension_bin_dir_at(bin, Some(home));
+        assert_eq!(at(None).as_deref(), Some(Path::new("/home/u/.local/bin")));
+        assert_eq!(
+            at(Some("~/.local/bin")).as_deref(),
+            Some(Path::new("/home/u/.local/bin"))
+        );
+        assert_eq!(at(Some("~")).as_deref(), Some(home));
+        assert_eq!(
+            at(Some("~/bin/tower")).as_deref(),
+            Some(Path::new("/home/u/bin/tower"))
+        );
+        assert_eq!(
+            at(Some("/usr/local/bin")).as_deref(),
+            Some(Path::new("/usr/local/bin"))
+        );
+        // `~user` is not fufu's to expand: taken as a relative path, as a
+        // shell without that expansion would.
+        assert_eq!(
+            at(Some("~user/bin")).as_deref(),
+            Some(Path::new("~user/bin"))
+        );
+        assert_eq!(extension_bin_dir_at(None, None), None);
+        assert_eq!(extension_bin_dir_at(Some("~/bin"), None), None);
+        assert_eq!(
+            extension_bin_dir_at(Some("/usr/local/bin"), None).as_deref(),
+            Some(Path::new("/usr/local/bin"))
+        );
+    }
+
+    #[test]
+    fn install_command_for_a_recipe_is_the_same_pipe() {
+        let cmd = install_command_for("https://example.com/install.sh");
+        assert!(cmd.contains("https://example.com/install.sh"), "{cmd}");
+        #[cfg(not(windows))]
+        assert!(cmd.ends_with(" | sh"), "{cmd}");
+        #[cfg(windows)]
+        assert!(cmd.ends_with(" | iex"), "{cmd}");
     }
 
     #[test]

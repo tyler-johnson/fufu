@@ -19,7 +19,7 @@ use ff_core::{Error, Result};
 
 use crate::cli::ExtensionAction;
 use crate::ctx::Ctx;
-use crate::manifest::{Briefing, Manifest};
+use crate::manifest::{Briefing, Build, Manifest};
 use crate::registry;
 
 pub fn run(ctx: &Ctx, action: Option<ExtensionAction>) -> Result<()> {
@@ -129,6 +129,32 @@ fn bought(manifest: &Manifest) -> Vec<String> {
     }
     if manifest.mcp.is_some() {
         notes.push("it brings a server of its own, registered beside fufu's".to_string());
+    }
+    // How `ff update` will answer for it: a source build is named as one
+    // to rebuild, a block names the channels it can be moved on, and a
+    // manifest with neither is one fufu will say it cannot move.
+    match (manifest.build(), &manifest.update) {
+        (Build::Source, _) => {
+            notes.push("it is built from source — ff update says to rebuild it".to_string());
+        }
+        (Build::Official, Some(update)) => {
+            let mut channels = Vec::new();
+            if update.brew.is_some() {
+                channels.push("brew");
+            }
+            if update.install.is_some() {
+                channels.push("install script");
+            }
+            if update.releases.is_some() {
+                channels.push("releases page");
+            }
+            notes.push(format!("ff update moves it by {}", channels.join(", ")));
+        }
+        (Build::Official, None) => {
+            notes.push(
+                "ff update cannot move it — its manifest carries no update recipes".to_string(),
+            );
+        }
     }
     notes
 }

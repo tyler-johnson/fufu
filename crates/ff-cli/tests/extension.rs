@@ -798,3 +798,125 @@ fn explain_of_a_failing_declared_extension_reports_rather_than_prints_nothing() 
     assert!(!out.status.success());
     assert_eq!(error_id(&out), "extension/delegate-failed");
 }
+
+/// The `update` block and `build` round-trip: what the handshake read is
+/// what the registry records and what `ff extension list --json` reads
+/// back, field for field, and the declaration says how `ff update` will
+/// answer for it.
+#[test]
+fn the_update_block_and_build_round_trip_through_the_registry() {
+    let (home, bin) = machine();
+    ext_bin(
+        bin.path(),
+        "tower",
+        r#"{"name":"tower","version":"0.4.1","contract":1,
+            "verbs":[{"name":"board","read_only":true}],"undoable":true,
+            "update":{"brew":"tyler-johnson/tap/tower",
+                      "install":"https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh",
+                      "bin":"~/.local/bin",
+                      "releases":"https://github.com/tyler-johnson/tower/releases/latest"},
+            "build":"official"}"#,
+    );
+
+    let out = ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower"],
+    );
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let said = stdout(&out);
+    assert!(
+        said.contains("ff update moves it by brew, install script, releases page"),
+        "{said}"
+    );
+
+    let record = &registry(home.path()).expect("a registry")["extensions"][0]["manifest"];
+    assert_eq!(record["update"]["brew"], "tyler-johnson/tap/tower");
+    assert_eq!(
+        record["update"]["install"],
+        "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh"
+    );
+    assert_eq!(record["update"]["bin"], "~/.local/bin");
+    assert_eq!(
+        record["update"]["releases"],
+        "https://github.com/tyler-johnson/tower/releases/latest"
+    );
+    assert_eq!(record["build"], "official");
+
+    let listed = envelope(&ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "list", "--json"],
+    ));
+    let manifest = &listed["data"]["declared"][0]["manifest"];
+    assert_eq!(manifest["update"]["brew"], "tyler-johnson/tap/tower");
+    assert_eq!(manifest["update"]["bin"], "~/.local/bin");
+    assert_eq!(manifest["build"], "official");
+}
+
+/// A manifest with neither field records neither, so a record made before
+/// the fields existed and one made now read the same; the declaration says
+/// `ff update` cannot move it, and a `source` build says it is one to
+/// rebuild.
+#[test]
+fn a_manifest_without_the_update_fields_records_none() {
+    let (home, bin) = machine();
+    ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
+    let said = stdout(&ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower"],
+    ));
+    assert!(
+        said.contains("ff update cannot move it — its manifest carries no update recipes"),
+        "{said}"
+    );
+    let record = &registry(home.path()).expect("a registry")["extensions"][0]["manifest"];
+    assert!(record.get("update").is_none(), "{record}");
+    assert!(record.get("build").is_none(), "{record}");
+
+    ext_bin(
+        bin.path(),
+        "tower",
+        r#"{"name":"tower","version":"0.4.2","contract":1,
+            "verbs":[{"name":"board","read_only":true}],"undoable":true,"build":"source"}"#,
+    );
+    let said = stdout(&ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "add", "tower"],
+    ));
+    assert!(
+        said.contains("it is built from source — ff update says to rebuild it"),
+        "{said}"
+    );
+}
+
+/// An `update` block that names no recipe, or carries `bin` without
+/// `install`, is refused with the manifest and nothing is recorded.
+#[test]
+fn an_update_block_that_does_not_hold_together_is_refused() {
+    for block in [r#"{}"#, r#"{"bin":"~/.local/bin"}"#, r#"{"brew":""}"#] {
+        let (home, bin) = machine();
+        ext_bin(
+            bin.path(),
+            "tower",
+            &format!(
+                r#"{{"name":"tower","version":"0.4.1","contract":1,
+                    "verbs":[{{"name":"board","read_only":true}}],"undoable":true,
+                    "update":{block}}}"#
+            ),
+        );
+        let out = ff(
+            home.path(),
+            Some(bin.path()),
+            &["extension", "add", "tower", "--json"],
+        );
+        assert!(!out.status.success(), "{block}");
+        assert_eq!(error_id(&out), "extension/bad-manifest", "{block}");
+        assert!(
+            registry(home.path()).is_none(),
+            "{block}: nothing is recorded"
+        );
+    }
+}

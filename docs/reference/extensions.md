@@ -16,6 +16,7 @@ A **declared** extension is one somebody ran [`ff extension add <name>`](cli/ext
 - Agent events fan out to it.
 - The MCP tools it produces are served by [`ff mcp`](cli/mcp.md) beside fufu's own, and an MCP server of its own is registered beside fufu's.
 - [`ff doctor`](cli/doctor.md) reports on it.
+- [`ff update`](cli/update.md) moves it by the recipes its manifest carries, and refreshes its hooks after.
 
 The record lives under your config directory, not in a repository, because the binary is on PATH and declaring it is a decision about the machine. Declaring is also the one thing an agent cannot do through the MCP tool: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
 
@@ -158,7 +159,14 @@ Here is one with every optional field present, pretty-printed for the page:
   "skills": ["tower", "tower-plan", "tower-loop"],
   "events": [{"kind": "SessionStart"}, {"kind": "BeforeTool", "matcher": "Edit|Write"}],
   "tools": true,
-  "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]}
+  "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]},
+  "update": {
+    "brew": "tyler-johnson/tap/tower",
+    "install": "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh",
+    "bin": "~/.local/bin",
+    "releases": "https://github.com/tyler-johnson/tower/releases/latest"
+  },
+  "build": "official"
 }
 ```
 
@@ -174,6 +182,8 @@ Here is one with every optional field present, pretty-printed for the page:
 | `events` | array of objects | no | Agent events you subscribe to. See [below](#optional-agent-events). |
 | `tools` | `true` | no | Whether you produce MCP tool descriptors. See [below](#optional-mcp-tools). |
 | `mcp` | object | no | An MCP server of your own. See [below](#optional-an-mcp-server-of-your-own). |
+| `update` | object | no | How `ff update` moves your binary: recipes keyed by channel. See [below](#optional-how-ff-update-moves-it). |
+| `build` | `"official"` or `"source"` | no | How the binary was built. Absent is `official`. See [below](#optional-how-ff-update-moves-it). |
 
 Unknown fields are tolerated and kept, so a later contract can add one without breaking you. A manifest that does not parse, names a contract fufu does not speak, or claims a name other than the binary's is refused whole and nothing is recorded — a half-declared extension is one fufu would describe and could not serve.
 
@@ -425,6 +435,36 @@ When a client is hooked, fufu registers this as `mcpServers.<name>` beside its o
 
 This is for what only a live process can hold: resources a client attaches and re-reads, a notification when state moves, a subscription, session identity across calls, a warm cache. If all you have is typed tools, use [`tools`](#optional-mcp-tools) instead — it needs no process of your own and no separate registration.
 
+## Optional: how `ff update` moves it
+
+```json
+"update": {
+  "brew": "tyler-johnson/tap/tower",
+  "install": "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh",
+  "bin": "~/.local/bin",
+  "releases": "https://github.com/tyler-johnson/tower/releases/latest"
+},
+"build": "official"
+```
+
+fufu never writes a binary itself, its own included: whatever placed one owns replacing it, and `ff update` works out which channel that was and names the command. A declared extension gets the same treatment, by the same rules, from these two fields.
+
+`update` is a block of recipes keyed by the channel fufu detects from where your binary sits, and you list only the channels you ship on:
+
+| recipe | read when | what fufu does with it |
+| --- | --- | --- |
+| `brew` | the binary is under a Homebrew prefix | prints `brew upgrade <formula>` |
+| `install` | the binary sits in `bin` | prints `curl -fsSL <url> \| sh` (`irm <url> \| iex` on Windows), and runs it after `-y` or a typed yes |
+| `releases` | the binary is anywhere else | prints the page |
+
+`bin` is the directory your install script places the binary in, with a leading `~` read as the home directory; absent, it is `~/.local/bin`. It rides beside `install` and is refused without it — nothing places binaries anywhere without a script, so a binary at `~/.local/bin` with no `install` recipe is a hand copy and gets the releases page. The install recipe is the one recipe `ff update` runs, and it runs the URL as it stands, so a binary built for Windows names a PowerShell script there. No release is checked for an extension before the recipe is printed.
+
+`build` is what your binary says about how it was built, and only the binary knows: an extension can be written in anything, so there is no cargo recipe and no build detection, and `source` means the same thing whatever the language. `ff update` tells the person to rebuild a `source` build the way they built it, reads no recipe, and checks no release. Absent is `official`, because a source build is the one that has the fact at hand and every reason to say it. The default does not depend on the block: a `source` build is one to rebuild whether or not a block is there, and an `official` one with no block is one fufu says it cannot move.
+
+A block that names no recipe, an empty recipe, or `bin` without `install` is refused with `extension/bad-manifest`. A channel the block has no recipe for, and a manifest with no block, are both named by `ff update` as ones fufu cannot move, with the path the binary sits at.
+
+After a move that ran, `ff update` ends with `ff hook -u`: every declared manifest is re-asked and re-recorded, and every install already wired is re-run, so a new binary that names a new skill sees it installed. Point your own install script at `ff extension add <name>` and `ff hook -u` too, for the person who runs it by hand.
+
 ## What fufu refuses, and when
 
 These come from declaring — where a refusal records nothing — and from the handshakes fufu makes afterwards.
@@ -456,5 +496,6 @@ Before you declare:
 - Every verb takes `--json` in last position and prints one envelope on one line under it.
 - Every error id starts with `<name>/`, and the exit code agrees with it.
 - Human output goes to stderr under `--json`.
+- `update` names the channels you ship on, and `build` is honest.
 
 Then `ff extension add <name>`, and `ff doctor` to confirm what fufu sees.

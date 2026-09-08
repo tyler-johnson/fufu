@@ -118,6 +118,15 @@ pub struct Manifest {
     /// a client is hooked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<McpServer>,
+    /// The recipes `ff update` moves the binary by, keyed by the channel
+    /// fufu detects. Absent means fufu cannot move it, and says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<Update>,
+    /// What the binary reports about how it was built. An extension can be
+    /// written in anything, so only the binary knows. Absent is
+    /// [`Build::Official`], the answer [`Manifest::build`] gives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<Build>,
     /// Unknown fields are tolerated and kept, on the rule the envelope
     /// itself keeps: take fields by name. Kept rather than dropped because
     /// the registry records what was read, and a field a later contract
@@ -254,6 +263,65 @@ pub struct McpServer {
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl Manifest {
+    /// How the binary says it was built, with absent read as official.
+    ///
+    /// Official is the default because a source build is the one that
+    /// knows: a binary built here has the fact at hand and every reason to
+    /// say so, and a manifest that says nothing is a release build that
+    /// never had the question. The default does not depend on whether an
+    /// `update` block is there: a `source` build is named as one to rebuild
+    /// whatever the block says, and an official one with no block is one
+    /// fufu cannot move.
+    pub fn build(&self) -> Build {
+        self.build.unwrap_or(Build::Official)
+    }
+}
+
+/// How `ff update` moves the extension's binary: one recipe per channel
+/// fufu detects from where the binary sits, and only the channels the
+/// extension ships on.
+///
+/// The channels are fufu's own four less the source build, which needs no
+/// recipe because "rebuild it the way you built it" is the whole answer
+/// whatever the language. `install` is the one recipe `ff update` runs;
+/// the other two are printed for a person to run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Update {
+    /// The Homebrew formula, as `brew upgrade` takes it: `tower` or
+    /// `tyler-johnson/tap/tower`. Read when the binary sits under a
+    /// Homebrew prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brew: Option<String>,
+    /// The install script's URL, run as `curl -fsSL <url> | sh` (`irm
+    /// <url> | iex` on Windows) after `-y` or a typed yes. Read when the
+    /// binary sits in the directory the script places it in, which is
+    /// [`Update::bin`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+    /// The directory the install script places the binary in, with a
+    /// leading `~` read as the home directory. Absent is `~/.local/bin`.
+    /// Meaningful only beside `install`, and refused without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<String>,
+    /// The releases page, named when the binary sits anywhere else: a hand
+    /// copy, mise, nix. Whatever placed it replaces it, and this is where
+    /// the replacement is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub releases: Option<String>,
+}
+
+/// What the binary reports about how it was built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Build {
+    /// A release build, moved by whichever recipe its channel names.
+    Official,
+    /// Built here. `ff update` says to rebuild it the way it was built,
+    /// checks no release, and runs nothing.
+    Source,
 }
 
 /// One MCP tool a declared extension produces, as `ff-<name> --ff-tools`
@@ -791,6 +859,46 @@ pub fn check(manifest: &Manifest) -> Result<()> {
     {
         return Err(bad("mcp.command is empty, so there is no server to run"));
     }
+    if let Some(update) = &manifest.update {
+        check_update(update)?;
+    }
+    Ok(())
+}
+
+/// What a type cannot say about an `update` block: that it names at least
+/// one recipe, that no recipe is the empty string, and that `bin` rides
+/// beside `install` and nowhere else.
+///
+/// An empty block is refused rather than read as "no block", because a
+/// person who wrote `"update": {}` meant something and a block fufu read
+/// as nothing would be named unmovable without a word about why.
+fn check_update(update: &Update) -> Result<()> {
+    for (field, value) in [
+        ("update.brew", &update.brew),
+        ("update.install", &update.install),
+        ("update.bin", &update.bin),
+        ("update.releases", &update.releases),
+    ] {
+        if value
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(bad(format!(
+                "{field} is empty, and a recipe names something"
+            )));
+        }
+    }
+    if update.brew.is_none() && update.install.is_none() && update.releases.is_none() {
+        return Err(bad(
+            "update names no recipe: a block carries at least one of brew, install, and releases",
+        ));
+    }
+    if update.bin.is_some() && update.install.is_none() {
+        return Err(bad(
+            "update.bin says where the install script places the binary, and only install \
+             carries one",
+        ));
+    }
     Ok(())
 }
 
@@ -889,7 +997,14 @@ mod tests {
         "skills": ["tower", "tower-plan", "tower-loop"],
         "events": [{"kind": "SessionStart"}, {"kind": "BeforeTool", "matcher": "Edit|Write"}],
         "tools": true,
-        "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]}
+        "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]},
+        "update": {
+            "brew": "tyler-johnson/tap/tower",
+            "install": "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh",
+            "bin": "~/.local/bin",
+            "releases": "https://github.com/tyler-johnson/tower/releases/latest"
+        },
+        "build": "official"
     }"#;
 
     /// The worked tool list from the same page, which is what `--ff-tools`
@@ -955,12 +1070,102 @@ mod tests {
         assert_eq!(manifest.events[1].kind, EventKind::BeforeTool);
         assert_eq!(manifest.events[1].matcher.as_deref(), Some("Edit|Write"));
         assert!(manifest.tools, "a promise, and the list is asked for");
+        assert_eq!(manifest.build, Some(Build::Official));
+        assert_eq!(manifest.build(), Build::Official);
         let mcp = manifest.mcp.expect("mcp");
         assert_eq!(mcp.command, "ff");
         assert_eq!(mcp.args, ["tower", "serve", "--mcp"]);
+        let update = manifest.update.expect("update");
+        assert_eq!(update.brew.as_deref(), Some("tyler-johnson/tap/tower"));
+        assert_eq!(
+            update.install.as_deref(),
+            Some("https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh")
+        );
+        assert_eq!(update.bin.as_deref(), Some("~/.local/bin"));
+        assert_eq!(
+            update.releases.as_deref(),
+            Some("https://github.com/tyler-johnson/tower/releases/latest")
+        );
     }
 
-    /// The five optional fields are optional, and absent is not empty by a
+    /// `build` absent reads as official whether or not an `update` block
+    /// is there, and neither field is written back out when it was not
+    /// read in, so a record made by a fufu that predates them reads and
+    /// writes identically.
+    #[test]
+    fn build_absent_is_official_and_stays_absent() {
+        let silent = parse(value(
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}]}"#,
+        ))
+        .expect("no build");
+        assert_eq!(silent.build, None);
+        assert_eq!(silent.build(), Build::Official);
+        assert!(silent.update.is_none());
+        let written = serde_json::to_value(&silent).expect("serialize");
+        assert!(written.get("build").is_none(), "{written}");
+        assert!(written.get("update").is_none(), "{written}");
+
+        let with_block = parse(value(
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],
+                "update":{"releases":"https://example.com/releases"}}"#,
+        ))
+        .expect("a block and no build");
+        assert_eq!(with_block.build(), Build::Official);
+        let written = serde_json::to_value(&with_block).expect("serialize");
+        assert_eq!(
+            written["update"]["releases"],
+            "https://example.com/releases"
+        );
+        assert!(written["update"].get("brew").is_none(), "{written}");
+        assert!(written.get("build").is_none(), "{written}");
+
+        let source = parse(value(
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"build":"source"}"#,
+        ))
+        .expect("a source build with no block");
+        assert_eq!(source.build(), Build::Source);
+        assert_eq!(
+            serde_json::to_value(&source).expect("serialize")["build"],
+            "source"
+        );
+    }
+
+    /// The block is refused when it names nothing, when a recipe is empty,
+    /// when `bin` rides without `install`, and when `build` is a word the
+    /// page does not type.
+    #[test]
+    fn an_update_block_that_does_not_hold_together_is_refused() {
+        for text in [
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"update":{}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"update":{"bin":"~/.local/bin"}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"update":{"brew":""}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"update":{"install":"  "}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],
+                "update":{"brew":"tower","bin":"~/.local/bin"}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],
+                "update":{"install":"https://x/install.sh","bin":""}}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"update":"brew"}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"build":"cargo"}"#,
+            r#"{"name":"tower","version":"1","contract":1,"undoable":true,
+                "verbs":[{"name":"b","read_only":true}],"build":true}"#,
+        ] {
+            let err = parse(value(text)).expect_err(text);
+            assert_eq!(err.id(), "extension/bad-manifest", "{text}");
+        }
+    }
+
+    /// The optional fields are optional, and absent is not empty by a
     /// different spelling.
     #[test]
     fn the_smallest_manifest_parses() {
@@ -974,6 +1179,8 @@ mod tests {
         assert!(manifest.events.is_empty());
         assert!(!manifest.tools);
         assert!(manifest.mcp.is_none());
+        assert!(manifest.update.is_none());
+        assert!(manifest.build.is_none());
         assert!(manifest.extra.is_empty());
     }
 

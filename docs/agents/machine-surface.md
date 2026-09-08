@@ -283,6 +283,7 @@ What declaring buys is that fufu will describe it to an agent:
 - its skills install beside fufu's
 - the neutral agent event fans out to it
 - the MCP tools it produces are served beside fufu's seven, and an MCP server of its own registers beside fufu's
+- `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move
 
 [`ff extension`](../reference/cli/extension.md) is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
 
@@ -292,7 +293,7 @@ What declaring buys is that fufu will describe it to an agent:
 
 An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. It may also do what `ff pull` does: a `data` envelope at 3 for a held outcome with a report, which the tool relays as a successful call.
 
-Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, and subscribe to the agent event that fans out after each capture.
+Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, subscribe to the agent event that fans out after each capture, and say in its manifest how `ff update` moves it.
 
 [Extensions](../reference/extensions.md) is the reference for building one, and types every field of all of it.
 

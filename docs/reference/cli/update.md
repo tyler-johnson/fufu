@@ -1,6 +1,6 @@
 # ff update
 
-Names the one command that updates this copy of fufu, and offers to run it. fufu never writes an `ff` binary itself: whatever placed one owns replacing it.
+Names the one command that updates this copy of fufu, and offers to run it; then the same for every declared extension. fufu never writes an `ff` binary itself: whatever placed one owns replacing it.
 
 So it works out which of four channels this copy came through, and answers accordingly:
 
@@ -14,6 +14,21 @@ That last one is the only channel ff acts on. It checks the latest release, prin
 Official builds also look for new releases without being asked. A check runs at most once per fufu.updateCheck (daily by default) and lands a one-line notice on stderr, naming the same command this verb would. Nothing installs itself, and a release is announced at most once, ever.
 
 --check is that background lane: it refreshes the cache and prints nothing.
+
+## Declared extensions
+
+After fufu, the same walk over every extension declared with [`ff extension add`](extension-add.md), in the order they were declared, by the rules above. Each manifest may carry an `update` block of recipes keyed by channel — `brew` (the formula), `install` (the script's URL, with `bin` saying where the script places the binary, `~/.local/bin` when it does not say), `releases` (the page) — and a `build`, `official` or `source`. Absent `build` is `official`.
+
+- a `source` build is told to rebuild it the way it was built, and nothing else: no recipe is read and no release is checked
+- a binary under a Homebrew prefix gets `brew upgrade <formula>`
+- a binary in the directory its install script places it gets the `curl … | sh` line, and that is the one recipe ff runs, after `-y` or a typed yes
+- a binary anywhere else gets the releases page
+
+A channel the block has no recipe for, or a manifest with no block at all, is named as one ff cannot move, with the path the binary sits at. No release is checked for an extension in this walk; the recipe is printed as it stands.
+
+`-y` is one answer for the whole walk: every install recipe runs without asking, and whatever the walk could not move — this fufu on a channel it does not drive, an extension with no recipe for its channel — is named at the end and the exit is 1, so a script that asked for everything is not told it moved. An install that fails is that extension's alone; the walk goes on and the exit says so.
+
+After a move that ran, the walk ends with [`ff hook -u`](hook.md): every declared manifest is re-asked and re-recorded, then every install already wired is re-run, so the skills on disk are the ones the new binary names.
 
 ## Usage
 
@@ -44,6 +59,6 @@ Options:
 
 ```
 ff update                      what updates this fufu, and offer to run it
-ff update -y                   run it without asking
+ff update -y                   run every install recipe without asking
 ff config updateCheck false    turn the background check off
 ```

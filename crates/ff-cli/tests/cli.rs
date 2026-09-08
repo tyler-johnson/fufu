@@ -1565,13 +1565,30 @@ fn start_always_mints() {
     assert_ne!(branch1, branch2, "two starts produce two distinct branches");
 }
 
+/// `ff update` with the user roots pinned under a scratch home, so the
+/// walk reads a registry with nothing declared rather than this machine's:
+/// a declared extension here would add its block, and under `-y` its own
+/// refusal beside fufu's.
+fn ff_update(fx: &Fixture, args: &[&str]) -> Output {
+    let home = tempfile::TempDir::new().expect("scratch home");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(fx.path())
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", null_device())
+        .env("GIT_CONFIG_SYSTEM", null_device())
+        .env("GIT_CONFIG_NOSYSTEM", "1");
+    ff_testsupport::userdirs::pin(&mut cmd, home.path())
+        .output()
+        .expect("spawn ff")
+}
+
 /// `ff update` on an unofficial (test) build names cargo and stops before any
 /// network: classification precedes the API call, so this is hermetic.
 /// Nothing failed — the command that owns this binary was reported — so 0.
 #[test]
 fn update_on_unofficial_build_advises_cargo() {
     let fx = Fixture::new();
-    let out = ff(&fx, &["update"]);
+    let out = ff_update(&fx, &["update"]);
     assert_eq!(out.status.code(), Some(0));
     let text = stdout(&out);
     assert!(text.contains("ff was built from source"), "got: {text}");
@@ -1586,7 +1603,7 @@ fn update_on_unofficial_build_advises_cargo() {
 #[test]
 fn update_yes_on_unofficial_build_fails() {
     let fx = Fixture::new();
-    let out = ff(&fx, &["update", "-y"]);
+    let out = ff_update(&fx, &["update", "-y"]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8(out.stderr.clone()).expect("utf-8 stderr");
     assert!(err.contains("ff: ff was built from source"), "got: {err}");

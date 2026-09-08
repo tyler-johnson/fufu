@@ -21,6 +21,9 @@
 - `ff push <branch>...` pushes the branches named, from wherever you stand, each under its own lease; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before anything reaches the wire. Among several, a lease the remote refuses is that branch's alone: the rest go out, its block says what the wire said, and the exit is 1. There is no `--all`.
 - `ff push --json` carries `branches`, one row per branch in the run with its `push`, `pushed`, and `error`; `push` and `pushed` read `NotNamed` and false when names left the branch you stand on out of the run.
 - `ff mcp`'s `push` tool takes `branches`.
+- The manifest's `update` and `build` fields, additive under contract 1. `update` is a block of recipes keyed by the channel fufu detects: `brew` (the formula), `install` (the script URL) with `bin` beside it (the directory the script places the binary in, `~/.local/bin` when absent), and `releases` (the page). `build` is `official` or `source`, and absent is `official`. A block naming no recipe, an empty recipe, or `bin` without `install` is `extension/bad-manifest`.
+- `ff update` walks every declared extension after fufu, in registry order, by the rules it applies to itself: a `source` build is told to rebuild, a Homebrew binary gets `brew upgrade`, a binary in its script's `bin` gets the `curl … | sh` line and runs it after `-y` or a typed yes, and anything else gets the releases page. A channel with no recipe, and a manifest with no block, are named as ones fufu cannot move, with the binary's path. After a move that ran, the walk ends with `ff hook -u`.
+- `ff extension add` says how `ff update` will answer for the extension: the channels its block names, that it is a source build, or that fufu cannot move it.
 
 ### Changed
 
@@ -33,6 +36,7 @@
 - `ff mcp`'s tools are `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`; `sync` and `publish` are no longer served under those names.
 - `ff status`, `ff pull`, and `ff branch list` say `N to pull`, `N to push`, `nothing to pull`, and `not published yet — ff push`.
 - `push/lease-refused`'s exits name the branch: `ff pull <branch>`, `ff push <branch>`.
+- `ff update -y` is one answer for the whole walk: a channel it cannot drive, fufu's own included, is named at the end and the exit is 1 there, after every extension has been reached, where it stopped before the first. An extension's failed install is a line and the walk goes on.
 - `ff resolve` opens a session branch, the way `ff edit` does: an anonymous branch minted at a commit carrying the markers, switched to, with the hold staying on the branch you left. `ff done` lands the fixes and returns in one operation; `--abandon` returns too, and from the held branch deletes the session wherever it is. Opening is two operations, the mint and the switch, so two `ff undo` take a fresh session back.
 - `ff status` and `ff status --json` carry the session under `resolving` on both branches: on the session, the conflicts are in your working copy; on the held branch, the line names the session and `ff switch` to it. `held/resolving` on the held branch names the session.
 - The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.
