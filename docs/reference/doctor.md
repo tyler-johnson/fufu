@@ -117,7 +117,7 @@ Three things are findings:
 
 - the binary has left PATH since it was declared — dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep;
 - the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension add`;
-- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension add <name>` that re-declares it.
+- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension add <name>` that re-declares it. It is the row that covers the channels no script runs: a Homebrew upgrade or a hand copy replaces the binary and re-declares nothing, and until something does, `ff hook` writes the skills the record names rather than the binary's.
 
 Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
 
@@ -144,7 +144,7 @@ A registration for a name nothing declares any more is folded into the `extensio
 
 A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal [`ff extension list`](cli/extension-list.md) reports.
 
-A record naming a contract this fufu does not speak is a `WARN` too, naming the extension and the contract it claims. It is kept in the file and described to nobody until a fufu that speaks that contract reads it.
+A record naming a contract this fufu does not speak is a `WARN` too. Doctor asks its binary the way it asks a declared one, and when `ff-<name>` on PATH answers this fufu's contract the record is behind the binary: the row is the drift row above, named for the extension, with the `ff extension add <name>` that re-records it. Otherwise the record is named in the `extensions` aggregate with the contract it claims, and is kept in the file and described to nobody until a fufu that speaks that contract reads it.
 
 ### The update lane
 
@@ -273,6 +273,6 @@ Everything else — a moved log ref, a missing reflog, an invalid setting — is
 
 - **After adopting a repository** — the engine floor confirms the log opened and the gc guard is in place, and the wiring floor confirms something actually feeds capture. [Agent setup](../agents/setup.md#verify) runs it as the verification step.
 - **After a version bump** — the update lane confirms which binary answered, and the wiring rows catch hooks and skills written by the fufu you just replaced.
-- **After upgrading a declared extension** — the extensions floor catches a binary that moved without a re-declaration before an agent trusts a stale manifest.
+- **After upgrading a declared extension** — the extensions floor catches a binary that moved without a re-declaration before an agent trusts a stale manifest. A binary behind its latest release is the [update lane](cli/update.md)'s to notice, not doctor's.
 - **When something feels off** — an `ff undo` that did less than expected, a branch that will not push, an agent whose edits are not showing up in [`ff history`](../reference/cli/history.md). One pass names the floor that degraded.
 - **In CI** — the exit code gates: 0 healthy, 1 findings, and `--json` gives the pipeline the rows.

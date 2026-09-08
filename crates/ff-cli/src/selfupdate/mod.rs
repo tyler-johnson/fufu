@@ -59,6 +59,13 @@ pub fn parse_tag(tag: &str) -> Option<Version> {
     parse_semver(bare)
 }
 
+/// Parse a declared extension's release tag: `v1.2.3` or a bare `1.2.3`.
+/// fufu's own tags carry the `v` and [`parse_tag`] insists on it; an
+/// extension tags releases its own way, and either spelling is a version.
+pub fn parse_release(tag: &str) -> Option<Version> {
+    parse_tag(tag).or_else(|| parse_semver(tag))
+}
+
 /// How this copy of fufu got onto the machine — and therefore what owns
 /// updating it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,6 +240,33 @@ pub fn classify_extension_at(
     InstallKind::Unmanaged
 }
 
+/// The block's recipe for a channel, as a person would type it, or `None`
+/// when the block has none for that channel. `ff update` prints it, and
+/// the passive notice names it.
+pub fn recipe_for(block: &crate::manifest::Update, kind: InstallKind) -> Option<String> {
+    match kind {
+        InstallKind::Homebrew => block
+            .brew
+            .as_deref()
+            .map(|formula| format!("brew upgrade {formula}")),
+        InstallKind::Script => block.install.as_deref().map(install_command_for),
+        InstallKind::Unmanaged => block.releases.clone(),
+        InstallKind::Source => None,
+    }
+}
+
+/// The GitHub repository the passive lane checks a declared extension's
+/// releases against, or `None` when the extension gets no check: a
+/// `source` build, a manifest with no `releases` recipe, or a page on a
+/// host other than github.com. This is the one gate; the refresh and the
+/// notice both read it.
+pub fn release_repo(manifest: &crate::manifest::Manifest) -> Option<String> {
+    if manifest.build() == crate::manifest::Build::Source {
+        return None;
+    }
+    github::repo_from_url(manifest.update.as_ref()?.releases.as_deref()?)
+}
+
 /// Is `name` an executable on PATH? A scan, not a spawn — the zero-spawn
 /// proof holds while `ff update` is only deciding what to print.
 #[cfg(not(windows))]
@@ -324,6 +358,74 @@ mod tests {
     #[test]
     fn parse_semver_bare() {
         assert_eq!(parse_semver("0.1.0"), Some(Version(0, 1, 0)));
+    }
+
+    #[test]
+    fn parse_release_takes_either_spelling() {
+        assert_eq!(parse_release("v0.5.0"), Some(Version(0, 5, 0)));
+        assert_eq!(parse_release("0.5.0"), Some(Version(0, 5, 0)));
+        assert!(parse_release("v0.5.0-rc1").is_none());
+        assert!(parse_release("release-1").is_none());
+    }
+
+    /// The gate on an extension's release check: an official build with a
+    /// github.com releases page, and nothing else.
+    #[test]
+    fn release_repo_is_the_github_page_of_an_official_build() {
+        let manifest = |update: serde_json::Value, build: Option<&str>| {
+            let mut value = serde_json::json!({
+                "name": "tower",
+                "version": "0.4.1",
+                "contract": crate::machine::CONTRACT,
+                "verbs": [{"name": "board", "read_only": true}],
+                "undoable": true,
+            });
+            if !update.is_null() {
+                value["update"] = update;
+            }
+            if let Some(build) = build {
+                value["build"] = serde_json::Value::String(build.into());
+            }
+            crate::manifest::parse(value).expect("a manifest the page types")
+        };
+        let page = "https://github.com/tyler-johnson/tower/releases/latest";
+        assert_eq!(
+            release_repo(&manifest(serde_json::json!({"releases": page}), None)).as_deref(),
+            Some("tyler-johnson/tower")
+        );
+        assert_eq!(
+            release_repo(&manifest(
+                serde_json::json!({"releases": page}),
+                Some("official")
+            ))
+            .as_deref(),
+            Some("tyler-johnson/tower")
+        );
+        // A source build is checked against nothing, whatever the page.
+        assert_eq!(
+            release_repo(&manifest(
+                serde_json::json!({"releases": page}),
+                Some("source")
+            )),
+            None
+        );
+        // No block, and a block with no releases recipe.
+        assert_eq!(release_repo(&manifest(serde_json::Value::Null, None)), None);
+        assert_eq!(
+            release_repo(&manifest(
+                serde_json::json!({"brew": "tyler-johnson/tap/tower"}),
+                None
+            )),
+            None
+        );
+        // A page somewhere fufu has no API for.
+        assert_eq!(
+            release_repo(&manifest(
+                serde_json::json!({"releases": "https://gitlab.com/tyler-johnson/tower/-/releases"}),
+                None
+            )),
+            None
+        );
     }
 
     // ------------------------------------------------------------------

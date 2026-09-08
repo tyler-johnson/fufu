@@ -283,7 +283,7 @@ What declaring buys is that fufu will describe it to an agent:
 - its skills install beside fufu's
 - the neutral agent event fans out to it
 - the MCP tools it produces are served beside fufu's seven, and an MCP server of its own registers beside fufu's
-- `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move
+- `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move; the background release check reads a github.com `releases` page and announces a new release beside fufu's own
 
 [`ff extension`](../reference/cli/extension.md) is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
 

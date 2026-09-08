@@ -89,11 +89,15 @@ impl Declared {
 }
 
 /// A record the file carries that this fufu will not describe, because it
-/// claims a contract fufu does not speak.
+/// claims a contract fufu does not speak. `version` is what the record
+/// says, read the way `name` is and `None` when the record carries none,
+/// so `ff doctor` can name what was recorded beside what the binary on
+/// PATH answers now.
 #[derive(Debug, Clone)]
 pub struct Stale {
     pub name: String,
     pub contract: u32,
+    pub version: Option<String>,
 }
 
 /// What this machine has declared, and the trouble reading it if there was
@@ -238,6 +242,11 @@ pub fn load(file: Option<&Path>) -> Registry {
             registry.stale.push(Stale {
                 name: name.to_string(),
                 contract: contract.try_into().unwrap_or(u32::MAX),
+                version: record
+                    .manifest
+                    .get("version")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
             });
             continue;
         }
@@ -554,6 +563,7 @@ mod tests {
         assert_eq!(registry.stale.len(), 1);
         assert_eq!(registry.stale[0].name, "tower");
         assert_eq!(registry.stale[0].contract, 99);
+        assert_eq!(registry.stale[0].version.as_deref(), Some("0.4.1"));
     }
 
     /// A binary that has left PATH is a `None` from `resolve` and nothing

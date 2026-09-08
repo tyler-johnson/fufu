@@ -61,22 +61,23 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
         crate::autotrim::maybe_trim(repo);
     }
 
-    let notice = repo
+    let notices = repo
         .as_ref()
-        .and_then(|r| crate::selfupdate::notify::pending(r, env!("CARGO_PKG_VERSION"), true));
-    match notice {
+        .map(|r| crate::selfupdate::notify::pending(r, env!("CARGO_PKG_VERSION"), true))
+        .unwrap_or_default();
+    if !notices.is_empty() && deferrable(&args) {
         // A notice is pending and the verb tolerates child-mode: run git as a
         // child so ff regains control to speak after git's own output.
-        Some(notice) if deferrable(&args) => {
-            let code = super::git_exec::run_wait("git", args);
-            eprintln!("{notice}");
-            crate::selfupdate::notify::mark_notified();
-            std::process::exit(code);
+        let code = super::git_exec::run_wait("git", args);
+        for notice in &notices {
+            eprintln!("{}", notice.line);
         }
-        // No notice (or a non-deferrable verb): the exec fast path. The
-        // notice, if any, waits for a future command.
-        _ => super::git_exec::exec("git", args),
+        crate::selfupdate::notify::mark_notified(&notices);
+        std::process::exit(code);
     }
+    // No notice (or a non-deferrable verb): the exec fast path. The
+    // notice, if any, waits for a future command.
+    super::git_exec::exec("git", args)
 }
 
 /// What strict says instead of running it. The fufu spelling is the first

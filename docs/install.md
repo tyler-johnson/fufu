@@ -94,9 +94,9 @@ The pieces above, as one list to file with security:
 2. **Verify, with the limit in the same breath.** The scripts check the sha256 against `checksums.txt` and refuse on a mismatch; by hand it is the `sha256sum -c` above. `checksums.txt` is unsigned, so this proves the download matches what CI published with the release, not who published it. Signed provenance is not offered today.
 3. **Turn the update check off.** [`ff config --global updateCheck false`](reference/cli/config.md), which is the git config key [`fufu.updateCheck`](reference/config.md#updatecheck). What it turns off, in official builds:
 
-    - at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag;
+    - at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag, and one more for each declared extension whose manifest names a github.com releases page;
     - it sends `GITHUB_TOKEN` as a bearer header if the environment has one;
-    - it caches the answer in `<cache>/fufu/update.json` for a one-line notice.
+    - it caches the answers in `<cache>/fufu/update.json` for a one-line notice apiece.
 
     It never installs anything; `false` stops the check and the notice both.
 4. **What remains.** With the check off, nothing in fufu itself reaches the network. `ff update` fetches only when you run it, `ff hook` writes local files and nothing else, and [`ff pull`](reference/cli/pull.md) and [`ff push`](reference/cli/push.md) talk only to the remotes your repository configures: the fetch is native and reads git's credential and proxy config, and the push runs git.

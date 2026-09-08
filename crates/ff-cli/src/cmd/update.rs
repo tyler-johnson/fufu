@@ -24,7 +24,7 @@
 //! the ones the new binary names.
 
 use crate::ctx::Ctx;
-use crate::manifest::{Build, Update};
+use crate::manifest::Build;
 use crate::registry::Declared;
 use crate::selfupdate::{self, InstallKind};
 
@@ -226,7 +226,7 @@ fn extension(declared: &Declared, yes: bool, trouble: &mut Vec<String>) -> ff_co
         // Ruled out above: the classifier was told the build is official.
         InstallKind::Source => unreachable!("a source build never reaches the block"),
     };
-    let Some(how) = recipe_for(block, kind) else {
+    let Some(how) = selfupdate::recipe_for(block, kind) else {
         println!("{label} {why}, and its manifest has no {recipe} recipe, so fufu cannot move it.");
         println!("  at {}", path.display());
         unmoved(
@@ -259,23 +259,10 @@ fn extension(declared: &Declared, yes: bool, trouble: &mut Vec<String>) -> ff_co
     }
 }
 
-/// The block's recipe for a channel, as a person would type it, or `None`
-/// when the block has none for that channel.
-fn recipe_for(block: &Update, kind: InstallKind) -> Option<String> {
-    match kind {
-        InstallKind::Homebrew => block
-            .brew
-            .as_deref()
-            .map(|formula| format!("brew upgrade {formula}")),
-        InstallKind::Script => block
-            .install
-            .as_deref()
-            .map(selfupdate::install_command_for),
-        InstallKind::Unmanaged => block.releases.clone(),
-        InstallKind::Source => None,
-    }
-}
-
+/// The background lane's refresh: fufu's own latest release, then one per
+/// declared extension the gate in [`selfupdate::release_repo`] lets
+/// through. Every failure is silent, and a lookup that fails leaves the
+/// entry as it was: the next check is one cadence away.
 fn refresh_cache() -> ff_core::Result<()> {
     let Some(path) = selfupdate::notify::state_path() else {
         return Ok(());
@@ -297,16 +284,20 @@ fn refresh_cache() -> ff_core::Result<()> {
     }
     let _ = selfupdate::notify::save_state(&path, &state);
 
-    // Fetch latest — failures are silent
-    let _ = (|| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
-        let agent = selfupdate::github::agent();
-        let release = selfupdate::github::fetch_latest(&agent, "https://api.github.com")?;
-        if selfupdate::parse_tag(&release.tag_name).is_some() {
-            state.latest = Some(release.tag_name);
-        }
-        let _ = selfupdate::notify::save_state(&path, &state);
-        Ok(())
-    })();
-    // Every failure is silent
+    let agent = selfupdate::github::agent();
+    if let Ok(release) = selfupdate::github::fetch_latest(&agent, "https://api.github.com")
+        && selfupdate::parse_tag(&release.tag_name).is_some()
+    {
+        state.latest = Some(release.tag_name);
+    }
+    let _ = selfupdate::notify::save_state(&path, &state);
+
+    let registry = crate::registry::read();
+    selfupdate::notify::refresh_extensions(&mut state, registry.declared(), |repo| {
+        selfupdate::github::fetch_latest_of(&agent, "https://api.github.com", repo)
+            .ok()
+            .map(|release| release.tag_name)
+    });
+    let _ = selfupdate::notify::save_state(&path, &state);
     Ok(())
 }

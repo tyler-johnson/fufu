@@ -455,15 +455,19 @@ fufu never writes a binary itself, its own included: whatever placed one owns re
 | --- | --- | --- |
 | `brew` | the binary is under a Homebrew prefix | prints `brew upgrade <formula>` |
 | `install` | the binary sits in `bin` | prints `curl -fsSL <url> \| sh` (`irm <url> \| iex` on Windows), and runs it after `-y` or a typed yes |
-| `releases` | the binary is anywhere else | prints the page |
+| `releases` | the binary is anywhere else | prints the page, and on github.com names the repository the background check reads |
 
 `bin` is the directory your install script places the binary in, with a leading `~` read as the home directory; absent, it is `~/.local/bin`. It rides beside `install` and is refused without it — nothing places binaries anywhere without a script, so a binary at `~/.local/bin` with no `install` recipe is a hand copy and gets the releases page. The install recipe is the one recipe `ff update` runs, and it runs the URL as it stands, so a binary built for Windows names a PowerShell script there. No release is checked for an extension before the recipe is printed.
 
 `build` is what your binary says about how it was built, and only the binary knows: an extension can be written in anything, so there is no cargo recipe and no build detection, and `source` means the same thing whatever the language. `ff update` tells the person to rebuild a `source` build the way they built it, reads no recipe, and checks no release. Absent is `official`, because a source build is the one that has the fact at hand and every reason to say it. The default does not depend on the block: a `source` build is one to rebuild whether or not a block is there, and an `official` one with no block is one fufu says it cannot move.
 
+`releases` is also how your binary gets fufu's background release check. When it is a github.com page, `https://github.com/<owner>/<repo>/...` in any of the forms GitHub serves, fufu reads `<owner>/<repo>` from it and asks the GitHub API for that repository's latest release beside its own, at most once per `fufu.updateCheck` and under the same gates as its own check: an official build of fufu, not CI, a terminal. A binary whose recorded version is behind that release gets one line on stderr, `ff: ff-<name> v0.5.0 is available (running 0.4.1) — update with: …`, naming the recipe for its channel, and each release is announced once. The version compared is the one in your record, so a `version` that is not `major.minor.patch` gets no line, and a release tag reads with or without a leading `v`. A page on any other host is printed by `ff update` and checked against nothing: there is no second field for the repository, because on github.com the page already names it, and off github.com fufu has no API to ask. A `source` build is never checked.
+
 A block that names no recipe, an empty recipe, or `bin` without `install` is refused with `extension/bad-manifest`. A channel the block has no recipe for, and a manifest with no block, are both named by `ff update` as ones fufu cannot move, with the path the binary sits at.
 
 After a move that ran, `ff update` ends with `ff hook -u`: every declared manifest is re-asked and re-recorded, and every install already wired is re-run, so a new binary that names a new skill sees it installed. Point your own install script at `ff extension add <name>` and `ff hook -u` too, for the person who runs it by hand.
+
+A channel no script runs, a Homebrew upgrade or a hand copy, replaces the binary and re-records nothing. `ff doctor` is where that shows: a record behind the binary on PATH, on its version or its contract, is a `WARN` on the extension's row naming both and the `ff extension add <name>` that re-records it.
 
 ## What fufu refuses, and when
 

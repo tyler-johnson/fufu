@@ -11,7 +11,7 @@ That last one is the only channel ff acts on. It checks the latest release, prin
 
 Official builds also look for new releases without being asked. A check runs at most once per fufu.updateCheck (daily by default) and lands a one-line notice on stderr, naming the same command this verb would. Nothing installs itself, and a release is announced at most once, ever.
 
---check is that background lane: it refreshes the cache and prints nothing.
+--check is that background lane: it refreshes the cache and prints nothing, for fufu and for every extension alike.
 
 ### Declared extensions
 
@@ -23,6 +23,8 @@ After fufu, the same walk over every extension declared with `ff extension add`,
 - a binary anywhere else gets the releases page
 
 A channel the block has no recipe for, or a manifest with no block at all, is named as one ff cannot move, with the path the binary sits at. No release is checked for an extension in this walk; the recipe is printed as it stands.
+
+The background check covers extensions too. An `official` build whose `releases` recipe is a github.com page names its repository, and the same check that fetches fufu's latest release fetches that one's, at most once per fufu.updateCheck, under the same gates. A binary behind its latest release gets one line on stderr beside fufu's own, naming the recipe for its channel: `ff update` for the install script, the `brew upgrade` line, else the page. Each release is announced once. A `source` build, a manifest with no `releases` recipe, and a page on any other host get no check and no line.
 
 `-y` is one answer for the whole walk: every install recipe runs without asking, and whatever the walk could not move — this fufu on a channel it does not drive, an extension with no recipe for its channel — is named at the end and the exit is 1, so a script that asked for everything is not told it moved. An install that fails is that extension's alone; the walk goes on and the exit says so.
 

@@ -11,6 +11,17 @@ use super::Row;
 /// manifest no longer matches what `ff extension add` recorded: the same
 /// severity and the same shape `wiring.rs`'s stale-hook row already uses.
 ///
+/// The drifted-manifest row is the one that covers the channels no script
+/// runs. A Homebrew upgrade or a hand copy replaces the binary and runs no
+/// `ff extension add`, so the record falls behind the binary, and `ff hook`
+/// keeps writing the skills the record names until something re-records
+/// it. Version and contract share the row: either one moving is the same
+/// finding with the same repair. A record whose contract this fufu does
+/// not speak sits outside the declared list, so it is asked here the way a
+/// declared one is, and a binary on PATH answering this fufu's contract
+/// turns the stale record into that same drift row rather than the
+/// aggregate one.
+///
 /// A handshake runs for every declared extension found on PATH — one spawn
 /// apiece. `ff mcp` and the trigger fan-out both trust the record rather
 /// than pay that cost on every call; doctor is the one place slow and
@@ -34,12 +45,25 @@ pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Ve
         ));
     }
 
-    if !registry.stale.is_empty() {
-        let mut named: Vec<String> = registry
-            .stale
-            .iter()
-            .map(|stale| format!("{} (contract {})", stale.name, stale.contract))
-            .collect();
+    // A stale record whose binary on PATH answers this fufu's contract is
+    // a record behind its binary, and gets the drift row with its repair.
+    // The rest — no binary, or one that does not speak this contract
+    // either — stay aggregated, since re-declaring would refuse them.
+    let mut named: Vec<String> = Vec::new();
+    for stale in &registry.stale {
+        let live = crate::ext::resolve(&stale.name)
+            .and_then(|path| crate::manifest::ask(&path, &stale.name).ok());
+        match live {
+            Some(live) => rows.push(drifted_row(
+                &stale.name,
+                stale.version.as_deref().unwrap_or("?"),
+                stale.contract,
+                &live,
+            )),
+            None => named.push(format!("{} (contract {})", stale.name, stale.contract)),
+        }
+    }
+    if !named.is_empty() {
         named.sort();
         rows.push(Row::warn(
             "extensions",
@@ -54,9 +78,13 @@ pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Ve
         rows.push(declared_row(declared, statuses, fix));
     }
 
+    // A stale record is a declaration too, one this fufu does not speak:
+    // its binary is not undeclared, and its row is above.
     let undeclared: Vec<String> = crate::ext::on_path()
         .into_iter()
-        .filter(|name| registry.get(name).is_none())
+        .filter(|name| {
+            registry.get(name).is_none() && !registry.stale.iter().any(|stale| &stale.name == name)
+        })
         .collect();
     if !undeclared.is_empty() {
         let named: Vec<String> = undeclared.iter().map(|name| format!("ff-{name}")).collect();
@@ -120,14 +148,7 @@ fn declared_row(
         // has quietly moved, and it should not depend on that invariant
         // holding forever to catch a drifted contract too.
         Ok(live) if live.version != recorded.version || live.contract != recorded.contract => {
-            Row::warn(
-                name.to_string(),
-                format!(
-                    "recorded {} (contract {}), ff-{name} on PATH now answers {} (contract {}) \
-                     — ff extension add {name} re-declares it",
-                    recorded.version, recorded.contract, live.version, live.contract
-                ),
-            )
+            drifted_row(name, &recorded.version, recorded.contract, &live)
         }
         Ok(live) => {
             let mut row = Row::ok(
@@ -143,6 +164,26 @@ fn declared_row(
             row
         }
     }
+}
+
+/// The record is behind the binary: what was recorded, what `ff-<name>` on
+/// PATH answers now, and the `ff extension add` that re-records it. One
+/// row for a version that moved, a contract that moved, or both, and the
+/// same row whether the record was on the declared list or stale.
+fn drifted_row(
+    name: &str,
+    recorded_version: &str,
+    recorded_contract: u32,
+    live: &crate::manifest::Manifest,
+) -> Row {
+    Row::warn(
+        name.to_string(),
+        format!(
+            "recorded {recorded_version} (contract {recorded_contract}), ff-{name} on PATH now \
+             answers {} (contract {}) — ff extension add {name} re-declares it",
+            live.version, live.contract
+        ),
+    )
 }
 
 /// A declared extension's own tools, asked for when its manifest promises
@@ -402,6 +443,7 @@ mod tests {
         registry.stale.push(crate::registry::Stale {
             name: "tower".into(),
             contract: 99,
+            version: Some("0.4.1".into()),
         });
         let mut named: Vec<String> = registry
             .stale
