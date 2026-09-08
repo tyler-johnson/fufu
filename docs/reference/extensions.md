@@ -265,7 +265,7 @@ Cursor and Gemini read no skills directory and get nothing.
 
 Both clients want `name` and `description` in `SKILL.md`'s front matter, and `disable-model-invocation: true` keeps a skill for people to type rather than one the model may load on its own.
 
-Rerunning `ff hook` refreshes every skill from the binary, by the names the recorded manifest carries. `ff hook -u` re-asks the manifest first and re-records it, so a binary that now names a skill its record does not gets that skill installed; the install scripts run it after placing a new `ff`. `ff extension remove` stops the *next* install from carrying them; `ff hook --skill <skill>` prints any declared skill's `SKILL.md` without installing anything.
+Rerunning `ff hook` re-asks the manifest first and re-records it, then refreshes every skill from the binary, so a binary that now names a skill its record does not gets that skill installed. `ff hook -u` does the same for every client already wired, and the install scripts run it after placing a new `ff`. `ff extension remove` stops the *next* install from carrying them; `ff hook --skill <skill>` prints any declared skill's `SKILL.md` without installing anything.
 
 ## Optional: agent events
 

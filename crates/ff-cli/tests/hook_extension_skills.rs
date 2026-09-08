@@ -632,6 +632,54 @@ fn a_binary_gone_from_path_leaves_every_skill_out() {
     }
 }
 
+// ---- an install re-asks the manifests first --------------------------------
+
+/// The binary moved on and names a skill its record does not: a plain
+/// install re-asks the manifest before the skills, so the new skill lands
+/// and the record catches up.
+#[test]
+fn hook_re_asks_the_manifest_before_writing_skills() {
+    let (home, bin) = machine();
+    ext_bin(bin.path(), "tower", Stub::Answers);
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower",
+        &[("SKILL.md", &skill_md("tower"))],
+    );
+    skill_answer(
+        bin.path(),
+        "tower",
+        "tower-plan",
+        &[("SKILL.md", &skill_md("tower-plan"))],
+    );
+    declare(home.path(), bin.path(), "tower", &["tower"]);
+    manifest_answer(bin.path(), "tower", &["tower", "tower-plan"]);
+
+    let out = ff(home.path(), Some(bin.path()), &["hook", "claude"]);
+    assert!(out.status.success(), "{}\n{}", stdout(&out), stderr(&out));
+    let said = stdout(&out);
+    assert!(said.contains("re-declared tower 0.1.0"), "{said}");
+    let root = claude_skills(home.path());
+    assert_eq!(
+        text_at(&root.join("tower-plan/SKILL.md")),
+        skill_md("tower-plan")
+    );
+    assert_eq!(
+        registry(home.path())["extensions"][0]["manifest"]["skills"],
+        serde_json::json!(["tower", "tower-plan"])
+    );
+
+    // The JSON form carries the row the line came from.
+    manifest_answer(bin.path(), "tower", &["tower"]);
+    let out = ff(home.path(), Some(bin.path()), &["hook", "codex", "--json"]);
+    assert!(out.status.success(), "{}", stdout(&out));
+    let envelope: Value = serde_json::from_str(stdout(&out).trim()).expect("one envelope");
+    assert_eq!(envelope["data"]["extensions"][0]["name"], "tower");
+    assert_eq!(envelope["data"]["extensions"][0]["changed"], true);
+    assert!(!codex_skills(home.path()).join("tower-plan").exists());
+}
+
 // ---- `ff hook -u` ------------------------------------------------------------
 
 /// The binary moved on and names a skill its record does not: `-u` re-asks

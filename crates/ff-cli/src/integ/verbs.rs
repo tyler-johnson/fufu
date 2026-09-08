@@ -47,8 +47,15 @@ pub fn hook(
     }
 
     let targets = targets(ctx, &slugs, all, "hook")?;
+    // An install re-asks the manifests first, so the skills it writes are
+    // the ones each binary names now. Nothing to install asks nothing.
+    let extensions = if targets.is_empty() {
+        Vec::new()
+    } else {
+        refresh_manifests(ctx)
+    };
     let opts = InstallOptions { settings };
-    act(ctx, &targets, &opts, Verb::Hook, &[])
+    act(ctx, &targets, &opts, Verb::Hook, &extensions)
 }
 
 /// The shipped text, verbatim, so `ff hook --skill > rules.md` produces a
@@ -118,40 +125,14 @@ enum Verb {
 
 /// `ff hook -u`: refresh what is wired, and wire nothing new.
 ///
-/// Two passes. The first re-asks every declared extension for its manifest
-/// and re-records it, because every skill install reads the skill list
-/// from the record and not from the binary: a binary that moved on by
-/// itself — replaced in the background, or by hand — leaves its record
-/// naming the skills it used to have, and the new one's are never asked
-/// for until the record catches up. The second re-runs the install for
-/// every slug already wired, the way `ff doctor --fix` does, which is what
-/// carries the refreshed list into the clients. The install scripts run
-/// this through the binary they just placed, so an upgrade refreshes the
-/// machine without a person having to remember which verb does.
+/// The manifest pass every install runs, then the install re-run for every
+/// slug already wired, the way `ff doctor --fix` does. The pass runs even
+/// with nothing wired: a declared extension with no client wired is still
+/// worth re-recording. The install scripts run this through the binary
+/// they just placed, so an upgrade refreshes the machine without a person
+/// having to remember which verb does.
 fn refresh(ctx: &Ctx) -> Result<()> {
-    let extensions = refresh_manifests();
-    if !ctx.json {
-        let colored = crate::pager::color_enabled();
-        for refreshed in &extensions {
-            if let Some(why) = &refreshed.error {
-                println!(
-                    "{} kept as recorded: {why}",
-                    crate::render::paint_dim(&refreshed.name, colored)
-                );
-            } else if refreshed.changed {
-                let was = match &refreshed.was {
-                    Some(was) => format!(" (was {was})"),
-                    None => String::new(),
-                };
-                println!(
-                    "{} {} {}{was}",
-                    crate::render::paint_ok("re-declared", colored),
-                    refreshed.name,
-                    refreshed.version
-                );
-            }
-        }
-    }
+    let extensions = refresh_manifests(ctx);
 
     // Wired is what fufu wrote, whole or in part. A hand-written line is
     // never fufu's to rewrite, and a slug that is not wired is exactly what
@@ -195,13 +176,50 @@ struct Refreshed {
     error: Option<String>,
 }
 
-/// Re-ask every declared extension and re-record what it says.
+/// Re-ask every declared extension, re-record what it says, and say what
+/// moved.
 ///
-/// A failure is a line and not an error: the record stands, and the slugs
-/// still refresh from it. A record is rewritten when the manifest or the
+/// Every install runs this first, because a skill install reads the skill
+/// list from the record and not from the binary: a binary that moved on by
+/// itself — replaced in the background, or by hand — leaves its record
+/// naming the skills it used to have, and the new one's would never be
+/// asked for until the record caught up.
+///
+/// A failure is a line and not an error: the record stands, and the install
+/// still runs from it. A record is rewritten when the manifest or the
 /// binary's path differs from what was recorded, and left alone when
-/// neither moved, so a run over a current machine writes nothing.
-fn refresh_manifests() -> Vec<Refreshed> {
+/// neither moved, so a run over a current machine writes nothing and says
+/// nothing. The lines are the human surface; `--json` carries the rows in
+/// the report instead.
+fn refresh_manifests(ctx: &Ctx) -> Vec<Refreshed> {
+    let refreshed = re_ask_manifests();
+    if !ctx.json {
+        let colored = crate::pager::color_enabled();
+        for refreshed in &refreshed {
+            if let Some(why) = &refreshed.error {
+                println!(
+                    "{} kept as recorded: {why}",
+                    crate::render::paint_dim(&refreshed.name, colored)
+                );
+            } else if refreshed.changed {
+                let was = match &refreshed.was {
+                    Some(was) => format!(" (was {was})"),
+                    None => String::new(),
+                };
+                println!(
+                    "{} {} {}{was}",
+                    crate::render::paint_ok("re-declared", colored),
+                    refreshed.name,
+                    refreshed.version
+                );
+            }
+        }
+    }
+    refreshed
+}
+
+/// The manifest pass itself, silent.
+fn re_ask_manifests() -> Vec<Refreshed> {
     let mut refreshed = Vec::new();
     // Every record is read before any is written: `declare` drops the
     // read cache, and this walk is over the list as it stood.
@@ -335,9 +353,8 @@ fn nothing_hooked(detected: &[&'static dyn Integration], verb: &str) -> String {
     )
 }
 
-/// `extensions` is what the manifest pass of `ff hook -u` found, carried
-/// into the JSON report; the other verbs run no such pass and hand in
-/// nothing.
+/// `extensions` is what the manifest pass found, carried into the JSON
+/// report; `unhook` runs no such pass and hands in nothing.
 fn act(
     ctx: &Ctx,
     targets: &[&'static dyn Integration],
@@ -400,8 +417,8 @@ fn act(
 /// the two cannot disagree, because there is only one derivation.
 ///
 /// The JSON envelope carries `extensions` beside `integrations` and
-/// `changed`: one row per declared extension after `ff hook -u`'s
-/// manifest pass, and an empty list from every verb that runs none.
+/// `changed`: one row per declared extension after an install's manifest
+/// pass, and an empty list from every spelling that runs none.
 fn report(
     ctx: &Ctx,
     statuses: &[Status],
