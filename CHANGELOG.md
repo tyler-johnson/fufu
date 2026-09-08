@@ -51,7 +51,7 @@
 - `ff switch`, `ff done`, and the resolution landing recorded an end tree without the untracked files of the park they resumed, so the next `ff undo` deleted the files instead of stepping back.
 - `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree: the fixes park on the session branch and come back when you switch to it.
 - `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.
-- `ff pull`, `ff restack`, `ff absorb`, and every other replay walked a range by commit date as well as ancestry, so a commit dated older than the base — a teammate's morning commit pushed after lunch, a cherry-pick of old work — was left out of the count and the replay, and a branch made only of such commits was refused as already sitting on its base.
+- `ff pull`, `ff restack`, `ff absorb`, and every other replay walked a range by commit date as well as ancestry, so a commit dated older than the base — a teammate's morning commit pushed after lunch, a cherry-pick of old work — was left out of the count and the replay, and a branch made only of such commits was refused as already sitting on its base. In a shallow clone the walk stops at the boundary the way git does.
 
 ## v0.12.1 — 2026-09-04
 

@@ -1,4 +1,4 @@
-use gix::revision::walk::Sorting;
+use gix::traverse::commit::simple::{CommitTimeOrder, Sorting};
 
 use crate::error::{Error, Result};
 use crate::model::Upstream;
@@ -98,16 +98,83 @@ pub(crate) fn upstream_for(
 /// commit dated older than the base — a teammate's morning commit pushed
 /// after lunch, a cherry-pick of old work — as if it were not in the range
 /// at all. Hiding answers by ancestry alone.
+///
+/// The walk reads commits through [`Grafted`] rather than the store itself,
+/// so a shallow clone's boundary holds on both sides of the range: gix's
+/// own shallow handling is a filter on the commits a walk may return, and
+/// a hidden base's parents are queued without asking it, so painting the
+/// base's ancestry would go on past the boundary to a parent the clone
+/// never fetched and fail there.
 pub(crate) fn range<'repo>(
     repo: &'repo gix::Repository,
     tip: gix::ObjectId,
     bases: impl IntoIterator<Item = gix::ObjectId>,
-) -> Result<gix::revision::Walk<'repo>> {
-    repo.rev_walk(Some(tip))
-        .with_hidden(bases)
-        .sorting(Sorting::ByCommitTime(Default::default()))
-        .all()
+) -> Result<
+    impl Iterator<
+        Item = std::result::Result<
+            gix::traverse::commit::Info,
+            gix::traverse::commit::simple::Error,
+        >,
+    > + 'repo,
+> {
+    let objects = Grafted {
+        objects: &repo.objects,
+        shallow: repo.shallow_commits().map_err(Error::repo)?,
+    };
+    gix::traverse::commit::Simple::new(Some(tip), objects)
+        .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
+        .map_err(Error::repo)?
+        .hide(bases)
         .map_err(Error::repo)
+}
+
+/// The object store with every shallow commit shown as parentless, which is
+/// what git itself does at a shallow boundary: the commit still names its
+/// parents, and the clone has none of them.
+struct Grafted<'repo> {
+    objects: &'repo gix::OdbHandle,
+    /// The `shallow` file, sorted; `None` in a clone with full history.
+    shallow: Option<gix::shallow::Commits>,
+}
+
+impl gix::objs::Find for Grafted<'_> {
+    fn try_find<'a>(
+        &self,
+        id: &gix::oid,
+        buffer: &'a mut Vec<u8>,
+    ) -> std::result::Result<Option<gix::objs::Data<'a>>, gix::objs::find::Error> {
+        let kind = match self.objects.try_find(id, buffer)? {
+            Some(data) => data.kind,
+            None => return Ok(None),
+        };
+        let grafted = kind == gix::objs::Kind::Commit
+            && self
+                .shallow
+                .as_ref()
+                .is_some_and(|shallow| shallow.binary_search(&id.to_owned()).is_ok());
+        if grafted {
+            strip_parents(buffer);
+        }
+        Ok(Some(gix::objs::Data { kind, data: buffer }))
+    }
+}
+
+/// Drop the `parent` lines from a commit's headers, which end at the first
+/// blank line. A continuation line of a multi-line header starts with a
+/// space, so it is never taken for one.
+fn strip_parents(buffer: &mut Vec<u8>) {
+    let headers_end = buffer
+        .windows(2)
+        .position(|pair| pair == b"\n\n")
+        .map_or(buffer.len(), |at| at + 1);
+    let mut kept = Vec::with_capacity(buffer.len());
+    for line in buffer[..headers_end].split_inclusive(|&byte| byte == b'\n') {
+        if !line.starts_with(b"parent ") {
+            kept.extend_from_slice(line);
+        }
+    }
+    kept.extend_from_slice(&buffer[headers_end..]);
+    *buffer = kept;
 }
 
 /// The commits reachable from `tip` without crossing any of `bases`.

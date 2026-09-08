@@ -328,7 +328,7 @@ pub(crate) fn plan_over(
         let mut merge = false;
         for info in walk {
             let info = info.map_err(Error::repo)?;
-            if info.parent_ids().count() > 1 {
+            if info.parent_ids.len() > 1 {
                 merge = true;
                 break;
             }

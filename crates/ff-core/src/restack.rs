@@ -254,7 +254,7 @@ fn walk_range(
     let mut merge = None;
     for info in walk {
         let info = info.map_err(Error::repo)?;
-        if merge.is_none() && info.parent_ids().count() > 1 {
+        if merge.is_none() && info.parent_ids.len() > 1 {
             merge = Some(info.id);
         }
         range.push(info.id);

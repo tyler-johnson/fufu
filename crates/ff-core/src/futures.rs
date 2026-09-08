@@ -239,7 +239,7 @@ pub fn probe_to_depth(
     let mut range: Vec<gix::ObjectId> = Vec::new();
     for info in walk {
         let info = info.map_err(Error::repo)?;
-        if info.parent_ids().count() > 1 {
+        if info.parent_ids.len() > 1 {
             // Rebase semantics for a merge are ambiguous, and a wrong verdict
             // is worse than an honest silence.
             return Ok(Verdict::Unknown {

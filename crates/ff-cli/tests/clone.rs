@@ -213,6 +213,33 @@ fn depth_takes_only_the_last_commits() {
     assert!(clone.join(".git/shallow").exists(), "really shallow");
 }
 
+/// A shallow clone still rewrites and restacks. The range walk under
+/// `ff absorb` hides the target's parents and paints what they reach, and
+/// in a shallow clone that reaches the boundary, where the commit names a
+/// parent the clone never fetched; the walk stops there the way git does,
+/// rather than failing on the object it cannot find.
+#[test]
+fn a_shallow_clone_absorbs_across_its_boundary() {
+    let remote = Remote::with_commits(3);
+    ok(&remote.root, &["clone", &remote.url(), "w", "--depth", "1"]);
+    let w = remote.root.join("w");
+    assert!(w.join(".git/shallow").exists(), "really shallow");
+
+    std::fs::write(w.join("b.txt"), "b\n").unwrap();
+    ok(&w, &["commit", "-m", "first"]);
+    std::fs::write(w.join("c.txt"), "c\n").unwrap();
+    ok(&w, &["commit", "-m", "second"]);
+    let first = git(&w, &["rev-parse", "--short=8", "HEAD~1"]);
+
+    std::fs::write(w.join("b.txt"), "b, again\n").unwrap();
+    let body = ok(&w, &["absorb", "--into", &first]);
+    assert!(body.contains("absorbed into"), "{body}");
+    assert!(body.contains("restacked 1 commit"), "{body}");
+    assert_eq!(git(&w, &["show", "HEAD~1:b.txt"]), "b, again");
+    assert_eq!(git(&w, &["show", "HEAD:c.txt"]), "c");
+    assert!(body.contains("undo: ff undo"), "{body}");
+}
+
 /// `-o` names the remote.
 #[test]
 fn the_remote_can_be_named() {
