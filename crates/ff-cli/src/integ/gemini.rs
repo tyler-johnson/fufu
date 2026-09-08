@@ -137,6 +137,16 @@ impl AgentProtocol for Gemini {
             .to_string(),
         )
     }
+
+    fn has_mcp(&self) -> bool {
+        match mcp_spec() {
+            Ok(spec) => matches!(
+                mcp::wiring(&spec),
+                Wiring::Wired { .. } | Wiring::HandWritten
+            ),
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

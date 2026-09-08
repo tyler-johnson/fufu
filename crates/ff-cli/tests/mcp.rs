@@ -234,11 +234,17 @@ fn the_legacy_handshake_lists_the_seven_tools_and_relays_the_envelope() {
     let init = handshake(&mut server);
     assert_eq!(init["result"]["protocolVersion"], "2025-11-25");
     assert_eq!(init["result"]["serverInfo"]["name"], "fufu");
+    let instructions = init["result"]["instructions"]
+        .as_str()
+        .expect("the briefing is the instructions");
     assert!(
-        init["result"]["instructions"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("fufu (`ff`) is capturing")),
+        instructions.starts_with("fufu (`ff`) is capturing"),
         "the briefing is the instructions: {init}"
+    );
+    assert!(
+        instructions.contains("`fufu` tools"),
+        "a server that is answering is offered by definition, so the instructions carry the \
+         tools line: {init}"
     );
 
     let listed = server.request(2, "tools/list", Value::Null);

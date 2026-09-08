@@ -28,20 +28,20 @@ Under every level the snapshot lands before the command runs, so the policy call
 
 ## Standing orders: the CLAUDE.md / AGENTS.md block
 
-The agent needs one paragraph of doctrine: write through `ff`, and never write a backup copy. Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries:
+The agent needs one paragraph of doctrine: write through `ff`, and never write a backup copy. Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries, with the tools sentence the briefing adds where the server is registered:
 
 ```markdown
 ## Version control
 
-fufu (`ff`) is capturing this repository: the worktree is snapshotted before every tool action, so no edit can lose file state. Work directly — no backup copies, no hedging.
+fufu (`ff`) is capturing this repository: the working copy is snapshotted before every tool action, so no edit can lose file state. Work directly — no backup copies, no hedging.
 
-Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the open change — no add, no staging, the worktree is the change. `ff switch <branch>` moves. `ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
+Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the open change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. `ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
 
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git counterparts.
 
-When an `ff` tool is offered, call it with the same words instead of the shell.
-
 Every verb's own `--help` is the authority on it.
+
+The `fufu` tools for status, pull, push, undo, redo, explain, and help take each verb's own flags as fields. Prefer one where it is offered; every other verb is the shell.
 ```
 
 With the hook below wired, fufu injects this briefing itself: at the turn boundary, again after anything that rebuilds the context (a resume, a `/clear`, a compaction), and once for each subagent.
@@ -130,7 +130,7 @@ The scoped verb is [`ff op revert <op>`](../reference/cli/op-revert.md), which i
 
 ## Ship the skill
 
-The briefing is deliberately short — four verbs, the git rule, a pointer to `--help` — because the agent pays for it every session.
+The briefing is deliberately short — four verbs, the git rule, a pointer to `--help`, and, where a server is registered, the typed tools — because the agent pays for it every session.
 
 Everything past that lives in a skill fufu ships: the recovery table, rewriting commits that have already closed, held rewrites and conflicts, the landmines, and the JSON surface. It costs the agent nothing until the situation calls for it.
 
@@ -161,7 +161,7 @@ That is `ff trigger`'s doctrine applied to the one place fufu invites an extensi
 
 ## Serve the verbs as a tool
 
-The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name.
+The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name. The briefing names the tools only where the server is registered, and the server's own `instructions` field carries the same briefing.
 
 It is a Model Context Protocol server on stdio serving seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions the verb's `--help` reads, and a `cwd` — `{"name": "push", "arguments": {"dry-run": true}}` is `ff push --dry-run`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code. `help` takes the words after `ff help` as `verb` and returns the page as text.
 

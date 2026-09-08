@@ -192,6 +192,16 @@ impl AgentProtocol for Cursor {
         }
         Some(serde_json::json!({ "additional_context": reply.joined() }).to_string())
     }
+
+    fn has_mcp(&self) -> bool {
+        match mcp_spec() {
+            Ok(spec) => matches!(
+                mcp::wiring(&spec),
+                Wiring::Wired { .. } | Wiring::HandWritten
+            ),
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

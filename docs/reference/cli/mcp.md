@@ -4,6 +4,8 @@ A Model Context Protocol server on stdin and stdout, for an agent client that wa
 
 It serves seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions `ff <verb> --help` reads, so a flag on the page is a field on the tool. These seven are the verbs where the shell adds nothing: the inputs are fixed and short, nothing about the output is something an agent would pipe, and the result's structure matters more than its text. Every other verb is the shell.
 
+The server's `instructions` carry the same briefing the hook injects, so a client that surfaces instructions reads the doctrine there too.
+
 ```
 {"name": "push", "arguments": {"dry-run": true}}
 ```

@@ -27,7 +27,9 @@ use crate::manifest::Briefing;
 /// recovery, rewriting, conflicts, the machine surface — lives in the
 /// shipped skill (`integ/skill.md`), which costs nothing until a client
 /// decides it is wanted. The two are budgeted differently on purpose, and
-/// that is the whole reason the split exists.
+/// that is the whole reason the split exists. The typed tools are the same
+/// kind of split: `mcp::LINE` names them, and the runtime appends it only
+/// where the client has the server registered.
 ///
 /// Every command here is real and spelled the way the CLI takes it — a
 /// retired or mistyped form teaches the agent to fail. Keep it short: this
@@ -50,9 +52,6 @@ Anything else git does: `ff git <args…>`, which snapshots and then runs git ve
 
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.
-
-The `ff` tools offered for status, pull, push, undo, redo, explain, and help take the \
-verb's own flags as fields; every other verb is the shell.
 
 Every verb's own `--help` is the authority on it.
 ";
@@ -144,7 +143,15 @@ mod notice {
 
     use super::{LINE_CAP, NOTICE, usable};
     use crate::cli::Cli;
+    use crate::integ::mcp;
     use crate::integ::skill::SKILL;
+
+    /// The notice and the tools line together, which is the text a wired
+    /// session reads. The line is held to the same live-surface guard the
+    /// notice is, so it is walked with it rather than beside it.
+    fn briefing() -> String {
+        format!("{NOTICE}{}", mcp::LINE)
+    }
 
     /// cli.rs as text, for the marker trail. Read as source rather than
     /// through clap because a comment is exactly what clap discards.
@@ -192,7 +199,7 @@ mod notice {
     #[test]
     fn only_live_documented_surface() {
         let root = Cli::command();
-        let commands = quoted(NOTICE);
+        let commands = quoted(&briefing());
         assert!(
             commands.len() >= 8,
             "the notice stopped teaching verbs: {commands:?}"
@@ -282,7 +289,7 @@ mod notice {
             markers.len() >= 8,
             "the marker trail is gone from cli.rs; the notice has nothing pointing at it"
         );
-        for tokens in quoted(NOTICE) {
+        for tokens in quoted(&briefing()) {
             // Bare `ff` — the notice names the tool before it names a verb.
             let Some(verb) = tokens.get(1) else { continue };
             assert!(
@@ -298,31 +305,44 @@ mod notice {
     /// tokens, and a rewrite that doubles it has to say so here. The number
     /// came down when the skill took the advanced surface off it; growing
     /// it back is choosing to charge every session for something one
-    /// session in twenty needs. It went up by fifty when the typed tools
-    /// arrived, because naming the seven is what tells the agent which
-    /// verbs are tools and which are the shell.
+    /// session in twenty needs. The fifty bytes the typed tools cost moved
+    /// to `mcp::LINE`, paid only where a server is registered.
     #[test]
     fn stays_within_its_budget() {
         assert!(
-            NOTICE.len() <= 850,
+            NOTICE.len() <= 750,
             "the notice is {} bytes; trim it or raise the budget deliberately",
             NOTICE.len()
         );
     }
 
+    /// The tools line is one sentence pair: the seven and the preference.
+    /// It is paid only where a server is registered, but paid every session
+    /// there, so it is budgeted the way the notice is.
+    #[test]
+    fn the_tools_line_stays_within_its_budget() {
+        assert!(
+            mcp::LINE.len() <= 200,
+            "the tools line is {} bytes; trim it or raise the budget deliberately",
+            mcp::LINE.len()
+        );
+    }
+
     /// A declared extension spends the same budget the notice does, so its
     /// line is capped where the notice is budgeted. The number is stated
-    /// against the notice rather than on its own: a line a third of the
+    /// against the briefing rather than on its own: a line a third of the
     /// whole always-on text is already a lot for one extension to ask of
     /// every session, and a machine with several of them declared would be
-    /// paying it several times over.
+    /// paying it several times over. A wired session pays the notice and
+    /// the tools line both, and that is the text an extension's line stands
+    /// beside.
     #[test]
     fn the_extension_line_cap_sits_under_the_notices_budget() {
+        let briefing = briefing().len();
         assert!(
-            LINE_CAP * 3 <= NOTICE.len(),
-            "an extension's {LINE_CAP} characters are no longer small against the notice's {} \
-             bytes; move one or the other deliberately",
-            NOTICE.len()
+            LINE_CAP * 3 <= briefing,
+            "an extension's {LINE_CAP} characters are no longer small against the briefing's \
+             {briefing} bytes; move one or the other deliberately"
         );
     }
 

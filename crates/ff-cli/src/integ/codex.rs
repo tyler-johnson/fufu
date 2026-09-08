@@ -219,6 +219,16 @@ impl AgentProtocol for Codex {
     fn has_skill(&self) -> bool {
         skill_dir().is_ok_and(|dir| skill::installed(&dir))
     }
+
+    fn has_mcp(&self) -> bool {
+        match mcp_spec() {
+            Ok(spec) => matches!(
+                mcp::wiring(&spec),
+                Wiring::Wired { .. } | Wiring::HandWritten
+            ),
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

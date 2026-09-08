@@ -125,15 +125,21 @@ fn unknown(name: &str) -> String {
 
 impl ServerHandler for Server {
     /// The instructions field carries the briefing, the same notice the
-    /// hook injects, so a client that surfaces instructions has the
-    /// doctrine and one that does not has the tools' own descriptions.
+    /// hook injects, plus the tools line the hook adds only where a server
+    /// is registered: a server that is answering is offered by definition.
+    /// A client that surfaces instructions has the doctrine, and one that
+    /// does not has the tools' own descriptions.
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(
                 crate::cli::NAME,
                 env!("CARGO_PKG_VERSION"),
             ))
-            .with_instructions(crate::integ::briefing::NOTICE)
+            .with_instructions(format!(
+                "{}{}",
+                crate::integ::briefing::NOTICE,
+                crate::integ::mcp::LINE
+            ))
     }
 
     /// fufu's seven first, then a tool per descriptor a declared extension

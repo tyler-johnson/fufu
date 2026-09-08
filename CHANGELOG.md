@@ -34,6 +34,8 @@
 - `ff sync` is `ff pull` and `ff publish` is `ff push`. The old spellings stay as visible aliases, kept rather than deprecated, and `ff --help` shows each on its verb's row. `ff pull` and `ff push` were hidden foreign verbs that refused; they run now, and `ff git pull` still runs git's.
 - The error ids under `sync/` and `publish/` are `pull/` and `push/`: `pull/fetch-failed`, `pull/ambiguous-remote`, `push/no-git`, `push/unreachable`, `push/lease-refused`, `push/rejected`, `push/failed`, `push/unrecorded`, `push/unknown-remote`, `push/retarget`. The old ids resolve nowhere, `ff explain` included.
 - The operation log records the two verbs as `pull` and `push`, and a push's summary reads `pushed <branch> to <remote>/<branch>`. Operations already on a log keep the words they were written with.
+- The briefing names the typed tools only where the client has `ff mcp` registered, as a preference rather than a fact: prefer a `fufu` tool where one is offered, every other verb is the shell. `ff mcp`'s `instructions` carry the same line always.
+- The skill's tool section says the same, and that a tool's structured content is the `--json` envelope.
 - The JSON envelope's `cmd` is `pull` and `push` for both spellings, and the payload key under `data` moves with it: `data.pull` and `data.push`.
 - `ff pull --json` tags a branch row `Pulled` where it read `Synced`.
 - `ff mcp`'s tools are `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`; `sync` and `publish` are no longer served under those names.
@@ -66,6 +68,7 @@
 
 ### Fixed
 
+- `docs/agents/setup.md`'s pasted standing-orders block matches the briefing again.
 - `ff switch`, `ff done`, and the resolution landing recorded an end tree without the untracked files of the park they resumed, so the next `ff undo` deleted the files instead of stepping back.
 - `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree: the fixes park on the session branch and come back when you switch to it.
 - `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.

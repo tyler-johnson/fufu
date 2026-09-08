@@ -558,6 +558,10 @@ impl AgentProtocol for Claude {
     fn has_skill(&self) -> bool {
         skill_dir().is_ok_and(|dir| skill::installed(&dir))
     }
+
+    fn has_mcp(&self) -> bool {
+        matches!(mcp_wiring(), Wiring::Wired { .. } | Wiring::HandWritten)
+    }
 }
 
 #[cfg(test)]

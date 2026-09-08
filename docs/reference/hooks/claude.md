@@ -5,7 +5,7 @@ A plugin directory at `~/.claude/skills/fufu/`, which fufu owns outright: writte
 - `.claude-plugin/plugin.json`, the manifest: the plugin's name `fufu`, the version of the fufu that wrote it, a one-line description, and the repository as its homepage.
 - `hooks/hooks.json`, the seven events below.
 - `skills/fufu/SKILL.md`, [fufu's skill](../../agents/setup.md), the manual an agent reads for recovery, rewriting closed commits, and the JSON. [`ff hook --skill`](../../reference/cli/hook.md) prints the same text.
-- `.mcp.json`, the [`ff mcp`](../cli/mcp.md) server, so the agent has fufu's seven typed tools, `mcp__plugin_fufu_fufu__<verb>` for `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`.
+- `.mcp.json`, the [`ff mcp`](../cli/mcp.md) server, so the agent has fufu's seven typed tools, `mcp__plugin_fufu_fufu__<verb>` for `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, and the briefing points at them.
 
 A declared extension's own skills land beside `skills/fufu/`, one directory per skill under `skills/<skill>/`, and a person types one as `/fufu:<skill>`. The manifest names the skills and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. [`ff hook --skill <skill>`](../../reference/cli/hook.md) prints a skill's `SKILL.md` the way a bare `ff hook --skill` prints fufu's own. A skill the binary will not produce is left out and said, and the rest of the install lands. The plugin's `skills/` is wholly fufu's, so a rerun sweeps it: a skill of an extension no longer declared goes.
 

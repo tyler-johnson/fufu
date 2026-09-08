@@ -365,6 +365,15 @@ pub trait AgentProtocol: Sync {
     fn has_skill(&self) -> bool {
         false
     }
+
+    /// Whether fufu's MCP server is registered with this client right now.
+    /// Read at briefing time rather than assumed from the install, for the
+    /// same reason `has_skill` is: the two can disagree, and naming tools
+    /// the client does not have is worse than saying nothing. A hand-written
+    /// registration counts, because the tools are offered either way.
+    fn has_mcp(&self) -> bool {
+        false
+    }
 }
 
 // ---- the registry ----------------------------------------------------------

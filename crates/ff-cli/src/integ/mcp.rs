@@ -51,6 +51,21 @@ pub const NAME: &str = "fufu";
 /// What fufu's own server is asked to run: this binary, and the one verb.
 const ARGS: [&str; 1] = ["mcp"];
 
+/// What the briefing adds where fufu's server is registered. Appended by
+/// the runtime rather than baked into the notice, because a client with
+/// no server must not be told about tools it does not have, and by the
+/// server itself, where the tools are offered by definition.
+///
+/// Soft on purpose: wired on disk is not the same as connected this
+/// session, since a registered server can fail to start, so a false
+/// positive has to cost nothing. It names the server and the verbs rather
+/// than the full tool ids, because the prefix differs between the plugin
+/// install (`mcp__plugin_fufu_fufu__`) and a hand-registered one
+/// (`mcp__fufu__`).
+pub const LINE: &str = "\nThe `fufu` tools for status, pull, push, undo, redo, explain, and help \
+                        take each verb's own flags as fields. Prefer one where it is offered; \
+                        every other verb is the shell.\n";
+
 /// How one client spells a server entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
