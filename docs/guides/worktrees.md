@@ -38,7 +38,7 @@ Every worktree holds exactly one [open change](../concepts/changes.md). [`ff sta
 
 ```console
 $ ff status
-on bay · nothing to sync
+on bay · nothing to pull
 @  ntnvpxxu 5324a259   0s ago
 │  (no description)
 │  A src/lexer.rs +1  -0  ++++++++++++++++++++
@@ -214,7 +214,7 @@ restored from xkkm (pre: ff worktree remove bay)
 undo: ff undo
 
 $ ff status
-on main · 1 to publish
+on main · 1 to push
 @  noxokvry ab68e949   0s ago
 │  (no description)
 │  A src/lexer_test.rs +1  -0  ++++++++++++++++++++

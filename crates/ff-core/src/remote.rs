@@ -1,7 +1,7 @@
 //! The remotes this repository knows, and where each one points.
 //!
-//! fufu's own verbs name a remote — `ff publish --to` checks the name
-//! against the list, and `ff sync` refuses to guess when the list has more
+//! fufu's own verbs name a remote — `ff push --to` checks the name
+//! against the list, and `ff pull` refuses to guess when the list has more
 //! than one entry — so the list they check against belongs inside fufu
 //! rather than borrowed from `git remote -v`. A refusal that says "no remote
 //! named `upstream`" owes the reader the answer to "which names are there?",

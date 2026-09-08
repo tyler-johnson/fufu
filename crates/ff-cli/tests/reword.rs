@@ -1,6 +1,6 @@
 //! `ff describe <rev>`: the reword surface, end to end against the real
 //! `ff` binary. Covers rewording a closed commit, the bare-form/`@`
-//! equivalence, the JSON envelope, refusals, and the publish note.
+//! equivalence, the JSON envelope, refusals, and the published note.
 
 use std::path::Path;
 use std::process::{Command, Output};

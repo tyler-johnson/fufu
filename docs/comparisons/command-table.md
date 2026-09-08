@@ -10,7 +10,7 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 | --- | --- | --- |
 | `git init` | [`ff init`](../reference/cli/init.md) | armed before your first commit: the gc guard and the log's floor ¹ |
 | `git clone` | [`ff clone`](../reference/cli/clone.md) | armed on arrival; fufu speaks the protocol itself ² |
-| `git status` | [`ff status`](../reference/cli/status.md) | futures included: what sync would do, and any held rewrite ³ |
+| `git status` | [`ff status`](../reference/cli/status.md) | futures included: what pull would do, and any held rewrite ³ |
 | `git diff` | [`ff diff`](../reference/cli/diff.md) | sees untracked files, with their content ⁴ |
 | `git log` | [`ff log`](../reference/cli/log.md) | the open change is a row; operation ids attached ⁵ |
 | `git log --follow -p -- <file>` | `ff log <file>` | no `--`; renames followed by default ⁶ |
@@ -30,8 +30,8 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 | `git rebase` | [`ff restack`](../reference/cli/restack.md) | replays in memory; lands only if clean ²⁰ |
 | `git rebase --onto <base>` | `ff restack --onto <base>` | records the new base — this is how a branch is re-aimed ²¹ |
 | the `git rebase --continue` loop | [`ff resolve`](../reference/cli/resolve.md) … `ff done` | all conflicts at once, on your schedule ²² |
-| `git fetch` + `git rebase origin/main`, `git pull --rebase` | [`ff sync`](../reference/cli/sync.md) | one replay for base and remote; nothing leaves the machine ²³ |
-| `git push` / `--force-with-lease` / `-u` | [`ff publish`](../reference/cli/publish.md) | leased; the four push shapes distinguished by `--dry-run` ²⁴ |
+| `git fetch` + `git rebase origin/main`, `git pull --rebase` | [`ff pull`](../reference/cli/pull.md) | one replay for base and remote; nothing leaves the machine ²³ |
+| `git push` / `--force-with-lease` / `-u` | [`ff push`](../reference/cli/push.md) | leased; the four push shapes distinguished by `--dry-run` ²⁴ |
 | `git branch` | [`ff branch list`](../reference/cli/branch-list.md) | named and anonymous kept apart; remote-only branches follow ²⁵ |
 | `git branch -m` | `ff describe -b` | the rename carries everything the branch owns ²⁶ |
 | `git branch -d` / `-D` | [`ff branch delete`](../reference/cli/branch-delete.md) | trash, undoable; no merged-check to argue with ²⁷ |
@@ -45,7 +45,7 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 
 - ¹ Run inside a repository that already exists, `ff init` means turn fufu on here — the way to adopt a repository git created, or one cloned before fufu was on the machine.
 - ² `ff clone` negotiates the pack itself rather than running `git clone`, while inheriting git's configuration and credential surface whole; because the clone arrives armed, `ff undo` works from the first command.
-- ³ The files are a diffstat, not content — `ff diff` is the same change read down to the line — and status also reports what syncing would cost against the base and the remote copy, any held rewrite, and any work done behind fufu's back, which stays loud until absorbed into the operation log.
+- ³ The files are a diffstat, not content — `ff diff` is the same change read down to the line — and status also reports what pulling would cost against the base and the remote copy, any held rewrite, and any work done behind fufu's back, which stays loud until absorbed into the operation log.
 - ⁴ `ff diff` is the open change only, and its body is git's unified diff, so `git apply` reads it back; comparing two revisions stays `ff git diff`, and comparing the worktrees two operations carry is [`ff op diff`](../reference/cli/op-diff.md).
 - ⁵ `-r` takes gitrevisions' whole grammar plus a set algebra, `--commits` drops to plain history, and each commit wears the id of its newest operation — the column [`ff evolog`](../reference/cli/evolog.md) drills into.
 - ⁶ Positional arguments are only ever paths — `ff log main` asks about the path `main` even where that branch exists, and revisions go to `-r` — so the `--` disambiguator has nothing to do; a file is followed through renames unless `-r` narrows the set.
@@ -64,9 +64,9 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 - ¹⁹ Two more sources join `--from <rev>`: `--at-op <op>` reads from an operation and `--at <time>` from the operation current at that time; restore takes a mandatory capture first, so any restore is undone by another restore, or by `ff undo`.
 - ²⁰ The base is the branch's recorded parent, trunk when none was recorded; the positional restacks a branch you are not standing on without touching a file on disk, and a conflict stops the run as a held rewrite rather than a mid-rebase worktree.
 - ²¹ `--onto` records the new base before replaying, so the next bare `ff restack` needs no flag; a base on a remote, `origin/main`, records like any other.
-- ²² A held rewrite blocks only `ff publish` and nothing local; `ff resolve` materializes every surviving conflict at once as labeled markers, `ff done` lands the rewrite, `--abandon` is the counterpart of `git rebase --abort`, and one `ff undo` takes the session back, markers and all.
-- ²³ `ff sync` fetches, takes in what arrived from the base and from the remote copy, and replays your commits onto the result — landing only if clean, holding otherwise — and never pushes; there is no standalone fetch verb (`--no-fetch` skips the fetch, and a bare fetch is `ff git fetch`).
-- ²⁴ Every publish carries a lease — it goes through only if the shared copy still stands where you last saw it — and `--dry-run` says which of the four pushes it would be: creating the shared copy, replacing it, putting back a deleted one, or rolling one back; `--to <remote>` records which remote the branch answers to, standing in for `-u`.
+- ²² A held rewrite blocks only `ff push` and nothing local; `ff resolve` materializes every surviving conflict at once as labeled markers, `ff done` lands the rewrite, `--abandon` is the counterpart of `git rebase --abort`, and one `ff undo` takes the session back, markers and all.
+- ²³ `ff pull` fetches, takes in what arrived from the base and from the remote copy, and replays your commits onto the result — landing only if clean, holding otherwise — and never pushes; there is no standalone fetch verb (`--no-fetch` skips the fetch, and a bare fetch is `ff git fetch`).
+- ²⁴ Every push carries a lease — it goes through only if the shared copy still stands where you last saw it — and `--dry-run` says which of the four pushes it would be: creating the shared copy, replacing it, putting back a deleted one, or rolling one back; `--to <remote>` records which remote the branch answers to, standing in for `-u`.
 - ²⁵ Each row carries the tip, any parked change, the pending description, and how the branch stands against its upstream; a remote-only branch becomes a local one with `ff start origin/<name>`, not with switch.
 - ²⁶ There is no separate rename command: `ff describe -b` names the branch you are on — a petname earning a real name, or a chosen name replaced — and the capture chain, any parked change, and the pending description come along, the parts a bare `git branch -m` would orphan.
 - ²⁷ The branch's pointer moves to trash and `ff undo` brings it back with its timeline, so no merged-check argues with you; the copy on the remote stays unless you pass `--shared`, which deletes it under a lease — the half undo cannot reach.

@@ -1,8 +1,8 @@
-//! `ff publish` — send this branch to its remote, under a lease.
+//! `ff push` — send this branch to its remote, under a lease.
 //!
 //! The whole of the outgoing half. It does not fetch, does not replay, and
 //! does not touch a ref that is not the shared copy of the branch you are
-//! standing on: `ff sync` is what takes anything in. What this command owns
+//! standing on: `ff pull` is what takes anything in. What this command owns
 //! is the network call the core deliberately will not make, and the one
 //! honest line afterwards — the push left the machine, and `ff undo` cannot
 //! reach across the wire to take it back.
@@ -11,14 +11,14 @@
 //! this would be *before* it becomes unrecallable. It writes nothing and
 //! sends nothing, so every sentence below switches to the conditional.
 //!
-//! What `ff undo` cannot reach, `ff publish` can: undo the commit and
-//! publish again, and the lease rolls the shared copy back to where the
+//! What `ff undo` cannot reach, `ff push` can: undo the commit and
+//! push again, and the lease rolls the shared copy back to where the
 //! branch now stands. That is not erasure — other clones may hold the
 //! commits, CI ran, a webhook fired — which is why the tail line still says
 //! the push left the machine. But it is a way back, and the log recording
 //! the push is what lets fufu stop pointing the other way.
 
-use ff_core::{Publish, PushShape, Result};
+use ff_core::{Push, PushShape, Result};
 
 use crate::ctx::Ctx;
 
@@ -27,7 +27,7 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
 
-    let pre = ff_core::preflight::preflight_to(&repo, ff_core::preflight::Verb::Publish, to)?;
+    let pre = ff_core::preflight::preflight_to(&repo, ff_core::preflight::Verb::Push, to)?;
     let cwd = repo
         .workdir()
         // Uncoded on purpose: preflight already refused a bare repository, so
@@ -36,10 +36,10 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
         .to_path_buf();
 
     let prov = crate::provenance::pre_ff(ctx);
-    let (report, verb_ctx) = ff_core::publish::publish(
+    let (report, verb_ctx) = ff_core::push::push(
         &repo,
         &pre,
-        ff_core::publish::PublishOptions {
+        ff_core::push::PushOptions {
             dry_run,
             now: None,
             argv: std::env::args().collect(),
@@ -53,28 +53,28 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
     // The push, before any report line about it: the report says what
     // happened and not what was planned. A dry run is the one case where
     // those differ, and it says "would" throughout rather than pretending.
-    let pushed = match &report.publish {
-        Publish::Create { .. } | Publish::Push { .. } if !dry_run => {
+    let pushed = match &report.push {
+        Push::Create { .. } | Push::Push { .. } if !dry_run => {
             // Named before the wire agrees: a push that fails to an
-            // unreachable URL still leaves `ff sync` working. Only when there
+            // unreachable URL still leaves `ff pull` working. Only when there
             // was no upstream at all — a branch that already tracks this
             // remote is set correctly, and rewriting it could clobber a
             // legitimately multi-valued `merge`.
             if let Some(remote) = to.filter(|_| pre.tracking.is_none()) {
                 ff_core::snapshot::config::set_branch_upstream(&repo, &report.branch, remote)?;
             }
-            crate::net::push(&cwd, &report.branch, &report.publish)?;
+            crate::net::push(&cwd, &report.branch, &report.push)?;
             true
         }
         _ => false,
     };
-    // Recorded after the wire agreed, not before: publish moves no local ref,
+    // Recorded after the wire agreed, not before: push moves no local ref,
     // so there is nothing a write-ahead claim could be diffed against and an
     // append-before would be a claim nothing could falsify.
     if pushed && let Some(verb_ctx) = &verb_ctx {
-        ff_core::publish::record(&repo, &pre, &report, verb_ctx, &prov).map_err(|err| {
+        ff_core::push::record(&repo, &pre, &report, verb_ctx, &prov).map_err(|err| {
             ff_core::Error::coded(
-                "publish/unrecorded",
+                "push/unrecorded",
                 format!("the push landed and the operation log could not record it: {err}"),
                 vec!["ff op log".into(), "ff status".into()],
             )
@@ -84,45 +84,39 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
 
     if ctx.json {
         let payload = serde_json::json!({
-            "publish": report,
+            "push": report,
             "pushed": pushed,
         });
-        crate::machine::emit("publish", &payload)?;
-        if matches!(report.publish, Publish::Blocked) {
+        crate::machine::emit("push", &payload)?;
+        if matches!(report.push, Push::Blocked) {
             crate::exit::held();
         }
         return Ok(());
     }
 
-    match &report.publish {
-        Publish::NoRemote => {
+    match &report.push {
+        Push::NoRemote => {
             println!(
                 "{}",
-                crate::render::paint_dim(
-                    "nowhere to publish: this repository has no remote",
-                    colored
-                )
+                crate::render::paint_dim("nowhere to push: this repository has no remote", colored)
             );
         }
-        Publish::Blocked => {
+        Push::Blocked => {
             println!(
                 "{}",
                 crate::render::paint_warn(
                     &format!(
-                        "not published: a rewrite is held on {} — the exit stays blocked until it lands",
+                        "nothing sent: a rewrite is held on {} — the exit stays blocked until it lands",
                         report.branch
                     ),
                     colored
                 )
             );
         }
-        Publish::UpToDate => {
-            println!(
-                "{}",
-                crate::render::paint_dim("nothing to publish", colored)
-            );
+        Push::UpToDate => {
+            println!("{}", crate::render::paint_dim("nothing to push", colored));
         }
-        Publish::Create {
+        Push::Create {
             remote,
             remote_branch,
             ..
@@ -140,7 +134,7 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
             );
             tail(dry_run, colored);
         }
-        Publish::Push {
+        Push::Push {
             remote,
             remote_branch,
             shape,
@@ -166,7 +160,7 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
                     report.branch
                 ),
                 PushShape::Replace => format!(
-                    "{would}publish{} {} to {remote}/{remote_branch}",
+                    "{would}push{} {} to {remote}/{remote_branch}",
                     if dry_run { "" } else { "ed" },
                     report.branch
                 ),
@@ -176,7 +170,7 @@ pub fn run(ctx: &Ctx, dry_run: bool, to: Option<&str>) -> Result<()> {
         }
     }
 
-    if matches!(report.publish, Publish::Blocked) {
+    if matches!(report.push, Push::Blocked) {
         crate::exit::held();
     }
     Ok(())
@@ -204,7 +198,7 @@ fn tail(dry_run: bool, colored: bool) {
     println!(
         "{}",
         crate::render::paint_dim(
-            "ff undo then ff publish rolls the shared copy back, under a lease",
+            "ff undo then ff push rolls the shared copy back, under a lease",
             colored
         )
     );

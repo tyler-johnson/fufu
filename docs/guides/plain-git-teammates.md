@@ -53,7 +53,7 @@ fufu was not watching and did not interfere; git did exactly what git does. At y
 
 ```console
 $ ff status
-on parser · nothing to sync
+on parser · nothing to pull
 @  no changes
 │  (no description)
 ●  —        3dbae0c0   0s ago

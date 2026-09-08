@@ -39,7 +39,7 @@ Review feedback usually lands on a commit that already closed, and the fix usual
 
 ```console
 $ ff status
-on lexer · nothing to sync
+on lexer · nothing to pull
 @  llkyuukq 1e4f9885   0s ago
 │  (no description)
 │  M README.md    +2  -0  ++++++++++++++++++++
@@ -60,7 +60,7 @@ the rest of your change is still open
 undo: ff undo
 
 $ ff status
-on lexer · nothing to sync
+on lexer · nothing to pull
 @  llkyuukq 92fe2c7a   0s ago
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
@@ -139,7 +139,7 @@ There is no staging area to assemble a partial commit in. [`ff commit`](../refer
 
 ```console
 $ ff status
-on lexer · nothing to sync
+on lexer · nothing to pull
 @  zomlwswu c50d1e82   0s ago
 │  (no description)
 │  A NOTES.md      +1  -0  ++++++++++++++++++++
@@ -157,7 +157,7 @@ What was not named stays open — still the change you are in the middle of:
 
 ```console
 $ ff status
-on lexer · nothing to sync
+on lexer · nothing to pull
 @  zomlwswu ac73c32a   0s ago
 │  (no description)
 │  A NOTES.md +1  -0  ++++++++++++++++++++
@@ -216,7 +216,7 @@ The map shows the split in progress: the commit stands re-identified with one fi
 
 ```console
 $ ff status
-on lexer · nothing to sync
+on lexer · nothing to pull
 @  rylnsknu 7c4d4964   0s ago
 │  (no description)
 │  M NOTES.md +1  -0  ++++++++++++++++++++
@@ -376,13 +376,13 @@ The cost is one signer run per replayed commit — the same as `git rebase -S`, 
 
 Everything above happened on one machine, which is why all of it was undoable and none of it needed permission. The line where that stops is the push, and [the push boundary](../concepts/push-boundary.md) is where fufu's opinions about malleable history end.
 
-The rewrite verbs themselves do not stop at it. Publish the branch, rewrite a commit the remote now holds, and fufu says so rather than refusing — the rewrite is local, and nothing has left the machine:
+The rewrite verbs themselves do not stop at it. Push the branch, rewrite a commit the remote now holds, and fufu says so rather than refusing — the rewrite is local, and nothing has left the machine:
 
 ```console
-$ ff publish
+$ ff push
 created origin/lexer and set lexer to track it
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 
 $ ff describe b72ded1a -m "notes: how eating chars works"
 reworded 6147429c on lexer: notes: how eating chars works
@@ -390,13 +390,13 @@ reworded 6147429c on lexer: notes: how eating chars works
 undo: ff undo
 ```
 
-Sending that rewrite is [`ff publish`](../reference/cli/publish.md)'s job, and every publish carries a lease: the push goes through only if the shared copy still stands where you last saw it. On your own branch, with nobody else on it, moving the shared copy over your own rewrite is routine:
+Sending that rewrite is [`ff push`](../reference/cli/push.md)'s job, and every push carries a lease: the push goes through only if the shared copy still stands where you last saw it. On your own branch, with nobody else on it, moving the shared copy over your own rewrite is routine:
 
 ```console
-$ ff publish
-published lexer to origin/lexer
+$ ff push
+pushed lexer to origin/lexer
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 ```
 
 Now a teammate lands a commit on `origin/lexer`, and the same sequence stops being yours to make. Reword again, and the lease refuses the exit:
@@ -407,17 +407,17 @@ reworded 37bcef6e on lexer: notes: eating chars, explained
 1 of the rewritten commits are already on origin/lexer
 undo: ff undo
 
-$ ff publish
-ff: origin/lexer moved since you last looked, so nothing was pushed — your commits are still here, and ff sync takes in what arrived
+$ ff push
+ff: origin/lexer moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
   try:
-    ff sync
-    ff publish
+    ff pull
+    ff push
 ```
 
-Nothing was sent and nothing was lost. And when [`ff sync`](../reference/cli/sync.md) reconciles, the history the team holds wins: the shared line comes in whole, and a rewrite it already superseded — a different spelling of a commit somebody else has built on — does not survive the replay:
+Nothing was sent and nothing was lost. And when [`ff pull`](../reference/cli/pull.md) reconciles, the history the team holds wins: the shared line comes in whole, and a rewrite it already superseded — a different spelling of a commit somebody else has built on — does not survive the replay:
 
 ```console
-$ ff sync
+$ ff pull
 fetching from origin
 took in 2 commit(s) from origin/lexer
 replayed 0 of yours on top
@@ -426,9 +426,9 @@ updated the working copy (1 file(s))
 undo: ff undo
 ```
 
-That is the boundary in full. fufu has no verb that rewrites history the team shares: the shared copy of a branch moves only through a publish you type, the lease stops a rewrite the moment anyone else has moved the branch, and sync treats the shared line as append-only fact.
+That is the boundary in full. fufu has no verb that rewrites history the team shares: the shared copy of a branch moves only through a push you type, the lease stops a rewrite the moment anyone else has moved the branch, and pull treats the shared line as append-only fact.
 
-Inside your own unpublished work, every commit is malleable and every rewrite is one undo away. The moment other people hold the commits, that stops: the verbs on this page are for the history you have not sent yet. A [held rewrite](../concepts/held-rewrites.md) blocks publish for the same reason — nothing leaves the machine while its history is still about to change under it.
+Inside your own unpublished work, every commit is malleable and every rewrite is one undo away. The moment other people hold the commits, that stops: the verbs on this page are for the history you have not sent yet. A [held rewrite](../concepts/held-rewrites.md) blocks the push for the same reason — nothing leaves the machine while its history is still about to change under it.
 
 ## Where next
 

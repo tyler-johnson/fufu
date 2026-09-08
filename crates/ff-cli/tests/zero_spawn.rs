@@ -23,7 +23,7 @@
 //! dead here, and every assertion below still proves full zero-spawn for
 //! everything else.
 //!
-//! `ff sync`'s fetch adds a third sanctioned spawn, and only in a repository
+//! `ff pull`'s fetch adds a third sanctioned spawn, and only in a repository
 //! that is broken in one particular way: a linked worktree's admin dir with a
 //! `gitdir` file and no readable `commondir`, the state such a directory
 //! passes through while it is being created or removed. gix's fetch opens
@@ -653,11 +653,11 @@ fn manual_trim_nudges_gc_even_when_nothing_dropped() {
     );
 }
 
-/// Sync's local half is two replays, and both are native: with the network
-/// switched off, sync reaches no process at all — no fetch, no push, nothing
-/// hiding behind them. The assertion that keeps it that way as sync grows.
+/// Pull's local half is two replays, and both are native: with the network
+/// switched off, pull reaches no process at all — no fetch, no push, nothing
+/// hiding behind them. The assertion that keeps it that way as pull grows.
 #[test]
-fn sync_without_the_network_never_spawns() {
+fn pull_without_the_network_never_spawns() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
@@ -669,27 +669,27 @@ fn sync_without_the_network_never_spawns() {
     fx.write("a.txt", "three\n");
     fx.commit("main two");
     fx.git(&["switch", "-q", "feature"]);
-    // A disjoint file, so the replays merge cleanly and sync can land: a
+    // A disjoint file, so the replays merge cleanly and pull can land: a
     // conflict here would hold and fail the run, not spawn.
     fx.write("f.txt", "feature change\n");
     fx.commit("feature one");
 
     // No remote configured at all: a fetch would have nowhere to aim.
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["sync", "--no-fetch"]);
+    let out = ff_trapped(&trap, &fx.path(), &["pull", "--no-fetch"]);
     assert!(
         out.status.success(),
-        "sync without the network failed under trap PATH: {}",
+        "pull without the network failed under trap PATH: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
         !trap.log.exists(),
-        "sync's local half spawned a subprocess: {}",
+        "pull's local half spawned a subprocess: {}",
         std::fs::read_to_string(&trap.log).unwrap_or_default()
     );
 }
 
-/// Sync's fetch used to be a sanctioned spawn — a named `git fetch origin`,
+/// Pull's fetch used to be a sanctioned spawn — a named `git fetch origin`,
 /// and this test proved it was the *only* process fufu started. The rung is
 /// climbed, so the contract inverts: no porcelain runs, and a remote fufu
 /// cannot reach fails as fufu's own coded error rather than as git's exit
@@ -701,10 +701,10 @@ fn sync_without_the_network_never_spawns() {
 /// case where it does ask is `a_fetch_speaks_the_protocol_itself`, which is
 /// also the case where a fetch has somewhere real to aim.
 ///
-/// Publish's push remains the sanctioned spawn, and is now a different verb
+/// Push's push remains the sanctioned spawn, and is now a different verb
 /// entirely — gix sends no packs, so there is nothing to climb to.
 #[test]
-fn syncs_fetch_fails_natively_and_spawns_nothing() {
+fn pulls_fetch_fails_natively_and_spawns_nothing() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
@@ -716,7 +716,7 @@ fn syncs_fetch_fails_natively_and_spawns_nothing() {
     fx.write("a.txt", "three\n");
     fx.commit("main two");
     fx.git(&["switch", "-q", "feature"]);
-    // A disjoint file, so the replays merge cleanly and sync can land: a
+    // A disjoint file, so the replays merge cleanly and pull can land: a
     // conflict here would hold and fail the run, not spawn.
     fx.write("f.txt", "feature change\n");
     fx.commit("feature one");
@@ -725,10 +725,10 @@ fn syncs_fetch_fails_natively_and_spawns_nothing() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["sync"]);
+    let out = ff_trapped(&trap, &fx.path(), &["pull"]);
     assert!(
         !out.status.success(),
-        "a remote that is not there is not a sync that succeeded: {}",
+        "a remote that is not there is not a pull that succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -743,10 +743,10 @@ fn syncs_fetch_fails_natively_and_spawns_nothing() {
     );
 }
 
-/// Publish's push is the other sanctioned spawn, and the only one it has:
+/// Push's push is the other sanctioned spawn, and the only one it has:
 /// the verb decides its whole plan from refs and then makes exactly one call.
 #[test]
-fn publishs_push_is_its_one_sanctioned_spawn() {
+fn pushs_send_is_its_one_sanctioned_spawn() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
@@ -756,10 +756,10 @@ fn publishs_push_is_its_one_sanctioned_spawn() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["publish"]);
+    let out = ff_trapped(&trap, &fx.path(), &["push"]);
     assert!(
         !out.status.success(),
-        "a push that could not run is not a publish that succeeded: {}",
+        "a push that could not run is not a push that succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(trap.log.exists(), "the sanctioned push spawned git");
@@ -772,7 +772,7 @@ fn publishs_push_is_its_one_sanctioned_spawn() {
     assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
 }
 
-/// And the record publish writes afterwards adds none. A push that fails
+/// And the record push writes afterwards adds none. A push that fails
 /// never reaches the append, so the trap's git has to succeed for this to
 /// mean anything — the note and the pointer are both gix writes, and one
 /// stray `git` call for either would be a second line in the log.
@@ -787,7 +787,7 @@ fn recording_the_push_adds_no_second_spawn() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     let trap = build_trap_ok();
-    let out = ff_trapped(&trap, &fx.path(), &["publish"]);
+    let out = ff_trapped(&trap, &fx.path(), &["push"]);
     assert!(
         out.status.success(),
         "the fake push succeeded, so the verb must have: {}",
@@ -799,7 +799,7 @@ fn recording_the_push_adds_no_second_spawn() {
     assert!(lines[0].contains("push"), "{logged:?}");
 }
 
-/// The fetch behind `ff sync` runs the protocol itself: a commit that has
+/// The fetch behind `ff pull` runs the protocol itself: a commit that has
 /// never existed in this repository arrives while every `git` invocation
 /// fails.
 ///
@@ -848,10 +848,10 @@ fn a_fetch_speaks_the_protocol_itself() {
     );
 
     let trap = build_trap();
-    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["pull"]);
     assert!(
         out.status.success(),
-        "ff sync failed under trap PATH: {}",
+        "ff pull failed under trap PATH: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(
@@ -870,7 +870,7 @@ fn a_fetch_speaks_the_protocol_itself() {
 /// `--to` adds no spawn of its own: the upstream it records is a gix write,
 /// and a second `git` line here would be the regression.
 #[test]
-fn publishing_to_a_named_remote_is_still_one_spawn() {
+fn pushing_to_a_named_remote_is_still_one_spawn() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("base");
@@ -880,10 +880,10 @@ fn publishing_to_a_named_remote_is_still_one_spawn() {
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["publish", "--to", "origin"]);
+    let out = ff_trapped(&trap, &fx.path(), &["push", "--to", "origin"]);
     assert!(
         !out.status.success(),
-        "a push that could not run is not a publish that succeeded: {}",
+        "a push that could not run is not a push that succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(trap.log.exists(), "the sanctioned push spawned git");
@@ -896,7 +896,7 @@ fn publishing_to_a_named_remote_is_still_one_spawn() {
     assert_eq!(lines.len(), 1, "nothing besides the push: {logged:?}");
 }
 
-/// The other side of that contract, in one fixture: the same sync run twice,
+/// The other side of that contract, in one fixture: the same pull run twice,
 /// first healthy and then with a half-removed worktree admin dir planted.
 /// Healthy, nothing is spawned. With the ghost dir, the trap log holds
 /// exactly one line and it is a `fetch` — the fallback fires only in the
@@ -904,7 +904,7 @@ fn publishing_to_a_named_remote_is_still_one_spawn() {
 ///
 /// The trap's git *succeeds* here, so the second run is a fetch that fetched
 /// nothing: what the porcelain would have brought back is not this test's
-/// claim, and `tests/sync.rs` asserts the real fetch against a real git. The
+/// claim, and `tests/pull.rs` asserts the real fetch against a real git. The
 /// real PATH stays behind the trap so `git-upload-pack` resolves — without it
 /// the first fetch would fail on the transport rather than succeed, and the
 /// two runs would prove nothing about the ghost.
@@ -916,10 +916,10 @@ fn the_fallback_fetch_fires_only_for_a_broken_worktree_dir() {
     fx.git(&["push", "-q", "-u", "origin", "main"]);
 
     let trap = build_trap_ok();
-    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["pull"]);
     assert!(
         out.status.success(),
-        "the healthy sync failed: {}",
+        "the healthy pull failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
@@ -938,10 +938,10 @@ fn the_fallback_fetch_fires_only_for_a_broken_worktree_dir() {
     )
     .unwrap();
 
-    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["sync"]);
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["pull"]);
     assert!(
         out.status.success(),
-        "the fallback did not carry the sync: {}",
+        "the fallback did not carry the pull: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let logged = std::fs::read_to_string(&trap.log).unwrap_or_default();

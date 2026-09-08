@@ -4,7 +4,7 @@ use super::age::relative_age;
 use super::palette::{
     BOLD, DIM, col, col_right, paint, paint_dim, paint_ok, paint_warn, palette, styled_id,
 };
-use super::status::{sync_parts, to_publish, to_sync};
+use super::status::{pull_parts, to_pull, to_push};
 
 /// The data `change_row` needs, extracted from whatever source holds it
 /// (the status model or an ff-core \`OpenChange\`).
@@ -240,7 +240,7 @@ pub fn branch_label_width(name: &str) -> usize {
 /// string): the map's row grammar laid out as a table — the same
 /// `branch_label`, the same `@` you-are-here glyph, and the note the map
 /// hangs on a second line, so a verdict can never scroll off the right edge
-/// behind a long subject. The note's base half comes from `sync_parts`, the
+/// behind a long subject. The note's base half comes from `pull_parts`, the
 /// same renderer `ff status` calls, so the two surfaces cannot word it
 /// differently.
 pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<String> {
@@ -263,11 +263,11 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
     );
 
     // The note line: the base axis first, off the shared renderer —
-    // `sync_parts` returns nothing for a settled base, so silence follows
+    // `pull_parts` returns nothing for a settled base, so silence follows
     // for free — then the remote axis off the cheap local counts (no probe,
     // and no ref name here: the row already names the branch), then the
     // change's own state.
-    let mut notes = sync_parts(
+    let mut notes = pull_parts(
         &ff_core::futures::Futures {
             base: info.future.clone(),
             remote: None,
@@ -282,10 +282,10 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
             notes.push(paint_warn("remote is gone", colored));
         } else {
             if up.ahead > 0 {
-                notes.push(to_publish(up.ahead, None, colored));
+                notes.push(to_push(up.ahead, None, colored));
             }
             if up.behind > 0 {
-                notes.push(to_sync(up.behind, None, colored));
+                notes.push(to_pull(up.behind, None, colored));
             }
         }
     }

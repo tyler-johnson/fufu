@@ -1,7 +1,7 @@
-//! `ff sync`: the incoming half of lining up.
+//! `ff pull`: the incoming half of lining up.
 //!
-//! Sync takes in. `ff publish` sends out. They were one verb once, and the
-//! split is the point: everything sync does is undoable, and publishing —
+//! Pull takes in. `ff push` sends out. They were one verb once, and the
+//! split is the point: everything pull does is undoable, and pushing —
 //! the one act that leaves the machine and cannot be taken back — is a
 //! verb you type on purpose.
 //!
@@ -10,7 +10,7 @@
 //! both axes are `restack` calls. This module mostly decides *whether to
 //! call* `restack`; `restack` decides the rest.
 //!
-//! The one decision that is sync's alone is whose divergence it is. After
+//! The one decision that is pull's alone is whose divergence it is. After
 //! any restack your local branch diverges from `origin/<branch>` — so does
 //! a branch a collaborator pushed to. They are the same shape and the
 //! correct answers are opposite: one wants a force-push, the other a replay
@@ -24,16 +24,16 @@
 //! > else is theirs.
 //!
 //! The first clause is free and certain: the fetch moved the tracking ref,
-//! so someone else wrote what arrived, the axis is **incoming**, and sync
+//! so someone else wrote what arrived, the axis is **incoming**, and pull
 //! replays onto the new remote tip. The second is a lookup rather than an
 //! assumption — every commit the remote has and you do not must appear in
 //! the log as the `old` side of a rewrite, or as one a replay dropped as
 //! empty. Only then is the axis **outgoing**, with nothing to take in and
-//! the publish left to handle it.
+//! the push left to handle it.
 //!
 //! The third clause is why the second is checked. Their commits reach the
 //! tracking ref through *any* fetch: an editor's background one, a manual
-//! `git fetch`, an earlier sync that fetched and then held on a conflict.
+//! `git fetch`, an earlier pull that fetched and then held on a conflict.
 //! This run's fetch then finds nothing new, and reading that silence as
 //! "the divergence is mine" force-pushes over their work under a lease that
 //! cannot catch it — the lease expects the tip the remote already holds, so
@@ -42,20 +42,20 @@
 //!
 //! The undone clause is the one case the third clause used to swallow. An
 //! unmoved tracking ref is silence *unless the log says who put it there*,
-//! and since publish records its pushes it does: a tracking tip equal to the
-//! newest publish row's `to` is a tip this repository sent, so everything
+//! and since push records what it sends it does: a tracking tip equal to the
+//! newest push row's `to` is a tip this repository sent, so everything
 //! reachable from it that you now lack was yours when you sent it. Undoing
 //! the commit that made it does not reach across the wire, and replaying it
-//! back in would reverse the undo and call it arriving work. The publish is
+//! back in would reverse the undo and call it arriving work. The push is
 //! what rolls the shared copy back. This clause runs *after* the accounted
-//! one, which satisfies both when you publish and then rewrite — and there
+//! one, which satisfies both when you push and then rewrite — and there
 //! "stale copies of your own" is the truer sentence.
 //!
 //! The network is somebody else's job. The tracking ref's tip before and
 //! after the fetch is handed in as a parameter — that is what keeps this
 //! whole module testable without a git binary.
 //!
-//! A sync is one operation, whatever moved. Every axis of every branch is
+//! A pull is one operation, whatever moved. Every axis of every branch is
 //! planned through `restack`'s planning half against one overlay of what
 //! the run has already decided, and the run is written once: the record
 //! ahead of any ref move, the refs in one transaction, the holds onto their
@@ -64,7 +64,7 @@
 use std::collections::HashSet;
 
 use crate::model::{
-    BaseAxis, BranchRemote, BranchSync, Pending, RemoteAxis, RestackOutcome, SkipReason, SyncReport,
+    BaseAxis, BranchPull, BranchRemote, Pending, PullReport, RemoteAxis, RestackOutcome, SkipReason,
 };
 use crate::ops::record::{HeldTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
@@ -74,10 +74,10 @@ use crate::refs;
 use crate::restack::{Aim, RestackPlan, plan_restack};
 use crate::{Error, Provenance, Result};
 
-/// The facts sync cannot learn for itself, handed in by whoever ran the
+/// The facts pull cannot learn for itself, handed in by whoever ran the
 /// network. Parameters rather than a fetch here is the whole reason this file
 /// is testable without a git binary.
-pub struct SyncOptions {
+pub struct PullOptions {
     /// A fetch ran this invocation.
     pub fetched: bool,
     /// The tracking ref's tip after the fetch — equal to `Tracking::tip` when
@@ -130,9 +130,9 @@ pub fn other_branches(repo: &gix::Repository, current: &str) -> Result<Vec<Other
         let tip = crate::preflight::branch_tip(repo, &branch)?;
         let tracking = match crate::futures::remote_for(repo, &branch)? {
             None => None,
-            Some(sync_ref) => {
-                let before = (!sync_ref.tip.is_empty())
-                    .then(|| gix::ObjectId::from_hex(sync_ref.tip.as_bytes()))
+            Some(pull_ref) => {
+                let before = (!pull_ref.tip.is_empty())
+                    .then(|| gix::ObjectId::from_hex(pull_ref.tip.as_bytes()))
                     .transpose()
                     .map_err(Error::repo)?;
                 // `branch.<n>.remote` names the remote; the ref's second
@@ -144,7 +144,7 @@ pub fn other_branches(repo: &gix::Repository, current: &str) -> Result<Vec<Other
                     .and_then(|name| name.as_symbol())
                     .map(|name| name.to_string())
                     .or_else(|| {
-                        sync_ref
+                        pull_ref
                             .r#ref
                             .strip_prefix("refs/remotes/")
                             .and_then(|rest| rest.split('/').next())
@@ -152,8 +152,8 @@ pub fn other_branches(repo: &gix::Repository, current: &str) -> Result<Vec<Other
                     })
                     .unwrap_or_default();
                 Some(OtherTracking {
-                    full: sync_ref.r#ref,
-                    name: sync_ref.name,
+                    full: pull_ref.r#ref,
+                    name: pull_ref.name,
                     remote,
                     before,
                     after: None,
@@ -185,12 +185,12 @@ pub fn after_fetch(mut before: Vec<OtherBranch>, after: &[OtherBranch]) -> Vec<O
     before
 }
 
-pub fn sync(
+pub fn pull(
     repo: &gix::Repository,
     pre: &Preflight,
-    opts: SyncOptions,
+    opts: PullOptions,
     prov: &Provenance,
-) -> Result<(SyncReport, crate::ops::verb::VerbContext)> {
+) -> Result<(PullReport, crate::ops::verb::VerbContext)> {
     let ctx = crate::ops::verb::begin_verb(repo, prov, opts.now)?;
     let mut run = Run::new(&pre.branch, ctx.now);
 
@@ -205,7 +205,7 @@ pub fn sync(
     // Nothing is written until both phases are planned. Every restack is
     // planned against the run's overlay, which holds the tips, holds, and
     // worktree the run has decided so far, and the whole run is committed
-    // once at the end as one `sync` operation.
+    // once at the end as one `pull` operation.
     //
     // The remote axis of the branch underfoot: the shared copy of this same
     // branch. `restack` decides up-to-date versus fast-forward versus replay
@@ -293,21 +293,21 @@ pub fn sync(
     for other in &opts.others {
         let branch = other.branch.clone();
         if let Some(holder) = holders.iter().find(|h| h.branch == branch) {
-            branches.push(BranchSync::Elsewhere {
+            branches.push(BranchPull::Elsewhere {
                 branch,
                 path: holder.path.display().to_string(),
             });
             continue;
         }
         if let Some(held) = run.overlay.held(repo, &branch)? {
-            branches.push(BranchSync::Held {
+            branches.push(BranchPull::Held {
                 branch,
                 verb: crate::held::verb_of(&held),
             });
             continue;
         }
         let remote = other_remote_axis(repo, other, pre, &opts, &mut run)?;
-        branches.push(BranchSync::Synced {
+        branches.push(BranchPull::Pulled {
             branch,
             remote,
             base: Box::new(BaseAxis::NoBase),
@@ -331,10 +331,10 @@ pub fn sync(
             continue;
         }
         let row = branches.iter_mut().find(|row| match row {
-            BranchSync::Synced { branch, .. } => *branch == name,
+            BranchPull::Pulled { branch, .. } => *branch == name,
             _ => false,
         });
-        if let Some(BranchSync::Synced { base, .. }) = row {
+        if let Some(BranchPull::Pulled { base, .. }) = row {
             **base = other_base_axis(repo, &name, &mut run)?;
         }
     }
@@ -374,12 +374,12 @@ pub fn sync(
 
     // What is left waiting. The tip is read again because both axes may have
     // moved it, and the count is against the tracking ref as it now stands —
-    // the same fact `ff publish` will lease against. Sync names it and sends
+    // the same fact `ff push` will lease against. Pull names it and sends
     // nothing.
     let pending = match (pre.remote.as_ref(), opts.tracking_after) {
         (None, _) => Pending::NoRemote,
         // A remote is configured but this branch has no copy on it — either
-        // it never had one or somebody deleted it. Both are publish's to fix,
+        // it never had one or somebody deleted it. Both are push's to fix,
         // and neither is a number.
         (Some(_), None) => Pending::Unpublished,
         (Some(_), Some(after)) => {
@@ -390,7 +390,7 @@ pub fn sync(
                 .into_iter()
                 .map(|id| id.detach())
                 .collect();
-            // An undone publish is not a count of commits to send — it is a
+            // An undone push is not a count of commits to send — it is a
             // count still out there to take off, and the same verb clears it.
             // Measured again here because the base axis may have moved the
             // tip since the remote axis decided.
@@ -403,7 +403,7 @@ pub fn sync(
     };
 
     Ok((
-        SyncReport {
+        PullReport {
             branch: pre.branch.clone(),
             fetched: opts.fetched && pre.remote.is_some(),
             remote,
@@ -418,7 +418,7 @@ pub fn sync(
 }
 
 /// Everything one run has planned and not written: the overlay the planners
-/// read, and the pieces of the one `sync` operation. A restack's plan is
+/// read, and the pieces of the one `pull` operation. A restack's plan is
 /// folded in as it is made, so the next plan reads the tips, holds, and
 /// worktree the last one decided.
 struct Run {
@@ -554,10 +554,10 @@ impl Run {
         }
         let holds = held.iter().count() + cascade_held.len();
         let summary = match holds {
-            0 => format!("sync {} branch(es)", refs.len()),
-            n => format!("sync {} branch(es), {n} held", refs.len()),
+            0 => format!("pull {} branch(es)", refs.len()),
+            n => format!("pull {} branch(es), {n} held", refs.len()),
         };
-        let mut record = OpRecord::new("sync", summary, ctx.now);
+        let mut record = OpRecord::new("pull", summary, ctx.now);
         record.argv = argv;
         record.refs = refs.clone();
         record.rewrites = rewrites;
@@ -590,7 +590,7 @@ impl Run {
 
         // The refs: every branch the run moved, in one transaction, each
         // expected where the run found it.
-        let reflog_msg = "sync";
+        let reflog_msg = "pull";
         let mut edits = Vec::with_capacity(refs.len());
         for t in &refs {
             let (Some(old), Some(new)) = (&t.old, &t.new) else {
@@ -612,7 +612,7 @@ impl Run {
             refs::EditOutcome::Contended => {
                 return Err(Error::coded(
                     "ref/contended",
-                    "refs moved while syncing; nothing was moved (re-run to sync on the new tips)",
+                    "refs moved while pulling; nothing was moved (re-run to pull on the new tips)",
                     vec![],
                 ));
             }
@@ -678,7 +678,7 @@ fn other_remote_axis(
     repo: &gix::Repository,
     other: &OtherBranch,
     pre: &Preflight,
-    opts: &SyncOptions,
+    opts: &PullOptions,
     run: &mut Run,
 ) -> Result<BranchRemote> {
     let Some(tracking) = other.tracking.as_ref() else {
@@ -830,7 +830,7 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
     if run.overlay.has_hold(&pre.branch) {
         return Ok(BaseAxis::Skipped);
     }
-    let Some(sync_ref) = crate::futures::base_for(repo, &pre.branch)? else {
+    let Some(pull_ref) = crate::futures::base_for(repo, &pre.branch)? else {
         return Ok(BaseAxis::NoBase);
     };
     let plan = plan_restack(
@@ -843,7 +843,7 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
         &run.overlay,
     )?;
     Ok(BaseAxis::Ran {
-        name: sync_ref.name,
+        name: pull_ref.name,
         outcome: run.fold(repo, plan)?,
     })
 }
@@ -853,16 +853,16 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
 /// and cascades into the branches stacked above it. A hold standing on the
 /// branch stops it: its own remote axis held this run, or a cascade reached
 /// it. A replay `restack` refuses before anything moves is named and left
-/// standing rather than stopping the run: sync visits every branch, and one
+/// standing rather than stopping the run: pull visits every branch, and one
 /// branch's merge or orphan history is no reason to leave the rest stale.
 fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Result<BaseAxis> {
     if run.overlay.held(repo, branch)?.is_some() {
         return Ok(BaseAxis::Skipped);
     }
-    let Some(sync_ref) = crate::futures::base_for(repo, branch)? else {
+    let Some(pull_ref) = crate::futures::base_for(repo, branch)? else {
         return Ok(BaseAxis::NoBase);
     };
-    let name = sync_ref.name;
+    let name = pull_ref.name;
     let plan = plan_restack(
         repo,
         Some(branch.to_string()),

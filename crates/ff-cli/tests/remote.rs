@@ -1,8 +1,8 @@
-//! `ff publish` and `ff sync` against a real bare remote.
+//! `ff push` and `ff pull` against a real bare remote.
 //!
-//! Deliberately its own file. `tests/sync.rs` promises every case is offline
+//! Deliberately its own file. `tests/pull.rs` promises every case is offline
 //! — `--no-fetch` on a repository whose remote is a URL nobody contacts —
-//! and the states here cannot be reached that way: an undone publish exists
+//! and the states here cannot be reached that way: an undone push exists
 //! only on the far side of a push, and a fresh clone's "no copy yet" is the
 //! shape `git clone` leaves behind rather than one `update-ref` can fake.
 //!
@@ -65,10 +65,10 @@ fn published_then_undone() -> Fixture {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     fx.write("a.txt", "aa\n");
     fx.commit("two");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     ok(&ff(&fx, &["undo"]));
     fx
 }
@@ -79,19 +79,19 @@ fn status_says_the_remote_holds_what_you_undid() {
     let text = ok(&ff(&fx, &["status"]));
     assert!(text.contains("remote holds 1 you undid"), "{text}");
     assert!(
-        !text.contains("to sync"),
+        !text.contains("to pull"),
         "there is nothing to take in: {text}"
     );
 }
 
 #[test]
-fn sync_takes_nothing_in_and_names_publish() {
+fn pull_takes_nothing_in_and_names_push() {
     let fx = published_then_undone();
     let before = fx.git(&["rev-parse", "main"]).trim().to_string();
 
-    let text = ok(&ff(&fx, &["sync"]));
+    let text = ok(&ff(&fx, &["pull"]));
     assert!(text.contains("you undid"), "{text}");
-    assert!(text.contains("ff publish"), "{text}");
+    assert!(text.contains("ff push"), "{text}");
     assert_eq!(
         fx.git(&["rev-parse", "main"]).trim(),
         before,
@@ -100,12 +100,12 @@ fn sync_takes_nothing_in_and_names_publish() {
 }
 
 #[test]
-fn the_sync_envelope_carries_the_undone_state() {
+fn the_pull_envelope_carries_the_undone_state() {
     let fx = published_then_undone();
-    let v = json(&ff(&fx, &["--json", "sync"]));
-    assert_eq!(v["cmd"], "sync");
-    assert_eq!(v["data"]["sync"]["remote"]["Undone"]["behind"], 1);
-    assert_eq!(v["data"]["sync"]["pending"]["Undone"], 1);
+    let v = json(&ff(&fx, &["--json", "pull"]));
+    assert_eq!(v["cmd"], "pull");
+    assert_eq!(v["data"]["pull"]["remote"]["Undone"]["behind"], 1);
+    assert_eq!(v["data"]["pull"]["pending"]["Undone"], 1);
 }
 
 #[test]
@@ -116,14 +116,14 @@ fn the_status_envelope_carries_the_undone_verdict() {
     assert_eq!(v["data"]["futures"]["remote"]["verdict"]["behind"], 1);
 }
 
-/// Publishing again rolls the shared copy back, and the line says so: this
+/// Pushing again rolls the shared copy back, and the line says so: this
 /// push takes commits off the far side rather than sending any.
 #[test]
-fn publishing_again_reads_as_a_retraction_and_rolls_the_remote_back() {
+fn pushing_again_reads_as_a_retraction_and_rolls_the_remote_back() {
     let fx = published_then_undone();
     let one = fx.git(&["rev-parse", "main"]).trim().to_string();
 
-    let text = ok(&ff(&fx, &["publish"]));
+    let text = ok(&ff(&fx, &["push"]));
     assert!(text.contains("rolled origin/main back to main"), "{text}");
     assert_eq!(
         fx.remote_git(&["rev-parse", "refs/heads/main"]).trim(),
@@ -144,15 +144,15 @@ fn op_log_shows_the_pushes() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     fx.write("a.txt", "aa\n");
     fx.commit("two");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
 
     let text = ok(&ff(&fx, &["op", "log", "-n", "10"]));
     let rows: Vec<&str> = text
         .lines()
-        .filter(|l| l.contains("published main to origin/main"))
+        .filter(|l| l.contains("pushed main to origin/main"))
         .collect();
     assert_eq!(rows.len(), 2, "one row per push: {text}");
     assert!(
@@ -174,7 +174,7 @@ fn a_fresh_clone_reports_no_copy_rather_than_a_deletion() {
     assert!(text.contains("remote has no copy yet"), "{text}");
     assert!(!text.contains("gone"), "nothing was lost: {text}");
 
-    let preview = ok(&ff(&fx, &["publish", "-n"]));
+    let preview = ok(&ff(&fx, &["push", "-n"]));
     assert!(preview.contains("would create origin/main"), "{preview}");
     assert!(!preview.contains("gone"), "{preview}");
 }
@@ -185,14 +185,14 @@ fn a_deleted_shared_copy_still_says_gone() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     fx.remote_git(&["update-ref", "-d", "refs/heads/main"]);
     fx.git(&["fetch", "--prune", "-q", "origin"]);
 
     let text = ok(&ff(&fx, &["status"]));
     assert!(text.contains("remote is gone"), "{text}");
 
-    let preview = ok(&ff(&fx, &["publish", "-n"]));
+    let preview = ok(&ff(&fx, &["push", "-n"]));
     assert!(
         preview.contains("would re-create origin/main, which is gone"),
         "{preview}"
@@ -207,25 +207,25 @@ fn the_tail_names_the_recovery_beside_the_irreversibility() {
     fx.write("a.txt", "a\n");
     fx.commit("one");
 
-    let text = ok(&ff(&fx, &["publish"]));
+    let text = ok(&ff(&fx, &["push"]));
     assert!(text.contains("ff undo cannot reach it"), "{text}");
     assert!(
-        text.contains("ff undo then ff publish rolls the shared copy back"),
+        text.contains("ff undo then ff push rolls the shared copy back"),
         "{text}"
     );
 }
 
 /// `--to` sends to a remote the branch has never answered to, and records
-/// that it does now: the bare `ff sync` that could not run before runs after.
+/// that it does now: the bare `ff pull` that could not run before runs after.
 #[test]
-fn publishing_to_a_named_remote_records_it() {
+fn pushing_to_a_named_remote_records_it() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
     let tip = fx.git(&["rev-parse", "main"]).trim().to_string();
 
     // Two remotes and no `origin`, and the upstream `git clone` wrote is
-    // gone: there is nothing for `ff sync` to name.
+    // gone: there is nothing for `ff pull` to name.
     fx.git(&["remote", "rename", "origin", "one"]);
     let second = fx.root().join("second.git");
     fx.git_in(
@@ -236,20 +236,20 @@ fn publishing_to_a_named_remote_records_it() {
     fx.git(&["config", "--unset", "branch.main.remote"]);
     fx.git(&["config", "--unset", "branch.main.merge"]);
 
-    let out = ff(&fx, &["--json", "sync"]);
+    let out = ff(&fx, &["--json", "pull"]);
     assert!(
         !out.status.success(),
-        "a sync with two remotes and no upstream is not a success: {}",
+        "a pull with two remotes and no upstream is not a success: {}",
         both(&out)
     );
     // The id rides the envelope, not the human line.
     let v = json(&out);
     assert_eq!(
-        v["error"]["id"], "sync/ambiguous-remote",
+        v["error"]["id"], "pull/ambiguous-remote",
         "the refusal is the ambiguity, not some other state: {v}"
     );
 
-    let text = ok(&ff(&fx, &["publish", "--to", "two"]));
+    let text = ok(&ff(&fx, &["push", "--to", "two"]));
     assert!(text.contains("two/main"), "{text}");
 
     assert_eq!(fx.git(&["config", "branch.main.remote"]).trim(), "two");
@@ -263,16 +263,16 @@ fn publishing_to_a_named_remote_records_it() {
         "the commit must have arrived on the far side"
     );
 
-    // The payoff: the sync that was ambiguous is now the branch's own.
-    let out = ff(&fx, &["sync"]);
+    // The payoff: the pull that was ambiguous is now the branch's own.
+    let out = ff(&fx, &["pull"]);
     assert!(
         out.status.success(),
-        "the payoff: a bare ff sync that needed --to a moment ago now names the remote itself: {}",
+        "the payoff: a bare ff pull that needed --to a moment ago now names the remote itself: {}",
         both(&out)
     );
 }
 
-/// `ff remote` answers both halves of the question the publish and sync
+/// `ff remote` answers both halves of the question the push and pull
 /// refusals used to deflect: the name, and where it points — from the config
 /// fufu already reads.
 #[test]
@@ -333,11 +333,11 @@ fn published_branches() -> Fixture {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     fx.git(&["checkout", "-q", "-b", "shared"]);
     fx.write("b.txt", "b\n");
     fx.commit("two");
-    ok(&ff(&fx, &["publish"]));
+    ok(&ff(&fx, &["push"]));
     fx.git(&["checkout", "-q", "main"]);
     fx
 }

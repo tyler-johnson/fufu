@@ -39,10 +39,10 @@ impl Fixture {
     /// `remote.git` beside `repo`, with `origin` configured and
     /// `branch.main.merge` written exactly the way `git clone` writes it.
     ///
-    /// The one fixture shape a publish test cannot fake. Everywhere else a
+    /// The one fixture shape a push test cannot fake. Everywhere else a
     /// remote is `update-ref` on `refs/remotes/...` plus a URL nobody
     /// contacts, which is enough to decide a plan and never enough to *make*
-    /// a push — and an undone publish only exists on the far side of one.
+    /// a push — and an undone push only exists on the far side of one.
     /// The remote is a path, so nothing here reaches the network, but this
     /// does spawn git to push: suites that promise zero spawns must not use
     /// it.

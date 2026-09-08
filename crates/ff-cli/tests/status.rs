@@ -264,8 +264,8 @@ fn status_survives_an_unreadable_hold() {
     );
 }
 
-/// The third of the three held-rewrite disciplines is exits blocked: sync
-/// refuses to publish while a hold stands, and a guard nobody is told about
+/// The third of the three held-rewrite disciplines is exits blocked: push
+/// refuses to send while a hold stands, and a guard nobody is told about
 /// is a guard that surprises people — so the status says so.
 #[test]
 fn a_standing_hold_says_the_exit_is_blocked() {
@@ -284,7 +284,7 @@ fn a_standing_hold_says_the_exit_is_blocked() {
         "the exit is named as blocked: {text}"
     );
     assert!(
-        text.contains("ff sync will not publish"),
+        text.contains("ff push will not send"),
         "and the verb it will hold back: {text}"
     );
     let held = text.find("held:").expect("the hold block");
@@ -362,7 +362,7 @@ fn status_says_the_remote_cannot_be_named() {
         "the unnameable remote is said: {text}"
     );
     assert!(
-        !text.contains("nothing to sync"),
+        !text.contains("nothing to pull"),
         "an empty axis never reads as settled: {text}"
     );
 }
@@ -370,7 +370,7 @@ fn status_says_the_remote_cannot_be_named() {
 /// One remote named `origin` that the branch's own section points at is a
 /// named, settled remote: the `remote unnamed` part never appears.
 #[test]
-fn a_settled_remote_still_says_nothing_to_sync() {
+fn a_settled_remote_still_says_nothing_to_pull() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");

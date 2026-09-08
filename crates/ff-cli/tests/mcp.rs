@@ -222,9 +222,7 @@ fn repo() -> Fixture {
     fx
 }
 
-const SEVEN: [&str; 7] = [
-    "status", "sync", "publish", "undo", "redo", "explain", "help",
-];
+const SEVEN: [&str; 7] = ["status", "pull", "push", "undo", "redo", "explain", "help"];
 
 // ---- the legacy era --------------------------------------------------------
 
@@ -263,7 +261,7 @@ fn the_legacy_handshake_lists_the_seven_tools_and_relays_the_envelope() {
             "{name} states its hints: {tool}"
         );
     }
-    assert_eq!(tools[2]["annotations"]["destructiveHint"], true, "publish");
+    assert_eq!(tools[2]["annotations"]["destructiveHint"], true, "push");
 
     // A reader: the envelope comes back whole, as text and as structure.
     let status = call(&mut server, 3, "status", json!({}));
@@ -318,7 +316,7 @@ fn the_legacy_handshake_lists_the_seven_tools_and_relays_the_envelope() {
     assert!(
         git["error"]["message"]
             .as_str()
-            .is_some_and(|m| m.contains("status, sync, publish, undo, redo, explain, help")),
+            .is_some_and(|m| m.contains("status, pull, push, undo, redo, explain, help")),
         "{git}"
     );
 
@@ -567,7 +565,7 @@ fn an_undeclared_extension_is_not_served() {
 }
 
 /// `isError` is the envelope's kind and not the exit code. A produced tool
-/// doing what `ff sync` does — a `data` envelope at 3 for a held outcome
+/// doing what `ff pull` does — a `data` envelope at 3 for a held outcome
 /// with a report — comes back a successful call carrying the data, with
 /// the code in `_meta.exit`; an error envelope is an error and carries its
 /// code the same way; and a help page carries its 0.
@@ -871,7 +869,7 @@ fn an_extension_that_hangs_on_the_handshake_costs_the_server_nothing() {
 /// An extension answering the tools handshake with two descriptors, and
 /// echoing its own argv, its session, and its directory back so a test can
 /// read the command line fufu built and where it ran it. `hold` exits 3
-/// with a data envelope, the way a held `ff sync` does.
+/// with a data envelope, the way a held `ff pull` does.
 #[cfg(unix)]
 const TOWER: &str = r#"#!/bin/sh
 if [ "$1" = "--ff-tools" ]; then

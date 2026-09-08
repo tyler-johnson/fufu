@@ -3,7 +3,7 @@
 //! a rewrite, or when a replay dropped it as empty — both things fufu did,
 //! and anything else is somebody else's work. This is the first reader of
 //! the rewrite map outside the tests, and it still does not need an index:
-//! a handful of shas, once per sync, against a walk bounded by the oldest
+//! a handful of shas, once per pull, against a walk bounded by the oldest
 //! queried commit. Every failure mode fails toward *not* accounted for — an
 //! unreadable sha, a trimmed log, an aggressive floor all mean the caller
 //! takes the unaccounted path, which is the safe one.

@@ -1,6 +1,6 @@
-//! Differential contract for `sync::sync`: each axis is a replay, and a
+//! Differential contract for `pull::pull`: each axis is a replay, and a
 //! replay has an oracle — `git rebase --update-refs --no-keep-empty --onto`.
-//! `ff sync` is two such replays (remote axis, then base axis), and this file
+//! `ff pull` is two such replays (remote axis, then base axis), and this file
 //! proves each lands the **same shas** the git recipe would, and that the two
 //! axes run in the same order a person would run those two rebases in.
 //!
@@ -8,12 +8,12 @@
 //! committer identity and committer date. fufu's side takes `now: Some(NOW)`
 //! and reads its identity from repo config (`ident`); the oracle gets
 //! `GIT_COMMITTER_DATE=@{NOW} +0000` and its identity from `Fixture`'s
-//! hermetic env. That is why this file drives `sync()` directly rather than
+//! hermetic env. That is why this file drives `pull()` directly rather than
 //! the `ff` binary, which has no way to pin its clock.
 
 use ff_core::gix;
-use ff_core::sync::SyncOptions;
-use ff_core::{BaseAxis, Provenance, RemoteAxis, RestackOutcome, SyncReport};
+use ff_core::pull::PullOptions;
+use ff_core::{BaseAxis, Provenance, PullReport, RemoteAxis, RestackOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -28,25 +28,25 @@ fn ident(fx: &Fixture) {
 }
 
 fn prov() -> Provenance {
-    Provenance::new("pre", Some("ff sync".into()))
+    Provenance::new("pre", Some("ff pull".into()))
 }
 
-fn sync_run(
+fn pull_run(
     repo: &gix::Repository,
     pre: &ff_core::preflight::Preflight,
     fetched: bool,
     after: Option<&str>,
-) -> SyncReport {
+) -> PullReport {
     let after = after.map(|h| gix::ObjectId::from_hex(h.as_bytes()).unwrap());
-    ff_core::sync::sync(
+    ff_core::pull::pull(
         repo,
         pre,
-        SyncOptions {
+        PullOptions {
             fetched,
             tracking_after: after,
             others: Vec::new(),
             now: Some(NOW),
-            argv: vec!["ff".into(), "sync".into()],
+            argv: vec!["ff".into(), "pull".into()],
         },
         &prov(),
     )
@@ -229,8 +229,8 @@ fn the_base_axis_lands_gits_shas() {
     let _fork = base_shape(&fufu);
     let report = {
         let repo = fufu.repo();
-        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
-        sync_run(&repo, &pre, false, None)
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
+        pull_run(&repo, &pre, false, None)
     };
 
     let oracle = Fixture::new();
@@ -241,7 +241,7 @@ fn the_base_axis_lands_gits_shas() {
     assert_eq!(
         log_of(&fufu, &["feature", "main"]),
         log_of(&oracle, &["feature", "main"]),
-        "sync's base axis must land the shas git's rebase would"
+        "pull's base axis must land the shas git's rebase would"
     );
     match report.base {
         BaseAxis::Ran { name, outcome, .. } => {
@@ -264,9 +264,9 @@ fn the_remote_axis_lands_gits_shas() {
         // preflight records where the tracking ref stood before; the fetch
         // moves it to the collaborator's divergent tip, which is handed in.
         let repo = fufu.repo();
-        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
         fufu.git(&["update-ref", "refs/remotes/origin/feature", &after]);
-        sync_run(&repo, &pre, true, Some(&after))
+        pull_run(&repo, &pre, true, Some(&after))
     };
 
     let oracle = Fixture::new();
@@ -283,7 +283,7 @@ fn the_remote_axis_lands_gits_shas() {
     assert_eq!(
         log_of(&fufu, &["feature"]),
         log_of(&oracle, &["feature"]),
-        "sync's remote axis must land the shas git's rebase would"
+        "pull's remote axis must land the shas git's rebase would"
     );
     match report.remote {
         RemoteAxis::Ran { name, outcome, .. } => {
@@ -304,9 +304,9 @@ fn both_axes_land_gits_two_rebases_in_that_order() {
     let after = both_shape(&fufu);
     let report = {
         let repo = fufu.repo();
-        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+        let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
         fufu.git(&["update-ref", "refs/remotes/origin/feature", &after]);
-        sync_run(&repo, &pre, true, Some(&after))
+        pull_run(&repo, &pre, true, Some(&after))
     };
 
     let oracle = Fixture::new();
@@ -314,7 +314,7 @@ fn both_axes_land_gits_two_rebases_in_that_order() {
     let after = both_shape(&oracle);
     // The fetch, mirrored: the tracking ref stands at the collaborator's tip.
     oracle.git(&["update-ref", "refs/remotes/origin/feature", &after]);
-    // Sync's own order: the remote axis first...
+    // Pull's own order: the remote axis first...
     let mb1 = oracle
         .git(&["merge-base", "feature", "origin/feature"])
         .trim()
@@ -331,7 +331,7 @@ fn both_axes_land_gits_two_rebases_in_that_order() {
     assert_eq!(
         log_of(&fufu, &["feature", "main"]),
         log_of(&oracle, &["feature", "main"]),
-        "both axes in sync's order must land the shas the two rebases would"
+        "both axes in pull's order must land the shas the two rebases would"
     );
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -350,17 +350,17 @@ fn both_axes_land_gits_two_rebases_in_that_order() {
 }
 
 #[test]
-fn a_sync_that_holds_moves_nothing() {
+fn a_pull_that_holds_moves_nothing() {
     let fx = Fixture::new();
     ident(&fx);
     let after = held_shape(&fx);
 
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
     // The fetch, simulated: the tracking ref moves to the collaborator's tip.
     fx.git(&["update-ref", "refs/remotes/origin/feature", &after]);
 
-    // Capture, before the sync, every branch and remote ref's target and the
+    // Capture, before the pull, every branch and remote ref's target and the
     // working tree. (Fufu's own `refs/fufu/*` bookkeeping is not part of the
     // user's repository — a hold is expected to record itself in the op log.)
     let refs_before = fx.git(&[
@@ -371,7 +371,7 @@ fn a_sync_that_holds_moves_nothing() {
     ]);
     let tree_before = worktree_files(&fx);
 
-    let report = sync_run(&repo, &pre, true, Some(&after));
+    let report = pull_run(&repo, &pre, true, Some(&after));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {

@@ -85,7 +85,7 @@ Deferral only works because jj paired it with relentless disclosure, and held re
 
 - announced at creation
 - pinned in every status until it is gone
-- blocking the exit: [`ff publish`](../reference/cli/publish.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits
+- blocking the exit: [`ff push`](../reference/cli/push.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits
 
 [Held rewrites](../concepts/held-rewrites.md) has the full model.
 
@@ -105,7 +105,7 @@ Where a fufu verb is what jj's means under another name, jj's name is an alias, 
 
 Two of jj's words have no one verb here, because fufu spreads the act over verbs it already has, so typing either is answered rather than run. `ff abandon` points at what drops a change at each stage: `ff restore --all` for the open change, [`ff done`](../reference/cli/done.md) `--abandon` for an editing session or a held rewrite, and [`ff lift`](../reference/cli/lift.md) `--from <rev>` for a commit that has closed. `ff split` points at closing in slices: [`ff commit`](../reference/cli/commit.md) `<paths>` closes part of the open change, and `ff lift --from <rev> <paths>` brings part of a closed commit back to close again.
 
-`jj git fetch` and `jj git push` are [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md). [`ff git`](../reference/cli/git.md) is not their spelling: it is the passthrough, and runs git itself, capture-first.
+`jj git fetch` and `jj git push` are [`ff pull`](../reference/cli/pull.md) and `ff push`. [`ff git`](../reference/cli/git.md) is not their spelling: it is the passthrough, and runs git itself, capture-first.
 
 ## Choosing
 

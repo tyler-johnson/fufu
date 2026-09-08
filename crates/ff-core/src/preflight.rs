@@ -1,13 +1,13 @@
 //! What a branch answers to, read before either verb touches the network.
 //!
-//! `ff sync` takes the incoming half and `ff publish` the outgoing one, and
+//! `ff pull` takes the incoming half and `ff push` the outgoing one, and
 //! they are separate verbs — but the facts they need first are the same:
 //! the branch underfoot, the remote it answers to, the shared copy of
 //! itself, and whether a rewrite is already held on it. Reading them lives
 //! here so that neither verb owns the other's preconditions.
 //!
-//! Every guard that can refuse runs before this returns. Sync pays for a
-//! fetch and publish leaves the machine; paying for a round trip only to
+//! Every guard that can refuse runs before this returns. Pull pays for a
+//! fetch and push leaves the machine; paying for a round trip only to
 //! refuse afterwards is the rudest possible order.
 
 use crate::model::HeadState;
@@ -17,36 +17,36 @@ use crate::{Error, Result};
 /// a refusal that names the wrong verb is worse than a vague one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verb {
-    Sync,
-    Publish,
+    Pull,
+    Push,
 }
 
 impl Verb {
     fn name(self) -> &'static str {
         match self {
-            Verb::Sync => "sync",
-            Verb::Publish => "publish",
+            Verb::Pull => "pull",
+            Verb::Push => "push",
         }
     }
 
     fn gerund(self) -> &'static str {
         match self {
-            Verb::Sync => "syncing",
-            Verb::Publish => "publishing",
+            Verb::Pull => "pulling",
+            Verb::Push => "pushing",
         }
     }
 }
 
 /// What either verb must know before it reaches the network: the branch
 /// underfoot, the remote it answers to, and where the tracking ref stands.
-/// Sync reads it twice, once on each side of its fetch; publish reads it
+/// Pull reads it twice, once on each side of its fetch; push reads it
 /// once, and the tip it finds is exactly "what I last saw".
 pub struct Preflight {
     pub branch: String,
     pub branch_tip: gix::ObjectId,
     /// The remote to fetch from and push to. `None` when the repository has
-    /// no remote at all, which makes sync entirely a base-axis affair and
-    /// leaves publish with nowhere to send anything.
+    /// no remote at all, which makes pull entirely a base-axis affair and
+    /// leaves push with nowhere to send anything.
     pub remote: Option<String>,
     /// The branch's shared copy, when it has an upstream.
     pub tracking: Option<Tracking>,
@@ -119,10 +119,10 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
         return Err(Error::coded(
             "held/resolving",
             match verb {
-                Verb::Sync => format!(
-                    "a resolution of {branch} is open on {session}: syncing would move the ground its conflicts were computed against"
+                Verb::Pull => format!(
+                    "a resolution of {branch} is open on {session}: pulling would move the ground its conflicts were computed against"
                 ),
-                Verb::Publish => format!(
+                Verb::Push => format!(
                     "a resolution of {branch} is open on {session}: the exit stays blocked until the rewrite under it lands"
                 ),
             },
@@ -158,8 +158,8 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
             .any(|remote| remote.to_string() == name)
         {
             return Err(Error::coded(
-                "publish/unknown-remote",
-                format!("no remote named {name}: fufu will not invent one to publish to"),
+                "push/unknown-remote",
+                format!("no remote named {name}: fufu will not invent one to push to"),
                 vec!["ff remote".into(), "ff git remote add <name> <url>".into()],
             ));
         }
@@ -170,12 +170,12 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
             .map(|name| name.to_string());
         if let Some(existing) = existing.filter(|existing| existing != name) {
             return Err(Error::coded(
-                "publish/retarget",
+                "push/retarget",
                 format!(
-                    "{branch} already answers to {existing}: publishing to {name} as well would open a second shared copy"
+                    "{branch} already answers to {existing}: pushing to {name} as well would open a second shared copy"
                 ),
                 vec![
-                    "ff publish".into(),
+                    "ff push".into(),
                     "ff git branch --set-upstream-to <remote>/<branch>".into(),
                 ],
             ));
@@ -187,13 +187,13 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
             crate::remote::RemoteChoice::NoneConfigured => None,
             crate::remote::RemoteChoice::Ambiguous { count } => {
                 return Err(Error::coded(
-                    "sync/ambiguous-remote",
+                    "pull/ambiguous-remote",
                     format!(
                         "{} remotes are configured and none is named origin: fufu will not guess which one {branch} answers to",
                         count
                     ),
                     vec![
-                        "ff publish --to <remote>".into(),
+                        "ff push --to <remote>".into(),
                         "ff remote".into(),
                         "ff git branch --set-upstream-to <remote>/<branch>".into(),
                     ],
@@ -204,9 +204,9 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
 
     let tracking = match crate::futures::remote_for(repo, &branch)? {
         None => None,
-        Some(sync_ref) => {
-            let tip = (!sync_ref.tip.is_empty())
-                .then(|| gix::ObjectId::from_hex(sync_ref.tip.as_bytes()))
+        Some(pull_ref) => {
+            let tip = (!pull_ref.tip.is_empty())
+                .then(|| gix::ObjectId::from_hex(pull_ref.tip.as_bytes()))
                 .transpose()
                 .map_err(Error::repo)?;
             let full: gix::refs::FullName = format!("refs/heads/{branch}")
@@ -219,8 +219,8 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
                 .map(|name| name.as_ref().shorten().to_string())
                 .unwrap_or_else(|| branch.clone());
             Some(Tracking {
-                full: sync_ref.r#ref,
-                name: sync_ref.name,
+                full: pull_ref.r#ref,
+                name: pull_ref.name,
                 remote_branch,
                 tip,
             })

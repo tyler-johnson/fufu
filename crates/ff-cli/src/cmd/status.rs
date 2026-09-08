@@ -14,7 +14,7 @@ pub struct StatusModel {
     pub root: String,
     /// Which checkout this is, and where the main one stands.
     pub worktree: WorktreeStatus,
-    /// What the branch sits on, mirroring the sync axis: present exactly
+    /// What the branch sits on, mirroring the pull axis: present exactly
     /// when `futures.base` is, so null on trunk, detached, unborn, and in an
     /// editing session.
     pub base: Option<BaseStatus>,
@@ -29,7 +29,7 @@ pub struct StatusModel {
     pub parent: Option<ParentStatus>,
     pub conflicts: Vec<String>,
     pub foreign: Option<Vec<ForeignEntry>>,
-    /// What syncing would cost, one entry per axis fufu can name: the base
+    /// What pulling would cost, one entry per axis fufu can name: the base
     /// beneath this branch, and the remote copy of it.
     pub futures: ff_core::futures::Futures,
     /// An editing session running on the branch underfoot, if one is.
@@ -214,7 +214,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     // Reconcile pinned (foreign changes)
     let foreign = reconcile_foreign(&repo);
 
-    // Futures: what syncing this branch would cost, on both axes it answers
+    // Futures: what pulling this branch would cost, on both axes it answers
     // to. Detached HEAD and unborn branches have no branch tip to simulate
     // from, so they short-circuit without calling into futures at all.
     let no_futures = ff_core::futures::Futures {
@@ -319,7 +319,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
             .map(|p| ff_core::linked::path::real(&p).display().to_string()),
     };
 
-    // The base mirrors the sync axis exactly, and the count follows the
+    // The base mirrors the pull axis exactly, and the count follows the
     // futures rule: a lookup that cannot run is a missing line.
     let base = match (&futures.base, &status.head) {
         (Some(future), ff_core::HeadState::Branch { commit, .. }) => {

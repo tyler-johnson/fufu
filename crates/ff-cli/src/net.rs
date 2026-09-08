@@ -31,7 +31,7 @@
 //! So "native" here is a claim about the protocol, not about the process
 //! table, and `tests/zero_spawn.rs` says the same thing in its preamble.
 
-use ff_core::{Error, Publish, Result};
+use ff_core::{Error, Push, Result};
 
 /// Run one `git` invocation — `push`, and [`fetch`]'s fallback for a
 /// repository gix will not fetch in — capturing stderr
@@ -47,7 +47,7 @@ fn run(cwd: &std::path::Path, args: &[&str]) -> Result<Run> {
         .output()
         .map_err(|_| {
             Error::coded(
-                "publish/no-git",
+                "push/no-git",
                 "git is not on PATH, and fufu still spawns it to push — \
                  fetching no longer needs it",
                 vec!["ff git push".into()],
@@ -85,7 +85,7 @@ fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
     options.permissions.config.git_binary = true;
     gix::open_opts(cwd, options).map_err(|err| {
         Error::coded(
-            "sync/fetch-failed",
+            "pull/fetch-failed",
             format!("could not open the repository to fetch from: {err}"),
             vec!["ff doctor".into()],
         )
@@ -93,7 +93,7 @@ fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
 }
 
 /// Fetch from `remote` — every branch its configured refspecs name, no
-/// `--prune`. Sync's job is the branch underfoot, and quietly deleting every
+/// `--prune`. Pull's job is the branch underfoot, and quietly deleting every
 /// stale tracking ref in the repository is a repository-wide mutation nobody
 /// asked this verb for.
 ///
@@ -118,14 +118,14 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
     };
     // git walks past that directory and fetches; the one spawn buys the
     // user their fetch, and whose process did it is not their problem in
-    // the middle of a sync.
+    // the middle of a pull.
     if let Ok(run) = run(cwd, &["fetch", remote])
         && run.ok
     {
         return Ok(());
     }
     Err(Error::coded(
-        "sync/fetch-failed",
+        "pull/fetch-failed",
         format!(
             "{err}: the worktree admin dir {} is incomplete — git ignores it, \
              fufu's fetch cannot",
@@ -134,7 +134,7 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
         vec![
             "ff git worktree prune".into(),
             format!("ff git fetch {remote}"),
-            "ff sync --no-fetch".into(),
+            "ff pull --no-fetch".into(),
         ],
     ))
 }
@@ -143,14 +143,14 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
 fn native_fetch(repo: &gix::Repository, remote: &str) -> Result<()> {
     let failed = |err: &dyn std::error::Error| {
         Error::coded(
-            "sync/fetch-failed",
+            "pull/fetch-failed",
             format!(
                 "fetching from {remote} failed: {}",
                 first_useful_line(&chain(err))
             ),
             vec![
                 format!("ff git fetch {remote}"),
-                "ff sync --no-fetch".into(),
+                "ff pull --no-fetch".into(),
             ],
         )
     };
@@ -198,9 +198,9 @@ fn unopenable_worktree(repo: &gix::Repository) -> Option<std::path::PathBuf> {
 /// `git push`, in the one of two shapes the plan calls for. A branch with no
 /// upstream is created and tracked; an existing one goes under a lease whose
 /// expected value is exactly the tip this run's fetch left behind.
-pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result<()> {
+pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()> {
     let (remote, remote_branch, lease, spec) = match plan {
-        Publish::Create {
+        Push::Create {
             remote,
             remote_branch,
             ..
@@ -210,7 +210,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
             None,
             format!("{local_branch}:{remote_branch}"),
         ),
-        Publish::Push {
+        Push::Push {
             remote,
             remote_branch,
             lease,
@@ -234,7 +234,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
     }
     if run.code == 128 {
         return Err(Error::coded(
-            "publish/unreachable",
+            "push/unreachable",
             format!(
                 "could not reach {remote}: {}",
                 first_useful_line(&run.stderr)
@@ -244,18 +244,18 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
     }
     if run.stderr.contains("stale info") {
         return Err(Error::coded(
-            "publish/lease-refused",
+            "push/lease-refused",
             format!(
                 "{remote}/{remote_branch} moved since you last looked, so nothing \
-                 was pushed — your commits are still here, and ff sync takes in \
+                 was pushed — your commits are still here, and ff pull takes in \
                  what arrived"
             ),
-            vec!["ff sync".into(), "ff publish".into()],
+            vec!["ff pull".into(), "ff push".into()],
         ));
     }
     if run.stderr.contains("[remote rejected]") {
         return Err(Error::coded(
-            "publish/rejected",
+            "push/rejected",
             format!(
                 "{remote} refused the push: {}",
                 first_useful_line(&run.stderr)
@@ -264,7 +264,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
         ));
     }
     Err(Error::coded(
-        "publish/failed",
+        "push/failed",
         format!(
             "git push to {remote} failed: {}",
             first_useful_line(&run.stderr)
@@ -276,10 +276,10 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Publish) -> Result
 /// The delete half of the same wire: `git push --force-with-lease=<branch>:<lease>
 /// <remote> :<branch>`. The lease value is the tip the tracking ref stood at
 /// last — what we last saw — and git honors it on a delete push. The
-/// stale-lease case gets its own id because `publish/lease-refused` says
-/// "your commits are still here, and ff sync takes in what arrived," which
+/// stale-lease case gets its own id because `push/lease-refused` says
+/// "your commits are still here, and ff pull takes in what arrived," which
 /// is wrong here: the branch is already deleted locally, and the way back
-/// is `ff undo`, not a sync.
+/// is `ff undo`, not a pull.
 pub fn push_delete(
     cwd: &std::path::Path,
     remote: &str,
@@ -294,7 +294,7 @@ pub fn push_delete(
     }
     if run.code == 128 {
         return Err(Error::coded(
-            "publish/unreachable",
+            "push/unreachable",
             format!(
                 "could not reach {remote}: {}",
                 first_useful_line(&run.stderr)
@@ -314,7 +314,7 @@ pub fn push_delete(
     }
     if run.stderr.contains("[remote rejected]") {
         return Err(Error::coded(
-            "publish/rejected",
+            "push/rejected",
             format!(
                 "{remote} refused the push: {}",
                 first_useful_line(&run.stderr)
@@ -323,7 +323,7 @@ pub fn push_delete(
         ));
     }
     Err(Error::coded(
-        "publish/failed",
+        "push/failed",
         format!(
             "git push to {remote} failed: {}",
             first_useful_line(&run.stderr)
@@ -543,7 +543,7 @@ mod tests {
         let res = push(
             &clone,
             "main",
-            &Publish::Push {
+            &Push::Push {
                 remote: "origin".into(),
                 remote_branch: "main".into(),
                 lease,
@@ -570,7 +570,7 @@ mod tests {
         let res = push(
             &clone1,
             "main",
-            &Publish::Push {
+            &Push::Push {
                 remote: "origin".into(),
                 remote_branch: "main".into(),
                 lease: stale.clone(),
@@ -579,7 +579,7 @@ mod tests {
             },
         );
         let err = res.unwrap_err();
-        assert_eq!(err.id(), "publish/lease-refused");
+        assert_eq!(err.id(), "push/lease-refused");
         assert_eq!(
             git(&clone1, &["rev-parse", "refs/remotes/origin/main"]),
             stale
@@ -595,7 +595,7 @@ mod tests {
         let res = push(
             &clone,
             "main",
-            &Publish::Push {
+            &Push::Push {
                 remote: "origin".into(),
                 remote_branch: "main".into(),
                 lease: git(&clone, &["rev-parse", "refs/remotes/origin/main"]),
@@ -603,9 +603,9 @@ mod tests {
                 shape: ff_core::PushShape::Replace,
             },
         );
-        assert_eq!(res.unwrap_err().id(), "publish/unreachable");
+        assert_eq!(res.unwrap_err().id(), "push/unreachable");
         let res = fetch(&clone, "origin");
-        assert_eq!(res.unwrap_err().id(), "sync/fetch-failed");
+        assert_eq!(res.unwrap_err().id(), "pull/fetch-failed");
     }
 
     #[test]
@@ -616,7 +616,7 @@ mod tests {
         let res = push(
             &clone,
             "feature",
-            &Publish::Create {
+            &Push::Create {
                 remote: "origin".into(),
                 remote_branch: "feature".into(),
                 tip: tip.clone(),
@@ -636,7 +636,7 @@ mod tests {
         let dead = tmp.path().join("nope.git");
         let dead_s = dead.to_string_lossy().into_owned();
         git(&clone, &["remote", "set-url", "origin", &dead_s]);
-        for plan in [Publish::NoRemote, Publish::Blocked, Publish::UpToDate] {
+        for plan in [Push::NoRemote, Push::Blocked, Push::UpToDate] {
             assert!(push(&clone, "main", &plan).is_ok());
         }
     }

@@ -4,7 +4,7 @@
 # an origin — a bare repository next door, which is all a remote has to be —
 # a checkout of it with fufu turned on, a branch carrying a parked change,
 # edits of your own sitting on main, and a commit a teammate landed on main
-# while you were working, so `ff sync` has something real to take in.
+# while you were working, so `ff pull` has something real to take in.
 #
 # Both consumers of the demo start here: scripts/docs/casts.sh cds into the
 # printed path before recording, and scripts/docs/demo-check.sh cds into it
@@ -32,7 +32,7 @@ ident() { git config user.name "$1"; git config user.email "$2"; }
 # Commits with a past: the seed's history is days old and the teammate's
 # commit landed this morning, so the recording's ages read as a repository
 # with some life in it rather than one built seconds before. Author dates
-# are what `ff` shows, and they survive the rebase in `ff sync`. Kept under
+# are what `ff` shows, and they survive the rebase in `ff pull`. Kept under
 # a week, since demo-check.sh masks ages in s, m, h, and d only.
 NOW=$(date +%s)
 ago() {
@@ -108,7 +108,7 @@ printf '    esc: bool,\n' >> src/lexer.rs
 "$FF" switch main >/dev/null
 printf '\nRun `cargo test` before you push.\n' >> README.md
 
-# --- a teammate lands a commit on main, so sync has work to do ---
+# --- a teammate lands a commit on main, so pull has work to do ---
 # A file the demo never touches: the README edit parked on main has to
 # resume cleanly when the recording switches back at the end.
 (

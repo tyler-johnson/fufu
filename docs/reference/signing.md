@@ -31,7 +31,7 @@ Verification reads three more of git's keys: `gpg.ssh.allowedSignersFile`, `gpg.
 Every commit that is *your* work:
 
 - [`ff commit`](../reference/cli/commit.md) — the close.
-- Every commit a rewrite replays: [`ff describe`](../reference/cli/describe.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md), [`ff sync`](../reference/cli/sync.md), [`ff done`](../reference/cli/done.md), [`ff resolve`](../reference/cli/resolve.md).
+- Every commit a rewrite replays: [`ff describe`](../reference/cli/describe.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), [`ff done`](../reference/cli/done.md), [`ff resolve`](../reference/cli/resolve.md).
 
 This is a deliberate departure from git, where `git rebase` needs `rebase.gpgSign` set separately and a rebase silently unsigns a branch without it. `commit.gpgsign` governs every user commit fufu writes, replays included. fufu's whole model is that history moves under you — a restack that quietly unsigned three commits is exactly the failure signing exists to prevent.
 

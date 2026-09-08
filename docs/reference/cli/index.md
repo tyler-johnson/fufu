@@ -44,8 +44,8 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 ## collaborate
 
-- [`ff sync`](sync.md) — Line every branch up with its base and its remote
-- [`ff publish`](publish.md) — Send this branch to its remote, under a lease
+- [`ff pull`](pull.md) — Line every branch up with its base and its remote
+- [`ff push`](push.md) — Send this branch to its remote, under a lease
 - [`ff remote`](remote.md) — What the remotes here are called, and where each one points
 
 ## go back

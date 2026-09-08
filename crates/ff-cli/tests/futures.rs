@@ -286,7 +286,7 @@ fn unpublished_remote_fixture() -> Fixture {
 }
 
 /// `clean_fixture` with a remote copy of `feature` still sitting at the fork
-/// point: the base moved *and* there is work to publish, so both axes speak.
+/// point: the base moved *and* there is work to push, so both axes speak.
 fn both_axes_fixture() -> Fixture {
     let fx = clean_fixture();
     let fork = sha(&fx, "feature~3");
@@ -377,19 +377,19 @@ fn fast_forward_line() {
 }
 
 #[test]
-fn a_settled_axis_collapses_to_nothing_to_sync() {
+fn a_settled_axis_collapses_to_nothing_to_pull() {
     let fx = up_to_date_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("nothing to sync"), "got: {text}");
+    assert!(text.contains("nothing to pull"), "got: {text}");
     // Never "in sync", which a reader can hear as "merged".
     assert!(!text.contains("in sync"), "got: {text}");
 }
 
 #[test]
 fn ahead_of_the_base_is_silent() {
-    // Sync never merges you into your base, so unmerged work is a branch's
+    // Pull never merges you into your base, so unmerged work is a branch's
     // permanent condition rather than pending work. Saying so every time
     // would teach people to stop reading the line.
     let fx = ahead_fixture();
@@ -397,7 +397,7 @@ fn ahead_of_the_base_is_silent() {
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(!text.contains("ahead"), "got: {text}");
-    assert!(text.contains("nothing to sync"), "got: {text}");
+    assert!(text.contains("nothing to pull"), "got: {text}");
 }
 
 // --- The remote axis -------------------------------------------------------
@@ -405,12 +405,12 @@ fn ahead_of_the_base_is_silent() {
 #[test]
 fn unpushed_commits_are_what_there_is_to_push() {
     // The same verdict the base axis stays silent about: against the remote
-    // it names precisely the commits sync will send.
+    // it names precisely the commits push will send.
     let fx = to_push_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("2 to publish"), "got: {text}");
+    assert!(text.contains("2 to push"), "got: {text}");
     assert!(
         !text.contains("origin/"),
         "ref syntax never appears: {text}"
@@ -423,7 +423,7 @@ fn a_remote_that_moved_ahead_is_what_there_is_to_pull() {
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
-    assert!(text.contains("2 to sync"), "got: {text}");
+    assert!(text.contains("2 to pull"), "got: {text}");
 }
 
 #[test]
@@ -459,13 +459,13 @@ fn both_axes_speak_in_one_vocabulary() {
         text.contains("base moved — rebases cleanly (3 commits replayed)"),
         "got: {text}"
     );
-    assert!(text.contains("3 to publish"), "got: {text}");
+    assert!(text.contains("3 to push"), "got: {text}");
     // Base first, remote second: the thing underneath you before the thing
     // beside you.
     let base_at = text.find("base moved").expect("a base phrase");
-    let push_at = text.find("3 to publish").expect("a remote phrase");
+    let push_at = text.find("3 to push").expect("a remote phrase");
     assert!(base_at < push_at, "base comes first: {text}");
-    assert!(!text.contains("nothing to sync"), "got: {text}");
+    assert!(!text.contains("nothing to pull"), "got: {text}");
 }
 
 #[test]
@@ -534,16 +534,16 @@ fn a_long_subject_is_truncated() {
 }
 
 #[test]
-fn no_axis_at_all_means_no_sync_line() {
-    // `nothing to sync` is a claim, and fufu can only make it about axes it
+fn no_axis_at_all_means_no_pull_line() {
+    // `nothing to pull` is a claim, and fufu can only make it about axes it
     // can name. With neither, it says nothing rather than guessing.
     let fx = no_base_fixture();
     let out = ff(&fx, &["status"]);
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(!text.contains("moved —"), "got: {text}");
-    assert!(!text.contains("nothing to sync"), "got: {text}");
-    assert!(!text.contains("to publish"), "got: {text}");
+    assert!(!text.contains("nothing to pull"), "got: {text}");
+    assert!(!text.contains("to push"), "got: {text}");
     assert!(!text.contains("can't simulate"), "got: {text}");
 }
 
@@ -632,7 +632,7 @@ fn verdict_colors_per_theme() {
         let text = stdout(&out);
         let line = text
             .lines()
-            .find(|l| l.contains("to publish"))
+            .find(|l| l.contains("to push"))
             .unwrap_or_else(|| panic!("no pending-against-remote line in {text:?}"));
         assert!(
             line.contains(&format!("\x1b[{}m", t.ahead)),
@@ -970,7 +970,7 @@ fn branch_list_colors_per_theme() {
         let text = stdout(&out);
         let line = text
             .lines()
-            .find(|l| l.contains("to publish"))
+            .find(|l| l.contains("to push"))
             .unwrap_or_else(|| panic!("no to-push note line in {text:?}"));
         assert!(
             line.contains(&format!("\x1b[{}m", t.ahead)),
@@ -1100,7 +1100,7 @@ fn standing_on_trunk_states_the_upstream_once() {
     assert!(!first.contains("base"), "trunk sits on nothing: {first:?}");
     assert_eq!(
         text.lines()
-            .filter(|l| l.contains("nothing to sync"))
+            .filter(|l| l.contains("nothing to pull"))
             .count(),
         1,
         "stated once, on the header:\n{text}"

@@ -4,7 +4,7 @@
 
 A verb computes one data model, and the human rendering and the JSON rendering are both readers of it. Neither is a translation of the other.
 
-So `--json` is not the human layout re-serialized. [`ff status`](../reference/cli/status.md) crops to what an eye wants, while its JSON carries the model whole: the full change list, the [open change](../concepts/changes.md), the parent commit, the sync futures.
+So `--json` is not the human layout re-serialized. [`ff status`](../reference/cli/status.md) crops to what an eye wants, while its JSON carries the model whole: the full change list, the [open change](../concepts/changes.md), the parent commit, the pull futures.
 
 That is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
 
@@ -44,7 +44,7 @@ Timestamps are unix seconds, always named `time`. Commit ids are hex; operation 
 
 ## `ff status --json`
 
-The whole working-copy model in one read: where you are, what changed, the open change, its parent, conflicts, foreign drift, and what a sync would do.
+The whole working-copy model in one read: where you are, what changed, the open change, its parent, conflicts, foreign drift, and what a pull would do.
 
 ```console
 $ ff status --json | jq .
@@ -129,7 +129,7 @@ Reading it:
 - **`remote`** — the remote the branch answers to, by its own `branch.<name>.remote` or the repository default; null when there is none or none can be named.
 - **`changes`** — every uncommitted path with per-file counts. `kind` is `modified`, `added`, `deleted`, `renamed` or `copied` (those two carry the source path in `from`), `type_change`, or `intent_to_add`. `binary` marks files whose counts are not line counts.
 - **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `id_letters` is the operation id of the capture holding its current state, and `pending` is the pending description commit when one exists.
-- **`futures`** — the sync verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
+- **`futures`** — the pull verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
 - **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
 - **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open. `resolving.session` names the session branch, and `resolving.here` says whether HEAD is on it; on the branch the hold stands on, `here` is false and `held` is set.
 - **`last_op`** — the newest operation on this worktree's chain, as `ff op log --json` spells its row: `kind` (`op`, `capture`, `foreign`, or `note`), `verb`, `summary`, `branch`, `session`, and `route`. Status's own capture is never the row, so a dirty read still names the last thing that happened before it; foreign motion is reconciled first, so a `foreign` row agrees with `foreign`.
@@ -189,7 +189,7 @@ $ ff history --json | jq -c '.data.steps[]'
 
 `landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo. Redo rows carry negative `distance`, so `distance` alone says how many presses in which direction.
 
-`collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, and `note` records something that moved no tree, such as a publish or the log's floor.
+`collapsed` is how many operations the step folds together. `kind` sorts operations: `op` is a verb somebody ran, `capture` is an automatic snapshot, and `note` records something that moved no tree, such as a push or the log's floor.
 
 The envelope also carries `data.floor`, true when the log bottoms out at the initialized-from-observed-state entry. Every `id` here is a valid argument to the [`ff op`](../reference/cli/op.md) verbs.
 
@@ -207,9 +207,9 @@ Five codes, one meaning each:
 
 The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1.
 
-Exit 3 also rides a `data` envelope. When [`ff sync`](../reference/cli/sync.md), [`ff restack`](../reference/cli/restack.md), [`ff done`](../reference/cli/done.md), [`ff lift`](../reference/cli/lift.md), [`ff absorb`](../reference/cli/absorb.md), or [`ff publish`](../reference/cli/publish.md) holds a rewrite, the verb prints its full report as `data` and exits 3, because a held rewrite is an outcome with a report and not an error with an id. [`ff doctor`](../reference/cli/doctor.md) does the same at 1, its findings as `data` and the code as the verdict. A script reads the envelope for what happened and the code for whether to stop.
+Exit 3 also rides a `data` envelope. When [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), [`ff done`](../reference/cli/done.md), [`ff lift`](../reference/cli/lift.md), [`ff absorb`](../reference/cli/absorb.md), or [`ff push`](../reference/cli/push.md) holds a rewrite, the verb prints its full report as `data` and exits 3, because a held rewrite is an outcome with a report and not an error with an id. [`ff doctor`](../reference/cli/doctor.md) does the same at 1, its findings as `data` and the code as the verdict. A script reads the envelope for what happened and the code for whether to stop.
 
-- **Exit 3** is the code git has no use for, because only a tool that lands if clean produces the outcome. `ff sync` exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) — the replay recorded and waiting rather than applied — is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
+- **Exit 3** is the code git has no use for, because only a tool that lands if clean produces the outcome. `ff pull` exiting 3 is a scriptable "the base moved and this needs you": the [held rewrite](../concepts/held-rewrites.md) — the replay recorded and waiting rather than applied — is parked on the branch that conflicted, whatever the run landed on other branches stands, and the script should stop and surface it rather than retry.
 - **Exit 4** asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
 - **Exit 1** is also `ff doctor`'s verdict, 0 healthy and 1 findings, so CI can gate on it.
 
@@ -233,7 +233,7 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
 
 ## The MCP surface
 
-[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: seven typed tools, `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, and each answering with the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through a tool — it is a shell over one contract, not a second implementation.
+[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: seven typed tools, `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, and each answering with the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through a tool — it is a shell over one contract, not a second implementation.
 
 ```json
 {"name": "explain", "arguments": {"id": "no/such-id"}}
@@ -250,13 +250,13 @@ The envelope arrives twice, as the text content and as `structuredContent`, so a
 
 `isError` is the envelope's kind, not the exit code: true when an `error` envelope came back, or when the child failed without printing one, and false on a `data` envelope whatever the code beside it. `_meta.exit` carries the child's exit code as an integer on every result a child produced, and is absent when no child ran — the tool's own refusals, a spawn that failed — or the child died by signal. A fufu failure is a *successful* tool call carrying `isError`, never a protocol error — a client renders a protocol error opaquely, and the `error.id` inside is what the agent has to read.
 
-The held case is where the two part. A `ff sync` that held is a successful call, `isError` false, whose `data` says which branch held and carries `_meta.exit` of 3; a `ff doctor` with findings is the same at 1. A client may not show `_meta` to the model, so the agent's own signal for a held outcome is the report in `data`, and `_meta.exit` is for a strict client or a harness that wants the number.
+The held case is where the two part. A `ff pull` that held is a successful call, `isError` false, whose `data` says which branch held and carries `_meta.exit` of 3; a `ff doctor` with findings is the same at 1. A client may not show `_meta` to the model, so the agent's own signal for a held outcome is the report in `data`, and `_meta.exit` is for a strict client or a harness that wants the number.
 
 The exit-code rules restate as tool rules. An id under `held/*` means nothing moved and a person is needed, so the agent stops and says so. `ref/contended` means the same call run once more.
 
 ### What the tool serves
 
-The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `sync` takes `no-fetch`; `publish` takes `dry-run` and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
+The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `pull` takes `no-fetch`; `push` takes `dry-run` and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
 
 Everything else is the shell. Beside the seven, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools), taking `cwd` the same way. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
 
@@ -290,7 +290,7 @@ What declaring buys is that fufu will describe it to an agent:
 
 ### What a served extension owes
 
-An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. It may also do what `ff sync` does: a `data` envelope at 3 for a held outcome with a report, which the tool relays as a successful call.
+An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. It may also do what `ff pull` does: a `data` envelope at 3 for a held outcome with a report, which the tool relays as a successful call.
 
 Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, and subscribe to the agent event that fans out after each capture.
 

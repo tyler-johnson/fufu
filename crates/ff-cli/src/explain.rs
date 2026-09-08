@@ -660,17 +660,16 @@ pub static ENTRIES: &[Entry] = &[
         detail: "A handful of git's and jj's words name something fufu does differently, so \
                  typing one is a question rather than a typo and it gets an answer instead of a \
                  parse error. checkout was two jobs and is two verbs here; stash describes a \
-                 state fufu keeps rather than a command you run. pull is ff sync, which lines \
-                 every branch up with its base and its remote in one move, and push is ff \
-                 publish, which sends under a lease. merge is the position rather than the gap: \
-                 fufu replays instead, and a merge commit is what a forge makes when work lands. \
-                 blame and tag stay git's, and each is answered for the half git has not got — \
-                 the operations behind a file since you last committed, and putting back a tag \
-                 that was deleted. rebase is not on this list: it is ff restack's alias, jj's \
-                 word and the git habit landing on the verb that replays. jj's abandon and split \
-                 are answered with the moves that cover them — restore, done --abandon and lift \
-                 for one, commit <paths> and lift for the other. The passthrough still runs the \
-                 real thing, capture-first, when you want git's own behavior instead.",
+                 state fufu keeps rather than a command you run. merge is the position rather \
+                 than the gap: fufu replays instead, and a merge commit is what a forge makes \
+                 when work lands. blame and tag stay git's, and each is answered for the half \
+                 git has not got — the operations behind a file since you last committed, and \
+                 putting back a tag that was deleted. rebase is not on this list: it is ff \
+                 restack's alias, jj's word and the git habit landing on the verb that replays. \
+                 jj's abandon and split are answered with the moves that cover them — restore, \
+                 done --abandon and lift for one, commit <paths> and lift for the other. The \
+                 passthrough still runs the real thing, capture-first, when you want git's own \
+                 behavior instead.",
         exits: &["ff status", "ff git <args>"],
     },
     Entry {
@@ -869,9 +868,9 @@ pub static ENTRIES: &[Entry] = &[
         summary: "a branch cannot be restacked onto its own shared copy",
         detail: "A branch's shared copy is not a base it sits on — it is the same branch \
                  somewhere else, and replaying onto it is reconciling with the remote, \
-                 which is what ff sync does: it fetches, takes in what arrived, and \
+                 which is what ff pull does: it fetches, takes in what arrived, and \
                  replays. --onto is for naming a different branch to sit on.",
-        exits: &["ff sync", "ff restack <branch> --onto <base>"],
+        exits: &["ff pull", "ff restack <branch> --onto <base>"],
     },
     Entry {
         id: "restack/unrelated",
@@ -1105,77 +1104,77 @@ pub static ENTRIES: &[Entry] = &[
         exits: &[],
     },
     Entry {
-        id: "publish/no-git",
+        id: "push/no-git",
         summary: "git is not on PATH, and pushing still needs it",
-        detail: "Reads, rewrites, and now the fetch behind ff sync all run in this process. The \
-                 push behind ff publish does not: gix speaks the half of the git protocol that \
+        detail: "Reads, rewrites, and now the fetch behind ff pull all run in this process. The \
+                 push behind ff push does not: gix speaks the half of the git protocol that \
                  receives a pack and nothing that sends one, so there is no native push to use \
                  yet. Everything else works without git on PATH — your commits are safe here \
-                 either way, and they are what a later publish sends.",
+                 either way, and they are what a later push sends.",
         exits: &["ff git push", "ff doctor"],
     },
     Entry {
-        id: "sync/fetch-failed",
+        id: "pull/fetch-failed",
         summary: "git could not fetch from the remote",
         detail: "The fetch ran and git refused; its own message is quoted. Nothing was \
-                 reconciled and nothing moved, because sync will not decide whose divergence is \
+                 reconciled and nothing moved, because pull will not decide whose divergence is \
                  whose against a fetch that did not happen. The passthrough runs the same fetch \
                  by hand when you want git's full output, and --no-fetch reconciles with the \
                  tracking refs already here.",
-        exits: &["ff git fetch <remote>", "ff sync --no-fetch"],
+        exits: &["ff git fetch <remote>", "ff pull --no-fetch"],
     },
     Entry {
-        id: "publish/unreachable",
+        id: "push/unreachable",
         summary: "the remote never answered",
         detail: "git exited 128, which is how it says it did not get as far as talking to the \
                  other side: a bad URL, a host that will not resolve, or credentials it could \
-                 not supply. Nothing was pushed. This is the one failure publish cannot tell \
+                 not supply. Nothing was pushed. This is the one failure push cannot tell \
                  apart from a network that is simply down, so it reports what git said rather \
                  than guessing which one it was.",
         exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
-        id: "publish/lease-refused",
+        id: "push/lease-refused",
         summary: "the remote moved since you last looked at it",
         detail: "Every push carries a lease: the tracking ref as it stands, offered back to the \
                  remote as what it expects to find there. Somebody pushed in between, so the \
                  remote declined and nothing was overwritten — which is the lease working, not \
-                 failing. Your commits are still here. Run ff sync first: it fetches what \
-                 arrived and replays on top of it, and the publish afterwards offers a lease \
+                 failing. Your commits are still here. Run ff pull first: it fetches what \
+                 arrived and replays on top of it, and the push afterwards offers a lease \
                  that is current.",
-        exits: &["ff sync", "ff publish", "ff status"],
+        exits: &["ff pull", "ff push", "ff status"],
     },
     Entry {
-        id: "publish/rejected",
+        id: "push/rejected",
         summary: "the remote refused the push",
         detail: "The remote answered and said no — a protected branch, a pre-receive hook, or a \
                  permission you do not have. That is a decision on the far side rather than \
                  anything wrong here, so its message is passed along whole. Nothing local \
-                 changed: publish only ever writes to the other side.",
+                 changed: push only ever writes to the other side.",
         exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
-        id: "publish/failed",
+        id: "push/failed",
         summary: "the push did not go through",
-        detail: "git failed in a way publish could not classify as unreachable, leased out, or \
+        detail: "git failed in a way push could not classify as unreachable, leased out, or \
                  refused, so its own message is passed along unedited. Nothing local changed. \
                  Running the push by hand through the passthrough usually says more, since git \
                  prints a fuller transcript when it owns the terminal.",
         exits: &["ff git push <remote>", "ff status"],
     },
     Entry {
-        id: "publish/unrecorded",
+        id: "push/unrecorded",
         summary: "the push went through and the log could not write it down",
-        detail: "The commits are on the remote. What failed is the note publish appends \
-                 afterwards — the row that lets ff sync and ff status tell your own published \
+        detail: "The commits are on the remote. What failed is the note push appends \
+                 afterwards — the row that lets ff pull and ff status tell your own published \
                  tip apart from work somebody else pushed. Nothing is lost either way: without \
-                 the row the next sync reads the shared copy as theirs and replays onto it, \
-                 which never drops a commit. Publishing again once the log is writable records \
+                 the row the next pull reads the shared copy as theirs and replays onto it, \
+                 which never drops a commit. Pushing again once the log is writable records \
                  it, and a contended log usually means another fufu process is mid-operation.",
         exits: &["ff op log", "ff status"],
     },
     Entry {
-        id: "publish/unknown-remote",
+        id: "push/unknown-remote",
         summary: "--to named a remote this repository does not have",
         detail: "--to says which of the remotes you already have a branch answers to, and \
                  nothing more — it does not add one, because a name and a URL are two \
@@ -1186,33 +1185,33 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff remote", "ff git remote add <name> <url>"],
     },
     Entry {
-        id: "publish/retarget",
+        id: "push/retarget",
         summary: "the branch already answers to a different remote",
-        detail: "A branch has one shared copy, and everything fufu knows about publishing is \
+        detail: "A branch has one shared copy, and everything fufu knows about pushing is \
                  keyed to that: the lease is the tracking ref as you last saw it, and the \
                  record of where this repository last left the copy names the branch rather \
                  than the remote. Sending the same branch to a second remote would leave two \
                  copies drifting apart with one memory between them, and the next lease would \
                  be offered against a tip the other remote never held. So --to gives a branch \
-                 an upstream and will not move one it already has. ff publish sends to the \
+                 an upstream and will not move one it already has. ff push sends to the \
                  remote it answers to now; re-pointing it is a deliberate act, and git's own \
                  set-upstream is where that lives until fufu has a verb for it.",
         exits: &[
-            "ff publish",
+            "ff push",
             "ff git branch --set-upstream-to <remote>/<branch>",
         ],
     },
     Entry {
-        id: "sync/ambiguous-remote",
+        id: "pull/ambiguous-remote",
         summary: "more than one remote, and nothing says which one this branch answers to",
         detail: "With several remotes configured and none of them named origin there is no \
                  honest default, and picking one would decide where your work goes on a coin \
-                 flip. Setting the branch's upstream once settles it for every later sync and \
-                 every publish, and ff publish --to <remote> is how to set it and send in the \
+                 flip. Setting the branch's upstream once settles it for every later pull and \
+                 every push, and ff push --to <remote> is how to set it and send in the \
                  same breath. ff remote is the list to pick that name from. A repository with \
                  one remote, or with one called origin, never reaches this.",
         exits: &[
-            "ff publish --to <remote>",
+            "ff push --to <remote>",
             "ff remote",
             "ff git branch --set-upstream-to <remote>/<branch>",
         ],

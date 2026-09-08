@@ -4,7 +4,7 @@
 
 fufu calls each snapshot a **capture**, and taking one is entirely automatic. There is no verb for asking. Captures happen:
 
-- Before every command fufu runs — before a switch, before a sync, before [`ff git`](../reference/cli/git.md) hands your arguments to git.
+- Before every command fufu runs — before a switch, before a pull, before [`ff git`](../reference/cli/git.md) hands your arguments to git.
 - Around every edit an agent or editor makes through fufu, at machine rate.
 
 The manual checkpoint is one of the rituals fufu exists to delete, the way the stash dance is. What you would reach for by hand already happened, before the command you typed.
@@ -24,7 +24,7 @@ Every mutation fufu performs lands on one operation log, and each entry records 
 Operations differ only in what they contain:
 
 - **A capture** moves no ref. It is the tree alone, taken at machine rate.
-- **A verb's operation** carries ref movements too — a switch, a commit, a sync.
+- **A verb's operation** carries ref movements too — a switch, a commit, a pull.
 - **A foreign operation** records what raw git did behind fufu's back, absorbed lazily at the next fufu invocation. [The two regimes](two-regimes.md) covers that boundary.
 
 By the time you ask, work done around fufu is in the log and undoable like anything fufu did itself.

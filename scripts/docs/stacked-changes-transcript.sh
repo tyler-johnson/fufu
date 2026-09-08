@@ -2,7 +2,7 @@
 # The source of truth for every console block in docs/guides/stacked-changes.md:
 # builds a throwaway origin with the tutorial's seed history, builds a
 # two-branch stack, lands review feedback with absorb and lets the cascade
-# carry the branch above, syncs the whole repository, and publishes each
+# carry the branch above, pulls the whole repository, and pushes each
 # branch under its own lease. When a verb's output changes, run this and
 # paste the new blocks rather than hand-editing them — ids and ages differ run
 # to run, everything else must match.
@@ -106,13 +106,13 @@ show "$FF"
   git push -q origin main
 )
 
-# --- sync the whole repository ---
-show "$FF" sync
+# --- pull the whole repository ---
+show "$FF" pull
 
-# --- publish each branch under its own lease ---
-show "$FF" publish
+# --- push each branch under its own lease ---
+show "$FF" push
 show "$FF" switch parser-cli
-show "$FF" publish
+show "$FF" push
 
 # --- the finished stack ---
 show "$FF"

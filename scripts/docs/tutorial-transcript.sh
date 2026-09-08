@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The source of truth for every console block in docs/tutorial.md: clones
 # this repository itself into a throwaway scene — a bare, main-only copy
-# serves as origin, so publish pushes somewhere harmless — then runs the
+# serves as origin, so the push goes somewhere harmless — then runs the
 # tutorial's exact command sequence and prints the labeled transcript to
 # stdout. When a verb's output changes, run this and paste the new blocks
 # rather than hand-editing them; ids, ages, shas, and commit counts differ
@@ -43,7 +43,7 @@ for step in "${TUTORIAL_STEPS[@]}"; do
 
   # The scene must never push back at the working checkout: confirm origin
   # is the scene-local bare copy before anything below can reach for
-  # `publish`.
+  # `push`.
   if [ "$step" = get-a-repository ]; then
     origin_url=$(git remote get-url origin)
     case "$origin_url" in

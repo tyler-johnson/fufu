@@ -2,15 +2,15 @@
 
 A Model Context Protocol server on stdin and stdout, for an agent client that wants fufu as a tool rather than as a shell command. [`ff hook <client>`](hook.md) registers it with claude, codex, cursor, or gemini; this verb is what that registration runs.
 
-It serves seven typed tools: `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions `ff <verb> --help` reads, so a flag on the page is a field on the tool. These seven are the verbs where the shell adds nothing: the inputs are fixed and short, nothing about the output is something an agent would pipe, and the result's structure matters more than its text. Every other verb is the shell.
+It serves seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions `ff <verb> --help` reads, so a flag on the page is a field on the tool. These seven are the verbs where the shell adds nothing: the inputs are fixed and short, nothing about the output is something an agent would pipe, and the result's structure matters more than its text. Every other verb is the shell.
 
 ```
-{"name": "publish", "arguments": {"dry-run": true}}
+{"name": "push", "arguments": {"dry-run": true}}
 ```
 
 Every call runs this same binary as a child with `--json` and hands back the envelope, so capture, `fufu.gitPolicy`, sessions, error ids, and the no-prompt guarantee all hold. `help` is the exception: `{"verb": ["op", "log"]}` is `ff help op log` and returns the page as text, and with no `verb` it returns the map of every verb.
 
-`isError` is true when an `error` envelope came back, and false on a `data` envelope whatever the exit code, so a [`ff sync`](sync.md) that held is a successful call whose data says which branch held; the child's exit code rides every result as `_meta.exit`.
+`isError` is true when an `error` envelope came back, and false on a `data` envelope whatever the exit code, so a [`ff pull`](pull.md) that held is a successful call whose data says which branch held; the child's exit code rides every result as `_meta.exit`.
 
 Two options change what a call does:
 

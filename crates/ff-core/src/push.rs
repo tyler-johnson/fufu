@@ -1,17 +1,17 @@
-//! `ff publish`: the outgoing half of lining up.
+//! `ff push`: the outgoing half of lining up.
 //!
-//! Everything `ff sync` does is undoable — fetch, replay, re-parent, all of
-//! it recorded and all of it reachable from `ff undo`. Publishing is the one
+//! Everything `ff pull` does is undoable — fetch, replay, re-parent, all of
+//! it recorded and all of it reachable from `ff undo`. Pushing is the one
 //! act in the pair that leaves the machine, and no operation log can reach
 //! across the wire to take it back. So it is its own verb, typed on purpose,
 //! rather than a default riding along inside a verb whose whole promise is
 //! reversibility.
 //!
-//! Publish does not fetch. That is not an omission — the lease wants the
+//! Push does not fetch. That is not an omission — the lease wants the
 //! tracking ref *as you last saw it*, and the last thing that moved it was
 //! the last fetch. Going to the network first to refresh that value would
 //! ask git to protect you against a change you just accepted sight unseen.
-//! `ff sync` is how you look.
+//! `ff pull` is how you look.
 //!
 //! What it decides is small: is there anywhere to send this, is the exit
 //! blocked, does the remote already have it, and if not, what the push does
@@ -19,26 +19,26 @@
 //! module hands back a plan and never spawns anything.
 //!
 //! And then, once somebody else has made the call, it records it. That is
-//! the whole of what publish writes, and [`record`] is a second entry point
-//! rather than a step inside [`publish`] because the push happens between
+//! the whole of what push writes, and [`record`] is a second entry point
+//! rather than a step inside [`push`] because the send happens between
 //! them: what it writes is a fact, written after the wire agreed, and there
 //! is no local ref to diff a write-ahead claim against. If either write is
-//! lost after a successful push, the next sync reads the remote as theirs
+//! lost after a successful push, the next pull reads the remote as theirs
 //! and replays, which never loses work.
 //!
 //! Two marks, not one, and [`crate::published`] is where the reason lives:
 //! the note is the record a person reads and is rewound by `ff undo` with
-//! everything else above the landing; the pointer is the answer sync needs
+//! everything else above the landing; the pointer is the answer pull needs
 //! and is the one thing undo must not step back, because undo cannot step
 //! back the wire.
 
-use crate::model::{Publish, PublishReport, PushShape};
+use crate::model::{Push, PushReport, PushShape};
 use crate::ops::record::{OpRecord, Published, observe_refs};
 use crate::ops::{OpId, OpKind};
 use crate::preflight::Preflight;
 use crate::{Error, Provenance, Result};
 
-pub struct PublishOptions {
+pub struct PushOptions {
     /// Decide the plan, write nothing, send nothing. The one thing worth
     /// previewing here is which push this would be — creating a shared copy,
     /// replacing one, putting back one that was deleted, and rolling one
@@ -48,13 +48,13 @@ pub struct PublishOptions {
     pub argv: Vec<String>,
 }
 
-pub fn publish(
+pub fn push(
     repo: &gix::Repository,
     pre: &Preflight,
-    opts: PublishOptions,
+    opts: PushOptions,
     prov: &Provenance,
-) -> Result<(PublishReport, Option<crate::ops::verb::VerbContext>)> {
-    // Capture first, like every verb. Publish changes nothing locally, so it
+) -> Result<(PushReport, Option<crate::ops::verb::VerbContext>)> {
+    // Capture first, like every verb. Push changes nothing locally, so it
     // records no operation of its own — but the tree is snapshotted and
     // foreign motion is reconciled before anything leaves, which is the
     // point of the floor. A dry run reads and writes nothing, so it takes
@@ -65,34 +65,34 @@ pub fn publish(
         Some(crate::ops::verb::begin_verb(repo, prov, opts.now)?)
     };
 
-    let publish = if crate::held::of(repo, &pre.branch)?.is_some() {
+    let push = if crate::held::of(repo, &pre.branch)?.is_some() {
         // The exits-blocked discipline: a held rewrite means the branch's
-        // commits are not what they will be, and sending them would publish
+        // commits are not what they will be, and sending them would put out
         // a state fufu is about to rewrite out from under.
-        Publish::Blocked
+        Push::Blocked
     } else {
         match pre.remote.as_ref() {
-            None => Publish::NoRemote,
+            None => Push::NoRemote,
             Some(remote) => {
                 let tip = crate::preflight::branch_tip(repo, &pre.branch)?;
                 match pre.tracking.as_ref() {
                     // No upstream at all: the push is what creates one and
                     // starts tracking it.
-                    None => Publish::Create {
+                    None => Push::Create {
                         remote: remote.clone(),
                         remote_branch: pre.branch.clone(),
                         tip: tip.to_string(),
                     },
-                    Some(tracking) if tracking.tip == Some(tip) => Publish::UpToDate,
+                    Some(tracking) if tracking.tip == Some(tip) => Push::UpToDate,
                     // Configured, and either standing somewhere else or not
                     // there at all. Every one of these is the same push under
                     // a different lease: the tip as last seen, or the empty
                     // string, which is git's spelling for *must not exist*.
-                    // Typing `ff publish` is saying that out loud; when
-                    // publishing was a default, this case needed a flag to
+                    // Typing `ff push` is saying that out loud; when
+                    // pushing was a default, this case needed a flag to
                     // mean it. Only the sentence afterwards differs, and
                     // `shape` is what tells the four apart.
-                    Some(tracking) => Publish::Push {
+                    Some(tracking) => Push::Push {
                         remote: remote.clone(),
                         remote_branch: tracking.remote_branch.clone(),
                         lease: tracking.tip.map(|id| id.to_string()).unwrap_or_default(),
@@ -105,9 +105,9 @@ pub fn publish(
     };
 
     Ok((
-        PublishReport {
+        PushReport {
             branch: pre.branch.clone(),
-            publish,
+            push,
             dry_run: opts.dry_run,
         },
         ctx,
@@ -177,17 +177,17 @@ pub(crate) fn ever_copied(repo: &gix::Repository, pre: &Preflight) -> Result<boo
 pub fn record(
     repo: &gix::Repository,
     pre: &Preflight,
-    report: &PublishReport,
+    report: &PushReport,
     ctx: &crate::ops::verb::VerbContext,
     prov: &Provenance,
 ) -> Result<Option<OpId>> {
-    let (remote, remote_branch, from, to) = match &report.publish {
-        Publish::Create {
+    let (remote, remote_branch, from, to) = match &report.push {
+        Push::Create {
             remote,
             remote_branch,
             tip,
         } => (remote, remote_branch, None, tip),
-        Publish::Push {
+        Push::Push {
             remote,
             remote_branch,
             lease,
@@ -200,12 +200,12 @@ pub fn record(
             tip,
         ),
         // Nothing left the machine, so there is nothing to remember.
-        Publish::NoRemote | Publish::Blocked | Publish::UpToDate => return Ok(None),
+        Push::NoRemote | Push::Blocked | Push::UpToDate => return Ok(None),
     };
 
     let mut record = OpRecord::new(
-        "publish",
-        format!("published {} to {remote}/{remote_branch}", pre.branch),
+        "push",
+        format!("pushed {} to {remote}/{remote_branch}", pre.branch),
         ctx.now,
     );
     record.published = Some(Published {
@@ -223,7 +223,7 @@ pub fn record(
         OpKind::Note,
         crate::ops::verb::VerbOp {
             record,
-            // Publish moves no local ref, so the planned state is the state:
+            // Push moves no local ref, so the planned state is the state:
             // observing it here can only ever write back what the capture
             // already agreed to.
             planned: observe_refs(repo)?,

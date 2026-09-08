@@ -9,7 +9,7 @@ An operation that goes through fufu gets everything fufu promises:
 - The working copy is [snapshotted](snapshots-and-undo.md) before the operation runs, so nothing it does can lose file state.
 - The operation lands in the operation log, so one [`ff undo`](../reference/cli/undo.md) takes it back — refs and working copy together.
 - Switching branches [parks](branches.md) dirty work, so it resumes with its branch.
-- Syncing replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose.
+- Pulling replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose.
 - [`ff status`](../reference/cli/status.md) reports futures rather than just facts: not "12 commits behind main" but "rebases cleanly onto main," worked out in memory before you commit to anything.
 
 Someone who stays on the fufu surface never meets a conflict at a moment they did not choose. That is what "inside" buys.
@@ -26,7 +26,7 @@ Everything else is outside:
 
 Outside, you get git's exact documented behavior, including git's conflicts at git's usual moments. That is expected, and it belongs to you. fufu does not reach into operations it did not perform: no hooks that intercept, no wrappers that second-guess, no state a foreign write can corrupt.
 
-Guards obey the same boundary. [`ff sync`](../reference/cli/sync.md) refuses to publish a stack with held rewrites, because that guard is a property of fufu's verb. Raw `git push` is git, and it pushes. The status channel gets loud afterward rather than a hook getting in the way.
+Guards obey the same boundary. [`ff push`](../reference/cli/push.md) refuses to send a stack with held rewrites, because that guard is a property of fufu's verb. Raw `git push` is git, and it pushes. The status channel gets loud afterward rather than a hook getting in the way.
 
 This makes GUIs and IDEs first-class writers rather than tolerated exceptions. Every git GUI keeps working identically — showing status, making commits, switching branches — because fufu's conveniences accrue to whoever goes through fufu, one operation at a time, and cost nothing to whoever does not.
 

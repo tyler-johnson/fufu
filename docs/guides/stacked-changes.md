@@ -2,9 +2,9 @@
 
 A stack is a branch whose base — the branch it forked from and rebases onto — is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review.
 
-This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, syncs the whole repository, and publishes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
+This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the whole repository, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
 
-The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff sync`](../reference/cli/sync.md) lines every branch up with its base and its remote, and [`ff publish`](../reference/cli/publish.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
+The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines every branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
 ## Start a stack
 
@@ -108,7 +108,7 @@ $ ff
 
 ## The cascade
 
-Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff sync`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree. The replays ride the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together.
+Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff pull`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree. The replays ride the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together.
 
 Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so.
 
@@ -116,18 +116,18 @@ Each replay is performed rather than predicted: a branch above whose replay conf
 
 Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
 
-## Sync the whole repository
+## Pull the whole repository
 
-Meanwhile a teammate landed a commit on `main`. `ff sync` fetches once and lines every local branch up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes.
+Meanwhile a teammate landed a commit on `main`. `ff pull` fetches once and lines every local branch up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes.
 
 ```console
-$ ff sync
+$ ff pull
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 3 commit(s) onto main
 parser-cli followed parser-core: replayed 1 commit(s)
 updated the working copy (1 file(s))
-not published yet — ff publish
+not published yet — ff push
 main
     fast-forwarded to origin/main (1 commit(s))
 undo: ff undo
@@ -135,27 +135,27 @@ undo: ff undo
 
 Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working copy moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The whole run is one operation, offline, and one `ff undo` away.
 
-## Publish each branch under its own lease
+## Push each branch under its own lease
 
-Each branch in the stack goes to the remote as its own branch, so each piece gets its own review. `ff publish` sends the branch you stand on, and every push carries its own lease — it goes through only if that branch's shared copy still stands where you last saw it.
+Each branch in the stack goes to the remote as its own branch, so each piece gets its own review. `ff push` sends the branch you stand on, and every push carries its own lease — it goes through only if that branch's shared copy still stands where you last saw it.
 
 ```console
-$ ff publish
+$ ff push
 created origin/parser-core and set parser-core to track it
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 
 $ ff switch parser-cli
 switched to parser-cli
 undo: ff undo
 
-$ ff publish
+$ ff push
 created origin/parser-cli and set parser-cli to track it
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make publishing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — `ff sync` takes their work in and cascades, then publish again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
+The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make pushing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — `ff pull` takes their work in and cascades, then push again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
 
 The finished stack, in the map:
 
@@ -184,4 +184,4 @@ From here:
 
 - [Rewriting history](rewriting-history.md) — absorb's whole family: edit, reword, split, and where restacking happens by itself.
 - [Held rewrites](../concepts/held-rewrites.md) — what a conflicted cascade looks like and how `ff resolve` finishes it.
-- [The push boundary](../concepts/push-boundary.md) — leases, rollback, and `ff publish --dry-run`.
+- [The push boundary](../concepts/push-boundary.md) — leases, rollback, and `ff push --dry-run`.

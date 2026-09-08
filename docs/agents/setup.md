@@ -163,11 +163,11 @@ That is `ff trigger`'s doctrine applied to the one place fufu invites an extensi
 
 The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name.
 
-It is a Model Context Protocol server on stdio serving seven typed tools: `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions the verb's `--help` reads, and a `cwd` — `{"name": "publish", "arguments": {"dry-run": true}}` is `ff publish --dry-run`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code. `help` takes the words after `ff help` as `verb` and returns the page as text.
+It is a Model Context Protocol server on stdio serving seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions the verb's `--help` reads, and a `cwd` — `{"name": "push", "arguments": {"dry-run": true}}` is `ff push --dry-run`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code. `help` takes the words after `ff help` as `verb` and returns the page as text.
 
 Every call runs the binary as a child with `--json`, so nothing changes underneath. The child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt.
 
-These seven are the verbs where the shell adds nothing: fixed and short inputs, no output an agent would pipe, and a result whose structure matters more than its text. Each states its own hints, so `publish` is the one that says it is destructive. An extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside the seven.
+These seven are the verbs where the shell adds nothing: fixed and short inputs, no output an agent would pipe, and a result whose structure matters more than its text. Each states its own hints, so `push` is the one that says it is destructive. An extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside the seven.
 
 ### What the tools do not replace
 
@@ -184,9 +184,9 @@ The session tags every child's operations, settled with the same precedence ever
 | client | file | tool |
 | --- | --- | --- |
 | Claude Code | `.mcp.json` in the plugin at `~/.claude/skills/fufu/` | `mcp__plugin_fufu_fufu__status` and six siblings |
-| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `status`, `sync`, … |
-| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `status`, `sync`, … |
-| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `status`, `sync`, … |
+| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `status`, `pull`, … |
+| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `status`, `pull`, … |
+| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `status`, `pull`, … |
 
 For a client that registers servers from a file you manage yourself, the entry is one key:
 

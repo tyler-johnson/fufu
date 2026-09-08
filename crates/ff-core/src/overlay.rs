@@ -7,7 +7,7 @@
 //! against the tip HEAD was on. The overlay carries what the run has decided
 //! so far, and the planners read it before they read the repository, so a
 //! child planned after its parent sits on the parent's planned tip and a
-//! branch the run already holds is not planned twice. `ff sync` is the
+//! branch the run already holds is not planned twice. `ff pull` is the
 //! caller: one operation for everything it moved, written ahead of the first
 //! ref move the way `ff restack` writes its own.
 

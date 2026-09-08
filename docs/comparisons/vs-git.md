@@ -10,7 +10,7 @@ The commands fufu retires are the dangerous-but-daily ones — the rituals that 
 - **The stash dance.** [`ff switch`](../reference/cli/switch.md) parks whatever is open with the branch you leave and reopens whatever was parked where you arrive, untracked files included. The stash itself survives — a parked change is an ordinary stash entry labeled with its branch, visible in every GUI's stash panel — but the two-step dance, and remembering which entry belonged to which branch, is gone.
 - **Detached HEAD.** Editing a commit mid-stack is [`ff edit <rev>`](../reference/cli/edit.md), which mints an anonymous branch at that commit and switches to it; [`ff done`](../reference/cli/done.md) amends, replays the commits that were ahead, and returns you to the tip. HEAD stays attached to a branch throughout, because a detached HEAD is a state fufu never creates.
 - **`rebase -i`.** Its jobs split into verbs that each do one thing: [`ff describe <rev>`](../reference/cli/describe.md) rewords any commit, [`ff absorb`](../reference/cli/absorb.md) folds working changes into a past commit — which also retires the `fixup!`-plus-`--autosquash` ritual — and `ff edit` covers the `edit` stop. Descendants restack automatically and the replay runs in memory, landing only when clean; a conflicting replay becomes a [held rewrite](../concepts/held-rewrites.md) you resolve on your schedule, so the stop-fix-continue treadmill goes too.
-- **The rebase itself.** [`ff sync`](../reference/cli/sync.md) lines the branch up with its base and its remote in one verb, fetch included, and [`ff restack`](../reference/cli/restack.md) is the offline replay for a branch you name. Both are recorded operations that one `ff undo` takes back whole.
+- **The rebase itself.** [`ff pull`](../reference/cli/pull.md) lines the branch up with its base and its remote in one verb, fetch included, and [`ff restack`](../reference/cli/restack.md) is the offline replay for a branch you name. Both are recorded operations that one `ff undo` takes back whole.
 - **The reflog as a recovery tool.** Every operation — every automatic snapshot included — lands on [one operation log](../concepts/snapshots-and-undo.md) that records refs and tree together. [`ff undo`](../reference/cli/undo.md) steps the whole repository back, and [`ff history`](../reference/cli/history.md) shows exactly where each press would land. The reflog still exists and still fills; you stop needing to read it.
 
 The reflex-by-reflex mapping — what you would have typed in git, and what to type now — is the [command table](command-table.md).
@@ -21,7 +21,7 @@ A git veteran's first response to the list above is that aliases and scripts alr
 
 ### It cannot act before you type
 
-fufu snapshots the working copy before every mutating command — before a switch parks your tree, before a sync replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible.
+fufu snapshots the working copy before every mutating command — before a switch parks your tree, before a pull replays it, before `ff git` hands your arguments to git — so the state a mistake would destroy is already saved by the time the mistake is possible.
 
 A safety net you have to remember to throw is a checkpoint, and the manual checkpoint is exactly the ritual [snapshots and undo](../concepts/snapshots-and-undo.md) exists to delete.
 
@@ -35,9 +35,9 @@ Every fufu operation, captures and raw-git motion included, lands on [one log](.
 
 Adopting fufu is partly a workflow shift, not a transparent overlay. Its verbs encode positions, and using them is accepting the positions:
 
-- **Branches rebase onto main rather than merging it in.** `ff sync` replays your commits onto the moved base; there is no verb that merges trunk into a feature branch.
+- **Branches rebase onto main rather than merging it in.** `ff pull` replays your commits onto the moved base; there is no verb that merges trunk into a feature branch.
 - **Unpublished commits are malleable by default.** Rewording, absorbing into, and reshaping commits that only you hold is routine, and every rewriting verb keeps descendants following automatically.
-- **Leased force-pushes to your own branches are routine.** [`ff publish`](../reference/cli/publish.md) always pushes under a lease, so replacing the shared copy of your own branch after a restack is the normal case — guarded, not exceptional.
+- **Leased force-pushes to your own branches are routine.** [`ff push`](../reference/cli/push.md) always sends under a lease, so replacing the shared copy of your own branch after a restack is the normal case — guarded, not exceptional.
 
 The invariant promises compatibility, never neutrality: the repository stays legible to every tool and teammate, and fufu still has opinions about how you work inside it.
 

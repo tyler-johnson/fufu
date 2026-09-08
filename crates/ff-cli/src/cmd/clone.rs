@@ -6,7 +6,7 @@
 //! reason to — writes the gc guard, and takes the operation log's floor. The
 //! report is in fufu's vocabulary rather than git's.
 //!
-//! That last part is not decoration. `ff publish` decides what to send by
+//! That last part is not decoration. `ff push` decides what to send by
 //! comparing against the shared copy fufu remembers, and this is the moment
 //! that memory starts out true rather than inferred.
 //!

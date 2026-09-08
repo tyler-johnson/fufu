@@ -1,6 +1,6 @@
 
 $ ff st
-on main · 1 to sync
+on main · 1 to pull
 @  <id> <sha>   <age> ago
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
@@ -58,22 +58,22 @@ on unicode-escapes · base moved — rebases cleanly (1 commit replayed)
 
 $ # oh, main moved while I worked, so let's catch up
 
-$ ff sync
+$ ff pull
 fetching from origin
 main moved ahead by 1 commit(s)
 replayed 1 commit(s) onto main
 updated the working copy (1 file(s))
-not published yet — ff publish
+not published yet — ff push
 main
     fast-forwarded to origin/main (1 commit(s))
 undo: ff undo
 
 $ # time to push my changes for review
 
-$ ff publish
+$ ff push
 created origin/unicode-escapes and set unicode-escapes to track it
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 
 $ # what was I doing on main again?
 

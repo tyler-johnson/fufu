@@ -1,9 +1,9 @@
-//! Contract for `publish::publish`: the plan it hands back, and nothing
+//! Contract for `push::push`: the plan it hands back, and nothing
 //! else. The network is the CLI's job, so every case here is decided from
 //! refs alone and reaches it zero times.
 
-use ff_core::model::Publish;
-use ff_core::{Provenance, PublishReport};
+use ff_core::model::Push;
+use ff_core::{Provenance, PushReport};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -14,25 +14,25 @@ fn ident(fx: &Fixture) {
 }
 
 fn prov() -> Provenance {
-    Provenance::new("pre", Some("ff publish".into()))
+    Provenance::new("pre", Some("ff push".into()))
 }
 
-fn publish_call(fx: &Fixture) -> PublishReport {
+fn push_call(fx: &Fixture) -> PushReport {
     plan(fx, false).0
 }
 
 /// The plan, plus whether a verb context came back — which is how "a dry run
 /// writes nothing" is observable from here: no context means no capture.
-fn plan(fx: &Fixture, dry_run: bool) -> (PublishReport, bool) {
+fn plan(fx: &Fixture, dry_run: bool) -> (PushReport, bool) {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
-    let (report, ctx) = ff_core::publish::publish(
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Push).unwrap();
+    let (report, ctx) = ff_core::push::push(
         &repo,
         &pre,
-        ff_core::publish::PublishOptions {
+        ff_core::push::PushOptions {
             dry_run,
             now: Some(NOW),
-            argv: vec!["ff".into(), "publish".into()],
+            argv: vec!["ff".into(), "push".into()],
         },
         &prov(),
     )
@@ -66,8 +66,8 @@ fn a_repository_with_no_remote_has_nowhere_to_send_it() {
     fx.write("root.txt", "root\n");
     let _c0 = fx.commit("root");
 
-    match publish_call(&fx).publish {
-        Publish::NoRemote => {}
+    match push_call(&fx).push {
+        Push::NoRemote => {}
         other => panic!("nowhere to send it, got {other:?}"),
     }
 }
@@ -77,8 +77,8 @@ fn a_branch_with_no_upstream_is_created_and_tracked() {
     let fx = Fixture::new();
     feature(&fx);
 
-    match publish_call(&fx).publish {
-        Publish::Create {
+    match push_call(&fx).push {
+        Push::Create {
             remote,
             remote_branch,
             ..
@@ -96,13 +96,13 @@ fn a_remote_that_holds_everything_is_up_to_date() {
     let f1 = feature(&fx);
     track(&fx, &f1);
 
-    match publish_call(&fx).publish {
-        Publish::UpToDate => {}
+    match push_call(&fx).push {
+        Push::UpToDate => {}
         other => panic!("the remote already holds it, got {other:?}"),
     }
 }
 
-/// The lease is the tracking ref as it stands — what you last saw. Publish
+/// The lease is the tracking ref as it stands — what you last saw. Push
 /// never fetches, so this is the only value it could honestly offer.
 #[test]
 fn a_commit_the_remote_lacks_is_pushed_under_the_last_seen_tip() {
@@ -113,8 +113,8 @@ fn a_commit_the_remote_lacks_is_pushed_under_the_last_seen_tip() {
     let f2 = fx.commit("f2");
     assert_ne!(f1, f2);
 
-    match publish_call(&fx).publish {
-        Publish::Push {
+    match push_call(&fx).push {
+        Push::Push {
             remote,
             remote_branch,
             lease,
@@ -131,9 +131,9 @@ fn a_commit_the_remote_lacks_is_pushed_under_the_last_seen_tip() {
     }
 }
 
-/// Somebody deleted the shared copy. Publishing puts it back — typing the
+/// Somebody deleted the shared copy. Pushing puts it back — typing the
 /// verb is saying so out loud, which is what a flag used to be for when
-/// publishing was a default. The empty lease is git's *must not exist*, so a
+/// pushing was a default. The empty lease is git's *must not exist*, so a
 /// racing re-create still loses rather than being overwritten.
 #[test]
 fn a_deleted_shared_copy_is_re_created_under_an_empty_lease() {
@@ -145,8 +145,8 @@ fn a_deleted_shared_copy_is_re_created_under_an_empty_lease() {
     // once stood there, and a clone of a non-empty remote always has some.
     fx.git(&["update-ref", "refs/remotes/origin/main", &f1]);
 
-    match publish_call(&fx).publish {
-        Publish::Push {
+    match push_call(&fx).push {
+        Push::Push {
             remote_branch,
             lease,
             shape,
@@ -176,8 +176,8 @@ fn a_held_rewrite_blocks_the_exit() {
 
     // Both sides rewrite the same line, so replaying onto the shared copy
     // cannot succeed and the rewrite is held. Aiming at the shared copy is
-    // `ff sync`'s remote axis, which this stands in for, so the call is
-    // spelled the way sync spells it: `Aim::Settled`, which is what the
+    // `ff pull`'s remote axis, which this stands in for, so the call is
+    // spelled the way pull spells it: `Aim::Settled`, which is what the
     // refusal `--onto` owes a person does not apply to.
     fx.git(&["switch", "-q", "-c", "collab"]);
     fx.write("shared.txt", "theirs\n");
@@ -204,8 +204,8 @@ fn a_held_rewrite_blocks_the_exit() {
         "the setup must actually hold, got {outcome:?}"
     );
 
-    match publish_call(&fx).publish {
-        Publish::Blocked => {}
+    match push_call(&fx).push {
+        Push::Blocked => {}
         other => panic!("a held rewrite blocks the exit, got {other:?}"),
     }
 }
@@ -229,8 +229,8 @@ fn a_dry_run_plans_the_same_push_and_writes_nothing() {
 
     assert!(report.dry_run, "the report says it sent nothing");
     assert!(!captured, "a dry run takes no capture");
-    match report.publish {
-        Publish::Push { lease, tip, .. } => {
+    match report.push {
+        Push::Push { lease, tip, .. } => {
             assert_eq!(lease, f1, "the same lease the real run would offer");
             assert_eq!(tip, f2);
         }
@@ -249,32 +249,32 @@ fn a_dry_run_plans_the_same_push_and_writes_nothing() {
 
 // --- The record ------------------------------------------------------------
 //
-// A real bare remote, because an undone publish only exists on the far side
+// A real bare remote, because an undone push only exists on the far side
 // of a push and every other test here fakes the remote with `update-ref`.
 
 /// Push `branch` to the fixture's real remote, then record it the way
-/// `ff publish` does: plan, push, record.
-fn publish_for_real(fx: &Fixture, branch: &str) -> PublishReport {
+/// `ff push` does: plan, push, record.
+fn push_for_real(fx: &Fixture, branch: &str) -> PushReport {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
-    let (report, ctx) = ff_core::publish::publish(
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Push).unwrap();
+    let (report, ctx) = ff_core::push::push(
         &repo,
         &pre,
-        ff_core::publish::PublishOptions {
+        ff_core::push::PushOptions {
             dry_run: false,
             now: Some(NOW),
-            argv: vec!["ff".into(), "publish".into()],
+            argv: vec!["ff".into(), "push".into()],
         },
         &prov(),
     )
     .unwrap();
     let spec = format!("{branch}:{branch}");
     fx.git(&["push", "--force", "origin", &spec]);
-    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
+    ff_core::push::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
     report
 }
 
-/// The newest publish row on `branch`, if the log holds one.
+/// The newest push row on `branch`, if the log holds one.
 fn published_row(fx: &Fixture, branch: &str) -> Option<ff_core::ops::Published> {
     let repo = fx.repo();
     let log = ff_core::ops::OpLog::open(&repo).unwrap();
@@ -294,7 +294,7 @@ fn a_push_is_recorded_as_a_note_naming_where_it_left_the_remote() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     let one = fx.commit("one");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
 
     let row = published_row(&fx, "main").expect("the push is on the log");
     assert_eq!(row.remote, "origin");
@@ -322,10 +322,10 @@ fn the_second_push_records_the_lease_it_went_out_under() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     let one = fx.commit("one");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
     fx.write("a.txt", "aa\n");
     let two = fx.commit("two");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
 
     let row = published_row(&fx, "main").expect("the push is on the log");
     assert_eq!(row.from, Some(one));
@@ -333,7 +333,7 @@ fn the_second_push_records_the_lease_it_went_out_under() {
 }
 
 /// A dry run sends nothing, so there is nothing to remember: no note, and no
-/// pointer for the next sync to read.
+/// pointer for the next pull to read.
 #[test]
 fn a_dry_run_records_no_push() {
     let fx = Fixture::new_cloned();
@@ -349,17 +349,17 @@ fn a_dry_run_records_no_push() {
 
 /// The memory of a push must outlive `ff undo`, and that is the whole reason
 /// it is a ref beside the note rather than only the note: undo is a pointer
-/// move, so everything above the landing leaves the log — the publish row
+/// move, so everything above the landing leaves the log — the push row
 /// with it — and undo is precisely the thing that cannot reach the remote.
 #[test]
 fn undo_rewinds_the_log_past_the_note_and_not_past_the_memory() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
     fx.write("a.txt", "aa\n");
     let two = fx.commit("two");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
 
     let repo = fx.repo();
     ff_core::undo(
@@ -385,21 +385,21 @@ fn undo_rewinds_the_log_past_the_note_and_not_past_the_memory() {
 }
 
 /// A tip that is an ancestor of the shared copy does not send commits, it
-/// takes them off — which is what `ff undo` then `ff publish` does, and the
+/// takes them off — which is what `ff undo` then `ff push` does, and the
 /// only way back across the wire fufu has.
 #[test]
 fn a_tip_behind_the_shared_copy_is_a_retraction() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
     fx.write("a.txt", "aa\n");
     fx.commit("two");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
     fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
 
-    match publish_call(&fx).publish {
-        Publish::Push { shape, .. } => assert_eq!(shape, ff_core::PushShape::Retract),
+    match push_call(&fx).push {
+        Push::Push { shape, .. } => assert_eq!(shape, ff_core::PushShape::Retract),
         other => panic!("the shared copy is rolled back, got {other:?}"),
     }
 }
@@ -412,8 +412,8 @@ fn an_absent_shared_copy_with_no_evidence_is_a_first_push() {
     fx.write("a.txt", "a\n");
     fx.commit("one");
 
-    match publish_call(&fx).publish {
-        Publish::Push { lease, shape, .. } => {
+    match push_call(&fx).push {
+        Push::Push { lease, shape, .. } => {
             assert_eq!(lease, "", "must not exist, either way");
             assert_eq!(shape, ff_core::PushShape::First);
         }
@@ -428,12 +428,12 @@ fn an_absent_shared_copy_with_a_push_on_record_is_a_re_creation() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    publish_for_real(&fx, "main");
+    push_for_real(&fx, "main");
     fx.remote_git(&["update-ref", "-d", "refs/heads/main"]);
     fx.git(&["fetch", "--prune", "-q", "origin"]);
 
-    match publish_call(&fx).publish {
-        Publish::Push { lease, shape, .. } => {
+    match push_call(&fx).push {
+        Push::Push { lease, shape, .. } => {
             assert_eq!(lease, "");
             assert_eq!(shape, ff_core::PushShape::Recreate);
         }
@@ -442,7 +442,7 @@ fn an_absent_shared_copy_with_a_push_on_record_is_a_re_creation() {
 }
 
 /// Two remotes, neither named origin — the state that puts the
-/// `sync/ambiguous-remote` refusal on the table, because the ladder has no
+/// `pull/ambiguous-remote` refusal on the table, because the ladder has no
 /// branch upstream to fall back on.
 fn two_remotes(fx: &Fixture) {
     ident(fx);
@@ -461,21 +461,18 @@ fn an_explicit_remote_resolves_past_the_ambiguity() {
 
     // `Preflight` does not derive `Debug`, so `unwrap_err` is not an option;
     // the expectation carries the claim.
-    let err = ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Publish)
+    let err = ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Push)
         .err()
         .expect("two remotes, no origin: the ladder has to refuse");
     assert_eq!(
         err.id(),
-        "sync/ambiguous-remote",
+        "pull/ambiguous-remote",
         "with no upstream set, the default path still refuses to guess"
     );
 
-    let pre = ff_core::preflight::preflight_to(
-        &fx.repo(),
-        ff_core::preflight::Verb::Publish,
-        Some("two"),
-    )
-    .unwrap();
+    let pre =
+        ff_core::preflight::preflight_to(&fx.repo(), ff_core::preflight::Verb::Push, Some("two"))
+            .unwrap();
     assert_eq!(
         pre.remote,
         Some("two".to_string()),
@@ -488,17 +485,14 @@ fn an_unknown_remote_is_refused() {
     let fx = Fixture::new();
     two_remotes(&fx);
 
-    let err = ff_core::preflight::preflight_to(
-        &fx.repo(),
-        ff_core::preflight::Verb::Publish,
-        Some("nope"),
-    )
-    .err()
-    .expect("a remote that does not exist has to be refused");
+    let err =
+        ff_core::preflight::preflight_to(&fx.repo(), ff_core::preflight::Verb::Push, Some("nope"))
+            .err()
+            .expect("a remote that does not exist has to be refused");
     assert_eq!(
         err.id(),
-        "publish/unknown-remote",
-        "fufu will not invent a remote to publish to"
+        "push/unknown-remote",
+        "fufu will not invent a remote to push to"
     );
 }
 
@@ -508,16 +502,13 @@ fn a_branch_that_answers_elsewhere_refuses_the_retarget() {
     two_remotes(&fx);
     fx.set_config("branch.main.remote", "one");
 
-    let err = ff_core::preflight::preflight_to(
-        &fx.repo(),
-        ff_core::preflight::Verb::Publish,
-        Some("two"),
-    )
-    .err()
-    .expect("a branch already answering elsewhere has to be refused");
+    let err =
+        ff_core::preflight::preflight_to(&fx.repo(), ff_core::preflight::Verb::Push, Some("two"))
+            .err()
+            .expect("a branch already answering elsewhere has to be refused");
     assert_eq!(
         err.id(),
-        "publish/retarget",
+        "push/retarget",
         "a branch already answering to one remote is not pointed at a second"
     );
 }
@@ -531,14 +522,10 @@ fn naming_the_remote_already_tracked_changes_nothing() {
     fx.set_config("branch.main.merge", "refs/heads/main");
     fx.git(&["update-ref", "refs/remotes/one/main", &sha]);
 
-    let plain =
-        ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Publish).unwrap();
-    let named = ff_core::preflight::preflight_to(
-        &fx.repo(),
-        ff_core::preflight::Verb::Publish,
-        Some("one"),
-    )
-    .unwrap();
+    let plain = ff_core::preflight::preflight(&fx.repo(), ff_core::preflight::Verb::Push).unwrap();
+    let named =
+        ff_core::preflight::preflight_to(&fx.repo(), ff_core::preflight::Verb::Push, Some("one"))
+            .unwrap();
 
     assert_eq!(
         named.remote, plain.remote,

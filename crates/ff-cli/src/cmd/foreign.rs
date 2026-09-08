@@ -84,34 +84,6 @@ pub fn stash(args: &[OsString]) -> Result<()> {
     )
 }
 
-pub fn pull(args: &[OsString]) -> Result<()> {
-    refuse(
-        "there is no ff pull: ff sync is the incoming half done properly — fetch, take in what \
-         arrived, replay onto your base — with no merge-versus-rebase question to get wrong. \
-         Sending is ff publish, and it is a separate verb on purpose"
-            .into(),
-        vec![
-            "ff sync".into(),
-            "ff publish".into(),
-            passthrough("pull", args),
-        ],
-    )
-}
-
-pub fn push(args: &[OsString]) -> Result<()> {
-    refuse(
-        "there is no ff push: ff publish sends this branch under a lease, so it refuses rather \
-         than overwrites when the shared copy moved since you last looked. It is the outgoing \
-         half of lining up, and ff sync is the incoming one"
-            .into(),
-        vec![
-            "ff publish".into(),
-            "ff sync".into(),
-            passthrough("push", args),
-        ],
-    )
-}
-
 /// The one on this list that is a *position* rather than a gap: principle 12
 /// names rebase over merge outright, and the replay verbs are what fufu has
 /// instead. So the answer is where the act went, not an apology for a verb
@@ -119,12 +91,12 @@ pub fn push(args: &[OsString]) -> Result<()> {
 pub fn merge(args: &[OsString]) -> Result<()> {
     refuse(
         "there is no ff merge: fufu replays rather than merges, so ff restack --onto puts a \
-         branch on top of the work you wanted in and ff sync does that same replay on the way \
+         branch on top of the work you wanted in and ff pull does that same replay on the way \
          in. A merge commit is what a forge makes when work lands, not something a branch \
          collects locally. ff git merge still runs the real thing capture-first"
             .into(),
         vec![
-            "ff sync".into(),
+            "ff pull".into(),
             "ff restack --onto <branch>".into(),
             passthrough("merge", args),
         ],

@@ -273,12 +273,12 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         };
         out.push_str(&format!("    {hint}\n", hint = paint_dim(&hint, colored)));
         // The third of the three held-rewrite disciplines is exits blocked:
-        // sync refuses to publish while a hold stands, and a guard nobody is
+        // push refuses to send while a hold stands, and a guard nobody is
         // told about is a guard that surprises people.
         out.push_str(&format!(
             "    {note}\n",
             note = paint_dim(
-                "exits are blocked: ff sync will not publish while this stands",
+                "exits are blocked: ff push will not send while this stands",
                 colored
             )
         ));
@@ -364,15 +364,15 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     out
 }
 
-/// What `ff sync` would do, in the two nouns a person learns once: the
+/// What `ff pull` would do, in the two nouns a person learns once: the
 /// **base** this work sits on, and the **remote** copy of this same branch.
-/// One part per axis, in that order; an axis sync would not act on
+/// One part per axis, in that order; an axis pull would not act on
 /// contributes nothing. When the remote axis is unnameable — remotes exist
 /// but none of them answers to this branch — a third part, `remote unnamed`,
 /// stands in for the missing axis so an empty axis never reads as a settled
 /// one. `ff status` and the ambient shell channel share this renderer, so a
 /// prompt can never word a verdict differently from the command.
-pub(super) fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<String> {
+pub(super) fn pull_parts(futures: &ff_core::futures::Futures, colored: bool) -> Vec<String> {
     let mut parts: Vec<String> = [futures.base.as_ref(), futures.remote.as_ref()]
         .into_iter()
         .flatten()
@@ -384,45 +384,44 @@ pub(super) fn sync_parts(futures: &ff_core::futures::Futures, colored: bool) -> 
     parts
 }
 
-/// `{n} to publish[ to <ref>]`, pending work headed for the remote.
+/// `{n} to push[ to <ref>]`, pending work headed for the remote.
 ///
-/// The verb, not git's word for it: `ff push` is refused, so a status line
-/// that said "to push" would name the one thing a reader cannot then type.
-/// `to_sync` is its mirror and carries the rest of the reasoning.
-///
-/// `ff branch list` walks every branch and must not pay a merge simulation
-/// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
-/// local counts — and it must spell it in these exact words, so the two
-/// callers read one definition.
-pub(super) fn to_publish(n: usize, toward: Option<&str>, colored: bool) -> String {
-    let phrase = match toward {
-        Some(ref_name) => format!("{n} to publish to {ref_name}"),
-        None => format!("{n} to publish"),
-    };
-    paint_ahead(&phrase, colored)
-}
-
-/// `{n} to sync[ from <ref>]`, pending work the remote already has.
-///
-/// Each half names the verb that handles it — `{n} to sync`, `{n} to publish`
-/// — so a count is always something you can act on. Not "to pull", which
-/// names a verb fufu refuses. The verbs' own output is where "take" and
-/// "send" live: sync says it took commits in, publish says it sent them. A
-/// status line is shorter than a sentence and wants the verb, not the motion.
+/// The verb that handles it, so a count is always something you can act on.
+/// `to_pull` is its mirror and carries the rest of the reasoning.
 ///
 /// `ff branch list` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
-pub(super) fn to_sync(n: usize, toward: Option<&str>, colored: bool) -> String {
+pub(super) fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
     let phrase = match toward {
-        Some(ref_name) => format!("{n} to sync from {ref_name}"),
-        None => format!("{n} to sync"),
+        Some(ref_name) => format!("{n} to push to {ref_name}"),
+        None => format!("{n} to push"),
     };
     paint_ahead(&phrase, colored)
 }
 
-/// One axis's phrase, or `None` when `ff sync` would not act on it.
+/// `{n} to pull[ from <ref>]`, pending work the remote already has.
+///
+/// Each half names the verb that handles it — `{n} to pull`, `{n} to push` —
+/// so a count is always something you can act on. The verbs' own output is
+/// where "take" and "send" live: pull says it took commits in, push says it
+/// sent them. A status line is shorter than a sentence and wants the verb,
+/// not the motion.
+///
+/// `ff branch list` walks every branch and must not pay a merge simulation
+/// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
+/// local counts — and it must spell it in these exact words, so the two
+/// callers read one definition.
+pub(super) fn to_pull(n: usize, toward: Option<&str>, colored: bool) -> String {
+    let phrase = match toward {
+        Some(ref_name) => format!("{n} to pull from {ref_name}"),
+        None => format!("{n} to pull"),
+    };
+    paint_ahead(&phrase, colored)
+}
+
+/// One axis's phrase, or `None` when `ff pull` would not act on it.
 fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
     use ff_core::futures::{At, Role, Verdict};
 
@@ -443,15 +442,15 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
     let alias = matches!(role, Role::RemoteAlias).then_some(f.against.name.as_str());
 
     Some(match &f.verdict {
-        // Sync never merges you into your base, so unmerged work is a
+        // Pull never merges you into your base, so unmerged work is a
         // branch's permanent condition rather than pending work — and a line
         // that reported it every time would teach people to stop reading it.
         Verdict::UpToDate { .. } if role.is_base() => return None,
         // Against the remote the same verdict means the opposite: these are
-        // precisely the commits sync will send.
+        // precisely the commits push will send.
         Verdict::UpToDate { ahead: 0 } => return None,
-        Verdict::UpToDate { ahead } => to_publish(*ahead, alias, colored),
-        Verdict::FastForward { behind } if !role.is_base() => to_sync(*behind, alias, colored),
+        Verdict::UpToDate { ahead } => to_push(*ahead, alias, colored),
+        Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, alias, colored),
         Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
         Verdict::Clean { replayed, dropped } => {
             // Zero dropped stays byte-identical to the line before the
@@ -730,7 +729,7 @@ pub(crate) fn dropped_line(
     ))
 }
 
-/// Build the header line: branch + what syncing would cost + operation.
+/// Build the header line: branch + what pulling would cost + operation.
 fn status_header(status: &Status, futures: &ff_core::futures::Futures, colored: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(match &status.head {
@@ -743,22 +742,22 @@ fn status_header(status: &Status, futures: &ff_core::futures::Futures, colored: 
             format!("detached at {}", ff_core::sha::short(commit.as_str()))
         }
     });
-    // What the header reports is what `ff sync` would do — which is also what
+    // What the header reports is what `ff pull` would do — which is also what
     // decides whether it speaks at all. The upstream's raw ahead/behind used
     // to sit here; the remote axis says the same thing in the vocabulary the
     // base already uses, and saying it twice in two dialects was the whole
     // problem.
-    let sync = sync_parts(futures, colored);
-    if sync.is_empty() {
+    let pull = pull_parts(futures, colored);
+    if pull.is_empty() {
         // Both axes settled — or the only one fufu could name did. One dim
         // phrase stands for both, and never "in sync", which a reader can
         // hear as "merged". With no axis at all (detached, unborn, no
         // nameable trunk) there is nothing honest to claim, so say nothing.
         if futures.base.is_some() || futures.remote.is_some() {
-            parts.push(paint_dim("nothing to sync", colored));
+            parts.push(paint_dim("nothing to pull", colored));
         }
     } else {
-        parts.extend(sync);
+        parts.extend(pull);
     }
     if let Some(op) = &status.operation {
         parts.push(operation_phrase(*op).to_string());
@@ -780,7 +779,7 @@ fn operation_phrase(op: InProgress) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{absorbed_line, axis_phrase, pinned_line, shape, to_publish, to_sync};
+    use super::{absorbed_line, axis_phrase, pinned_line, shape, to_pull, to_push};
     use crate::cmd::status::ForeignEntry;
     use ff_core::ForeignChange;
 
@@ -892,9 +891,9 @@ mod tests {
         // off the simulation — the two must never say different words for
         // the same fact, and a literal on each side keeps a refactor that
         // changed both from passing.
-        use ff_core::futures::{Future, Role, SyncRef, Verdict};
+        use ff_core::futures::{Future, PullRef, Role, Verdict};
         let remote = |verdict| Future {
-            against: SyncRef {
+            against: PullRef {
                 name: "origin/main".into(),
                 r#ref: "refs/remotes/origin/main".into(),
                 tip: "0".repeat(40),
@@ -903,10 +902,10 @@ mod tests {
             verdict,
         };
         let push = axis_phrase(&remote(Verdict::UpToDate { ahead: 6 }), false).unwrap();
-        assert_eq!(push, to_publish(6, None, false));
-        assert_eq!(push, "6 to publish");
+        assert_eq!(push, to_push(6, None, false));
+        assert_eq!(push, "6 to push");
         let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
-        assert_eq!(pull, to_sync(2, None, false));
-        assert_eq!(pull, "2 to sync");
+        assert_eq!(pull, to_pull(2, None, false));
+        assert_eq!(pull, "2 to pull");
     }
 }

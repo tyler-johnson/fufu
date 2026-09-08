@@ -1,5 +1,5 @@
-//! `ff sync` — line this branch up with the base beneath it and the remote
-//! copy of itself. Nothing leaves the machine: sending is `ff publish`.
+//! `ff pull` — line this branch up with the base beneath it and the remote
+//! copy of itself. Nothing leaves the machine: sending is `ff push`.
 //! `ff restack` is one of its two axes; the other is the network, which this
 //! command owns and hands to the core as a number.
 //!
@@ -11,8 +11,8 @@
 //! not recognize replays too.
 
 use ff_core::{
-    BaseAxis, BranchRemote, BranchSync, RemoteAxis, RestackOutcome, RestackReport, Result,
-    SyncReport,
+    BaseAxis, BranchPull, BranchRemote, PullReport, RemoteAxis, RestackOutcome, RestackReport,
+    Result,
 };
 
 use crate::ctx::Ctx;
@@ -24,8 +24,8 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
 
     // The tracking ref as it stands before anything reaches the network,
     // and every other branch's beside it.
-    let before = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync)?;
-    let others_before = ff_core::sync::other_branches(&repo, &before.branch)?;
+    let before = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull)?;
+    let others_before = ff_core::pull::other_branches(&repo, &before.branch)?;
 
     let cwd = repo
         .workdir()
@@ -48,15 +48,15 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
 
     // And again afterwards. Re-running preflight is the honest way to read the
     // same ref twice: one function, one definition, two moments.
-    let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync)?;
+    let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull)?;
     let tracking_after = after.tracking.as_ref().and_then(|t| t.tip);
-    let others_after = ff_core::sync::other_branches(&repo, &after.branch)?;
-    let others = ff_core::sync::after_fetch(others_before, &others_after);
+    let others_after = ff_core::pull::other_branches(&repo, &after.branch)?;
+    let others = ff_core::pull::after_fetch(others_before, &others_after);
 
-    let (report, verb_ctx) = ff_core::sync::sync(
+    let (report, verb_ctx) = ff_core::pull::pull(
         &repo,
         &before,
-        ff_core::sync::SyncOptions {
+        ff_core::pull::PullOptions {
             fetched,
             tracking_after,
             others,
@@ -94,10 +94,10 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
 
     if ctx.json {
         let payload = serde_json::json!({
-            "sync": report,
+            "pull": report,
             "undo": "ff undo",
         });
-        crate::machine::emit("sync", &payload)?;
+        crate::machine::emit("pull", &payload)?;
         if blocked {
             crate::exit::held();
         }
@@ -105,7 +105,7 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
     }
 
     // Human rendering: every report line turns `said` on, and the tail says
-    // "nothing to sync" only when none of them did.
+    // "nothing to pull" only when none of them did.
     let mut said = false;
 
     match &report.remote {
@@ -158,16 +158,16 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
 
     // The other half, named but not done. A branch that just lined up and
     // still holds commits its shared copy does not is exactly when pointing
-    // at `ff publish` is useful — and pointing is all sync does, because
+    // at `ff push` is useful — and pointing is all pull does, because
     // sending is the one thing here that could not be undone.
     let waiting = match report.pending {
         ff_core::Pending::NoRemote | ff_core::Pending::Ahead(0) => None,
-        ff_core::Pending::Unpublished => Some("not published yet — ff publish".to_string()),
-        ff_core::Pending::Ahead(n) => Some(format!("{n} commit(s) to publish — ff publish")),
-        // The same verb clears it, pointed the other way: publishing rolls
+        ff_core::Pending::Unpublished => Some("not published yet — ff push".to_string()),
+        ff_core::Pending::Ahead(n) => Some(format!("{n} commit(s) to push — ff push")),
+        // The same verb clears it, pointed the other way: pushing rolls
         // the shared copy back to where the branch now stands.
         ff_core::Pending::Undone(n) => Some(format!(
-            "{n} commit(s) to take off the shared copy — ff publish"
+            "{n} commit(s) to take off the shared copy — ff push"
         )),
     };
     if let Some(line) = waiting {
@@ -200,7 +200,7 @@ pub fn run(ctx: &Ctx, no_fetch: bool) -> Result<()> {
         said = true;
     }
     if !said {
-        println!("{}", crate::render::paint_dim("nothing to sync", colored));
+        println!("{}", crate::render::paint_dim("nothing to pull", colored));
     }
 
     // One closing line when a hold stands anywhere but the branch underfoot
@@ -312,19 +312,19 @@ fn base_lines(base: &BaseAxis, colored: bool) -> Vec<String> {
 /// One other branch's block: its name, the lines under it, and whether
 /// anything landed on it, which is what the undo hint counts. The remote
 /// axis speaks first and the base axis second, the order they ran in; a
-/// branch sync did not touch says why in one dim line.
-fn branch_lines(b: &BranchSync, colored: bool) -> (&str, Vec<String>, bool) {
+/// branch pull did not touch says why in one dim line.
+fn branch_lines(b: &BranchPull, colored: bool) -> (&str, Vec<String>, bool) {
     let mut out = Vec::new();
     let mut moved = false;
     let name = match b {
-        BranchSync::Elsewhere { branch, path } => {
+        BranchPull::Elsewhere { branch, path } => {
             out.push(crate::render::paint_dim(
                 &format!("checked out in {path} — skipped; run ff restack {branch} there"),
                 colored,
             ));
             branch
         }
-        BranchSync::Held { branch, verb } => {
+        BranchPull::Held { branch, verb } => {
             out.push(crate::render::paint_dim(
                 &format!(
                     "a held {verb} stands on it — skipped; ff switch {branch}, then ff resolve"
@@ -333,7 +333,7 @@ fn branch_lines(b: &BranchSync, colored: bool) -> (&str, Vec<String>, bool) {
             ));
             branch
         }
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch,
             remote,
             base,
@@ -392,7 +392,7 @@ fn branch_lines(b: &BranchSync, colored: bool) -> (&str, Vec<String>, bool) {
 /// Every branch a hold stands on after this run, in report order: the branch
 /// underfoot when either of its axes held, the branches its cascades held,
 /// then each other branch that held on its own axes or in its cascades.
-fn held_branches(report: &SyncReport) -> Vec<String> {
+fn held_branches(report: &PullReport) -> Vec<String> {
     fn of(outcome: &RestackOutcome, out: &mut Vec<String>) {
         match outcome {
             RestackOutcome::Held(h) => out.push(h.branch.clone()),
@@ -410,7 +410,7 @@ fn held_branches(report: &SyncReport) -> Vec<String> {
         of(outcome, &mut out);
     }
     for b in &report.branches {
-        if let BranchSync::Synced { remote, base, .. } = b {
+        if let BranchPull::Pulled { remote, base, .. } = b {
             if let BranchRemote::Ran { outcome, .. } = remote {
                 of(outcome, &mut out);
             }

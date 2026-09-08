@@ -13,22 +13,30 @@
 
 ### Changed
 
+- `ff sync` is `ff pull` and `ff publish` is `ff push`. The old spellings stay as visible aliases, kept rather than deprecated, and `ff --help` shows each on its verb's row. `ff pull` and `ff push` were hidden foreign verbs that refused; they run now, and `ff git pull` still runs git's.
+- The error ids under `sync/` and `publish/` are `pull/` and `push/`: `pull/fetch-failed`, `pull/ambiguous-remote`, `push/no-git`, `push/unreachable`, `push/lease-refused`, `push/rejected`, `push/failed`, `push/unrecorded`, `push/unknown-remote`, `push/retarget`. The old ids resolve nowhere, `ff explain` included.
+- The operation log records the two verbs as `pull` and `push`, and a push's summary reads `pushed <branch> to <remote>/<branch>`. Operations already on a log keep the words they were written with.
+- The JSON envelope's `cmd` is `pull` and `push` for both spellings, and the payload key under `data` moves with it: `data.pull` and `data.push`.
+- `ff pull --json` tags a branch row `Pulled` where it read `Synced`.
+- `ff mcp`'s tools are `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`; `sync` and `publish` are no longer served under those names.
+- `ff status`, `ff pull`, and `ff branch list` say `N to pull`, `N to push`, `nothing to pull`, and `not published yet — ff push`.
 - `ff resolve` opens a session branch, the way `ff edit` does: an anonymous branch minted at a commit carrying the markers, switched to, with the hold staying on the branch you left. `ff done` lands the fixes and returns in one operation; `--abandon` returns too, and from the held branch deletes the session wherever it is. Opening is two operations, the mint and the switch, so two `ff undo` take a fresh session back.
 - `ff status` and `ff status --json` carry the session under `resolving` on both branches: on the session, the conflicts are in your working copy; on the held branch, the line names the session and `ff switch` to it. `held/resolving` on the held branch names the session.
 - The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.
 
-- "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff sync`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
+- "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff pull`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
 - Changes made outside fufu render as one summary line on both surfaces, the reconcile preamble every mutating verb writes to stderr and the block `ff status` pins: a single change keeps its ref and git's reflog hint, and more than one folds to counts by kind. `ff status --json` still carries every ref, and `ff op show @` lists them.
 - Every alias is visible: `ff --help` shows `[alias: st]` on the verb's row, and each aliased verb's page names its spellings. The root page's list of short forms goes.
 - `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
 - A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
-- `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff sync` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
-- `ff mcp` serves seven typed tools, `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, in place of the one `ff` tool and its args array; every other verb is the shell. The tools a declared extension produces are served beside them as before, and take `cwd` the same way.
+- `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff pull` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
+- `ff mcp` serves seven typed tools, `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, in place of the one `ff` tool and its args array; every other verb is the shell. The tools a declared extension produces are served beside them as before, and take `cwd` the same way.
 - The manifest's `undoable` and `verbs[].read_only` are informational: `ff extension add` reports `undoable: false`, and nothing refuses on either.
 - The docs site plays the demo and the tutorial's clips as asciinema recordings, crisp at any width and with selectable text; the demo and tutorial webms are gone, and the gifs stay as the README's and the no-JavaScript fallback.
 
 ### Removed
 
+- `usage/foreign-verb` for `ff pull` and `ff push`, and their rows on the foreign-verb table: both are fufu verbs now.
 - `ff co`, the hidden alias on the `checkout` foreign verb. `ff checkout` still answers with `usage/foreign-verb`.
 - `fufu.toolPolicy`, with the presence marker `ff mcp` held for it and the `ff trigger claude` refusal it drove.
 - `usage/mcp-verb-unavailable`.

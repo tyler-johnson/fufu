@@ -79,9 +79,9 @@ One rewrite engine (`rewrite.rs`) serves every rewrite verb, rather than each fo
 - Every rewrite records its old→new map as a field on the operation, so the log's pins and [`ff trim`](../reference/cli/trim.md)'s retention cover the map for free.
 - No empty commit survives a replay. A commit whose replayed tree matches its new first parent introduces nothing, is not written, and is announced rather than silently dropped.
 
-[`ff restack`](../reference/cli/restack.md) is the primitive under the floor: replay these commits onto that base, hold on conflict. The other verbs are aims for it. [`ff sync`](../reference/cli/sync.md) runs it against both of a branch's axes with the network in front, and [`ff done`](../reference/cli/done.md) is restack pointed at an edit session's parent.
+[`ff restack`](../reference/cli/restack.md) is the primitive under the floor: replay these commits onto that base, hold on conflict. The other verbs are aims for it. [`ff pull`](../reference/cli/pull.md) runs it against both of a branch's axes with the network in front, and [`ff done`](../reference/cli/done.md) is restack pointed at an edit session's parent.
 
-The one act automation never chains into is publishing. A push leaves the machine, so [`ff publish`](../reference/cli/publish.md) is always a verb a person types. That is [the push boundary](../concepts/push-boundary.md) from the mechanism's side.
+The one act automation never chains into is the push. A push leaves the machine, so [`ff push`](../reference/cli/push.md) is always a verb a person types. That is [the push boundary](../concepts/push-boundary.md) from the mechanism's side.
 
 ## Where fufu's state lives
 

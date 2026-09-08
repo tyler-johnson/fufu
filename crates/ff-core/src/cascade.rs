@@ -220,7 +220,7 @@ pub(crate) fn plan(
 }
 
 /// [`plan`], reading the branches' tips, their holds, and the working tree
-/// through what a run has already planned and not written. `ff sync` plans
+/// through what a run has already planned and not written. `ff pull` plans
 /// every branch's axes against one overlay and writes one operation; a
 /// verb with nothing planned ahead passes an empty one, which reads the
 /// repository as it stands.

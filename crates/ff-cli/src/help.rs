@@ -97,8 +97,8 @@ pages! {
     ABSORB           ABSORB_EXAMPLES           "help/absorb.md"
     LIFT             LIFT_EXAMPLES             "help/lift.md"
     RESTACK          RESTACK_EXAMPLES          "help/restack.md"
-    SYNC             SYNC_EXAMPLES             "help/sync.md"
-    PUBLISH          PUBLISH_EXAMPLES          "help/publish.md"
+    PULL             PULL_EXAMPLES             "help/pull.md"
+    PUSH             PUSH_EXAMPLES             "help/push.md"
     REMOTE           REMOTE_EXAMPLES           "help/remote.md"
     INIT             INIT_EXAMPLES             "help/init.md"
     CLONE            CLONE_EXAMPLES            "help/clone.md"
@@ -356,7 +356,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         heading: "collaborate",
-        commands: &[c("sync"), c("publish"), r("remote")],
+        commands: &[c("pull"), c("push"), r("remote")],
     },
     Group {
         heading: "go back",
@@ -409,9 +409,9 @@ pub fn root_template(long: bool) -> String {
 
     // What clap would have printed for each row, minus the name: the `about`
     // line plus any visible alias, spelled the way clap spells it. Hidden
-    // subcommands drop out here — which is exactly what keeps the nine
-    // foreign words (checkout, stash, pull, push, merge, blame, tag, abandon,
-    // split) off the page.
+    // subcommands drop out here — which is exactly what keeps the seven
+    // foreign words (checkout, stash, merge, blame, tag, abandon, split) off
+    // the page.
     let live: Vec<(&str, String)> = root
         .get_subcommands()
         .filter(|sc| !sc.is_hide_set())

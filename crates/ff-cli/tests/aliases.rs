@@ -106,6 +106,8 @@ fn the_mutating_aliases_resolve_to_their_verbs() {
         ("desc", "describe"),
         ("squash", "absorb"),
         ("rebase", "restack"),
+        ("sync", "pull"),
+        ("publish", "push"),
     ] {
         let out = ff(&fx, &[alias, "--help"]);
         assert!(out.status.success(), "ff {alias} --help failed");
@@ -137,6 +139,10 @@ fn the_aliases_ride_their_rows() {
         ("status", "[alias: st]"),
         ("branch", "[aliases: br, bookmark]"),
         ("restack", "[alias: rebase]"),
+        // The push boundary's two: the old spellings ride their verbs' rows
+        // rather than taking rows of their own.
+        ("pull", "[alias: sync]"),
+        ("push", "[alias: publish]"),
     ] {
         let row = list
             .lines()
@@ -158,6 +164,8 @@ fn the_aliases_ride_their_rows() {
         "ev",
         "desc",
         "cfg",
+        "sync",
+        "publish",
         "new",
         "bookmark",
         "workspace",
@@ -172,7 +180,7 @@ fn the_aliases_ride_their_rows() {
     // The list is of what fufu does, so a git or jj word it merely answers
     // is not a row either.
     for foreign in [
-        "checkout", "stash", "pull", "merge", "blame", "tag", "abandon", "split",
+        "checkout", "stash", "merge", "blame", "tag", "abandon", "split",
     ] {
         assert!(
             !rows.contains(&foreign),
@@ -228,7 +236,6 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
     for (verb, expected) in [
         ("checkout", "ff switch"),
         ("stash", "ff switch"),
-        ("pull", "ff sync"),
         // A position rather than a gap: principle 12 names rebase over
         // merge, and the replay verbs are what fufu has instead.
         ("merge", "ff restack"),
@@ -321,7 +328,7 @@ fn foreign_verbs_never_touch_the_repository() {
     fx.write("a.txt", "dirty\n");
     let before = op_count(&fx);
     for verb in [
-        "checkout", "stash", "pull", "merge", "blame", "tag", "abandon", "split",
+        "checkout", "stash", "merge", "blame", "tag", "abandon", "split",
     ] {
         assert!(!ff(&fx, &[verb]).status.success(), "ff {verb} refuses");
     }

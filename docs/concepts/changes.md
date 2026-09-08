@@ -62,7 +62,7 @@ Everywhere fufu draws the graph, the open change is the row marked `@`, sitting 
 
 ```console
 $ ff status
-on ff/hidden-wren · nothing to sync
+on ff/hidden-wren · nothing to pull
 @  ozqwnnpu 5186836d   1m ago
 │  (no description)
 │  M src/main.rs   +1  -0  +++++++

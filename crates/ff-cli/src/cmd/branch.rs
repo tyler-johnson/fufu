@@ -152,7 +152,7 @@ fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
             } else {
                 // The way to it is a pair, not a verb: this branch is already
                 // gone here, so `--shared` has nothing left to stand on until
-                // the undo puts it back. `ff publish`'s tail says the same
+                // the undo puts it back. `ff push`'s tail says the same
                 // shape for the same reason.
                 println!(
                     "  the shared copy {} is still there — ff undo then ff branch delete {} --shared removes it too",
@@ -174,7 +174,7 @@ fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
         println!(
             "{}",
             crate::render::paint_dim(
-                "ff undo brings the branch back; ff publish sends the copy again",
+                "ff undo brings the branch back; ff push sends the copy again",
                 colored
             )
         );

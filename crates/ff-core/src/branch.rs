@@ -453,7 +453,7 @@ pub fn rename_current(
 /// guesses a remote. Callers use it to decide `--shared` before anything is
 /// deleted.
 pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::model::SharedCopy>> {
-    let Some(sync_ref) = crate::futures::remote_for(repo, name)? else {
+    let Some(pull_ref) = crate::futures::remote_for(repo, name)? else {
         return Ok(None);
     };
     let Some(remote) = repo
@@ -475,11 +475,11 @@ pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::m
         .unwrap_or_else(|| name.to_string());
     Ok(Some(crate::model::SharedCopy {
         remote,
-        name: sync_ref.name,
-        r#ref: sync_ref.r#ref,
+        name: pull_ref.name,
+        r#ref: pull_ref.r#ref,
         remote_branch,
-        tip: sync_ref.tip,
-        aliased: sync_ref.role == crate::futures::Role::RemoteAlias,
+        tip: pull_ref.tip,
+        aliased: pull_ref.role == crate::futures::Role::RemoteAlias,
     }))
 }
 

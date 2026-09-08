@@ -579,7 +579,7 @@ pub(super) fn branch_checks(repo: &ff_core::gix::Repository, fix: bool) -> Resul
                 rows.push(Row::warn(
                     "remotes",
                     format!(
-                        "no nameable remote for {list} — `ff sync` and `ff publish` both refuse; `ff publish --to <remote>` chooses one"
+                        "no nameable remote for {list} — `ff pull` and `ff push` both refuse; `ff push --to <remote>` chooses one"
                     ),
                 ));
             } else {

@@ -5,7 +5,7 @@
 fufu (`ff`) is an opinionated version control interface for humans and agents: automatic snapshots, effortless branching, whole-repo undo. It is [built on ordinary git](concepts/invariant.md), so your tools, your teammates, and your remotes all still work.
 
 <div class="demo cast" data-cast="assets/demo.cast" data-loop>
-  <noscript><img src="assets/demo.gif" alt="A terminal running ff: a glance at the branches, changes on main parked by a single switch, a commit, a fix folded into it, then sync and publish."></noscript>
+  <noscript><img src="assets/demo.gif" alt="A terminal running ff: a glance at the branches, changes on main parked by a single switch, a commit, a fix folded into it, then pull and push."></noscript>
 </div>
 
 fufu is version control done the right way:

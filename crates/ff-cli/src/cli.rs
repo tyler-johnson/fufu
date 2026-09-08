@@ -343,18 +343,18 @@ pub enum Command {
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
     },
-    // agent notice quotes this: `ff sync`
+    // agent notice quotes this: `ff pull`
     /// Line every branch up with its base and its remote
-    #[command(long_about = help::term(help::SYNC), after_long_help = help::term_examples(help::SYNC_EXAMPLES))]
-    Sync {
+    #[command(visible_alias = "sync", long_about = help::term(help::PULL), after_long_help = help::term_examples(help::PULL_EXAMPLES))]
+    Pull {
         /// Skip the fetch: reconcile with what you already have
         #[arg(long)]
         no_fetch: bool,
     },
-    // agent notice quotes this: `ff publish`
+    // agent notice quotes this: `ff push`
     /// Send this branch to its remote, under a lease
-    #[command(long_about = help::term(help::PUBLISH), after_long_help = help::term_examples(help::PUBLISH_EXAMPLES))]
-    Publish {
+    #[command(visible_alias = "publish", long_about = help::term(help::PUSH), after_long_help = help::term_examples(help::PUSH_EXAMPLES))]
+    Push {
         /// Say which push this would be, without sending it
         #[arg(short = 'n', long)]
         dry_run: bool,
@@ -574,19 +574,7 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
-    /// No `ff pull`: `ff sync` takes in, `ff git pull` still runs git's
-    #[command(hide = true)]
-    Pull {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
-    /// No `ff push`: `ff publish` sends this branch, under a lease
-    #[command(hide = true)]
-    Push {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
-    /// No `ff merge`: fufu replays — `ff restack --onto`, `ff sync` — rather than merging
+    /// No `ff merge`: fufu replays — `ff restack --onto`, `ff pull` — rather than merging
     #[command(hide = true)]
     Merge {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -986,8 +974,8 @@ impl Command {
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
-            Command::Sync { .. } => "sync",
-            Command::Publish { .. } => "publish",
+            Command::Pull { .. } => "pull",
+            Command::Push { .. } => "push",
             Command::Remote => "remote",
             Command::Init { .. } => "init",
             Command::Clone { .. } => "clone",
@@ -1015,8 +1003,6 @@ impl Command {
             // one, which a fufu verb name would have hidden.
             Command::Checkout { .. } => "checkout",
             Command::Stash { .. } => "stash",
-            Command::Pull { .. } => "pull",
-            Command::Push { .. } => "push",
             Command::Merge { .. } => "merge",
             Command::Blame { .. } => "blame",
             Command::Tag { .. } => "tag",
@@ -1077,7 +1063,7 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
-            | Command::Sync { .. }
+            | Command::Pull { .. }
             | Command::Edit { .. }
             | Command::Done { .. }
             | Command::Resolve { .. }
@@ -1101,8 +1087,6 @@ impl Command {
             | Command::Clone { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
-            | Command::Publish { .. }
-            | Command::Pull { .. }
             | Command::Push { .. }
             | Command::Merge { .. }
             | Command::Blame { .. }
@@ -1166,8 +1150,6 @@ impl Command {
             | Command::Extension { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
-            | Command::Pull { .. }
-            | Command::Push { .. }
             | Command::Merge { .. }
             | Command::Blame { .. }
             | Command::Tag { .. }
@@ -1209,8 +1191,8 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
-            | Command::Sync { .. }
-            | Command::Publish { .. }
+            | Command::Pull { .. }
+            | Command::Push { .. }
             | Command::Done { .. }
             | Command::Resolve { .. }
             | Command::Edit { .. }

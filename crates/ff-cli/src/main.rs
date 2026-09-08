@@ -301,10 +301,8 @@ fn main() {
         }) => cmd::absorb::run(&ctx, into, paths, no_verify),
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
-        Some(cli::Command::Sync { no_fetch }) => cmd::sync::run(&ctx, no_fetch),
-        Some(cli::Command::Publish { dry_run, to }) => {
-            cmd::publish::run(&ctx, dry_run, to.as_deref())
-        }
+        Some(cli::Command::Pull { no_fetch }) => cmd::pull::run(&ctx, no_fetch),
+        Some(cli::Command::Push { dry_run, to }) => cmd::push::run(&ctx, dry_run, to.as_deref()),
         Some(cli::Command::Remote) => cmd::remote::run(&ctx),
         // The two verbs that run before there is a repository to discover.
         Some(cli::Command::Init { dir, bare }) => cmd::init::run(&ctx, dir, bare),
@@ -349,8 +347,6 @@ fn main() {
         // The foreign verbs answer and stop; none of them reaches a repository.
         Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),
         Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),
-        Some(cli::Command::Pull { args }) => cmd::foreign::pull(&args),
-        Some(cli::Command::Push { args }) => cmd::foreign::push(&args),
         Some(cli::Command::Merge { args }) => cmd::foreign::merge(&args),
         Some(cli::Command::Blame { args }) => cmd::foreign::blame(&args),
         Some(cli::Command::Tag { args }) => cmd::foreign::tag(&args),

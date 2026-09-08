@@ -99,6 +99,6 @@ The pieces above, as one list to file with security:
     - it caches the answer in `<cache>/fufu/update.json` for a one-line notice.
 
     It never installs anything; `false` stops the check and the notice both.
-4. **What remains.** With the check off, nothing in fufu itself reaches the network. `ff update` fetches only when you run it, `ff hook` writes local files and nothing else, and [`ff sync`](reference/cli/sync.md) and [`ff publish`](reference/cli/publish.md) talk only to the remotes your repository configures: the fetch is native and reads git's credential and proxy config, and the push runs git.
+4. **What remains.** With the check off, nothing in fufu itself reaches the network. `ff update` fetches only when you run it, `ff hook` writes local files and nothing else, and [`ff pull`](reference/cli/pull.md) and [`ff push`](reference/cli/push.md) talk only to the remotes your repository configures: the fetch is native and reads git's credential and proxy config, and the push runs git.
 
 Next: the [tutorial](tutorial.md), or [adopting fufu](adopting.md) if you already have a repository.

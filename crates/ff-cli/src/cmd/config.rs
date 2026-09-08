@@ -100,7 +100,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "",
             kind: SettingKind::Branch,
             desc: &[
-                "Which branch is trunk: what ff sync rebases onto, what ff status measures",
+                "Which branch is trunk: what ff pull rebases onto, what ff status measures",
                 "against, and where a bare ff start forks from. Local (main) or",
                 "remote-qualified (origin/main). Unset means fufu works it out.",
             ],

@@ -22,6 +22,6 @@ No declared minimum version. The daily surface — status, commit, switch, undo,
 
 ## How it is tested
 
-fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially. A permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, sync, stash, signing, the index, the revset grammar, and the rest.
+fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially. A permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, pull, stash, signing, the index, the revset grammar, and the rest.
 
 The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the full suite on Linux, macOS, and Windows for every code change — [platforms](install.md#platforms) says what that covers per OS.

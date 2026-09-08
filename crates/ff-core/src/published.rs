@@ -20,7 +20,7 @@
 //! the record a person reads in `ff op log` and is rewound with everything
 //! else, and this pointer, which is not.
 //!
-//! Both are written by [`publish::record`](crate::publish::record), in that
+//! Both are written by [`publish::record`](crate::push::record), in that
 //! order, and nothing else writes either.
 //!
 //! Failure points the same direction [`accounted_for`](crate::accounted_for)

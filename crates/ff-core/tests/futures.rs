@@ -404,7 +404,7 @@ fn parent_metadata_wins_the_ladder() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "base".into(),
             r#ref: "refs/heads/base".into(),
             tip: tip(&fx, "base").to_string(),
@@ -433,7 +433,7 @@ fn a_parent_that_no_longer_resolves_falls_through_to_trunk() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "main".into(),
             r#ref: "refs/heads/main".into(),
             tip: tip(&fx, "main").to_string(),
@@ -467,7 +467,7 @@ fn a_tracking_ref_parent_is_a_base() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "origin/feature".into(),
             r#ref: "refs/remotes/origin/feature".into(),
             tip: root,
@@ -511,7 +511,7 @@ fn a_parent_that_is_this_branchs_own_remote_is_not_a_base() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "main".into(),
             r#ref: "refs/heads/main".into(),
             tip: tip(&fx, "main").to_string(),
@@ -532,7 +532,7 @@ fn a_branch_measures_against_trunk() {
         .expect("a base");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "main".into(),
             r#ref: "refs/heads/main".into(),
             tip: tip(&fx, "main").to_string(),
@@ -612,7 +612,7 @@ fn the_remote_is_this_branchs_own_copy() {
         .expect("a remote");
     assert_eq!(
         got,
-        futures::SyncRef {
+        futures::PullRef {
             name: "origin/main".into(),
             r#ref: "refs/remotes/origin/main".into(),
             tip: tip(&fx, "main").to_string(),
@@ -702,7 +702,7 @@ fn a_push_on_record_is_evidence_enough_for_gone() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("base");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     fx.remote_git(&["update-ref", "-d", "refs/heads/main"]);
     fx.git(&["fetch", "--prune", "-q", "origin"]);
     assert!(
@@ -717,17 +717,17 @@ fn a_push_on_record_is_evidence_enough_for_gone() {
 }
 
 /// The shared copy stands where the branch last published it and the branch
-/// has stepped back from it. Sync would take those commits straight in;
+/// has stepped back from it. Pull would take those commits straight in;
 /// status says whose they are instead.
 #[test]
 fn a_published_tip_the_branch_stepped_back_from_is_undone() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     fx.write("a.txt", "aa\n");
     fx.commit("two");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
 
     let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
@@ -744,10 +744,10 @@ fn a_tracking_tip_moved_off_the_published_one_is_not_undone() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     fx.write("a.txt", "aa\n");
     fx.commit("two");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
     // Somebody else pushed on top of what we published.
     fx.git(&["switch", "-q", "-c", "collab", "origin/main"]);
@@ -763,24 +763,24 @@ fn a_tracking_tip_moved_off_the_published_one_is_not_undone() {
 }
 
 /// Push `main` to the fixture's real remote and record it, the way
-/// `ff publish` does: plan, push, record.
-fn publish_for_real(fx: &Fixture) {
+/// `ff push` does: plan, push, record.
+fn push_for_real(fx: &Fixture) {
     let repo = fx.repo();
-    let prov = ff_core::Provenance::new("pre", Some("ff publish".into()));
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
-    let (report, ctx) = ff_core::publish::publish(
+    let prov = ff_core::Provenance::new("pre", Some("ff push".into()));
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Push).unwrap();
+    let (report, ctx) = ff_core::push::push(
         &repo,
         &pre,
-        ff_core::publish::PublishOptions {
+        ff_core::push::PushOptions {
             dry_run: false,
             now: Some(1_799_999_999),
-            argv: vec!["ff".into(), "publish".into()],
+            argv: vec!["ff".into(), "push".into()],
         },
         &prov,
     )
     .unwrap();
     fx.git(&["push", "--force", "-q", "origin", "main:main"]);
-    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov).unwrap();
+    ff_core::push::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov).unwrap();
 }
 
 // --- The cache ---
@@ -1001,7 +1001,7 @@ fn unpushed_commits_are_up_to_date_against_the_remote() {
     let f = futures::remote_future(&fx.repo(), "main", Some(tip(&fx, "main")), None)
         .expect("remote_future")
         .expect("a future");
-    // The surface will spell this "2 to publish": up-to-date against the remote
+    // The surface will spell this "2 to push": up-to-date against the remote
     // means the branch is ahead, not that nothing moved.
     assert_eq!(f.verdict, Verdict::UpToDate { ahead: 2 });
 }

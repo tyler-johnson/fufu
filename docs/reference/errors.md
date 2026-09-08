@@ -21,7 +21,7 @@ The code follows the id: `usage/*` exits 2, `held/*` exits 3, `ref/contended` ex
 - On 3, stop and surface it. A [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever else the run landed stands, and only a person can say what happens next.
 - On 4, run the same command again, with a cap. Contention is another writer holding the ref for a moment, but a lock file nobody clears makes the answer the same every time, so retry a few times and then surface that.
 
-The near miss is `publish/unrecorded`, which stays at 1: the push landed and only the operation log lost the race to record it, so the tree did move, and re-running [`ff publish`](../reference/cli/publish.md) records it.
+The near miss is `push/unrecorded`, which stays at 1: the push landed and only the operation log lost the race to record it, so the tree did move, and re-running [`ff push`](../reference/cli/push.md) records it.
 
 ## The index
 
@@ -80,14 +80,16 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `op/nothing-to-redo` | 1 | there is no forward step to take |
 | `op/trimmed` | 1 | that operation is no longer on the log |
 | `op/unreadable` | 1 | an operation on the log could not be decoded |
-| `publish/failed` | 1 | the push did not go through |
-| `publish/lease-refused` | 1 | the remote moved since you last looked at it |
-| `publish/no-git` | 1 | git is not on PATH, and pushing still needs it |
-| `publish/rejected` | 1 | the remote refused the push |
-| `publish/retarget` | 1 | the branch already answers to a different remote |
-| `publish/unknown-remote` | 1 | --to named a remote this repository does not have |
-| `publish/unreachable` | 1 | the remote never answered |
-| `publish/unrecorded` | 1 | the push went through and the log could not write it down |
+| `pull/ambiguous-remote` | 1 | more than one remote, and nothing says which one this branch answers to |
+| `pull/fetch-failed` | 1 | git could not fetch from the remote |
+| `push/failed` | 1 | the push did not go through |
+| `push/lease-refused` | 1 | the remote moved since you last looked at it |
+| `push/no-git` | 1 | git is not on PATH, and pushing still needs it |
+| `push/rejected` | 1 | the remote refused the push |
+| `push/retarget` | 1 | the branch already answers to a different remote |
+| `push/unknown-remote` | 1 | --to named a remote this repository does not have |
+| `push/unreachable` | 1 | the remote never answered |
+| `push/unrecorded` | 1 | the push went through and the log could not write it down |
 | `ref/contended` | 4 | another process is holding that ref |
 | `repo/bare` | 1 | this is a bare repository, and the verb needs a working copy |
 | `repo/detached` | 1 | HEAD is not on a branch |
@@ -109,8 +111,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `sign/no-key` | 1 | ssh signing needs a key and user.signingkey is empty |
 | `sign/no-program` | 1 | the signing program is not on PATH |
 | `sign/unknown-format` | 1 | gpg.format names a signing format fufu does not know |
-| `sync/ambiguous-remote` | 1 | more than one remote, and nothing says which one this branch answers to |
-| `sync/fetch-failed` | 1 | git could not fetch from the remote |
 | `target/unresolvable` | 1 | that target resolves, but not to something this verb can use |
 | `undo/not-undoable` | 1 | that operation has nothing in it to invert |
 | `undo/nothing` | 1 | the operation log has nothing left to undo |

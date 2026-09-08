@@ -203,55 +203,55 @@ Once later work has piled on top, this stops being a recovery problem and become
 
 ## "Someone force-pushed over my branch"
 
-The symptom: you go to publish and fufu refuses — the shared copy of your branch is not where you left it, because somebody rewrote it and force-pushed.
+The symptom: you go to push and fufu refuses — the shared copy of your branch is not where you left it, because somebody rewrote it and force-pushed.
 
-Every [`ff publish`](../reference/cli/publish.md) carries a lease: the push goes through only if the shared copy still stands where you last saw it. So the force-push cost you nothing — the lease caught it, nothing was sent, and nothing was lost:
+Every [`ff push`](../reference/cli/push.md) carries a lease: the push goes through only if the shared copy still stands where you last saw it. So the force-push cost you nothing — the lease caught it, nothing was sent, and nothing was lost:
 
 ```console
-$ ff publish
-ff: origin/parser-stream moved since you last looked, so nothing was pushed — your commits are still here, and ff sync takes in what arrived
+$ ff push
+ff: origin/parser-stream moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
   try:
-    ff sync
-    ff publish
+    ff pull
+    ff push
 ```
 
-[`ff sync`](../reference/cli/sync.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and sync says which:
+[`ff pull`](../reference/cli/pull.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and pull says which:
 
 ```console
-$ ff sync
+$ ff pull
 fetching from origin
 took in 1 commit(s) from origin/parser-stream
 replayed 1 of yours on top
 dropped ea9920b5 "parser: string literals" — it changes nothing
-1 commit(s) to publish — ff publish
+1 commit(s) to push — ff push
 undo: ff undo
 ```
 
-Nothing has left the machine yet, and everything sync did is one `ff undo` away. Once the branch lines up, publish sends it, under a fresh lease:
+Nothing has left the machine yet, and everything pull did is one `ff undo` away. Once the branch lines up, the push sends it, under a fresh lease:
 
 ```console
-$ ff publish
-published parser-stream to origin/parser-stream
+$ ff push
+pushed parser-stream to origin/parser-stream
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-The same rules protect the other side: if your own publish would have overwritten work somebody pushed in good faith, the lease refuses that too. [The push boundary](../concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
+The same rules protect the other side: if your own push would have overwritten work somebody pushed in good faith, the lease refuses that too. [The push boundary](../concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
 
 ## What undo cannot reach
 
 Two things sit outside the net, and fufu tells you about both at the moment they matter.
 
-The first is the push. `ff undo` moves this repository, and a push moves a machine somewhere else — which is why publishing is a verb you type rather than a step riding inside another one, and why every publish says so as it goes:
+The first is the push. `ff undo` moves this repository, and a push moves a machine somewhere else — which is why pushing is a verb you type rather than a step riding inside another one, and why every push says so as it goes:
 
 ```console
-$ ff publish
+$ ff push
 created origin/parser-stream and set parser-stream to track it
 the push left the machine — ff undo cannot reach it
-ff undo then ff publish rolls the shared copy back, under a lease
+ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-There is still a way back, and it is another publish rather than an undo: undo the commit locally, publish again, and the lease rolls the shared copy back to where the branch now stands. That is not erasure — other clones may hold the commits, CI ran — but the shared copy is yours to move.
+There is still a way back, and it is another push rather than an undo: undo the commit locally, push again, and the lease rolls the shared copy back to where the branch now stands. That is not erasure — other clones may hold the commits, CI ran — but the shared copy is yours to move.
 
 The second is the floor. Undo reaches back to the moment fufu started watching, and no further. In a repository fufu adopts rather than creates, the log's first entry says exactly that, and `ff history` marks it:
 

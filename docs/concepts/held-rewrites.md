@@ -2,7 +2,7 @@
 
 **A conflict is the operation staying pending, not a strange object in the graph.**
 
-fufu's rewrites all run in memory and land only when the result is clean: [`ff restack`](../reference/cli/restack.md) moving a branch onto a new base, [`ff sync`](../reference/cli/sync.md)'s replay, [`ff done`](../reference/cli/done.md) landing an editing session, and the restacking that [`ff absorb`](../reference/cli/absorb.md) and [`ff lift`](../reference/cli/lift.md) do to descendants.
+fufu's rewrites all run in memory and land only when the result is clean: [`ff restack`](../reference/cli/restack.md) moving a branch onto a new base, [`ff pull`](../reference/cli/pull.md)'s replay, [`ff done`](../reference/cli/done.md) landing an editing session, and the restacking that [`ff absorb`](../reference/cli/absorb.md) and [`ff lift`](../reference/cli/lift.md) do to descendants.
 
 When a step conflicts, nothing is touched:
 
@@ -74,7 +74,7 @@ Deferred and quiet is how work rots. The disclosure is what makes the deferral s
 
 ## What a hold blocks, and what it does not
 
-A hold blocks [`ff publish`](push-boundary.md). Nothing is sent while the branch's commits are still about to be rewritten out from under it.
+A hold blocks [`ff push`](push-boundary.md). Nothing is sent while the branch's commits are still about to be rewritten out from under it.
 
 That guard lives on the fufu surface only. Raw `git push` is git and it pushes, with the status channel getting loud afterward rather than a hook getting in the way — exactly as [the two regimes](two-regimes.md) says.
 

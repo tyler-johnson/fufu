@@ -1,11 +1,10 @@
-//! `ff sync` and `ff publish`, end to end against the real `ff` binary.
+//! `ff pull` and `ff push`, end to end against the real `ff` binary.
 //! Every test is offline: all but one run `--no-fetch` on a repository with
 //! no remote, and the one that really fetches
 //! ([`a_half_removed_worktree_admin_dir_does_not_stop_the_fetch`]) aims at a
 //! bare remote on the filesystem beside it. Nothing here reaches the
 //! network. Covers the base-axis replay, the JSON envelopes, the
-//! nothing-to-sync state, publish with nowhere to send, and the two git
-//! words that now point at the pair.
+//! nothing-to-pull state, and a push with nowhere to send.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -56,8 +55,8 @@ fn json(output: &Output) -> serde_json::Value {
 
 fn repo() -> Fixture {
     let fx = Fixture::new();
-    fx.set_config("user.name", "Sync Tester");
-    fx.set_config("user.email", "sync@test.test");
+    fx.set_config("user.name", "Pull Tester");
+    fx.set_config("user.email", "pull@test.test");
     fx
 }
 
@@ -84,12 +83,12 @@ fn moved_base(fx: &Fixture) {
 }
 
 #[test]
-fn sync_replays_onto_a_moved_base() {
+fn pull_replays_onto_a_moved_base() {
     let fx = repo();
     moved_base(&fx);
 
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("main moved ahead by 2 commit(s)"), "{text}");
@@ -104,87 +103,61 @@ fn the_json_envelope_carries_the_report() {
     let fx = repo();
     moved_base(&fx);
 
-    let output = ff(&fx, &["--json", "sync", "--no-fetch"]);
+    let output = ff(&fx, &["--json", "pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "sync");
-    assert_eq!(v["data"]["sync"]["branch"], "feature");
-    assert!(v["data"]["sync"].get("remote").is_some());
-    assert!(v["data"]["sync"].get("base").is_some());
-    // Sync sends nothing, so the envelope carries no `pushed` at all — the
-    // count of what is left for publish is what replaced it.
+    assert_eq!(v["cmd"], "pull");
+    assert_eq!(v["data"]["pull"]["branch"], "feature");
+    assert!(v["data"]["pull"].get("remote").is_some());
+    assert!(v["data"]["pull"].get("base").is_some());
+    // Pull sends nothing, so the envelope carries no `pushed` at all — the
+    // count of what is left for push is what replaced it.
     assert!(v["data"].get("pushed").is_none());
-    assert!(v["data"]["sync"].get("pending").is_some());
+    assert!(v["data"]["pull"].get("pending").is_some());
 }
 
 #[test]
-fn nothing_to_sync_says_so() {
+fn nothing_to_pull_says_so() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
-    assert!(text.contains("nothing to sync"), "{text}");
+    assert!(text.contains("nothing to pull"), "{text}");
 }
 
 #[test]
-fn ff_pull_now_points_at_sync() {
-    let fx = repo();
-
-    let output = ff(&fx, &["pull"]);
-    assert_eq!(output.status.code(), Some(2), "{}", out(&output));
-    let said = stderr(&output);
-    assert!(said.contains("ff sync"), "{said}");
-}
-
-/// The word fufu deliberately does not have, now that the outgoing half is
-/// its own verb: `ff push` is a question, and `ff publish` is the answer.
-#[test]
-fn ff_push_now_points_at_publish() {
-    let fx = repo();
-
-    let output = ff(&fx, &["push"]);
-    assert_eq!(output.status.code(), Some(2), "{}", out(&output));
-    let said = stderr(&output);
-    assert!(said.contains("ff publish"), "{said}");
-    assert!(
-        said.contains("lease"),
-        "the reason it is not git's push: {said}"
-    );
-}
-
-#[test]
-fn publish_with_no_remote_says_so_and_sends_nothing() {
+fn push_with_no_remote_says_so_and_sends_nothing() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");
 
-    let output = ff(&fx, &["publish"]);
+    let output = ff(&fx, &["push"]);
     assert!(output.status.success(), "{}", out(&output));
     assert!(stdout(&output).contains("no remote"), "{}", stdout(&output));
 }
 
 #[test]
-fn the_publish_json_envelope_carries_its_own_report() {
+fn the_push_json_envelope_carries_its_own_report() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");
 
-    let output = ff(&fx, &["--json", "publish"]);
+    let output = ff(&fx, &["--json", "push"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "publish");
-    assert_eq!(v["data"]["publish"]["branch"], "main");
+    assert_eq!(v["cmd"], "push");
+    assert_eq!(v["data"]["push"]["branch"], "main");
     assert_eq!(v["data"]["pushed"], false);
 }
 
-/// Sync names the other half rather than doing it: a branch that just lined
+/// Pull names the other half rather than doing it: a branch that just lined
 /// up and still has commits its shared copy lacks says so, and says which
 /// verb sends them.
 #[test]
-fn sync_points_at_publish_when_something_is_waiting() {
+fn pull_points_at_push_when_something_is_waiting() {
     let fx = repo();
     moved_base(&fx);
     // Give feature a shared copy that is one commit behind it.
@@ -195,28 +168,28 @@ fn sync_points_at_publish_when_something_is_waiting() {
     fx.set_config("remote.origin.url", "/nonexistent/remote.git");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
-    assert!(text.contains("to publish"), "{text}");
-    assert!(text.contains("ff publish"), "{text}");
+    assert!(text.contains("to push"), "{text}");
+    assert!(text.contains("ff push"), "{text}");
 }
 
 /// `--dry-run` says which push this would be and spends nothing. The tail
 /// line is the tell: the real run says the push left the machine, and this
 /// one must not, because it did not.
 #[test]
-fn publish_dry_run_says_would_and_sends_nothing() {
+fn push_dry_run_says_would_and_sends_nothing() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");
     fx.set_config("remote.origin.url", "/nonexistent/remote.git");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
-    // A real publish here would spawn git and fail against a dead remote.
+    // A real push here would spawn git and fail against a dead remote.
     // The dry run must not reach it at all, which is why success is the
     // assertion that matters.
-    let output = ff(&fx, &["publish", "--dry-run"]);
+    let output = ff(&fx, &["push", "--dry-run"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("would create"), "{text}");
@@ -227,7 +200,7 @@ fn publish_dry_run_says_would_and_sends_nothing() {
     );
 
     // -n is the same flag, matching ff trim.
-    let short = ff(&fx, &["publish", "-n"]);
+    let short = ff(&fx, &["push", "-n"]);
     assert_eq!(stdout(&short), text, "-n and --dry-run are one flag");
 }
 
@@ -239,16 +212,16 @@ fn the_dry_run_envelope_says_it_sent_nothing() {
     fx.set_config("remote.origin.url", "/nonexistent/remote.git");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
 
-    let output = ff(&fx, &["--json", "publish", "-n"]);
+    let output = ff(&fx, &["--json", "push", "-n"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "publish");
+    assert_eq!(v["cmd"], "push");
     assert_eq!(v["data"]["pushed"], false);
-    assert_eq!(v["data"]["publish"]["dry_run"], true);
+    assert_eq!(v["data"]["push"]["dry_run"], true);
 }
 
 /// A sibling worktree's admin dir caught mid-removal — a `gitdir` file with
-/// no `commondir` beside it — used to fail the whole sync: gix's fetch opens
+/// no `commondir` beside it — used to fail the whole pull: gix's fetch opens
 /// every admin dir `worktrees()` lists to find the branches checked out
 /// elsewhere, and propagates the open error. git's own walk skips such a
 /// directory and fetches anyway, so fufu hands the fetch to git there.
@@ -295,7 +268,7 @@ fn a_half_removed_worktree_admin_dir_does_not_stop_the_fetch() {
     )
     .unwrap();
 
-    let output = ff(&fx, &["sync"]);
+    let output = ff(&fx, &["pull"]);
     assert!(output.status.success(), "{}", out(&output));
     assert_eq!(
         fx.git(&["rev-parse", "refs/remotes/origin/main"]).trim(),
@@ -305,10 +278,10 @@ fn a_half_removed_worktree_admin_dir_does_not_stop_the_fetch() {
 }
 
 /// A branch you are not standing on follows its shared copy: `side` is
-/// pushed, a second clone moves it, and a sync from `main` fast-forwards it
+/// pushed, a second clone moves it, and a pull from `main` fast-forwards it
 /// without a switch. The envelope carries the move under `branches`.
 #[test]
-fn sync_moves_a_branch_you_are_not_on() {
+fn pull_moves_a_branch_you_are_not_on() {
     let fx = Fixture::new_cloned();
     fx.write("a.txt", "a\n");
     fx.commit("one");
@@ -337,12 +310,12 @@ fn sync_moves_a_branch_you_are_not_on() {
     let theirs = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
     assert_ne!(theirs, s1);
 
-    let output = ff(&fx, &["--json", "sync"]);
+    let output = ff(&fx, &["--json", "pull"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "sync");
-    assert_eq!(v["data"]["sync"]["branch"], "main");
-    let row = &v["data"]["sync"]["branches"][0]["Synced"];
+    assert_eq!(v["cmd"], "pull");
+    assert_eq!(v["data"]["pull"]["branch"], "main");
+    let row = &v["data"]["pull"]["branches"][0]["Pulled"];
     assert_eq!(row["branch"], "side", "{v}");
     let moved = &row["remote"]["Moved"];
     assert_eq!(moved["fast_forward"], true, "{v}");
@@ -362,8 +335,8 @@ fn sync_moves_a_branch_you_are_not_on() {
 #[test]
 fn a_hold_on_another_branch_exits_3() {
     let fx = Fixture::new_cloned();
-    fx.set_config("user.name", "Sync Tester");
-    fx.set_config("user.email", "sync@test.test");
+    fx.set_config("user.name", "Pull Tester");
+    fx.set_config("user.email", "pull@test.test");
     fx.write("a.txt", "a\n");
     fx.commit("one");
     fx.git(&["push", "-q", "-u", "origin", "main"]);
@@ -394,12 +367,12 @@ fn a_hold_on_another_branch_exits_3() {
     let mine = fx.commit("mine");
     fx.git(&["switch", "-q", "main"]);
 
-    let output = ff(&fx, &["--json", "sync"]);
+    let output = ff(&fx, &["--json", "pull"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "sync", "{v}");
-    assert_eq!(v["data"]["sync"]["branch"], "main");
-    let row = &v["data"]["sync"]["branches"][0]["Synced"];
+    assert_eq!(v["cmd"], "pull", "{v}");
+    assert_eq!(v["data"]["pull"]["branch"], "main");
+    let row = &v["data"]["pull"]["branches"][0]["Pulled"];
     assert_eq!(row["branch"], "side", "{v}");
     let held = &row["remote"]["Ran"]["outcome"]["held"];
     assert_eq!(held["branch"], "side", "{v}");
@@ -423,13 +396,13 @@ fn stacked_child(fx: &Fixture) {
 }
 
 #[test]
-fn sync_says_what_followed_above() {
+fn pull_says_what_followed_above() {
     let fx = repo();
     moved_base(&fx);
     stacked_child(&fx);
     let child_before = fx.git(&["rev-parse", "child"]).trim().to_string();
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("replayed 1 commit(s) onto main"), "{text}");
@@ -444,7 +417,7 @@ fn sync_says_what_followed_above() {
         fx.try_git(&["merge-base", "--is-ancestor", "feature", "child"])
             .status
             .success(),
-        "child sits on the synced feature"
+        "child sits on the pulled feature"
     );
 }
 
@@ -463,7 +436,7 @@ fn the_working_tree_line_prints_when_a_cascade_carried_the_branch_underfoot() {
     let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
     let child_before = fx.git(&["rev-parse", "child"]).trim().to_string();
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
@@ -498,15 +471,15 @@ fn the_working_tree_line_prints_when_a_cascade_carried_the_branch_underfoot() {
 }
 
 #[test]
-fn the_sync_envelope_carries_the_cascade() {
+fn the_pull_envelope_carries_the_cascade() {
     let fx = repo();
     moved_base(&fx);
     stacked_child(&fx);
 
-    let output = ff(&fx, &["--json", "sync", "--no-fetch"]);
+    let output = ff(&fx, &["--json", "pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    let cascade = &v["data"]["sync"]["base"]["Ran"]["outcome"]["restacked"]["cascade"];
+    let cascade = &v["data"]["pull"]["base"]["Ran"]["outcome"]["restacked"]["cascade"];
     assert_eq!(cascade["moved"][0]["branch"], "child", "{v}");
     assert_eq!(cascade["moved"][0]["base"], "feature", "{v}");
 }
@@ -560,7 +533,7 @@ fn the_human_render_names_every_branch_that_moved() {
     let fx = Fixture::new_cloned();
     let (s1, theirs) = side_moved_and_a_stale(&fx);
 
-    let output = ff(&fx, &["sync"]);
+    let output = ff(&fx, &["pull"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     let a_block = "a\n    main moved ahead by 1 commit(s)\n    replayed 1 commit(s) onto main\n";
@@ -577,7 +550,7 @@ fn the_human_render_names_every_branch_that_moved() {
         text.trim_end().ends_with("undo: ff undo"),
         "the undo hint closes the run: {text}"
     );
-    assert!(!text.contains("nothing to sync"), "{text}");
+    assert!(!text.contains("nothing to pull"), "{text}");
 
     assert_ne!(fx.git(&["rev-parse", "side"]).trim(), s1, "side moved");
     // The replay onto main rewrote what arrived, so the tree is the witness.
@@ -619,7 +592,7 @@ fn a_skipped_worktree_branch_is_named_with_its_path() {
     fx.write("m.txt", "m\n");
     fx.commit("m1");
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("side\n    checked out in "), "{text}");
@@ -651,7 +624,7 @@ fn a_held_branch_is_named_and_the_exit_is_3() {
     fx.write("shared.txt", "theirs\n");
     fx.commit("theirs");
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("side\n    held: replaying "), "{text}");
@@ -684,7 +657,7 @@ fn a_held_branch_is_named_and_the_exit_is_3() {
 /// Three branches with nothing to do say nothing: the render stays the one
 /// line it was before it knew about them.
 #[test]
-fn nothing_to_sync_stays_one_line() {
+fn nothing_to_pull_stays_one_line() {
     let fx = repo();
     fx.write("root.txt", "root\n");
     fx.commit("root");
@@ -692,9 +665,9 @@ fn nothing_to_sync_stays_one_line() {
         fx.git(&["branch", name]);
     }
 
-    let output = ff(&fx, &["sync", "--no-fetch"]);
+    let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
-    assert_eq!(stdout(&output), "nothing to sync\n");
+    assert_eq!(stdout(&output), "nothing to pull\n");
 }
 
 /// The keys of a JSON object, sorted, so a shape can be pinned in one
@@ -713,7 +686,7 @@ fn keys(v: &serde_json::Value) -> Vec<&str> {
 /// The row for `branch` in `branches`, whatever its variant, as the pair of
 /// variant name and payload.
 fn row_of<'a>(v: &'a serde_json::Value, branch: &str) -> (&'a str, &'a serde_json::Value) {
-    v["data"]["sync"]["branches"]
+    v["data"]["pull"]["branches"]
         .as_array()
         .expect("branches is an array")
         .iter()
@@ -726,7 +699,7 @@ fn row_of<'a>(v: &'a serde_json::Value, branch: &str) -> (&'a str, &'a serde_jso
 }
 
 /// The envelope carries every other branch under `branches`, one row each,
-/// tagged by variant and naming the branch; a `Synced` row carries its two
+/// tagged by variant and naming the branch; a `Pulled` row carries its two
 /// axes tagged the same way. The exact keys serde produces are pinned here
 /// so a script can rely on them.
 #[test]
@@ -746,22 +719,22 @@ fn the_json_envelope_lists_the_other_branches() {
     let added = ff(&fx, &["worktree", "add", &bay.to_string_lossy(), "w"]);
     assert!(added.status.success(), "{}", out(&added));
 
-    let output = ff(&fx, &["--json", "sync"]);
+    let output = ff(&fx, &["--json", "pull"]);
     assert!(output.status.success(), "{}", out(&output));
     let v = json(&output);
-    assert_eq!(v["cmd"], "sync");
+    assert_eq!(v["cmd"], "pull");
     assert_eq!(v["data"]["undo"], "ff undo");
     assert_eq!(
-        v["data"]["sync"]["branches"].as_array().map(Vec::len),
+        v["data"]["pull"]["branches"].as_array().map(Vec::len),
         Some(4),
         "{v}"
     );
-    for row in v["data"]["sync"]["branches"].as_array().unwrap() {
+    for row in v["data"]["pull"]["branches"].as_array().unwrap() {
         assert_eq!(keys(row).len(), 1, "one variant tag per row: {row}");
     }
 
     let (tag, side) = row_of(&v, "side");
-    assert_eq!(tag, "Synced");
+    assert_eq!(tag, "Pulled");
     assert_eq!(keys(side), ["base", "branch", "remote"], "{v}");
     assert_eq!(keys(&side["remote"]), ["Moved"], "{v}");
     let moved = &side["remote"]["Moved"];
@@ -777,7 +750,7 @@ fn the_json_envelope_lists_the_other_branches() {
     assert_eq!(moved["new"], theirs);
 
     let (tag, a) = row_of(&v, "a");
-    assert_eq!(tag, "Synced");
+    assert_eq!(tag, "Pulled");
     assert_eq!(a["remote"], "NoRemote", "a unit variant is its name: {v}");
     assert_eq!(keys(&a["base"]), ["Ran"], "{v}");
     let ran = &a["base"]["Ran"];

@@ -18,7 +18,7 @@ The same in-process core is what makes [futures](architecture.md) affordable. A 
 
 The design projected a ladder for writes: object writes go native early, disk-materializing operations start on the git binary and go native as coverage earns it. The ladder has been climbed further than that projection assumed. Today every local write is native — snapshots, commits, the index rebuild, branch moves, switch's park-and-resume, restack's replay, undo. There is no local verb that shells out to git porcelain to do its work.
 
-The wire is climbed too, except for sending. [`ff clone`](../reference/cli/clone.md) and [`ff sync`](../reference/cli/sync.md)'s fetch speak the git protocol themselves, over gix's blocking transport on reqwest and rustls, so the negotiation, the pack, and clone's checkout all happen in-process.
+The wire is climbed too, except for sending. [`ff clone`](../reference/cli/clone.md) and [`ff pull`](../reference/cli/pull.md)'s fetch speak the git protocol themselves, over gix's blocking transport on reqwest and rustls, so the negotiation, the pack, and clone's checkout all happen in-process.
 
 What those verbs still reach outside the process for is git's configuration and authentication surface, not its porcelain:
 
@@ -29,7 +29,7 @@ What those verbs still reach outside the process for is git's configuration and 
 
 That surface is inherited whole rather than reimplemented, and it degrades gracefully: fetching works on a machine with no git on PATH.
 
-[`ff publish`](../reference/cli/publish.md)'s push is the one operation that stays spawned, and the reason is a fact about the dependency rather than a trust decision. gix implements the half of the protocol that receives a pack and nothing that sends one, so there is no native rung to climb to yet.
+[`ff push`](../reference/cli/push.md)'s send is the one operation that stays spawned, and the reason is a fact about the dependency rather than a trust decision. gix implements the half of the protocol that receives a pack and nothing that sends one, so there is no native rung to climb to yet.
 
 The spawn is a single `git push` per invocation (`crates/ff-cli/src/net.rs`), with stderr captured so a failure is classified into a coded error — a lease violation, a remote refusal, an unreachable remote — rather than merely echoed.
 
@@ -63,7 +63,7 @@ One rule decides that: the tree hook runs where worktree content becomes commit 
 
 - `pre-commit` guards [`ff commit`](../reference/cli/commit.md), [`ff absorb`](../reference/cli/absorb.md), and both of [`ff done`](../reference/cli/done.md)'s landings — the edit session, and the resolution that is fufu's `rebase --continue`.
 - The message hooks run for `ff commit`, [`ff describe <rev>`](../reference/cli/describe.md), and an `ff done` whose session carries a new description. `post-commit` stays on `ff commit`, the one verb git would call a commit rather than a rebase.
-- [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md) and `ff sync` run none, because neither `git rebase` nor a reattribution between commits runs any.
+- [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md) and `ff pull` run none, because neither `git rebase` nor a reattribution between commits runs any.
 
 `--no-verify` suppresses `pre-commit` and `commit-msg`. githooks(5) is explicit that `prepare-commit-msg` is not suppressed by it, and fufu follows. The [FAQ](../faq.md#does-fufu-run-my-git-hooks) carries the table.
 
@@ -85,7 +85,7 @@ fufu runs no background process. Millisecond cold start plus in-process caching 
 
 The destination is a machine where `ff` alone is a fully working development setup, the way a jj user never installs git. That is direction, and the staging toward it is deliberately honest about what works today.
 
-The daily surface — status, commit, describe, new, switch, edit, absorb, sync's fetch, undo, log, restore — already runs without git installed.
+The daily surface — status, commit, describe, new, switch, edit, absorb, pull's fetch, undo, log, restore — already runs without git installed.
 
 What still wants git on the machine is the push (until gix can send a pack), the inherited credential and installation-config surface where it applies, trim's best-effort `gc --auto` (skipped without it), and the `ff git` escape hatch. That hatch's territory — bisect, plumbing, forensics — either arrives inside fufu over time or waits for a machine that has git.
 

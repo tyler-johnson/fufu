@@ -2,7 +2,7 @@
 //! on stdio.
 //!
 //! The server is a shell over the machine surface and nothing more. It
-//! serves seven typed tools — `status`, `sync`, `publish`, `undo`, `redo`,
+//! serves seven typed tools — `status`, `pull`, `push`, `undo`, `redo`,
 //! `explain`, and `help` — for the verbs where the shell adds nothing:
 //! fixed and short inputs, no output an agent would pipe, and a result
 //! whose structure matters more than its text. Each takes the verb's own
@@ -118,7 +118,7 @@ fn complain(err: &dyn std::fmt::Display) -> Error {
 /// naming every produced tool would be a message as long as one.
 fn unknown(name: &str) -> String {
     format!(
-        "no tool named {name:?}; this server serves status, sync, publish, undo, redo, explain, \
+        "no tool named {name:?}; this server serves status, pull, push, undo, redo, explain, \
          help, and the tools a declared extension produced, each named <extension>__<tool>"
     )
 }

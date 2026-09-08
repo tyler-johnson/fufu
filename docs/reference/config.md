@@ -70,7 +70,7 @@ How often ff looks for a new release in the background. false turns the whole ma
 
 `fufu.trunk` — branch; unset by default
 
-Which branch is trunk: what ff sync rebases onto, what ff status measures against, and where a bare ff start forks from. Local (main) or remote-qualified (origin/main). Unset means fufu works it out.
+Which branch is trunk: what ff pull rebases onto, what ff status measures against, and where a bare ff start forks from. Local (main) or remote-qualified (origin/main). Unset means fufu works it out.
 
 ### theme
 
@@ -109,6 +109,6 @@ How many commits bare ff walks before it stops and says so with a trailing ~. Th
 The `fufu.*` keys above are fufu's own. Everything else fufu needs, it reads from git's existing configuration rather than keeping a second copy:
 
 - **Identity.** Commits and operations are authored from `user.name` and `user.email`. With neither set, fufu refuses with the same fix git would ask for: `git config user.name <name>`, `git config user.email <email>`.
-- **URLs, proxies, and credentials.** [`ff sync`](../reference/cli/sync.md) and [`ff clone`](../reference/cli/clone.md) speak the git protocol natively, but they honor `url.<base>.insteadOf` rewrites, `http.proxy`, and `credential.helper` from your git config, and they invoke your credential helpers and `ssh` exactly as git would. Push runs the git binary itself, so everything that configures a git push applies unchanged.
+- **URLs, proxies, and credentials.** [`ff pull`](../reference/cli/pull.md) and [`ff clone`](../reference/cli/clone.md) speak the git protocol natively, but they honor `url.<base>.insteadOf` rewrites, `http.proxy`, and `credential.helper` from your git config, and they invoke your credential helpers and `ssh` exactly as git would. Push runs the git binary itself, so everything that configures a git push applies unchanged.
 
 The practical consequence: a repo that already fetches through a corporate proxy or authenticates through a credential helper keeps working under fufu with nothing new to configure. fufu adds settings only for behavior git does not have.

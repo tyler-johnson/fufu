@@ -1,12 +1,12 @@
-//! Contract for `sync::sync`: the two axes, the
+//! Contract for `pull::pull`: the two axes, the
 //! divergence rule, and the exit — with the fetch's before/after tips
 //! handed in as parameters and the network reached zero times.
 
 use ff_core::gix;
-use ff_core::sync::{OtherBranch, SyncOptions};
+use ff_core::pull::{OtherBranch, PullOptions};
 use ff_core::{
-    BaseAxis, BranchRemote, BranchSync, Provenance, RemoteAxis, RestackOutcome, SkipReason,
-    SyncReport,
+    BaseAxis, BranchPull, BranchRemote, Provenance, PullReport, RemoteAxis, RestackOutcome,
+    SkipReason,
 };
 use ff_testsupport::Fixture;
 
@@ -21,25 +21,25 @@ fn ident(fx: &Fixture) {
 }
 
 fn prov() -> Provenance {
-    Provenance::new("pre", Some("ff sync".into()))
+    Provenance::new("pre", Some("ff pull".into()))
 }
 
-fn sync_run(
+fn pull_run(
     repo: &gix::Repository,
     pre: &ff_core::preflight::Preflight,
     fetched: bool,
     after: Option<&str>,
-) -> SyncReport {
+) -> PullReport {
     let after = after.map(|h| gix::ObjectId::from_hex(h.as_bytes()).unwrap());
-    ff_core::sync::sync(
+    ff_core::pull::pull(
         repo,
         pre,
-        SyncOptions {
+        PullOptions {
             fetched,
             tracking_after: after,
             others: Vec::new(),
             now: Some(NOW),
-            argv: vec!["ff".into(), "sync".into()],
+            argv: vec!["ff".into(), "pull".into()],
         },
         &prov(),
     )
@@ -47,10 +47,10 @@ fn sync_run(
     .0
 }
 
-fn sync_call(fx: &Fixture, fetched: bool, after: Option<&str>) -> SyncReport {
+fn pull_call(fx: &Fixture, fetched: bool, after: Option<&str>) -> PullReport {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
-    sync_run(&repo, &pre, fetched, after)
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
+    pull_run(&repo, &pre, fetched, after)
 }
 
 /// A ref's tip, for asserting that one did — or did not — move.
@@ -99,7 +99,7 @@ fn pushed_feature(fx: &Fixture) -> (String, String) {
 /// The test-1 shape: the collaborator committed on top of what we pushed
 /// and so did we. `collab` is the tip the fetch would bring — the tracking
 /// ref is left where it stands, because the "fetch" must run BETWEEN
-/// preflight and sync: preflight records where the tracking ref stood
+/// preflight and pull: preflight records where the tracking ref stood
 /// before, and the divergence rule compares against exactly that.
 fn diverged(fx: &Fixture) -> String {
     let (_c0, _f1) = pushed_feature(fx);
@@ -112,13 +112,13 @@ fn diverged(fx: &Fixture) -> String {
     collab
 }
 
-/// The preflight → fetch → sync dance: preflight records where the tracking
-/// ref stood before, the fetch moves it, and sync is handed the after tip.
-fn synced_fetch(fx: &Fixture, after: &str) -> SyncReport {
+/// The preflight → fetch → pull dance: preflight records where the tracking
+/// ref stood before, the fetch moves it, and pull is handed the after tip.
+fn pulled_fetch(fx: &Fixture, after: &str) -> PullReport {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
     fx.git(&["update-ref", "refs/remotes/origin/feature", after]);
-    sync_run(&repo, &pre, true, Some(after))
+    pull_run(&repo, &pre, true, Some(after))
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn a_fetch_that_moved_the_remote_is_theirs_and_replays() {
     ident(&fx);
     let collab = diverged(&fx);
 
-    let report = synced_fetch(&fx, &collab);
+    let report = pulled_fetch(&fx, &collab);
 
     let r = match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -165,7 +165,7 @@ fn divergence_that_was_already_there_is_yours() {
     .unwrap();
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, true, Some(&f1));
+    let report = pull_call(&fx, true, Some(&f1));
 
     let yours = match report.remote {
         RemoteAxis::Yours { ahead, behind, .. } => (ahead, behind),
@@ -176,14 +176,14 @@ fn divergence_that_was_already_there_is_yours() {
     assert_eq!(
         tip_of(&fx, "refs/heads/feature"),
         tip_before,
-        "sync must not replay your own rewrite back onto the stale remote"
+        "pull must not replay your own rewrite back onto the stale remote"
     );
 }
 
 /// With no fetch, a divergence is yours only if the log accounts for it.
 /// This one is a collaborator's own commit, which the log has never
-/// touched, so sync must replay our side onto the remote instead of
-/// force-publishing over it.
+/// touched, so pull must replay our side onto the remote instead of
+/// force-pushing over it.
 #[test]
 fn no_fetch_does_not_make_a_stranger_commit_yours() {
     let fx = Fixture::new();
@@ -193,7 +193,7 @@ fn no_fetch_does_not_make_a_stranger_commit_yours() {
     fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, false, Some(&collab));
+    let report = pull_call(&fx, false, Some(&collab));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -226,7 +226,7 @@ fn a_behind_remote_fast_forwards() {
     fx.git(&["switch", "-q", "feature"]);
     track(&fx, &r2);
 
-    let report = sync_call(&fx, true, Some(&r2));
+    let report = pull_call(&fx, true, Some(&r2));
 
     let r = match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -253,7 +253,7 @@ fn the_base_axis_is_a_plain_restack() {
     let _m2 = fx.commit("m2");
     fx.git(&["switch", "-q", "feature"]);
 
-    let report = sync_call(&fx, false, None);
+    let report = pull_call(&fx, false, None);
 
     match report.remote {
         RemoteAxis::NoRemote => {}
@@ -304,7 +304,7 @@ fn a_held_remote_axis_skips_the_base() {
     fx.git(&["switch", "-q", "feature"]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = synced_fetch(&fx, &collab);
+    let report = pulled_fetch(&fx, &collab);
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -320,11 +320,11 @@ fn a_held_remote_axis_skips_the_base() {
     assert_eq!(tip_of(&fx, "refs/heads/feature"), tip_before);
 }
 
-/// Sync sends nothing, so what it has to say about the outgoing half is what
+/// Pull sends nothing, so what it has to say about the outgoing half is what
 /// is left of it. Never published, nothing waiting, and something waiting are
 /// three different answers, and the tail line depends on which.
 #[test]
-fn sync_counts_what_is_left_for_publish() {
+fn pull_counts_what_is_left_for_push() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
@@ -337,14 +337,14 @@ fn sync_counts_what_is_left_for_publish() {
     // Before there is a shared copy at all: not a count, a state.
     fx.set_config("remote.origin.url", "/nonexistent/remote.git");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
-    let fresh = sync_call(&fx, true, None);
+    let fresh = pull_call(&fx, true, None);
     assert_eq!(
         fresh.pending,
         ff_core::Pending::Unpublished,
-        "a branch with no shared copy has everything to publish"
+        "a branch with no shared copy has everything to push"
     );
 
-    let level = sync_call(&fx, true, Some(&f1));
+    let level = pull_call(&fx, true, Some(&f1));
     assert_eq!(
         level.pending,
         ff_core::Pending::Ahead(0),
@@ -355,7 +355,7 @@ fn sync_counts_what_is_left_for_publish() {
     fx.write("g.txt", "g\n");
     let f2 = fx.commit("f2");
     assert_ne!(f1, f2);
-    let ahead = sync_call(&fx, true, Some(&f1));
+    let ahead = pull_call(&fx, true, Some(&f1));
     assert_eq!(
         ahead.pending,
         ff_core::Pending::Ahead(1),
@@ -365,8 +365,8 @@ fn sync_counts_what_is_left_for_publish() {
 
 /// Their commit arrived in an earlier fetch, so this run's fetch finds
 /// nothing new — but that silence does not make the divergence ours. The
-/// log holds no record of the collaborator's commit, so sync replays our
-/// side on top of theirs instead of force-publishing over it.
+/// log holds no record of the collaborator's commit, so pull replays our
+/// side on top of theirs instead of force-pushing over it.
 #[test]
 fn a_commit_from_an_earlier_fetch_is_replayed_not_overwritten() {
     let fx = Fixture::new();
@@ -377,7 +377,7 @@ fn a_commit_from_an_earlier_fetch_is_replayed_not_overwritten() {
     fx.git(&["update-ref", "refs/remotes/origin/feature", &collab]);
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, true, Some(&collab));
+    let report = pull_call(&fx, true, Some(&collab));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -402,7 +402,7 @@ fn a_commit_from_an_earlier_fetch_is_replayed_not_overwritten() {
 
 /// The guard against over-correcting into timidity on the `--no-fetch`
 /// path: a divergence the log does account for — a recorded rewrite — is
-/// still ours, and sync does not move the branch to "take in" its own work.
+/// still ours, and pull does not move the branch to "take in" its own work.
 #[test]
 fn a_recorded_rewrite_is_still_yours_without_a_fetch() {
     let fx = Fixture::new();
@@ -428,7 +428,7 @@ fn a_recorded_rewrite_is_still_yours_without_a_fetch() {
     .unwrap();
 
     let tip_before = tip_of(&fx, "refs/heads/feature");
-    let report = sync_call(&fx, false, Some(&f1));
+    let report = pull_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Yours { .. } => {}
@@ -437,13 +437,13 @@ fn a_recorded_rewrite_is_still_yours_without_a_fetch() {
     assert_eq!(
         tip_of(&fx, "refs/heads/feature"),
         tip_before,
-        "sync must not replay your own rewrite back onto the stale remote"
+        "pull must not replay your own rewrite back onto the stale remote"
     );
 }
 
 /// A commit the replay deliberately dropped as empty is fufu's own removal,
 /// not somebody else's work: a remote still holding it is divergence that
-/// is ours, so the force-publish stands.
+/// is ours, so the force-push stands.
 #[test]
 fn a_commit_dropped_as_empty_is_accounted_for() {
     let fx = Fixture::new();
@@ -486,7 +486,7 @@ fn a_commit_dropped_as_empty_is_accounted_for() {
         "with the only commit dropped, the branch sits on main's tip"
     );
 
-    let report = sync_call(&fx, false, Some(&f1));
+    let report = pull_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Yours { .. } => {}
@@ -498,7 +498,7 @@ fn a_commit_dropped_as_empty_is_accounted_for() {
 
 /// The log is the authority on what fufu did, not on history: a rewrite
 /// performed outside fufu leaves no record, so it is unaccounted for, and
-/// sync takes the conservative direction — replay, not force.
+/// pull takes the conservative direction — replay, not force.
 #[test]
 fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
     let fx = Fixture::new();
@@ -515,7 +515,7 @@ fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
     let f2 = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
     assert_ne!(f1, f2, "the amend produced a new sha");
 
-    let report = sync_call(&fx, false, Some(&f1));
+    let report = pull_call(&fx, false, Some(&f1));
 
     match report.remote {
         RemoteAxis::Ran { outcome, .. } => match outcome {
@@ -534,22 +534,22 @@ fn a_rewrite_fufu_never_saw_falls_back_to_replay() {
 // all. It took the plain fast-forward path and put the undo straight back.
 
 /// Push the branch underfoot to the fixture's real remote and record it,
-/// the way `ff publish` does: plan, push, record.
-fn publish_for_real(fx: &Fixture) {
-    publish_branch_for_real(fx, "main");
+/// the way `ff push` does: plan, push, record.
+fn push_for_real(fx: &Fixture) {
+    push_branch_for_real(fx, "main");
 }
 
-/// [`publish_for_real`] for `branch`, which must be the one underfoot.
-fn publish_branch_for_real(fx: &Fixture, branch: &str) {
+/// [`push_for_real`] for `branch`, which must be the one underfoot.
+fn push_branch_for_real(fx: &Fixture, branch: &str) {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Publish).unwrap();
-    let (report, ctx) = ff_core::publish::publish(
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Push).unwrap();
+    let (report, ctx) = ff_core::push::push(
         &repo,
         &pre,
-        ff_core::publish::PublishOptions {
+        ff_core::push::PushOptions {
             dry_run: false,
             now: Some(NOW),
-            argv: vec!["ff".into(), "publish".into()],
+            argv: vec!["ff".into(), "push".into()],
         },
         &prov(),
     )
@@ -561,7 +561,7 @@ fn publish_branch_for_real(fx: &Fixture, branch: &str) {
         "origin",
         &format!("{branch}:{branch}"),
     ]);
-    ff_core::publish::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
+    ff_core::push::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
 }
 
 /// Two commits published, then the second undone: the shared copy stands one
@@ -574,10 +574,10 @@ fn published_then_undone(fx: &Fixture) -> (String, String) {
 fn published_then_undone_on(fx: &Fixture, branch: &str) -> (String, String) {
     fx.write("a.txt", "a\n");
     let one = fx.commit("one");
-    publish_branch_for_real(fx, branch);
+    push_branch_for_real(fx, branch);
     fx.write("a.txt", "aa\n");
     let two = fx.commit("two");
-    publish_branch_for_real(fx, branch);
+    push_branch_for_real(fx, branch);
     fx.git(&["reset", "--hard", "-q", "HEAD~1"]);
     (one, two)
 }
@@ -587,7 +587,7 @@ fn a_published_then_undone_tip_is_undone_and_not_a_fast_forward() {
     let fx = Fixture::new_cloned();
     let (one, two) = published_then_undone(&fx);
 
-    let report = sync_call(&fx, false, Some(&two));
+    let report = pull_call(&fx, false, Some(&two));
 
     match report.remote {
         RemoteAxis::Undone { behind, .. } => assert_eq!(behind, 1),
@@ -617,11 +617,11 @@ fn a_colleague_on_top_of_your_published_tip_is_still_theirs() {
     fx.git(&["update-ref", "refs/remotes/origin/main", &collab]);
 
     let tip_before = tip_of(&fx, "refs/heads/main");
-    let report = sync_call(&fx, false, Some(&collab));
+    let report = pull_call(&fx, false, Some(&collab));
 
     match report.remote {
         RemoteAxis::Ran { .. } => {}
-        other => panic!("a tip we did not publish is theirs, got {other:?}"),
+        other => panic!("a tip we did not send is theirs, got {other:?}"),
     }
     assert_ne!(
         tip_of(&fx, "refs/heads/main"),
@@ -630,18 +630,18 @@ fn a_colleague_on_top_of_your_published_tip_is_still_theirs() {
     );
 }
 
-/// Publish then rewrite satisfies both outgoing clauses, and the accounted
+/// Push then rewrite satisfies both outgoing clauses, and the accounted
 /// one runs first: "stale copies of your own" is the truer sentence there
 /// than "you undid this".
 #[test]
-fn publish_then_rewrite_is_still_yours_with_its_own_message() {
+fn push_then_rewrite_is_still_yours_with_its_own_message() {
     let fx = Fixture::new_cloned();
     ident(&fx);
     fx.write("a.txt", "a\n");
     fx.commit("one");
     fx.write("b.txt", "b\n");
     fx.commit("two");
-    publish_for_real(&fx);
+    push_for_real(&fx);
     let published = fx.git(&["rev-parse", "main"]).trim().to_string();
 
     // A rewrite fufu records: reword the tip through the operation log, so
@@ -659,7 +659,7 @@ fn publish_then_rewrite_is_still_yours_with_its_own_message() {
     )
     .unwrap();
 
-    let report = sync_call(&fx, false, Some(&published));
+    let report = pull_call(&fx, false, Some(&published));
 
     match report.remote {
         RemoteAxis::Yours { behind, .. } => assert_eq!(behind, 1),
@@ -694,7 +694,7 @@ fn the_base_axis_cascades_onto_the_branches_above() {
     fx.commit("m2");
     fx.git(&["switch", "-q", "feature"]);
 
-    let report = sync_call(&fx, false, None);
+    let report = pull_call(&fx, false, None);
 
     let r = match report.base {
         BaseAxis::Ran {
@@ -716,7 +716,7 @@ fn the_base_axis_cascades_onto_the_branches_above() {
         fx.try_git(&["merge-base", "--is-ancestor", "feature", "child"])
             .status
             .success(),
-        "child sits on the synced feature"
+        "child sits on the pulled feature"
     );
 }
 
@@ -735,23 +735,23 @@ fn the_base_axis_cascades_onto_the_branches_above() {
 /// preflight and the other branches read before the fetch, `fetch` runs
 /// (moving tracking refs the way a real one would), both are read again, and
 /// the second reading's tips are carried into the first.
-fn sync_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> SyncReport {
+fn pull_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> PullReport {
     let repo = fx.repo();
-    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
-    let before = ff_core::sync::other_branches(&repo, &pre.branch).unwrap();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
+    let before = ff_core::pull::other_branches(&repo, &pre.branch).unwrap();
     fetch();
-    let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Sync).unwrap();
-    let others_after = ff_core::sync::other_branches(&repo, &pre.branch).unwrap();
-    let others: Vec<OtherBranch> = ff_core::sync::after_fetch(before, &others_after);
-    ff_core::sync::sync(
+    let after = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
+    let others_after = ff_core::pull::other_branches(&repo, &pre.branch).unwrap();
+    let others: Vec<OtherBranch> = ff_core::pull::after_fetch(before, &others_after);
+    ff_core::pull::pull(
         &repo,
         &pre,
-        SyncOptions {
+        PullOptions {
             fetched,
             tracking_after: after.tracking.as_ref().and_then(|t| t.tip),
             others,
             now: Some(NOW),
-            argv: vec!["ff".into(), "sync".into()],
+            argv: vec!["ff".into(), "pull".into()],
         },
         &prov(),
     )
@@ -760,25 +760,25 @@ fn sync_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> SyncReport 
 }
 
 /// The row the report carries for `branch`.
-fn row_for(report: &SyncReport, branch: &str) -> BranchSync {
+fn row_for(report: &PullReport, branch: &str) -> BranchPull {
     report
         .branches
         .iter()
         .find(|b| match b {
-            BranchSync::Elsewhere { branch: b, .. }
-            | BranchSync::Held { branch: b, .. }
-            | BranchSync::Synced { branch: b, .. } => b == branch,
+            BranchPull::Elsewhere { branch: b, .. }
+            | BranchPull::Held { branch: b, .. }
+            | BranchPull::Pulled { branch: b, .. } => b == branch,
         })
         .cloned()
         .unwrap_or_else(|| panic!("no row for {branch}: {:?}", report.branches))
 }
 
-/// How many `sync` operations the log holds.
-fn sync_ops(fx: &Fixture) -> usize {
+/// How many `pull` operations the log holds.
+fn pull_ops(fx: &Fixture) -> usize {
     ff_core::ops::read_ops(&fx.repo(), 100)
         .unwrap()
         .iter()
-        .filter(|op| op.verb == "sync")
+        .filter(|op| op.verb == "pull")
         .count()
 }
 
@@ -824,11 +824,11 @@ fn an_other_branch_behind_its_remote_fast_forwards() {
     fx.git(&["branch", "-f", "side", &c0]);
     track_branch(&fx, "side", &s1);
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(
         row_for(&report, "side"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "side".into(),
             remote: BranchRemote::Moved {
                 name: "origin/side".into(),
@@ -848,12 +848,12 @@ fn an_other_branch_behind_its_remote_fast_forwards() {
 
     let repo = fx.repo();
     assert_eq!(
-        sync_ops(&fx),
+        pull_ops(&fx),
         1,
         "one operation for the branches not underfoot"
     );
     let record = tip_record(&repo);
-    assert_eq!(record.verb, "sync");
+    assert_eq!(record.verb, "pull");
     assert_eq!(record.refs.len(), 1);
     assert_eq!(record.refs[0].name, "refs/heads/side");
     assert_eq!(record.refs[0].old.as_deref(), Some(c0.as_str()));
@@ -882,13 +882,13 @@ fn an_other_branch_on_the_old_tracking_tip_follows_a_force_push() {
     track_branch(&fx, "side", &s1);
 
     // ...and the fetch finds the shared copy force-pushed somewhere unrelated.
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/side", &x1]);
     });
 
     assert_eq!(
         row_for(&report, "side"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "side".into(),
             remote: BranchRemote::Moved {
                 name: "origin/side".into(),
@@ -905,7 +905,7 @@ fn an_other_branch_on_the_old_tracking_tip_follows_a_force_push() {
         x1,
         "a branch on the old tracking tip follows wherever the remote went"
     );
-    assert_eq!(sync_ops(&fx), 1);
+    assert_eq!(pull_ops(&fx), 1);
 }
 
 /// Whether `ancestor` is reachable from `rev`, by git's own reckoning.
@@ -917,9 +917,9 @@ fn is_ancestor(fx: &Fixture, ancestor: &str, rev: &str) -> bool {
 
 /// The landed replay a row carries, or a panic naming what it carries
 /// instead.
-fn replayed_row(report: &SyncReport, branch: &str) -> ff_core::RestackReport {
+fn replayed_row(report: &PullReport, branch: &str) -> ff_core::RestackReport {
     match row_for(report, branch) {
-        BranchSync::Synced {
+        BranchPull::Pulled {
             remote:
                 BranchRemote::Ran {
                     name,
@@ -944,7 +944,7 @@ fn an_other_branch_the_fetch_moved_replays_onto_its_remote() {
     // remote has too: divergence this run's fetch created is theirs.
     track_branch(&fx, "side", &c0);
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/side", &x1]);
     });
 
@@ -959,9 +959,9 @@ fn an_other_branch_the_fetch_moved_replays_onto_its_remote() {
         "the replay is what keeps their commit"
     );
     assert!(!report.blocked());
-    assert_eq!(sync_ops(&fx), 1, "the replay rides the run's one operation");
+    assert_eq!(pull_ops(&fx), 1, "the replay rides the run's one operation");
     let record = tip_record(&fx.repo());
-    assert_eq!(record.verb, "sync");
+    assert_eq!(record.verb, "pull");
     assert_eq!(record.rewrites.len(), 1, "{:?}", record.rewrites);
 
     let repo = fx.repo();
@@ -1003,11 +1003,11 @@ fn an_other_branch_rewritten_by_the_log_is_yours() {
     let rewritten = tip_of(&fx, "refs/heads/side");
     assert_ne!(rewritten, s1, "test fixture: the restack rewrote side");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(
         row_for(&report, "side"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "side".into(),
             remote: BranchRemote::Yours {
                 name: "origin/side".into(),
@@ -1020,16 +1020,16 @@ fn an_other_branch_rewritten_by_the_log_is_yours() {
     assert_eq!(
         tip_of(&fx, "refs/heads/side"),
         rewritten,
-        "sync must not replay your own rewrite back onto the stale remote"
+        "pull must not replay your own rewrite back onto the stale remote"
     );
     assert!(!report.blocked());
-    assert_eq!(sync_ops(&fx), 0, "nothing moved, so nothing was recorded");
+    assert_eq!(pull_ops(&fx), 0, "nothing moved, so nothing was recorded");
 }
 
 /// Their commit reached the tracking ref through an earlier fetch, so this
 /// run's fetch moves nothing. That silence does not make the divergence
 /// yours: the log holds no record of the stranger's commit, so `side`
-/// replays onto it instead of being left for a force-publish over it.
+/// replays onto it instead of being left for a force-push over it.
 #[test]
 fn an_other_branch_with_a_stranger_commit_replays_without_a_fetch() {
     let fx = Fixture::new();
@@ -1040,7 +1040,7 @@ fn an_other_branch_with_a_stranger_commit_replays_without_a_fetch() {
     // commit, before this run's first reading.
     track_branch(&fx, "side", &x1);
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     let r = replayed_row(&report, "side");
     assert_eq!(r.replayed, 1);
@@ -1083,12 +1083,12 @@ fn an_other_branch_that_conflicts_holds_and_the_run_continues() {
     ident(&fx);
     let (c0, mine, theirs, t1) = first_conflicts_second_follows(&fx);
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/first", &theirs]);
     });
 
     let held = match row_for(&report, "first") {
-        BranchSync::Synced {
+        BranchPull::Pulled {
             remote:
                 BranchRemote::Ran {
                     outcome: RestackOutcome::Held(h),
@@ -1113,7 +1113,7 @@ fn an_other_branch_that_conflicts_holds_and_the_run_continues() {
 
     assert_eq!(
         row_for(&report, "second"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "second".into(),
             remote: BranchRemote::Moved {
                 name: "origin/second".into(),
@@ -1132,7 +1132,7 @@ fn an_other_branch_that_conflicts_holds_and_the_run_continues() {
         "a branch whose remote axis held gets no base axis"
     );
     assert_eq!(tip_of(&fx, "refs/heads/second"), t1);
-    assert_eq!(sync_ops(&fx), 1, "the hold and the move ride one operation");
+    assert_eq!(pull_ops(&fx), 1, "the hold and the move ride one operation");
     let record = tip_record(&repo);
     assert_eq!(record.refs.len(), 1, "{:?}", record.refs);
     assert_eq!(record.cascade_held.len(), 1, "{:?}", record.cascade_held);
@@ -1154,13 +1154,13 @@ fn a_hold_elsewhere_leaves_the_current_branch_report_alone() {
     // main's shared copy is level with it.
     track_branch(&fx, "main", &c0);
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/first", &theirs]);
     });
 
     assert!(matches!(
         row_for(&report, "first"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             remote: BranchRemote::Ran {
                 outcome: RestackOutcome::Held(_),
                 ..
@@ -1203,11 +1203,11 @@ fn an_other_branch_whose_remote_was_undone_is_not_taken_back_in() {
         "test fixture: the push left the tracking ref at the undone tip"
     );
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(
         row_for(&report, "side"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "side".into(),
             remote: BranchRemote::Undone {
                 name: "origin/side".into(),
@@ -1221,7 +1221,7 @@ fn an_other_branch_whose_remote_was_undone_is_not_taken_back_in() {
         one,
         "the fast-forward would reverse the undo"
     );
-    assert_eq!(sync_ops(&fx), 0);
+    assert_eq!(pull_ops(&fx), 0);
 }
 
 #[test]
@@ -1243,11 +1243,11 @@ fn an_other_branch_tracking_an_unfetched_remote_gets_no_remote_axis() {
     fx.set_config("branch.side.merge", "refs/heads/side");
     fx.git(&["update-ref", "refs/remotes/upstream/side", &s1]);
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(
         row_for(&report, "side"),
-        BranchSync::Synced {
+        BranchPull::Pulled {
             branch: "side".into(),
             remote: BranchRemote::NotFetched {
                 name: "upstream/side".into(),
@@ -1260,7 +1260,7 @@ fn an_other_branch_tracking_an_unfetched_remote_gets_no_remote_axis() {
         c0,
         "a tip this run did not fetch is not one it acts on"
     );
-    assert_eq!(sync_ops(&fx), 0);
+    assert_eq!(pull_ops(&fx), 0);
 }
 
 #[test]
@@ -1273,10 +1273,10 @@ fn a_branch_held_by_another_worktree_is_skipped_and_named() {
     let bay = fx.root().join("bay");
     let created = ff_core::linked::add::create(&fx.repo(), &bay, "side", 0).expect("create");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     let path = match row_for(&report, "side") {
-        BranchSync::Elsewhere { branch, path } => {
+        BranchPull::Elsewhere { branch, path } => {
             assert_eq!(branch, "side");
             path
         }
@@ -1290,9 +1290,9 @@ fn a_branch_held_by_another_worktree_is_skipped_and_named() {
     assert_eq!(
         tip_of(&fx, "refs/heads/side"),
         c0,
-        "sync must not move a branch out from under another worktree"
+        "pull must not move a branch out from under another worktree"
     );
-    assert_eq!(sync_ops(&fx), 0);
+    assert_eq!(pull_ops(&fx), 0);
 }
 
 // --- The base axis over the whole repository, parent first ----------------
@@ -1315,9 +1315,9 @@ fn on_base(branch: &str, base: &str) -> BaseAxis {
 }
 
 /// The base axis a row carries, or a panic naming what the row is instead.
-fn base_of(report: &SyncReport, branch: &str) -> BaseAxis {
+fn base_of(report: &PullReport, branch: &str) -> BaseAxis {
     match row_for(report, branch) {
-        BranchSync::Synced { base, .. } => *base,
+        BranchPull::Pulled { base, .. } => *base,
         other => panic!("{branch} has no base axis: {other:?}"),
     }
 }
@@ -1373,7 +1373,7 @@ fn a_fast_forwarded_trunk_moves_every_bare_started_branch() {
     track_branch(&fx, "main", &c0);
     let m2 = ahead_of_main(&fx, "m2.txt");
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/main", &m2]);
     });
 
@@ -1421,7 +1421,7 @@ fn verb_ops(fx: &Fixture) -> usize {
 /// branches' replays onto it, and the open change carried along on the
 /// branch underfoot.
 #[test]
-fn a_whole_sync_is_one_operation_and_one_undo() {
+fn a_whole_pull_is_one_operation_and_one_undo() {
     let fx = Fixture::new();
     ident(&fx);
     let (c0, a1, b1) = two_bare_starts(&fx);
@@ -1430,7 +1430,7 @@ fn a_whole_sync_is_one_operation_and_one_undo() {
     fx.write("wip.txt", "open\n");
     let before = verb_ops(&fx);
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/main", &m2]);
     });
 
@@ -1447,7 +1447,7 @@ fn a_whole_sync_is_one_operation_and_one_undo() {
     );
     let repo = fx.repo();
     let record = tip_record(&repo);
-    assert_eq!(record.verb, "sync");
+    assert_eq!(record.verb, "pull");
     let mut moved: Vec<&str> = record.refs.iter().map(|t| t.name.as_str()).collect();
     moved.sort();
     assert_eq!(
@@ -1500,11 +1500,11 @@ fn a_stack_replays_parent_before_child() {
     track_branch(&fx, "main", &c0);
     let m2 = ahead_of_main(&fx, "m2.txt");
     assert_eq!(
-        ff_core::sync::base_order(&fx.repo()).unwrap(),
+        ff_core::pull::base_order(&fx.repo()).unwrap(),
         ["main", "a", "b"]
     );
 
-    let report = sync_around(&fx, true, || {
+    let report = pull_around(&fx, true, || {
         fx.git(&["update-ref", "refs/remotes/origin/main", &m2]);
     });
 
@@ -1538,11 +1538,11 @@ fn a_stale_stack_is_replayed_by_the_base_phase_parent_first() {
     fx.write("m2.txt", "m2\n");
     let m2 = fx.commit("m2");
     assert_eq!(
-        ff_core::sync::base_order(&fx.repo()).unwrap(),
+        ff_core::pull::base_order(&fx.repo()).unwrap(),
         ["main", "a", "b", "c"]
     );
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     let r = match base_of(&report, "a") {
         BaseAxis::Ran {
@@ -1585,7 +1585,7 @@ fn a_branch_underfoot_carried_by_a_cascade_reports_the_worktree_write() {
     fx.git(&["switch", "-q", "b"]);
     fx.write("wip.txt", "open\n");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(report.base, on_base("b", "a"), "{:?}", report.base);
     let r = match base_of(&report, "a") {
@@ -1623,12 +1623,12 @@ fn an_onto_loop_terminates() {
     stacked_on(&fx, "b", "a");
 
     assert_eq!(
-        ff_core::sync::base_order(&fx.repo()).unwrap(),
+        ff_core::pull::base_order(&fx.repo()).unwrap(),
         ["main", "a", "b"],
         "a loop has no root: its members come after every rooted tree, by name, once"
     );
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(report.branches.len(), 2, "{:?}", report.branches);
     for branch in ["a", "b"] {
@@ -1656,7 +1656,7 @@ fn a_held_branch_leaves_its_subtree_alone() {
     fx.write("shared.txt", "theirs\n");
     fx.commit("m2");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     let held = match base_of(&report, "a") {
         BaseAxis::Ran {
@@ -1704,7 +1704,7 @@ fn a_branch_with_nothing_of_its_own_is_not_replayed_to_nothing() {
     fx.write("m2.txt", "m2\n");
     let m2 = fx.commit("m2");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     let r = match base_of(&report, "a") {
         BaseAxis::Ran {
@@ -1730,7 +1730,7 @@ fn a_branch_with_no_base_gets_no_base_axis() {
     let (_c0, _s1) = main_and_side(&fx);
     fx.git(&["switch", "-q", "side"]);
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(report.branch, "side");
     assert_eq!(
@@ -1769,7 +1769,7 @@ fn a_merge_in_range_and_an_orphan_are_named_and_the_run_goes_on() {
     fx.write("m2.txt", "m2\n");
     let m2 = fx.commit("m2");
 
-    let report = sync_around(&fx, true, || {});
+    let report = pull_around(&fx, true, || {});
 
     assert_eq!(
         base_of(&report, "merged"),

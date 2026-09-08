@@ -679,28 +679,28 @@ fn ambiguous_remotes_are_a_finding() {
 fn a_plain_delete_of_a_published_branch_is_not_a_finding() {
     let fx = Fixture::new_cloned();
     // The gc guard a first snapshot would write — the first ops here are
-    // publish/delete (no snapshot), so no close has written it yet.
+    // push/delete (no snapshot), so no close has written it yet.
     fx.set_config("gc.refs/fufu/*.reflogExpire", "never");
     fx.set_config("gc.refs/fufu/*.reflogExpireUnreachable", "never");
 
-    // Publish `main`, then a second branch `shared`, then delete `shared` —
-    // the state a real publish-then-delete leaves.
+    // Push `main`, then a second branch `shared`, then delete `shared` —
+    // the state a real push-then-delete leaves.
     fx.write("root.txt", "root\n");
     fx.commit("root");
-    let pub_main = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    let pub_main = doctor_env(&fx.path(), &["push"], &fx.root().join("home"));
     assert!(
         pub_main.status.success(),
-        "first publish of main succeeds: {}",
+        "first push of main succeeds: {}",
         String::from_utf8_lossy(&pub_main.stderr)
     );
 
     fx.git(&["switch", "-q", "-c", "shared"]);
     fx.write("shared.txt", "shared\n");
     fx.commit("shared");
-    let pub_shared = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    let pub_shared = doctor_env(&fx.path(), &["push"], &fx.root().join("home"));
     assert!(
         pub_shared.status.success(),
-        "publish of shared succeeds: {}",
+        "push of shared succeeds: {}",
         String::from_utf8_lossy(&pub_shared.stderr)
     );
 
@@ -756,26 +756,26 @@ fn a_plain_delete_of_a_published_branch_is_not_a_finding() {
 fn a_section_pointing_at_nothing_is_fixable() {
     let fx = Fixture::new_cloned();
     // The gc guard a first snapshot would write — the first ops here are
-    // publish/delete (no snapshot), so no close has written it yet.
+    // push/delete (no snapshot), so no close has written it yet.
     fx.set_config("gc.refs/fufu/*.reflogExpire", "never");
     fx.set_config("gc.refs/fufu/*.reflogExpireUnreachable", "never");
 
     fx.write("root.txt", "root\n");
     fx.commit("root");
-    let pub_main = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    let pub_main = doctor_env(&fx.path(), &["push"], &fx.root().join("home"));
     assert!(
         pub_main.status.success(),
-        "first publish of main succeeds: {}",
+        "first push of main succeeds: {}",
         String::from_utf8_lossy(&pub_main.stderr)
     );
 
     fx.git(&["switch", "-q", "-c", "shared"]);
     fx.write("shared.txt", "shared\n");
     fx.commit("shared");
-    let pub_shared = doctor_env(&fx.path(), &["publish"], &fx.root().join("home"));
+    let pub_shared = doctor_env(&fx.path(), &["push"], &fx.root().join("home"));
     assert!(
         pub_shared.status.success(),
-        "publish of shared succeeds: {}",
+        "push of shared succeeds: {}",
         String::from_utf8_lossy(&pub_shared.stderr)
     );
 

@@ -177,10 +177,10 @@ show "$FF" history
 
 # --- the boundary: rewrites against a published branch ---
 "$FF" switch lexer > /dev/null 2>&1
-show "$FF" publish
+show "$FF" push
 tip=$(git rev-parse --short=8 HEAD)
 show "$FF" describe "$tip" -m "notes: how eating chars works"
-show "$FF" publish
+show "$FF" push
 
 # --- meanwhile: a teammate lands a commit on the shared copy ---
 (
@@ -194,5 +194,5 @@ show "$FF" publish
 
 tip=$(git rev-parse --short=8 HEAD)
 show "$FF" describe "$tip" -m "notes: eating chars, explained"
-show_refused "$FF" publish
-show "$FF" sync
+show_refused "$FF" push
+show "$FF" pull

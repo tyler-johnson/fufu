@@ -67,7 +67,7 @@ tutorial_put_ff_on_path() {
 }
 
 # The origin every scene starts from: a bare, main-only copy of this
-# repository, so `ff publish` pushes somewhere harmless.
+# repository, so `ff push` sends somewhere harmless.
 tutorial_origin() {
   local scene=$1 root=$2
   git clone -q --bare --branch main --single-branch "$root" "$scene/fufu.git"
@@ -157,9 +157,9 @@ step_line_up_then_send() {
     "set|GIT_AUTHOR_DATE='$landed' GIT_COMMITTER_DATE='$landed' git -C $SCENE/teammate commit -qam 'docs: a line from a teammate'" \
     "set|git -C $SCENE/teammate push -q origin main" \
     "note|# a teammate landed on main while I worked" \
-    "run|ff sync" \
+    "run|ff pull" \
     "note|# the one thing undo cannot take back" \
-    "run|ff publish"
+    "run|ff push"
 }
 
 step_undo_anything() {
@@ -202,7 +202,7 @@ tutorial_run_step() {
       note|video) ;;
       # Scene machinery. `setup` is the scene builder asking for exactly
       # this and nothing else — the teammate's push has to have happened
-      # before the recording of `ff sync` starts.
+      # before the recording of `ff pull` starts.
       set) eval "$cmd" >/dev/null 2>&1 || true ;;
       edit)
         [ "$mode" != setup ] || continue

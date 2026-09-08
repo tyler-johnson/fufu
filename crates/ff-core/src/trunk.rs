@@ -1,4 +1,4 @@
-//! Trunk resolution — which branch is "main" for sync, status, and bare start.
+//! Trunk resolution — which branch is "main" for pull, status, and bare start.
 
 use crate::error::{Error, Result};
 

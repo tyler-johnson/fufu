@@ -150,7 +150,7 @@ show "$FF" describe "$sha" -m "parser: string literals"
 
 # --- scenario: someone force-pushed over my branch ---
 mark "force-pushed over my branch"
-show "$FF" publish
+show "$FF" push
 (
   git clone -q "$SCENE/demo.git" -b parser-stream "$SCENE/teammate"
   cd "$SCENE/teammate" && ident
@@ -159,9 +159,9 @@ show "$FF" publish
 )
 printf 'fn escape_sequence() {}\n' >> src/parser.rs
 "$FF" commit -m "parser: escape sequences" > /dev/null
-show_fails "$FF" publish
-show "$FF" sync
-show "$FF" publish
+show_fails "$FF" push
+show "$FF" pull
+show "$FF" push
 
 # --- scenario: what undo cannot reach — the floor ---
 mark "the floor: a repository fufu just adopted"

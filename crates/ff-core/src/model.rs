@@ -1145,9 +1145,9 @@ pub struct OpEntry {
     pub undo_of: Option<String>,
 }
 
-/// What `ff sync` did, one part per axis plus the exit.
+/// What `ff pull` did, one part per axis plus the exit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SyncReport {
+pub struct PullReport {
     pub branch: String,
     /// A fetch ran this invocation. `false` for `--no-fetch`, and for a
     /// repository with no remote to fetch from.
@@ -1155,9 +1155,9 @@ pub struct SyncReport {
     pub remote: RemoteAxis,
     pub base: BaseAxis,
     /// Every local branch other than the one underfoot, in the order the ref
-    /// namespace lists them. What each axis did to each, or why sync left
+    /// namespace lists them. What each axis did to each, or why pull left
     /// it alone.
-    pub branches: Vec<BranchSync>,
+    pub branches: Vec<BranchPull>,
     /// The files the run's one worktree write touched. The working tree
     /// moves when the branch underfoot is carried, by its own axis or by
     /// another branch's cascade, and this is the count wherever that
@@ -1167,13 +1167,13 @@ pub struct SyncReport {
     /// The working tree still holds an open change against the tip the
     /// branch underfoot now sits on. False when the tree did not move.
     pub still_open: bool,
-    /// What `ff publish` would still have to do. Sync does not do it — but
+    /// What `ff push` would still have to do. Pull does not do it — but
     /// a branch that just lined up and still has something waiting is
     /// exactly when naming the other half is useful.
     pub pending: Pending,
 }
 
-impl SyncReport {
+impl PullReport {
     /// A human decision is required before anything more moves, which is
     /// what exit 3 says: an axis held, a branch stacked above held in the
     /// cascade a landed axis carries, or either axis of a branch not
@@ -1195,7 +1195,7 @@ impl SyncReport {
             _ => false,
         };
         let branches = self.branches.iter().any(|b| match b {
-            BranchSync::Synced { remote, base, .. } => {
+            BranchPull::Pulled { remote, base, .. } => {
                 let remote = match remote {
                     BranchRemote::Ran { outcome, .. } => holds(outcome),
                     _ => false,
@@ -1212,28 +1212,28 @@ impl SyncReport {
     }
 }
 
-/// What the outgoing half has left, as sync sees it. Three states rather
+/// What the outgoing half has left, as pull sees it. Three states rather
 /// than a count, because "never published" is not zero commits waiting: it
 /// is the case with the most to send and no shared copy to measure against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Pending {
     /// Nowhere to send it: the repository has no remote.
     NoRemote,
-    /// A remote, but no shared copy of this branch yet. Publishing creates it.
+    /// A remote, but no shared copy of this branch yet. Pushing creates it.
     Unpublished,
     /// Commits the shared copy does not have. Zero is a real answer.
     Ahead(usize),
     /// The shared copy still holds commits this branch stepped back from —
-    /// a publish this repository made and then undid. Publishing again
-    /// rolls the shared copy back; syncing would take them straight in.
+    /// a push this repository made and then undid. Pushing again
+    /// rolls the shared copy back; pulling would take them straight in.
     Undone(usize),
 }
 
-/// What `ff publish` reports: one branch, one exit.
+/// What `ff push` reports: one branch, one exit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct PublishReport {
+pub struct PushReport {
     pub branch: String,
-    pub publish: Publish,
+    pub push: Push,
     /// True when nothing was written and nothing was sent (dry run).
     pub dry_run: bool,
 }
@@ -1242,15 +1242,15 @@ pub struct PublishReport {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum RemoteAxis {
     /// No upstream is configured, so there is nothing to reconcile with and
-    /// publishing is what creates one.
+    /// pushing is what creates one.
     NoRemote,
     /// A tracking ref that is configured and absent: the shared copy was
-    /// deleted. Sync says so and touches nothing.
+    /// deleted. Pull says so and touches nothing.
     Gone { name: String },
     /// The branch and its remote diverged, this run's fetch brought nothing,
     /// and the operation log accounts for every commit the remote still
     /// holds: they are rewrites of your own, so the axis is outgoing and the
-    /// publish is what handles it.
+    /// push is what handles it.
     Yours {
         name: String,
         ahead: usize,
@@ -1260,7 +1260,7 @@ pub enum RemoteAxis {
     /// and the branch has since stepped back from that tip. What the remote
     /// holds is not somebody else's work arriving — it is yours, still out
     /// there, and taking it in would reverse the undo that removed it. The
-    /// publish is what rolls the shared copy back.
+    /// push is what rolls the shared copy back.
     Undone { name: String, behind: usize },
     /// The axis acted, and this is what `restack` made of it.
     Ran {
@@ -1290,22 +1290,22 @@ pub enum BaseAxis {
     },
 }
 
-/// One branch other than the one underfoot, as `ff sync` found it. The
+/// One branch other than the one underfoot, as `ff pull` found it. The
 /// branch underfoot has the two axes above; every other local branch gets
-/// this row, and the ones sync must not touch say why.
+/// this row, and the ones pull must not touch say why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum BranchSync {
-    /// Checked out in another worktree, which sync must not move a tree out
+pub enum BranchPull {
+    /// Checked out in another worktree, which pull must not move a tree out
     /// from under. `path` is where.
     Elsewhere { branch: String, path: String },
     /// A rewrite from an earlier run is held on it, and one hold per branch
     /// is the rule. `verb` is the one that held.
     Held { branch: String, verb: String },
-    /// Sync looked at it: what its remote axis did, then what its base axis
+    /// Pull looked at it: what its remote axis did, then what its base axis
     /// did, in that order. The base is boxed because two axes dwarf the
     /// other rows, and an enum sized to its largest arm is paid for on every
     /// row; the JSON shape is the same either way.
-    Synced {
+    Pulled {
         branch: String,
         remote: BranchRemote,
         base: Box<BaseAxis>,
@@ -1321,16 +1321,16 @@ pub enum BranchRemote {
     /// No upstream is configured, so there is nothing to reconcile with.
     NoRemote,
     /// Its tracking ref belongs to a remote this run did not fetch from, or
-    /// no fetch ran at all, so its tip is not one sync can trust.
+    /// no fetch ran at all, so its tip is not one pull can trust.
     NotFetched { name: String },
     /// A tracking ref that is configured and absent: the shared copy was
-    /// deleted. Sync says so and touches nothing.
+    /// deleted. Pull says so and touches nothing.
     Gone { name: String },
     /// The branch already holds everything its shared copy does.
     UpToDate { name: String },
     /// The tracking ref stands exactly where this repository last published
     /// the branch, and the branch has since stepped back from that tip.
-    /// Taking it in would reverse the undo; the publish is what rolls the
+    /// Taking it in would reverse the undo; the push is what rolls the
     /// shared copy back.
     Undone { name: String, behind: usize },
     /// The branch followed its shared copy: a fast-forward, or a branch that
@@ -1346,7 +1346,7 @@ pub enum BranchRemote {
     /// The branch and its shared copy each hold commits the other does not,
     /// and the operation log accounts for every one the shared copy holds
     /// that the branch lacks: stale copies of this repository's own
-    /// rewrites. Left where it stood; the publish is what lines them up.
+    /// rewrites. Left where it stood; the push is what lines them up.
     Yours {
         name: String,
         ahead: usize,
@@ -1361,13 +1361,13 @@ pub enum BranchRemote {
     },
 }
 
-/// What `ff publish` did with the branch, or why it did nothing.
+/// What `ff push` did with the branch, or why it did nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub enum Publish {
+pub enum Push {
     /// There is no remote at all, so there is nowhere to send anything.
     NoRemote,
     /// A rewrite is held on this branch. This is the exits-blocked
-    /// discipline, and the one thing publish refuses rather than reports.
+    /// discipline, and the one thing push refuses rather than reports.
     Blocked,
     /// The remote already holds everything this branch does.
     UpToDate,
@@ -1378,7 +1378,7 @@ pub enum Publish {
         tip: String,
     },
     /// Send it, under a lease whose expected value is the tracking ref as it
-    /// stands — "what I last saw", which is precisely what publish knows
+    /// stands — "what I last saw", which is precisely what push knows
     /// without going to the network itself. An empty lease is git's own
     /// spelling for *must not exist*, and creates or re-creates a shared
     /// copy that is not there.
@@ -1396,7 +1396,7 @@ pub enum Publish {
 }
 
 /// What a push does to the shared copy on the other end. Decided from refs
-/// alone, like everything else publish decides.
+/// alone, like everything else push decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PushShape {

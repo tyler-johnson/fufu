@@ -35,7 +35,7 @@ $ ff doctor
   ok    gc config      reflog expiry disabled for refs/fufu/*
   ok    objects        1369 loose, 3 packs
   ok    id index       2779 ids, in sync
-  info  last op        "published main to origin/main" 3m ago
+  info  last op        "pushed main to origin/main" 3m ago
   info  legacy         3 ref(s) under refs/fufu/legacy/ hold snapshots and operations from before the one-log cutover; this fufu cannot read them, and they are kept only so nothing was destroyed silently. Delete them with git when you no longer want them.
   info  settings       gitPolicy strict
   info  trim           nothing to drop — every operation is inside the keep window
@@ -76,7 +76,7 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 
 ### The remote floor
 
-- **remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff sync`](../reference/cli/sync.md) and [`ff publish`](../reference/cli/publish.md) will both refuse until `ff publish --to <remote>` chooses one.
+- **remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff pull`](../reference/cli/pull.md) and [`ff push`](../reference/cli/push.md) will both refuse until `ff push --to <remote>` chooses one.
 - **upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch delete`](../reference/cli/branch-delete.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
 - **tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because [`ff status`](../reference/cli/status.md) already reports `remote is gone` for the branch underfoot; repo-wide it is news.
 
@@ -274,5 +274,5 @@ Everything else — a moved log ref, a missing reflog, an invalid setting — is
 - **After adopting a repository** — the engine floor confirms the log opened and the gc guard is in place, and the wiring floor confirms something actually feeds capture. [Agent setup](../agents/setup.md#verify) runs it as the verification step.
 - **After a version bump** — the update lane confirms which binary answered, and the wiring rows catch hooks and skills written by the fufu you just replaced.
 - **After upgrading a declared extension** — the extensions floor catches a binary that moved without a re-declaration before an agent trusts a stale manifest.
-- **When something feels off** — an `ff undo` that did less than expected, a branch that will not publish, an agent whose edits are not showing up in [`ff history`](../reference/cli/history.md). One pass names the floor that degraded.
+- **When something feels off** — an `ff undo` that did less than expected, a branch that will not push, an agent whose edits are not showing up in [`ff history`](../reference/cli/history.md). One pass names the floor that degraded.
 - **In CI** — the exit code gates: 0 healthy, 1 findings, and `--json` gives the pipeline the rows.

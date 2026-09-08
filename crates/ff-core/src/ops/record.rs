@@ -99,10 +99,10 @@ pub struct HeldTransition {
 
 /// One push this repository made, recorded after the fact.
 ///
-/// Publish is the one verb whose effect is not a local ref, so there is
+/// Push is the one verb whose effect is not a local ref, so there is
 /// nothing to diff a write-ahead claim against — the remote is not
 /// observable without the network. What the row is for is the question
-/// sync and status keep getting wrong on their own: *is the tracking tip a
+/// pull and status keep getting wrong on their own: *is the tracking tip a
 /// tip this branch published?* Storing `to` rather than the set of commits
 /// answers it in O(1) and is sound by construction — if the remote stands
 /// exactly where you last sent it, everything reachable from it that you
@@ -219,7 +219,7 @@ pub struct OpRecord {
     /// The operation this one undoes, when the verb is `undo`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_of: Option<String>,
-    /// The push this operation made, when the verb is `publish`. Optional
+    /// The push this operation made, when the verb is `push`. Optional
     /// and skipped when absent, so no `RECORD_VERSION` bump: a record
     /// written before it existed still reads, and one written now still
     /// reads to an older binary.

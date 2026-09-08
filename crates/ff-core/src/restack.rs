@@ -1,6 +1,6 @@
 //! `ff restack` replays a branch's commits onto a different base — the one
 //! recorded for it, or the one `--onto` names — and carries the open change
-//! onto the new tip. It is the primitive `ff sync` and `ff done` will aim at,
+//! onto the new tip. It is the primitive `ff pull` and `ff done` will aim at,
 //! and it is offline. The branches stacked above the one it moves follow it:
 //! `cascade` plans their replay once the new tip is known and before the
 //! operation is written, so the whole cascade rides this one operation.
@@ -77,7 +77,7 @@ fn hold(
 /// records it as a parent whatever namespace it lives in. What refuses the
 /// aim is not the namespace but the branch's own shared copy: a branch whose
 /// base was its own remote would answer to itself. A `refs/`-prefixed
-/// spelling is taken as written, which is how `ff sync` aims its remote axis
+/// spelling is taken as written, which is how `ff pull` aims its remote axis
 /// at a tracking ref.
 pub(crate) struct Onto {
     /// The full ref: `refs/heads/main`, `refs/remotes/origin/feature`.
@@ -90,14 +90,14 @@ pub(crate) struct Onto {
 /// Who aimed this restack. It settles exactly one question — whether aiming
 /// a branch at its own shared copy is refused. A person who typed `--onto`
 /// just now meant a different base to sit on, so the refusal is owed to
-/// them. Machinery — `ff sync`'s remote axis, or a hold being resumed —
+/// them. Machinery — `ff pull`'s remote axis, or a hold being resumed —
 /// aimed at that ref on purpose: reconciling with the remote is its whole
-/// job, and its aim was settled when the sync or the hold was recorded.
+/// job, and its aim was settled when the pull or the hold was recorded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Aim {
     /// A person typed `--onto`.
     Asked,
-    /// Machinery aimed this: `ff sync`'s remote axis, or a hold being resumed.
+    /// Machinery aimed this: `ff pull`'s remote axis, or a hold being resumed.
     Settled,
 }
 
@@ -164,24 +164,24 @@ pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
 
 /// The base `futures` named for this branch, as an `Onto`.
 ///
-/// The ref comes from the `SyncRef` rather than from `refs/heads/{name}`,
+/// The ref comes from the `PullRef` rather than from `refs/heads/{name}`,
 /// because a trunk can be remote-tracking only — `origin/HEAD` with no local
 /// branch of that name — and replaying onto a ref the futures probe never
 /// measured against would answer a different question than the one `ff
-/// status` asked. The *name* comes from the `SyncRef` too, so a
+/// status` asked. The *name* comes from the `PullRef` too, so a
 /// remote-qualified trunk still displays as `main`: ref syntax on the screen
 /// is exactly what fufu exists to delete.
-fn onto_from(repo: &gix::Repository, sync_ref: &futures::SyncRef) -> Result<Onto> {
-    let tip = refs::ref_target(repo, &sync_ref.r#ref)?.ok_or_else(|| {
+fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto> {
+    let tip = refs::ref_target(repo, &pull_ref.r#ref)?.ok_or_else(|| {
         Error::coded(
             "branch/not-found",
-            format!("no branch named {}", sync_ref.name),
+            format!("no branch named {}", pull_ref.name),
             vec![],
         )
     })?;
     Ok(Onto {
-        full: sync_ref.r#ref.clone(),
-        name: sync_ref.name.clone(),
+        full: pull_ref.r#ref.clone(),
+        name: pull_ref.name.clone(),
         tip,
     })
 }
@@ -353,7 +353,7 @@ pub fn restack(
 ///
 /// Two halves: [`plan_restack`] decides everything and writes only commit
 /// objects, and the committing half below writes the operation ahead of
-/// the refs, the refs in one transaction, and the worktree last. `ff sync`
+/// the refs, the refs in one transaction, and the worktree last. `ff pull`
 /// calls the planning half once per axis of every branch against one
 /// overlay and commits the lot as its own one operation.
 pub fn restack_with(
@@ -706,7 +706,7 @@ pub(crate) fn plan_restack(
             }
             // Aiming a branch at its own shared copy is reconciling with the
             // remote, not picking a base — refused only when a person typed
-            // it: `ff sync`'s remote axis aims exactly there on purpose, and
+            // it: `ff pull`'s remote axis aims exactly there on purpose, and
             // a resumed hold may well be one.
             let own_copy =
                 futures::remote_for(repo, &branch)?.is_some_and(|own| own.r#ref == base.full);
@@ -718,7 +718,7 @@ pub(crate) fn plan_restack(
                         base.name
                     ),
                     vec![
-                        "ff sync".into(),
+                        "ff pull".into(),
                         format!("ff restack {branch} --onto <base>"),
                     ],
                 ));
@@ -726,7 +726,7 @@ pub(crate) fn plan_restack(
             (base, own_copy)
         }
         None => {
-            let sync_ref = futures::base_for(repo, &branch)?.ok_or_else(|| {
+            let pull_ref = futures::base_for(repo, &branch)?.ok_or_else(|| {
                 Error::coded(
                     "restack/no-base",
                     format!("{branch} has no base to replay onto"),
@@ -738,7 +738,7 @@ pub(crate) fn plan_restack(
             })?;
             // `base_for` refuses the branch's own shared copy itself, so the
             // bare verb never aims at one.
-            (onto_from(repo, &sync_ref)?, false)
+            (onto_from(repo, &pull_ref)?, false)
         }
     };
     // The base as the run has planned it, when it moved the base already.

@@ -18,11 +18,11 @@ Leaving does not have to be total or permanent either. A machine without fufu, a
 
 ## What happens when a teammate force-pushes or rewrites history I've built on?
 
-Nothing is lost, and nothing is sent by accident. Every [`ff publish`](reference/cli/publish.md) carries a lease, so if the shared copy moved since you last saw it, the push is refused and your commits stay put.
+Nothing is lost, and nothing is sent by accident. Every [`ff push`](reference/cli/push.md) carries a lease, so if the shared copy moved since you last saw it, the push is refused and your commits stay put.
 
-[`ff sync`](reference/cli/sync.md) then reconciles by whose divergence it is. Divergence the fetch just revealed is somebody else's work, so their commits are taken in and yours replay on top. A commit of yours the rewrite already contains replays empty and is dropped, with sync saying which.
+[`ff pull`](reference/cli/pull.md) then reconciles by whose divergence it is. Divergence the fetch just revealed is somebody else's work, so their commits are taken in and yours replay on top. A commit of yours the rewrite already contains replays empty and is dropped, with pull saying which.
 
-The whole sync is one operation that one [`ff undo`](reference/cli/undo.md) takes back. The walkthrough with real output is in [recovery](guides/recovery.md#someone-force-pushed-over-my-branch); the divergence rules live in [the push boundary](concepts/push-boundary.md).
+The whole pull is one operation that one [`ff undo`](reference/cli/undo.md) takes back. The walkthrough with real output is in [recovery](guides/recovery.md#someone-force-pushed-over-my-branch); the divergence rules live in [the push boundary](concepts/push-boundary.md).
 
 ## Does fufu work with GitHub, GitLab, and other forges?
 
@@ -79,7 +79,7 @@ Hunk-level selection through a fufu verb is a genuine capability gap today, not 
 
 Because a push is the one act that leaves the machine. Other clones can fetch it, CI runs on it, webhooks fire, and no operation log on your machine reaches any of that.
 
-So undo is honest about its reach, and rollback is a different, still-guarded act. `ff undo` moves your local branch back, and the next `ff publish` rolls the shared copy back to match, under a lease that stops if somebody pushed in the meantime.
+So undo is honest about its reach, and rollback is a different, still-guarded act. `ff undo` moves your local branch back, and the next `ff push` rolls the shared copy back to match, under a lease that stops if somebody pushed in the meantime.
 
 Rollback is not erasure — commits that reached the world stay reached — but the shared copy is yours to move. [The push boundary](concepts/push-boundary.md) is the full story.
 
@@ -116,7 +116,7 @@ One rule decides the table: the tree hook runs where worktree content becomes co
 | [`ff describe <rev>`](reference/cli/describe.md) | no — no tree moves | yes | yes | no |
 | `ff describe` (open change) | no | no — a pending description is not a commit; the hooks fire when it closes | no | no |
 | [`ff lift`](reference/cli/lift.md) | no — no worktree content enters a commit | no | no | no |
-| [`ff restack`](reference/cli/restack.md), `ff sync` | no — `git rebase` runs none either | no | no | no |
+| [`ff restack`](reference/cli/restack.md), `ff pull` | no — `git rebase` runs none either | no | no | no |
 
 `post-commit` stays on `ff commit` alone, because git fires it from `git commit` and not from `rebase`, and absorb, done and describe are rebases.
 
@@ -126,7 +126,7 @@ One rule decides the table: the tree hook runs where worktree content becomes co
 
 ## Do I need git installed?
 
-Mostly no, eventually not at all. The daily surface — status, commit, switch, sync's fetch, undo, log, restore, and the rest — runs in-process with no git on the machine.
+Mostly no, eventually not at all. The daily surface — status, commit, switch, pull's fetch, undo, log, restore, and the rest — runs in-process with no git on the machine.
 
 Four things still want git on PATH: the push (until gix can send a pack), credential helpers and ssh where a remote needs them, trim's best-effort `gc --auto` (skipped silently without it), and the `ff git` escape hatch. [Substrate](internals/substrate.md#the-git-free-destination) tracks the line as it moves.
 

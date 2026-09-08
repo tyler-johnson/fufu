@@ -51,7 +51,7 @@ pub enum Verdict {
     /// The shared copy stands exactly where this branch last published it,
     /// and the branch has since stepped back from that tip. What is out
     /// there is yours and undone, not somebody else's work arriving — and
-    /// `ff publish` is what rolls it back. Only ever produced for a remote.
+    /// `ff push` is what rolls it back. Only ever produced for a remote.
     Undone { behind: usize },
 }
 
@@ -108,7 +108,7 @@ impl Role {
 
 /// Which branch a future is measured against, and how fufu picked it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SyncRef {
+pub struct PullRef {
     /// Short name as a person would say it: `main`, `origin/main`.
     pub name: String,
     pub r#ref: String,
@@ -120,7 +120,7 @@ pub struct SyncRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Future {
-    pub against: SyncRef,
+    pub against: PullRef,
     pub verdict: Verdict,
 }
 
@@ -359,10 +359,10 @@ pub fn open_tree(repo: &gix::Repository, branch: &str) -> Result<Option<gix::Obj
 
 /// Which branch `branch` should be measured against. `None` when fufu cannot
 /// honestly name one.
-pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>> {
+pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>> {
     // An editing session sits below the branch it will land on by
     // construction: "behind, fast-forwards" is a permanent condition of
-    // being a session, the way being ahead is one — sync never merges the
+    // being a session, the way being ahead is one — pull never merges the
     // branch into its base, so the pending state is the branch's condition,
     // not work to do. The axis is silenced, not answered.
     if crate::branchmeta::read(repo, branch)?.session.is_some() {
@@ -385,7 +385,7 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>>
         && let Some((full_ref, tip)) = crate::refs::branchish(repo, &parent)?
         && !remote_for(repo, branch)?.is_some_and(|own| own.r#ref == full_ref)
     {
-        return Ok(Some(SyncRef {
+        return Ok(Some(PullRef {
             name: parent,
             r#ref: full_ref,
             tip: tip.to_string(),
@@ -409,7 +409,7 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>>
         && !standing_on_trunk
         && let Some(tip) = crate::refs::ref_target(repo, &t.full_ref)?
     {
-        return Ok(Some(SyncRef {
+        return Ok(Some(PullRef {
             name: t.name.clone(),
             r#ref: t.full_ref.clone(),
             tip: tip.to_string(),
@@ -425,7 +425,7 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>>
 
 /// The shared copy of `branch` — the tracking ref git would fetch into.
 /// `None` when no upstream is configured.
-pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef>> {
+pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>> {
     let own_ref = format!("refs/heads/{branch}");
     let full: gix::refs::FullName = own_ref.as_str().try_into().map_err(Error::repo)?;
     let Some(tracking) =
@@ -456,7 +456,7 @@ pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<SyncRef
         None => String::new(),
     };
 
-    Ok(Some(SyncRef {
+    Ok(Some(PullRef {
         name,
         r#ref,
         tip,
@@ -525,7 +525,7 @@ pub struct Futures {
     pub base: Option<Future>,
     pub remote: Option<Future>,
     /// True when remotes exist and none can be named for this branch — the
-    /// state `ff sync` refuses on. It distinguishes `remote: None` meaning
+    /// state `ff pull` refuses on. It distinguishes `remote: None` meaning
     /// *there is no remote axis, and that is fine* from `remote: None`
     /// meaning *there is something to say and fufu declined to guess*.
     #[serde(default)]
@@ -539,7 +539,7 @@ pub struct Futures {
 fn future_on(
     repo: &gix::Repository,
     branch: &str,
-    against: SyncRef,
+    against: PullRef,
     branch_tip: Option<gix::ObjectId>,
     open_tree: Option<gix::ObjectId>,
     is_base: bool,
@@ -623,7 +623,7 @@ pub fn remote_future(
     }
     // The tracking tip is one this branch published and the branch has
     // stepped back from it: the commits out there are yours, undone, and
-    // sync would take them straight back in. Answered before the cache the
+    // pull would take them straight back in. Answered before the cache the
     // way `Gone` is — and safely, because the cache keys on the same pair
     // this reads, `against_tip` and `branch_tip`.
     if let Some(tip) = branch_tip
@@ -641,7 +641,7 @@ pub fn remote_future(
 /// many commits back: any ref under `refs/remotes/<remote>/` (a clone of a
 /// non-empty remote always has some) or the log's own memory of a push.
 /// Checked in that order, cheapest first.
-fn ever_copied(repo: &gix::Repository, against: &SyncRef, branch: &str) -> Result<bool> {
+fn ever_copied(repo: &gix::Repository, against: &PullRef, branch: &str) -> Result<bool> {
     if let Some(remote) = remote_of(&against.r#ref)
         && crate::refs::any_remote_ref(repo, remote)?
     {
@@ -655,7 +655,7 @@ fn ever_copied(repo: &gix::Repository, against: &SyncRef, branch: &str) -> Resul
 /// branch is not behind it, or when the log has no such row.
 fn undone_behind(
     repo: &gix::Repository,
-    against: &SyncRef,
+    against: &PullRef,
     branch: &str,
     tip: gix::ObjectId,
 ) -> Result<Option<usize>> {

@@ -51,7 +51,7 @@ Anything else git does: `ff git <args…>`, which snapshots and then runs git ve
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.
 
-The `ff` tools offered for status, sync, publish, undo, redo, explain, and help take the \
+The `ff` tools offered for status, pull, push, undo, redo, explain, and help take the \
 verb's own flags as fields; every other verb is the shell.
 
 Every verb's own `--help` is the authority on it.

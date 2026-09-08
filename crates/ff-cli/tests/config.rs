@@ -282,7 +282,7 @@ fn json_shapes() {
     );
     let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     assert!(v["data"]["settings"].is_array());
-    // pushOnSync left the registry with the sync/publish split; gitPolicy
+    // pushOnSync left the registry with the pull/push split; gitPolicy
     // joined with the graduated raw-git correction (replacing the boolean
     // translate in place), and watchInterval with ff watch; ambient left
     // with the shell channel, and autoUpdate with silent self-installs;

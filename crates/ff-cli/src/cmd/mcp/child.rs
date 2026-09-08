@@ -9,7 +9,7 @@
 //!
 //! `isError` is the envelope's kind and not the exit code: an `error`
 //! envelope is an error, and a `data` envelope is not, whatever the code
-//! beside it. fufu's own `sync` prints a `data` envelope and exits 3 when a
+//! beside it. fufu's own `pull` prints a `data` envelope and exits 3 when a
 //! rewrite held, and `doctor` prints one and exits 1 as its verdict; both
 //! are outcomes the agent reads from the report, not failures. The code
 //! itself rides every result a child produced as `_meta.exit`, for a
@@ -235,9 +235,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_data_envelope_is_not_an_error_whatever_the_code() {
-        let held = exited(r#"{"ff":1,"cmd":"sync","data":{"held":["topic"]}}"#, "", 3);
-        let shaped = shape(&args(&["sync"]), &held);
-        assert_ne!(shaped.is_error, Some(true), "a held sync is an outcome");
+        let held = exited(r#"{"ff":1,"cmd":"pull","data":{"held":["topic"]}}"#, "", 3);
+        let shaped = shape(&args(&["pull"]), &held);
+        assert_ne!(shaped.is_error, Some(true), "a held pull is an outcome");
         assert_eq!(exit_of(&shaped), Some(3));
         assert_eq!(
             shaped

@@ -112,18 +112,18 @@ pub const TABLE: &[Word] = &[
     },
     Word {
         git: "pull",
-        ff: "ff sync",
-        why: "ff sync is the incoming half done properly: fetch, take in, replay onto the base",
+        ff: "ff pull",
+        why: "ff pull is the incoming half done properly: fetch, take in, replay onto the base",
     },
     Word {
         git: "push",
-        ff: "ff publish",
-        why: "ff publish sends this branch under a lease, refusing rather than overwriting",
+        ff: "ff push",
+        why: "ff push sends this branch under a lease, refusing rather than overwriting",
     },
     Word {
         git: "fetch",
-        ff: "ff sync",
-        why: "ff sync fetches and replays in one move, with no merge-or-rebase question",
+        ff: "ff pull",
+        why: "ff pull fetches and replays in one move, with no merge-or-rebase question",
     },
     Word {
         git: "tag",
@@ -339,15 +339,15 @@ mod tests {
     }
 
     /// The two prose surfaces that answer for a git word — this table and
-    /// `cmd::foreign`'s long-form refusals — must name the same verb.
+    /// `cmd::foreign`'s long-form refusals — must name the same verb. `pull`
+    /// and `push` are not on the list: they are fufu verbs now, so there is
+    /// no refusal to agree with.
     #[test]
     fn the_foreign_verbs_name_the_same_spelling() {
         type Foreign = fn(&[OsString]) -> ff_core::Result<()>;
         let handled: &[(&str, Foreign)] = &[
             ("checkout", crate::cmd::foreign::checkout),
             ("stash", crate::cmd::foreign::stash),
-            ("pull", crate::cmd::foreign::pull),
-            ("push", crate::cmd::foreign::push),
             ("merge", crate::cmd::foreign::merge),
             ("tag", crate::cmd::foreign::tag),
             ("blame", crate::cmd::foreign::blame),

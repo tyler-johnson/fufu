@@ -69,7 +69,7 @@ That record is what "base" means everywhere fufu says the word: the base axis on
 When a branch's tip moves, the branches stacked on it follow. Six verbs move a tip and set that cascade going:
 
 - [`ff restack`](../reference/cli/restack.md)
-- [`ff sync`](../reference/cli/sync.md)
+- [`ff pull`](../reference/cli/pull.md)
 - [`ff absorb`](../reference/cli/absorb.md)
 - [`ff lift`](../reference/cli/lift.md)
 - [`ff describe <rev>`](../reference/cli/describe.md)
@@ -87,24 +87,24 @@ Three kinds of branch are skipped rather than replayed, and the verb names each 
 
 A branch with no commits of its own stays put.
 
-The verb says what followed, what held, and what was skipped. `ff restack` and `ff sync` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
+The verb says what followed, what held, and what was skipped. `ff restack` and `ff pull` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
 
 [Stacked changes](../guides/stacked-changes.md) walks a stack through review.
 
-## Sync covers the whole repository
+## Pull covers the whole repository
 
-[`ff sync`](../reference/cli/sync.md) fetches once and brings every local branch up to date with both things it answers to: first the shared copy of each branch, then the base beneath it, parent before child. A trunk that moved therefore carries every branch started from it, in one run.
+`ff pull` fetches once and brings every local branch up to date with both things it answers to: first the shared copy of each branch, then the base beneath it, parent before child. A trunk that moved therefore carries every branch started from it, in one run.
 
 Standing on a branch changes nothing about how it is treated. It only decides whether a working copy moves — the branches you are not on move as refs and objects and touch no file.
 
-The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what sync takes in and what publish sends.
+The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what pull takes in and what push sends.
 
 ## Tracking: one branch, one shared copy
 
-A branch answers to at most one remote, and its shared copy there is the only one. fufu does not model a branch published to two places, because the guarantees around publishing — the lease, rollback, knowing which commits out there are yours — all assume a single shared copy to reason about.
+A branch answers to at most one remote, and its shared copy there is the only one. fufu does not model a branch published to two places, because the guarantees around pushing — the lease, rollback, knowing which commits out there are yours — all assume a single shared copy to reason about.
 
-Most repositories never face the question. With a single remote, or one named `origin`, the first [`ff publish`](../reference/cli/publish.md) creates the shared copy and sets up tracking in the same step.
+Most repositories never face the question. With a single remote, or one named `origin`, the first [`ff push`](../reference/cli/push.md) creates the shared copy and sets up tracking in the same step.
 
-With several remotes, `ff publish --to <remote>` names where this branch answers and records the answer, so every later `ff publish`, `ff sync`, and `ff status` needs no flag. Asking `--to` for a branch that already answers somewhere else is refused: the answer is a fact about the branch, given once.
+With several remotes, `ff push --to <remote>` names where this branch answers and records the answer, so every later `ff push`, `ff pull`, and `ff status` needs no flag. Asking `--to` for a branch that already answers somewhere else is refused: the answer is a fact about the branch, given once.
 
-What publishing actually promises, and the lease that guards it, is [the push boundary](push-boundary.md).
+What pushing actually promises, and the lease that guards it, is [the push boundary](push-boundary.md).

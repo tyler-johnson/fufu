@@ -1,6 +1,6 @@
 //! fufu's own tools: seven, typed, generated from the command tree.
 //!
-//! `status`, `sync`, `publish`, `undo`, `redo`, `explain`, and `help` are
+//! `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help` are
 //! the verbs where the shell adds nothing — fixed and short inputs, no
 //! output an agent would pipe, and a result whose structure matters more
 //! than its text. Every other verb is the shell. Each descriptor here is
@@ -40,8 +40,8 @@ struct Hints {
 
 /// The six clap-backed verbs, in the order they are listed.
 ///
-/// `publish` is destructive because its page opens by calling it the one
-/// act undo cannot take back. `sync` is one undoable operation, so not; both
+/// `push` is destructive because its page opens by calling it the one
+/// act undo cannot take back. `pull` is one undoable operation, so not; both
 /// reach a remote, so open-world. `undo` and `redo` repeat, so neither is
 /// idempotent.
 const VERBS: [(&str, Hints); 6] = [
@@ -55,7 +55,7 @@ const VERBS: [(&str, Hints); 6] = [
         },
     ),
     (
-        "sync",
+        "pull",
         Hints {
             read_only: false,
             destructive: false,
@@ -64,7 +64,7 @@ const VERBS: [(&str, Hints); 6] = [
         },
     ),
     (
-        "publish",
+        "push",
         Hints {
             read_only: false,
             destructive: true,
@@ -113,7 +113,7 @@ const HELP_DESCRIPTION: &str = "A verb's help page as text, the authority on it:
     every flag, and examples. `verb` is the words after `ff help`: `[\"commit\"]`, or `[\"op\", \
     \"log\"]`. With none, the map of every verb.";
 
-/// The seven, in order: `status, sync, publish, undo, redo, explain, help`.
+/// The seven, in order: `status, pull, push, undo, redo, explain, help`.
 pub fn own() -> Vec<Typed> {
     // Unbuilt, the way every other walk of the tree is: `build` is what
     // grows the frame, and nothing here needs the globals or the auto help
@@ -286,9 +286,7 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(Typed::name).collect();
         assert_eq!(
             names,
-            vec![
-                "status", "sync", "publish", "undo", "redo", "explain", "help"
-            ]
+            vec!["status", "pull", "push", "undo", "redo", "explain", "help"]
         );
         let help = own().pop().expect("help");
         let bare = help.call(None).expect("no arguments is bare help");
@@ -333,7 +331,7 @@ mod tests {
         assert_eq!(
             tools[2].tool().annotations.unwrap().destructive_hint,
             Some(true),
-            "publish is the one act undo cannot take back"
+            "push is the one act undo cannot take back"
         );
     }
 
@@ -431,14 +429,11 @@ mod tests {
             serde_json::json!(["id"])
         );
         assert_eq!(keys(6), vec!["verb", "cwd"]);
-        let publish = tools[2].tool();
+        let push = tools[2].tool();
         assert_eq!(
-            properties(&publish)["to"]["description"],
+            properties(&push)["to"]["description"],
             "Send to this remote, and record that the branch answers to it <remote>"
         );
-        assert!(
-            publish.input_schema.get("required").is_none(),
-            "none required"
-        );
+        assert!(push.input_schema.get("required").is_none(), "none required");
     }
 }

@@ -29,9 +29,9 @@ demo_lines() {
     "run|ff absorb" \
     "run|ff st" \
     "note|# oh, main moved while I worked, so let's catch up" \
-    "run|ff sync" \
+    "run|ff pull" \
     "note|# time to push my changes for review" \
-    "run|ff publish" \
+    "run|ff push" \
     "note|# what was I doing on main again?" \
     "run|ff switch main"
 }
