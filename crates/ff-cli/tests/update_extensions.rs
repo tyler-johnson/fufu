@@ -73,6 +73,13 @@ fn ext_bin(dir: &Path, name: &str, manifest: &Value) -> PathBuf {
     path
 }
 
+/// The path the walk prints for a binary it found: canonicalized, the way
+/// `ff update` reads it before classifying, so a temp dir behind a symlink
+/// (macOS's `/var` to `/private/var`) compares equal.
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn ext_script(name: &str, manifest: &Value) -> String {
     format!(
         r#"#!/bin/sh
@@ -307,7 +314,7 @@ fn no_block_is_named_as_unmovable_with_its_path() {
         block,
         format!(
             "ff-tower 0.4.1 is one fufu cannot move: its manifest carries no update recipes.\n  at {}\n",
-            path.display()
+            canonical(&path).display()
         )
     );
 }
@@ -334,7 +341,7 @@ fn a_channel_with_no_recipe_is_named() {
         block,
         format!(
             "ff-tower 0.4.1 was installed with Homebrew, and its manifest has no brew recipe, so fufu cannot move it.\n  at {}\n",
-            path.display()
+            canonical(&path).display()
         )
     );
 }
