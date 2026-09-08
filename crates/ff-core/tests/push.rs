@@ -549,3 +549,46 @@ fn naming_the_remote_already_tracked_changes_nothing() {
         "… and neither does the shared copy it points at"
     );
 }
+
+/// Names resolve the way `ff restack` resolves one, a branch named twice
+/// is in the run once, the run is in namespace order whatever order the
+/// names came in, and `current` says whether the branch underfoot is among
+/// them. A name nothing answers to is refused, and bare is the branch
+/// underfoot alone.
+#[test]
+fn choose_resolves_names_into_one_namespace_ordered_run() {
+    use ff_core::push::{Chosen, Scope, choose};
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["branch", "beta"]);
+    fx.git(&["branch", "alpha"]);
+    let repo = fx.repo();
+
+    let named = Scope::Named(vec!["be".into(), "alpha".into(), "al".into()]);
+    assert_eq!(
+        choose(&repo, "main", &named).unwrap(),
+        Chosen {
+            current: false,
+            branches: vec!["alpha".into(), "beta".into()],
+        }
+    );
+    let with_main = Scope::Named(vec!["main".into(), "beta".into()]);
+    assert_eq!(
+        choose(&repo, "main", &with_main).unwrap(),
+        Chosen {
+            current: true,
+            branches: vec!["beta".into(), "main".into()],
+        }
+    );
+    assert_eq!(
+        choose(&repo, "main", &Scope::Current).unwrap(),
+        Chosen {
+            current: true,
+            branches: vec!["main".into()],
+        }
+    );
+    let err = choose(&repo, "main", &Scope::Named(vec!["nope".into()])).unwrap_err();
+    assert_eq!(err.id(), "branch/not-found");
+}

@@ -33,13 +33,20 @@ pub fn error_envelope(cmd: &str, err: &Error) -> serde_json::Value {
     serde_json::json!({
         "ff": CONTRACT,
         "cmd": cmd,
-        "error": {
-            "id": err.id(),
-            "message": err.to_string(),
-            // The same block the human rendering prints, so a machine
-            // reading the envelope is told what a terminal would be.
-            "exits": crate::explain::exits_for(err),
-        },
+        "error": error_object(err),
+    })
+}
+
+/// The error as a value on its own, the object the envelope carries under
+/// `error`: for a report that files one failure among several outcomes,
+/// the way `ff push` files a refused branch beside the ones that landed.
+pub fn error_object(err: &Error) -> serde_json::Value {
+    serde_json::json!({
+        "id": err.id(),
+        "message": err.to_string(),
+        // The same block the human rendering prints, so a machine
+        // reading the envelope is told what a terminal would be.
+        "exits": crate::explain::exits_for(err),
     })
 }
 

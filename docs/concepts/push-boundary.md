@@ -6,7 +6,7 @@ Every operation fufu performs on your machine lands on the [operation log](snaps
 
 A push is the one act that leaves the machine. The moment it lands, other clones can fetch it, CI runs on it, webhooks fire — and no operation log on your machine reaches any of that.
 
-So fufu splits reconciling with a remote along exactly that line. The incoming half is a routine verb with the full undo guarantee. The outgoing half is a verb you type on purpose, and it never rides along as a default inside anything else.
+So fufu splits reconciling with a remote along exactly that line. The incoming half is a routine verb with the full undo guarantee. The outgoing half is a verb you type on purpose, and it never rides along as a default inside anything else; it has no `--all`, so every branch that leaves the machine is one you named or one you stand on.
 
 ## Pull is the incoming half
 
@@ -27,7 +27,7 @@ Nothing pull does leaves the machine. The fetch, the replay, the whole run is on
 
 ## Push carries a lease
 
-`ff push` sends the branch to its remote. The push carries a **lease**: it goes through only if the shared copy still stands where you last saw it.
+`ff push` sends the branch you stand on to its remote, or the branches you name, from wherever you stand. Each push carries a **lease**: it goes through only if that branch's shared copy still stands where you last saw it. Among several, a refused lease is that branch's alone; the rest still go out, and the report says which.
 
 If somebody pushed since, nothing is sent and nothing is lost. `ff pull` takes their work in first, and the push goes afterward.
 

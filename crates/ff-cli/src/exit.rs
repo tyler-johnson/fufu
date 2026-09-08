@@ -30,6 +30,14 @@ pub(crate) fn rewritten() {
     CODE.store(1, Ordering::Relaxed);
 }
 
+/// A send in a run of several was refused by the wire. The rest of the run
+/// went out and the report on stdout says which, so an error envelope after
+/// it would contradict what it printed — but the shell is still owed the
+/// code a refused push exits with when it is the whole run.
+pub(crate) fn refused() {
+    CODE.store(1, Ordering::Relaxed);
+}
+
 /// The code `main` exits with when no verb returned an error.
 pub(crate) fn code() -> i32 {
     CODE.load(Ordering::Relaxed)

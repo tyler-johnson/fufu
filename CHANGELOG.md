@@ -15,6 +15,9 @@
 - `ff pull <branch>...` pulls the branches named, from wherever you stand, each with the local bases beneath it; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before the fetch. `ff pull --all` is every local branch, the run bare `ff pull` used to be. Names and `--all` together are a usage error.
 - `ff pull --json` reads `NotNamed` on the report's `remote` and `base` when names left the branch you stand on out of the run.
 - `ff mcp`'s `pull` tool takes `branches` and `all`.
+- `ff push <branch>...` pushes the branches named, from wherever you stand, each under its own lease; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before anything reaches the wire. Among several, a lease the remote refuses is that branch's alone: the rest go out, its block says what the wire said, and the exit is 1. There is no `--all`.
+- `ff push --json` carries `branches`, one row per branch in the run with its `push`, `pushed`, and `error`; `push` and `pushed` read `NotNamed` and false when names left the branch you stand on out of the run.
+- `ff mcp`'s `push` tool takes `branches`.
 
 ### Changed
 
@@ -26,6 +29,7 @@
 - `ff pull --json` tags a branch row `Pulled` where it read `Synced`.
 - `ff mcp`'s tools are `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`; `sync` and `publish` are no longer served under those names.
 - `ff status`, `ff pull`, and `ff branch list` say `N to pull`, `N to push`, `nothing to pull`, and `not published yet — ff push`.
+- `push/lease-refused`'s exits name the branch: `ff pull <branch>`, `ff push <branch>`.
 - `ff resolve` opens a session branch, the way `ff edit` does: an anonymous branch minted at a commit carrying the markers, switched to, with the hold staying on the branch you left. `ff done` lands the fixes and returns in one operation; `--abandon` returns too, and from the held branch deletes the session wherever it is. Opening is two operations, the mint and the switch, so two `ff undo` take a fresh session back.
 - `ff status` and `ff status --json` carry the session under `resolving` on both branches: on the session, the conflicts are in your working copy; on the held branch, the line names the session and `ff switch` to it. `held/resolving` on the held branch names the session.
 - The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.

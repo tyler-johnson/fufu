@@ -1232,10 +1232,13 @@ pub enum Pending {
     Undone(usize),
 }
 
-/// What `ff push` reports: one branch, one exit.
+/// What `ff push` reports of the branch underfoot. A run of several
+/// branches carries one plan per branch beside it; this is the one the
+/// envelope has always led with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PushReport {
     pub branch: String,
+    /// `NotNamed` when names were given and the run did not reach it.
     pub push: Push,
     /// True when nothing was written and nothing was sent (dry run).
     pub dry_run: bool,
@@ -1375,6 +1378,9 @@ pub enum BranchRemote {
 /// What `ff push` did with the branch, or why it did nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Push {
+    /// The run did not reach the branch underfoot: names were given, and it
+    /// was not among them. Nothing about it was read.
+    NotNamed,
     /// There is no remote at all, so there is nowhere to send anything.
     NoRemote,
     /// A rewrite is held on this branch. This is the exits-blocked

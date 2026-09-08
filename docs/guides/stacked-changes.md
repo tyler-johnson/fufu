@@ -4,7 +4,7 @@ A stack is a branch whose base — the branch it forked from and rebases onto �
 
 This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the stack, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
 
-The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
+The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on, or every branch you name. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
 ## Start a stack
 
@@ -137,25 +137,18 @@ Read it top down. parser-core, the branch you stand on, replayed onto the `main`
 
 ## Push each branch under its own lease
 
-Each branch in the stack goes to the remote as its own branch, so each piece gets its own review. `ff push` sends the branch you stand on, and every push carries its own lease — it goes through only if that branch's shared copy still stands where you last saw it.
+Each branch in the stack goes to the remote as its own branch, so each piece gets its own review. `ff push` sends the branch you stand on; name every branch of the stack to send the stack, from wherever you stand, and each goes out under its own lease — it goes through only if that branch's shared copy still stands where you last saw it. Nothing comes along with a named branch, so a push of parser-cli alone leaves parser-core where it is.
 
 ```console
-$ ff push
+$ ff push parser-core parser-cli
 created origin/parser-core and set parser-core to track it
-the push left the machine — ff undo cannot reach it
-ff undo then ff push rolls the shared copy back, under a lease
-
-$ ff switch parser-cli
-switched to parser-cli
-undo: ff undo
-
-$ ff push
-created origin/parser-cli and set parser-cli to track it
+parser-cli
+    created origin/parser-cli and set parser-cli to track it
 the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make pushing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — `ff pull` takes their work in and cascades, then push again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
+The branch you stand on reads first, and every other branch in the run is a block headed by its name. The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make pushing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — the rest of the run still goes out, that branch's block says what the wire said, and `ff pull parser-core` takes their work in and cascades, then push again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
 
 The finished stack, in the map:
 

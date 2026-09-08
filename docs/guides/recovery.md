@@ -211,8 +211,8 @@ Every [`ff push`](../reference/cli/push.md) carries a lease: the push goes throu
 $ ff push
 ff: origin/parser-stream moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
   try:
-    ff pull
-    ff push
+    ff pull parser-stream
+    ff push parser-stream
 ```
 
 [`ff pull`](../reference/cli/pull.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and pull says which:

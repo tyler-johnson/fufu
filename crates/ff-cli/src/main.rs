@@ -306,7 +306,11 @@ fn main() {
             all,
             no_fetch,
         }) => cmd::pull::run(&ctx, branches, all, no_fetch),
-        Some(cli::Command::Push { dry_run, to }) => cmd::push::run(&ctx, dry_run, to.as_deref()),
+        Some(cli::Command::Push {
+            branches,
+            dry_run,
+            to,
+        }) => cmd::push::run(&ctx, branches, dry_run, to.as_deref()),
         Some(cli::Command::Remote) => cmd::remote::run(&ctx),
         // The two verbs that run before there is a repository to discover.
         Some(cli::Command::Init { dir, bare }) => cmd::init::run(&ctx, dir, bare),

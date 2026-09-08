@@ -361,6 +361,9 @@ pub enum Command {
     /// Send this branch to its remote, under a lease
     #[command(visible_alias = "publish", long_about = help::term(help::PUSH), after_long_help = help::term_examples(help::PUSH_EXAMPLES))]
     Push {
+        /// Branches to push, each under its own lease; without any, the one you are on
+        #[arg(value_name = "branch")]
+        branches: Vec<String>,
         /// Say which push this would be, without sending it
         #[arg(short = 'n', long)]
         dry_run: bool,

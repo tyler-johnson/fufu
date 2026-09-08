@@ -50,7 +50,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **pull** — The incoming half of [the push boundary](push-boundary.md): [`ff pull`](../reference/cli/pull.md) fetches once and takes in what arrived for the branch you stand on, from the base beneath it and the shared copy of it, replaying the branch's commits onto the result; names take other branches, and `--all` every local branch. Nothing it does leaves the machine, and one `ff undo` takes the whole run back.
 
-**push** — The outgoing half of [the push boundary](push-boundary.md): [`ff push`](../reference/cli/push.md) sends the branch to its one remote, under a lease, and never rides along as a default inside any other verb.
+**push** — The outgoing half of [the push boundary](push-boundary.md): [`ff push`](../reference/cli/push.md) sends the branch you stand on, or the branches you name, each to its one remote under its own lease, and never rides along as a default inside any other verb.
 
 ## R–T
 

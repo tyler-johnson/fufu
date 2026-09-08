@@ -18,6 +18,12 @@
 //! to the shared copy. The network itself is somebody else's job — this
 //! module hands back a plan and never spawns anything.
 //!
+//! Which branches a run visits is the caller's to say, through [`Scope`]
+//! and [`choose`]: the branch underfoot, or the ones named. Each is planned
+//! on its own by [`plan`], since each has its own shared copy and goes out
+//! under its own lease; nothing beneath or above a branch comes with it,
+//! because a push reads no base and moves no local ref.
+//!
 //! And then, once somebody else has made the call, it records it. That is
 //! the whole of what push writes, and [`record`] is a second entry point
 //! rather than a step inside [`push`] because the send happens between
@@ -31,6 +37,8 @@
 //! everything else above the landing; the pointer is the answer pull needs
 //! and is the one thing undo must not step back, because undo cannot step
 //! back the wire.
+
+use std::collections::HashSet;
 
 use crate::model::{Push, PushReport, PushShape};
 use crate::ops::record::{OpRecord, Published, observe_refs};
@@ -48,23 +56,95 @@ pub struct PushOptions {
     pub argv: Vec<String>,
 }
 
+/// Which branches a run visits: the branch underfoot, or the ones named.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    Current,
+    Named(Vec<String>),
+}
+
+/// What a scope resolves to: whether the branch underfoot is in the run,
+/// and every branch in it, in the order the ref namespace lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chosen {
+    pub current: bool,
+    pub branches: Vec<String>,
+}
+
+/// The branches a scope reaches. `Current` is the branch underfoot alone.
+/// `Named` is exactly the branches asked for: a name resolves the way `ff
+/// restack` resolves one, an unambiguous prefix included, and one that
+/// resolves to nothing is refused before any network. A branch named twice
+/// is in the run once, and the run is ordered the way the ref namespace
+/// lists it, whatever order the names came in. Nothing comes along with a
+/// named branch: not the bases beneath it, which `ff pull` brings in
+/// because a branch lines up with its base through them, and not what is
+/// stacked above, since a push reads no base and moves no local ref.
+pub fn choose(repo: &gix::Repository, current: &str, scope: &Scope) -> Result<Chosen> {
+    let raw = match scope {
+        Scope::Current => {
+            return Ok(Chosen {
+                current: true,
+                branches: vec![current.to_string()],
+            });
+        }
+        Scope::Named(raw) => raw,
+    };
+    let chosen: HashSet<String> = raw
+        .iter()
+        .map(|name| crate::switch::resolve_branch(repo, name))
+        .collect::<Result<_>>()?;
+    Ok(Chosen {
+        current: chosen.contains(current),
+        branches: crate::switch::branch_names(repo)?
+            .into_iter()
+            .filter(|n| chosen.contains(n))
+            .collect(),
+    })
+}
+
+/// Capture first, like every verb. Push changes nothing locally, so it
+/// records no operation of its own — but the tree is snapshotted and
+/// foreign motion is reconciled before anything leaves, which is the point
+/// of the floor. One capture opens a run however many branches it sends. A
+/// dry run reads and writes nothing, so it takes nothing: same rule as `ff
+/// trim -n`.
+pub fn begin(
+    repo: &gix::Repository,
+    dry_run: bool,
+    now: Option<i64>,
+    prov: &Provenance,
+) -> Result<Option<crate::ops::verb::VerbContext>> {
+    if dry_run {
+        return Ok(None);
+    }
+    Ok(Some(crate::ops::verb::begin_verb(repo, prov, now)?))
+}
+
+/// The plan for the branch underfoot, after the run's capture: [`begin`]
+/// then [`plan`], for the caller that sends one branch.
 pub fn push(
     repo: &gix::Repository,
     pre: &Preflight,
     opts: PushOptions,
     prov: &Provenance,
 ) -> Result<(PushReport, Option<crate::ops::verb::VerbContext>)> {
-    // Capture first, like every verb. Push changes nothing locally, so it
-    // records no operation of its own — but the tree is snapshotted and
-    // foreign motion is reconciled before anything leaves, which is the
-    // point of the floor. A dry run reads and writes nothing, so it takes
-    // nothing: same rule as `ff trim -n`.
-    let ctx = if opts.dry_run {
-        None
-    } else {
-        Some(crate::ops::verb::begin_verb(repo, prov, opts.now)?)
-    };
+    let ctx = begin(repo, opts.dry_run, opts.now, prov)?;
+    let push = plan(repo, pre)?;
+    Ok((
+        PushReport {
+            branch: pre.branch.clone(),
+            push,
+            dry_run: opts.dry_run,
+        },
+        ctx,
+    ))
+}
 
+/// What the push of one branch is, decided from refs alone: nowhere to send
+/// it, the exit blocked, the shared copy already level, or the push and
+/// the lease it goes out under.
+pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
     let push = if crate::held::of(repo, &pre.branch)?.is_some() {
         // The exits-blocked discipline: a held rewrite means the branch's
         // commits are not what they will be, and sending them would put out
@@ -103,15 +183,7 @@ pub fn push(
             }
         }
     };
-
-    Ok((
-        PushReport {
-            branch: pre.branch.clone(),
-            push,
-            dry_run: opts.dry_run,
-        },
-        ctx,
-    ))
+    Ok(push)
 }
 
 /// Which of the four pushes this is.
@@ -200,7 +272,7 @@ pub fn record(
             tip,
         ),
         // Nothing left the machine, so there is nothing to remember.
-        Push::NoRemote | Push::Blocked | Push::UpToDate => return Ok(None),
+        Push::NotNamed | Push::NoRemote | Push::Blocked | Push::UpToDate => return Ok(None),
     };
 
     let mut record = OpRecord::new(

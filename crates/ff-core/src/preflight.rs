@@ -68,13 +68,24 @@ pub struct Tracking {
     pub tip: Option<gix::ObjectId>,
 }
 
-/// The preflight facts, with the remote named outright when `to` carries
-/// one: an explicit name wins over both the branch's configured upstream
-/// and the repository default, so the ambiguity refusal never runs. A `to`
-/// that names a remote the branch already answers to is accepted and
-/// changes nothing; a branch answering elsewhere is refused, because
-/// pointing it at a second remote would open a second shared copy.
+/// The preflight facts of the branch underfoot, with the remote named
+/// outright when `to` carries one: an explicit name wins over both the
+/// branch's configured upstream and the repository default, so the
+/// ambiguity refusal never runs. A `to` that names a remote the branch
+/// already answers to is accepted and changes nothing; a branch answering
+/// elsewhere is refused, because pointing it at a second remote would open
+/// a second shared copy.
 pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Result<Preflight> {
+    let branch = head_branch(repo, verb)?;
+    preflight_branch(repo, verb, &branch, to)
+}
+
+/// The guards every run passes before any branch is read, and the branch
+/// HEAD is on: a bare repository, an operation git has in progress, a
+/// detached HEAD, and an unborn one are each refused here. A run over named
+/// branches passes these too, since the capture it takes and the record it
+/// writes are the branch underfoot's.
+pub fn head_branch(repo: &gix::Repository, verb: Verb) -> Result<String> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -114,6 +125,20 @@ pub fn preflight_to(repo: &gix::Repository, verb: Verb, to: Option<&str>) -> Res
         }
         HeadState::Branch { name, .. } => name,
     };
+    Ok(branch)
+}
+
+/// The preflight facts of one branch, which need not be the one underfoot:
+/// the remote it answers to, its shared copy, and whether a rewrite is held
+/// on it. The refusals are the branch's own — a resolution open on it, or
+/// an editing session — and every one lands before any network.
+pub fn preflight_branch(
+    repo: &gix::Repository,
+    verb: Verb,
+    branch: &str,
+    to: Option<&str>,
+) -> Result<Preflight> {
+    let branch = branch.to_string();
     if let Some(open) = crate::held::resolving(repo, &branch)? {
         let session = &open.session;
         return Err(Error::coded(
@@ -242,7 +267,8 @@ pub fn preflight(repo: &gix::Repository, verb: Verb) -> Result<Preflight> {
 }
 
 /// The branch's tip by short name. Every caller has already heard from
-/// HEAD that the branch exists, so a miss is fufu's bug, not the user's.
+/// HEAD, or from a name that resolved, that the branch exists, so a miss is
+/// fufu's bug, not the user's.
 pub(crate) fn branch_tip(repo: &gix::Repository, branch: &str) -> Result<gix::ObjectId> {
     crate::refs::ref_target(repo, &format!("refs/heads/{branch}"))?.ok_or_else(|| {
         // Uncoded on purpose: a curated id is a promise that a person can

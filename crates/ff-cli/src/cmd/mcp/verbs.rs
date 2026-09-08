@@ -425,7 +425,11 @@ mod tests {
             tools[1].tool().input_schema[POSITIONAL],
             serde_json::json!(["branches"])
         );
-        assert_eq!(keys(2), vec!["dry-run", "to", "cwd"]);
+        assert_eq!(keys(2), vec!["branches", "dry-run", "to", "cwd"]);
+        assert_eq!(
+            tools[2].tool().input_schema[POSITIONAL],
+            serde_json::json!(["branches"])
+        );
         assert_eq!(keys(3), vec!["cwd"]);
         assert_eq!(keys(4), vec!["cwd"]);
         assert_eq!(keys(5), vec!["id", "list", "cwd"]);

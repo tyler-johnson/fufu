@@ -243,6 +243,8 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
         ));
     }
     if run.stderr.contains("stale info") {
+        // The exits name the branch: the lease was that branch's, and the
+        // branch need not be the one underfoot.
         return Err(Error::coded(
             "push/lease-refused",
             format!(
@@ -250,7 +252,10 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
                  was pushed — your commits are still here, and ff pull takes in \
                  what arrived"
             ),
-            vec!["ff pull".into(), "ff push".into()],
+            vec![
+                format!("ff pull {local_branch}"),
+                format!("ff push {local_branch}"),
+            ],
         ));
     }
     if run.stderr.contains("[remote rejected]") {
