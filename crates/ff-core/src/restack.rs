@@ -249,11 +249,7 @@ fn walk_range(
     branch_tip: gix::ObjectId,
     boundary: &[gix::ObjectId],
 ) -> Result<(Vec<gix::ObjectId>, Option<gix::ObjectId>)> {
-    let walk = repo
-        .rev_walk(Some(branch_tip))
-        .with_boundary(boundary.iter().copied())
-        .all()
-        .map_err(Error::repo)?;
+    let walk = crate::upstream::range(repo, branch_tip, boundary.iter().copied())?;
     let mut range = Vec::new();
     let mut merge = None;
     for info in walk {

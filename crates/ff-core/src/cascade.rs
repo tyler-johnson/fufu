@@ -318,18 +318,12 @@ pub(crate) fn plan_over(
             continue;
         }
 
-        // What the branch holds that its base did not: bounded by where it
-        // forked from the base as it stood, so the base's own commits are
-        // not replayed twice. A boundary stops the walk where it is reached
-        // rather than hiding what it can reach, which is why the fork point
-        // is the bound and not the old tip.
+        // What the branch holds that its base did not: below where it
+        // forked from the base as it stood is hidden too, so the base's own
+        // commits are not replayed twice.
         let mut boundary = bases;
         boundary.extend(old_bases);
-        let walk = repo
-            .rev_walk(Some(tip))
-            .with_boundary(boundary)
-            .all()
-            .map_err(Error::repo)?;
+        let walk = crate::upstream::range(repo, tip, boundary)?;
         let mut range: Vec<gix::ObjectId> = Vec::new();
         let mut merge = false;
         for info in walk {

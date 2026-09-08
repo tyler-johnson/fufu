@@ -201,11 +201,7 @@ pub(super) fn range_of(
         .map(|hex| gix::ObjectId::from_hex(hex).map_err(Error::repo))
         .collect::<Result<_>>()?;
 
-    let walk = repo
-        .rev_walk(Some(tip))
-        .with_boundary(boundary.iter().copied())
-        .all()
-        .map_err(Error::repo)?;
+    let walk = crate::upstream::range(repo, tip, boundary.iter().copied())?;
     let mut range: HashSet<gix::ObjectId> = HashSet::new();
     let mut parents_of: HashMap<gix::ObjectId, Vec<gix::ObjectId>> = HashMap::new();
     for info in walk {

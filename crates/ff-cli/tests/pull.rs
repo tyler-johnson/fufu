@@ -82,6 +82,52 @@ fn moved_base(fx: &Fixture) {
     fx.git(&["switch", "-q", "feature"]);
 }
 
+/// A commit's date says nothing about where it stands: a teammate's morning
+/// commit pushed after lunch, or a cherry-pick of old work, sits on `main`
+/// with a committer date older than the fork point, and the branch's own
+/// commit can be older still. The count and the replay walk the range by
+/// ancestry, not by clock, so neither drops it.
+#[test]
+fn a_commit_older_than_the_fork_point_still_counts_and_replays() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.write("a.txt", "a\n");
+    fx.commit("a");
+    // A day before the fixture clock's epoch, so older than the fork point.
+    let old = "@1599913600 +0000";
+    let dated = [("GIT_AUTHOR_DATE", old), ("GIT_COMMITTER_DATE", old)];
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "f\n");
+    fx.git(&["add", "-A"]);
+    fx.git_env_in(&fx.path(), &["commit", "-q", "-m", "f1"], &dated);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m1.txt", "m1\n");
+    fx.git(&["add", "-A"]);
+    fx.git_env_in(&fx.path(), &["commit", "-q", "-m", "m1"], &dated);
+    fx.git(&["switch", "-q", "feature"]);
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("main moved ahead by 1 commit(s)"), "{text}");
+    assert!(text.contains("replayed 1 commit(s) onto main"), "{text}");
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "feature"])
+            .status
+            .success(),
+        "feature sits on the moved main"
+    );
+    assert!(
+        fx.path().join("f.txt").exists(),
+        "the branch's commit was replayed"
+    );
+    assert!(
+        fx.path().join("m1.txt").exists(),
+        "main's commit is beneath it"
+    );
+}
+
 #[test]
 fn pull_replays_onto_a_moved_base() {
     let fx = repo();

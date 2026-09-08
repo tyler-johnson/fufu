@@ -235,11 +235,7 @@ pub fn probe_to_depth(
 
     // Newest-first from the walk; reversed below. Merge commits bail, so the
     // range is a simple chain and reversing is exactly oldest-first.
-    let walk = repo
-        .rev_walk(Some(branch_tip))
-        .with_boundary(bases.iter().copied())
-        .all()
-        .map_err(Error::repo)?;
+    let walk = crate::upstream::range(repo, branch_tip, bases.iter().copied())?;
     let mut range: Vec<gix::ObjectId> = Vec::new();
     for info in walk {
         let info = info.map_err(Error::repo)?;

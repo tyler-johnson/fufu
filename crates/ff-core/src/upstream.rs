@@ -88,6 +88,28 @@ pub(crate) fn upstream_for(
     }))
 }
 
+/// The range `tip ^bases`, newest first: every commit reachable from the tip
+/// that no base reaches, and never a base itself — git's own meaning of a
+/// range. Every range walk in the crate comes through here. The bases are
+/// hidden rather than set as a boundary: gix's `with_boundary` stops where
+/// a base is reached instead of painting what the base reaches, so a merge
+/// that reached around the base let the base's own history through, and it
+/// also installs a commit-time cutoff at the oldest base, which dropped any
+/// commit dated older than the base — a teammate's morning commit pushed
+/// after lunch, a cherry-pick of old work — as if it were not in the range
+/// at all. Hiding answers by ancestry alone.
+pub(crate) fn range<'repo>(
+    repo: &'repo gix::Repository,
+    tip: gix::ObjectId,
+    bases: impl IntoIterator<Item = gix::ObjectId>,
+) -> Result<gix::revision::Walk<'repo>> {
+    repo.rev_walk(Some(tip))
+        .with_hidden(bases)
+        .sorting(Sorting::ByCommitTime(Default::default()))
+        .all()
+        .map_err(Error::repo)
+}
+
 /// The commits reachable from `tip` without crossing any of `bases`.
 /// One walk, each excluded commit exactly once; callers do not depend
 /// on the order they come out in.
@@ -96,14 +118,8 @@ pub(crate) fn exclusive(
     tip: gix::ObjectId,
     bases: &[gix::ObjectId],
 ) -> Result<Vec<gix::ObjectId>> {
-    let walk = repo
-        .rev_walk(Some(tip))
-        .sorting(Sorting::ByCommitTime(Default::default()))
-        .with_boundary(bases.iter().copied())
-        .all()
-        .map_err(Error::repo)?;
     let mut ids = Vec::new();
-    for info in walk {
+    for info in range(repo, tip, bases.iter().copied())? {
         ids.push(info.map_err(Error::repo)?.id);
     }
     Ok(ids)
