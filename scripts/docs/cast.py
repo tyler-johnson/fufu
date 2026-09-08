@@ -151,6 +151,7 @@ class Recorder:
         self.send(
             "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null"
             " GIT_CONFIG_NOSYSTEM=1 GIT_EDITOR=false EDITOR=false FF_PAGER=cat"
+            " && unset FF_SESSION CLAUDE_CODE_SESSION_ID"
             f" && cd {shell_quote(self.cwd)}"
             f" && PS1={shell_quote(PS1)} && unset PROMPT_COMMAND"
             " && bind 'set enable-bracketed-paste off' && clear\r"

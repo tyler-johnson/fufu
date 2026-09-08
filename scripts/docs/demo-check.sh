@@ -57,6 +57,10 @@ fi
 # reaches the output.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
+# Nor the session of whatever launched this: an operation records the one
+# it ran under, and a recording made from inside an agent's session would
+# carry that session's id on every `ff history` row.
+unset FF_SESSION CLAUDE_CODE_SESSION_ID
 
 SCENE_ROOT=$(FF="$FF" "$ROOT_DIR/scripts/docs/demo-scene.sh")
 trap 'rm -rf "$(dirname "$SCENE_ROOT")" "${BIN_DIR:-}"' EXIT
@@ -79,12 +83,14 @@ transcript() {
 
 # The volatile fields, in the order that keeps each pattern unambiguous:
 # shas first, so that a change id is then recognizable as the bare word
-# standing in front of one.
+# standing in front of one — or, on the `@` row of a repository that signs,
+# in front of the blank the sha column leaves and the age after it.
 mask() {
   sed -E \
     -e 's/\b[0-9a-f]{7,8}\b/<sha>/g' \
     -e 's/\b[0-9]+ ?[smhd] ago/<age> ago/g' \
     -e 's/\b[a-z]{8} <sha>/<id> <sha>/g' \
+    -e 's/\b[a-z]{8}( +<age> ago)/<id>\1/g' \
     -e 's/\bnow at [a-z]+\b/now at <id>/g'
 }
 

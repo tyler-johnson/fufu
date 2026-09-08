@@ -23,11 +23,27 @@ FF="${FF:-ff}"
 # too, since the demo's own commands run there and not here.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
+# Nor the session of whatever launched this: an operation records the one
+# it ran under, and a recording made from inside an agent's session would
+# carry that session's id on every `ff history` row.
+unset FF_SESSION CLAUDE_CODE_SESSION_ID
 
 SCENE=$(mktemp -d)
 cd "$SCENE"
 
 ident() { git config user.name "$1"; git config user.email "$2"; }
+
+# Signs the current checkout's commits with a throwaway ssh key kept in the
+# scene, named in git's own config the way a signing user's is, so every
+# commit the recording shows says `signed`: the seed's, the teammate's, and
+# the ones fufu closes on camera. One key per person, made once.
+sign_as() {
+  local key=$SCENE/$1.key
+  [ -f "$key" ] || ssh-keygen -q -t ed25519 -N '' -C "$1" -f "$key"
+  git config gpg.format ssh
+  git config user.signingkey "$key.pub"
+  git config commit.gpgsign true
+}
 
 # Commits with a past: the seed's history is days old and the teammate's
 # commit landed this morning, so the recording's ages read as a repository
@@ -46,6 +62,7 @@ ago() {
 git init -q -b main seed
 cd seed
 ident "Ada Lovelace" ada@example.com
+sign_as ada
 
 cat > README.md <<'EOF'
 # lexer
@@ -89,6 +106,7 @@ rm -rf seed
 git clone -q origin.git lexer
 cd lexer
 ident "Ada Lovelace" ada@example.com
+sign_as ada
 "$FF" init >/dev/null
 
 # The state the demo opens in: work parked on a branch, and different work
@@ -116,6 +134,7 @@ printf '\nRun `cargo test` before you push.\n' >> README.md
   git clone -q origin.git teammate
   cd teammate
   ident "Grace Hopper" grace@example.com
+  sign_as grace
   cat > src/token.rs <<'EOF'
 pub enum Token {
     Ident,

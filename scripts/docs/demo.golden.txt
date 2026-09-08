@@ -1,17 +1,17 @@
 
 $ ff st
 on main · 1 to pull
-@  <id> <sha>   <age> ago
+@  <id>            <age> ago
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
 │    1 file    +2  -0
-●  —        <sha>   <age> ago
+●  —        <sha>   <age> ago  signed
 │  lexer: a token at a time
 
 $ # a dirty working copy, but I need to switch branches
 
 $ ff
-@  <id> <sha>   <age> ago  ▸ [main]
+@  <id>            <age> ago  ▸ [main]
 │  (no description)
 ●  —        <sha>   <age> ago  ▸ [unicode-escapes]  (+ parked change, 2 files)
 │  lexer: a token at a time
@@ -25,12 +25,12 @@ undo: ff undo
 
 $ ff st
 on unicode-escapes · base moved — fast-forwards
-@  <id> <sha>   <age> ago
+@  <id>            <age> ago
 │  lexer: handle unicode escapes
 │  M src/lexer.rs   +1  -0  +++++++
 │  A src/unicode.rs +3  -0  ++++++++++++++++++++
 │    2 files        +4  -0
-●  —        <sha>   <age> ago
+●  —        <sha>   <age> ago  signed
 │  lexer: a token at a time
 
 $ # the changes I made earlier on this branch...
@@ -53,7 +53,7 @@ $ ff st
 on unicode-escapes · base moved — rebases cleanly (1 commit replayed)
 @  no changes
 │  (no description)
-●  —        <sha>   <age> ago
+●  —        <sha>   <age> ago  signed
 │  lexer: handle unicode escapes
 
 $ # oh, main moved while I worked, so let's catch up

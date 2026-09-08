@@ -28,6 +28,10 @@ FF="${FF:-ff}"
 
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
+# Nor the session of whatever launched this: an operation records the one
+# it ran under, and a recording made from inside an agent's session would
+# carry that session's id on every `ff history` row.
+unset FF_SESSION CLAUDE_CODE_SESSION_ID
 
 # shellcheck source=scripts/docs/tutorial-steps.sh
 . "$ROOT_DIR/scripts/docs/tutorial-steps.sh"

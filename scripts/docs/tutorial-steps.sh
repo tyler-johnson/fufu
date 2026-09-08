@@ -73,12 +73,26 @@ tutorial_origin() {
   git clone -q --bare --branch main --single-branch "$root" "$scene/fufu.git"
 }
 
+# Signs a checkout's commits: a throwaway ssh key in the scene, named in
+# git's own config the way a signing user's is, so the commits fufu closes
+# on camera say `signed` beside the ones it cloned, which are. One key per
+# person, made the first time they are asked for.
+tutorial_sign_as() {
+  local dir=$1 who=$2 key
+  key=$SCENE/$who.key
+  [ -f "$key" ] || ssh-keygen -q -t ed25519 -N '' -C "$who" -f "$key"
+  git -C "$dir" config gpg.format ssh
+  git -C "$dir" config user.signingkey "$key.pub"
+  git -C "$dir" config commit.gpgsign true
+}
+
 step_get_a_repository() {
   printf '%s\n' \
     "run|ff clone $SCENE/fufu.git" \
     "set|cd fufu" \
     "set|git config user.name 'Ada Lovelace'" \
-    "set|git config user.email ada@example.com"
+    "set|git config user.email ada@example.com" \
+    "set|tutorial_sign_as . ada"
 }
 
 step_look_around() {
@@ -153,6 +167,7 @@ step_line_up_then_send() {
     "set|git clone -q $SCENE/fufu.git $SCENE/teammate" \
     "set|git -C $SCENE/teammate config user.name 'Grace Hopper'" \
     "set|git -C $SCENE/teammate config user.email grace@example.com" \
+    "set|tutorial_sign_as $SCENE/teammate grace" \
     "set|printf 'A line from a teammate.\\n' >> $SCENE/teammate/README.md" \
     "set|GIT_AUTHOR_DATE='$landed' GIT_COMMITTER_DATE='$landed' git -C $SCENE/teammate commit -qam 'docs: a line from a teammate'" \
     "set|git -C $SCENE/teammate push -q origin main" \
