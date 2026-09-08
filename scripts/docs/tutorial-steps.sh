@@ -234,7 +234,13 @@ tutorial_run_step() {
           # The check mode is the one place a failing command matters: it is
           # how a renamed verb or a dropped flag is caught before a release
           # ships a video of it.
-          check) eval "$cmd" >/dev/null 2>&1 || return 1 ;;
+          check)
+            local said
+            said=$(eval "$cmd" 2>&1) || {
+              printf '$ %s\n%s\n' "$cmd" "$said" >&2
+              return 1
+            }
+            ;;
           *) eval "$cmd" >/dev/null 2>&1 || true ;;
         esac
         ;;
