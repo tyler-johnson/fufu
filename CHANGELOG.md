@@ -4,75 +4,40 @@
 
 ### Added
 
-- jj's names are aliases where a fufu verb is what jj's means: `ff bookmark` is `ff branch`, `ff workspace` is `ff worktree`, `ff squash` is `ff absorb`, and `ff rebase` is `ff restack`, beside the `ff new` that `ff start` already had.
-- `ff abandon` and `ff split`, jj's two words with no one verb here, are answered with `usage/foreign-verb` naming the moves that cover them.
-- `extension/skill-failed` and `extension/bad-skill`, the skill handshake's two refusals.
-- Every `ff` invocation reads `CLAUDE_CODE_SESSION_ID` when neither `--session` nor `FF_SESSION` is set, so a shell verb under Claude Code carries the session its hook captures do, and `ff mcp`'s children inherit the same rule. The server reads it once at start, so it stays the launching session across `/clear`.
-- Every operation carries its route, `shell` or `tool`, in its trailer: on `ff op show` and `ff op log --json` as `route`, and as the `route()` filter in the op log's set language. An operation recorded before the field existed has none.
-- `ff status --json` carries the orientation an agent asks for first: `root`, `worktree` with its id and the main checkout, `base` with the count above it, `remote`, and `last_op`, `ff op log --json`'s row for the newest operation on this worktree's chain.
-- Every `ff hook` install re-asks each declared extension's manifest first and re-records it in `extensions.json`, so the skills it writes are the ones the binary names now; a binary off PATH or failing the handshake keeps its record and is said. `ff hook --json` carries `extensions`, one row per declared extension with its `version`, `was`, `changed`, and `error`.
-- `ff hook -u` refreshes what is wired and adds nothing: the manifest pass, then the install re-run for every slug already wired. `install.sh` and `install.ps1` run it after placing the binary.
-- `ff pull <branch>...` pulls the branches named, from wherever you stand, each with the local bases beneath it; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before the fetch. `ff pull --all` is every local branch, the run bare `ff pull` used to be. Names and `--all` together are a usage error.
-- `ff pull --json` reads `NotNamed` on the report's `remote` and `base` when names left the branch you stand on out of the run.
-- `ff mcp`'s `pull` tool takes `branches` and `all`.
-- `ff pull --dry-run` (`-n`) says what the run would do — which branches would fast-forward, which would replay and onto what, which would hold and where, and which would be skipped and why — for bare, names, and `--all`, and writes nothing: no branch, file, hold, or operation. The fetch still runs and writes remote-tracking refs and nothing else; `--dry-run --no-fetch` reads what you already have. The exit is 3 when a branch would hold.
-- `ff pull --json` carries `dry_run` on the report, and `undo` is null under a dry run.
-- `ff mcp`'s `pull` tool takes `dry-run`.
-- `ff push <branch>...` pushes the branches named, from wherever you stand, each under its own lease; a name resolves the way `ff restack` resolves one, and one no branch answers to is `branch/not-found` before anything reaches the wire. Among several, a lease the remote refuses is that branch's alone: the rest go out, its block says what the wire said, and the exit is 1. There is no `--all`.
-- `ff push --json` carries `branches`, one row per branch in the run with its `push`, `pushed`, and `error`; `push` and `pushed` read `NotNamed` and false when names left the branch you stand on out of the run.
-- `ff mcp`'s `push` tool takes `branches`.
-- The manifest's `update` and `build` fields, additive under contract 1. `update` is a block of recipes keyed by the channel fufu detects: `brew` (the formula), `install` (the script URL) with `bin` beside it (the directory the script places the binary in, `~/.local/bin` when absent), and `releases` (the page). `build` is `official` or `source`, and absent is `official`. A block naming no recipe, an empty recipe, or `bin` without `install` is `extension/bad-manifest`.
-- `ff update` walks every declared extension after fufu, in registry order, by the rules it applies to itself: a `source` build is told to rebuild, a Homebrew binary gets `brew upgrade`, a binary in its script's `bin` gets the `curl … | sh` line and runs it after `-y` or a typed yes, and anything else gets the releases page. A channel with no recipe, and a manifest with no block, are named as ones fufu cannot move, with the binary's path. After a move that ran, the walk ends with `ff hook -u`.
-- `ff extension add` says how `ff update` will answer for the extension: the channels its block names, that it is a source build, or that fufu cannot move it.
-- The passive release notice covers declared extensions: an `official` build whose `releases` recipe is a github.com page has its latest release fetched beside fufu's own by `ff update --check`, at most once per `fufu.updateCheck`, and a binary behind it gets one line on stderr naming the recipe for its channel, each release announced once. A `source` build, a manifest with no `releases` recipe, and a page on another host get no check.
-- `update.json` carries `extensions`, one `latest` and `notified` per checked extension beside fufu's own; a file without the key reads as before.
-- `ff doctor`'s Extensions floor asks the binary behind a record from a contract this fufu does not speak, and when `ff-<name>` on PATH answers this contract the record is behind the binary: the extension's own drift row, with `ff extension add <name>` as the repair, in place of the aggregate. A binary under a stale record is no longer counted as undeclared.
+- `ff pull <branch>...` and `ff push <branch>...` act on the branches named, from wherever you stand: a pull brings each with the local bases beneath it, a push sends each under its own lease, and a lease the remote refuses is that branch's alone. A name resolves the way `ff restack` resolves one. `ff pull --all` is every local branch; push has no `--all`.
+- `ff pull --dry-run` (`-n`) says which branches would fast-forward, replay, hold, or be skipped, and writes nothing but remote-tracking refs; `--no-fetch` beside it reads what you already have. The exit is 3 when a branch would hold.
+- `ff status --json` carries the orientation an agent asks for first: `root`, `worktree`, `base` with the count above it, `remote`, and `last_op`.
+- Every operation carries its route, `shell` or `tool`, in its trailer: on `ff op show` and `ff op log --json`, and as the `route()` filter in the op log's set language.
+- Every `ff` invocation reads `CLAUDE_CODE_SESSION_ID` when neither `--session` nor `FF_SESSION` is set, so a shell verb under Claude Code carries the session its hook captures do; `ff mcp` reads it once at start.
+- jj's names as aliases: `ff bookmark`, `ff workspace`, `ff squash`, and `ff rebase` run `ff branch`, `ff worktree`, `ff absorb`, and `ff restack`. `ff abandon` and `ff split` answer with `usage/foreign-verb` naming the moves that cover them. Every alias shows on `ff --help`.
+- The manifest's `update` and `build` fields. `ff update` walks every declared extension after fufu by the rules it applies to itself, the passive release notice covers an `official` build with a github.com `releases` recipe, and `ff extension add` says how `ff update` will answer for the extension. `update.json` carries `extensions`.
+- `ff hook -u` refreshes what is wired and adds nothing: every declared extension's manifest is re-asked, then the install re-run for every slug already wired. `install.sh` and `install.ps1` run it after placing the binary. `ff hook --json` carries `extensions`.
+- `ff doctor`'s Extensions floor reports a declared extension whose binary has moved past its record as that extension's own drift row, with `ff extension add <name>` as the repair.
 
 ### Changed
 
-- Bare `ff pull` is the branch you stand on and the local bases beneath it, brought level with their shared copies first, rather than every local branch; what is stacked above follows a replay as before, and is not read against its own shared copy. `ff pull --all` is the whole-repository run.
-- `ff sync` is `ff pull` and `ff publish` is `ff push`. The old spellings stay as visible aliases, kept rather than deprecated, and `ff --help` shows each on its verb's row. `ff pull` and `ff push` were hidden foreign verbs that refused; they run now, and `ff git pull` still runs git's.
-- The error ids under `sync/` and `publish/` are `pull/` and `push/`: `pull/fetch-failed`, `pull/ambiguous-remote`, `push/no-git`, `push/unreachable`, `push/lease-refused`, `push/rejected`, `push/failed`, `push/unrecorded`, `push/unknown-remote`, `push/retarget`. The old ids resolve nowhere, `ff explain` included.
-- The operation log records the two verbs as `pull` and `push`, and a push's summary reads `pushed <branch> to <remote>/<branch>`. Operations already on a log keep the words they were written with.
-- The briefing names the typed tools only where the client has `ff mcp` registered, as a preference rather than a fact: prefer a `fufu` tool where one is offered, every other verb is the shell. `ff mcp`'s `instructions` carry the same line always.
-- The skill's tool section says the same, and that a tool's structured content is the `--json` envelope.
-- The JSON envelope's `cmd` is `pull` and `push` for both spellings, and the payload key under `data` moves with it: `data.pull` and `data.push`.
-- `ff pull --json` tags a branch row `Pulled` where it read `Synced`.
-- `ff mcp`'s tools are `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`; `sync` and `publish` are no longer served under those names.
-- `ff status`, `ff pull`, and `ff branch list` say `N to pull`, `N to push`, `nothing to pull`, and `not published yet — ff push`.
-- `push/lease-refused`'s exits name the branch: `ff pull <branch>`, `ff push <branch>`.
-- `ff update -y` is one answer for the whole walk: a channel it cannot drive, fufu's own included, is named at the end and the exit is 1 there, after every extension has been reached, where it stopped before the first. An extension's failed install is a line and the walk goes on.
-- `ff resolve` opens a session branch, the way `ff edit` does: an anonymous branch minted at a commit carrying the markers, switched to, with the hold staying on the branch you left. `ff done` lands the fixes and returns in one operation; `--abandon` returns too, and from the held branch deletes the session wherever it is. Opening is two operations, the mint and the switch, so two `ff undo` take a fresh session back.
-- `ff status` and `ff status --json` carry the session under `resolving` on both branches: on the session, the conflicts are in your working copy; on the held branch, the line names the session and `ff switch` to it. `held/resolving` on the held branch names the session.
-- The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole as `skills/<skill>/` beside fufu's own. A skill's name is the extension's or carries it as a prefix. The field changes meaning in place under contract 1: a registry record carrying a path reads as unreadable until `ff extension add <name>` rewrites it.
-
-- "Working copy" replaces "working tree" everywhere fufu speaks: verb output such as `ff pull`'s `updated the working copy` line, error messages and `ff explain` pages, `--help`, the agent briefing and skill, and the docs.
-- Changes made outside fufu render as one summary line on both surfaces, the reconcile preamble every mutating verb writes to stderr and the block `ff status` pins: a single change keeps its ref and git's reflog hint, and more than one folds to counts by kind. `ff status --json` still carries every ref, and `ff op show @` lists them.
-- Every alias is visible: `ff --help` shows `[alias: st]` on the verb's row, and each aliased verb's page names its spellings. The root page's list of short forms goes.
-- `ff rebase` runs `ff restack`, where it raised `usage/foreign-verb` pointing at `ff git rebase`.
-- A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`, where both stayed quiet because the passthrough was the answer.
-- `ff mcp` sets `isError` from the envelope rather than the exit code, so a held `ff pull` and a `ff doctor` with findings are successful calls carrying data, and every relayed result carries the child's exit code in `_meta.exit`.
-- `ff mcp` serves seven typed tools, `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, in place of the one `ff` tool and its args array; every other verb is the shell. The tools a declared extension produces are served beside them as before, and take `cwd` the same way.
-- The manifest's `undoable` and `verbs[].read_only` are informational: `ff extension add` reports `undoable: false`, and nothing refuses on either.
-- The docs site plays the demo and the tutorial's clips as asciinema recordings, crisp at any width and with selectable text; the demo and tutorial webms are gone, and the gifs stay as the README's and the no-JavaScript fallback.
+- `ff sync` is `ff pull` and `ff publish` is `ff push`; the old spellings stay as visible aliases. The error ids under `sync/` and `publish/` are `pull/` and `push/`, and the old ids resolve nowhere, `ff explain` included. The operation log, the JSON envelope's `cmd` and `data` key, and the counts `ff status` prints (`N to pull`, `N to push`) follow.
+- Bare `ff pull` is the branch you stand on and the local bases beneath it, rather than every local branch; `ff pull --all` is the whole-repository run.
+- `ff mcp` serves seven typed tools, `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, in place of the one `ff` tool and its args array; every other verb is the shell. `isError` follows the envelope rather than the exit code, and every result carries the child's exit in `_meta.exit`. The briefing names the tools only where the client has `ff mcp` registered.
+- `ff resolve` opens a session branch the way `ff edit` does, with the hold staying on the branch you left; `ff done` lands the fixes and returns in one operation, and `ff status` carries the session under `resolving` on both branches.
+- The manifest's `skills` field names skills, and `ff hook` asks `ff-<name> --ff-skill <skill>` for each one's files, installed whole beside fufu's own; a failed handshake is `extension/skill-failed` or `extension/bad-skill`. A registry record from before reads as unreadable until `ff extension add <name>` rewrites it. `undoable` and `verbs[].read_only` are informational.
+- `ff update -y` is one answer for the whole walk: a channel it cannot drive is named at the end and the exit is 1 there, after every extension has been reached.
+- "Working copy" replaces "working tree" everywhere fufu speaks.
+- Changes made outside fufu render as one summary line in the reconcile preamble and the block `ff status` pins; `ff status --json` still carries every ref.
+- A `git rebase` typed through the shell alias is coached toward `ff restack` under `fufu.gitPolicy=coach` and refused under `strict`.
 
 ### Removed
 
-- `usage/foreign-verb` for `ff pull` and `ff push`, and their rows on the foreign-verb table: both are fufu verbs now.
-- `ff co`, the hidden alias on the `checkout` foreign verb. `ff checkout` still answers with `usage/foreign-verb`.
 - `fufu.toolPolicy`, with the presence marker `ff mcp` held for it and the `ff trigger claude` refusal it drove.
-- `usage/mcp-verb-unavailable`.
-- `usage/mcp-extension-undeclared`.
-- `usage/mcp-extension-not-undoable`.
-- `usage/mcp-policy-write`, and the sealed keys under the tool.
+- `usage/mcp-verb-unavailable`, `usage/mcp-extension-undeclared`, `usage/mcp-extension-not-undoable`, and `usage/mcp-policy-write`, with the sealed keys under the tool.
+- `ff co`, the hidden alias on the `checkout` foreign verb.
 
 ### Fixed
 
-- `docs/agents/setup.md`'s pasted standing-orders block matches the briefing again.
 - `ff switch`, `ff done`, and the resolution landing recorded an end tree without the untracked files of the park they resumed, so the next `ff undo` deleted the files instead of stepping back.
-- `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree: the fixes park on the session branch and come back when you switch to it.
-- `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin: the plugin's `skills/` is swept on every install. The Codex half of the v0.12.0 known issue stands.
-- `ff pull`, `ff restack`, `ff absorb`, and every other replay walked a range by commit date as well as ancestry, so a commit dated older than the base — a teammate's morning commit pushed after lunch, a cherry-pick of old work — was left out of the count and the replay, and a branch made only of such commits was refused as already sitting on its base. In a shallow clone the walk stops at the boundary the way git does.
+- `ff switch` away during a resolution no longer overwrites the branch's parked change with the marker tree.
+- `ff pull`, `ff restack`, `ff absorb`, and every other replay walked a range by commit date as well as ancestry, so a commit dated older than the base was left out of the replay, and a branch made only of such commits was refused as already sitting on its base. In a shallow clone the walk stops at the boundary.
+- `ff extension remove` before `ff hook claude` no longer leaves the extension's skills in the plugin. The Codex half of the v0.12.0 known issue stands.
 
 ## v0.12.1 — 2026-09-04
 
