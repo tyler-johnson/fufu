@@ -44,33 +44,20 @@ fn human(repo: &ff_core::gix::Repository, map: &ff_core::Map) -> Result<()> {
     use std::io::Write as _;
 
     crate::render::init_palette(repo);
-    // Each commit row's op id is its chain-segment anchor — the same one
-    // `ff log` and `ff status` show beside that commit. One walk over the
-    // rows already fetched, exactly as `cmd/log.rs` runs it.
-    let commit_ids: Vec<String> = map
-        .rows
-        .iter()
-        .filter_map(|row| match &row.node {
-            ff_core::MapNode::Commit { id, .. } => Some(id.clone()),
-            _ => None,
-        })
-        .collect();
-    let segments = ff_core::segment_anchors(repo, &commit_ids)?;
-    // Every id the map can display gets priced together, so two rows never
-    // abbreviate the same operation to different lengths.
-    let mut ids: Vec<String> = segments.values().cloned().collect();
-    ids.extend(map.rows.iter().filter_map(|row| match &row.node {
-        ff_core::MapNode::Open { id, .. } => id.clone(),
-        _ => None,
+    // Every change id the map can display gets priced together, so two rows
+    // never bold the same id to different lengths.
+    let lens = ff_core::changeid::prefix_lens(map.rows.iter().filter_map(|row| match &row.node {
+        ff_core::MapNode::Commit { change_id, .. } => Some(change_id.as_str()),
+        ff_core::MapNode::Open { change_id, .. } => change_id.as_deref(),
+        ff_core::MapNode::Elided { .. } => None,
     }));
-    let lens = crate::cmd::evolog::displayed_prefix_lens(repo, &ids)?;
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(repo, false);
     let colored = out.colored();
     let payloads: Vec<crate::render::MapPayload> = map
         .rows
         .iter()
-        .map(|row| crate::render::map_payload(&row.node, &segments, &lens, now, colored))
+        .map(|row| crate::render::map_payload(&row.node, &lens, now, colored))
         .collect();
     let rows: Vec<crate::graph::GraphRow> = payloads
         .iter()

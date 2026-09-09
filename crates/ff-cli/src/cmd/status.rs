@@ -124,8 +124,12 @@ pub struct SessionStatus {
 /// person can read a script reads as data.
 #[derive(serde::Serialize)]
 pub struct OpenStatus {
+    /// The newest capture (hex), the op anchor; `id_letters` is its
+    /// spelling. The column the human view prints is `change_id`.
     pub id: Option<String>,
     pub id_letters: Option<String>,
+    /// The open change's id in letters, once something minted it.
+    pub change_id: Option<String>,
     pub pending: Option<String>,
     pub subject: Option<String>,
     pub clean: bool,
@@ -138,13 +142,16 @@ pub struct OpenStatus {
 #[derive(serde::Serialize)]
 pub struct ParentStatus {
     pub id: String,
+    /// The change id in letters, the column the human view prints.
+    pub change_id: String,
     pub subject: String,
     /// Unix seconds; `ff log --json` spells the same field the same way.
     pub time: i64,
     /// The commit's chain-segment anchor: the capture whose base and tree
-    /// this commit repeats, which is the id `ff log` prints in that row's
-    /// first column. `None` when no capture answers to it — an unborn
-    /// repository, or history that arrived from outside fufu.
+    /// this commit repeats, the operation `ff log --json` reports as a row's
+    /// `session`. `None` when no capture answers to it — an unborn
+    /// repository, or history that arrived from outside fufu. Computed only
+    /// under `--json`.
     pub segment: Option<String>,
     /// The commit carries a signature. Whether it is a *good* one is
     /// `ff show`'s answer; this is the free half.
@@ -188,28 +195,23 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     .next()
     .transpose()?;
 
-    // The parent row's chain-segment anchor. `ff status` is `ff log` cropped
-    // to two rows, so the column that names a commit's capture belongs on
-    // this row too; a blank here was the crop dropping a column rather than
-    // a considered silence. One anchor for one commit, against a walk the
-    // full `ff log` already pays for a whole page.
-    let parent_segment: Option<String> = match &parent {
-        Some(p) => ff_core::segment_anchors(&repo, std::slice::from_ref(&p.id))?.remove(&p.id),
-        None => None,
+    // The parent row's chain-segment anchor, for the machine surface only:
+    // the human column is the change id, read off the commit, so the human
+    // render no longer walks the chain.
+    let parent_segment: Option<String> = match (&parent, ctx.json) {
+        (Some(p), true) => {
+            ff_core::segment_anchors(&repo, std::slice::from_ref(&p.id))?.remove(&p.id)
+        }
+        _ => None,
     };
 
-    // Lens map: the ids actually on screen, and only those. Prefixes are
-    // priced over the operation log, so the parent's commit sha never
-    // resolved against it -- its anchor is the id that does, and the id the
-    // row prints.
-    let mut ids: Vec<String> = Vec::new();
-    if let Some(id) = &open.id {
-        ids.push(id.clone());
-    }
-    if let Some(anchor) = &parent_segment {
-        ids.push(anchor.clone());
-    }
-    let lens = crate::cmd::evolog::displayed_prefix_lens(&repo, &ids)?;
+    // Lens map: the change ids actually on screen, and only those.
+    let lens = ff_core::changeid::prefix_lens(
+        open.change_id
+            .as_deref()
+            .into_iter()
+            .chain(parent.as_ref().map(|p| p.change_id.as_str())),
+    );
 
     // Reconcile pinned (foreign changes)
     let foreign = reconcile_foreign(&repo);
@@ -395,6 +397,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         open: OpenStatus {
             id: open.id.clone(),
             id_letters,
+            change_id: open.change_id.clone(),
             pending: open.pending.clone(),
             subject: open.subject.clone(),
             clean: open.clean,
@@ -403,6 +406,7 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         },
         parent: parent.as_ref().map(|p| ParentStatus {
             id: p.id.clone(),
+            change_id: p.change_id.clone(),
             subject: p.subject.clone(),
             time: p.time,
             segment: parent_segment.clone(),

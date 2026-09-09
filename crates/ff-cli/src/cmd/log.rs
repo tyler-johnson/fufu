@@ -125,8 +125,15 @@ pub fn run_inner(
             )?;
             !stat.files.is_empty()
         });
-    let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
-    let segments = ff_core::segment_anchors(&repo, &ids)?;
+    // The op anchor survives only on the machine surface, as each row's
+    // `session`: the human render's letters column is the change id, read
+    // off the commit, so it no longer walks the chain.
+    let segments = if ctx.json {
+        let ids: Vec<String> = commits.iter().map(|entry| entry.id.clone()).collect();
+        ff_core::segment_anchors(&repo, &ids)?
+    } else {
+        std::collections::HashMap::new()
+    };
 
     // Whether a row is signed is already known — it came off the object with
     // the subject. `--signatures` buys the other question, whether the
@@ -195,6 +202,7 @@ pub fn run_inner(
                 "branch": open.branch,
                 "id": open.id,
                 "id_letters": open.id.as_deref().map(ff_core::snapid::encode),
+                "change_id": open.change_id,
                 "base": open.base,
                 "subject": open.subject,
                 "time": open.time,
@@ -215,9 +223,15 @@ pub fn run_inner(
 
     use std::io::Write as _;
     crate::render::init_palette(&repo);
-    let mut ids: Vec<String> = segments.values().cloned().collect();
-    ids.extend(open.id.clone());
-    let lens = crate::cmd::evolog::displayed_prefix_lens(&repo, &ids)?;
+    // The bold prefix is unique among the ids on this page plus the open
+    // change's; the resolver says when a page-unique prefix is not
+    // repository-unique.
+    let lens = ff_core::changeid::prefix_lens(
+        commits
+            .iter()
+            .map(|entry| entry.change_id.as_str())
+            .chain(open.change_id.as_deref()),
+    );
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
@@ -231,7 +245,7 @@ pub fn run_inner(
                 subject: open.subject.as_deref(),
                 born: open.base.is_some(),
                 clean: open.clean,
-                id: open.id.as_deref(),
+                change_id: open.change_id.as_deref(),
                 pending: open.pending.as_deref(),
                 time: open.time,
             };
@@ -243,9 +257,9 @@ pub fn run_inner(
         }
 
         for (entry, sig) in commits.iter().zip(&row_signatures) {
-            let segment = segments.get(&entry.id).map(String::as_str);
             let commit_display = crate::render::CommitRowDisplay {
                 id: &entry.id,
+                change_id: &entry.change_id,
                 subject: &entry.subject,
                 time: entry.time,
                 // Verified, so say the verdict; otherwise the free fact.
@@ -264,7 +278,7 @@ pub fn run_inner(
             writeln!(
                 out,
                 "{}",
-                crate::render::commit_row(&commit_display, segment, &lens, now, colored)
+                crate::render::commit_row(&commit_display, &lens, now, colored)
             )?;
         }
         Ok(())

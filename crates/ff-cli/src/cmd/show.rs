@@ -104,6 +104,7 @@ fn commit(
     let author = commit.author().map_err(Error::repo)?;
     let subject = commit.message().map_err(Error::repo)?.summary().to_string();
     let time = author.time().map_err(Error::repo)?.seconds;
+    let change_id = ff_core::changeid::of_commit(&commit.data, &id).letters();
 
     // One commit, one verification, always: this is the verb that shows a
     // commit whole, and its signature is part of what it is. An unsigned
@@ -138,6 +139,7 @@ fn commit(
             "kind": "commit",
             "id": id.to_string(),
             "short_id": ff_core::sha::short(&id.to_string()),
+            "change_id": change_id,
             "subject": subject,
             "author_name": author.name.to_string(),
             "author_email": author.email.to_string(),
@@ -156,10 +158,13 @@ fn commit(
     let mut out = crate::pager::LogOut::new(repo, ctx.json);
     let colored = out.colored();
     let result = (|| -> std::io::Result<()> {
+        // The sha, then the change id whole: `ff log` shows its first eight
+        // letters, and this is the verb that shows a commit whole.
         writeln!(
             out,
-            "{}  {}  {}",
+            "{}  {}  {}  {}",
             crate::render::paint_sha(ff_core::sha::short(&id.to_string()), colored),
+            crate::render::paint_id(&change_id, colored),
             author.name,
             crate::render::relative_age(now_secs(), time)
         )?;

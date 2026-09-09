@@ -110,6 +110,28 @@ fn the_signature_lands_in_a_gpgsig_header() {
     assert_eq!(fx.git(&["log", "-1", "--format=%s"]).trim(), "signed");
 }
 
+/// The change id sits inside the signed payload: its header precedes
+/// `gpgsig` on the object, and git's verifier, which strips only `gpgsig`
+/// before checking, accepts the commit — so the signature covers the id.
+#[test]
+fn the_change_id_header_sits_inside_the_signed_payload() {
+    let Some(fx) = signing_fixture() else { return };
+    fx.write("a.txt", "one\n");
+    close(&fx, "signed", NOW);
+
+    let raw = fx.git(&["cat-file", "commit", "HEAD"]);
+    let change_id = raw.find("\nchange-id ").expect("a change-id header");
+    let gpgsig = raw.find("\ngpgsig ").expect("a gpgsig header");
+    assert!(
+        change_id < gpgsig,
+        "the id must precede the signature to be under it:\n{raw}"
+    );
+    assert!(
+        git_verifies(&fx, "HEAD") && git_says_good(&fx, "HEAD"),
+        "git rejected a signature over a commit carrying the header:\n{raw}"
+    );
+}
+
 /// A reword rewrites the commit, which kills the signature it inherited — so
 /// the rewrite must mint a new one. `commit.gpgsign` governs replays too.
 #[test]

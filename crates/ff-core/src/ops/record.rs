@@ -73,6 +73,16 @@ pub struct DescriptionTransition {
     pub new: Option<String>,
 }
 
+/// A change-id transition on a branch's open change (letters, `None` =
+/// absent): a describe minting one, a close consuming one and minting the
+/// remainder's, a switch dropping one with an invalidated parked change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeIdTransition {
+    pub branch: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
+
 /// A recorded-parent change (old/new branch names, `None` = absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParentTransition {
@@ -175,6 +185,10 @@ pub struct OpRecord {
     pub worktree: Vec<WorktreeEffect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<DescriptionTransition>,
+    /// The open change's id moving with the description. Skipped when
+    /// absent, so no `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_id: Option<ChangeIdTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentTransition>,
     /// The recorded parents a reconciliation inferred for branches created
@@ -256,6 +270,7 @@ impl OpRecord {
             stash: Vec::new(),
             worktree: Vec::new(),
             description: None,
+            change_id: None,
             parent: None,
             inferred_parents: Vec::new(),
             edit_session: None,

@@ -144,6 +144,10 @@ pub struct Status {
 pub struct LogEntry {
     pub id: String,
     pub short_id: String,
+    /// The change id in letters: the commit's `change-id` header when it
+    /// carries one, else derived from the sha. Read off the object the walk
+    /// already decoded, like `signed`.
+    pub change_id: String,
     pub subject: String,
     pub author_name: String,
     pub author_email: String,
@@ -203,6 +207,10 @@ pub struct OpenChange {
     pub branch: String,
     /// Chain tip snapshot id (hex), when the chain exists.
     pub id: Option<String>,
+    /// The open change's identity in letters, once a capture, a describe, or
+    /// a partial close minted it; inside an editing session, the amended
+    /// commit's. `None` until then.
+    pub change_id: Option<String>,
     /// The HEAD commit (hex); `None` when unborn.
     pub base: Option<String>,
     pub base_short: Option<String>,

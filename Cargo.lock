@@ -473,6 +473,7 @@ name = "ff-core"
 version = "0.13.0"
 dependencies = [
  "ff-testsupport",
+ "getrandom 0.4.3",
  "gix",
  "serde",
  "serde_json",

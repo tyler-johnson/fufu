@@ -40,7 +40,7 @@ A change that breaks an existing field is what bumps the `ff` number, which is w
 
 The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
-Timestamps are unix seconds, always named `time`. Commit ids are hex; operation ids are spelled in the letters k–z, never hex — see [Snapshots and undo](../concepts/snapshots-and-undo.md) for why the two address spaces never mix.
+Timestamps are unix seconds, always named `time`. Commit ids are hex. Change ids and operation ids are both spelled in the letters k–z, never hex: a `change_id` is a commit's identity across rewrites, the letters column the human views print, and an operation id is an entry on the operation log — see [Snapshots and undo](../concepts/snapshots-and-undo.md) for the address spaces.
 
 ## `ff status --json`
 
@@ -83,6 +83,7 @@ $ ff status --json | jq .
     "open": {
       "id": "04c78631534881f3319290940ee156e5b89dfe9a",
       "id_letters": "zvnsrtwyuwvrrykwwyqxqzqvzllyutluorqmklqp",
+      "change_id": "nyrszqtkznwuykyxoskttupyppplxnwu",
       "pending": "b052c0d32a8637271add239049f1e06e87ffb55e",
       "subject": null,
       "clean": false,
@@ -91,6 +92,7 @@ $ ff status --json | jq .
     },
     "parent": {
       "id": "cd5c0d35d19736cef307912620fcd77e0dce1645",
+      "change_id": "lqsypptxyrxlkonpnolqqtovsvzmuzwt",
       "subject": "parser: skeleton",
       "time": 1788748661,
       "segment": "a34ed99aa8b4c4fee5ad18eedd811fd098767d54",
@@ -128,7 +130,8 @@ Reading it:
 - **`base`** — what the branch sits on, when it sits on anything: `name`, `ref`, `tip`, `role` (`trunk` or `parent`), and `above`, the commits reachable from the branch tip and not from the base. Null on trunk, detached, unborn, and inside an editing session — exactly when `futures.base` is null.
 - **`remote`** — the remote the branch answers to, by its own `branch.<name>.remote` or the repository default; null when there is none or none can be named.
 - **`changes`** — every uncommitted path with per-file counts. `kind` is `modified`, `added`, `deleted`, `renamed` or `copied` (those two carry the source path in `from`), `type_change`, or `intent_to_add`. `binary` marks files whose counts are not line counts.
-- **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `id_letters` is the operation id of the capture holding its current state, and `pending` is the pending description commit when one exists.
+- **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `change_id` is its identity — the letters column, null until a capture or a describe mints one — and `pending` is the pending description commit when one exists. `id` and `id_letters` are the capture operation holding its current state, the op anchor, not the column.
+- **`parent`** — the commit beneath the open change: its `change_id` is the letters column, and `segment` is the capture the commit was cut from, when one on this chain answers to it.
 - **`futures`** — the pull verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
 - **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
 - **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open. `resolving.session` names the session branch, and `resolving.here` says whether HEAD is on it; on the branch the hold stands on, `here` is false and `held` is set.
@@ -154,6 +157,8 @@ $ ff log --json -n 1 | jq .
         "author_name": "Tyler Johnson",
         "author_email": "tyler@tylerjohnson.me",
         "time": 1787985378,
+        "signed": false,
+        "change_id": "wrmoxxnnkqvtpsrkywlvzxynnmoslryu",
         "session": null
       }
     ],
@@ -161,6 +166,7 @@ $ ff log --json -n 1 | jq .
       "branch": "main",
       "id": "38db22cc13e4fcd1cf8c28771a1d4014861cc7dc",
       "id_letters": "wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn",
+      "change_id": "qtwplrskwswwkymmtlynvxrlzvwvurzs",
       "base": "64962838a9353e3a4c3e78677f1bc6348b328058",
       "subject": null,
       "time": 1787985391,
@@ -172,7 +178,7 @@ $ ff log --json -n 1 | jq .
 }
 ```
 
-A commit's `session` names the [session tag](#sessions-tagging-work-and-asking-about-it) it was made under, when there was one — which is how a supervisor tells an agent's commits from a person's in the same history.
+A commit's `change_id` is the identity it keeps through rewrites, the letters column the human view prints; the open block's `change_id` is the id its commit will carry. A commit's `session` names the [session tag](#sessions-tagging-work-and-asking-about-it) it was made under, when there was one — which is how a supervisor tells an agent's commits from a person's in the same history. `ff show --json` carries `change_id` too.
 
 ## `ff history --json`
 

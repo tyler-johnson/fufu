@@ -329,7 +329,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         subject: model.open.subject.as_deref(),
         born: model.open.base.is_some(),
         clean: model.open.clean,
-        id: model.open.id.as_deref(),
+        change_id: model.open.change_id.as_deref(),
         pending: model.open.pending.as_deref(),
         time: model.open.time,
     };
@@ -346,6 +346,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     if let Some(parent) = &model.parent {
         let commit_display = CommitRowDisplay {
             id: &parent.id,
+            change_id: &parent.change_id,
             subject: &parent.subject,
             time: parent.time,
             // The same free mark `ff log` shows. Verifying it would be a
@@ -357,13 +358,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
                 SigMark::None
             },
         };
-        out.push_str(&commit_row(
-            &commit_display,
-            parent.segment.as_deref(),
-            lens,
-            now,
-            colored,
-        ));
+        out.push_str(&commit_row(&commit_display, lens, now, colored));
         out.push('\n');
     }
 

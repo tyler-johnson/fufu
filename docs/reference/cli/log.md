@@ -1,8 +1,10 @@
 # ff log
 
-The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears the id of its newest operation — the letters column [`ff evolog`](evolog.md) drills into.
+The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears its change id — the identity it keeps through rewrites, the letters column [`ff evolog`](evolog.md) drills into. The @ row wears the id its commit will carry, so the letters do not move at the close.
 
---commits drops to plain history, no operation identity. The operation log itself is [`ff op log`](op-log.md): every mutation fufu has made, newest first, carrying the ids the [`ff op`](op.md) verbs take.
+Every commit has one. A commit fufu closed carries its id as a `change-id` header, jj's own, and a reword, restack, or absorb keeps it; a commit made by git or cloned from elsewhere derives one from its sha, the same on every read and in every clone. The bold prefix is the shortest one unique on the page.
+
+--commits drops to plain history, no change ids. The operation log itself is [`ff op log`](op-log.md): every mutation fufu has made, newest first, carrying the ids the [`ff op`](op.md) verbs take.
 
 ## Choosing the rows
 
@@ -78,7 +80,7 @@ Options:
 ```
 ff log                         the last 25 rows
 ff log -n 0                    all of it
-ff log --commits               history only, no operation rows
+ff log --commits               history only, no change ids
 ff log --signatures            verify each row and show its status letter
 ff log -r main                 just main's tip — no @ row, it is not in it
 ff log -r 'trunk..@'           what this branch has that trunk does not

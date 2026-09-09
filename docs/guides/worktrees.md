@@ -43,7 +43,7 @@ on bay · nothing to pull
 │  (no description)
 │  A src/lexer.rs +1  -0  ++++++++++++++++++++
 │    1 file       +1  -0
-●  —        dd510982   0s ago
+●  xrqzyumm dd510982   0s ago
 │  release: cut v0.1.0
 
 $ ff commit -m "lexer: sketch the tokenizer"

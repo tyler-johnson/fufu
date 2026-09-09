@@ -501,6 +501,22 @@ fn describe_round_trips_and_journals() {
     assert_eq!(record.verb, "describe");
     let transition = record.description.as_ref().unwrap();
     assert_eq!(transition.new.as_deref(), Some("the plan"));
+    // A described change has an identity, journaled beside the description
+    // so an undo takes both back.
+    let minted = record
+        .change_id
+        .as_ref()
+        .expect("the describe minted an id");
+    assert_eq!(minted.old, None);
+    let letters = minted.new.clone().expect("a minted id");
+    assert_eq!(letters.len(), 32, "{letters}");
+    assert_eq!(
+        ff_core::branchmeta::read(&repo, "main")
+            .unwrap()
+            .change_id
+            .as_deref(),
+        Some(letters.as_str())
+    );
 
     // Clearing round-trips; indexes untouched throughout.
     let index_before = fx.index_bytes();
@@ -514,5 +530,14 @@ fn describe_round_trips_and_journals() {
         "describe never touches the index"
     );
     let meta = ff_core::branchmeta::read(&repo, "main").unwrap();
-    assert!(meta.is_empty());
+    assert_eq!(meta.pending_description, None);
+    assert_eq!(
+        meta.change_id.as_deref(),
+        Some(letters.as_str()),
+        "the identity outlives the description: the change is still open"
+    );
+    assert!(
+        tip_record(&repo).change_id.is_none(),
+        "clearing a description mints nothing"
+    );
 }

@@ -12,7 +12,8 @@ pub struct ChangeRowDisplay<'a> {
     pub subject: Option<&'a str>,
     pub born: bool,
     pub clean: bool,
-    pub id: Option<&'a str>,
+    /// The open change's id in letters, once something minted it.
+    pub change_id: Option<&'a str>,
     pub pending: Option<&'a str>,
     pub time: Option<i64>,
 }
@@ -40,6 +41,8 @@ pub enum SigMark {
 /// The data `commit_row` needs, extracted from a \`LogEntry\` or the status model.
 pub struct CommitRowDisplay<'a> {
     pub id: &'a str,
+    /// The change id in letters, the header's or derived.
+    pub change_id: &'a str,
     pub subject: &'a str,
     pub time: i64,
     pub signature: SigMark,
@@ -166,13 +169,12 @@ const SHA_WIDTH: usize = ff_core::sha::SHORT;
 const AGE_WIDTH: usize = 8;
 const KIND_WIDTH: usize = 7;
 const BRANCH_WIDTH: usize = 12;
-/// The op-id column with nothing to put in it: one em dash where the id would
-/// start, then the column's remaining width in spaces. A mark rather than a
-/// blank, so the sha beside it reads as the second column and not as an
-/// accident of indentation; one mark rather than a filled run, so a page of
-/// them stays quiet. Dim, because it is furniture, not data. It means one
-/// thing on every surface that draws the column: no capture ever recorded
-/// that commit's content, so there is nothing to drill into.
+/// The change-id column with nothing to put in it: one em dash where the id
+/// would start, then the column's remaining width in spaces. A mark rather
+/// than a blank, so the sha beside it reads as the second column and not as
+/// an accident of indentation; dim, because it is furniture, not data. Every
+/// commit has a change id, so this is only ever the `@` row's: an open
+/// change nothing has minted an id for yet — no capture, no describe.
 const BLANK_ID: &str = "\u{2014}       ";
 
 /// The letters, sha and age columns taken together — what `no changes` fills
@@ -384,18 +386,19 @@ fn open_is_quiet(born: bool, clean: bool, subject: Option<&str>) -> bool {
     born && clean && subject.is_none()
 }
 
-/// The op-id column: the letters spelling of an operation, styled so its
-/// shortest-unique prefix is what you can type, or the blank mark when no
-/// operation answers. Shared by `ff log`'s commit rows and the map's, which
+/// The change-id column: the first letters of the id, styled so the prefix
+/// unique on this page is what you can type in a revision slot, or the blank
+/// mark for an open change with no id yet. `lens` is keyed by the full
+/// letters. Shared by `ff log`'s rows, `ff status`'s, and the map's, which
 /// must never disagree about the same commit.
 fn letters_col(
-    anchor: Option<&str>,
+    letters: Option<&str>,
     lens: &std::collections::HashMap<String, usize>,
     colored: bool,
 ) -> String {
-    match anchor {
+    match letters {
         Some(id) => styled_id(
-            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
+            &id.chars().take(ID_WIDTH).collect::<String>(),
             lens.get(id).copied().unwrap_or(1),
             ID_WIDTH,
             colored,
@@ -404,9 +407,10 @@ fn letters_col(
     }
 }
 
-/// The `@` row (two lines): the open change. The sha column is the pending
-/// commit hash (the change's own identity). Letters id = chain tip (via
-/// `lens`), age = tip snapshot time. Clean + undescribed collapses to
+/// The `@` row (two lines): the open change. The letters column is the
+/// change id the close will write into the commit, so the row keeps its
+/// letters when it becomes a `●` row; the sha column is the pending commit
+/// hash; age = tip snapshot time. Clean + undescribed collapses to
 /// `@  no changes`.
 pub fn change_row(
     open: &ChangeRowDisplay<'_>,
@@ -428,15 +432,7 @@ pub fn change_row(
     }
 
     // Full layout: letters + pending sha + age + optional marker.
-    let letters = match open.id {
-        Some(id) => styled_id(
-            &ff_core::snapid::encode(&id[..id.len().min(ID_WIDTH)]),
-            lens.get(id).copied().unwrap_or(1),
-            ID_WIDTH,
-            colored,
-        ),
-        None => blank_id(colored),
-    };
+    let letters = letters_col(open.change_id, lens, colored);
     let pending_short = open.pending.map(ff_core::sha::short).unwrap_or_default();
     let sha = col(pending_short, SHA_WIDTH, palette().sha, colored);
     let age = col_right(
@@ -454,17 +450,16 @@ pub fn change_row(
     format!("{}\n{rail}  {subject}", head.trim_end())
 }
 
-/// One `●` commit row (two lines). The letters column is the commit's
-/// chain-segment tip — the newest snapshot based on it, the evolog drill-in
-/// anchor — blank when no snapshot was ever taken on this commit.
+/// One `●` commit row (two lines). The letters column is the commit's change
+/// id — the identity it keeps through rewrites, what `ff evolog <rev>` drills
+/// into — and every commit has one, so it is never blank here.
 pub fn commit_row(
     entry: &CommitRowDisplay<'_>,
-    segment: Option<&str>,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
 ) -> String {
-    let letters = letters_col(segment, lens, colored);
+    let letters = letters_col(Some(entry.change_id), lens, colored);
     let sha = col(
         ff_core::sha::short(entry.id),
         SHA_WIDTH,
@@ -513,12 +508,9 @@ pub struct MapPayload {
 
 /// The map's columns are `ff log`'s, so the two surfaces read as siblings;
 /// the glyph and the rail the lines hang from are the graph renderer's, not
-/// ours. `segments` is the commit → anchor-operation map `ff log` builds for
-/// its own letters column, and `lens` prices every id in it plus the Open
-/// row's.
+/// ours. `lens` prices every change id on the map plus the Open row's.
 pub fn map_payload(
     node: &ff_core::MapNode,
-    segments: &std::collections::HashMap<String, String>,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
@@ -526,12 +518,13 @@ pub fn map_payload(
     match node {
         ff_core::MapNode::Open {
             branch,
-            id,
+            change_id,
             subject,
             pending,
             time,
             born,
             clean,
+            ..
         } => {
             // The branch label rides the end of the first line either way,
             // so it is built once and appended to whichever line0 wins.
@@ -543,9 +536,7 @@ pub fn map_payload(
 
             // Nothing open: the same two words `ff status` and `ff log` print,
             // filling the three columns at once so the branch name still lands
-            // where every other row puts it. Showing the chain tip's operation
-            // here instead would print the same id the `●` row below already
-            // carries — one operation, twice, on a row about nothing.
+            // where every other row puts it.
             if open_is_quiet(*born, *clean, subject.as_deref()) {
                 let line0 = format!("{}{label}", col("no changes", QUIET_WIDTH, DIM, colored));
                 return MapPayload {
@@ -557,7 +548,7 @@ pub fn map_payload(
                 };
             }
 
-            let letters = letters_col(id.as_deref(), lens, colored);
+            let letters = letters_col(change_id.as_deref(), lens, colored);
             let sha = col(
                 pending
                     .as_deref()
@@ -587,19 +578,16 @@ pub fn map_payload(
             }
         }
         ff_core::MapNode::Commit {
-            id,
             short_id,
+            change_id,
             subject,
             time,
             refs,
+            ..
         } => {
-            // The same chain-segment anchor `ff log` and `ff status` put on
-            // this commit — one operation, one spelling, whichever surface
-            // asks. Blank when the walk found none: `segment_anchors` reads
-            // the current chain's operation log, so a commit whose captures
-            // happened while HEAD sat on another chain has no anchor here.
-            // That is already the answer `ff log -r <other-branch>` gives.
-            let letters = letters_col(segments.get(id).map(String::as_str), lens, colored);
+            // The same change id `ff log` and `ff status` put on this commit:
+            // one identity, one spelling, whichever surface asks.
+            let letters = letters_col(Some(change_id), lens, colored);
             let sha = col(short_id, SHA_WIDTH, palette().sha, colored);
             let age = col_right(&relative_age(now, *time), AGE_WIDTH, palette().age, colored);
             let mut line0 = format!("{letters} {sha} {age}");

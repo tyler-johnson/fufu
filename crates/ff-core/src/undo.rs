@@ -467,7 +467,7 @@ pub fn rewind(
         crate::index::write_index_for_tree(repo, index_target)?;
     }
 
-    // 7. Pending descriptions, recorded parents, editing sessions, held
+    // 7. Pending descriptions, change ids, recorded parents, editing sessions, held
     //    rewrites, and resolution sessions, in the same order and by the same
     //    rule: what is left behind restores its `old`, what is entered
     //    applies its `new`, and the last write is the one the landing
@@ -478,6 +478,11 @@ pub fn rewind(
                 let mut meta = branchmeta::read(repo, &d.branch)?;
                 meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
                 branchmeta::write(repo, &d.branch, &meta)?;
+            }
+            if let Some(c) = &op_record.change_id {
+                let mut meta = branchmeta::read(repo, &c.branch)?;
+                meta.change_id = if replay { c.new.clone() } else { c.old.clone() };
+                branchmeta::write(repo, &c.branch, &meta)?;
             }
             for p in op_record
                 .parent

@@ -14,9 +14,9 @@ $ ff log
 │  lexer: drop whitespace
 ●  nzlsxpsu fc920186   0s ago
 │  lexer: skeleton and stream
-●  —        7c4c37e9   0s ago
+●  qlswnvns 7c4c37e9   0s ago
 │  release: cut v0.1.0
-●  —        cec740bb   0s ago
+●  oozvsnln cec740bb   0s ago
 │  init: hello world
 ```
 
@@ -45,7 +45,7 @@ on lexer · nothing to pull
 │  M README.md    +2  -0  ++++++++++++++++++++
 │  M src/lexer.rs +1  -0  ++++++++++
 │    2 files      +3  -0
-●  —        2f2985ee   0s ago
+●  llurqxkx 2f2985ee   0s ago
 │  lexer: drop whitespace
 ```
 
@@ -65,7 +65,7 @@ on lexer · nothing to pull
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
 │    1 file    +2  -0
-●  —        b6468fa1   0s ago
+●  ypkrtvto b6468fa1   0s ago
 │  lexer: drop whitespace
 ```
 
@@ -103,7 +103,7 @@ editing 601cd64d "lexer: skeleton and char stream" — lands back on lexer
 │  (no description)
 │  M src/lexer.rs +1  -1  ++++++++++----------
 │    1 file       +1  -1
-●  —        601cd64d   0s ago
+●  mvtmnyzt 601cd64d   0s ago
 │  lexer: skeleton and char stream
 ```
 
@@ -145,7 +145,7 @@ on lexer · nothing to pull
 │  A NOTES.md      +1  -0  ++++++++++++++++++++
 │  A src/parser.rs +1  -0  ++++++++++++++++++++
 │    2 files       +2  -0
-●  —        e3e38eca   0s ago
+●  pnlrwlwl e3e38eca   0s ago
 │  lexer: drop whitespace
 
 $ ff commit src/parser.rs -m "parser: entry point"
@@ -162,7 +162,7 @@ on lexer · nothing to pull
 │  (no description)
 │  A NOTES.md +1  -0  ++++++++++++++++++++
 │    1 file   +1  -0
-●  —        89ea1b1c   0s ago
+●  nyoyplqr 89ea1b1c   0s ago
 │  parser: entry point
 
 $ ff commit -m "notes: parser scratchpad"
@@ -187,9 +187,9 @@ $ ff
 ●  rylnsknu c539a953   0s ago
 │  parser: eat chars from the stream
 ~  4 commits
-●  —        7c4c37e9   0s ago  ▸ [main]
+●  qlswnvns 7c4c37e9   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        cec740bb   0s ago
+●  oozvsnln cec740bb   0s ago
    init: hello world
 ```
 
@@ -203,12 +203,12 @@ undo: ff undo
 $ ff
 @  rylnsknu 7c4d4964   0s ago  ▸ [lexer]
 │  (no description)
-●  —        600b72db   0s ago
+●  omxsozzt 600b72db   0s ago
 │  parser: eat chars from the stream
 ~  4 commits
-●  —        7c4c37e9   0s ago  ▸ [main]
+●  qlswnvns 7c4c37e9   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        cec740bb   0s ago
+●  oozvsnln cec740bb   0s ago
    init: hello world
 ```
 
@@ -221,7 +221,7 @@ on lexer · nothing to pull
 │  (no description)
 │  M NOTES.md +1  -0  ++++++++++++++++++++
 │    1 file   +1  -0
-●  —        600b72db   0s ago
+●  omxsozzt 600b72db   0s ago
 │  parser: eat chars from the stream
 
 $ ff commit -m "notes: eat chars notes"
@@ -255,13 +255,13 @@ $ ff
 │  (no description)
 ●  yykyutoy 4eb7c068   0s ago
 │  renamer: rename pass
-│ ●  —        b72ded1a   2s ago  ▸ [lexer]
+│ ●  pymlmxso b72ded1a   2s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  —        7c4c37e9   2s ago  ▸ [main]
+●  qlswnvns 7c4c37e9   2s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        cec740bb   2s ago
+●  oozvsnln cec740bb   2s ago
    init: hello world
 
 $ ff collide lexer
@@ -293,15 +293,15 @@ $ ff collide lexer
 $ ff
 @  no changes                  ▸ [renamer]
 │  (no description)
-●  —        2cf0b63a   0s ago
+●  pwtozknx 2cf0b63a   0s ago
 │  renamer: rename pass
-│ ●  —        b72ded1a   2s ago  ▸ [lexer]
+│ ●  pymlmxso b72ded1a   2s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  —        7c4c37e9   2s ago  ▸ [main]
+●  qlswnvns 7c4c37e9   2s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        cec740bb   2s ago
+●  oozvsnln cec740bb   2s ago
    init: hello world
 ```
 
@@ -342,15 +342,15 @@ What trim never touches is history. The map after is the map before — same com
 $ ff
 @  no changes                  ▸ [renamer]
 │  (no description)
-●  —        2cf0b63a   3s ago
+●  pwtozknx 2cf0b63a   3s ago
 │  renamer: rename pass
-│ ●  —        b72ded1a   5s ago  ▸ [lexer]
+│ ●  pymlmxso b72ded1a   5s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  —        7c4c37e9   5s ago  ▸ [main]
+●  qlswnvns 7c4c37e9   5s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        cec740bb   5s ago
+●  oozvsnln cec740bb   5s ago
    init: hello world
 ```
 

@@ -473,6 +473,18 @@ pub(crate) fn worktree_tree(
     crate::snapshot::tree::assemble(repo, head_tree, &scan, max)
 }
 
+/// Give a branch's open change an id when it has none and is not a session.
+/// Written only on the appending path — a capture that no-ops writes
+/// nothing, so an unchanged tree keeps a read verb read-only.
+fn mint_change_id(repo: &gix::Repository, branch: &str) -> Result<()> {
+    let mut meta = crate::branchmeta::read(repo, branch)?;
+    if meta.session.is_some() || meta.change_id.is_some() {
+        return Ok(());
+    }
+    meta.change_id = Some(crate::changeid::ChangeId::mint()?.letters());
+    crate::branchmeta::write(repo, branch, &meta)
+}
+
 /// Capture the working tree as an operation, with the defaults.
 pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutcome> {
     capture_with(repo, prov, &TakeOptions::default())
@@ -488,6 +500,13 @@ pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutco
 ///
 /// Read-only until the two-ref CAS; the index is never written and HEAD is
 /// never opened for writing. A crash leaves at worst orphan objects for gc.
+/// The one exception is the branch's metadata file under
+/// `<common>/fufu/branch/`: the first capture that appends on a branch whose
+/// open change has no id yet mints one there, after the CAS, so the `@` row
+/// wears the letters the close will write into the commit. Read verbs
+/// therefore write that one file. The mint is not journaled: an undo and
+/// redo of a close can leave the remainder with a different id than it had
+/// between them, and nobody saw the first one on a commit.
 pub fn capture_with(
     repo: &gix::Repository,
     prov: &Provenance,
@@ -598,6 +617,14 @@ pub fn capture_with(
         Append::Committed(id) => id,
         Append::Contended => return Ok(CaptureOutcome::Contended),
     };
+
+    // The open change's identity, minted by the capture that first records
+    // it. Only a branch has an open change, born or not; a session's content
+    // is an amendment of the commit under it, whose id it already wears; a
+    // detached tree closes nothing.
+    if !matches!(head, crate::model::HeadState::Detached { .. }) {
+        mint_change_id(repo, &draft.branch)?;
+    }
 
     if prev_on_branch.is_none()
         && let Err(err) = crate::snapshot::config::ensure_gc_config(repo)

@@ -6,10 +6,11 @@
 //! stay differentially tested.
 
 use crate::branch;
+use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::{ArrivalReport, HeadState, SwitchReport};
 use crate::ops::record::observe_refs;
-use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
+use crate::ops::{ChangeIdTransition, OpKind, OpRecord, RefTransition, StashEffect, verb};
 use crate::snapshot::Provenance;
 use crate::stash::{self, ArrivePlan};
 use crate::worktree;
@@ -186,6 +187,12 @@ pub fn switch(
         }
         ArrivePlan::None | ArrivePlan::Conflict { .. } => {}
     }
+    // A parked change that vanished takes its identity with it: the branch
+    // arrives with nothing open, so nothing wears the id.
+    let dropped_id = match &arrive_plan {
+        ArrivePlan::Invalidate { .. } => branchmeta::read(repo, &target)?.change_id,
+        _ => None,
+    };
     match stash_lines.last() {
         Some(tip) => {
             planned.refs.insert("refs/stash".into(), tip.to_string());
@@ -200,6 +207,11 @@ pub fn switch(
     record.head = Some((head_old, format!("ref:{target_ref}")));
     record.refs = transitions;
     record.stash = effects;
+    record.change_id = dropped_id.as_ref().map(|id| ChangeIdTransition {
+        branch: target.clone(),
+        old: Some(id.clone()),
+        new: None,
+    });
     let mut pins = vec![target_commit];
     if let Some(plan) = &park_plan {
         pins.push(plan.wip_commit);
@@ -247,6 +259,11 @@ pub fn switch(
     worktree::apply_tree_transition(repo, from_tree, target_tree, &everything)?;
 
     let arrival = stash::execute_arrival(repo, &target, &arrive_plan, target_tree, now)?;
+    if dropped_id.is_some() {
+        let mut meta = branchmeta::read(repo, &target)?;
+        meta.change_id = None;
+        branchmeta::write(repo, &target, &meta)?;
+    }
     let arrival_report = match arrival {
         stash::Arrival::None => ArrivalReport::None,
         stash::Arrival::Restored { stash, files } => ArrivalReport::Restored { stash, files },

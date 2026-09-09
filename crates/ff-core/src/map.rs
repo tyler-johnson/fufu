@@ -44,7 +44,10 @@ pub struct MapRow {
 pub enum MapNode {
     Open {
         branch: String,
+        /// The newest capture (hex), the op anchor.
         id: Option<String>,
+        /// The open change's identity in letters, once something minted it.
+        change_id: Option<String>,
         subject: Option<String>,
         pending: Option<String>,
         time: Option<i64>,
@@ -54,6 +57,8 @@ pub enum MapNode {
     Commit {
         id: String,
         short_id: String,
+        /// The change id in letters: the header, or derived from the sha.
+        change_id: String,
         subject: String,
         time: i64,
         refs: Vec<MapRef>,
@@ -363,6 +368,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
         let commit = repo.find_commit(id).map_err(Error::repo)?;
         let short_id = crate::sha::short_oid(id);
         let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+        let change_id = crate::changeid::of_commit(&commit.data, &id).letters();
         let time = visited[&id].time;
         let mut refs = refs_by_tip.get(&id).cloned().unwrap_or_default();
         refs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -371,6 +377,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
             node: MapNode::Commit {
                 id: id.to_string(),
                 short_id,
+                change_id,
                 subject,
                 time,
                 refs,
@@ -526,6 +533,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
         node: MapNode::Open {
             branch: open.branch,
             id: open.id,
+            change_id: open.change_id,
             subject: open.subject,
             pending: open.pending,
             time: open.time,

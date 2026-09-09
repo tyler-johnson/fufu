@@ -11,7 +11,7 @@ use crate::close;
 use crate::error::{Error, Result};
 use crate::model::{Cascade, DescribeReport, RewordReport};
 use crate::ops::record::observe_refs;
-use crate::ops::{DescriptionTransition, OpKind, OpRecord, verb};
+use crate::ops::{ChangeIdTransition, DescriptionTransition, OpKind, OpRecord, verb};
 use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
@@ -77,6 +77,18 @@ pub fn set_pending(
         old: old.clone(),
         new: text.clone(),
     });
+    // A described change has an identity from here on, so the `@` row wears
+    // the letters its commit will carry. Journaled with the description: an
+    // undo takes both back.
+    let minted = match (&text, &meta.change_id) {
+        (Some(_), None) => Some(crate::changeid::ChangeId::mint()?.letters()),
+        _ => None,
+    };
+    record.change_id = minted.as_ref().map(|id| ChangeIdTransition {
+        branch: branch.clone(),
+        old: None,
+        new: Some(id.clone()),
+    });
     verb::append_op(
         repo,
         OpKind::Op,
@@ -95,6 +107,9 @@ pub fn set_pending(
     )?;
 
     meta.pending_description = text.clone();
+    if minted.is_some() {
+        meta.change_id = minted;
+    }
     branchmeta::write(repo, &branch, &meta)?;
 
     Ok((

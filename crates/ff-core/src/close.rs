@@ -11,11 +11,14 @@
 
 use crate::branch;
 use crate::branchmeta;
+use crate::changeid;
 use crate::error::{Error, Result};
 use crate::hooks;
 use crate::model::{CommitOutcome, HeadState};
 use crate::ops::record::observe_refs;
-use crate::ops::{DescriptionTransition, OpKind, OpRecord, RefTransition, verb};
+use crate::ops::{
+    ChangeIdTransition, DescriptionTransition, OpKind, OpRecord, RefTransition, verb,
+};
 use crate::refs;
 use crate::sign;
 use crate::snapshot::tree as snaptree;
@@ -188,6 +191,16 @@ pub fn close(
     // Read branchmeta early so emptiness can consult the pending description.
     let meta = branchmeta::read(repo, &current_branch)?;
     let pending = meta.pending_description.clone();
+    // The commit's identity: what a capture or a describe minted for the open
+    // change, or, when neither ran, minted here as the last resort.
+    let change_id = match &meta.change_id {
+        Some(letters) => changeid::ChangeId::parse(letters).ok_or_else(|| {
+            Error::msg(format!(
+                "corrupt branch metadata for {current_branch}: change id {letters:?} is not one"
+            ))
+        })?,
+        None => changeid::ChangeId::mint()?,
+    };
 
     // Emptiness first (git's order too): a clean slice runs no hooks and
     // closes nothing, whatever the message. Emptiness is judged on the
@@ -339,7 +352,9 @@ pub fn close(
         committer: sig.clone(),
         encoding: None,
         message: message.clone().into(),
-        extra_headers: Vec::new(),
+        // The identity header sits inside the signed payload: the signer
+        // pushes `gpgsig` after it.
+        extra_headers: vec![changeid::header(&change_id)],
     };
     // A signing failure aborts here, with nothing but an unreferenced object
     // written — before the op-journal append and before any ref moves, the
@@ -399,6 +414,23 @@ pub fn close(
         branch: current_branch.clone(),
         old: Some(text.clone()),
         new: None,
+    });
+    // The id leaves the open change for the commit. A partial close leaves
+    // a remainder on disk, and that remainder is a change with an identity
+    // of its own from this moment, before any capture sees it.
+    let remainder_id = (!worktree_differs.is_empty())
+        .then(changeid::ChangeId::mint)
+        .transpose()?
+        .map(|id| id.letters());
+    // Journaled on the branch the id was read from. Under `-b` the remainder
+    // lands on the new branch instead, and that mint is not journaled, the
+    // way a capture's is not: a redo leaves the remainder to mint afresh.
+    record.change_id = Some(ChangeIdTransition {
+        branch: current_branch.clone(),
+        old: meta.change_id.clone(),
+        new: (current_branch == target_branch)
+            .then(|| remainder_id.clone())
+            .flatten(),
     });
     let mut pins = vec![commit_id];
     pins.extend(head_commit);
@@ -504,17 +536,21 @@ pub fn close(
     // open change rather than being trusted clean.
     crate::index::write_index_for_tree_except(repo, commit_tree, &worktree_differs)?;
 
-    // Consume the pending description.
-    if pending.is_some() {
-        let mut meta = branchmeta::read(repo, &target_branch)?;
-        meta.pending_description = None;
-        branchmeta::write(repo, &target_branch, &meta)?;
-        // The claim may have carried it under the old name too.
-        if claim_from.is_some() {
-            let mut old_meta = branchmeta::read(repo, &current_branch)?;
-            old_meta.pending_description = None;
-            branchmeta::write(repo, &current_branch, &old_meta)?;
-        }
+    // Consume the pending description and the id: the commit carries both
+    // now. The remainder of a partial close is the open change of whichever
+    // branch HEAD is on after the close, and its id goes there; the branch
+    // the close read from is cleared when it is a different one, whether
+    // the close claimed it under a new name or forked a fresh `-b` branch
+    // and left it behind.
+    let mut target_meta = branchmeta::read(repo, &target_branch)?;
+    target_meta.pending_description = None;
+    target_meta.change_id = remainder_id.clone();
+    branchmeta::write(repo, &target_branch, &target_meta)?;
+    if current_branch != target_branch {
+        let mut old_meta = branchmeta::read(repo, &current_branch)?;
+        old_meta.pending_description = None;
+        old_meta.change_id = None;
+        branchmeta::write(repo, &current_branch, &old_meta)?;
     }
 
     // First close on a logless repo: make sure gc guards exist (the log pins

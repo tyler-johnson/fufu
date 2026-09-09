@@ -37,6 +37,12 @@ pub struct BranchMeta {
     /// Consumed by the next close on this branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_description: Option<String>,
+    /// The open change's identity, in letters: minted by the first capture
+    /// that appends, by `ff describe`, or by the close itself, and written
+    /// into the commit the close makes as its `change-id` header. Consumed
+    /// by the close; the remainder of a partial close mints its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_id: Option<String>,
     /// The commit this branch was forked from, when fufu minted it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<String>,
@@ -63,6 +69,7 @@ pub struct BranchMeta {
 impl BranchMeta {
     pub fn is_empty(&self) -> bool {
         self.pending_description.is_none()
+            && self.change_id.is_none()
             && self.forked_from.is_none()
             && self.parent.is_none()
             && self.session.is_none()

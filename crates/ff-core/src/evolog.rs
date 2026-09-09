@@ -105,9 +105,22 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
     // The pending description is advisory in a read: a lookup that cannot
     // run is a missing line, never a failed one — the verbs that consume the
     // description read it strictly, themselves.
-    let subject = crate::branchmeta::read(repo, &branch)
-        .ok()
-        .and_then(|meta| meta.pending_description);
+    let meta = crate::branchmeta::read(repo, &branch).ok();
+    let subject = meta
+        .as_ref()
+        .and_then(|meta| meta.pending_description.clone());
+    // The identity: what was minted for the open change, or, inside an
+    // editing session, the commit being amended, whose id the landing keeps.
+    let change_id = match meta.as_ref().and_then(|meta| meta.session.as_ref()) {
+        Some(session) => gix::ObjectId::from_hex(session.at.as_bytes())
+            .ok()
+            .and_then(|at| repo.find_commit(at).ok())
+            .map(|commit| crate::changeid::of_commit(&commit.data, &commit.id).letters()),
+        None => meta.as_ref().and_then(|meta| meta.change_id.clone()),
+    };
+    let pending_id = change_id
+        .as_deref()
+        .and_then(crate::changeid::ChangeId::parse);
 
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
     let log = OpLog::open(repo)?;
@@ -157,6 +170,7 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
             })?;
             return pending_commit_hash(
                 repo,
+                pending_id.as_ref(),
                 tip_tree?,
                 base.as_deref()
                     .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok()),
@@ -168,6 +182,7 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
         if let Some(tip_time) = time {
             Some(pending_commit_hash(
                 repo,
+                pending_id.as_ref(),
                 head_tree,
                 base.as_deref()
                     .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok()),
@@ -181,6 +196,7 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
             let head_time = head_commit.time().ok()?.seconds;
             Some(pending_commit_hash(
                 repo,
+                pending_id.as_ref(),
                 head_tree,
                 Some(head_commit_id),
                 &msg,
@@ -195,6 +211,7 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
     Ok(OpenChange {
         branch,
         id,
+        change_id,
         base,
         base_short,
         subject,
@@ -212,8 +229,14 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
 /// rather than an oversight: the signature is not knowable without spawning
 /// the signer, and signing on every status render is out of the question. The
 /// `@` row then shows the same empty sha column an unborn branch shows.
+///
+/// A change with no id yet gets `None` for the same reason: the close mints
+/// one as its last resort, and the hash of a commit whose header is not yet
+/// known is not knowable either. With one, the header is the close's, so
+/// the hash is.
 fn pending_commit_hash(
     repo: &gix::Repository,
+    change_id: Option<&crate::changeid::ChangeId>,
     tree: gix::ObjectId,
     parent: Option<gix::ObjectId>,
     message: &str,
@@ -223,6 +246,7 @@ fn pending_commit_hash(
     if crate::sign::enabled(repo) {
         return None;
     }
+    let change_id = change_id?;
     let sig = crate::refs::user_signature(repo, when).ok()?;
     let commit = gix::objs::Commit {
         tree,
@@ -231,7 +255,7 @@ fn pending_commit_hash(
         committer: sig,
         encoding: None,
         message: message.into(),
-        extra_headers: Vec::new(),
+        extra_headers: vec![crate::changeid::header(change_id)],
     };
     let mut buf = Vec::new();
     commit.write_to(&mut buf).ok()?;

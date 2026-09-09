@@ -3,6 +3,7 @@ mod accounted;
 pub mod branch;
 pub mod branchmeta;
 pub mod cascade;
+pub mod changeid;
 mod changestat;
 mod close;
 pub mod collide;

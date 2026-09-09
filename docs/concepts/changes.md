@@ -42,6 +42,10 @@ The description belongs to the change rather than to the moment of committing. I
 
 Describing does not create a commit. Describing a clean tree is legal — the text simply waits for the next close.
 
+## A change has an identity
+
+The open change carries a change id from the first capture or describe: sixteen random bytes, spelled in the letters k–z, minted once and written into the commit as a `change-id` header when the change closes. It is the letters column beside the `@` row and, after the close, beside the commit, so the same letters follow the change from one row to the other. A reword, a restack, or an absorb rewrites the commit and keeps the header, which is what makes the id an identity rather than a name for one sha. A commit fufu did not make has no header and derives an id from its sha, the same in every clone, so the column is never blank. jj writes and reads the same header, so a colocated jj sees fufu's ids.
+
 ## Parking travels with the branch; forks open clean
 
 `ff switch` moves between branches without a stash dance. Whatever is open is parked with the branch you are leaving. Whatever was parked where you are going becomes the open change again — same files, same edits, same pending description.
@@ -68,7 +72,7 @@ on ff/hidden-wren · nothing to pull
 │  M src/main.rs   +1  -0  +++++++
 │  A src/parser.rs +3  -0  ++++++++++++++++++++
 │    2 files       +4  -0
-●  —        8d58f6b9   3m ago
+●  qotkrumr 8d58f6b9   3m ago
 │  release: cut v0.1.0
 ```
 

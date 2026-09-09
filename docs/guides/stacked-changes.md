@@ -58,12 +58,12 @@ $ ff
 │  (no description)
 ●  ypmunmok 527ad478   0s ago
 │  cli: expose the parser behind a flag
-●  —        dbf80757   0s ago  ▸ [parser-core]
+●  suszrkom dbf80757   0s ago  ▸ [parser-core]
 │  parser: buffered char stream
 ~  2 commits
-●  —        d41ac877   0s ago  ▸ [main]
+●  ssrnpyvm d41ac877   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        30d4dadd   0s ago
+●  mmpmvmzw 30d4dadd   0s ago
    init: hello world
 ```
 
@@ -93,14 +93,14 @@ undo: ff undo
 $ ff
 @  no changes                  ▸ [parser-core]
 │  (no description)
-│ ●  —        dab92e41   0s ago  ▸ [parser-cli]
+│ ●  yvlxqopm dab92e41   0s ago  ▸ [parser-cli]
 ├─╯  cli: expose the parser behind a flag
-●  —        747bd826   0s ago
+●  txrmosvs 747bd826   0s ago
 │  parser: buffered char stream
 ~  2 commits
-●  —        d41ac877   0s ago  ▸ [main]
+●  ssrnpyvm d41ac877   0s ago  ▸ [main]
 │  release: cut v0.1.0
-●  —        30d4dadd   0s ago
+●  mmpmvmzw 30d4dadd   0s ago
    init: hello world
 ```
 
@@ -156,16 +156,16 @@ The finished stack, in the map:
 $ ff
 @  no changes                  ▸ [parser-cli]
 │  (no description)
-●  —        0683ae0b   1s ago
+●  ozlpwrtz 0683ae0b   1s ago
 │  cli: expose the parser behind a flag
-●  —        86b61ceb   1s ago  ▸ [parser-core]
+●  olnytotr 86b61ceb   1s ago  ▸ [parser-core]
 │  parser: buffered char stream
 ~  2 commits
-●  —        821e9eda   1s ago  ▸ [main]
+●  pmlqlyxr 821e9eda   1s ago  ▸ [main]
 │  docs: say what this is
-●  —        d41ac877   1s ago
+●  ssrnpyvm d41ac877   1s ago
 │  release: cut v0.1.0
-●  —        30d4dadd   1s ago
+●  mmpmvmzw 30d4dadd   1s ago
    init: hello world
 ```
 

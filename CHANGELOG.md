@@ -4,11 +4,19 @@
 
 ### Changed
 
+- The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through rewrites, in place of the op anchor: `ff commit` writes it into the commit as jj's `change-id` header, inside the signed payload; a reword, restack, absorb, or pull replay keeps it; a commit made outside fufu derives one from its sha. The `@` row wears the id its commit will carry, minted at the first capture or `ff describe`, and `ff undo` of a close puts it back. The column is never blank on a commit. JSON: `change_id` on every `ff log --json` row and its `open` block, on `ff status --json`'s `open` and `parent`, on `ff --json` map nodes, and on `ff show --json`; `open.id`/`id_letters`, `session`, and `parent.segment` keep meaning the capture op.
 - A branch created outside fufu is absorbed with the branch it was cut from recorded as its base, when its tip is exactly one other non-trunk branch's tip or git's reflog names the branch: `ff status` says `forked from <branch>` on the absorb line, the cascade sees the branch from then on, and `ff undo` of the absorb takes the record back. Anything less certain stays on trunk.
 
 ### Fixed
 
+- `ff commit -b <fresh>` from a named branch clears the branch it leaves behind: its pending description no longer lingers on the old branch.
 - `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays the stale copy of a commit its real base has since rewritten. (#5)
+
+### Known issues
+
+- A rebase or cherry-pick run outside fufu drops the `change-id` header, and the commit comes back with an id derived from its new sha. jj has the same limitation.
+- fufu's operation ids share the letters alphabet with change ids, where jj's are hex; an op slot (`ff op`, `--at-op`) reads an operation id and a revision slot does not.
+- A capture's mint is not journaled: after `ff undo` and `ff redo` of a partial close, the remainder can wear a different id than it did between them.
 
 ## v0.13.0 — 2026-09-08
 

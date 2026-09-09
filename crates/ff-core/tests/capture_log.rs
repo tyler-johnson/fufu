@@ -403,6 +403,27 @@ fn evolog_orders_snapshots_with_edges() {
     assert_eq!(rows[1].id, snap2);
 }
 
+/// A change id for the tests that hand-write branch metadata: the close
+/// writes it into the commit as a header, so the pending hash is a function
+/// of it and a hash without one is not knowable.
+const ID: &str = "qtwplrskwswwkymmtlynvxrlzvwvurzs";
+
+/// git's own oracle for the pending hash: the commit object the close would
+/// write — tree, parent, the fixture's identity at `time`, the `change-id`
+/// header, the message — hashed by `git hash-object`. `commit-tree` cannot
+/// add a header, which is why the object is spelled out.
+fn hash_commit(fx: &Fixture, tree: &str, parent: &str, time: &str, message: &str) -> String {
+    let who = format!("Pending User <pending@test> {time} +0000");
+    let object = format!(
+        "tree {tree}\nparent {parent}\nauthor {who}\ncommitter {who}\nchange-id {ID}\n\n{message}\n"
+    );
+    let path = fx.path().join(".git/oracle-commit");
+    std::fs::write(&path, object).expect("write the oracle object");
+    fx.git(&["hash-object", "-t", "commit", ".git/oracle-commit"])
+        .trim()
+        .to_string()
+}
+
 #[test]
 fn open_change_reports_pending_description_and_tip() {
     let fx = Fixture::new();
@@ -417,6 +438,7 @@ fn open_change_reports_pending_description_and_tip() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("fix the frobnicator".into()),
+            change_id: Some(ID.into()),
             forked_from: None,
             parent: None,
             session: None,
@@ -459,6 +481,7 @@ fn open_change_reports_pending_description_and_tip() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("different plan".into()),
+            change_id: Some(ID.into()),
             forked_from: None,
             parent: None,
             session: None,
@@ -520,6 +543,7 @@ fn open_change_unborn_and_detached() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("unborn plan".into()),
+            change_id: None,
             forked_from: None,
             parent: None,
             session: None,
@@ -539,6 +563,7 @@ fn open_change_unborn_and_detached() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: None,
+            change_id: None,
             forked_from: None,
             parent: None,
             session: None,
@@ -580,6 +605,7 @@ fn pending_hash_matches_git_commit_tree() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("plan the work".into()),
+            change_id: Some(ID.into()),
             forked_from: None,
             parent: None,
             session: None,
@@ -601,20 +627,9 @@ fn pending_hash_matches_git_commit_tree() {
         .git(&["rev-parse", "refs/fufu/snap/main^{tree}"])
         .trim()
         .to_string();
-    let date = format!("@{tip_time} +0000");
-    let sha = fx.git_env_in(
-        &fx.path(),
-        &["commit-tree", &tree, "-p", "HEAD", "-m", "plan the work"],
-        &[
-            ("GIT_AUTHOR_NAME", "Pending User"),
-            ("GIT_AUTHOR_EMAIL", "pending@test"),
-            ("GIT_COMMITTER_NAME", "Pending User"),
-            ("GIT_COMMITTER_EMAIL", "pending@test"),
-            ("GIT_AUTHOR_DATE", &date),
-            ("GIT_COMMITTER_DATE", &date),
-        ],
-    );
-    assert_eq!(sha.trim(), pending, "pending hash == git commit-tree");
+    let head = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let sha = hash_commit(&fx, &tree, &head, &tip_time, "plan the work");
+    assert_eq!(sha, pending, "pending hash == git hash-object");
 }
 
 #[test]
@@ -634,6 +649,7 @@ fn pending_empty_commit_parent_is_head() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("plan the work".into()),
+            change_id: Some(ID.into()),
             forked_from: None,
             parent: None,
             session: None,
@@ -653,23 +669,10 @@ fn pending_empty_commit_parent_is_head() {
         .trim()
         .to_string();
     let tree = fx.git(&["rev-parse", "HEAD^{tree}"]).trim().to_string();
-    let date = format!("@{head_time} +0000");
-    let sha = fx.git_env_in(
-        &fx.path(),
-        &["commit-tree", &tree, "-p", &head, "-m", "plan the work"],
-        &[
-            ("GIT_AUTHOR_NAME", "Pending User"),
-            ("GIT_AUTHOR_EMAIL", "pending@test"),
-            ("GIT_COMMITTER_NAME", "Pending User"),
-            ("GIT_COMMITTER_EMAIL", "pending@test"),
-            ("GIT_AUTHOR_DATE", &date),
-            ("GIT_COMMITTER_DATE", &date),
-        ],
-    );
+    let sha = hash_commit(&fx, &tree, &head, &head_time, "plan the work");
     assert_eq!(
-        sha.trim(),
-        pending,
-        "pending hash == git commit-tree with HEAD as parent"
+        sha, pending,
+        "pending hash == git hash-object with HEAD as parent"
     );
 }
 

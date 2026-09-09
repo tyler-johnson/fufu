@@ -14,6 +14,9 @@ serde_json.workspace = true
 # The signer takes its payload as a file path and writes the signature beside
 # it, so signing needs a scratch directory of its own.
 tempfile.workspace = true
+# The change id is sixteen random bytes; the same crate gix and tempfile
+# already pull in.
+getrandom.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

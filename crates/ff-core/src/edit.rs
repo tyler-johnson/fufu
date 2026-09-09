@@ -333,6 +333,7 @@ pub(crate) fn mint_session(
         name,
         &branchmeta::BranchMeta {
             pending_description: None,
+            change_id: None,
             forked_from: Some(at_short.to_string()),
             parent: None,
             session: Some(session),

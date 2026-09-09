@@ -291,9 +291,11 @@ pub(crate) fn entry_for(repo: &gix::Repository, id: gix::ObjectId) -> Result<Log
     // The raw object is already in hand, so asking whether it carries a
     // signature is a scan of bytes we decoded anyway.
     let signed = crate::sign::verify::has_signature(&commit.data);
+    let change_id = crate::changeid::of_commit(&commit.data, &id).letters();
     Ok(LogEntry {
         id: id.to_string(),
         short_id,
+        change_id,
         subject,
         author_name: author.name.to_string(),
         author_email: author.email.to_string(),

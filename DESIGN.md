@@ -294,13 +294,9 @@ The same rule is what keeps a rewrite honest: a branch carried by a cascade can 
 
 ### Floor 3 — Rewrite
 
-**Stable change identity.** A rewrite map (old-sha → new-sha, maintained in refs)
-lets descendants follow a *change* across amends and rebases, the way jj's change
-IDs do. Git's own machinery has been converging on the needed primitives for years —
-`merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an
-autopilot.
+**Stable change identity.** Every commit fufu closes carries a `change-id` header, jj's own: sixteen random bytes minted for the open change at its first capture or describe, spelled in the letters alphabet, and kept by every rewrite because replay copies every header but the signature. A commit without the header derives an id from its sha by jj's derivation, so every clone agrees on it without a walk, and the column is never blank. The id is the identity a *change* keeps across amends and rebases; the rewrite map (old-sha → new-sha) on each operation record is the account of what happened to it. Git's own machinery has been converging on the needed primitives for years — `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an autopilot.
 
-The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does.
+The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does. A rewrite made outside fufu drops the header, since git copies none it does not know, and the commit comes back with a derived id: the same limitation jj has, and one the docs state rather than repair.
 
 Re-parenting a merge and replaying one are not the same act. A rewrite that moves no tree — a reword — re-parents merges along with everything else, since parents are precisely what re-parenting knows how to fix. A rewrite that moves a tree has to replay, and what a replay means for a merge is the ambiguity the futures probe already declines to answer, so the rewrite declines it too rather than picking a side nobody asked for.
 

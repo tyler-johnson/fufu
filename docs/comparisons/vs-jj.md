@@ -44,7 +44,8 @@ fufu is a daily interface layered on an ordinary git repository. It owns the eph
 | a conflict | an object in the graph — a commit holding a merge expression | an operation held pending — the *absence* of the new commit |
 | your other tools | see the projection, plus states plain git can't comprehend | see an ordinary git repository, always |
 | raw git commands | legal in a colocated repo, then imported: the motion is settled once jj re-reads the git refs at its next command | first class: absorbed into the operation log, loudly, and undoable |
-| leaving | colocated: delete `.jj` and the commits and bookmarks stay; the op log, the change ids, and any unresolved conflict go with it | walk away any moment; return and reconcile |
+| change identity | a `change-id` header on every commit jj makes, derived from the sha where there is none | the same header on every commit fufu closes, the same derivation for the rest; op ids share the letters alphabet where jj's are hex |
+| leaving | colocated: delete `.jj` and the commits and bookmarks stay, change ids in their headers; the op log and any unresolved conflict go with it | walk away any moment; return and reconcile |
 
 ## What the inversion buys
 
@@ -58,7 +59,7 @@ fufu has no seam to keep settled. There is one store, so collaborators, CI, IDEs
 
 Deleting fufu loses convenience, never data or comprehension. The strong form: fufu is abandonable and returnable at any moment — a GUI session, a teammate's raw git, a weekend on a machine without fufu are all legitimate, all absorbed. When fufu's records disagree with the repository, the repository wins and fufu rebuilds its picture, loudly.
 
-Colocation narrows jj's version of this gap without closing it. The commits and exported bookmarks are already in the git repository, so walking away strands no branch — but the op log and undo, the change ids, and any unresolved conflict live in `.jj` and nowhere else. Deleting `.jj` is accepting those losses, and a weekend of raw git is a desync to import on return rather than a shrug.
+Colocation narrows jj's version of this gap without closing it. The commits and exported bookmarks are already in the git repository, and so are the change ids, in a header both tools read — so walking away strands no branch and forgets no identity — but the op log and undo and any unresolved conflict live in `.jj` and nowhere else. Deleting `.jj` is accepting those losses, and a weekend of raw git is a desync to import on return rather than a shrug.
 
 ### git fluency keeps paying
 

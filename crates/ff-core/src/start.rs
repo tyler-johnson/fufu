@@ -251,6 +251,7 @@ fn mint_branch(
         name,
         &branchmeta::BranchMeta {
             pending_description: None,
+            change_id: None,
             forked_from: Some(forked_from.to_string()),
             parent: parent.map(str::to_string),
             session: None,

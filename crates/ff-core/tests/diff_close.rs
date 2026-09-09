@@ -158,6 +158,7 @@ fn pending_description_is_consumed_by_the_close() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("planned: the pending text".into()),
+            change_id: None,
             forked_from: None,
             parent: None,
             session: None,
@@ -191,6 +192,7 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
         "main",
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("stale pending".into()),
+            change_id: None,
             forked_from: None,
             parent: None,
             session: None,

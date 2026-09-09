@@ -12,6 +12,8 @@ One or two sentences per term, each linking to the page that owns it.
 
 **cascade** — What follows a branch's tip moving: every local branch whose base is that branch is replayed onto its new tip, parent before child, through the whole tree, inside the same operation. Every verb that moves a tip runs one; a replay that conflicts holds that branch and leaves the branches above it alone. [Branches](branches.md#stacking-a-branch-records-its-parent) has the rule.
 
+**change id** — A commit's identity across rewrites: sixteen random bytes fufu mints for the [open change](changes.md) and writes into the commit as a `change-id` header, jj's own, spelled in the letters k–z. A reword, restack, or absorb keeps it, and a commit made outside fufu derives one from its sha, the same in every clone. It is the letters column on `ff log`, `ff status`, and the map.
+
 **chain** — One worktree's own line of the [operation log](snapshots-and-undo.md): every operation belongs to the chain of the worktree that ran it, `ff undo` steps back the chain of the tree it runs in, and a chain outlives its worktree. The [worktrees guide](../guides/worktrees.md#one-repository-a-log-per-tree) shows the split.
 
 **change** — The unit of work in progress: the working copy is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working copy being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
@@ -38,7 +40,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **operation** — One entry on the operation log: a verb fufu ran, a capture, or a foreign operation absorbed from outside. Every operation records all refs plus the tree state, which is why [undo](snapshots-and-undo.md) restores both together.
 
-**operation id** — An operation's address, spelled in the letters k–z and never in hex, so a letters-spelled id is always an operation and a hex one always a commit. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
+**operation id** — An operation's address, spelled in the letters k–z and never in hex — the alphabet a change id shares, so the slot decides: `ff op`, `ff history`, and `--at-op` read an operation. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
 
 **operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; [`ff op log`](../reference/cli/op-log.md) lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
 

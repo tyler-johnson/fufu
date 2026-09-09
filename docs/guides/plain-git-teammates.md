@@ -56,7 +56,7 @@ $ ff status
 on parser · nothing to pull
 @  no changes
 │  (no description)
-●  —        3dbae0c0   0s ago
+●  znzlpomw 3dbae0c0   0s ago
 │  docs: say what this is
 1 change made outside fufu: refs/heads/parser moved to 3dbae0c0 (absorbed; ff undo can roll it back)
 ```

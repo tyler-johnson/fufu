@@ -352,7 +352,14 @@ fn status_json_keys_are_unchanged() {
     }
     // open sub-keys
     let open = &d["open"];
-    for key in ["id", "id_letters", "pending", "subject", "clean"] {
+    for key in [
+        "id",
+        "id_letters",
+        "change_id",
+        "pending",
+        "subject",
+        "clean",
+    ] {
         assert!(open.get(key).is_some(), "open.{} exists", key);
     }
 }
@@ -670,6 +677,11 @@ fn log_default_is_change_centric() {
         "letters spelling at the JSON edge: {letters:?}"
     );
     assert_eq!(d["open"]["clean"], false, "uncaptured-free but dirty tree");
+    let change_id = d["open"]["change_id"].as_str().unwrap();
+    assert_eq!(change_id.len(), 32, "the open change's id: {change_id:?}");
+    for row in d["commits"].as_array().unwrap() {
+        assert_eq!(row["change_id"].as_str().unwrap().len(), 32, "{row}");
+    }
     assert!(
         d["open"]["pending"].is_null(),
         "no identity configured in the fixture"
@@ -688,9 +700,9 @@ fn log_default_is_change_centric() {
 }
 
 /// The @ row states: clean undescribed collapses to "no changes", dirty shows
-/// letters + pending sha, describe changes the pending sha, close returns to
-/// "no changes", clean+described shows a pending empty commit whose letters
-/// match the ● anchor row.
+/// the change id + pending sha, describe changes the pending sha and not the
+/// id, close returns to "no changes" and the new ● row wears the id the @ row
+/// wore, clean+described shows a pending empty commit under a fresh id.
 #[test]
 fn log_at_row_states() {
     let fx = Fixture::new();
@@ -734,12 +746,24 @@ fn log_at_row_states() {
     assert_eq!(tokens[1], dirty_letters, "letters unchanged after describe");
     assert_ne!(tokens[2], dirty_sha, "pending sha changed after describe");
 
-    // Close: back to "no changes".
+    // Close: back to "no changes", and the commit wears the id the open
+    // change wore — the letters column is an identity, so it follows the
+    // change from the @ row into the ● row.
     assert!(ff(&fx, &["commit", "-m", "landed"]).status.success());
     let text = stdout(&ff(&fx, &["log"]));
     assert_eq!(text.lines().next().unwrap(), "@  no changes");
+    let bullet_line = text
+        .lines()
+        .find(|l| l.starts_with('●'))
+        .expect("a ● row exists");
+    let bullet_tokens: Vec<&str> = bullet_line.split_whitespace().collect();
+    assert_eq!(
+        bullet_tokens[1], dirty_letters,
+        "the closed commit wears the open change's id: {text:?}"
+    );
 
-    // Describe while clean: pending empty commit, letters match ● anchor row.
+    // Describe while clean: pending empty commit under a fresh id, since the
+    // last one left with the commit.
     assert!(ff(&fx, &["describe", "-m", "next up"]).status.success());
     let text = stdout(&ff(&fx, &["log"]));
     let tokens: Vec<&str> = text.lines().next().unwrap().split_whitespace().collect();
@@ -751,31 +775,40 @@ fn log_at_row_states() {
         tokens[2].len() == 8 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
         "clean+described pending sha: {text:?}"
     );
-    let clean_letters = tokens[1].to_string();
-    // The first ● row should have the same letters (anchor duplication).
+    assert_ne!(
+        tokens[1], dirty_letters,
+        "a new change is a new identity: {text:?}"
+    );
     let bullet_line = text
         .lines()
         .find(|l| l.starts_with('●'))
         .expect("a ● row exists");
-    let bullet_tokens: Vec<&str> = bullet_line.split_whitespace().collect();
     assert_eq!(
-        bullet_tokens[1], clean_letters,
-        "● row shares letters with @ row (anchor)"
+        bullet_line.split_whitespace().nth(1).unwrap(),
+        dirty_letters,
+        "and the commit keeps its own: {text:?}"
     );
 }
 
-/// Anchor rule: a commit earns a letters id in the ● row when the live chain
-/// has a snapshot whose base is the commit's first parent AND whose tree
-/// equals the commit's tree. Git-made roots and partial-stage commits have
-/// no matching snapshot → blank letters column.
+/// Every ● row wears a change id, whoever made the commit. A commit fufu
+/// closed carries the id its open change wore, as a header; a commit git
+/// made carries none, and its id is derived from the sha — the same answer
+/// on every read and in every clone, with no walk.
 #[test]
-fn log_segment_tips_fill_and_blank() {
+fn log_every_row_wears_a_change_id() {
     let fx = Fixture::new();
     fx.set_config("user.name", "Segment User");
     fx.set_config("user.email", "segment@test");
     fx.write("a.txt", "a\n");
-    let bare = fx.commit("no snapshots here");
+    let bare = fx.commit("no header here");
     fx.write("a.txt", "b\n");
+    let before = stdout(&ff(&fx, &["log"]));
+    let open_letters = before
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the @ row wears letters")
+        .to_string();
     assert!(ff(&fx, &["commit", "-m", "landed by ff"]).status.success());
     let landed = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
     fx.write("a.txt", "c\n");
@@ -786,62 +819,59 @@ fn log_segment_tips_fill_and_blank() {
     let partial = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
 
     let text = stdout(&ff(&fx, &["log"]));
-    let row_of = |sha: &str| {
+    let row_of = |text: &str, sha: &str| {
         text.lines()
             .find(|line| line.starts_with('●') && line.contains(&sha[..7]))
             .unwrap_or_else(|| panic!("no ● row for {sha}: {text:?}"))
             .to_string()
     };
+    let letters_of = |row: &str| row.split_whitespace().nth(1).unwrap().to_string();
+    let is_letters = |s: &str| s.len() == 8 && s.chars().all(|c| ('k'..='z').contains(&c));
 
-    // landed's row: letters column is the pre-commit snapshot.
-    let landed_row = row_of(&landed);
-    let landed_tokens: Vec<&str> = landed_row.split_whitespace().collect();
-    // Verify against evolog: find the snapshot with base == bare.
-    let evolog_out = ff(&fx, &["evolog", "--json"]);
-    let evolog: serde_json::Value = serde_json::from_str(&stdout(&evolog_out)).unwrap();
-    let pre_snap = evolog["data"]["snapshots"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|s| {
-            s["base"] == bare
-                && s["subject"]
-                    .as_str()
-                    .map(|subj| subj.starts_with("pre: ff commit"))
-                    .unwrap_or(false)
-        })
-        .expect("pre-commit snapshot exists");
-    let expected_letters = letters8(pre_snap["id"].as_str().unwrap());
+    // landed's row: the id the @ row wore before the close, now a header.
+    let landed_letters = letters_of(&row_of(&text, &landed));
     assert_eq!(
-        landed_tokens[1], expected_letters,
-        "landed row letters match pre-commit snapshot"
+        landed_letters, open_letters,
+        "the commit wears the id its open change wore: {text:?}"
     );
-
-    // bare's row: no snapshot, so the letters column is the dotted filler and
-    // the sha follows it. The filler is what makes the absence legible — eight
-    // spaces read as indentation rather than as an empty column.
-    let bare_row = row_of(&bare);
-    let bare_tokens: Vec<&str> = bare_row.split_whitespace().collect();
-    assert_eq!(
-        bare_tokens[1], "—",
-        "bare row's letters column is the empty-id filler: {bare_row:?}"
-    );
+    let raw = fx.git(&["cat-file", "-p", &landed]);
+    let header = raw
+        .lines()
+        .find_map(|line| line.strip_prefix("change-id "))
+        .expect("a change-id header on the commit");
+    assert_eq!(header.len(), 32, "the header is the whole id: {header:?}");
     assert!(
-        bare_tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
-        "and the sha follows it: {bare_row:?}"
+        header.starts_with(&landed_letters),
+        "and the column is its prefix: {header} vs {landed_letters}"
     );
 
-    // partial's row: same, no snapshot answers it.
-    let partial_row = row_of(&partial);
-    let partial_tokens: Vec<&str> = partial_row.split_whitespace().collect();
+    // bare's and partial's rows: no header, so a derived id — filled, never
+    // the dash, and stable across reads.
+    for sha in [&bare, &partial] {
+        let row = row_of(&text, sha);
+        let letters = letters_of(&row);
+        assert!(
+            is_letters(&letters),
+            "a derived id fills the column: {row:?}"
+        );
+        assert_ne!(letters, landed_letters, "and is its own: {text:?}");
+    }
+    let again = stdout(&ff(&fx, &["log"]));
     assert_eq!(
-        partial_tokens[1], "—",
-        "partial row's letters column is the empty-id filler: {partial_row:?}"
+        letters_of(&row_of(&again, &bare)),
+        letters_of(&row_of(&text, &bare)),
+        "a derived id is the same on every read"
     );
-    assert!(
-        partial_tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
-        "and the sha follows it: {partial_row:?}"
-    );
+
+    // The machine surface carries the whole id on every row.
+    let out = ff(&fx, &["log", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    for row in v["data"]["commits"].as_array().unwrap() {
+        let id = row["change_id"].as_str().expect("change_id on every row");
+        assert_eq!(id.len(), 32, "{row}");
+        assert!(id.chars().all(|c| ('k'..='z').contains(&c)), "{row}");
+    }
+    assert_eq!(v["data"]["commits"][1]["change_id"], header, "{v}");
 }
 
 /// The anchor walk stops early — once every displayed commit is answered, or
@@ -1613,13 +1643,14 @@ fn update_yes_on_unofficial_build_fails() {
     );
 }
 
-/// The bold prefix is the only consumer of unique-prefix lengths, so a run
-/// that cannot emit ANSI must not build the id index to compute them. This
-/// pins the invariant from the observable side: an uncolored view leaves no
-/// index behind, a colored one builds it. If someone ever makes those lengths
-/// matter without color, this fails rather than silently rendering `1`.
+/// `ff log` never builds the op-id index: its letters column is change ids,
+/// priced among the ids on the page, so neither an uncolored run nor a
+/// colored one leaves an index behind. `ff evolog` still abbreviates op ids
+/// through the index, and is the view that builds it. If someone ever routes
+/// the log's column back through the index, this fails rather than letting a
+/// read-only checkout pay for it.
 #[test]
-fn uncolored_views_do_not_build_the_id_index() {
+fn the_log_never_builds_the_id_index() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -1639,20 +1670,24 @@ fn uncolored_views_do_not_build_the_id_index() {
     // stdout here is a pipe, so anstream resolves color to never.
     let out = ff(&fx, &["log", "-n", "5"]);
     assert!(out.status.success(), "uncolored log should succeed");
-    assert!(
-        !index.exists(),
-        "an uncolored view must not build the id index"
-    );
+    assert!(!index.exists(), "an uncolored log builds no index");
 
     let out = ff_colored(&fx, &["log", "-n", "5"]);
     assert!(out.status.success(), "colored log should succeed");
     assert!(
-        index.exists(),
-        "a colored view builds the index it needs to embolden with"
+        stdout(&out).contains('\u{1b}'),
+        "forced color really did emit ANSI, so the assertion below means something"
     );
     assert!(
-        stdout(&out).contains('\u{1b}'),
-        "forced color really did emit ANSI, so the assertion above means something"
+        !index.exists(),
+        "the change-id column is priced on the page, never through the index"
+    );
+
+    let out = ff(&fx, &["evolog", "-n", "5"]);
+    assert!(out.status.success(), "evolog should succeed");
+    assert!(
+        index.exists(),
+        "evolog abbreviates op ids through the index, and builds it"
     );
 }
 
