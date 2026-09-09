@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays the stale copy of a commit its real base has since rewritten. (#5)
+
 ## v0.13.0 — 2026-09-08
 
 ### Added

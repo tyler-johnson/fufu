@@ -187,8 +187,7 @@ fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto
 }
 
 /// Where the range walk stops: the merge bases with the base as it stands,
-/// and, when the base is one the branch follows, the point the branch forked
-/// from the base's history.
+/// and the point the branch forked from the base's history.
 ///
 /// A rewritten base keeps none of its old commits, so the merge base with
 /// its new tip is the point where the base itself forked from trunk, and a
@@ -202,22 +201,23 @@ fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto
 /// bounds the walk. A commit the base once held and the branch still sits
 /// on is the base's, not the branch's.
 ///
-/// Only the two refs a branch answers to are read this way, its recorded
-/// base and its own shared copy. `--onto` aimed elsewhere is a transplant,
-/// and a transplant carries everything above the common ancestor.
+/// The reflog read is of whatever ref the branch is replayed onto, the
+/// recorded base or an `--onto` aimed anywhere else. A branch cut with
+/// `git checkout -b` records no parent and resolves to trunk, so the first
+/// `--onto` that names the branch it really sits on is the only restack
+/// that can trim its stale copies, and gating the read on the recorded base
+/// left exactly that restack carrying them. Reading the target's reflog is
+/// safe for a real transplant: a position of the target can only lower the
+/// boundary to where the branch forked from that ref's history, and a
+/// target that never held anything of the branch's still carries everything
+/// above the common ancestor.
 fn range_boundary(
     repo: &gix::Repository,
-    branch: &str,
     branch_tip: gix::ObjectId,
     base: &Onto,
     bases: &[gix::ObjectId],
 ) -> Result<Vec<gix::ObjectId>> {
     let mut boundary: Vec<gix::ObjectId> = bases.to_vec();
-    let followed = futures::base_for(repo, branch)?.is_some_and(|s| s.r#ref == base.full)
-        || futures::remote_for(repo, branch)?.is_some_and(|s| s.r#ref == base.full);
-    if !followed {
-        return Ok(boundary);
-    }
     let mut positions: Vec<gix::ObjectId> = vec![base.tip];
     for line in refs::read_ref_log(repo, &base.full)? {
         positions.push(line.new);
@@ -303,7 +303,7 @@ pub(crate) fn replan_restack(
 
     // The same range the verb measures: the branch's own commits, down to
     // where it forked from the base.
-    let boundary = range_boundary(repo, branch, branch_tip, &base, &bases)?;
+    let boundary = range_boundary(repo, branch_tip, &base, &bases)?;
     let (range, _merge) = walk_range(repo, branch_tip, &boundary)?;
     let base_name = base.name;
     if range.is_empty() {
@@ -791,7 +791,7 @@ pub(crate) fn plan_restack(
         // the range `replan_restack` measures, so the verb and the replan
         // cannot disagree. A restack is something a person asked for, so
         // the range is walked in full — no depth cap.
-        let boundary = range_boundary(repo, &branch, branch_tip, &base, &bases)?;
+        let boundary = range_boundary(repo, branch_tip, &base, &bases)?;
         let (walked, merge) = walk_range(repo, branch_tip, &boundary)?;
         if let Some(merge) = merge {
             return Err(Error::coded(

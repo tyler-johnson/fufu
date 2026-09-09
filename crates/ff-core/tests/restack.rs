@@ -1355,3 +1355,100 @@ fn an_open_change_above_that_conflicts_holds_that_branch() {
         "{files:?}"
     );
 }
+
+// ---- The range under `--onto`: the target's reflog trims it too ----
+
+/// A base rewritten beneath a child that never recorded it (gh #5): `main`
+/// moves, `base` is restacked onto it and then amended so the rewrite
+/// changed content, and `child`, cut with plain git on the old `base`, has
+/// no recorded parent. Leaves the fixture standing on `child`.
+fn stale_child(fx: &Fixture, rewrite_with_ff: bool) -> (String, String) {
+    fx.write("a.txt", "a\n");
+    fx.commit("A: trunk");
+    fx.git(&["switch", "-q", "-c", "base"]);
+    fx.write("b.txt", "b\n");
+    let b = fx.commit("B: base work");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("c.txt", "c\n");
+    let c = fx.commit("C: child work");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "a\na2\n");
+    fx.commit("A2: trunk moves");
+    fx.git(&["switch", "-q", "base"]);
+    if rewrite_with_ff {
+        landed(restack_call(fx, Some("base"), Some("main"), NOW).0);
+    } else {
+        fx.git(&["rebase", "-q", "main"]);
+    }
+    fx.write("b.txt", "b RESOLVED DIFFERENTLY\n");
+    fx.git(&["commit", "-q", "--amend", "--no-edit", "-a"]);
+    fx.git(&["switch", "-q", "child"]);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "child")
+            .unwrap()
+            .parent,
+        None,
+        "the child records no parent, so its base resolves to trunk"
+    );
+    (b, c)
+}
+
+#[test]
+fn onto_trims_the_stale_copy_of_a_base_rewritten_by_ff() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (b, _c) = stale_child(&fx, true);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("base"), NOW + 1).0);
+
+    assert_eq!(report.replayed, 1, "only the child's own commit replays");
+    assert!(report.dropped.is_empty());
+    assert!(report.reaimed);
+    assert_eq!(rev(&fx, "child^"), rev(&fx, "base"));
+    assert!(!is_ancestor(&fx, &b, "child"), "the stale copy is gone");
+    assert_eq!(
+        fx.git(&["show", "child:b.txt"]),
+        "b RESOLVED DIFFERENTLY\n",
+        "the child sits on the base's rewrite, not its own stale copy"
+    );
+}
+
+#[test]
+fn onto_trims_the_stale_copy_of_a_base_rewritten_by_git() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (b, _c) = stale_child(&fx, false);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("base"), NOW + 1).0);
+
+    assert_eq!(
+        report.replayed, 1,
+        "the reflog, not the op log, is what the trim reads"
+    );
+    assert_eq!(rev(&fx, "child^"), rev(&fx, "base"));
+    assert!(!is_ancestor(&fx, &b, "child"));
+}
+
+#[test]
+fn onto_a_target_that_never_held_the_branch_carries_everything() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (c0, _c1, _f1, _f2, _f3, _m2) = stack(&fx);
+
+    // `release` is cut from `main` below where the branch forked and moved
+    // once, so its reflog holds only main's history.
+    fx.git(&["branch", "release", &c0]);
+    fx.git(&["switch", "-q", "release"]);
+    fx.git(&["reset", "-q", "--hard", "main"]);
+    fx.write("r.txt", "r\n");
+    fx.commit("r1");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let report = landed(restack_call(&fx, Some("feature"), Some("release"), NOW).0);
+
+    assert_eq!(
+        report.replayed, 3,
+        "a transplant carries everything above the common ancestor"
+    );
+    assert_eq!(rev(&fx, "feature~3"), rev(&fx, "release"));
+}
