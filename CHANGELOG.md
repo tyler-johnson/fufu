@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- A branch created outside fufu is absorbed with the branch it was cut from recorded as its base, when its tip is exactly one other non-trunk branch's tip or git's reflog names the branch: `ff status` says `forked from <branch>` on the absorb line, the cascade sees the branch from then on, and `ff undo` of the absorb takes the record back. Anything less certain stays on trunk.
+
 ### Fixed
 
 - `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays the stale copy of a commit its real base has since rewritten. (#5)

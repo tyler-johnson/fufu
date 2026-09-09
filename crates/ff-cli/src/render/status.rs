@@ -120,12 +120,36 @@ fn absorbed_line(foreign: &[ff_core::ForeignChange], colored: bool) -> String {
     let what = match foreign {
         [only] => {
             let phrase = motion_phrase(only.old.as_deref(), only.new.as_deref(), colored);
+            let forked = match &only.parent {
+                Some(parent) => format!(", forked from {parent}"),
+                None => String::new(),
+            };
             match &only.hint {
-                Some(hint) => format!("{} {phrase} ({hint})", only.name),
-                None => format!("{} {phrase}", only.name),
+                Some(hint) => format!("{} {phrase}{forked} ({hint})", only.name),
+                None => format!("{} {phrase}{forked}", only.name),
             }
         }
-        many => shape(many.iter().map(|c| (c.old.as_deref(), c.new.as_deref()))),
+        many => {
+            // The counts fold the refs away, and a base recorded for a new
+            // branch is the one fact worth its name on the line: every
+            // later replay acts on it.
+            let mut what = shape(many.iter().map(|c| (c.old.as_deref(), c.new.as_deref())));
+            let forked: Vec<String> = many
+                .iter()
+                .filter_map(|c| {
+                    let parent = c.parent.as_deref()?;
+                    let branch = c.name.strip_prefix("refs/heads/").unwrap_or(&c.name);
+                    Some(format!("{branch} forked from {parent}"))
+                })
+                .collect();
+            if !forked.is_empty() {
+                if !what.is_empty() {
+                    what.push_str("; ");
+                }
+                what.push_str(&forked.join(", "));
+            }
+            what
+        }
     };
     if what.is_empty() {
         format!("ff: absorbed {count} made outside fufu")
@@ -794,6 +818,7 @@ mod tests {
             old: old.map(String::from),
             new: new.map(String::from),
             hint: hint.map(String::from),
+            parent: None,
         }
     }
 
@@ -849,6 +874,44 @@ mod tests {
         assert_eq!(
             pinned_line(&unborn, false),
             "1 change made outside fufu: HEAD moved to next (absorbed; ff undo can roll it back)"
+        );
+    }
+
+    #[test]
+    fn a_created_branch_says_what_it_was_forked_from() {
+        let mut one = change(
+            "refs/heads/child",
+            None,
+            Some(A),
+            Some("branch: Created from HEAD"),
+        );
+        one.parent = Some("base".into());
+        assert_eq!(
+            absorbed_line(&[one], false),
+            "ff: absorbed 1 change made outside fufu: refs/heads/child created at 3dbae0c0, forked \
+             from base (branch: Created from HEAD)"
+        );
+    }
+
+    #[test]
+    fn a_created_branch_among_several_still_says_its_base() {
+        // `git checkout -b child` is two changes, HEAD and the branch, so
+        // the common case folds to counts and the base rides after them.
+        let mut child = change("refs/heads/child", None, Some(A), None);
+        child.parent = Some("feature".into());
+        let many = [
+            change(
+                "HEAD",
+                Some("ref:refs/heads/feature"),
+                Some("ref:refs/heads/child"),
+                None,
+            ),
+            child,
+        ];
+        assert_eq!(
+            absorbed_line(&many, false),
+            "ff: absorbed 2 changes made outside fufu: 1 moved, 1 created; child forked from \
+             feature"
         );
     }
 

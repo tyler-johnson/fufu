@@ -60,7 +60,7 @@ What happens to the open change on either side of the move — parked here, resu
 
 ## Stacking: a branch records its parent
 
-`ff start <branch> -b <name>` forks from another branch's tip and records that branch as the new one's **base**. A bare `ff start` forks from trunk and records nothing, so its base is trunk wherever trunk goes.
+`ff start <branch> -b <name>` forks from another branch's tip and records that branch as the new one's **base**. A bare `ff start` forks from trunk and records nothing, so its base is trunk wherever trunk goes. A branch created outside fufu gets the same record when the repository can say where it was cut: its tip is exactly one other non-trunk branch's tip, or git's reflog names the branch it was created from. Anything less certain leaves it on trunk, and `ff restack --onto` is the correction.
 
 That record is what "base" means everywhere fufu says the word: the base axis on [`ff status`](../reference/cli/status.md), the standing `ff branch list` reports, and the replay every rewrite performs. [`ff restack --onto`](../reference/cli/restack.md) is the one way to change it.
 

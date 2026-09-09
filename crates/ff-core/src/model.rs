@@ -1098,6 +1098,13 @@ pub struct ForeignChange {
     pub new: Option<String>,
     /// git's own reflog message for the move, when one exists.
     pub hint: Option<String>,
+    /// The local branch recorded as this branch's base when reconciliation
+    /// could tell which one it was cut from: a branch created outside fufu
+    /// whose tip is exactly one non-trunk branch's tip, or whose reflog
+    /// names the branch it was created from. Absent when nothing was
+    /// recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 /// What one reconciliation pass found and did.

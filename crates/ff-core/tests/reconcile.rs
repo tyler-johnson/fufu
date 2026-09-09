@@ -404,3 +404,191 @@ fn a_bare_capture_parks_the_old_chains_too() {
         head
     );
 }
+
+// ---- A branch created outside fufu records the branch it was cut from ----
+
+/// `main` with one commit and `feature` with one above it, reconciled, so
+/// the next pass sees only what the test does. Leaves the fixture on
+/// `feature`.
+fn trunk_and_feature(fx: &Fixture) {
+    fx.set_config("user.name", "Fixture Committer");
+    fx.set_config("user.email", "committer@fixture.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "f\n");
+    fx.commit("f1");
+    let repo = fx.repo();
+    reconcile(&repo, now(fx)).unwrap();
+}
+
+fn parent_of(fx: &Fixture, branch: &str) -> Option<String> {
+    ff_core::branchmeta::read(&fx.repo(), branch)
+        .unwrap()
+        .parent
+}
+
+fn created(report: &ff_core::ReconcileReport, name: &str) -> ff_core::ForeignChange {
+    report
+        .foreign
+        .iter()
+        .find(|c| c.name == name)
+        .cloned()
+        .unwrap_or_else(|| panic!("{name} was not absorbed: {report:?}"))
+}
+
+#[test]
+fn a_branch_cut_on_a_feature_branch_records_it_as_its_base() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+
+    fx.git(&["checkout", "-q", "-b", "child"]);
+    let repo = fx.repo();
+    let report = reconcile(&repo, now(&fx) + 1).unwrap();
+
+    let child = created(&report, "refs/heads/child");
+    assert_eq!(child.parent.as_deref(), Some("feature"));
+    let meta = ff_core::branchmeta::read(&repo, "child").unwrap();
+    assert_eq!(meta.parent.as_deref(), Some("feature"));
+    assert_eq!(
+        meta.forked_from, None,
+        "only the parent is recorded: undo takes it back through the record, and forked_from has no transition"
+    );
+
+    let log = OpLog::open(&repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    let record = op.record().unwrap().unwrap().clone();
+    assert_eq!(record.inferred_parents.len(), 1);
+    assert_eq!(record.inferred_parents[0].branch, "child");
+    assert_eq!(record.inferred_parents[0].new.as_deref(), Some("feature"));
+
+    // The record is what puts the child in the cascade's view: feature's
+    // restack onto a moved trunk carries it.
+    fx.write("c.txt", "c\n");
+    fx.commit("c1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "m\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::restack::restack(
+        &repo,
+        Some("feature".into()),
+        None,
+        &ff_core::Provenance::new("pre", Some("ff restack".into())),
+        Some(now(&fx) + 2),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    let report = match outcome {
+        ff_core::RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+    assert_eq!(report.cascade.moved.len(), 1, "{:?}", report.cascade);
+    assert_eq!(
+        fx.git(&["rev-parse", "child^"]).trim(),
+        fx.git(&["rev-parse", "feature"]).trim(),
+        "the child followed feature onto the moved trunk"
+    );
+}
+
+#[test]
+fn two_branches_at_the_same_tip_record_nothing() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+    fx.git(&["branch", "other"]);
+    let repo = fx.repo();
+    reconcile(&repo, now(&fx) + 1).unwrap();
+
+    fx.git(&["checkout", "-q", "-b", "child"]);
+    let repo = fx.repo();
+    let report = reconcile(&repo, now(&fx) + 2).unwrap();
+
+    assert_eq!(created(&report, "refs/heads/child").parent, None);
+    assert_eq!(parent_of(&fx, "child"), None);
+}
+
+#[test]
+fn a_branch_cut_from_trunk_by_name_records_nothing() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+
+    fx.git(&["checkout", "-q", "-b", "child", "main"]);
+    let repo = fx.repo();
+    let report = reconcile(&repo, now(&fx) + 1).unwrap();
+
+    assert_eq!(created(&report, "refs/heads/child").parent, None);
+    assert!(
+        ff_core::branchmeta::read(&repo, "child")
+            .unwrap()
+            .is_empty(),
+        "trunk is the default and is not written down"
+    );
+}
+
+#[test]
+fn the_reflog_names_the_branch_when_the_tip_has_moved_on() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+
+    fx.git(&["checkout", "-q", "-b", "child", "feature"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("c1");
+    let repo = fx.repo();
+    let report = reconcile(&repo, now(&fx) + 1).unwrap();
+
+    let child = created(&report, "refs/heads/child");
+    assert_eq!(
+        child.hint.as_deref(),
+        Some("commit: c1"),
+        "the hint quotes the tip's line; the creation line is read on its own"
+    );
+    assert_eq!(child.parent.as_deref(), Some("feature"));
+    assert_eq!(parent_of(&fx, "child"), Some("feature".into()));
+}
+
+#[test]
+fn a_grown_branch_whose_reflog_says_head_stays_on_trunk() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+
+    fx.git(&["checkout", "-q", "-b", "child"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("c1");
+    let repo = fx.repo();
+    let report = reconcile(&repo, now(&fx) + 1).unwrap();
+
+    assert_eq!(created(&report, "refs/heads/child").parent, None);
+    assert_eq!(parent_of(&fx, "child"), None);
+}
+
+#[test]
+fn undo_takes_the_inferred_parent_back_with_the_branch() {
+    let fx = Fixture::new();
+    trunk_and_feature(&fx);
+    fx.git(&["branch", "child"]);
+    let repo = fx.repo();
+    reconcile(&repo, now(&fx) + 1).unwrap();
+    assert_eq!(parent_of(&fx, "child"), Some("feature".into()));
+
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(now(&fx) + 2),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(
+        &repo,
+        &opts,
+        &ff_core::Provenance::new("pre", Some("ff undo".into())),
+    )
+    .unwrap();
+
+    assert!(
+        fx.try_git(&["rev-parse", "--verify", "-q", "refs/heads/child"])
+            .status
+            .code()
+            != Some(0),
+        "the creation is undone"
+    );
+    assert_eq!(parent_of(&fx, "child"), None, "and the record with it");
+}

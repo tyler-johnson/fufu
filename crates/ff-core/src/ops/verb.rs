@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::model::{ForeignChange, ReconcileReport};
 use crate::ops::append::{self, Append, OpDraft};
 use crate::ops::id::OpId;
-use crate::ops::record::{OpRecord, RefTransition, RefsTable, observe_refs_held};
+use crate::ops::record::{OpRecord, ParentTransition, RefTransition, RefsTable, observe_refs_held};
 use crate::ops::{BRANCH_PREFIX, LEGACY_OPS_REF, LEGACY_OPS_TRASH_REF, OpKind, OpLog};
 use crate::refs;
 use crate::snapshot::Route;
@@ -259,6 +259,7 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
     for change in &mut foreign {
         change.hint = reflog_hint(repo, &change.name, change.new.as_deref());
     }
+    let inferred = infer_parents(repo, &mut foreign)?;
     let summary = if incomplete {
         format!(
             "absorbed {} ref change(s); previous op may not have completed",
@@ -277,6 +278,14 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
         })
         .collect();
     record.head = head_transition(&last_seen, &observed);
+    record.inferred_parents = inferred
+        .iter()
+        .map(|(branch, parent)| ParentTransition {
+            branch: branch.clone(),
+            old: None,
+            new: Some(parent.clone()),
+        })
+        .collect();
     let mut pins: Vec<gix::ObjectId> = Vec::new();
     for change in &foreign {
         for sha in [&change.old, &change.new].into_iter().flatten() {
@@ -296,9 +305,103 @@ pub fn reconcile(repo: &gix::Repository, now: i64) -> Result<ReconcileReport> {
     // tree would make undoing to it throw uncommitted work away.
     let tree = worktree_or_head(repo)?;
     let id = append_observed_with_pins(repo, OpKind::Foreign, record, &observed, &pins, tree, now)?;
+    // After the append, the way every verb writes branch metadata behind its
+    // record: the record is the authority, and the file follows it.
+    for (branch, parent) in &inferred {
+        let mut meta = crate::branchmeta::read(repo, branch)?;
+        meta.parent = Some(parent.clone());
+        crate::branchmeta::write(repo, branch, &meta)?;
+    }
     report.entry = Some(id.to_string());
     report.foreign = foreign;
     Ok(report)
+}
+
+/// The base a branch created outside fufu was cut from, when the repository
+/// can say so without guessing: `(branch, parent)` for each created local
+/// branch that gets one, with `change.parent` set on its row.
+///
+/// Two signals, each exact. A new branch whose tip is exactly one other
+/// non-trunk local branch's tip was cut from it; `git checkout -b child`
+/// while standing on `base` leaves the two tips equal. And git's own reflog
+/// line for the creation, the ref's first, `branch: Created from <name>`,
+/// names the branch when one was typed, and says `HEAD` when it was not. Either alone
+/// records; both present must agree, and a disagreement records nothing.
+/// There is no fork-point walk: a branch that grew before fufu saw it and
+/// whose reflog says `HEAD` stays on trunk, the default it had, and `ff
+/// restack --onto` is the correction.
+///
+/// Nothing is inferred for trunk itself, for a branch that already records
+/// a parent, or when trunk cannot be resolved: a base is a claim every
+/// later replay acts on, and this pass only makes one it can stand behind.
+fn infer_parents(
+    repo: &gix::Repository,
+    foreign: &mut [ForeignChange],
+) -> Result<Vec<(String, String)>> {
+    let created: Vec<usize> = foreign
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.old.is_none() && c.new.is_some() && c.name.starts_with("refs/heads/"))
+        .map(|(i, _)| i)
+        .collect();
+    if created.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Ok(trunk) = crate::trunk::trunk(repo) else {
+        return Ok(Vec::new());
+    };
+    // Every local branch's tip, read once; the created ones are among them.
+    let mut tips: Vec<(String, String)> = Vec::new();
+    for name in crate::switch::branch_names(repo)? {
+        if let Some(tip) = refs::ref_target(repo, &format!("refs/heads/{name}"))? {
+            tips.push((name, tip.to_string()));
+        }
+    }
+    let mut out = Vec::new();
+    for i in created {
+        let change = &mut foreign[i];
+        let branch = change.name["refs/heads/".len()..].to_string();
+        let tip = change.new.clone().expect("a creation has a new value");
+        if branch == trunk.name {
+            continue;
+        }
+        if crate::branchmeta::read(repo, &branch)?.parent.is_some() {
+            continue;
+        }
+        let by_tip: Vec<&str> = tips
+            .iter()
+            .filter(|(name, t)| *name != branch && *name != trunk.name && *t == tip)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let by_tip = match by_tip.as_slice() {
+            [one] => Some((*one).to_string()),
+            _ => None,
+        };
+        // The creation line is the reflog's first, not the tip's: a branch
+        // that grew before fufu saw it wears its newest commit's message at
+        // the tip, and `change.hint` quotes that one.
+        let by_reflog = refs::read_ref_log(repo, &change.name)?
+            .into_iter()
+            .find(|line| line.previous.is_none())
+            .and_then(|line| {
+                line.message
+                    .strip_prefix("branch: Created from ")
+                    .map(str::to_string)
+            })
+            .filter(|name| name != "HEAD" && *name != trunk.name && *name != branch)
+            .filter(|name| tips.iter().any(|(n, _)| n == name));
+        let parent = match (by_tip, by_reflog) {
+            (Some(a), Some(b)) if a == b => Some(a),
+            (Some(_), Some(_)) => None,
+            (Some(a), None) | (None, Some(a)) => Some(a),
+            (None, None) => None,
+        };
+        if let Some(parent) = parent {
+            change.parent = Some(parent.clone());
+            out.push((branch, parent));
+        }
+    }
+    Ok(out)
 }
 
 fn append_observed(

@@ -177,6 +177,11 @@ pub struct OpRecord {
     pub description: Option<DescriptionTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentTransition>,
+    /// The recorded parents a reconciliation inferred for branches created
+    /// outside fufu, one per branch, so undo takes each back with the
+    /// creation. Skipped when empty, so no `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inferred_parents: Vec<ParentTransition>,
     /// An editing session opened or ended. Spelled `edit_session` to stay
     /// clear of `VerbOp.session`, which is the provenance tag and an
     /// unrelated thing.
@@ -252,6 +257,7 @@ impl OpRecord {
             worktree: Vec::new(),
             description: None,
             parent: None,
+            inferred_parents: Vec::new(),
             edit_session: None,
             resolve_session: None,
             held: None,
@@ -405,6 +411,7 @@ impl RefsTable {
                 old: Some(self.head.clone()),
                 new: Some(current.head.clone()),
                 hint: None,
+                parent: None,
             });
         }
         let names: std::collections::BTreeSet<&String> =
@@ -418,6 +425,7 @@ impl RefsTable {
                     old: old.cloned(),
                     new: new.cloned(),
                     hint: None,
+                    parent: None,
                 });
             }
         }

@@ -479,7 +479,11 @@ pub fn rewind(
                 meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
                 branchmeta::write(repo, &d.branch, &meta)?;
             }
-            if let Some(p) = &op_record.parent {
+            for p in op_record
+                .parent
+                .iter()
+                .chain(op_record.inferred_parents.iter())
+            {
                 let mut meta = branchmeta::read(repo, &p.branch)?;
                 meta.parent = if replay { p.new.clone() } else { p.old.clone() };
                 branchmeta::write(repo, &p.branch, &meta)?;

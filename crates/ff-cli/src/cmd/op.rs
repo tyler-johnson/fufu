@@ -282,6 +282,15 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
         };
         println!("  {} {what}", t.name);
     }
+    for p in op
+        .record()?
+        .map(|record| record.inferred_parents.clone())
+        .unwrap_or_default()
+    {
+        if let Some(parent) = &p.new {
+            println!("  {} forked from {parent}", p.branch);
+        }
+    }
     if stat.files.is_empty() {
         println!("  (the worktree is unchanged across it)");
     } else {
