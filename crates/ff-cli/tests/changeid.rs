@@ -369,3 +369,189 @@ fn the_map_shows_the_open_id_beside_the_tip() {
     assert_eq!(rows[0]["node"]["change_id"], open, "{json_map}");
     assert_eq!(rows[1]["node"]["change_id"], tip, "{json_map}");
 }
+
+// --- revision slots ---
+
+/// A repository with one commit fufu closed, standing on `main` with a clean
+/// tree. Returns the commit's sha and its change id.
+fn closed(fx: &Fixture) -> (String, String) {
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+    fx.write("a.txt", "b\n");
+    ok(ff(fx, &["commit", "-m", "closed"]));
+    let sha = head(fx);
+    let id = id_of(fx, &sha);
+    (sha, id)
+}
+
+/// A letters token in a revision slot is a change id: whole, or any prefix
+/// unique in the repository.
+#[test]
+fn a_change_id_names_its_commit_in_a_revision_slot() {
+    let fx = repo();
+    let (sha, id) = closed(&fx);
+
+    let shown = json(&ok(ff(&fx, &["--json", "show", &id])));
+    assert_eq!(shown["data"]["id"], sha, "{shown}");
+    let shown = json(&ok(ff(&fx, &["--json", "show", &id[..8]])));
+    assert_eq!(shown["data"]["id"], sha, "a prefix: {shown}");
+
+    let log = json(&ok(ff(&fx, &["--json", "log", "-r", &id[..8]])));
+    let rows = log["data"]["commits"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{log}");
+    assert_eq!(rows[0]["id"], sha);
+    assert!(log["data"]["open"].is_null(), "@ is not in the set: {log}");
+
+    ok(ff(&fx, &["describe", &id[..8], "-m", "reworded by id"]));
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s"]).trim(),
+        "reworded by id"
+    );
+    assert_eq!(id_of(&fx, "HEAD"), id, "and the reword kept the id");
+}
+
+/// A prefix of the open change's own id is `@`, and takes what `@` takes.
+#[test]
+fn a_prefix_of_the_open_id_is_the_open_change() {
+    let fx = repo();
+    closed(&fx);
+    fx.write("a.txt", "c\n");
+    ok(ff(&fx, &[]));
+    let open = open_id_on_disk(&fx, "main").expect("the capture minted an id");
+
+    let by_at = stdout(&ok(ff(&fx, &["show", "@"])));
+    let by_id = stdout(&ok(ff(&fx, &["show", &open[..8]])));
+    assert_eq!(by_id, by_at, "the open prefix is @");
+    assert!(by_id.contains("the open change on main"), "{by_id}");
+
+    let out = ff(&fx, &["--json", "show", &format!("{}^", &open[..8])]);
+    assert!(!out.status.success());
+    assert_eq!(json(&out)["error"]["id"], "usage/revset-open-suffix");
+}
+
+/// An operation id in a revision slot is still refused toward `ff op show`,
+/// even though it wears the alphabet a change id wears.
+#[test]
+fn an_operation_id_is_still_refused_in_a_revision_slot() {
+    let fx = repo();
+    closed(&fx);
+    let op = json(&ok(ff(&fx, &["--json", "op", "log", "-n", "1"])))["data"]["ops"][0]["id"]
+        .as_str()
+        .expect("an op id")
+        .to_string();
+    assert_eq!(op.len(), 40, "{op}");
+
+    let out = ff(&fx, &["--json", "show", &op]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/op-in-rev-position", "{v}");
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("a change id shares"),
+        "{v}"
+    );
+}
+
+/// One change id on two visible commits — a rewrite beside a ref that still
+/// holds the copy it rewrote — is divergent, and the prefix is refused by
+/// name rather than resolved to either.
+#[test]
+fn a_divergent_change_is_refused_by_name() {
+    let fx = repo();
+    let (old, id) = closed(&fx);
+    ok(ff(&fx, &["describe", &old, "-m", "rewritten"]));
+    let new = head(&fx);
+    assert_ne!(old, new);
+    // A ref back at the copy the reword replaced: the same change, twice.
+    fx.git(&["branch", "stale", &old]);
+
+    let out = ff(&fx, &["--json", "show", &id]);
+    assert!(!out.status.success(), "{}", stdout(&out));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/revset-divergent", "{v}");
+    let message = v["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains(&old[..8]) && message.contains(&new[..8]),
+        "{message}"
+    );
+    let exits = v["error"]["exits"].to_string();
+    assert!(
+        exits.contains(&format!("ff show {}", &old[..8]))
+            && exits.contains(&format!("ff show {}", &new[..8])),
+        "{exits}"
+    );
+
+    // Each commit is still reachable by its sha, and ff explain knows the id.
+    assert!(ff(&fx, &["show", &new]).status.success());
+    let explained = ff(&fx, &["explain", "usage/revset-divergent"]);
+    assert!(explained.status.success(), "{}", stderr(&explained));
+    assert!(stdout(&explained).contains("more than one visible commit"));
+
+    // Move the stale ref away and the id resolves again.
+    fx.git(&["branch", "-D", "stale"]);
+    let shown = json(&ok(ff(&fx, &["--json", "show", &id])));
+    assert_eq!(shown["data"]["id"], new, "{shown}");
+}
+
+/// A branch really named in the alphabet keeps its meaning, and colliding
+/// with a change prefix is refused rather than ranked.
+#[test]
+fn a_letters_branch_colliding_with_a_change_prefix_is_ambiguous() {
+    let fx = repo();
+    let (sha, id) = closed(&fx);
+    let prefix = &id[..4];
+    fx.git(&["branch", prefix, "HEAD^"]);
+
+    let out = ff(&fx, &["--json", "show", prefix]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/revset-ambiguous", "{v}");
+    let message = v["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!("refs/heads/{prefix}")) && message.contains("the change"),
+        "{message}"
+    );
+    // Spelled whole, the id is only the change.
+    assert_eq!(
+        json(&ok(ff(&fx, &["--json", "show", &id])))["data"]["id"],
+        sha
+    );
+}
+
+/// A change id in an operation slot is the mirror refusal, worded for an id
+/// rather than for a branch name.
+#[test]
+fn a_change_id_in_an_op_log_expression_is_refused_toward_revisions() {
+    let fx = repo();
+    let (_, id) = closed(&fx);
+    let out = ff(&fx, &["--json", "op", "log", &id[..8]]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/rev-in-op-position", "{v}");
+    let message = v["error"]["message"].as_str().unwrap();
+    assert!(message.contains("the slot decides"), "{message}");
+    assert!(!message.contains("on_branch"), "{message}");
+    assert!(v["error"]["exits"].to_string().contains("ff log -r"), "{v}");
+}
+
+/// `ff switch <change id>` is `ff switch <sha>`: a redirect to `ff start`
+/// at that commit, where it used to be `branch/not-found`.
+#[test]
+fn switch_to_a_change_id_redirects_to_start() {
+    let fx = repo();
+    let (sha, id) = closed(&fx);
+    fx.write("b.txt", "b\n");
+    fx.commit("above");
+
+    let out = ok(ff(&fx, &["switch", &id[..8]]));
+    let text = stdout(&out);
+    assert!(text.contains("minted"), "{text}");
+    assert_eq!(head(&fx), sha, "standing on the change's commit");
+    assert!(
+        fx.git(&["rev-parse", "--abbrev-ref", "HEAD"])
+            .starts_with("ff/"),
+        "on an anonymous branch"
+    );
+}

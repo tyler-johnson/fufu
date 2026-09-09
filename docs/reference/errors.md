@@ -132,8 +132,9 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/restack-onto-self` | 2 | a branch cannot be restacked onto itself |
 | `usage/rev-in-op-position` | 2 | that names a commit, and this position takes an operation |
 | `usage/revset-adjacent-operands` | 2 | two revisions stand side by side with no operator between them |
-| `usage/revset-ambiguous` | 2 | that name is both a ref and an object, and fufu will not pick one |
+| `usage/revset-ambiguous` | 2 | that name reads more than one way, and fufu will not pick one |
 | `usage/revset-arity` | 2 | that function was called with the wrong arguments |
+| `usage/revset-divergent` | 2 | that change stands on more than one visible commit |
 | `usage/revset-empty` | 2 | the revset is empty |
 | `usage/revset-empty-set` | 2 | the expression is valid and matches nothing |
 | `usage/revset-expected-expression` | 2 | an operator or a call is missing the expression it needs |

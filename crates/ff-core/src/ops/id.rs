@@ -6,6 +6,10 @@
 //! can go too, and it resolves. Wrapping each space in its own newtype moves
 //! the refusal from runtime to the compiler, and leaves the runtime check
 //! needed only where text becomes a type.
+//!
+//! The letters alphabet is shared with change ids, and the slot decides: an
+//! operation slot reads letters as an operation, a revision slot reads them
+//! as a change id, and each redirects the other's kind by name.
 
 use crate::error::{Error, Result};
 use crate::snapid;

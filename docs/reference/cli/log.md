@@ -2,7 +2,7 @@
 
 The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears its change id — the identity it keeps through rewrites, the letters column [`ff evolog`](evolog.md) drills into. The @ row wears the id its commit will carry, so the letters do not move at the close.
 
-Every commit has one. A commit fufu closed carries its id as a `change-id` header, jj's own, and a reword, restack, or absorb keeps it; a commit made by git or cloned from elsewhere derives one from its sha, the same on every read and in every clone. The bold prefix is the shortest one unique on the page.
+Every commit has one. A commit fufu closed carries its id as a `change-id` header, jj's own, and a reword, restack, or absorb keeps it; a commit made by git or cloned from elsewhere derives one from its sha, the same on every read and in every clone. The bold prefix is the shortest one unique on the page, and any prefix unique in the repository names the commit wherever a revision goes: `ff log -r <change id>`, [`ff show`](show.md), [`ff describe <rev>`](describe.md). A change that stands on two visible commits — a rewrite beside a ref still holding the old copy — is refused by name rather than guessed.
 
 --commits drops to plain history, no change ids. The operation log itself is [`ff op log`](op-log.md): every mutation fufu has made, newest first, carrying the ids the [`ff op`](op.md) verbs take.
 

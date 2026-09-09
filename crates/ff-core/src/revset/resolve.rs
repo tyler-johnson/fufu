@@ -16,12 +16,21 @@
 //! first would have deleted half of gitrevisions on its way to a cleaner
 //! intermediate value.
 //!
-//! Ambiguity is refused here, never ranked. `<name>` is looked up as a ref
-//! and as an object prefix unconditionally, with neither winning, because the
-//! silent precedence this replaces — branch first, then rev-parse — resolved
-//! a name to a branch even when a commit of the same spelling existed, and
-//! said nothing.
+//! Ambiguity is refused here, never ranked. `<name>` is looked up as a ref,
+//! as an object prefix, as a change id prefix, and as the open change's id
+//! unconditionally, with none winning, because the silent precedence this
+//! replaces — branch first, then rev-parse — resolved a name to a branch
+//! even when a commit of the same spelling existed, and said nothing.
+//!
+//! A change id shares the letters alphabet with an operation id, and the
+//! slot decides: here, letters are a change id, and an operation id typed
+//! here is redirected to the verbs that read one. A change id that stands on
+//! more than one visible commit — a rewrite beside a ref still holding the
+//! copy it rewrote — is divergent, and refused by name rather than drawn.
 
+use std::collections::HashMap;
+
+use crate::changeid::{self, ChangeId};
 use crate::error::{Error, Result};
 use crate::model::HeadState;
 use crate::ops;
@@ -37,6 +46,17 @@ const MIN_HEX_LEN: usize = gix::hash::Prefix::MIN_HEX_LEN;
 /// in would answer `~main` with fufu's own commits.
 const VISIBLE_PREFIXES: [&str; 3] = ["refs/heads/", "refs/tags/", "refs/remotes/"];
 
+/// The namespaces a change id is looked for in first: what is local. The
+/// remotes join only when nothing local answers, so an unpushed rewrite is
+/// not divergent against its own pre-rewrite copy on the remote.
+const LOCAL_PREFIXES: [&str; 2] = ["refs/heads/", "refs/tags/"];
+const REMOTE_PREFIXES: [&str; 1] = ["refs/remotes/"];
+
+/// How many commits a change-id lookup reads before it stops. There is no
+/// index over change ids; the walk is newest-first from every visible tip,
+/// and a prefix deeper than this is one to spell as a sha.
+pub const CHANGE_SCAN_CAP: usize = 10_000;
+
 /// One resolved revision leaf, plus the name the resolver actually used.
 pub struct Leaf {
     pub rev: Rev,
@@ -51,6 +71,14 @@ pub struct Leaf {
     /// A superset of `name` — a tracking ref earns this and never earns that
     /// — for the callers that want the ref rather than the local branch.
     pub full_ref: Option<String>,
+}
+
+/// What a base canonicalized to: one of the three shapes gix may see, or the
+/// open change, which gix never sees at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Canonical {
+    Base(Base),
+    Open,
 }
 
 /// The canonical base — the only three shapes gix is ever shown.
@@ -106,7 +134,19 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
     let canonical = if verbatim {
         None
     } else {
-        Some(canonicalize(repo, base)?)
+        match canonicalize(repo, base)? {
+            Canonical::Base(base) => Some(base),
+            // A prefix of the open change's id is `@`, and takes what `@`
+            // takes: no suffixes.
+            Canonical::Open if suffix.is_empty() => {
+                return Ok(Leaf {
+                    rev: Rev::Open,
+                    name: None,
+                    full_ref: None,
+                });
+            }
+            Canonical::Open => return Err(open_suffix(suffix)),
+        }
     };
     let spec = match &canonical {
         Some(base) => base.spec(suffix),
@@ -224,36 +264,156 @@ fn skip_braces(b: &[u8], mut i: usize) -> usize {
     i
 }
 
-/// Turn a base into one of the three shapes gix may see, refusing anything
-/// that two address spaces could both claim.
-fn canonicalize(repo: &gix::Repository, base: &str) -> Result<Base> {
+/// Turn a base into one of the shapes gix may see, or the open change,
+/// refusing anything that two readings could both claim.
+fn canonicalize(repo: &gix::Repository, base: &str) -> Result<Canonical> {
     if base == "HEAD" {
-        return Ok(Base::Head);
+        return Ok(Canonical::Base(Base::Head));
     }
     if base == "trunk" {
-        return canonical_trunk(repo);
+        return canonical_trunk(repo).map(Canonical::Base);
     }
 
-    // Both lookups, unconditionally, with neither winning.
+    // Every lookup, unconditionally, with none winning.
     let as_ref = ref_candidate(repo, base)?;
     let as_object = object_candidate(repo, base)?;
-    match (as_ref, as_object) {
-        (Some(full), Some(id)) => Err(ambiguous(base, &full, id)),
-        (Some(full), None) => Ok(Base::Ref(full)),
-        (None, Some(id)) => Ok(Base::Sha(id.to_string())),
-        (None, None) => {
-            // Nothing in revision space answers to it. Before saying so,
-            // check the other address space — an operation id typed here is a
-            // reader who has the right id and the wrong verb, and telling
-            // them that is worth more than telling them nothing exists. The
-            // check is second rather than first so a branch really named in
-            // the letters alphabet keeps its own meaning.
-            if let Some(op) = op_named(repo, base)? {
-                return Err(op_in_rev_position(&op));
-            }
-            Err(unknown_revision(base))
+    let as_change = change_named(repo, base)?;
+    let as_open = open_named(repo, base)?;
+
+    // One reading per kind that answered, spelled the way its exit takes
+    // it, so the refusal can name every one.
+    let mut readings: Vec<(String, String)> = Vec::new();
+    if let Some(full) = &as_ref {
+        readings.push((format!("the ref {full}"), format!("ff log -r {full}")));
+    }
+    if let Some(id) = &as_object {
+        readings.push((format!("the object {id}"), format!("ff log -r {id}")));
+    }
+    if let Some((id, _)) = as_change.first() {
+        let what = if as_change.iter().all(|(other, _)| other == id) {
+            format!("the change {id}")
+        } else {
+            "a prefix of more than one change".to_string()
+        };
+        readings.push((what, format!("ff log -r {id}")));
+    }
+    if as_open {
+        readings.push(("the open change".to_string(), "ff log -r @".to_string()));
+    }
+    if readings.len() > 1 {
+        return Err(ambiguous(base, &readings));
+    }
+
+    if let Some(full) = as_ref {
+        return Ok(Canonical::Base(Base::Ref(full)));
+    }
+    if let Some(id) = as_object {
+        return Ok(Canonical::Base(Base::Sha(id.to_string())));
+    }
+    if as_open {
+        return Ok(Canonical::Open);
+    }
+    if let Some((id, _)) = as_change.first() {
+        if as_change.iter().any(|(other, _)| other != id) {
+            return Err(ambiguous_change(base));
+        }
+        let commits: Vec<gix::ObjectId> = as_change.iter().map(|(_, sha)| *sha).collect();
+        return match commits.as_slice() {
+            [one] => Ok(Canonical::Base(Base::Sha(one.to_string()))),
+            many => Err(divergent(repo, base, id, many)),
+        };
+    }
+
+    // Nothing in revision space answers to it. Before saying so, check the
+    // other address space — an operation id typed here is a reader who has
+    // the right id and the wrong verb, and telling them that is worth more
+    // than telling them nothing exists. The check is last rather than first
+    // so a branch or a change really named in the letters alphabet keeps its
+    // own meaning.
+    if let Some(op) = op_named(repo, base)? {
+        return Err(op_in_rev_position(&op));
+    }
+    Err(unknown_revision(base))
+}
+
+/// Every visible commit whose change id the base is a prefix of, paired with
+/// that id, newest first. Two tiers: what is local — HEAD, the branches, the
+/// tags — and, only when that answers nothing, the remotes too. Each commit
+/// is read once, and the walk stops at `CHANGE_SCAN_CAP`.
+fn change_named(repo: &gix::Repository, base: &str) -> Result<Vec<(ChangeId, gix::ObjectId)>> {
+    if base.len() < MIN_HEX_LEN
+        || base.len() > changeid::LETTERS
+        || crate::snapid::decode(base).is_none()
+    {
+        return Ok(Vec::new());
+    }
+    let mut seen: HashMap<gix::ObjectId, ()> = HashMap::new();
+    let local = tips_under(repo, &LOCAL_PREFIXES, true)?;
+    let mut hits = scan_for_change(repo, base, local, &mut seen)?;
+    if hits.is_empty() {
+        let remote = tips_under(repo, &REMOTE_PREFIXES, false)?;
+        hits = scan_for_change(repo, base, remote, &mut seen)?;
+    }
+    Ok(hits)
+}
+
+/// One tier of the change-id walk. `seen` carries across tiers, so a commit
+/// the local tier already read is not read again from a remote tip.
+fn scan_for_change(
+    repo: &gix::Repository,
+    base: &str,
+    tips: Vec<gix::ObjectId>,
+    seen: &mut HashMap<gix::ObjectId, ()>,
+) -> Result<Vec<(ChangeId, gix::ObjectId)>> {
+    use gix::revision::walk::Sorting;
+    use gix::traverse::commit::simple::CommitTimeOrder;
+    let mut hits = Vec::new();
+    if tips.is_empty() {
+        return Ok(hits);
+    }
+    let walk = repo
+        .rev_walk(tips)
+        .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
+        .all()
+        .map_err(Error::repo)?;
+    for info in walk {
+        if seen.len() >= CHANGE_SCAN_CAP {
+            break;
+        }
+        // A damaged commit ends the walk rather than failing the lookup:
+        // what was read is still an answer.
+        let Ok(info) = info else { break };
+        if seen.insert(info.id, ()).is_some() {
+            continue;
+        }
+        let Ok(commit) = repo.find_commit(info.id) else {
+            continue;
+        };
+        let id = changeid::of_commit(&commit.data, &info.id);
+        if id.has_prefix(base) {
+            hits.push((id, info.id));
         }
     }
+    Ok(hits)
+}
+
+/// Whether the base is a prefix of the open change's own id — the id on the
+/// current branch's metadata, which no commit carries yet. Inside a session
+/// the open change wears the amended commit's id, and the walk finds that.
+fn open_named(repo: &gix::Repository, base: &str) -> Result<bool> {
+    if base.len() < MIN_HEX_LEN || crate::snapid::decode(base).is_none() {
+        return Ok(false);
+    }
+    let branch = match crate::head::head_state(repo)? {
+        HeadState::Detached { .. } => return Ok(false),
+        head => crate::snapshot::chain::chain_name(&head),
+    };
+    let meta = crate::branchmeta::read(repo, &branch)?;
+    Ok(meta
+        .change_id
+        .as_deref()
+        .and_then(ChangeId::parse)
+        .is_some_and(|id| id.has_prefix(base)))
 }
 
 /// `trunk` is a revision, resolved through fufu's own ladder. A literal ref
@@ -343,6 +503,15 @@ fn peeled(repo: &gix::Repository, full: &str) -> Result<Option<gix::ObjectId>> {
 /// plus whatever HEAD is on. This is the universe a complement is taken
 /// against and the ceiling an open-ended forward walk stops at.
 pub fn universe_tips(repo: &gix::Repository) -> Result<Vec<gix::ObjectId>> {
+    tips_under(repo, &VISIBLE_PREFIXES, true)
+}
+
+/// The commits at the tips of the given namespaces, plus HEAD's when asked.
+fn tips_under(
+    repo: &gix::Repository,
+    prefixes: &[&str],
+    with_head: bool,
+) -> Result<Vec<gix::ObjectId>> {
     let mut out: Vec<gix::ObjectId> = Vec::new();
     let platform = repo.references().map_err(Error::repo)?;
     for reference in platform.all().map_err(Error::repo)? {
@@ -352,7 +521,7 @@ pub fn universe_tips(repo: &gix::Repository) -> Result<Vec<gix::ObjectId>> {
             continue;
         };
         let name = reference.name().as_bstr().to_string();
-        if !VISIBLE_PREFIXES.iter().any(|p| name.starts_with(p)) {
+        if !prefixes.iter().any(|p| name.starts_with(p)) {
             continue;
         }
         let Ok(id) = reference.peel_to_id_in_place() else {
@@ -363,7 +532,8 @@ pub fn universe_tips(repo: &gix::Repository) -> Result<Vec<gix::ObjectId>> {
             out.push(id);
         }
     }
-    if let Some(id) = open_commit(repo)?
+    if with_head
+        && let Some(id) = open_commit(repo)?
         && !out.contains(&id)
     {
         out.push(id);
@@ -425,11 +595,64 @@ fn range_shorthand(base: &str, shorthand: &'static str) -> Error {
     )
 }
 
-fn ambiguous(base: &str, full_ref: &str, id: gix::ObjectId) -> Error {
+/// More than one kind of thing answered to the base. Every reading is named,
+/// with the spelling that means only it.
+fn ambiguous(base: &str, readings: &[(String, String)]) -> Error {
+    let names: Vec<&str> = readings.iter().map(|(what, _)| what.as_str()).collect();
+    let listed = match names.as_slice() {
+        [a, b] => format!("both {a} and {b}"),
+        many => {
+            let (last, rest) = many.split_last().expect("at least two readings");
+            format!("{}, and {last}", rest.join(", "))
+        }
+    };
     Error::coded(
         "usage/revset-ambiguous",
-        format!("`{base}` is both the ref {full_ref} and the object {id}; fufu will not pick one"),
-        vec![format!("ff log -r {full_ref}"), format!("ff log -r {id}")],
+        format!("`{base}` is {listed}; fufu will not pick one"),
+        readings.iter().map(|(_, exit)| exit.clone()).collect(),
+    )
+}
+
+fn ambiguous_change(base: &str) -> Error {
+    Error::coded(
+        "usage/revset-ambiguous",
+        format!("`{base}` is a prefix of more than one change; spell more of it"),
+        vec!["ff log".into()],
+    )
+}
+
+/// One change id on more than one visible commit. jj draws this as `??` and
+/// refuses the bare prefix; fufu refuses it by name, since the column is
+/// drawn without the walk that would find the twin.
+fn divergent(
+    repo: &gix::Repository,
+    base: &str,
+    id: &ChangeId,
+    commits: &[gix::ObjectId],
+) -> Error {
+    let named: Vec<String> = commits
+        .iter()
+        .map(|sha| {
+            let subject = repo
+                .find_commit(*sha)
+                .ok()
+                .and_then(|c| c.message().ok().map(|m| m.summary().to_string()))
+                .unwrap_or_default();
+            format!("{} \"{subject}\"", crate::sha::short_oid(*sha))
+        })
+        .collect();
+    Error::coded(
+        "usage/revset-divergent",
+        format!(
+            "`{base}` is the change {id}, and that change stands on {} visible commits: {}; \
+             name the commit instead",
+            commits.len(),
+            named.join(", ")
+        ),
+        commits
+            .iter()
+            .map(|sha| format!("ff show {}", crate::sha::short_oid(*sha)))
+            .collect(),
     )
 }
 
@@ -481,7 +704,8 @@ fn op_in_rev_position(token: &str) -> Error {
         "usage/op-in-rev-position",
         format!(
             "`{token}` is an operation, and this position takes revisions. Operations are their \
-             own address space: they are what `--at-op` and `ff op show` read"
+             own address space, spelled in the letters a change id shares: they are what \
+             `--at-op` and `ff op show` read"
         ),
         vec![
             format!("ff op show {token}"),

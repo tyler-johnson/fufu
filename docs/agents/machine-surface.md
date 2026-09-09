@@ -40,7 +40,7 @@ A change that breaks an existing field is what bumps the `ff` number, which is w
 
 The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
-Timestamps are unix seconds, always named `time`. Commit ids are hex. Change ids and operation ids are both spelled in the letters k–z, never hex: a `change_id` is a commit's identity across rewrites, the letters column the human views print, and an operation id is an entry on the operation log — see [Snapshots and undo](../concepts/snapshots-and-undo.md) for the address spaces.
+Timestamps are unix seconds, always named `time`. Commit ids are hex. Change ids and operation ids are both spelled in the letters k–z, never hex: a `change_id` is a commit's identity across rewrites, the letters column the human views print, and an operation id is an entry on the operation log. The slot decides which a letters token means — a revision slot reads a change id or a sha, an operation slot an operation id — see [Snapshots and undo](../concepts/snapshots-and-undo.md).
 
 ## `ff status --json`
 
@@ -380,7 +380,7 @@ $ ff op show ksrn --json | jq .
 
 From there the rest of the family acts on the same ids. [`ff op restore <id>`](../reference/cli/op-restore.md) rewinds the whole repository to one, [`ff op diff`](../reference/cli/op-diff.md) compares two, and `--at-op <id>` on the verbs that take it reads a path as it stood at one.
 
-`--at-op` is also the only place an operation id is legal outside the `ff op` family. Operations and revisions are separate address spaces, and passing one where the other belongs is a refused error rather than a convenience.
+`--at-op` is also the only place an operation id is legal outside the `ff op` family. Operations and revisions are separate address spaces, and passing one where the other belongs is a refused error rather than a convenience: `usage/op-in-rev-position` one way, `usage/rev-in-op-position` the other. A change id, which shares the alphabet, is a revision: any prefix of one that is unique in the repository names its commit in a revision slot, a prefix of the open change's id is `@`, and a change standing on more than one visible commit is refused as `usage/revset-divergent`, naming each.
 
 ### Sessions: tagging work, and asking about it
 

@@ -197,17 +197,21 @@ fn leaf(repo: &gix::Repository, token: &str) -> Result<OpId> {
         // the other space — a branch name typed here is a reader with the
         // right name and the wrong verb, and the mirror of that refusal
         // already exists for an op id typed among revisions.
-        Err(err) if err.id() == "op/not-found" && names_a_revision(repo, token) => {
-            Err(rev_in_op_position(token))
-        }
+        Err(err) if err.id() == "op/not-found" => match names_a_revision(repo, token) {
+            Some(named_branch) => Err(rev_in_op_position(token, named_branch)),
+            None => Err(err),
+        },
         Err(err) => Err(err),
     }
 }
 
-/// Whether a token denotes something in revision space. Best effort and
-/// quiet: it only decides which of two refusals to raise.
-fn names_a_revision(repo: &gix::Repository, token: &str) -> bool {
-    super::resolve::leaf(repo, token).is_ok()
+/// Whether a token denotes something in revision space, and if so whether
+/// it is a branch name. Best effort and quiet: it only decides which of two
+/// refusals to raise, and how to word the second.
+fn names_a_revision(repo: &gix::Repository, token: &str) -> Option<bool> {
+    super::resolve::leaf(repo, token)
+        .ok()
+        .map(|leaf| leaf.name.is_some())
 }
 
 fn member(repo: &gix::Repository, id: OpId) -> Result<OpMember> {
@@ -486,20 +490,31 @@ impl Iterator for Merge<'_> {
 
 // ── refusals ──────────────────────────────────────────────────────────────
 
-/// The mirror of `usage/op-in-rev-position`, and it usually turns up on a
-/// branch name: one log spans every branch, so narrowing to one is a
-/// predicate rather than a name you can write on its own.
-fn rev_in_op_position(token: &str) -> Error {
+/// The mirror of `usage/op-in-rev-position`. On a branch name, one log spans
+/// every branch, so narrowing to one is a predicate rather than a name you
+/// can write on its own; on a change id, the letters were read in the wrong
+/// slot, and the verbs that read a revision are the exits.
+fn rev_in_op_position(token: &str, named_branch: bool) -> Error {
+    if named_branch {
+        return Error::coded(
+            "usage/rev-in-op-position",
+            format!(
+                "`{token}` names a revision, and this position takes operations. One log spans \
+                 every branch, so narrowing to one is `on_branch()` rather than the branch's name"
+            ),
+            vec![
+                format!("ff op log 'on_branch({token})'"),
+                format!("ff log -r {token}"),
+            ],
+        );
+    }
     Error::coded(
         "usage/rev-in-op-position",
         format!(
-            "`{token}` names a revision, and this position takes operations. One log spans \
-             every branch, so narrowing to one is `on_branch()` rather than the branch's name"
+            "`{token}` names a revision, and this position takes operations. Change ids and \
+             operation ids share the letters; the slot decides, and this one reads operations"
         ),
-        vec![
-            format!("ff op log 'on_branch({token})'"),
-            format!("ff log -r {token}"),
-        ],
+        vec![format!("ff log -r {token}"), "ff op log".into()],
     )
 }
 

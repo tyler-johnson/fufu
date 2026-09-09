@@ -453,13 +453,28 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/revset-ambiguous",
-        summary: "that name is both a ref and an object, and fufu will not pick one",
-        detail: "Both lookups run for every name, and neither wins by precedence. Tools that rank \
-                 them resolve a name to a branch even when a commit of the same spelling exists, \
-                 and say nothing about the one they dropped — which is the failure this refusal \
-                 exists to prevent. Spell the full ref path or the full sha; the error names both \
-                 candidates so you can pick.",
+        summary: "that name reads more than one way, and fufu will not pick one",
+        detail: "Every lookup runs for every name — a ref, an object prefix, a change id prefix, \
+                 the open change's id — and none wins by precedence. Tools that rank them resolve \
+                 a name to a branch even when a commit of the same spelling exists, and say \
+                 nothing about the one they dropped — which is the failure this refusal exists \
+                 to prevent. Spell the full ref path, the full sha, or more of the change id; the \
+                 error names every reading so you can pick. A prefix that is unique on the page \
+                 `ff log` printed can still be a prefix of two changes in the repository, and \
+                 that is this refusal too.",
         exits: &["ff log -r refs/heads/<name>", "ff log -r <full-sha>"],
+    },
+    Entry {
+        id: "usage/revset-divergent",
+        summary: "that change stands on more than one visible commit",
+        detail: "A change id is the identity a commit keeps through rewrites, so a rewrite beside \
+                 a ref that still holds the copy it rewrote — a branch or tag someone pointed at \
+                 the old commit, an `ff op restore` beside a later rewrite, a cherry-pick fufu \
+                 made — leaves one id on two visible commits. jj marks that id divergent and \
+                 refuses the bare prefix; fufu refuses it by name. The error lists every commit \
+                 the change stands on. Name the one you mean by its sha, or move the ref that \
+                 holds the stale copy.",
+        exits: &["ff show <sha>", "ff log"],
     },
     Entry {
         id: "usage/revset-unknown-revision",
@@ -483,11 +498,11 @@ pub static ENTRIES: &[Entry] = &[
         id: "usage/op-in-rev-position",
         summary: "that is an operation, and this position takes a revision",
         detail: "History has revisions; the log of what fufu did has operations. They never mix in \
-                 one argument, which is what lets hex mean commit everywhere and letters mean \
-                 operation everywhere with no rule to remember. An operation id typed here is \
-                 usually the right id and the wrong verb: `ff op show` reads one, `--at-op` runs \
-                 a read-only command as of one, and `ff op log` takes whole expressions over \
-                 them.",
+                 one argument. Change ids and operation ids share the letters alphabet, so the \
+                 slot decides what letters mean: a revision slot reads a change id, an operation \
+                 slot reads an operation id. An operation id typed here is usually the right id \
+                 and the wrong verb: `ff op show` reads one, `--at-op` runs a read-only command \
+                 as of one, and `ff op log` takes whole expressions over them.",
         exits: &["ff op show <op>", "ff op log '<expr>'"],
     },
     Entry {
@@ -498,7 +513,9 @@ pub static ENTRIES: &[Entry] = &[
                  here at all, but every parent past the first leaves the log: slot 2 is the commit \
                  the operation ran on, and the rest are the shas it pinned. It also turns up on a \
                  branch name inside an ff op log expression, where one log spans every branch, \
-                 so narrowing to one is the on_branch() predicate rather than a name. Either way the crossing \
+                 so narrowing to one is the on_branch() predicate rather than a name, and on a \
+                 change id, which shares the letters alphabet and is read in revision slots \
+                 only. Either way the crossing \
                  back to history is spelled base(), so that it is something you asked for rather \
                  than something a suffix did quietly.",
         exits: &[
