@@ -555,3 +555,133 @@ fn switch_to_a_change_id_redirects_to_start() {
         "on an anonymous branch"
     );
 }
+
+// --- ff evolog <rev> ---
+
+/// `ff evolog <rev>` is the change's history across chains: the close on
+/// this worktree's chain, and a reword made from another worktree's, each
+/// with the commit it produced, then the captures behind the close.
+#[test]
+fn evolog_of_a_change_lists_its_operations_across_chains() {
+    let fx = repo();
+    let (closed_sha, id) = closed(&fx);
+
+    let bay = fx.root().join("bay");
+    fx.git(&["worktree", "add", "-q", "-b", "side", bay.to_str().unwrap()]);
+    let out = ff_at(
+        &bay,
+        &["describe", &closed_sha, "-m", "reworded in the bay"],
+    );
+    assert!(out.status.success(), "{}", self::out(&out));
+    let reworded = fx.git_in(&bay, &["rev-parse", "HEAD"]).trim().to_string();
+    assert_ne!(reworded, closed_sha);
+
+    // Both copies are visible, so the id itself is divergent; the sha names
+    // the one asked about, and the history is the change's either way.
+    let v = json(&ok(ff(&fx, &["--json", "evolog", &reworded])));
+    let data = &v["data"];
+    assert_eq!(data["change_id"], id, "{v}");
+    assert_eq!(data["commit"], reworded, "{v}");
+    let ops = data["operations"].as_array().expect("operations");
+    let verbs: Vec<&str> = ops.iter().map(|op| op["verb"].as_str().unwrap()).collect();
+    assert_eq!(verbs, ["describe", "commit"], "newest first: {v}");
+    assert_eq!(
+        ops[0]["commit"], reworded,
+        "the reword produced the new copy"
+    );
+    assert_eq!(
+        ops[1]["commit"], closed_sha,
+        "the close produced the old one"
+    );
+    assert_ne!(
+        ops[0]["chain"], ops[1]["chain"],
+        "the reword is on the bay's chain: {v}"
+    );
+    for op in ops {
+        assert_eq!(op["id"].as_str().unwrap().len(), 40, "{op}");
+        assert!(op["short_id"].as_str().unwrap().len() >= 4, "{op}");
+        assert!(op.get("session").is_some(), "{op}");
+    }
+    let snaps = data["snapshots"].as_array().expect("snapshots");
+    assert!(
+        snaps
+            .iter()
+            .any(|s| s["subject"].as_str().unwrap().starts_with("pre: ff commit")),
+        "the close's own capture is behind it: {v}"
+    );
+
+    // The human view: operation rows, a divider, capture rows.
+    let text = stdout(&ok(ff(&fx, &["evolog", &reworded])));
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(
+        lines[0].contains("describe") && lines[0].contains(&reworded[..8]),
+        "{text}"
+    );
+    assert!(
+        lines[1].contains("commit") && lines[1].contains(&closed_sha[..8]),
+        "{text}"
+    );
+    assert_eq!(lines[2], "captures", "{text}");
+    assert!(lines.len() > 3, "capture rows follow: {text}");
+}
+
+/// A commit fufu did not close has no header and no operations: the
+/// fallback is the captures on this chain that match it.
+#[test]
+fn evolog_of_a_headerless_commit_falls_back_to_its_captures() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("root");
+    fx.write("a.txt", "b\n");
+    ok(ff(&fx, &[]));
+    fx.git(&["add", "-A"]);
+    fx.git(&["commit", "-q", "-m", "made by git"]);
+    let sha = head(&fx);
+
+    let v = json(&ok(ff(&fx, &["--json", "evolog", &sha])));
+    let data = &v["data"];
+    assert_eq!(data["operations"].as_array().unwrap().len(), 0, "{v}");
+    let snaps = data["snapshots"].as_array().unwrap();
+    assert!(!snaps.is_empty(), "the capture matching the commit: {v}");
+    assert_eq!(data["change_id"], id_of(&fx, &sha));
+
+    let text = stdout(&ok(ff(&fx, &["evolog", &sha])));
+    assert!(
+        !text.contains("captures"),
+        "no divider without operations: {text}"
+    );
+    assert!(text.lines().count() >= 1, "{text}");
+
+    // -p still prints the capture's patch.
+    let text = stdout(&ok(ff(&fx, &["evolog", "-p", &sha])));
+    assert!(text.contains("diff --git"), "{text}");
+
+    // A commit nothing captured has nothing to show, and says so.
+    let text = stdout(&ok(ff(&fx, &["evolog", "HEAD^"])));
+    assert!(text.starts_with("no operations recorded for "), "{text}");
+}
+
+/// `ff evolog @` is bare `ff evolog`, and both carry the open change's id.
+#[test]
+fn evolog_of_the_open_change_is_the_bare_form() {
+    let fx = repo();
+    closed(&fx);
+    fx.write("a.txt", "c\n");
+    ok(ff(&fx, &[]));
+
+    let bare = stdout(&ok(ff(&fx, &["evolog"])));
+    let at = stdout(&ok(ff(&fx, &["evolog", "@"])));
+    assert_eq!(bare, at);
+    assert!(!bare.contains("captures"), "{bare}");
+
+    let v = json(&ok(ff(&fx, &["--json", "evolog"])));
+    assert_eq!(
+        v["data"]["change_id"],
+        open_id_on_disk(&fx, "main").unwrap(),
+        "{v}"
+    );
+    assert!(v["data"].get("operations").is_none(), "{v}");
+    let open = open_id_on_disk(&fx, "main").unwrap();
+    let by_prefix = stdout(&ok(ff(&fx, &["evolog", &open[..8]])));
+    assert_eq!(by_prefix, bare, "a prefix of the open id is @");
+}

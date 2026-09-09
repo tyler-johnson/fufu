@@ -93,6 +93,14 @@ impl fmt::Display for ChangeId {
 /// A malformed header is not an error, because a raw object is not fufu's to
 /// refuse; it reads as no header at all.
 pub fn of_commit(raw: &[u8], sha: &gix::oid) -> ChangeId {
+    header_of(raw).unwrap_or_else(|| ChangeId::derive(sha))
+}
+
+/// The commit's `change-id` header, when it carries a well-formed one. The
+/// distinction `of_commit` erases: a commit with a header was closed or
+/// rewritten by fufu or jj, and the operation log has its history; one
+/// without gets a derived id and has none.
+pub fn header_of(raw: &[u8]) -> Option<ChangeId> {
     gix::objs::CommitRef::from_bytes(raw)
         .ok()
         .and_then(|commit| {
@@ -102,7 +110,6 @@ pub fn of_commit(raw: &[u8], sha: &gix::oid) -> ChangeId {
                 .and_then(|value| std::str::from_utf8(value).ok())
                 .and_then(|value| ChangeId::parse(value.trim()))
         })
-        .unwrap_or_else(|| ChangeId::derive(sha))
 }
 
 /// The header pair a commit object carries: `("change-id", letters)`.

@@ -64,7 +64,7 @@ pub use changestat::{DiffOptions, change_diff, change_stat, tree_diff, tree_diff
 pub use close::{CloseOptions, close};
 pub use collide::{Collision, Pairing, Side, collide};
 pub use error::{Error, Result, exit_code_for};
-pub use evolog::{EvologOptions, evolog, open_change, ref_ids, segment_anchors};
+pub use evolog::{EvologOptions, evolog, evolog_of, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
 pub use history::{Step, history};
 pub use hooks::Verify;

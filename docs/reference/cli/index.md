@@ -24,7 +24,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff map`](map.md) — The map bare `ff` draws: the local branches as a skeleton
 - [`ff log`](log.md) — Show the timeline: commits wearing the operations that built them
 - [`ff show`](show.md) — Show one commit: what it was, and what it did
-- [`ff evolog`](evolog.md) — Show the open change's operations, newest first (the evolution log)
+- [`ff evolog`](evolog.md) — Show a change's operations, newest first (the evolution log)
 - [`ff history`](history.md) — Where you can go back to: one row per `ff undo` step, with redo above
 - [`ff collide`](collide.md) — Would two branches hit each other if both landed
 

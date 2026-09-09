@@ -116,7 +116,7 @@ $ ff log -n 5
 │  docs: install.md shows ff version for v0.13.0
 ```
 
-The two commits fufu made wear the ids their open changes wore: the letters on the `@` row before each close are the letters on its `●` row after it. [`ff evolog`](reference/cli/evolog.md) is the open change's own history of captures, and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
+The two commits fufu made wear the ids their open changes wore: the letters on the `@` row before each close are the letters on its `●` row after it. [`ff evolog <rev>`](reference/cli/evolog.md) drills into a commit's history through that column — the close, every later rewrite, and the captures behind it — and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
 
 ## Switch without stashing
 

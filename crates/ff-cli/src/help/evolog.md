@@ -1,15 +1,21 @@
-Every operation on the change you have open, newest first — the drill-in behind the letters column in `ff log`. This is where a lost hour is found: each row is a whole worktree, and `ff restore --at-op <id>` brings any of them back. `ff ev` is the short spelling.
+Every operation on a change, newest first — the drill-in behind the letters column in `ff log`. Bare, or on `@`, it is the open change: each row is a capture, a whole worktree, and `ff restore --at-op <id>` brings any of them back. This is where a lost hour is found. `ff ev` is the short spelling.
 
 Because fufu captures before it works, the newest row is often this command's own capture, taken a moment ago when it found the tree dirty. That is intended.
 
-Ids are spelled in the letters k–z, never hex digits, so an operation id can never be misread as a commit sha. The bold prefix is the shortest one `ff op` and `--at-op` resolve unambiguously.
+On a revision — a change id, a prefix of one, a sha — it is that change's history: every operation, on every worktree's chain, that produced a commit carrying its id — the close, a reword, a restack, an absorb, a pull's replay — with the commit each produced, and under a `captures` divider the captures behind the close: the work the commit closed. A commit fufu did not close has no header and no operations; it gets the captures on this chain that match it, when any do.
 
--p prints each row's patch under it — what that one operation changed, measured against the capture before it on this branch.
+The thread is the `change-id` header. A rebase or cherry-pick run outside fufu drops it, so a commit rewritten behind fufu's back comes back with a derived id and its history starts over there; jj has the same limitation.
+
+Ids are spelled in the letters k–z; the bold prefix on a capture row is the shortest one `ff op` and `--at-op` resolve unambiguously, and on an operation row the same.
+
+-p prints each capture row's patch under it — what that one capture changed, measured against the capture before it on its branch. Operation rows name what they produced and print nothing under it.
 
 ## Examples
 
 ```
-ff evolog                      the open change's operations
+ff evolog                      the open change's captures
+ff evolog nyrszqtk             a change's operations, by the id ff log prints
+ff evolog HEAD~2               the same, by revision
 ff evolog -n 0                 all of them
 ff evolog -p                   each row with what it changed, in full
 ff restore src/ --at-op <id>   pull a directory back from one

@@ -181,6 +181,42 @@ pub struct SnapEntry {
     pub prev: Option<String>,
 }
 
+/// One operation that produced a commit of a change, as `ff evolog <rev>`
+/// lists them: a close, a reword, a restack, an absorb, a pull's replay, on
+/// whichever worktree's chain ran it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChangeOp {
+    /// The operation id, in letters.
+    pub id: String,
+    pub short_id: String,
+    /// The worktree chain the operation is on.
+    pub chain: String,
+    pub verb: String,
+    pub summary: String,
+    /// Committer time, seconds since the unix epoch.
+    pub time: i64,
+    /// The commit of the change this operation produced, hex.
+    pub commit: String,
+    /// The tag the operation wears, if any.
+    pub session: Option<String>,
+}
+
+/// A change's history: every operation on any chain that produced a commit
+/// carrying its id, and the captures of the segment its close came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChangeHistory {
+    /// The change id, in letters.
+    pub change_id: String,
+    /// The commit the history was asked about, hex.
+    pub commit: String,
+    /// Newest first, across chains. Empty for a commit without a header.
+    pub operations: Vec<ChangeOp>,
+    /// The captures behind the change: the close's segment on its chain,
+    /// or, for a commit without a header, the segment on the current chain
+    /// whose capture matches it.
+    pub snapshots: Vec<SnapEntry>,
+}
+
 /// What a restore pulled from. Restore reaches into both address spaces —
 /// a commit under `--from`, an operation under `--at-op` and `--at` — so the
 /// row says which one it was rather than leaving a reader to infer it from

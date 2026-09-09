@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use crate::error::{Error, Result};
-use crate::model::{HeadState, OpenChange, SnapEntry};
+use crate::model::{ChangeHistory, ChangeOp, HeadState, OpenChange, SnapEntry};
 use crate::ops::message::SegmentLink;
 use crate::ops::{BRANCH_PREFIX, OpLog, walk};
 use crate::snapshot::chain;
@@ -262,6 +262,197 @@ fn pending_commit_hash(
     gix::objs::compute_hash(repo.object_hash(), gix::objs::Kind::Commit, &buf)
         .ok()
         .map(|id| id.to_string())
+}
+
+/// A commit's history as a change: `ff evolog <rev>`.
+///
+/// A commit with a `change-id` header was made by fufu, and the operation
+/// log knows what happened to it: every chain — each worktree's, including
+/// chains whose worktree is gone — is read for the verb operations whose
+/// rewrites or ref moves produced a commit carrying the same id. The close
+/// (`verb == "commit"`) also contributes its segment's captures on its own
+/// chain: the captures taken while HEAD sat on the close's base, which is
+/// the work the commit closed.
+///
+/// A commit without the header has no operations to find — the id is derived
+/// from the sha, and nothing wrote it — so the fallback is the anchor walk
+/// the column used to draw: the current chain's capture matching the commit,
+/// and that segment's captures back to its boundary.
+pub fn evolog_of(
+    repo: &gix::Repository,
+    sha: gix::ObjectId,
+    limit: Option<usize>,
+) -> Result<ChangeHistory> {
+    let commit = repo.find_commit(sha).map_err(Error::repo)?;
+    let header = crate::changeid::header_of(&commit.data);
+    let id = header.unwrap_or_else(|| crate::changeid::ChangeId::derive(&sha));
+    let mut history = ChangeHistory {
+        change_id: id.letters(),
+        commit: sha.to_string(),
+        operations: Vec::new(),
+        snapshots: Vec::new(),
+    };
+
+    let Some(id) = header else {
+        history.snapshots = segment_captures(repo, sha)?;
+        return Ok(history);
+    };
+
+    // Every chain, this worktree's included even when it has no ops yet.
+    let mut chains = crate::ops::chain_ids(repo)?;
+    let me = crate::ops::chain_id(repo);
+    if !chains.contains(&me) {
+        chains.push(me);
+    }
+    // A sha is asked about once, however many operations name it: the
+    // answer is a property of the commit, not of the operation.
+    let mut carries: HashMap<String, bool> = HashMap::new();
+    let mut carries_id = |hex: &str| -> bool {
+        if let Some(&known) = carries.get(hex) {
+            return known;
+        }
+        let known = gix::ObjectId::from_hex(hex.as_bytes())
+            .ok()
+            .and_then(|oid| repo.find_commit(oid).ok())
+            .is_some_and(|c| crate::changeid::of_commit(&c.data, &c.id) == id);
+        carries.insert(hex.to_string(), known);
+        known
+    };
+    let mut close: Option<(String, walk::Operation<'_>)> = None;
+    // Each operation with the commits it rewrote, for the ordering below.
+    let mut found: Vec<(ChangeOp, Vec<String>)> = Vec::new();
+    for chain in &chains {
+        let log = OpLog::open_chain(repo, chain.clone())?;
+        for op in log.iter_verbs() {
+            // A damaged chain shows what is legible, like every other walk.
+            let Ok(op) = op else { break };
+            if op.is_capture() {
+                continue;
+            }
+            let Some(record) = op.record()? else {
+                continue;
+            };
+            let produced = record
+                .rewrites
+                .iter()
+                .map(|r| r.new.as_str())
+                .chain(record.refs.iter().filter_map(|t| t.new.as_deref()))
+                .find(|hex| carries_id(hex))
+                .map(str::to_string);
+            let Some(produced) = produced else {
+                continue;
+            };
+            let rewrote: Vec<String> = record.rewrites.iter().map(|r| r.old.clone()).collect();
+            found.push((
+                ChangeOp {
+                    id: op.id().to_string(),
+                    short_id: String::new(),
+                    chain: chain.clone(),
+                    verb: record.verb.clone(),
+                    summary: op.summary().to_string(),
+                    time: op.time(),
+                    commit: produced,
+                    session: op.session().map(str::to_string),
+                },
+                rewrote,
+            ));
+            if record.verb == "commit" && close.is_none() {
+                close = Some((chain.clone(), op));
+            }
+        }
+    }
+    // Newest first. Clocks have one-second grain and chains have no shared
+    // order, so two operations can tie; the rewrite edge settles a tie — an
+    // operation that rewrote what another produced came after it.
+    found.sort_by(|a, b| b.0.time.cmp(&a.0.time).then_with(|| a.0.id.cmp(&b.0.id)));
+    let mut settled = true;
+    while settled {
+        settled = false;
+        for i in 1..found.len() {
+            let ahead = &found[i - 1];
+            let behind = &found[i];
+            if ahead.0.time == behind.0.time && behind.1.contains(&ahead.0.commit) {
+                found.swap(i - 1, i);
+                settled = true;
+            }
+        }
+    }
+    history.operations = found.into_iter().map(|(op, _)| op).collect();
+    if let Some(n) = limit {
+        history.operations.truncate(n);
+    }
+    fill_op_short_ids(repo, &mut history.operations);
+
+    if let Some((_, close)) = close {
+        // The close's segment: the captures behind it on its own chain,
+        // walked from the operation before the close while the base holds.
+        let base = close.base().map(|b| b.object_id().to_string());
+        let mut cur = close.prev_on_branch().map(|p| p.object_id());
+        while let Some(op_id) = cur {
+            let Some(decoded) = snap_entry(repo, op_id)? else {
+                break;
+            };
+            if decoded.entry.base != base {
+                break;
+            }
+            cur = decoded.next;
+            if decoded.is_capture {
+                history.snapshots.push(decoded.entry);
+            }
+        }
+        fill_short_ids(repo, &mut history.snapshots);
+    }
+    Ok(history)
+}
+
+/// The captures of the current chain's segment matching a commit fufu did
+/// not close: the anchor the column used to draw, and every capture below
+/// it on the same base.
+fn segment_captures(repo: &gix::Repository, sha: gix::ObjectId) -> Result<Vec<SnapEntry>> {
+    let hex = sha.to_string();
+    let mut rows = Vec::new();
+    let Some(anchor) = segment_anchors(repo, std::slice::from_ref(&hex))?.remove(&hex) else {
+        return Ok(rows);
+    };
+    let anchor = gix::ObjectId::from_hex(anchor.as_bytes()).map_err(Error::repo)?;
+    let Some(first) = snap_entry(repo, anchor)? else {
+        return Ok(rows);
+    };
+    let base = first.entry.base.clone();
+    let mut cur = Some(first);
+    while let Some(decoded) = cur.take() {
+        if decoded.entry.base != base {
+            break;
+        }
+        let next = decoded.next;
+        if decoded.is_capture {
+            rows.push(decoded.entry);
+        }
+        cur = match next {
+            Some(id) => snap_entry(repo, id)?,
+            None => None,
+        };
+    }
+    fill_short_ids(repo, &mut rows);
+    Ok(rows)
+}
+
+/// `fill_short_ids` for the operation rows: the same index, the same
+/// fallback.
+fn fill_op_short_ids(repo: &gix::Repository, rows: &mut [ChangeOp]) {
+    let hex: Vec<String> = rows
+        .iter()
+        .filter_map(|row| crate::snapid::decode(&row.id))
+        .collect();
+    let lens = crate::ops::index::prefix_lens(repo, &hex).ok();
+    for row in rows {
+        let len = lens
+            .as_ref()
+            .and_then(|lens| crate::snapid::decode(&row.id).and_then(|hex| lens.get(&hex).copied()))
+            .unwrap_or(8)
+            .max(4);
+        row.short_id = row.id.chars().take(len).collect();
+    }
 }
 
 /// One decoded operation in display shape, plus the two walk edges that don't

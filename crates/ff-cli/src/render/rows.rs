@@ -113,6 +113,38 @@ pub fn op_row(op: &ff_core::OpEntry, now: i64, colored: bool) -> String {
     )
 }
 
+/// One `ff evolog <rev>` operation row: `<letters8> <sha7> <age>  <verb>
+/// <summary>` — `op_row`'s shape with the commit the operation produced
+/// where `op_row` spends the branch column, so the sha column lines up with
+/// the capture rows under it. The prefix length comes off the row, as it
+/// does for `op_row`.
+pub fn change_op_row(op: &ff_core::ChangeOp, now: i64, colored: bool) -> String {
+    let letters: String = op.id.chars().take(ID_WIDTH).collect();
+    let unique = op.short_id.chars().count();
+    let mut tail = op.summary.clone();
+    if let Some(session) = &op.session {
+        tail = format!("{tail} [{session}]");
+    }
+    format!(
+        "{} {} {}  {} {}",
+        styled_id(&letters, unique, ID_WIDTH, colored),
+        col(
+            ff_core::sha::short(&op.commit),
+            SHA_WIDTH,
+            palette().sha,
+            colored
+        ),
+        col_right(
+            &relative_age(now, op.time),
+            AGE_WIDTH,
+            palette().age,
+            colored
+        ),
+        col(&op.verb, KIND_WIDTH, DIM, colored),
+        tail
+    )
+}
+
 /// One `ff history` row: `<marker> <letters8> <age> <landing>  <summary>`.
 ///
 /// Deliberately `op_row`'s column shape with the kind and branch columns

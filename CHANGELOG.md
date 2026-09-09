@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `ff evolog <rev>` drills into a change: every operation, on every worktree's chain, that produced a commit carrying its change id — the close, a reword, a restack, an absorb, a pull's replay — with the commit each produced, then the captures behind the close. A commit without the header gets the captures on this chain that match it. `--json` carries `change_id`, `commit`, `operations`, and `snapshots`; bare `ff evolog` keeps its shape and gains `change_id`.
+
 ### Changed
 
 - The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through rewrites, in place of the op anchor: `ff commit` writes it into the commit as jj's `change-id` header, inside the signed payload; a reword, restack, absorb, or pull replay keeps it; a commit made outside fufu derives one from its sha. The `@` row wears the id its commit will carry, minted at the first capture or `ff describe`, and `ff undo` of a close puts it back. The column is never blank on a commit. JSON: `change_id` on every `ff log --json` row and its `open` block, on `ff status --json`'s `open` and `parent`, on `ff --json` map nodes, and on `ff show --json`; `open.id`/`id_letters`, `session`, and `parent.segment` keep meaning the capture op.

@@ -14,8 +14,8 @@ pub use palette::{
 };
 pub use rows::{
     ChangeRowDisplay, CommitRowDisplay, MapPayload, SigMark, branch_label_width, branch_row,
-    change_row, commit_row, history_row, log_row, map_payload, op_row, remote_branch_row,
-    remote_label_width, remote_more_row, snap_row,
+    change_op_row, change_row, commit_row, history_row, log_row, map_payload, op_row,
+    remote_branch_row, remote_label_width, remote_more_row, snap_row,
 };
 pub use status::{StatusView, reconcile_notice, status_human};
 pub(crate) use status::{cascade_lines, dropped_line, held_block, skip_reason, truncate_subject};

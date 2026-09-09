@@ -180,6 +180,61 @@ $ ff log --json -n 1 | jq .
 
 A commit's `change_id` is the identity it keeps through rewrites, the letters column the human view prints; the open block's `change_id` is the id its commit will carry. A commit's `session` names the [session tag](#sessions-tagging-work-and-asking-about-it) it was made under, when there was one — which is how a supervisor tells an agent's commits from a person's in the same history. `ff show --json` carries `change_id` too.
 
+## `ff evolog --json`
+
+A change's history as data. Bare, or on `@`, the open change's captures, newest first, with the open change's id on the envelope:
+
+```console
+$ ff evolog --json -n 1 | jq .
+{
+  "ff": 1,
+  "cmd": "evolog",
+  "data": {
+    "change_id": "qtwplrskwswwkymmtlynvxrlzvwvurzs",
+    "snapshots": [
+      {
+        "id": "38db22cc13e4fcd1cf8c28771a1d4014861cc7dc",
+        "short_id": "38db",
+        "subject": "pre: ff status",
+        "time": 1787985391,
+        "base": "64962838a9353e3a4c3e78677f1bc6348b328058",
+        "prev": null,
+        "session": null
+      }
+    ]
+  }
+}
+```
+
+On a revision, the operations that produced a commit carrying the change's id, on every worktree's chain, newest first, and the captures behind its close:
+
+```console
+$ ff evolog --json wrmoxxnn | jq .
+{
+  "ff": 1,
+  "cmd": "evolog",
+  "data": {
+    "change_id": "wrmoxxnnkqvtpsrkywlvzxynnmoslryu",
+    "commit": "64962838a9353e3a4c3e78677f1bc6348b328058",
+    "operations": [
+      {
+        "id": "ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr",
+        "short_id": "ksrn",
+        "chain": "main",
+        "verb": "commit",
+        "summary": "commit on main: parser: skeleton",
+        "time": 1787985378,
+        "commit": "64962838a9353e3a4c3e78677f1bc6348b328058",
+        "session": null
+      }
+    ],
+    "snapshots": [ ... ]
+  }
+}
+```
+
+An operation's `commit` is the commit it produced for this change, which after a reword or restack differs from the one asked about; `chain` names the worktree whose chain it is on. `-p` adds `changes`, `insertions`, and `deletions` to each snapshot, as `ff diff --json` spells them. A commit without a `change-id` header has an empty `operations` and the captures on this chain that match it.
+
 ## `ff history --json`
 
 The undo map as data: one object per keystroke of [`ff undo`](../reference/cli/undo.md), which is not the same thing as one object per operation. A run of adjacent captures collapses into the single step it undoes as, exactly as the human rendering draws it — [Snapshots and undo](../concepts/snapshots-and-undo.md) has the model.

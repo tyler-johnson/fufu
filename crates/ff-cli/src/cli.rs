@@ -181,9 +181,12 @@ pub enum Command {
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
     },
-    /// Show the open change's operations, newest first (the evolution log)
+    /// Show a change's operations, newest first (the evolution log)
     #[command(visible_alias = "ev", long_about = help::term(help::EVOLOG), after_long_help = help::term_examples(help::EVOLOG_EXAMPLES))]
     Evolog {
+        /// The change to drill into: a change id, a sha, any revision; `@` when omitted
+        #[arg(value_name = "rev")]
+        rev: Option<String>,
         /// Number of rows to show; 0 means unlimited
         #[arg(short = 'n', long = "max-count", default_value_t = 25)]
         count: usize,
