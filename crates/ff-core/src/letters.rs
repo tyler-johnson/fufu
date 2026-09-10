@@ -1,9 +1,9 @@
-//! The snapshot id spelling: jj's "reverse hex" alphabet. Hex digit value
-//! `i` maps to `ALPHABET[i]`, so `0` → `z` down to `f` → `k`. The letter
-//! range k–z is disjoint from hex digits (0–9, a–f), which makes a spelled
-//! snapshot id visually and grammatically distinct from a commit sha: a
-//! parser can accept both without ambiguity. Ids in the read model stay
-//! lowercase hex; encoding happens only at presentation and input edges.
+//! The change id alphabet: jj's "reverse hex". Hex digit value `i` maps to
+//! `ALPHABET[i]`, so `0` → `z` down to `f` → `k`. The letter range k–z is
+//! disjoint from hex digits (0–9, a–f), which is what lets a reader tell a
+//! change id from a commit or operation id at a glance: letters are a change
+//! id, and nothing else in fufu is spelled in them. Operation and commit ids
+//! are hex, and the slot decides which of those two a hex prefix means.
 
 /// Hex digit value → letter, in order: `z` for 0 through `k` for f.
 pub const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
@@ -16,7 +16,7 @@ pub const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
 pub fn encode(hex: &str) -> String {
     hex.chars()
         .map(|c| {
-            let v = c.to_digit(16).expect("snapid::encode takes hex input");
+            let v = c.to_digit(16).expect("letters::encode takes hex input");
             ALPHABET[v as usize] as char
         })
         .collect()

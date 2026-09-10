@@ -639,7 +639,7 @@ pub enum Command {
 // agent notice quotes this: `ff restore --all --at <time>`, `--at-op <id>`
 #[derive(clap::Args, Debug, Default)]
 pub struct Past {
-    /// Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+    /// Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
     #[arg(long = "at-op", value_name = "op")]
     pub at_op: Option<String>,
     /// Read as of the operation current at this time (30m/2h/3d, or a date)

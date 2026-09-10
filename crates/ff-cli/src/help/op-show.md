@@ -9,7 +9,7 @@ Every operation has a tree, which is what makes this uniform — a capture and a
 ```
 ff op show                     the newest operation
 ff op show @^                  the one before it
-ff op show kqzm                by id
+ff op show 9dfd5e5d            by id
 ff op show -p @                what it changed, with content
 ff op show --json              the same, for machines
 ```

@@ -48,17 +48,16 @@ pub struct CommitRowDisplay<'a> {
     pub signature: SigMark,
 }
 
-/// One snapshot row: `<letters8> <base7|blank> <age>  <subject>`, the
-/// letters id styled so its shortest-unique prefix is what you can type at
-/// `ff restore --at`. Shared by `ff evolog` and bare `ff` so the two never
-/// diverge.
+/// One snapshot row: `<hex12> <base8|blank> <age>  <subject>`, the id
+/// styled so its shortest-unique prefix is what you can type at `ff restore
+/// --at-op`. Shared by `ff evolog` and bare `ff` so the two never diverge.
 pub fn snap_row(
     snap: &SnapEntry,
     lens: &std::collections::HashMap<String, usize>,
     now: i64,
     colored: bool,
 ) -> String {
-    let letters = ff_core::snapid::encode(&snap.id[..snap.id.len().min(8)]);
+    let id: String = snap.id.chars().take(OP_WIDTH).collect();
     let unique = lens.get(&snap.id).copied().unwrap_or(1);
     let base = snap
         .base
@@ -67,7 +66,7 @@ pub fn snap_row(
         .unwrap_or_default();
     format!(
         "{} {} {}  {}",
-        styled_id(&letters, unique, ID_WIDTH, colored),
+        styled_id(&id, unique, OP_WIDTH, colored),
         col(base, SHA_WIDTH, palette().sha, colored),
         col_right(
             &relative_age(now, snap.time),
@@ -79,7 +78,7 @@ pub fn snap_row(
     )
 }
 
-/// One `ff op log` row: `<letters8> <age>  <kind> <branch>  <summary>`.
+/// One `ff op log` row: `<hex12> <age>  <kind> <branch>  <summary>`.
 ///
 /// The prefix length comes off the row itself rather than out of a second
 /// lookup — `read_ops_from` already priced abbreviation by the rows on
@@ -87,7 +86,7 @@ pub fn snap_row(
 /// unambiguously. Two sources for one number is how highlighting and
 /// resolution drift apart.
 pub fn op_row(op: &ff_core::OpEntry, now: i64, colored: bool) -> String {
-    let letters: String = op.id.chars().take(ID_WIDTH).collect();
+    let id: String = op.id.chars().take(OP_WIDTH).collect();
     let unique = op.short_id.chars().count();
     let mut tail = op.summary.clone();
     if let Some(session) = &op.session {
@@ -95,7 +94,7 @@ pub fn op_row(op: &ff_core::OpEntry, now: i64, colored: bool) -> String {
     }
     format!(
         "{} {}  {} {}  {}",
-        styled_id(&letters, unique, ID_WIDTH, colored),
+        styled_id(&id, unique, OP_WIDTH, colored),
         col_right(
             &relative_age(now, op.time),
             AGE_WIDTH,
@@ -113,13 +112,13 @@ pub fn op_row(op: &ff_core::OpEntry, now: i64, colored: bool) -> String {
     )
 }
 
-/// One `ff evolog <rev>` operation row: `<letters8> <sha7> <age>  <verb>
+/// One `ff evolog <rev>` operation row: `<hex12> <sha8> <age>  <verb>
 /// <summary>` — `op_row`'s shape with the commit the operation produced
 /// where `op_row` spends the branch column, so the sha column lines up with
 /// the capture rows under it. The prefix length comes off the row, as it
 /// does for `op_row`.
 pub fn change_op_row(op: &ff_core::ChangeOp, now: i64, colored: bool) -> String {
-    let letters: String = op.id.chars().take(ID_WIDTH).collect();
+    let id: String = op.id.chars().take(OP_WIDTH).collect();
     let unique = op.short_id.chars().count();
     let mut tail = op.summary.clone();
     if let Some(session) = &op.session {
@@ -127,7 +126,7 @@ pub fn change_op_row(op: &ff_core::ChangeOp, now: i64, colored: bool) -> String 
     }
     format!(
         "{} {} {}  {} {}",
-        styled_id(&letters, unique, ID_WIDTH, colored),
+        styled_id(&id, unique, OP_WIDTH, colored),
         col(
             ff_core::sha::short(&op.commit),
             SHA_WIDTH,
@@ -145,7 +144,7 @@ pub fn change_op_row(op: &ff_core::ChangeOp, now: i64, colored: bool) -> String 
     )
 }
 
-/// One `ff history` row: `<marker> <letters8> <age> <landing>  <summary>`.
+/// One `ff history` row: `<marker> <hex12> <age> <landing>  <summary>`.
 ///
 /// Deliberately `op_row`'s column shape with the kind and branch columns
 /// spent differently — the id, the age, and the styled prefix are in the same
@@ -165,7 +164,7 @@ pub fn history_row(step: &ff_core::history::Step, now: i64, colored: bool) -> St
     } else {
         DIM
     };
-    let letters: String = step.id.chars().take(ID_WIDTH).collect();
+    let id: String = step.id.chars().take(OP_WIDTH).collect();
     let unique = step.short_id.chars().count();
     let mut tail = step.summary.clone();
     // What the keystroke covers, not what the row is: a run of captures is
@@ -180,7 +179,7 @@ pub fn history_row(step: &ff_core::history::Step, now: i64, colored: bool) -> St
     format!(
         "{} {}  {}  {}  {}",
         col(&marker, MARKER_WIDTH, marker_style, colored),
-        styled_id(&letters, unique, ID_WIDTH, colored),
+        styled_id(&id, unique, OP_WIDTH, colored),
         col_right(
             &relative_age(now, step.time),
             AGE_WIDTH,
@@ -192,7 +191,13 @@ pub fn history_row(step: &ff_core::history::Step, now: i64, colored: bool) -> St
     )
 }
 
+/// The change-id column: eight letters.
 const ID_WIDTH: usize = 8;
+/// The operation-id column: twelve hex, jj's width. Wider than the change
+/// id column on purpose — two hex columns sit beside each other on an
+/// evolog row, and width is the first cue that the left one is an
+/// operation and the right one a commit; color is the second.
+pub const OP_WIDTH: usize = ff_core::ops::id::SHORT;
 /// `↓12` is the widest marker anyone reaches by hand; past that the column
 /// simply grows and the row still lines up with itself.
 const MARKER_WIDTH: usize = 3;

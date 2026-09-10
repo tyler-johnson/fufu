@@ -4,7 +4,7 @@ Three flags name a different source, one kind each, because a position argument 
 
 ```
 --from <rev>      a revision — a branch, a sha, any revset naming one
---at-op <op>      an operation, by its letters-spelled id
+--at-op <op>      an operation, by its hex id or a prefix
 --at <time>       the operation current at a time (30m/2h/3d, or a date)
 ```
 

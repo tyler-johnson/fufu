@@ -247,8 +247,8 @@ pub fn displayed_prefix_lens(
 /// Unique-prefix lengths over the restore-resolution domain: the live AND
 /// trashed operation log — so the bold prefix is exactly what `ff restore
 /// --at` accepts unambiguously. The domain is one log rather than one chain
-/// per branch now, which is why unique prefixes run to about five letters
-/// instead of three; the cost is still the number of ids on screen.
+/// per branch now, which is why unique prefixes run to about five hex
+/// digits instead of three; the cost is still the number of ids on screen.
 pub fn prefix_lens(
     repo: &ff_core::gix::Repository,
     ids: &[String],

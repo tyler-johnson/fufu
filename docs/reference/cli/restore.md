@@ -6,7 +6,7 @@ Three flags name a different source, one kind each, because a position argument 
 
 ```
 --from <rev>      a revision — a branch, a sha, any revset naming one
---at-op <op>      an operation, by its letters-spelled id
+--at-op <op>      an operation, by its hex id or a prefix
 --at <time>       the operation current at a time (30m/2h/3d, or a date)
 ```
 
@@ -29,7 +29,7 @@ Options:
           Restore the entire worktree to the source state
 
       --at-op <op>
-          Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)

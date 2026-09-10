@@ -41,11 +41,14 @@ fn the_public_reader_walks_tags_and_resolves() {
     let repo = fx.repo();
     let log = OpLog::open(&repo).expect("open");
 
-    // Ids are letters wherever they surface, and never anything else.
+    // Ids are lowercase hex wherever they surface, and never anything else.
     for id in &spelled {
         assert!(
-            id.chars().all(|c| ('k'..='z').contains(&c)),
-            "an op id must share no character with hex: {id}"
+            id.len() == 40
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+            "an op id is forty lowercase hex: {id}"
         );
     }
 
@@ -106,8 +109,9 @@ fn every_stop_names_a_coded_id() {
     let repo = fx.repo();
     let log = OpLog::open(&repo).expect("open");
     for (spec, id) in [
-        ("zzzzzzzzzzzz", "op/not-found"),
+        ("zzzzzzzzzzzz", "usage/rev-in-op-position"),
         ("deadbeef", "op/not-found"),
+        ("not-an-id!", "op/not-found"),
         ("@~9", "op/floor"),
         ("@-", "op/not-found"),
         ("@^2", "usage/rev-in-op-position"),

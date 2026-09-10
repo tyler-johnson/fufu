@@ -92,7 +92,7 @@ pub fn run(
         return run_all(&repo, &filter, interval, &mut out, left);
     }
 
-    // `resolve` accepts `@`, a letters-spelled id or prefix, and git's
+    // `resolve` accepts `@`, a hex id or prefix, and git's
     // first-parent suffixes; `live` is the check that raises `op/trimmed`
     // when retention has already aged the anchor off the log.
     let since = match since {

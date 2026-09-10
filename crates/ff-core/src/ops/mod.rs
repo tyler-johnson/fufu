@@ -347,15 +347,16 @@ impl<'r> OpLog<'r> {
         walk::OpWalk::new(self.repo, self.branch_tip(branch), walk::Follow::Branch)
     }
 
-    /// Resolve an operation address: `@` for the newest, a letters-spelled id
-    /// or prefix, either of them wearing git's own first-parent suffixes.
+    /// Resolve an operation address: `@` for the newest, a hex id or prefix,
+    /// either of them wearing git's own first-parent suffixes.
     ///
     /// The suffixes are git's because an operation's first parent *is* the
     /// operation before it, so `@^` and `@~3` already say what a bespoke
     /// `@-` and `@-3` would have said — which is why those are gone from
-    /// this space as well as from revisions. Hex is refused rather than
-    /// accepted quietly: `ff log` prints op ids beside commit shas, and a hex
-    /// spelling that worked would teach the wrong model on the first try.
+    /// this space as well as from revisions. Hex is the spelling, as it is
+    /// for commits, and this slot is what says it names an operation.
+    /// Letters are refused by name: they are a change id, and the verbs
+    /// that read a revision are the exits.
     pub fn resolve(&self, spec: &str) -> Result<OpId> {
         let spec = spec.trim();
         let (base, suffixes) = split_suffixes(spec);
@@ -386,7 +387,13 @@ impl<'r> OpLog<'r> {
                 )
             });
         }
-        let hex = crate::snapid::decode(base).ok_or_else(|| no_such_op(base))?;
+        if crate::letters::is_encoded(base) {
+            return Err(rev_in_op_position(base, false));
+        }
+        if base.is_empty() || !base.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(no_such_op(base));
+        }
+        let hex = base.to_ascii_lowercase();
         let mut matches = Vec::new();
         for candidate in index::prefix_matches(self.repo, &hex)? {
             // The index is a cache, so every candidate it offers is checked
@@ -402,7 +409,7 @@ impl<'r> OpLog<'r> {
             [] => Err(no_such_op(base)),
             [one] => Ok(*one),
             many => {
-                let list: Vec<String> = many.iter().map(|id| id.short(12)).collect();
+                let list: Vec<String> = many.iter().map(|id| id.short(id::SHORT)).collect();
                 Err(Error::coded(
                     "op/ambiguous",
                     format!(
@@ -430,8 +437,39 @@ fn no_such_op(spec: &str) -> Error {
     )
 }
 
-/// Split an address at the first `^` or `~`. An op id is letters and an
-/// address has no braces, so there is nothing else a seam could hide behind.
+/// The mirror of `usage/op-in-rev-position`: a revision typed where an
+/// operation belongs. On a branch name, one log spans every branch, so
+/// narrowing to one is a predicate rather than a name you can write on its
+/// own; on a change id, the letters say revision space by themselves, and
+/// the verbs that read a revision are the exits. Raised here for the
+/// letters, and from the op revset for a branch name, since only that
+/// resolver looks a name up in revision space.
+pub(crate) fn rev_in_op_position(token: &str, named_branch: bool) -> Error {
+    if named_branch {
+        return Error::coded(
+            "usage/rev-in-op-position",
+            format!(
+                "`{token}` names a revision, and this position takes operations. One log spans \
+                 every branch, so narrowing to one is `on_branch()` rather than the branch's name"
+            ),
+            vec![
+                format!("ff op log 'on_branch({token})'"),
+                format!("ff log -r {token}"),
+            ],
+        );
+    }
+    Error::coded(
+        "usage/rev-in-op-position",
+        format!(
+            "`{token}` is a change id, and this position takes operations: operation ids are \
+             hex, `ff log -r` reads a change id"
+        ),
+        vec![format!("ff log -r {token}"), "ff op log".into()],
+    )
+}
+
+/// Split an address at the first `^` or `~`. An op id is hex and an address
+/// has no braces, so there is nothing else a seam could hide behind.
 fn split_suffixes(spec: &str) -> (&str, &str) {
     match spec.find(['^', '~']) {
         Some(i) => spec.split_at(i),

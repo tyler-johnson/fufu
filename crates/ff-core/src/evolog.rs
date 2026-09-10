@@ -438,17 +438,14 @@ fn segment_captures(repo: &gix::Repository, sha: gix::ObjectId) -> Result<Vec<Sn
 }
 
 /// `fill_short_ids` for the operation rows: the same index, the same
-/// fallback.
+/// fallback, over the same hex.
 fn fill_op_short_ids(repo: &gix::Repository, rows: &mut [ChangeOp]) {
-    let hex: Vec<String> = rows
-        .iter()
-        .filter_map(|row| crate::snapid::decode(&row.id))
-        .collect();
+    let hex: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let lens = crate::ops::index::prefix_lens(repo, &hex).ok();
     for row in rows {
         let len = lens
             .as_ref()
-            .and_then(|lens| crate::snapid::decode(&row.id).and_then(|hex| lens.get(&hex).copied()))
+            .and_then(|lens| lens.get(&row.id).copied())
             .unwrap_or(8)
             .max(4);
         row.short_id = row.id.chars().take(len).collect();
@@ -543,7 +540,7 @@ fn walk_captures(
 /// inside a segment whose base is wanted, or stepping the plain branch link
 /// when a segment pointer is missing or untrustworthy — before it gives up on
 /// further linear stepping and only continues by hopping validated pointers.
-/// Exceeding it costs a row its drill-in letters, nothing more.
+/// Exceeding it costs a row its drill-in id, nothing more.
 const SEGMENT_SCAN_CAP: usize = 512;
 
 /// For each displayed commit id (full hex), the newest capture on the branch

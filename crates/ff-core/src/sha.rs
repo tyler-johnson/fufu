@@ -1,6 +1,8 @@
 //! How a commit hash is spelled on screen: a plain eight characters.
 //!
-//! The commit-space sibling of [`crate::snapid`]. Eight is fixed rather than
+//! Where [`crate::letters`] spells a change id, this shortens a commit's hex;
+//! an operation id is shortened the same way at [`crate::ops::id::SHORT`],
+//! twelve rather than eight. Eight is fixed rather than
 //! probed — no odb lookup, no `core.abbrev` — because a column that changes
 //! width when the repository grows is a column that stops lining up, and
 //! eight hex characters are effectively always unique at any scale fufu

@@ -2,7 +2,7 @@
 //!
 //! Sixteen random bytes, minted when a change first gets a description or a
 //! capture and written into the commit as a `change-id` header spelled in the
-//! letters alphabet (`snapid`), which is exactly the header jj writes and
+//! letters alphabet (`letters`), which is exactly the header jj writes and
 //! reads, so a colocated jj sees fufu's ids and fufu sees jj's. Replay copies
 //! every header but the signature, so restack, absorb, describe, and pull
 //! carry the id for free. A commit without the header — one made by git, or
@@ -18,7 +18,7 @@ use std::fmt;
 use gix::bstr::BString;
 
 use crate::error::{Error, Result};
-use crate::snapid;
+use crate::letters;
 
 /// Bytes in a change id.
 pub const LEN: usize = 16;
@@ -50,13 +50,13 @@ impl ChangeId {
         ChangeId(bytes)
     }
 
-    /// Exactly thirty-two alphabet letters, case-insensitive. `snapid::decode`
+    /// Exactly thirty-two alphabet letters, case-insensitive. `letters::decode`
     /// is length-agnostic, so the length check lives here.
     pub fn parse(letters: &str) -> Option<Self> {
         if letters.chars().count() != LETTERS {
             return None;
         }
-        let hex = snapid::decode(letters)?;
+        let hex = letters::decode(letters)?;
         let mut bytes = [0u8; LEN];
         for (i, slot) in bytes.iter_mut().enumerate() {
             *slot = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
@@ -71,12 +71,12 @@ impl ChangeId {
 
     /// The letters spelling, the header's and the column's.
     pub fn letters(&self) -> String {
-        snapid::encode(&self.hex())
+        letters::encode(&self.hex())
     }
 
     /// Whether a letters token (case-insensitive) is a prefix of this id.
     pub fn has_prefix(&self, letters: &str) -> bool {
-        let Some(hex) = snapid::decode(letters) else {
+        let Some(hex) = letters::decode(letters) else {
             return false;
         };
         self.hex().starts_with(&hex)

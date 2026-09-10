@@ -174,9 +174,8 @@ pub fn run_inner(
     };
 
     if ctx.json {
-        // `commits` key contract preserved; `id_letters` is composed at this
-        // edge — the model stays hex. Every row also carries `session`, null
-        // when the anchor operation wore no tag.
+        // `commits` key contract preserved. Every row also carries
+        // `session`, null when the anchor operation wore no tag.
         let mut commit_values = Vec::with_capacity(commits.len());
         for ((entry, sess), sig) in commits.iter().zip(&row_sessions).zip(&row_signatures) {
             let mut value = serde_json::to_value(entry).map_err(Error::repo)?;
@@ -201,7 +200,6 @@ pub fn run_inner(
             serde_json::json!({
                 "branch": open.branch,
                 "id": open.id,
-                "id_letters": open.id.as_deref().map(ff_core::snapid::encode),
                 "change_id": open.change_id,
                 "base": open.base,
                 "subject": open.subject,

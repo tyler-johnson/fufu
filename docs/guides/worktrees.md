@@ -14,20 +14,20 @@ Bare [`ff worktree`](../reference/cli/worktree.md) is the list. A fresh clone ha
 
 ```console
 $ ff worktree
-* main      /tmp/tmp.2gL2qhGWtM/demo  main
+* main      /tmp/tmp.LEBjpAkBuj/demo  main
 ```
 
 `ff worktree add <path>` makes the bay. The branch is a name you give, or a new branch named after the directory when you do not say, or a minted name when that name is already taken:
 
 ```console
 $ ff worktree add ../bay
-made bay at /tmp/tmp.2gL2qhGWtM/bay on bay
+made bay at /tmp/tmp.LEBjpAkBuj/bay on bay
   on a new branch
   its log is refs/fufu/wt/bay/ops
 
 $ ff worktree
-* main      /tmp/tmp.2gL2qhGWtM/demo  main
-  bay       /tmp/tmp.2gL2qhGWtM/bay   bay
+* main      /tmp/tmp.LEBjpAkBuj/demo  main
+  bay       /tmp/tmp.LEBjpAkBuj/bay   bay
 ```
 
 The `its log` line is the part git does not have: each worktree carries its own operation chain, and the chain floor is laid as the worktree is made, so [`ff undo`](../reference/cli/undo.md) works in the bay from its first command. A checkout written by hand with `git worktree add` gets its floor on its first fufu command instead, and undo in it is blind until then.
@@ -39,15 +39,15 @@ Every worktree holds exactly one [open change](../concepts/changes.md). [`ff sta
 ```console
 $ ff status
 on bay · nothing to pull
-@  ntnvpxxu 5324a259   0s ago
+@  ssrnrxrx 0c39ec43   0s ago
 │  (no description)
 │  A src/lexer.rs +1  -0  ++++++++++++++++++++
 │    1 file       +1  -0
-●  xrqzyumm dd510982   0s ago
+●  uuvowkty 6931cd6b   1s ago
 │  release: cut v0.1.0
 
 $ ff commit -m "lexer: sketch the tokenizer"
-closed 9b602cf2 on bay: lexer: sketch the tokenizer (1 file(s))
+closed 97395629 on bay: lexer: sketch the tokenizer (1 file(s))
 undo: ff undo
 ```
 
@@ -55,7 +55,7 @@ Meanwhile the first tree keeps its own change moving, on its own branch, with no
 
 ```console
 $ ff commit -m "docs: say what this is"
-closed 9a407e42 on main: docs: say what this is (1 file(s))
+closed 93cf5b97 on main: docs: say what this is (1 file(s))
 undo: ff undo
 ```
 
@@ -65,13 +65,13 @@ The commits land in one shared repository, so what does `ff undo` mean when two 
 
 ```console
 $ ff commit -m "lexer: emit spans"
-closed 27cbe3ef on bay: lexer: emit spans (1 file(s))
+closed 76dd18ae on bay: lexer: emit spans (1 file(s))
 undo: ff undo
 
 $ ff undo
 undid: commit on bay: lexer: emit spans
-  now at vouzzkuzwxmp (pre: ff commit -m lexer: emit spans)
-  refs/heads/bay → 9b602cf2
+  now at 4b5d2b4b70d0 (pre: ff commit -m lexer: emit spans)
+  refs/heads/bay → 97395629
 back: ff redo
 ```
 
@@ -79,11 +79,11 @@ The commit on `main` stands untouched, because it was never on this chain. [`ff 
 
 ```console
 $ ff history
-↑1  tzrnvtuv    0s ago  redo  commit on bay: lexer: emit spans
-@   vouzzkuz    0s ago  now   pre: ff commit -m lexer: emit spans
-↓1  vxvvznln    0s ago  undo  commit on bay: lexer: sketch the tokenizer
-↓2  ntnvpxxu    0s ago  undo  pre: ff status
-↓3  nwrykqmu    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
+↑1  a6c8a521aa42    0s ago  redo  commit on bay: lexer: emit spans [1b234d04-d951-438c-9b46-3de76978f90d]
+@   4b5d2b4b70d0    0s ago  now   pre: ff commit -m lexer: emit spans [1b234d04-d951-438c-9b46-3de76978f90d]
+↓1  23c3b91c4b38    0s ago  undo  commit on bay: lexer: sketch the tokenizer [1b234d04-d951-438c-9b46-3de76978f90d]
+↓2  cf0fc91a1b91    0s ago  undo  pre: ff status [1b234d04-d951-438c-9b46-3de76978f90d]
+↓3  0b8858589c3b    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
@@ -91,10 +91,10 @@ and the first tree's chain holds its own:
 
 ```console
 $ ff history
-@   uqvtonqz    0s ago  now   commit on main: docs: say what this is
-↓1  mzsmxzko    0s ago  undo  pre: ff commit -m docs: say what this is
-↓2  xmvvnypu    0s ago  undo  add worktree bay on bay
-↓3  uptkprtt    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
+@   7c512cc40e40    0s ago  now   commit on main: docs: say what this is [1b234d04-d951-438c-9b46-3de76978f90d]
+↓1  8e43479227e7    0s ago  undo  pre: ff commit -m docs: say what this is [1b234d04-d951-438c-9b46-3de76978f90d]
+↓2  899e4192f4d9    0s ago  undo  add worktree bay on bay [1b234d04-d951-438c-9b46-3de76978f90d]
+↓3  8ab80c6629ed    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
@@ -120,7 +120,7 @@ A verb waits up to two seconds, then refuses with `ref/contended: another fufu p
 
 ```console
 $ ff commit -m "lexer: spans and byte offsets"
-closed 0741da9f on bay: lexer: spans and byte offsets (1 file(s))
+closed a7e907f7 on bay: lexer: spans and byte offsets (1 file(s))
 undo: ff undo
 ```
 
@@ -128,10 +128,10 @@ The stream saw the whole thing — the two opening events, then the bay's pre-co
 
 ```console
 $ ff watch --all -n 4
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"start","tip":"vouzzkuzwxmpkxuplnmpwrqxwlzlrtzqmvotqvvv"}}
-{"ff":1,"cmd":"watch","data":{"worktree":"main","motion":"start","tip":"uqvtonqznmnvsuollmpllntopvozymosluqtwnmq"}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"kqzuwvlqrumvlqsmprzmvlsxztzmsrxwqktywqvo","short_id":"kqzu","kind":"capture","verb":"","summary":"pre: ff commit -m lexer: spans and byte offsets","time":1787986478,"branch":"bay","session":null,"undo_of":null}}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"ntnnpsyrsuoywzuovkpqmzzzyloloklqvnolmvvp","short_id":"ntnn","kind":"op","verb":"commit","summary":"commit on bay: lexer: spans and byte offsets","time":1787986478,"branch":"bay","session":null,"undo_of":null}}}
+{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"start","tip":"4b5d2b4b70d06802fdabcea74ef9ff27e862f1d3"}}
+{"ff":1,"cmd":"watch","data":{"worktree":"main","motion":"start","tip":"7c512cc40e40dd57932ffc261451fe57c5536be1"}}
+{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"a5913a16a56f81240e84850bb436de10d2674701","short_id":"a591","kind":"capture","verb":"","summary":"pre: ff commit -m lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","route":"shell","undo_of":null}}}
+{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"f6fedc28bd6d0a66b16d613cca0e540e826490c5","short_id":"f6fe","kind":"op","verb":"commit","summary":"commit on bay: lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","route":"shell","undo_of":null}}}
 ```
 
 That capture event is the point for anyone supervising a bay from outside it: capture runs in a secondary worktree exactly as in the first, and a watcher in any tree sees it happen. `--kind` narrows the stream to captures or verbs, `--session` follows one agent's motion, and a stream under `--all` keeps a bay's chain even after the worktree is removed; the [watch reference](../reference/cli/watch.md) has the full event grammar.
@@ -142,12 +142,12 @@ A parked change belongs to its branch, and the branch lives in the shared ref na
 
 ```console
 $ ff start
-minted ff/nimble-badger (forked from main)
-open change on ff/nimble-badger
+minted ff/kind-ridge (forked from main)
+open change on ff/kind-ridge
 undo: ff undo
 
 $ ff switch main
-parked the open change on ff/nimble-badger (87fd8ffd)
+parked the open change on ff/kind-ridge (56720885)
 switched to main
 undo: ff undo
 ```
@@ -155,9 +155,9 @@ undo: ff undo
 Now take that branch from the bay. The parked change resumes there — same files, same edits, same pending description:
 
 ```console
-$ ff switch ff/nimble-badger
+$ ff switch ff/kind-ridge
 ff: absorbed 3 changes made outside fufu: 3 created
-switched to ff/nimble-badger
+switched to ff/kind-ridge
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
@@ -167,8 +167,8 @@ The absorbed line is the two chains staying honest with each other. Each worktre
 While the branch is open in the bay, the first tree cannot take it. git allows one branch in two checkouts behind a flag; fufu refuses outright:
 
 ```console
-$ ff switch ff/nimble-badger
-ff: 'ff/nimble-badger' is already used by worktree at '/tmp/tmp.2gL2qhGWtM/bay'
+$ ff switch ff/kind-ridge
+ff: 'ff/kind-ridge' is already used by worktree at '/tmp/tmp.LEBjpAkBuj/bay'
   try:
     ff worktree list
     git worktree list
@@ -178,7 +178,7 @@ Switching the bay back to its own branch parks the change again, with its branch
 
 ```console
 $ ff switch bay
-parked the open change on ff/nimble-badger (87fd8ffd)
+parked the open change on ff/kind-ridge (56720885)
 switched to bay
 undo: ff undo
 ```
@@ -190,7 +190,7 @@ The bay now holds a half-written, uncommitted file. `git worktree remove` demand
 ```console
 $ ff worktree remove bay
 removed bay (was on bay)
-  captured first as xkkmurzrlwos — ff restore <path> --at-op xkkmurzrlwos
+  captured first as fd5974d0070a — ff restore <path> --at-op fd5974d0070a
   its log stays at refs/fufu/wt/bay/ops
 ```
 
@@ -198,28 +198,28 @@ The chain outlives the checkout. [`ff worktree list`](../reference/cli/worktree-
 
 ```console
 $ ff worktree list
-* main      /tmp/tmp.2gL2qhGWtM/demo  main
+* main      /tmp/tmp.LEBjpAkBuj/demo  main
 
 chains whose worktree is gone
-  bay       bay  xkkmurzrlwos  0s ago
+  bay       bay  fd5974d0070a  0s ago
 ff restore <path> --at-op <op>  brings a file back from one
 ```
 
 That id is an address. [`ff restore`](../reference/cli/restore.md) with `--at-op` brings a file out of the capture into whatever tree you are standing in, where it joins the open change like any other edit:
 
 ```console
-$ ff restore src/lexer_test.rs --at-op xkkmurzrlwos
-restored from xkkm (pre: ff worktree remove bay)
+$ ff restore src/lexer_test.rs --at-op fd5974d0070a
+restored from fd59 (pre: ff worktree remove bay)
   restored  src/lexer_test.rs
 undo: ff undo
 
 $ ff status
 on main · 1 to push
-@  noxokvry ab68e949   0s ago
+@  xopozxrz 0ec93804   0s ago
 │  (no description)
 │  A src/lexer_test.rs +1  -0  ++++++++++++++++++++
 │    1 file            +1  -0
-●  mzsmxzko 9a407e42   0s ago
+●  noxnqxvq 93cf5b97   0s ago
 │  docs: say what this is
 ```
 

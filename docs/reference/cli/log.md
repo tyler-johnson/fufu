@@ -60,7 +60,7 @@ Options:
           Verify each commit's signature and show the status letter — one signer run per row
 
       --at-op <op>
-          Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)

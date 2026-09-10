@@ -20,7 +20,7 @@ Options:
           Print the patch under the diffstat, not just the counts
 
       --at-op <op>
-          Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)
@@ -43,7 +43,7 @@ Options:
 ```
 ff op show                     the newest operation
 ff op show @^                  the one before it
-ff op show kqzm                by id
+ff op show 9dfd5e5d            by id
 ff op show -p @                what it changed, with content
 ff op show --json              the same, for machines
 ```

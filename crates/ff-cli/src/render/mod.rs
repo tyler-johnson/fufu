@@ -13,8 +13,8 @@ pub use palette::{
     col, init_palette, paint_dim, paint_id, paint_ok, paint_sha, paint_warn, styled_id,
 };
 pub use rows::{
-    ChangeRowDisplay, CommitRowDisplay, MapPayload, SigMark, branch_label_width, branch_row,
-    change_op_row, change_row, commit_row, history_row, log_row, map_payload, op_row,
+    ChangeRowDisplay, CommitRowDisplay, MapPayload, OP_WIDTH, SigMark, branch_label_width,
+    branch_row, change_op_row, change_row, commit_row, history_row, log_row, map_payload, op_row,
     remote_branch_row, remote_label_width, remote_more_row, snap_row,
 };
 pub use status::{StatusView, reconcile_notice, status_human};

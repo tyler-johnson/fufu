@@ -40,7 +40,7 @@ A change that breaks an existing field is what bumps the `ff` number, which is w
 
 The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
-Timestamps are unix seconds, always named `time`. Commit ids are hex. Change ids and operation ids are both spelled in the letters k–z, never hex: a `change_id` is a commit's identity across rewrites, the letters column the human views print, and an operation id is an entry on the operation log. The slot decides which a letters token means — a revision slot reads a change id or a sha, an operation slot an operation id — see [Snapshots and undo](../concepts/snapshots-and-undo.md).
+Timestamps are unix seconds, always named `time`. Commit ids and operation ids are hex, forty characters in JSON, and the slot decides which a hex prefix means — a revision slot reads a sha or a change id, an operation slot an operation id. A `change_id` is a commit's identity across rewrites, spelled in the letters k–z and never hex: the letters column the human views print. See [Snapshots and undo](../concepts/snapshots-and-undo.md).
 
 ## `ff status --json`
 
@@ -82,7 +82,6 @@ $ ff status --json | jq .
     "deletions": 1,
     "open": {
       "id": "04c78631534881f3319290940ee156e5b89dfe9a",
-      "id_letters": "zvnsrtwyuwvrrykwwyqxqzqvzllyutluorqmklqp",
       "change_id": "nyrszqtkznwuykyxoskttupyppplxnwu",
       "pending": "b052c0d32a8637271add239049f1e06e87ffb55e",
       "subject": null,
@@ -130,7 +129,7 @@ Reading it:
 - **`base`** — what the branch sits on, when it sits on anything: `name`, `ref`, `tip`, `role` (`trunk` or `parent`), and `above`, the commits reachable from the branch tip and not from the base. Null on trunk, detached, unborn, and inside an editing session — exactly when `futures.base` is null.
 - **`remote`** — the remote the branch answers to, by its own `branch.<name>.remote` or the repository default; null when there is none or none can be named.
 - **`changes`** — every uncommitted path with per-file counts. `kind` is `modified`, `added`, `deleted`, `renamed` or `copied` (those two carry the source path in `from`), `type_change`, or `intent_to_add`. `binary` marks files whose counts are not line counts.
-- **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `change_id` is its identity — the letters column, null until a capture or a describe mints one — and `pending` is the pending description commit when one exists. `id` and `id_letters` are the capture operation holding its current state, the op anchor, not the column.
+- **`open`** — the open change. `clean` says whether the tree matches the commit beneath it, `change_id` is its identity — the letters column, null until a capture or a describe mints one — and `pending` is the pending description commit when one exists. `id` is the capture operation holding its current state, the op anchor, not the column.
 - **`parent`** — the commit beneath the open change: its `change_id` is the letters column, and `segment` is the capture the commit was cut from, when one on this chain answers to it.
 - **`futures`** — the pull verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
 - **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
@@ -165,7 +164,6 @@ $ ff log --json -n 1 | jq .
     "open": {
       "branch": "main",
       "id": "38db22cc13e4fcd1cf8c28771a1d4014861cc7dc",
-      "id_letters": "wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn",
       "change_id": "qtwplrskwswwkymmtlynvxrlzvwvurzs",
       "base": "64962838a9353e3a4c3e78677f1bc6348b328058",
       "subject": null,

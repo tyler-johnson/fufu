@@ -522,8 +522,8 @@ fn status_json_carries_the_last_operation_and_its_session() {
     assert_eq!(last["branch"], "main", "{last}");
     let id = last["id"].as_str().unwrap_or_default();
     assert!(
-        id.len() == 40 && id.bytes().all(|b| b.is_ascii_lowercase()),
-        "an operation id is letters: {id:?}"
+        id.len() == 40 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "an operation id is forty lowercase hex: {id:?}"
     );
 
     // A dirty tree makes status capture before it reads. The capture is

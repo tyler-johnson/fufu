@@ -35,7 +35,7 @@ These kinds sort the log; they do not fork the model. Every operation has a tree
 
 [`ff op log`](../reference/cli/op-log.md) lists every operation, newest first, and every means every. Captures outnumber verb operations by more than ten to one, so the log is mostly a machine's account of itself.
 
-Operation ids are spelled in the letters k–z and never in hex, the alphabet [change ids](changes.md#a-change-has-an-identity) share. The slot decides what letters mean: an operation slot — `ff op`, `ff history`, `--at-op` — reads an operation id, and a revision slot — `ff log -r`, `ff show`, `ff describe <rev>` — reads a change id or a sha. An id typed in the other kind of slot is refused by name, pointing at the verb that reads it.
+Operation ids are hex, like commit ids and like jj's, and print at twelve characters in every column. The slot decides which space a hex prefix is read in: an operation slot — `ff op`, `ff history`, `--at-op` — reads an operation id, and a revision slot — `ff log -r`, `ff show`, `ff describe <rev>` — reads a sha or a [change id](changes.md#a-change-has-an-identity). Letters are a change id and nothing else. An id typed in the other kind of slot is refused by name, pointing at the verb that reads it.
 
 `@` is the newest operation, and git's first-parent suffixes work on it — `@^` is the one before, `@~3` three back — because an operation's first parent is the operation before it.
 

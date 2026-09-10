@@ -10,7 +10,7 @@ One thing to unlearn before you start: there is no staging area, no stash, and n
 
 ```console
 $ ff clone https://github.com/tyler-johnson/fufu
-cloned into ./fufu — 354 commits on main
+cloned into ./fufu — 361 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 ```
 
@@ -30,8 +30,8 @@ Bare `ff` is the map: recent work on every branch, parked changes included. A fr
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-●  kptqwlxk e5bab741   2h ago
-│  core: a branch created outside fufu records the branch it was cut from
+●  xspyoolp a50bd06b  50m ago
+│  changelog: the Unreleased section in the releases' voice
 ~
 ```
 
@@ -49,8 +49,8 @@ The letters column next to each commit is its change id: the identity a commit k
 
 ```console
 $ ff start
-minted ff/brisk-moth (forked from main)
-open change on ff/brisk-moth
+minted ff/snug-spruce (forked from main)
+open change on ff/snug-spruce
 undo: ff undo
 ```
 
@@ -58,13 +58,13 @@ Now edit. Add a file — a design note, say — and notice what you don't do nex
 
 ```console
 $ ff status
-on ff/brisk-moth · nothing to pull
-@  mpzvlkqv            1s ago
+on ff/snug-spruce · nothing to pull
+@  kknxlqmu            0s ago
 │  (no description)
 │  A notes/parser.md +3  -0  ++++++++++++++++++++
 │    1 file          +3  -0
-●  kptqwlxk e5bab741   2h ago  signed
-│  core: a branch created outside fufu records the branch it was cut from
+●  xspyoolp a50bd06b  50m ago  signed
+│  changelog: the Unreleased section in the releases' voice
 ```
 
 [`ff status`](reference/cli/status.md) answers where you are and what is uncommitted, as a diffstat. [`ff diff`](reference/cli/diff.md) is the same change read down to the line — and it sees untracked files, which `git diff` does not.
@@ -79,14 +79,14 @@ The open change can carry a description before it is ever a commit, so you can n
 
 ```console
 $ ff describe -m "notes: parser skeleton and char stream"
-pending description on ff/brisk-moth: notes: parser skeleton and char stream
+pending description on ff/snug-spruce: notes: parser skeleton and char stream
 ```
 
 Closing the change is the commit. [`ff commit`](reference/cli/commit.md) picks up the pending description:
 
 ```console
 $ ff commit
-closed e9b4b0e5 on ff/brisk-moth: notes: parser skeleton and char stream (1 file(s))
+closed cf70946d on ff/snug-spruce: notes: parser skeleton and char stream (1 file(s))
 undo: ff undo
 ```
 
@@ -94,7 +94,7 @@ Or say it at the close. Make a second edit, then:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
-closed ebe3e5a2 on ff/brisk-moth: notes: drop whitespace from the stream (1 file(s))
+closed d8f59f61 on ff/snug-spruce: notes: drop whitespace from the stream (1 file(s))
 undo: ff undo
 ```
 
@@ -104,16 +104,16 @@ undo: ff undo
 $ ff log -n 5
 @  no changes
 │  (no description)
-●  yylwolun ebe3e5a2   0s ago  signed
+●  klrqoort d8f59f61   1s ago  signed
 │  notes: drop whitespace from the stream
-●  mpzvlkqv e9b4b0e5   0s ago  signed
+●  kknxlqmu cf70946d   1s ago  signed
 │  notes: parser skeleton and char stream
-●  kptqwlxk e5bab741   2h ago  signed
-│  core: a branch created outside fufu records the branch it was cut from
-●  qqmoqqnz 95b74df8   3h ago  signed
-│  core: --onto trims the range by the target's reflog too
-●  uslkwqmn 7f12c682  22h ago  signed
-│  docs: install.md shows ff version for v0.13.0
+●  xspyoolp a50bd06b  50m ago  signed
+│  changelog: the Unreleased section in the releases' voice
+●  lttyllqx d78b48ad  55m ago  signed
+│  core: an upstream under another name is a base, not a shared copy
+●  ztlputtv 23e686a2   1h ago  signed
+│  restack: drop a commit the base already holds by change id
 ```
 
 The two commits fufu made wear the ids their open changes wore: the letters on the `@` row before each close are the letters on its `●` row after it. [`ff evolog <rev>`](reference/cli/evolog.md) drills into a commit's history through that column — the close, every later rewrite, and the captures behind it — and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
@@ -128,7 +128,7 @@ Start another edit — a stray note in `README.md`, say — and leave mid-though
 
 ```console
 $ ff switch main
-parked the open change on ff/brisk-moth (2f908b89)
+parked the open change on ff/snug-spruce (fd795b17)
 switched to main
 undo: ff undo
 ```
@@ -139,20 +139,20 @@ The map shows where the work went:
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-│ ●  yylwolun ebe3e5a2   0s ago  ▸ [ff/brisk-moth]  (+ parked change, 1 file)
+│ ●  klrqoort d8f59f61   1s ago  ▸ [ff/snug-spruce]  (+ parked change, 1 file)
 │ │  notes: drop whitespace from the stream
-│ ●  mpzvlkqv e9b4b0e5   0s ago
+│ ●  kknxlqmu cf70946d   1s ago
 ├─╯  notes: parser skeleton and char stream
-●  kptqwlxk e5bab741   2h ago
-│  core: a branch created outside fufu records the branch it was cut from
+●  xspyoolp a50bd06b  50m ago
+│  changelog: the Unreleased section in the releases' voice
 ~
 ```
 
 Switching back brings the parked change in exactly as you left it — same files, same edits, same pending description. A unique prefix of the branch name is enough for the target.
 
 ```console
-$ ff switch ff/brisk-moth
-switched to ff/brisk-moth
+$ ff switch ff/snug-spruce
+switched to ff/snug-spruce
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
@@ -161,7 +161,7 @@ The work is real now, so claim the name. The capture chain, the parked state, an
 
 ```console
 $ ff describe -b parser-stream
-claimed ff/brisk-moth as parser-stream
+claimed ff/snug-spruce as parser-stream
 undo: ff undo
 ```
 
@@ -169,7 +169,7 @@ That stray README edit isn't part of this work. [`ff restore`](reference/cli/res
 
 ```console
 $ ff restore README.md
-restored from ebe3e5a2 (notes: drop whitespace from the stream)
+restored from d8f59f61 (notes: drop whitespace from the stream)
   restored  README.md
 undo: ff undo
 ```
@@ -183,8 +183,8 @@ undo: ff undo
 Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
 ```console
-$ ff absorb --into e9b4b0e5
-absorbed into de8ab51f: notes: parser skeleton and char stream
+$ ff absorb --into cf70946d
+absorbed into 42c5fd84: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -238,17 +238,17 @@ fufu snapshots the repository around every operation — including operations it
 
 ```console
 $ git reset --hard HEAD~2
-HEAD is now at d37f000 docs: a line from a teammate
+HEAD is now at 89e60b3 docs: a line from a teammate
 ```
 
 …one `ff undo` brings refs and working copy back together:
 
 ```console
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to d37f000a (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 89e60b3e (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at vrwkvvtxrnlt (pushed parser-stream to origin/parser-stream)
-  refs/heads/parser-stream → 04a4f2d0
+  now at 25d19be607f1 (pushed parser-stream to origin/parser-stream)
+  refs/heads/parser-stream → 7dc50ddd
   1 worktree file(s) restored
 back: ff redo
 ```
@@ -259,22 +259,22 @@ Undo repeats — each press steps one run of work further back. [`ff history`](r
 
 ```console
 $ ff history
-↑1  stqpqyxs    0s ago  redo  absorbed 1 foreign ref change(s)
-@   vrwkvvtx    0s ago  now   pushed parser-stream to origin/parser-stream
-↓1  qvpznrlu    1s ago  undo  absorb into e9b4b0e5 on parser-stream
-↓2  uoumulps    1s ago  undo  pre: ff absorb --into e9b4b0e5
-↓3  mynswlrk    1s ago  undo  claim ff/brisk-moth as parser-stream
-↓4  suyotpsl    1s ago  undo  switch from main to ff/brisk-moth
-↓5  szuqquzr    1s ago  undo  switch from ff/brisk-moth to main
-↓6  orpwnzny    1s ago  undo  pre: ff switch main
-↓7  xzzqrsws    1s ago  undo  commit on ff/brisk-moth: notes: drop whitespace from the stream
-↓8  tvslnnqo    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
-↓9  srovlvtx    1s ago  undo  commit on ff/brisk-moth: notes: parser skeleton and char stream
-↓10 pnkrpxyv    1s ago  undo  describe pending change on ff/brisk-moth
-↓11 mwxumryq    2s ago  undo  pre: ff status
-↓12 nmqtlurp    2s ago  undo  switch from main to ff/brisk-moth
-↓13 omktonmk    3s ago  undo  mint branch ff/brisk-moth at e5bab741
-↓14 onsurmlw    3s ago  undo  operation log initialized from observed state; earlier operations not undoable
+↑1  f7db296a1424    0s ago  redo  absorbed 1 foreign ref change(s)
+@   25d19be607f1    0s ago  now   pushed parser-stream to origin/parser-stream
+↓1  e4fdcc6c937c    0s ago  undo  absorb into cf70946d on parser-stream
+↓2  ceed90a4e8bb    0s ago  undo  pre: ff absorb --into cf70946d
+↓3  916d150ba023    0s ago  undo  claim ff/snug-spruce as parser-stream
+↓4  7cf338c04154    0s ago  undo  switch from main to ff/snug-spruce
+↓5  7d4177b27988    0s ago  undo  switch from ff/snug-spruce to main
+↓6  90e95fea23c8    0s ago  undo  pre: ff switch main
+↓7  800454d07721    1s ago  undo  commit on ff/snug-spruce: notes: drop whitespace from the stream
+↓8  a98c9a8c5ce4    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
+↓9  a970de933ac3    1s ago  undo  commit on ff/snug-spruce: notes: parser skeleton and char stream
+↓10 40998af77189    1s ago  undo  describe pending change on ff/snug-spruce
+↓11 93c94792af22    1s ago  undo  pre: ff status
+↓12 8cde691a2160    1s ago  undo  switch from main to ff/snug-spruce
+↓13 9755d574b654    1s ago  undo  mint branch ff/snug-spruce at a50bd06b
+↓14 c06fe90927eb    1s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 

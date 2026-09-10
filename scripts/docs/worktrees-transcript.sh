@@ -155,7 +155,7 @@ cd "$SCENE/demo"
 printf '$ %s\n' "ff worktree remove bay"
 remove_out=$("$FF" worktree remove bay 2>&1)
 printf '%s\n\n' "$remove_out"
-cap=$(printf '%s\n' "$remove_out" | sed -n 's/.*captured first as \([a-z]*\).*/\1/p')
+cap=$(printf '%s\n' "$remove_out" | sed -n 's/.*captured first as \([0-9a-f]*\).*/\1/p')
 [ -n "$cap" ] || { echo "remove reported no capture op" >&2; exit 1; }
 
 show "$FF" worktree list

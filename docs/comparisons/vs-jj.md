@@ -44,7 +44,7 @@ fufu is a daily interface layered on an ordinary git repository. It owns the eph
 | a conflict | an object in the graph — a commit holding a merge expression | an operation held pending — the *absence* of the new commit |
 | your other tools | see the projection, plus states plain git can't comprehend | see an ordinary git repository, always |
 | raw git commands | legal in a colocated repo, then imported: the motion is settled once jj re-reads the git refs at its next command | first class: absorbed into the operation log, loudly, and undoable |
-| change identity | a `change-id` header on every commit jj makes, derived from the sha where there is none | the same header on every commit fufu closes, the same derivation for the rest; op ids share the letters alphabet where jj's are hex |
+| change identity | a `change-id` header on every commit jj makes, derived from the sha where there is none | the same header on every commit fufu closes, the same derivation for the rest; op ids are hex like jj's |
 | leaving | colocated: delete `.jj` and the commits and bookmarks stay, change ids in their headers; the op log and any unresolved conflict go with it | walk away any moment; return and reconcile |
 
 ## What the inversion buys

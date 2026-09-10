@@ -1,20 +1,25 @@
 //! The two address spaces, as two types.
 //!
-//! An operation *is* a commit, so its raw hex is indistinguishable from any
-//! other sha — which is exactly why the letters spelling exists. Convention
-//! alone would leak: the one place a plain `gix::ObjectId` can go, an op id
-//! can go too, and it resolves. Wrapping each space in its own newtype moves
-//! the refusal from runtime to the compiler, and leaves the runtime check
-//! needed only where text becomes a type.
+//! An operation *is* a commit, and both spell their ids in hex, so on the
+//! page a `9dfd5e5d` could be either. What keeps them apart is the slot, the
+//! way jj's does: `--at-op` and `ff op show` read a hex prefix as an
+//! operation, `-r` and `--from` read one as a commit, and each redirects the
+//! other's kind by name. In the code the newtypes do that work: the one place
+//! a plain `gix::ObjectId` can go, an op id can go too, and it resolves.
+//! Wrapping each space in its own type moves the refusal from runtime to the
+//! compiler, and leaves the runtime check needed only where text becomes a
+//! type.
 //!
-//! The letters alphabet is shared with change ids, and the slot decides: an
-//! operation slot reads letters as an operation, a revision slot reads them
-//! as a change id, and each redirects the other's kind by name.
+//! Letters are a change id and nothing else. A change id typed where an
+//! operation belongs, or an operation where a revision belongs, is refused
+//! by name rather than looked up in the wrong space.
 
 use crate::error::{Error, Result};
-use crate::snapid;
 
-/// An operation's address. Displays in the letters alphabet, always.
+/// The width an operation id prints at in every column: jj's.
+pub const SHORT: usize = 12;
+
+/// An operation's address. Displays in hex, always.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OpId(gix::ObjectId);
 
@@ -38,16 +43,18 @@ impl OpId {
         self.0.to_string()
     }
 
-    /// The letters spelling truncated to `len`, for the highlighted prefix.
+    /// The hex truncated to `len`, for the highlighted prefix.
     pub fn short(&self, len: usize) -> String {
         self.to_string().chars().take(len).collect()
     }
 
-    /// Parse a full letters-spelled id. Prefixes are a resolution question,
-    /// not a parsing one, so they go through [`super::OpLog::resolve`].
-    pub fn parse(letters: &str) -> Result<Self> {
-        let hex = snapid::decode(letters).ok_or_else(|| not_an_op(letters))?;
-        let id = gix::ObjectId::from_hex(hex.as_bytes()).map_err(|_| not_an_op(letters))?;
+    /// Parse a full hex id. Prefixes are a resolution question, not a
+    /// parsing one, so they go through [`super::OpLog::resolve`].
+    pub fn parse(hex: &str) -> Result<Self> {
+        if hex.len() != 40 {
+            return Err(not_an_op(hex));
+        }
+        let id = gix::ObjectId::from_hex(hex.as_bytes()).map_err(|_| not_an_op(hex))?;
         Ok(OpId(id))
     }
 }
@@ -70,7 +77,7 @@ impl From<gix::ObjectId> for CommitId {
 
 impl std::fmt::Display for OpId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&snapid::encode(&self.0.to_string()))
+        std::fmt::Display::fmt(&self.0, f)
     }
 }
 
@@ -98,7 +105,7 @@ impl serde::Serialize for CommitId {
 fn not_an_op(spec: &str) -> Error {
     Error::coded(
         "op/not-found",
-        format!("{spec} is not an operation id: operation ids are spelled in letters (k–z)"),
+        format!("`{spec}` is not an operation id: operation ids are hex, `ff op log` prints them"),
         vec!["ff op log".into()],
     )
 }
@@ -112,13 +119,10 @@ mod tests {
     }
 
     #[test]
-    fn op_ids_display_in_letters_and_round_trip() {
+    fn op_ids_display_in_hex_and_round_trip() {
         let id = OpId::new(oid(0x3f));
         let spelled = id.to_string();
-        assert!(
-            spelled.chars().all(|c| ('k'..='z').contains(&c)),
-            "an op id must share no character with hex: {spelled}"
-        );
+        assert_eq!(spelled, "3f".repeat(20));
         assert_eq!(OpId::parse(&spelled).unwrap(), id);
     }
 
@@ -129,19 +133,20 @@ mod tests {
     }
 
     #[test]
-    fn hex_is_refused_where_an_op_belongs() {
-        let err = OpId::parse(&"ab".repeat(20)).unwrap_err();
+    fn letters_are_refused_where_an_op_belongs() {
+        let err = OpId::parse(&"kl".repeat(20)).unwrap_err();
         assert_eq!(err.id(), "op/not-found");
         assert!(OpId::parse("").is_err(), "empty is not an id");
         assert!(
-            OpId::parse("klmn").is_err(),
+            OpId::parse("3f3f").is_err(),
             "a prefix is a resolution question, not a parse"
         );
     }
 
     #[test]
-    fn short_takes_letters_not_hex() {
+    fn short_takes_the_hex_prefix() {
         let id = OpId::new(oid(0x00));
-        assert_eq!(id.short(4), "zzzz");
+        assert_eq!(id.short(4), "0000");
+        assert_eq!(id.short(SHORT).len(), 12);
     }
 }

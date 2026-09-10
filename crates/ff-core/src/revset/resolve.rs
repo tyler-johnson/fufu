@@ -22,11 +22,12 @@
 //! replaces — branch first, then rev-parse — resolved a name to a branch
 //! even when a commit of the same spelling existed, and said nothing.
 //!
-//! A change id shares the letters alphabet with an operation id, and the
-//! slot decides: here, letters are a change id, and an operation id typed
-//! here is redirected to the verbs that read one. A change id that stands on
-//! more than one visible commit — a rewrite beside a ref still holding the
-//! copy it rewrote — is divergent, and refused by name rather than drawn.
+//! Letters are a change id, and nothing else is spelled in them. An
+//! operation id is hex like a commit's, so an operation typed here resolves
+//! as an object and is then refused by name, redirected to the verbs that
+//! read one. A change id that stands on more than one visible commit — a
+//! rewrite beside a ref still holding the copy it rewrote — is divergent,
+//! and refused by name rather than drawn.
 
 use std::collections::HashMap;
 
@@ -324,15 +325,6 @@ fn canonicalize(repo: &gix::Repository, base: &str) -> Result<Canonical> {
         };
     }
 
-    // Nothing in revision space answers to it. Before saying so, check the
-    // other address space — an operation id typed here is a reader who has
-    // the right id and the wrong verb, and telling them that is worth more
-    // than telling them nothing exists. The check is last rather than first
-    // so a branch or a change really named in the letters alphabet keeps its
-    // own meaning.
-    if let Some(op) = op_named(repo, base)? {
-        return Err(op_in_rev_position(&op));
-    }
     Err(unknown_revision(base))
 }
 
@@ -343,7 +335,7 @@ fn canonicalize(repo: &gix::Repository, base: &str) -> Result<Canonical> {
 fn change_named(repo: &gix::Repository, base: &str) -> Result<Vec<(ChangeId, gix::ObjectId)>> {
     if base.len() < MIN_HEX_LEN
         || base.len() > changeid::LETTERS
-        || crate::snapid::decode(base).is_none()
+        || crate::letters::decode(base).is_none()
     {
         return Ok(Vec::new());
     }
@@ -401,7 +393,7 @@ fn scan_for_change(
 /// current branch's metadata, which no commit carries yet. Inside a session
 /// the open change wears the amended commit's id, and the walk finds that.
 fn open_named(repo: &gix::Repository, base: &str) -> Result<bool> {
-    if base.len() < MIN_HEX_LEN || crate::snapid::decode(base).is_none() {
+    if base.len() < MIN_HEX_LEN || crate::letters::decode(base).is_none() {
         return Ok(false);
     }
     let branch = match crate::head::head_state(repo)? {
@@ -471,24 +463,6 @@ fn object_candidate(repo: &gix::Repository, base: &str) -> Result<Option<gix::Ob
         Ok(None) => Ok(None),
         Err(err) => Err(Error::repo(err)),
     }
-}
-
-/// The letters-spelled operation this base names, if it names one. Both
-/// halves matter: the alphabet decodes, and the log actually holds an
-/// operation at that prefix.
-fn op_named(repo: &gix::Repository, base: &str) -> Result<Option<String>> {
-    if base.len() < MIN_HEX_LEN || base.len() > 40 {
-        return Ok(None);
-    }
-    let Some(hex) = crate::snapid::decode(base) else {
-        return Ok(None);
-    };
-    for candidate in ops::index::prefix_matches(repo, &hex)? {
-        if ops::is_op_commit(repo, candidate)? {
-            return Ok(Some(base.to_string()));
-        }
-    }
-    Ok(None)
 }
 
 /// A ref's peeled target, for comparing two names that may hold one commit.
@@ -704,8 +678,8 @@ fn op_in_rev_position(token: &str) -> Error {
         "usage/op-in-rev-position",
         format!(
             "`{token}` is an operation, and this position takes revisions. Operations are their \
-             own address space, spelled in the letters a change id shares: they are what \
-             `--at-op` and `ff op show` read"
+             own address space, hex like commits, and the slot decides: they are what `--at-op` \
+             and `ff op show` read"
         ),
         vec![
             format!("ff op show {token}"),

@@ -185,10 +185,12 @@ fn universe() -> Plan {
 
 /// Resolve one operation leaf.
 ///
-/// [`OpLog::resolve`] is the whole of it, which is the point: `@`, a
-/// letters-spelled id or prefix, and git's own first-parent suffixes all mean
-/// here exactly what they mean at `ff op show`, and hex is refused there
-/// rather than a second time here.
+/// [`OpLog::resolve`] is the whole of it, which is the point: `@`, a hex id
+/// or prefix, and git's own first-parent suffixes all mean here exactly what
+/// they mean at `ff op show`, and a change id is refused there rather than
+/// a second time here. What this adds is the branch name: a token nothing
+/// in operation space answers to is looked up as a revision before the
+/// refusal is worded.
 fn leaf(repo: &gix::Repository, token: &str) -> Result<OpId> {
     let log = OpLog::open(repo)?;
     match log.resolve(token) {
@@ -198,7 +200,7 @@ fn leaf(repo: &gix::Repository, token: &str) -> Result<OpId> {
         // right name and the wrong verb, and the mirror of that refusal
         // already exists for an op id typed among revisions.
         Err(err) if err.id() == "op/not-found" => match names_a_revision(repo, token) {
-            Some(named_branch) => Err(rev_in_op_position(token, named_branch)),
+            Some(named_branch) => Err(crate::ops::rev_in_op_position(token, named_branch)),
             None => Err(err),
         },
         Err(err) => Err(err),
@@ -490,34 +492,6 @@ impl Iterator for Merge<'_> {
 
 // ── refusals ──────────────────────────────────────────────────────────────
 
-/// The mirror of `usage/op-in-rev-position`. On a branch name, one log spans
-/// every branch, so narrowing to one is a predicate rather than a name you
-/// can write on its own; on a change id, the letters were read in the wrong
-/// slot, and the verbs that read a revision are the exits.
-fn rev_in_op_position(token: &str, named_branch: bool) -> Error {
-    if named_branch {
-        return Error::coded(
-            "usage/rev-in-op-position",
-            format!(
-                "`{token}` names a revision, and this position takes operations. One log spans \
-                 every branch, so narrowing to one is `on_branch()` rather than the branch's name"
-            ),
-            vec![
-                format!("ff op log 'on_branch({token})'"),
-                format!("ff log -r {token}"),
-            ],
-        );
-    }
-    Error::coded(
-        "usage/rev-in-op-position",
-        format!(
-            "`{token}` names a revision, and this position takes operations. Change ids and \
-             operation ids share the letters; the slot decides, and this one reads operations"
-        ),
-        vec![format!("ff log -r {token}"), "ff op log".into()],
-    )
-}
-
 fn base_here() -> Error {
     Error::coded(
         "usage/revset-wrong-space",
@@ -742,8 +716,11 @@ mod tests {
             .hex();
 
         for (src, id) in [
-            // Hex is how you say *commit*; it is not a second spelling here.
-            (hex[..8].to_string(), "op/not-found"),
+            // Letters are a change id; this slot refuses them by name.
+            (
+                crate::letters::encode(&hex[..8]),
+                "usage/rev-in-op-position",
+            ),
             // A branch name is the mirror of an op id typed among revisions.
             ("main".to_string(), "usage/rev-in-op-position"),
             // Revision-space functions have nothing to read here...

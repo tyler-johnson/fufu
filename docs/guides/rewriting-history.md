@@ -10,13 +10,13 @@ Every transcript below is real `ff` output from one scratch repository: a `lexer
 $ ff log
 @  no changes
 │  (no description)
-●  ztkymwnn da11b819   0s ago
+●  zrwvnqnr 6c2d2362   0s ago
 │  lexer: drop whitespace
-●  nzlsxpsu fc920186   0s ago
+●  lwqussmu 342875b2   0s ago
 │  lexer: skeleton and stream
-●  qlswnvns 7c4c37e9   0s ago
+●  kmxqpvvk 9288324a   1s ago
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   0s ago
+●  zvunwxsk 5abc3ebf   1s ago
 │  init: hello world
 ```
 
@@ -25,8 +25,8 @@ $ ff log
 Bare [`ff describe`](../reference/cli/describe.md) names the open change. Naming a revision rewords a commit that has already closed:
 
 ```console
-$ ff describe fc920186 -m "lexer: skeleton and char stream"
-reworded edbf59b6 on lexer: lexer: skeleton and char stream
+$ ff describe 342875b2 -m "lexer: skeleton and char stream"
+reworded 6d971d9f on lexer: lexer: skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -40,20 +40,20 @@ Review feedback usually lands on a commit that already closed, and the fix usual
 ```console
 $ ff status
 on lexer · nothing to pull
-@  llkyuukq 1e4f9885   0s ago
+@  ntytokxr 9f2db953   0s ago
 │  (no description)
 │  M README.md    +2  -0  ++++++++++++++++++++
 │  M src/lexer.rs +1  -0  ++++++++++
 │    2 files      +3  -0
-●  llurqxkx 2f2985ee   0s ago
+●  zrwvnqnr a2d068c3   0s ago
 │  lexer: drop whitespace
 ```
 
 An absorb does not attribute hunks: [the change is the unit](../concepts/changes.md), and a path filter chooses which of its files fold in. Whole files are what move, and the rest stays open.
 
 ```console
-$ ff absorb src/lexer.rs --into edbf59b6
-absorbed into 601cd64d: lexer: skeleton and char stream
+$ ff absorb src/lexer.rs --into 6d971d9f
+absorbed into ef7efd19: lexer: skeleton and char stream
 restacked 1 commit(s) above it
 limited to 1 path(s)
 the rest of your change is still open
@@ -61,11 +61,11 @@ undo: ff undo
 
 $ ff status
 on lexer · nothing to pull
-@  llkyuukq 92fe2c7a   0s ago
+@  ntytokxr 19693b74   0s ago
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
 │    1 file    +2  -0
-●  ypkrtvto b6468fa1   0s ago
+●  zrwvnqnr 8968ba9f   0s ago
 │  lexer: drop whitespace
 ```
 
@@ -73,7 +73,7 @@ The stray note was never part of this work, so discard it:
 
 ```console
 $ ff restore README.md
-restored from b6468fa1 (lexer: drop whitespace)
+restored from 8968ba9f (lexer: drop whitespace)
   restored  README.md
 undo: ff undo
 ```
@@ -85,8 +85,8 @@ Some fixes cannot be written blind against the tip, because the commit that need
 [`ff edit`](../reference/cli/edit.md) opens an editing session on a commit: a branch is minted at the commit and you switch to it, so the commit's real content is what sits on disk, with your whole toolchain pointed at it. The branch you came from stays where it stands, its commits waiting ahead, and your open change parks until the session ends.
 
 ```console
-$ ff edit 601cd64d
-editing 601cd64d "lexer: skeleton and char stream" on ff/keen-drake
+$ ff edit ef7efd19
+editing ef7efd19 "lexer: skeleton and char stream" on ff/gentle-owl
 1 commit(s) wait ahead on lexer
 finish with ff done, or ff done --abandon to drop it
 undo: ff undo
@@ -96,14 +96,14 @@ Edit as if the commit were the tip, because for the moment it is. [`ff status`](
 
 ```console
 $ ff status
-on ff/keen-drake
-editing 601cd64d "lexer: skeleton and char stream" — lands back on lexer
+on ff/gentle-owl
+editing ef7efd19 "lexer: skeleton and char stream" — lands back on lexer
     ff done to finish · ff done --abandon to drop it
-@  kxzovkps d610e329   0s ago
+@  lwqussmu a51dea2f   0s ago
 │  (no description)
 │  M src/lexer.rs +1  -1  ++++++++++----------
 │    1 file       +1  -1
-●  mvtmnyzt 601cd64d   0s ago
+●  lwqussmu ef7efd19   0s ago
 │  lexer: skeleton and char stream
 ```
 
@@ -111,7 +111,7 @@ editing 601cd64d "lexer: skeleton and char stream" — lands back on lexer
 
 ```console
 $ ff done
-amended 601cd64d "lexer: skeleton and char stream"
+amended ef7efd19 "lexer: skeleton and char stream"
 replayed 1 commit(s)
 back on lexer
 undo: ff undo
@@ -120,15 +120,15 @@ undo: ff undo
 A session you think better of ends with `--abandon`. The session is dropped, and whatever was uncommitted is stashed rather than discarded:
 
 ```console
-$ ff edit 6e03aa1f
-editing 6e03aa1f "lexer: skeleton and char stream" on ff/early-wren
+$ ff edit c9cad0c8
+editing c9cad0c8 "lexer: skeleton and char stream" on ff/early-spruce
 1 commit(s) wait ahead on lexer
 finish with ff done, or ff done --abandon to drop it
 undo: ff undo
 
 $ ff done --abandon
-abandoned the session on 6e03aa1f "lexer: skeleton and char stream"
-stashed the session's edits (9aae9296)
+abandoned the session on c9cad0c8 "lexer: skeleton and char stream"
+stashed the session's edits (d81d7eb9)
 back on lexer
 undo: ff undo
 ```
@@ -140,16 +140,16 @@ There is no staging area to assemble a partial commit in. [`ff commit`](../refer
 ```console
 $ ff status
 on lexer · nothing to pull
-@  zomlwswu c50d1e82   0s ago
+@  ntytokxr da77bfc6   0s ago
 │  (no description)
 │  A NOTES.md      +1  -0  ++++++++++++++++++++
 │  A src/parser.rs +1  -0  ++++++++++++++++++++
 │    2 files       +2  -0
-●  pnlrwlwl e3e38eca   0s ago
+●  zrwvnqnr 4b55de54   0s ago
 │  lexer: drop whitespace
 
 $ ff commit src/parser.rs -m "parser: entry point"
-closed 89ea1b1c on lexer: parser: entry point (1 file(s))
+closed 8667585e on lexer: parser: entry point (1 file(s))
 undo: ff undo
 ```
 
@@ -158,15 +158,15 @@ What was not named stays open — still the change you are in the middle of:
 ```console
 $ ff status
 on lexer · nothing to pull
-@  zomlwswu ac73c32a   0s ago
+@  mmknntln 137647a9   0s ago
 │  (no description)
 │  A NOTES.md +1  -0  ++++++++++++++++++++
 │    1 file   +1  -0
-●  nyoyplqr 89ea1b1c   0s ago
+●  ntytokxr 8667585e   0s ago
 │  parser: entry point
 
 $ ff commit -m "notes: parser scratchpad"
-closed 5afd8291 on lexer: notes: parser scratchpad (1 file(s))
+closed 36a6b15c on lexer: notes: parser scratchpad (1 file(s))
 undo: ff undo
 ```
 
@@ -178,38 +178,36 @@ The close that should have been sliced and was not is the other case. This commi
 
 ```console
 $ ff commit -m "parser: eat chars from the stream"
-closed c539a953 on lexer: parser: eat chars from the stream (2 file(s))
+closed 1bc473ea on lexer: parser: eat chars from the stream (2 file(s))
 undo: ff undo
 
 $ ff
 @  no changes                  ▸ [lexer]
 │  (no description)
-●  rylnsknu c539a953   0s ago
+●  ossslovp 1bc473ea   0s ago
 │  parser: eat chars from the stream
 ~  4 commits
-●  qlswnvns 7c4c37e9   0s ago  ▸ [main]
+●  kmxqpvvk 9288324a   1s ago  ▸ [main]
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   0s ago
-   init: hello world
+~
 ```
 
 [`ff lift`](../reference/cli/lift.md) is the other direction of absorb: it takes files back out of a closed commit and into the open change — the revision you name with `--from`, or the commit under the change when you name none. Like absorb, it moves whole files, and a path filter chooses which.
 
 ```console
 $ ff lift NOTES.md
-lifted out of 600b72db: parser: eat chars from the stream
+lifted out of c7cc9350: parser: eat chars from the stream
 undo: ff undo
 
 $ ff
-@  rylnsknu 7c4d4964   0s ago  ▸ [lexer]
+@  —                   0s ago  ▸ [lexer]
 │  (no description)
-●  omxsozzt 600b72db   0s ago
+●  ossslovp c7cc9350   0s ago
 │  parser: eat chars from the stream
 ~  4 commits
-●  qlswnvns 7c4c37e9   0s ago  ▸ [main]
+●  kmxqpvvk 9288324a   1s ago  ▸ [main]
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   0s ago
-   init: hello world
+~
 ```
 
 The map shows the split in progress: the commit stands re-identified with one file fewer, and the lifted file is the open change again, ready to close on its own:
@@ -217,15 +215,15 @@ The map shows the split in progress: the commit stands re-identified with one fi
 ```console
 $ ff status
 on lexer · nothing to pull
-@  rylnsknu 7c4d4964   0s ago
+@  —                   0s ago
 │  (no description)
 │  M NOTES.md +1  -0  ++++++++++++++++++++
 │    1 file   +1  -0
-●  omxsozzt 600b72db   0s ago
+●  ossslovp c7cc9350   0s ago
 │  parser: eat chars from the stream
 
 $ ff commit -m "notes: eat chars notes"
-closed b72ded1a on lexer: notes: eat chars notes (1 file(s))
+closed 493f101e on lexer: notes: eat chars notes (1 file(s))
 undo: ff undo
 ```
 
@@ -233,13 +231,13 @@ Lift with no path takes everything, and fufu writes no empty commit — a lift t
 
 ```console
 $ ff lift
-lifted everything out of b72ded1a "notes: eat chars notes": the commit is gone
+lifted everything out of 493f101e "notes: eat chars notes": the commit is gone
 undo: ff undo
 
 $ ff undo
-undid: lift out of b72ded1a on lexer
-  now at vwyvuzqxswwp (commit on lexer: notes: eat chars notes)
-  refs/heads/lexer → b72ded1a
+undid: lift out of 493f101e on lexer
+  now at 313eee596f39 (commit on lexer: notes: eat chars notes)
+  refs/heads/lexer → 493f101e
 back: ff redo
 ```
 
@@ -253,16 +251,15 @@ That undo is the whole family's safety net in one block: the lift was one operat
 $ ff
 @  no changes                  ▸ [renamer]
 │  (no description)
-●  yykyutoy 4eb7c068   0s ago
+●  lnwtsxtl a1bec1a5   0s ago
 │  renamer: rename pass
-│ ●  pymlmxso b72ded1a   2s ago  ▸ [lexer]
+│ ●  ytsrlmwp 493f101e   1s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  qlswnvns 7c4c37e9   2s ago  ▸ [main]
+●  kmxqpvvk 9288324a   2s ago  ▸ [main]
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   2s ago
-   init: hello world
+~
 
 $ ff collide lexer
   renamer  ✕ lexer  src/main.rs
@@ -271,19 +268,21 @@ $ ff collide lexer
 One name means the branch you are on and that one. The verdict names the files that would fight, which makes it a work order for the verbs above: lift the fighting file out of the rename commit and the collision should go with it.
 
 ```console
-$ ff lift src/main.rs --from 4eb7c068
-lifted out of 2cf0b63a: renamer: rename pass
+$ ff lift src/main.rs --from a1bec1a5
+lifted out of 6bcd2ced: renamer: rename pass
 undo: ff undo
 
 $ ff collide lexer
   renamer*  ✕ lexer  src/main.rs
+
+  * has uncommitted work
 ```
 
 Still colliding, and the `*` says why: each side is judged on the tree the operation log holds for it, so uncommitted work counts — the lifted edit is now the open change, and it still fights. That same rule means a branch checked out in another worktree, or nowhere at all, still answers. Discard the lifted edit and ask again:
 
 ```console
 $ ff restore src/main.rs
-restored from 2cf0b63a (renamer: rename pass)
+restored from 6bcd2ced (renamer: rename pass)
   restored  src/main.rs
 undo: ff undo
 
@@ -293,16 +292,15 @@ $ ff collide lexer
 $ ff
 @  no changes                  ▸ [renamer]
 │  (no description)
-●  pwtozknx 2cf0b63a   0s ago
+●  lnwtsxtl 6bcd2ced   0s ago
 │  renamer: rename pass
-│ ●  pymlmxso b72ded1a   2s ago  ▸ [lexer]
+│ ●  ytsrlmwp 493f101e   1s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  qlswnvns 7c4c37e9   2s ago  ▸ [main]
+●  kmxqpvvk 9288324a   2s ago  ▸ [main]
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   2s ago
-   init: hello world
+~
 ```
 
 A collision is a finding rather than a failure: the exit is 0 whichever way the answer goes, and a script reads the verdict from `--json`.
@@ -324,13 +322,13 @@ keep = 2s (this repo)
 
 $ ff trim -n
 would drop 33 of 36 operations
-  ff/early-wren: branch is gone — pointer removed
-  ff/keen-drake: branch is gone — pointer removed
+  ff/early-spruce: branch is gone — pointer removed
+  ff/gentle-owl: branch is gone — pointer removed
 
 $ ff trim
 dropped 33 of 36 operations — previous tip saved at refs/fufu/wt/main/trash/@ops until the next trim
-  ff/early-wren: branch is gone — pointer removed
-  ff/keen-drake: branch is gone — pointer removed
+  ff/early-spruce: branch is gone — pointer removed
+  ff/gentle-owl: branch is gone — pointer removed
 dropped data frees after gc
 ```
 
@@ -342,25 +340,24 @@ What trim never touches is history. The map after is the map before — same com
 $ ff
 @  no changes                  ▸ [renamer]
 │  (no description)
-●  pwtozknx 2cf0b63a   3s ago
+●  lnwtsxtl 6bcd2ced   3s ago
 │  renamer: rename pass
-│ ●  pymlmxso b72ded1a   5s ago  ▸ [lexer]
+│ ●  ytsrlmwp 493f101e   4s ago  ▸ [lexer]
 │ │  notes: eat chars notes
 │ ~  5 commits
 ├─╯
-●  qlswnvns 7c4c37e9   5s ago  ▸ [main]
+●  kmxqpvvk 9288324a   5s ago  ▸ [main]
 │  release: cut v0.1.0
-●  oozvsnln cec740bb   5s ago
-   init: hello world
+~
 ```
 
 What shrank is where undo can reach. [`ff history`](../reference/cli/history.md) now has a floor where the dropped operations were:
 
 ```console
 $ ff history
-@   zxuwvqoo    0s ago  now   trim: dropped 33 operation(s)
-↓1  pxsptmzn    0s ago  undo  switch from lexer to main
-↓2  kowpoxox    0s ago  undo  switch from renamer to lexer
+@   26f0d1b90cc3    0s ago  now   trim: dropped 33 operation(s)
+↓1  122c2d118e99    0s ago  undo  switch from lexer to main [1b234d04-d951-438c-9b46-3de76978f90d]
+↓2  dad2dd7e5764    0s ago  undo  switch from renamer to lexer [1b234d04-d951-438c-9b46-3de76978f90d]
     (the floor)
 ```
 
@@ -384,8 +381,8 @@ created origin/lexer and set lexer to track it
 the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
 
-$ ff describe b72ded1a -m "notes: how eating chars works"
-reworded 6147429c on lexer: notes: how eating chars works
+$ ff describe 493f101e -m "notes: how eating chars works"
+reworded cb89b2dc on lexer: notes: how eating chars works
 1 of the rewritten commits are already on origin/lexer
 undo: ff undo
 ```
@@ -402,16 +399,16 @@ ff undo then ff push rolls the shared copy back, under a lease
 Now a teammate lands a commit on `origin/lexer`, and the same sequence stops being yours to make. Reword again, and the lease refuses the exit:
 
 ```console
-$ ff describe 6147429c -m "notes: eating chars, explained"
-reworded 37bcef6e on lexer: notes: eating chars, explained
+$ ff describe cb89b2dc -m "notes: eating chars, explained"
+reworded b31fd770 on lexer: notes: eating chars, explained
 1 of the rewritten commits are already on origin/lexer
 undo: ff undo
 
 $ ff push
 ff: origin/lexer moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
   try:
-    ff pull
-    ff push
+    ff pull lexer
+    ff push lexer
 ```
 
 Nothing was sent and nothing was lost. And when [`ff pull`](../reference/cli/pull.md) reconciles, the history the team holds wins: the shared line comes in whole, and a rewrite it already superseded — a different spelling of a commit somebody else has built on — does not survive the replay. The change id decides it: your commit and the teammate's rewrite of it carry the same id, so yours is dropped as superseded without a merge, whatever either spelling's content:
@@ -421,7 +418,7 @@ $ ff pull
 fetching from origin
 took in 2 commit(s) from origin/lexer
 replayed 0 of yours on top
-dropped 37bcef6e "notes: eating chars, explained" — superseded by 8d1c04a2 in the base
+dropped b31fd770 "notes: eating chars, explained" — superseded by cb89b2dc in the base
 updated the working copy (1 file(s))
 undo: ff undo
 ```

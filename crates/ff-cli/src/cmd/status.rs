@@ -124,10 +124,9 @@ pub struct SessionStatus {
 /// person can read a script reads as data.
 #[derive(serde::Serialize)]
 pub struct OpenStatus {
-    /// The newest capture (hex), the op anchor; `id_letters` is its
-    /// spelling. The column the human view prints is `change_id`.
+    /// The newest capture, full hex: the op anchor, and what `--at-op`
+    /// reads. The column the human view prints is `change_id`.
     pub id: Option<String>,
-    pub id_letters: Option<String>,
     /// The open change's id in letters, once something minted it.
     pub change_id: Option<String>,
     pub pending: Option<String>,
@@ -382,7 +381,6 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
     };
 
     // Build the single data model both renderers consume
-    let id_letters = open.id.as_deref().map(ff_core::snapid::encode);
     let model = StatusModel {
         head: status.head.clone(),
         root,
@@ -396,7 +394,6 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
         deletions: change_stat.deletions,
         open: OpenStatus {
             id: open.id.clone(),
-            id_letters,
             change_id: open.change_id.clone(),
             pending: open.pending.clone(),
             subject: open.subject.clone(),

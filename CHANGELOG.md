@@ -9,11 +9,16 @@
 ### Changed
 
 - The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through every rewrite fufu performs, in place of the op anchor. `ff commit` writes it as jj's `change-id` header inside the signed payload, and a commit made outside fufu derives one from its sha, so the column is never blank. `--json` carries `change_id` beside the ids it carried before.
-- A letters token in a revision slot is a change id or a unique prefix of one, and a prefix of the open change's id is `@`. An ambiguous prefix is `usage/revset-ambiguous`; a change standing on more than one visible commit is `usage/revset-divergent`. Operation ids keep their own slots.
+- A letters token in a revision slot is a change id or a unique prefix of one, and a prefix of the open change's id is `@`. An ambiguous prefix is `usage/revset-ambiguous`; a change standing on more than one visible commit is `usage/revset-divergent`. Operation ids are hex now and keep their own slots.
+- Operation and capture ids print and parse as hex, twelve characters in every column, like jj's: `ff op log`, `ff evolog`, `ff history`, `ff undo`, and the bold prefix `--at-op` reads, and every `id` the JSON surface carries for an operation. Letters are a change id and nothing else: `ff op show <change id>` and `--at-op <change id>` are `usage/rev-in-op-position`, and `ff log -r <op id>` is `usage/op-in-rev-position`.
 - `ff switch <change id>` redirects to `ff start` at that commit, the way `ff switch <sha>` does.
 - `ff restack` and the cascade drop a commit whose change id the base already holds, reflog or no reflog: `dropped … — superseded by <sha> in the base`. JSON `dropped` entries gain `reason` and, under `superseded`, `by`.
 - A branch created outside fufu records the branch it was cut from as its base when its tip is exactly one other non-trunk branch's tip or git's reflog names it. The absorb line says `forked from <branch>`, and `ff undo` takes the record back. Anything less certain stays on trunk.
 - A git upstream under another local branch's name, or trunk's, is the branch's base rather than its shared copy: `ff status` shows it on the base axis, `ff branch list` shows no copy, and the `branch/aliased-copy` refusal goes. An upstream under a name no local branch holds is still the branch's own copy.
+
+### Removed
+
+- `id_letters` from `ff status --json` and `ff log --json`; `id` is the operation's hex, and what `--at-op` reads.
 
 ### Fixed
 
@@ -24,7 +29,6 @@
 ### Known issues
 
 - A rebase or cherry-pick run outside fufu drops the `change-id` header, and the commit comes back with a derived id. jj has the same limitation.
-- Operation ids share the letters alphabet with change ids, where jj's are hex; an op slot reads an operation id and a revision slot does not.
 - A capture's mint is not journaled: after `ff undo` and `ff redo` of a partial close, the remainder can wear a different id than it did between them.
 
 ## v0.13.0 — 2026-09-08

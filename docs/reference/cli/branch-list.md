@@ -16,7 +16,7 @@ Options:
           Every remote-only branch, not just the newest few
 
       --at-op <op>
-          Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)

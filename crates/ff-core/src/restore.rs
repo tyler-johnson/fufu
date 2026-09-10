@@ -10,17 +10,16 @@
 //! ```text
 //! (bare)            the commit under the open change   — a commit
 //! --from <rev>      any revision, through the revset   — a commit
-//! --at-op <op>      an operation, spelled in letters   — an operation
+//! --at-op <op>      an operation, a hex id or prefix   — an operation
 //! --at <time>       the operation current at a moment  — an operation
 //! ```
 //!
 //! What that arrangement retires is the old `--at`, which took an operation
-//! id, *raw hex*, `@{n}`, an age, or a date, and picked between them by
-//! shape. Raw hex there was the leak that mattered: hex is how you say
-//! *commit* everywhere else in fufu, and one verb quietly accepting it as an
-//! operation address is how the two spaces bleed. `@{n}` went with it, since
-//! `--at-op @^` says the same thing in the address space that owns the
-//! question.
+//! id, `@{n}`, an age, or a date, and picked between them by shape. An
+//! operation id and a commit id are both hex, so the flag is what says which
+//! space a prefix is read in, and a flag that read either was the leak that
+//! mattered. `@{n}` went with it, since `--at-op @^` says the same thing in
+//! the address space that owns the question.
 
 use crate::error::{Error, Result};
 use crate::model::{RestoreOrigin, RestoreReport};
@@ -39,7 +38,7 @@ pub enum RestoreSource {
     Open,
     /// `--from <rev>` — a revision, through the one revset resolver.
     Rev(String),
-    /// `--at-op <op>` — an operation, spelled in letters.
+    /// `--at-op <op>` — an operation, a hex id or prefix.
     Op(String),
     /// `--at <time>` — the operation current at that moment.
     Time(String),

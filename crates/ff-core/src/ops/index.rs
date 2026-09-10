@@ -19,8 +19,8 @@
 //! `MERGE_TAIL` stays 512 regardless of how large the domain grows: making
 //! it proportional would turn the constant tail scan into a linear one, and
 //! the constant is the whole point. The accepted consequence of one global
-//! id space is that unique prefixes lengthen from three or four letters to
-//! about five.
+//! id space is that unique prefixes lengthen from three or four hex digits
+//! to about five.
 //!
 //! **One file per chain, one resolution domain across all of them.** A
 //! worktree writes only its own chain's file, which is what keeps a bay's
@@ -474,9 +474,9 @@ fn common_prefix(a: &str, b: &str) -> usize {
 /// the two is the same answer as sorting their union — the nearest
 /// neighbour in the union is whichever per-file neighbour is closer.
 ///
-/// Ids are raw hex here, not letters: the alphabet is an order-preserving
-/// per-character map, so a prefix length computed over hex is the same
-/// number of letters, and the file stays greppable with git's own ids.
+/// Ids are raw hex, which is also how they print: a prefix length computed
+/// here is the number of characters the column bolds, and the file stays
+/// greppable with git's own ids.
 pub fn prefix_lens(repo: &gix::Repository, ids: &[String]) -> Result<HashMap<String, usize>> {
     let mut open = domain(repo)?;
 

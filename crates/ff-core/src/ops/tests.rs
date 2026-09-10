@@ -449,11 +449,11 @@ fn prefixes_resolve_and_collisions_are_refused() {
     let repo = fx.repo();
     let log = OpLog::open(&repo).unwrap();
 
-    // A full letters id resolves to itself.
+    // A full hex id resolves to itself.
     let last = *ids.last().unwrap();
     assert_eq!(log.resolve(&last.to_string()).unwrap(), last);
 
-    // Some first hex nibble is shared by two ops; its letter is ambiguous.
+    // Some first hex nibble is shared by two ops; it is ambiguous.
     let mut buckets: std::collections::HashMap<char, Vec<OpId>> = std::collections::HashMap::new();
     for id in &ids {
         buckets
@@ -465,17 +465,25 @@ fn prefixes_resolve_and_collisions_are_refused() {
         .iter()
         .find(|(_, v)| v.len() > 1)
         .expect("twenty ids in sixteen buckets collide");
-    let letter = crate::snapid::encode(&nibble.to_string());
-    let err = log.resolve(&letter).unwrap_err();
+    let err = log.resolve(&nibble.to_string()).unwrap_err();
     assert_eq!(err.id(), "op/ambiguous", "{}", err);
+    // The ambiguity lists candidates at the column's width.
+    for word in err.to_string().split([' ', ',']) {
+        if word.len() == crate::ops::id::SHORT {
+            assert!(word.bytes().all(|b| b.is_ascii_hexdigit()), "{word}");
+        }
+    }
 
-    // Nothing matching at all.
+    // Nothing matching at all: hex that no operation starts with.
+    let err = log.resolve("ffffffffffff").unwrap_err();
+    assert_eq!(err.id(), "op/not-found");
+    // Letters are a change id, and refused here by name rather than looked
+    // up: that is what keeps the two address spaces apart.
+    let letters = crate::letters::encode(&last.hex());
+    let err = log.resolve(&letters).unwrap_err();
+    assert_eq!(err.id(), "usage/rev-in-op-position", "{}", err);
     let err = log.resolve("zzzzzzzzzzzz").unwrap_err();
-    assert_eq!(err.id(), "op/not-found");
-    // Hex is refused where an operation belongs, even though it would
-    // resolve: that is what keeps the two address spaces apart.
-    let err = log.resolve(&last.hex()).unwrap_err();
-    assert_eq!(err.id(), "op/not-found");
+    assert_eq!(err.id(), "usage/rev-in-op-position", "{}", err);
 }
 
 #[test]
@@ -492,7 +500,7 @@ fn at_walks_back_and_stops_at_the_floor() {
     // op's first parent is the op before it and nothing here says otherwise.
     assert_eq!(log.resolve("@^^^").unwrap(), ids[16]);
     assert_eq!(log.resolve("@~2^").unwrap(), ids[16]);
-    // Suffixes ride a letters id as readily as they ride `@`.
+    // Suffixes ride a hex id as readily as they ride `@`.
     assert_eq!(log.resolve(&format!("{}^", ids[19])).unwrap(), ids[18]);
 
     let err = log.resolve("@~999").unwrap_err();

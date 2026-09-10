@@ -132,8 +132,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "--at takes a time and only a time: a compact age like 90s/15m/2h/3d/1w, or any \
                  date git itself can parse. It resolves to the operation that was current at \
                  that moment. Nothing here has to out-guess an id, which is the point of \
-                 splitting the flag — an operation is named by --at-op, in letters, and a \
-                 revision by --from.",
+                 splitting the flag — an operation is named by --at-op, a revision by --from.",
         exits: &[
             "ff restore --all --at 2h",
             "ff restore --all --at-op <op>",
@@ -187,10 +186,11 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "op/not-found",
         summary: "no operation goes by that id",
-        detail: "Operation ids are spelled in letters (k through z) and never in hex, which is what \
-                 keeps hex meaning \"commit\" everywhere in fufu. A hex-shaped id in an \
-                 operation-typed position is refused for that reason rather than resolved. \
-                 ff op log prints ids in exactly the form these verbs accept.",
+        detail: "Operation ids are hex like commit ids, and the slot says which space a prefix is \
+                 read in: --at-op and the ff op verbs read operations, -r and --from read \
+                 revisions. This prefix matched no operation. Letters are a change id and are \
+                 refused here by name instead. ff op log prints ids in exactly the form these \
+                 verbs accept.",
         exits: &["ff op log"],
     },
     Entry {
@@ -487,11 +487,11 @@ pub static ENTRIES: &[Entry] = &[
         id: "usage/op-in-rev-position",
         summary: "that is an operation, and this position takes a revision",
         detail: "History has revisions; the log of what fufu did has operations. They never mix in \
-                 one argument. Change ids and operation ids share the letters alphabet, so the \
-                 slot decides what letters mean: a revision slot reads a change id, an operation \
-                 slot reads an operation id. An operation id typed here is usually the right id \
-                 and the wrong verb: `ff op show` reads one, `--at-op` runs a read-only command \
-                 as of one, and `ff op log` takes whole expressions over them.",
+                 one argument. Both are hex, so the slot decides which space a prefix is read \
+                 in: a revision slot reads a commit, an operation slot reads an operation. \
+                 Letters are always a change id. An operation id typed here is usually the right \
+                 id and the wrong verb: `ff op show` reads one, `--at-op` runs a read-only \
+                 command as of one, and `ff op log` takes whole expressions over them.",
         exits: &["ff op show <op>", "ff op log '<expr>'"],
     },
     Entry {
@@ -503,10 +503,9 @@ pub static ENTRIES: &[Entry] = &[
                  the operation ran on, and the rest are the shas it pinned. It also turns up on a \
                  branch name inside an ff op log expression, where one log spans every branch, \
                  so narrowing to one is the on_branch() predicate rather than a name, and on a \
-                 change id, which shares the letters alphabet and is read in revision slots \
-                 only. Either way the crossing \
-                 back to history is spelled base(), so that it is something you asked for rather \
-                 than something a suffix did quietly.",
+                 change id, which is letters and is read in revision slots only. Either way the \
+                 crossing back to history is spelled base(), so that it is something you asked \
+                 for rather than something a suffix did quietly.",
         exits: &[
             "ff op show @",
             "ff op log 'on_branch(<name>)'",

@@ -429,17 +429,17 @@ fn a_prefix_of_the_open_id_is_the_open_change() {
     assert_eq!(json(&out)["error"]["id"], "usage/revset-open-suffix");
 }
 
-/// An operation id in a revision slot is still refused toward `ff op show`,
-/// even though it wears the alphabet a change id wears.
+/// An operation id in a revision slot is refused toward `ff op show`: it is
+/// hex like a commit, and the slot is what says it is an operation. Whole
+/// at `ff show`, and as the prefix `ff op log` prints at `ff log -r`.
 #[test]
-fn an_operation_id_is_still_refused_in_a_revision_slot() {
+fn an_operation_id_is_refused_in_a_revision_slot() {
     let fx = repo();
     closed(&fx);
-    let op = json(&ok(ff(&fx, &["--json", "op", "log", "-n", "1"])))["data"]["ops"][0]["id"]
-        .as_str()
-        .expect("an op id")
-        .to_string();
+    let row = json(&ok(ff(&fx, &["--json", "op", "log", "-n", "1"])))["data"]["ops"][0].clone();
+    let op = row["id"].as_str().expect("an op id").to_string();
     assert_eq!(op.len(), 40, "{op}");
+    assert!(op.chars().all(|c| c.is_ascii_hexdigit()), "{op}");
 
     let out = ff(&fx, &["--json", "show", &op]);
     assert!(!out.status.success());
@@ -449,7 +449,17 @@ fn an_operation_id_is_still_refused_in_a_revision_slot() {
         v["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("a change id shares"),
+            .contains("hex like commits"),
+        "{v}"
+    );
+
+    let short = row["short_id"].as_str().expect("a short id");
+    let out = ff(&fx, &["--json", "log", "-r", short]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/op-in-rev-position", "{v}");
+    assert!(
+        v["error"]["exits"].to_string().contains("ff op show"),
         "{v}"
     );
 }
@@ -531,8 +541,15 @@ fn a_change_id_in_an_op_log_expression_is_refused_toward_revisions() {
     let v = json(&out);
     assert_eq!(v["error"]["id"], "usage/rev-in-op-position", "{v}");
     let message = v["error"]["message"].as_str().unwrap();
-    assert!(message.contains("the slot decides"), "{message}");
+    assert!(message.contains("is a change id"), "{message}");
     assert!(!message.contains("on_branch"), "{message}");
+    assert!(v["error"]["exits"].to_string().contains("ff log -r"), "{v}");
+
+    // The same refusal at `--at-op`, the other slot that reads an operation.
+    let out = ff(&fx, &["--json", "restore", "--all", "--at-op", &id[..8]]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "usage/rev-in-op-position", "{v}");
     assert!(v["error"]["exits"].to_string().contains("ff log -r"), "{v}");
 }
 

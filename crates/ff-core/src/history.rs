@@ -50,7 +50,7 @@ impl Move {
 /// One row: one operation you can stand on, and how many keystrokes away.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Step {
-    /// The operation, spelled in letters like every other op address.
+    /// The operation, full hex like every other op address.
     pub id: String,
     /// The shortest prefix the `ff op` verbs resolve unambiguously.
     pub short_id: String,

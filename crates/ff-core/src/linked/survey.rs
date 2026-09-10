@@ -74,10 +74,9 @@ pub fn survey(repo: &gix::Repository) -> Result<Survey> {
             Err(_) => orphans.push(OrphanRow {
                 id,
                 chain,
-                // Still the letters spelling: `tip` is what
-                // `ff restore --at-op` takes, and a hex sha would not resolve
-                // there. An unreadable record costs the branch and the time,
-                // not the address.
+                // Still an address: `tip` is what `ff restore --at-op`
+                // takes. An unreadable record costs the branch and the
+                // time, not the address.
                 tip: Some(OpId::new(sha).to_string()),
                 branch: None,
                 time: None,
@@ -88,7 +87,7 @@ pub fn survey(repo: &gix::Repository) -> Result<Survey> {
     Ok(Survey { worktrees, orphans })
 }
 
-/// The chain's newest operation, in the letters spelling. The id is all a
+/// The chain's newest operation, full hex. The id is all a
 /// live row carries — decoding per worktree would buy nothing — so this
 /// reads the ref and stops there.
 fn live_tip(repo: &gix::Repository, chain: &str) -> Result<Option<String>> {

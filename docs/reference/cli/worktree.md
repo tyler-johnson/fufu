@@ -17,7 +17,7 @@ Commands:
 
 Options:
       --at-op <op>
-          Read as of this operation (a letters-spelled id, `@`, `@^`, `@~3`)
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --json
           Emit machine-readable JSON

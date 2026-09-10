@@ -78,12 +78,12 @@ fn report(ctx: &Ctx, landed: &runtime::Landed) -> Result<()> {
         CaptureOutcome::Created {
             id, changed_files, ..
         } => {
-            // The id column's convention everywhere: eight letters, with
-            // the shortest prefix `ff op` resolves unambiguously in bold.
-            // Prefix lengths are keyed on the raw hex, which is what the
+            // The id column's convention everywhere: twelve hex, with the
+            // shortest prefix `ff op` resolves unambiguously in bold.
+            // Prefix lengths are keyed on the full hex, which is what the
             // id index holds.
             let hex = id.hex();
-            let display = id.short(8);
+            let display = id.short(crate::render::OP_WIDTH);
             let unique =
                 crate::cmd::evolog::displayed_prefix_lens(&landed.repo, std::slice::from_ref(&hex))
                     .unwrap_or_default()

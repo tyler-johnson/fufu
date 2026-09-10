@@ -70,10 +70,14 @@ pub fn report_move(ctx: &Ctx, report: &ff_core::RewindReport, name: &'static str
         Some(what) => println!("{verb}{label}: {what}"),
         None => println!("{verb}{label}: nothing was in the way"),
     }
-    // Twelve letters: the length the ambiguity refusal lists candidates at,
+    // Twelve hex: the length the ambiguity refusal lists candidates at,
     // and so the length a reader can safely copy. The whole id is on the
     // machine surface.
-    let landed: String = report.landed.chars().take(12).collect();
+    let landed: String = report
+        .landed
+        .chars()
+        .take(ff_core::ops::id::SHORT)
+        .collect();
     println!(
         "  now at {} ({})",
         crate::render::paint_id(&landed, colored),

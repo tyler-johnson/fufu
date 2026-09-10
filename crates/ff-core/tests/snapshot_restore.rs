@@ -14,12 +14,6 @@ fn take_created(fx: &Fixture) -> String {
     }
 }
 
-/// The letters spelling of a hex id, which is the only form an operation
-/// address is accepted in.
-fn op(hex: &str) -> String {
-    ff_core::snapid::encode(hex)
-}
-
 fn restore(fx: &Fixture, source: RestoreSource, paths: Vec<String>) -> ff_core::RestoreReport {
     let repo = fx.repo();
     let all = paths.is_empty();
@@ -57,7 +51,7 @@ fn round_trip_restore_then_take_is_target_tree() {
     fx.write("extra.txt", "should disappear\n");
     fx.remove("dir/new.txt");
 
-    let report = restore_at_op(&fx, &op(&snap)[..8]);
+    let report = restore_at_op(&fx, &snap[..8]);
     assert_eq!(report.origin.id, snap);
     assert_eq!(report.origin.space, "operation");
     assert!(report.pre_op.is_some(), "pre-restore capture happened");
@@ -227,10 +221,10 @@ fn at_lands_on_the_operation_current_then() {
     );
 }
 
-/// The address-space leak this plan closed: `--at-op` takes letters, and raw
-/// hex in an operation-typed position is refused rather than resolved.
+/// Letters are a change id, and `--at-op` refuses them by name rather than
+/// looking them up in the wrong space.
 #[test]
-fn at_op_refuses_hex() {
+fn at_op_refuses_letters() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -242,7 +236,7 @@ fn at_op_refuses_hex() {
     let err = ff_core::restore(
         &repo,
         &RestoreOptions {
-            source: RestoreSource::Op(snap[..8].to_string()),
+            source: RestoreSource::Op(ff_core::letters::encode(&snap[..8])),
             paths: Vec::new(),
             all: true,
             now: None,
@@ -250,15 +244,15 @@ fn at_op_refuses_hex() {
         &Provenance::new("pre", Some("ff restore".into())),
     )
     .unwrap_err();
-    assert_eq!(err.id(), "op/not-found", "{err}");
+    assert_eq!(err.id(), "usage/rev-in-op-position", "{err}");
     assert_eq!(
         std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
         "diverged\n",
         "nothing was written"
     );
 
-    // The same operation, spelled the one way it is spelled, works.
-    let report = restore_at_op(&fx, &op(&snap)[..8]);
+    // The same operation, spelled in hex, works.
+    let report = restore_at_op(&fx, &snap[..8]);
     assert_eq!(report.origin.id, snap);
 }
 
@@ -275,7 +269,7 @@ fn index_and_head_untouched() {
 
     let index_before = fx.index_bytes();
     let head_before = fx.git(&["rev-parse", "HEAD"]);
-    restore_at_op(&fx, &op(&snap));
+    restore_at_op(&fx, &snap);
     assert_eq!(fx.index_bytes(), index_before, "index byte-identical");
     assert_eq!(
         fx.git(&["rev-parse", "HEAD"]),
@@ -296,7 +290,7 @@ fn ignored_files_untouched() {
     fx.write("tracked.txt", "diverged\n");
     fx.write("cache/scratch.bin", "ignored bytes");
 
-    restore_at_op(&fx, &op(&snap));
+    restore_at_op(&fx, &snap);
     assert!(
         fx.path().join("cache/scratch.bin").exists(),
         "ignored files are invisible to capture, so restore never deletes them"
@@ -315,7 +309,7 @@ fn emptied_directories_are_pruned() {
     fx.write("keep.txt", "captured\n");
     let snap = take_created(&fx);
     fx.write("deep/nested/only.txt", "temporary\n");
-    restore_at_op(&fx, &op(&snap));
+    restore_at_op(&fx, &snap);
     assert!(
         !fx.path().join("deep").exists(),
         "emptied parent dirs pruned bottom-up"
@@ -334,7 +328,7 @@ fn path_scoped_restore_leaves_the_rest() {
     fx.write("a.txt", "diverged a\n");
     fx.write("dir/b.txt", "diverged b\n");
 
-    let report = restore(&fx, RestoreSource::Op(op(&snap)), vec!["dir".into()]);
+    let report = restore(&fx, RestoreSource::Op(snap.clone()), vec!["dir".into()]);
     assert_eq!(report.restored, vec!["dir/b.txt".to_string()]);
     assert_eq!(
         std::fs::read_to_string(fx.path().join("dir/b.txt")).unwrap(),
@@ -347,9 +341,9 @@ fn path_scoped_restore_leaves_the_rest() {
     );
 }
 
-/// A letters-spelled id drives a real restore end to end.
+/// A hex prefix drives a real restore end to end.
 #[test]
-fn letters_id_restores() {
+fn hex_prefix_restores() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -357,7 +351,7 @@ fn letters_id_restores() {
     let snap = take_created(&fx);
     fx.write("a.txt", "diverged\n");
 
-    let report = restore_at_op(&fx, &op(&snap)[..8]);
+    let report = restore_at_op(&fx, &snap[..8]);
     assert_eq!(report.origin.id, snap);
     assert_eq!(
         std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
@@ -381,7 +375,7 @@ fn refuses_targets_that_are_not_operations() {
     let err = ff_core::restore(
         &repo,
         &RestoreOptions {
-            source: RestoreSource::Op(op(&head)),
+            source: RestoreSource::Op(head.clone()),
             paths: Vec::new(),
             all: true,
             now: None,
@@ -411,7 +405,7 @@ fn contended_pre_capture_aborts_before_writing() {
     let err = ff_core::restore(
         &repo,
         &RestoreOptions {
-            source: RestoreSource::Op(op(&snap)),
+            source: RestoreSource::Op(snap.clone()),
             paths: Vec::new(),
             all: true,
             now: None,
@@ -464,7 +458,7 @@ fn untracked_files_survive_because_diff_is_target_vs_snapshot() {
     let snap = take_created(&fx);
     fx.write("a.txt", "diverged\n");
 
-    restore_at_op(&fx, &op(&snap));
+    restore_at_op(&fx, &snap);
     assert!(
         fx.path().join("untracked.txt").exists(),
         "untracked-but-captured file untouched"
@@ -489,7 +483,7 @@ fn symlink_and_exec_bit_restore() {
 
     fx.remove("run.sh");
     fx.remove("link");
-    restore_at_op(&fx, &op(&snap));
+    restore_at_op(&fx, &snap);
 
     let md = std::fs::metadata(fx.path().join("run.sh")).unwrap();
     assert_eq!(md.permissions().mode() & 0o111, 0o111, "exec bit restored");
@@ -551,7 +545,7 @@ fn ambiguous_prefix_errors_with_both_ids() {
         // nothing to say and the resolver refuses on length alone.
         let len = lens[&newest].max(4);
         drop(repo);
-        let report = restore_at_op(&fx, &op(&newest)[..len]);
+        let report = restore_at_op(&fx, &newest[..len]);
         assert_eq!(
             report.origin.id, newest,
             "the index's own unique prefix must resolve to its own id"
@@ -563,7 +557,7 @@ fn ambiguous_prefix_errors_with_both_ids() {
     let err = ff_core::restore(
         &repo,
         &RestoreOptions {
-            source: RestoreSource::Op(op(&prefix)),
+            source: RestoreSource::Op(prefix.clone()),
             paths: Vec::new(),
             all: true,
             now: None,
@@ -573,11 +567,10 @@ fn ambiguous_prefix_errors_with_both_ids() {
     .unwrap_err();
     let msg = err.to_string();
     assert_eq!(err.id(), "op/ambiguous", "{msg}");
-    // Candidates are listed in the letters alphabet, because that is the
-    // spelling the user has to type back.
+    // Candidates are listed at the column's width, twelve hex, which is
+    // the spelling the user has to type back.
     for hex in [&a, &b] {
-        let letters = ff_core::snapid::encode(hex);
-        assert!(msg.contains(&letters[..12]), "missing {letters} in {msg}");
+        assert!(msg.contains(&hex[..12]), "missing {hex} in {msg}");
     }
 }
 
@@ -627,6 +620,6 @@ fn trash_ids_still_resolve() {
     .expect("trim");
 
     // Now only reachable via refs/fufu/wt/main/trash/@ops, not the live log.
-    let report = restore_at_op(&fx, &op(&old_id)[..8]);
+    let report = restore_at_op(&fx, &old_id[..8]);
     assert_eq!(report.origin.id, old_id);
 }

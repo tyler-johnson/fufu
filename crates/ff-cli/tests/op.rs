@@ -1,9 +1,10 @@
 //! The `ff op` family, end to end against the real binary.
 //!
 //! Two things are being pinned here beyond "the verbs run". First, the
-//! address space: an operation is spelled in letters and never in hex, and
-//! that has to hold at every door into the family, because a hex spelling
-//! that worked once would teach the wrong model on the first try. Second,
+//! address space: an operation is hex like a commit, the slot is what says
+//! which, and letters are a change id refused by name at every door into
+//! the family, because a letters spelling that resolved here once would
+//! teach the wrong model on the first try. Second,
 //! the envelope names: `ff session` shipped a listing and a diffstat both
 //! stamped `session`, and this family must not repeat it.
 
@@ -100,12 +101,11 @@ fn op_log_lists_verbs_and_captures_on_one_log() {
         verbs.len()
     );
 
-    // Every id is letters, never hex — the whole point of the alphabet is
-    // that an operation can never be misread as a commit sha.
+    // Every id is forty lowercase hex, the spelling `--at-op` reads back.
     for id in &everything {
         assert!(
-            id.chars().all(|c| ('k'..='z').contains(&c)),
-            "op id is spelled in k–z: {id}"
+            id.len() == 40 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+            "op id is forty lowercase hex: {id}"
         );
     }
 
@@ -129,18 +129,20 @@ fn addresses_accept_the_suffixes_git_already_has() {
     assert_eq!(shown("@"), ids[0]);
     assert_eq!(shown("@^"), ids[1]);
     assert_eq!(shown("@~3"), ids[3]);
-    // A prefix of the letters id resolves to the same operation.
+    // A prefix of the hex id resolves to the same operation, and so does
+    // the twelve the log's column prints.
     assert_eq!(shown(&ids[1][..8]), ids[1]);
+    assert_eq!(shown(&ids[1][..12]), ids[1]);
 
     // Bare `ff op show` is `@`.
     let out = ff(&fx, &["op", "show", "--json"]);
     assert_eq!(json(&out)["data"]["id"], ids[0]);
 }
 
-/// Raw hex is not a second way to say the same thing; it is how you say
-/// *commit*. Every door into the family refuses it.
+/// Letters are a change id, never an operation. Every door into the family
+/// refuses them by name rather than looking them up in the wrong space.
 #[test]
-fn hex_is_refused_wherever_an_operation_is_taken() {
+fn letters_are_refused_wherever_an_operation_is_taken() {
     let fx = with_ops();
     let repo = fx.repo();
     let hex = ff_core::ops::OpLog::open(&repo)
@@ -150,19 +152,20 @@ fn hex_is_refused_wherever_an_operation_is_taken() {
         .unwrap()
         .hex();
     drop(repo);
+    let letters = ff_core::letters::encode(&hex[..8]);
 
     for args in [
-        vec!["op", "show", &hex[..8], "--json"],
-        vec!["op", "diff", &hex[..8], "--json"],
-        vec!["op", "restore", &hex[..8], "--json"],
-        vec!["op", "revert", &hex[..8], "--json"],
-        vec!["restore", "--all", "--at-op", &hex[..8], "--json"],
+        vec!["op", "show", &letters, "--json"],
+        vec!["op", "diff", &letters, "--json"],
+        vec!["op", "restore", &letters, "--json"],
+        vec!["op", "revert", &letters, "--json"],
+        vec!["restore", "--all", "--at-op", &letters, "--json"],
     ] {
         let out = ff(&fx, &args);
-        assert!(!out.status.success(), "ff {args:?} must refuse hex");
+        assert!(!out.status.success(), "ff {args:?} must refuse letters");
         assert_eq!(
             json(&out)["error"]["id"],
-            "op/not-found",
+            "usage/rev-in-op-position",
             "ff {args:?}: {}",
             stdout(&out)
         );
@@ -189,8 +192,8 @@ fn hex_is_refused_wherever_an_operation_is_taken() {
 fn an_ambiguous_prefix_names_the_candidates() {
     let fx = with_ops();
     let ids = op_ids(&fx, &[]);
-    // One letter cannot be unique across a log this size unless the log is
-    // tiny; find a first letter two ids share.
+    // One hex digit cannot be unique across a log this size unless the log
+    // is tiny; find a first digit two ids share.
     let mut shared: Option<char> = None;
     for (i, a) in ids.iter().enumerate() {
         for b in &ids[i + 1..] {
@@ -199,16 +202,16 @@ fn an_ambiguous_prefix_names_the_candidates() {
             }
         }
     }
-    let Some(letter) = shared else {
-        return; // no two ids share a first letter here; nothing to assert
+    let Some(digit) = shared else {
+        return; // no two ids share a first digit here; nothing to assert
     };
 
-    let spec = letter.to_string();
+    let spec = digit.to_string();
     let out = ff(&fx, &["op", "show", &spec, "--json"]);
-    assert!(!out.status.success(), "one letter cannot be unique");
+    assert!(!out.status.success(), "one digit cannot be unique");
     let id = json(&out)["error"]["id"].as_str().unwrap().to_string();
     // Below git's four-character minimum there is no id it could be, so
-    // "not found" and "ambiguous" are both honest answers to one letter.
+    // "not found" and "ambiguous" are both honest answers to one digit.
     assert!(
         id == "op/ambiguous" || id == "op/not-found",
         "{}",

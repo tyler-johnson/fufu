@@ -6,7 +6,7 @@ On a revision — a change id, a prefix of one, a sha — it is that change's hi
 
 The thread is the `change-id` header. A rebase or cherry-pick run outside fufu drops it, so a commit rewritten behind fufu's back comes back with a derived id and its history starts over there; jj has the same limitation.
 
-Ids are spelled in the letters k–z; the bold prefix on a capture row is the shortest one `ff op` and `--at-op` resolve unambiguously, and on an operation row the same.
+Ids are hex; the bold prefix on a capture row is the shortest one `ff op` and `--at-op` resolve unambiguously, and on an operation row the same.
 
 -p prints each capture row's patch under it — what that one capture changed, measured against the capture before it on its branch. Operation rows name what they produced and print nothing under it.
 

@@ -40,7 +40,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **operation** — One entry on the operation log: a verb fufu ran, a capture, or a foreign operation absorbed from outside. Every operation records all refs plus the tree state, which is why [undo](snapshots-and-undo.md) restores both together.
 
-**operation id** — An operation's address, spelled in the letters k–z and never in hex — the alphabet a change id shares, so the slot decides: `ff op`, `ff history`, and `--at-op` read an operation, and a revision slot reads a change id or a sha. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
+**operation id** — An operation's address: hex, like a commit id and like jj's, printed at twelve characters. The slot decides which space a hex prefix is read in: `ff op`, `ff history`, and `--at-op` read an operation, and a revision slot reads a sha or a change id, which is letters and nothing else. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
 
 **operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; [`ff op log`](../reference/cli/op-log.md) lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
 

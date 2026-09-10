@@ -28,7 +28,7 @@ fn random_hex_roundtrips_within_disjoint_alphabet() {
             .map(|_| char::from_digit(rng.below(16) as u32, 16).unwrap())
             .collect();
 
-        let letters = ff_core::snapid::encode(&hex);
+        let letters = ff_core::letters::encode(&hex);
         assert_eq!(letters.len(), hex.len(), "bijective per character");
         assert!(
             letters.chars().all(|c| ('k'..='z').contains(&c)),
@@ -38,9 +38,9 @@ fn random_hex_roundtrips_within_disjoint_alphabet() {
             !letters.chars().any(|c| c.is_ascii_hexdigit()),
             "letters spelling shares no character with hex: {letters:?}"
         );
-        assert!(ff_core::snapid::is_encoded(&letters));
+        assert!(ff_core::letters::is_encoded(&letters));
         assert_eq!(
-            ff_core::snapid::decode(&letters).as_deref(),
+            ff_core::letters::decode(&letters).as_deref(),
             Some(hex.as_str()),
             "roundtrip"
         );

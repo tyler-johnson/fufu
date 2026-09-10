@@ -251,7 +251,7 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
     let now = now_secs();
     println!(
         "{}  {}  {}",
-        crate::render::paint_id(&id.short(12), colored),
+        crate::render::paint_id(&id.short(ff_core::ops::id::SHORT), colored),
         op.kind().as_str(),
         crate::render::relative_age(now, op.time())
     );
@@ -333,13 +333,13 @@ fn diff(ctx: &Ctx, a: String, b: Option<String>, patch: bool) -> Result<()> {
 
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
-    // Twelve letters, the same length the ambiguity refusal lists candidates
+    // Twelve hex, the same length the ambiguity refusal lists candidates
     // at: long enough to be sure of, short enough to read side by side. The
     // full ids are on the machine surface for anything that needs them.
     println!(
         "{} → {}",
-        crate::render::paint_id(&a_id.short(12), colored),
-        crate::render::paint_id(&b_id.short(12), colored)
+        crate::render::paint_id(&a_id.short(ff_core::ops::id::SHORT), colored),
+        crate::render::paint_id(&b_id.short(ff_core::ops::id::SHORT), colored)
     );
     if stat.files.is_empty() {
         println!("  (no files differed)");

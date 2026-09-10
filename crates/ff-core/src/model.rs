@@ -168,8 +168,8 @@ pub struct LogEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SnapEntry {
     /// Raw hex — this row names a commit for `git show` as much as an
-    /// operation for `ff restore --at`, and the letters spelling is minted
-    /// from it at the display edge.
+    /// operation for `ff restore --at-op`, and the two spell it the same
+    /// way; the display edge only truncates it.
     pub id: String,
     pub short_id: String,
     pub subject: String,
@@ -186,7 +186,7 @@ pub struct SnapEntry {
 /// whichever worktree's chain ran it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChangeOp {
-    /// The operation id, in letters.
+    /// The operation id, full hex.
     pub id: String,
     pub short_id: String,
     /// The worktree chain the operation is on.
@@ -225,11 +225,10 @@ pub struct ChangeHistory {
 pub struct RestoreOrigin {
     /// `commit` or `operation`.
     pub space: String,
-    /// Raw hex, always: the model stays hex and the letters spelling is
-    /// minted at the display edge.
+    /// Raw hex, always, in either space.
     pub id: String,
     /// The abbreviation to display — a plain 7 for a commit, the unique
-    /// letters prefix for an operation.
+    /// hex prefix for an operation.
     pub short_id: String,
     pub subject: String,
     /// Committer time, seconds since the unix epoch.
@@ -342,7 +341,7 @@ pub struct TrimReport {
 /// chosen and in nothing that happens afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RewindReport {
-    /// The operation landed on, in the letters alphabet. This is the state
+    /// The operation landed on, full hex. This is the state
     /// the repository now holds, not the thing that was undone: the log's
     /// pointer moved here, and everything reported below describes getting
     /// the world to agree with it.
@@ -383,7 +382,7 @@ pub struct RewindReport {
 /// writes an operation rather than moving to one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RevertReport {
-    /// The operation whose change was inverted, in the letters alphabet.
+    /// The operation whose change was inverted, full hex.
     pub reverted: String,
     pub reverted_summary: String,
     /// The inverse transitions that were applied.
@@ -988,7 +987,7 @@ pub struct WorktreeRow {
     pub branch: Option<String>,
     /// Its operation chain's full ref name.
     pub chain: String,
-    /// The chain's newest operation, in the letters spelling. `None` before
+    /// The chain's newest operation, full hex. `None` before
     /// the worktree's first fufu command, when the chain has no floor yet.
     pub tip: Option<String>,
     /// The worktree this command is running in.
@@ -1005,7 +1004,7 @@ pub struct WorktreeRow {
 pub struct OrphanRow {
     pub id: String,
     pub chain: String,
-    /// The chain's newest operation, letters spelling.
+    /// The chain's newest operation, full hex.
     pub tip: Option<String>,
     /// The branch that operation ran on, when it named one.
     pub branch: Option<String>,
@@ -1080,7 +1079,7 @@ pub struct WorktreeRemoveReport {
     pub id: String,
     pub path: Option<PathBuf>,
     pub branch: Option<String>,
-    /// The capture taken before the tree was destroyed, letters spelling.
+    /// The capture taken before the tree was destroyed, full hex.
     pub capture: Option<String>,
     /// The chain that stays behind, addressable after the worktree is gone.
     pub chain: String,
@@ -1158,7 +1157,7 @@ pub struct ReconcileReport {
     pub reinitialized: bool,
     /// Foreign motion absorbed by this pass (empty = clean).
     pub foreign: Vec<ForeignChange>,
-    /// The operation this pass appended, in the letters alphabet, if any.
+    /// The operation this pass appended, full hex, if any.
     pub entry: Option<String>,
     pub warnings: Vec<String>,
 }
@@ -1176,7 +1175,7 @@ impl ReconcileReport {
 /// One operation, for the operation-log view (`ff op log`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpEntry {
-    /// The letters spelling — an operation is addressed in letters, never hex.
+    /// Full hex — the same spelling `--at-op` and `ff op show` read.
     pub id: String,
     pub short_id: String,
     /// `op`, `foreign`, or `note`.

@@ -53,16 +53,6 @@ fn stderr(out: &Output) -> String {
     String::from_utf8(out.stderr.clone()).expect("utf-8 stderr")
 }
 
-/// The letters spelling of a hex id's first 8 digits: the alphabet is the
-/// k–z run, so an id can never be misread as a commit sha.
-fn letters8(hex: &str) -> String {
-    const ALPHABET: &[u8; 16] = b"zyxwvutsrqponmlk";
-    hex[..8]
-        .chars()
-        .map(|c| ALPHABET[c.to_digit(16).unwrap() as usize] as char)
-        .collect()
-}
-
 #[test]
 fn status_json_shape() {
     let fx = Fixture::new();
@@ -352,14 +342,7 @@ fn status_json_keys_are_unchanged() {
     }
     // open sub-keys
     let open = &d["open"];
-    for key in [
-        "id",
-        "id_letters",
-        "change_id",
-        "pending",
-        "subject",
-        "clean",
-    ] {
+    for key in ["id", "change_id", "pending", "subject", "clean"] {
         assert!(open.get(key).is_some(), "open.{} exists", key);
     }
 }
@@ -670,11 +653,14 @@ fn log_default_is_change_centric() {
     assert!(d["commits"].is_array());
     assert!(d.get("timeline").is_none(), "timeline key retired");
     assert_eq!(d["open"]["branch"], "main");
-    assert!(d["open"]["id"].is_string(), "chain tip present");
-    let letters = d["open"]["id_letters"].as_str().unwrap();
+    let id = d["open"]["id"].as_str().expect("chain tip present");
     assert!(
-        letters.chars().all(|c| ('k'..='z').contains(&c)),
-        "letters spelling at the JSON edge: {letters:?}"
+        id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()),
+        "the anchor is the operation's full hex: {id:?}"
+    );
+    assert!(
+        d["open"].get("id_letters").is_none(),
+        "letters are a change id and nothing else: {d}"
     );
     assert_eq!(d["open"]["clean"], false, "uncaptured-free but dirty tree");
     let change_id = d["open"]["change_id"].as_str().unwrap();
@@ -1142,7 +1128,7 @@ fn evolog_lists_snapshots_and_json() {
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     let snaps = v["data"]["snapshots"].as_array().unwrap();
     assert_eq!(snaps.len(), 2);
-    // Newest first, and the human rows lead with the letters spellings of
+    // Newest first, and the human rows lead with the first twelve hex of
     // those same ids in the same order — the message is gone, so the ids
     // are what ties the two surfaces together.
     assert!(
@@ -1151,21 +1137,23 @@ fn evolog_lists_snapshots_and_json() {
     );
     assert_eq!(
         lines[0].split_whitespace().next().unwrap(),
-        letters8(snaps[0]["id"].as_str().unwrap()),
+        &snaps[0]["id"].as_str().unwrap()[..12],
         "row 0 carries the newest id: {text:?}"
     );
     assert_eq!(
         lines[1].split_whitespace().next().unwrap(),
-        letters8(snaps[1]["id"].as_str().unwrap()),
+        &snaps[1]["id"].as_str().unwrap()[..12],
         "row 1 carries the older id: {text:?}"
     );
 
     for line in &lines {
         let token = line.split_whitespace().next().unwrap();
-        assert_eq!(token.len(), 8, "letters8 id column: {line:?}");
+        assert_eq!(token.len(), 12, "hex12 id column: {line:?}");
         assert!(
-            token.chars().all(|c| ('k'..='z').contains(&c)),
-            "letters alphabet: {token:?}"
+            token
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "lowercase hex: {token:?}"
         );
     }
 
@@ -1189,9 +1177,9 @@ fn evolog_lists_snapshots_and_json() {
     }
 }
 
-/// A letters id copied from evolog output round-trips into `ff restore --at`.
+/// A hex id copied from evolog output round-trips into `ff restore --at-op`.
 #[test]
-fn restore_accepts_letters_id_from_evolog() {
+fn restore_accepts_hex_id_from_evolog() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -1206,13 +1194,13 @@ fn restore_accepts_letters_id_from_evolog() {
     // is the *older* capture, row 1, not the newest row 0.
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 2, "exactly two captures: {text:?}");
-    let letters = lines[1]
+    let id = lines[1]
         .split_whitespace()
         .next()
-        .expect("letters id leads the row")
+        .expect("the hex id leads the row")
         .to_string();
 
-    let out = ff(&fx, &["restore", "--all", "--at-op", &letters]);
+    let out = ff(&fx, &["restore", "--all", "--at-op", &id]);
     assert!(
         out.status.success(),
         "{}",

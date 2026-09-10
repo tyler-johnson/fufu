@@ -383,9 +383,9 @@ fn an_abandoned_operation_still_resolves_by_id() {
 
     // The forward path is gone, but the id is not.
     let repo = fx.repo();
-    let letters = abandoned.to_string();
-    let report = run_op_restore(&fx, &letters[..8], NOW + 300);
-    assert_eq!(report.landed, letters, "{report:?}");
+    let hex = abandoned.to_string();
+    let report = run_op_restore(&fx, &hex[..8], NOW + 300);
+    assert_eq!(report.landed, hex, "{report:?}");
     assert_eq!(
         std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
         "work\n"

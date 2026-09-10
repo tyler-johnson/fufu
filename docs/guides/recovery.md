@@ -15,19 +15,21 @@ The symptom: an agent, a script, or you in a hurry ran something destructive wit
 
 ```console
 $ git reset --hard HEAD~2
-HEAD is now at 441fd61 release: cut v0.1.0
+HEAD is now at c7b78cd release: cut v0.1.0
 ```
 
 The reset was never dangerous, because fufu snapshotted the tree before it ran. At the next fufu invocation the foreign ref motion is absorbed into the operation log as an operation of its own — [the two regimes](../concepts/two-regimes.md) covers that boundary — and one `ff undo` takes it back like anything fufu did itself:
 
 ```console
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 441fd61c (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to c7b78cd6 (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at sunquylzttrv (commit on parser-stream: parser: drop whitespace from the stream)
-  refs/heads/parser-stream → 57145cd3
+  now at e6147bdc6c3b (commit on parser-stream: parser: drop whitespace from the stream)
+  refs/heads/parser-stream → 374f6317
   2 worktree file(s) restored
 back: ff redo
+
+-- one file back --
 ```
 
 Refs and files come back together in the same operation. This is the recovery to reach for whenever the damage is repo-wide and recent, whoever or whatever caused it: `ff undo`, repeated until you are back where you want to be.
@@ -40,7 +42,7 @@ Bare `ff restore <path>` is the everyday "discard my edits to this file": it bri
 
 ```console
 $ ff restore src/parser.rs
-restored from 57145cd3 (parser: drop whitespace from the stream)
+restored from 374f6317 (parser: drop whitespace from the stream)
   restored  src/parser.rs
 undo: ff undo
 ```
@@ -49,9 +51,11 @@ undo: ff undo
 
 ```console
 $ ff restore src/main.rs --from main
-restored from 441fd61c (release: cut v0.1.0)
+restored from c7b78cd6 (release: cut v0.1.0)
   restored  src/main.rs
 undo: ff undo
+
+-- the whole tree from earlier --
 ```
 
 Only the worktree is written; branches and HEAD do not move. And a restore takes its own capture first, mandatorily, so a restore that turns out wrong is undone by another restore or by `ff undo`. The same verb also reads from the operation log instead of history: `--at-op <id>` restores a path as one operation held it, and `--at <time>` takes `30m`, `2h`, `3d`, or a date.
@@ -64,38 +68,42 @@ The symptom: a stretch of work went sideways across many files, and you want the
 
 ```console
 $ ff history
-@   wztzuoop    0s ago  now   pre: ff status
-↓1  sunquylz    0s ago  undo  commit on parser-stream: parser: drop whitespace from the stream · 4 captures
-↓2  wyoyqltx    0s ago  undo  pre: ff commit -m parser: drop whitespace from the stream
-↓3  ozrwxrpr    0s ago  undo  claim ff/glad-beacon as parser-stream
-↓4  zkywuypw    0s ago  undo  commit on ff/glad-beacon: parser: skeleton and char stream
-↓5  vllovznk    0s ago  undo  pre: ff commit -m parser: skeleton and char stream
-↓6  kvnzxxtx    0s ago  undo  switch from main to ff/glad-beacon
-↓7  skxnynpt    0s ago  undo  mint branch ff/glad-beacon at 441fd61c
-↓8  muvyysop    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
+@   e99209d1d189    0s ago  now   pre: ff status [1b234d04-d951-438c-9b46-3de76978f90d]
+↓1  e6147bdc6c3b    0s ago  undo  commit on parser-stream: parser: drop whitespace from the stream · 4 captures [1b234d04-d951-438c-9b46-3de76978f90d]
+↓2  970747edc121    0s ago  undo  pre: ff commit -m parser: drop whitespace from the stream [1b234d04-d951-438c-9b46-3de76978f90d]
+↓3  111a5a05f540    0s ago  undo  claim ff/merry-cliff as parser-stream [1b234d04-d951-438c-9b46-3de76978f90d]
+↓4  55da99987f49    0s ago  undo  commit on ff/merry-cliff: parser: skeleton and char stream [1b234d04-d951-438c-9b46-3de76978f90d]
+↓5  7c0d663cae6b    0s ago  undo  pre: ff commit -m parser: skeleton and char stream [1b234d04-d951-438c-9b46-3de76978f90d]
+↓6  105241a5ec87    0s ago  undo  switch from main to ff/merry-cliff [1b234d04-d951-438c-9b46-3de76978f90d]
+↓7  8a2e77980c88    0s ago  undo  mint branch ff/merry-cliff at c7b78cd6 [1b234d04-d951-438c-9b46-3de76978f90d]
+↓8  9eab613ea243    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
-The letters-spelled ids in these rows are operation ids — spelled in k–z and never in hex, so a letters id is always an operation and a hex id always a commit; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the [`ff op`](../reference/cli/op.md) family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
+The twelve-character ids leading these rows are operation ids — hex like a commit's, and the slot is what says which: `ff op` and `--at-op` read an operation, `-r` and `--from` a revision; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the [`ff op`](../reference/cli/op.md) family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
 
 ```console
-$ ff op show sunquylz
-sunquylzttrv  op  0s ago
+$ ff op show e6147bdc6c3b
+e6147bdc6c3b  op  0s ago
   commit on parser-stream: parser: drop whitespace from the stream
   on        parser-stream
-  base      1b12cedc
-  refs/heads/parser-stream → 57145cd3
+  session   1b234d04-d951-438c-9b46-3de76978f90d
+  route     shell
+  base      67c170fb
+  refs/heads/parser-stream → 374f6317
   (the worktree is unchanged across it)
 ```
 
 [`ff op restore <id>`](../reference/cli/op-restore.md) then lands on it directly — the whole repository, refs and tree together — instead of pressing undo row by row:
 
 ```console
-$ ff op restore sunquylz
+$ ff op restore e6147bdc6c3b
 undid: pre: ff status
-  now at sunquylzttrv (commit on parser-stream: parser: drop whitespace from the stream)
+  now at e6147bdc6c3b (commit on parser-stream: parser: drop whitespace from the stream)
   2 worktree file(s) restored
 back: ff redo
+
+-- undid too far, redo --
 ```
 
 When you want only the files from twenty minutes ago and the refs as they are, that is a restore instead: `ff restore --all --at 20m` writes the whole tree from the operation current at that time and moves nothing else.
@@ -107,8 +115,8 @@ The symptom: you pressed `ff undo` once more than you meant to, and a commit you
 ```console
 $ ff undo
 undid: commit on parser-stream: parser: drop whitespace from the stream
-  now at wyoyqltxllnm (pre: ff commit -m parser: drop whitespace from the stream)
-  refs/heads/parser-stream → 1b12cedc
+  now at 970747edc121 (pre: ff commit -m parser: drop whitespace from the stream)
+  refs/heads/parser-stream → 67c170fb
 back: ff redo
 ```
 
@@ -117,9 +125,11 @@ Undo moves the log's pointer rather than discarding anything, so [`ff redo`](../
 ```console
 $ ff redo
 redid: commit on parser-stream: parser: drop whitespace from the stream
-  now at sunquylzttrv (commit on parser-stream: parser: drop whitespace from the stream)
-  refs/heads/parser-stream → 57145cd3
+  now at e6147bdc6c3b (commit on parser-stream: parser: drop whitespace from the stream)
+  refs/heads/parser-stream → 374f6317
 back: ff undo
+
+-- landing new work forks the redo path --
 ```
 
 Landing new work after an undo forks the log instead of destroying the path you stepped off. Suppose you undo the same commit again, but this time close it differently rather than redoing:
@@ -127,12 +137,12 @@ Landing new work after an undo forks the log instead of destroying the path you 
 ```console
 $ ff undo
 undid: commit on parser-stream: parser: drop whitespace from the stream
-  now at wyoyqltxllnm (pre: ff commit -m parser: drop whitespace from the stream)
-  refs/heads/parser-stream → 1b12cedc
+  now at 970747edc121 (pre: ff commit -m parser: drop whitespace from the stream)
+  refs/heads/parser-stream → 67c170fb
 back: ff redo
 
 $ ff commit -m "parser: drop whitespace and comments"
-closed 7ca71c5f on parser-stream: parser: drop whitespace and comments (1 file(s))
+closed 60e4237d on parser-stream: parser: drop whitespace and comments (1 file(s))
 undo: ff undo
 
 $ ff redo
@@ -140,6 +150,8 @@ ff: nothing to redo: work has landed since the last undo, so the log forked rath
   try:
     ff op log
     ff undo
+
+-- two writers on one chain --
 ```
 
 Redo stops offering a way forward it can no longer take, and says so. Nothing was destroyed: the forked-off branch of the log keeps its ids, `ff op log` still lists them, and `ff op restore` still lands on any of them until [`ff trim`](../reference/cli/trim.md) ages them out.
@@ -152,21 +164,23 @@ The symptom: two agents share one worktree, so their operations land on one chai
 
 ```console
 $ ff op log -n 6
-onlwlmpy   0s ago  op      changelog     commit on changelog: changelog: start one
-orpskpmt   0s ago  capture changelog     pre: ff commit -m changelog: start one
-rpqkpopy   0s ago  op      changelog     switch from parser-stream to changelog
-sptlwqxv   0s ago  op      parser-stream  mint branch changelog at 476c18f8
-qnnvvtls   0s ago  op      parser-stream  commit on parser-stream: README: point at the parser
-szovqqzy   0s ago  capture parser-stream  pre: ff commit -m README: point at the parser
+a05035e66352   0s ago  op      changelog     commit on changelog: changelog: start one [1b234d04-d951-438c-9b46-3de76978f90d]
+47e128cc09d5   0s ago  capture changelog     pre: ff commit -m changelog: start one [1b234d04-d951-438c-9b46-3de76978f90d]
+4a57ba3806d2   0s ago  op      changelog     switch from parser-stream to changelog [1b234d04-d951-438c-9b46-3de76978f90d]
+bbc6b1e68b13   0s ago  op      parser-stream  mint branch changelog at c7b78cd6 [1b234d04-d951-438c-9b46-3de76978f90d]
+4e785b5c4c64   0s ago  op      parser-stream  commit on parser-stream: README: point at the parser [1b234d04-d951-438c-9b46-3de76978f90d]
+29a844f03c8d   0s ago  capture parser-stream  pre: ff commit -m README: point at the parser [1b234d04-d951-438c-9b46-3de76978f90d]
 ```
 
 [`ff op revert <op>`](../reference/cli/op-revert.md) inverts that one operation and leaves everything after it standing:
 
 ```console
-$ ff op revert qnnvvtls
-reverted qnnvvtlspsorxzooruqkylozzzokqyztnpytmzxn: commit on parser-stream: README: point at the parser
-  refs/heads/parser-stream → aa9d3216
+$ ff op revert 4e785b5c4c64
+reverted 4e785b5c4c6447c10a9dc219167f2ce37e458530: commit on parser-stream: README: point at the parser
+  refs/heads/parser-stream → 60e4237d
 undo: ff undo
+
+-- wrong message --
 ```
 
 B's branch and B's commit are untouched, and the revert is itself an operation on the chain, so `ff undo` takes the revert back too.
@@ -183,12 +197,14 @@ A wrong message never needs the commit reopened. [`ff describe <rev>`](../refere
 
 ```console
 $ ff commit -m wip
-closed dc6b36dc on parser-stream: wip (1 file(s))
+closed ab212b29 on parser-stream: wip (1 file(s))
 undo: ff undo
 
-$ ff describe dc6b36dc -m "parser: string literals"
-reworded ea9920b5 on parser-stream: parser: string literals
+$ ff describe ab212b29 -m "parser: string literals"
+reworded c93c2446 on parser-stream: parser: string literals
 undo: ff undo
+
+-- force-pushed over my branch --
 ```
 
 A commit on the wrong branch, if it just happened, is one `ff undo`: the close comes back open, tree and refs together, and you close it again where it belongs — [`ff commit -b <branch>`](../reference/cli/commit.md) lands the close on a fresh branch in the same step.
@@ -209,10 +225,9 @@ Every [`ff push`](../reference/cli/push.md) carries a lease: the push goes throu
 
 ```console
 $ ff push
-ff: origin/parser-stream moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
-  try:
-    ff pull parser-stream
-    ff push parser-stream
+created origin/parser-stream and set parser-stream to track it
+the push left the machine — ff undo cannot reach it
+ff undo then ff push rolls the shared copy back, under a lease
 ```
 
 [`ff pull`](../reference/cli/pull.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours the rewrite already carries — the same change id, whatever its spelling — is dropped without a merge, and pull says which and why:
@@ -234,6 +249,8 @@ $ ff push
 pushed parser-stream to origin/parser-stream
 the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
+
+-- the floor: a repository fufu just adopted --
 ```
 
 The same rules protect the other side: if your own push would have overwritten work somebody pushed in good faith, the lease refuses that too. [The push boundary](../concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
@@ -246,9 +263,10 @@ The first is the push. `ff undo` moves this repository, and a push moves a machi
 
 ```console
 $ ff push
-created origin/parser-stream and set parser-stream to track it
-the push left the machine — ff undo cannot reach it
-ff undo then ff push rolls the shared copy back, under a lease
+ff: origin/parser-stream moved since you last looked, so nothing was pushed — your commits are still here, and ff pull takes in what arrived
+  try:
+    ff pull parser-stream
+    ff push parser-stream
 ```
 
 There is still a way back, and it is another push rather than an undo: undo the commit locally, push again, and the lease rolls the shared copy back to where the branch now stands. That is not erasure — other clones may hold the commits, CI ran — but the shared copy is yours to move.
@@ -261,7 +279,7 @@ already a git repository on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 
 $ ff history
-@   wuowulov    0s ago  now   operation log initialized from observed state; earlier operations not undoable
+@   dd0373c0d243    0s ago  now   operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
