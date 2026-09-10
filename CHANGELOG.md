@@ -4,27 +4,27 @@
 
 ### Added
 
-- `ff evolog <rev>` drills into a change: every operation, on every worktree's chain, that produced a commit carrying its change id — the close, a reword, a restack, an absorb, a pull's replay — with the commit each produced, then the captures behind the close. A commit without the header gets the captures on this chain that match it. `--json` carries `change_id`, `commit`, `operations`, and `snapshots`; bare `ff evolog` keeps its shape and gains `change_id`.
+- `ff evolog <rev>` drills into a change: every operation, on any worktree's chain, that produced a commit carrying its change id, then the captures behind the close. `--json` carries `change_id`, `commit`, `operations`, and `snapshots`.
 
 ### Changed
 
-- The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through rewrites, in place of the op anchor: `ff commit` writes it into the commit as jj's `change-id` header, inside the signed payload; a reword, restack, absorb, or pull replay keeps it; a commit made outside fufu derives one from its sha. The `@` row wears the id its commit will carry, minted at the first capture or `ff describe`, and `ff undo` of a close puts it back. The column is never blank on a commit. JSON: `change_id` on every `ff log --json` row and its `open` block, on `ff status --json`'s `open` and `parent`, on `ff --json` map nodes, and on `ff show --json`; `open.id`/`id_letters`, `session`, and `parent.segment` keep meaning the capture op.
-- A letters token in a revision slot is a change id: `ff log -r`, `ff show`, `ff describe <rev>`, `ff restore --from`, and every other revision position take a change id or any prefix of it unique in the repository, and a prefix of the open change's id is `@`. A prefix of two changes is `usage/revset-ambiguous`; a change standing on more than one visible commit is the new `usage/revset-divergent`, naming each. Operation ids keep their slots. Resolution walks the visible commits, up to ten thousand, so there is no index to keep.
-- `ff switch <change id>` now redirects to `ff start` at that commit, the way `ff switch <sha>` does; it used to be `branch/not-found`.
-- `ff restack` and the cascade drop a commit whose change id the base already holds as superseded by the base's commit, with no merge attempted, so a stale copy of a base commit the base has since rewritten no longer conflicts on content the branch never touched, reflog or no reflog. The dropped line says `superseded by <sha> in the base`; JSON `dropped` entries gain `reason` (`empty` or `superseded`) and, under `superseded`, `by`. The reflog trim stays for commits without the header.
-- A branch created outside fufu is absorbed with the branch it was cut from recorded as its base, when its tip is exactly one other non-trunk branch's tip or git's reflog names the branch: `ff status` says `forked from <branch>` on the absorb line, the cascade sees the branch from then on, and `ff undo` of the absorb takes the record back. Anything less certain stays on trunk.
-- `ff status` and `ff branch list` no longer show a remote axis for a branch whose git upstream wears another local branch's name, or trunk's: that tracking ref is the base the branch was cut from, and `ff status` shows it on the base axis as `base origin/main`. `ff branch delete --shared` has no copy to remove on such a branch, and its `branch/aliased-copy` refusal goes with it. An upstream under a name no local branch holds, what a rename leaves, is still the branch's own copy.
+- The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through every rewrite fufu performs, in place of the op anchor. `ff commit` writes it as jj's `change-id` header inside the signed payload, and a commit made outside fufu derives one from its sha, so the column is never blank. `--json` carries `change_id` beside the ids it carried before.
+- A letters token in a revision slot is a change id or a unique prefix of one, and a prefix of the open change's id is `@`. An ambiguous prefix is `usage/revset-ambiguous`; a change standing on more than one visible commit is `usage/revset-divergent`. Operation ids keep their own slots.
+- `ff switch <change id>` redirects to `ff start` at that commit, the way `ff switch <sha>` does.
+- `ff restack` and the cascade drop a commit whose change id the base already holds, reflog or no reflog: `dropped … — superseded by <sha> in the base`. JSON `dropped` entries gain `reason` and, under `superseded`, `by`.
+- A branch created outside fufu records the branch it was cut from as its base when its tip is exactly one other non-trunk branch's tip or git's reflog names it. The absorb line says `forked from <branch>`, and `ff undo` takes the record back. Anything less certain stays on trunk.
+- A git upstream under another local branch's name, or trunk's, is the branch's base rather than its shared copy: `ff status` shows it on the base axis, `ff branch list` shows no copy, and the `branch/aliased-copy` refusal goes. An upstream under a name no local branch holds is still the branch's own copy.
 
 ### Fixed
 
-- `ff commit -b <fresh>` from a named branch clears the branch it leaves behind: its pending description no longer lingers on the old branch.
-- `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays the stale copy of a commit its real base has since rewritten. (#5)
-- `ff push` on a branch whose git upstream is another branch's tracking ref — `git checkout -b feature --track origin/main` — creates `origin/feature` and records `origin/main` as the branch's base, instead of pushing the branch to `refs/heads/main` under a lease on main's tip. `ff pull` replays the branch onto the moved base, and `ff undo` past the push takes the recorded base back. (#7)
+- `ff commit -b <fresh>` from a named branch no longer leaves its pending description on the branch it left.
+- `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays a stale copy of a commit its base has since rewritten. (#5)
+- `ff push` on a branch whose upstream is another branch's tracking ref creates the branch's own copy and records the upstream as its base, instead of pushing to that ref under a lease. (#7)
 
 ### Known issues
 
-- A rebase or cherry-pick run outside fufu drops the `change-id` header, and the commit comes back with an id derived from its new sha. jj has the same limitation.
-- fufu's operation ids share the letters alphabet with change ids, where jj's are hex; an op slot (`ff op`, `--at-op`) reads an operation id and a revision slot does not.
+- A rebase or cherry-pick run outside fufu drops the `change-id` header, and the commit comes back with a derived id. jj has the same limitation.
+- Operation ids share the letters alphabet with change ids, where jj's are hex; an op slot reads an operation id and a revision slot does not.
 - A capture's mint is not journaled: after `ff undo` and `ff redo` of a partial close, the remainder can wear a different id than it did between them.
 
 ## v0.13.0 — 2026-09-08
