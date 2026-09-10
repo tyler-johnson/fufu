@@ -35,7 +35,12 @@
 //! the new tip. The difference is the base's own commits. Replayed a second
 //! time onto their rewritten selves they drop as empty when the rewrite only
 //! moved them and conflict when it changed their content, and neither is
-//! news about the child.
+//! news about the child. A child that does carry a copy of the base's
+//! commits — a rewrite an earlier cascade left it out of — sheds them by
+//! identity: a commit whose change id the new base already holds is dropped
+//! as superseded, without a merge, and a child whose every commit is
+//! superseded still moves, since by identity it is the base's rewritten
+//! commits and following them is what a child does.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
@@ -349,6 +354,16 @@ pub(crate) fn plan_over(
         }
         range.reverse(); // oldest-first; the target is the first element
 
+        // What the new base already holds by change id: the engine drops
+        // it without a merge, so the probe is handed only what the plan
+        // will replay.
+        let superseded = rewrite::superseded_in(repo, range[0], tip, base_new)?;
+        let replayed_range: Vec<gix::ObjectId> = range
+            .iter()
+            .filter(|&id| !superseded.contains_key(id))
+            .copied()
+            .collect();
+
         // The open change comes along when HEAD stands here, and is probed
         // as the last step exactly as the branch underfoot's is.
         let here = head.as_ref().is_some_and(|h| h.branch == branch);
@@ -359,7 +374,7 @@ pub(crate) fn plan_over(
             (None, None)
         };
 
-        match futures::probe_range(repo, base_new, &range, tip, open)? {
+        match futures::probe_range(repo, base_new, &replayed_range, tip, open)? {
             Verdict::Clean { .. } => {}
             Verdict::Conflict { at, paths } => {
                 let held = Held {
@@ -384,7 +399,7 @@ pub(crate) fn plan_over(
                         branch,
                         at,
                         paths,
-                        of: range.len(),
+                        of: replayed_range.len(),
                     },
                     left_alone,
                 });

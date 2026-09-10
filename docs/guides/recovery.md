@@ -215,14 +215,14 @@ ff: origin/parser-stream moved since you last looked, so nothing was pushed — 
     ff push parser-stream
 ```
 
-[`ff pull`](../reference/cli/pull.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours that the rewrite already contains replays empty and is dropped, and pull says which:
+[`ff pull`](../reference/cli/pull.md) asks whether what the shared copy holds beyond you is new work or old versions of yours. Here it is new work, so it is taken in and your commits replay on top; a commit of yours the rewrite already carries — the same change id, whatever its spelling — is dropped without a merge, and pull says which and why:
 
 ```console
 $ ff pull
 fetching from origin
 took in 1 commit(s) from origin/parser-stream
 replayed 1 of yours on top
-dropped ea9920b5 "parser: string literals" — it changes nothing
+dropped ea9920b5 "parser: string literals" — superseded by 5b7e2f90 in the base
 1 commit(s) to push — ff push
 undo: ff undo
 ```

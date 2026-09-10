@@ -81,9 +81,7 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
             for line in crate::render::cascade_lines(&report.cascade, colored) {
                 println!("{line}");
             }
-            if let Some(line) =
-                crate::render::dropped_line(&report.dropped, Some(&report.from), colored)
-            {
+            for line in crate::render::dropped_lines(&report.dropped, Some(&report.from), colored) {
                 println!("{line}");
             }
             if report.published > 0 {

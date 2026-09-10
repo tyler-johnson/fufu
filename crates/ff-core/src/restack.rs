@@ -201,6 +201,11 @@ fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto
 /// bounds the walk. A commit the base once held and the branch still sits
 /// on is the base's, not the branch's.
 ///
+/// The reflog is the trim for a commit without a `change-id` header — one
+/// made by git, or one a raw `git rebase` stripped. A commit closed by fufu
+/// carries its identity, and the engine drops it by that identity when the
+/// base already holds a commit with the same id, reflog or no reflog.
+///
 /// The reflog read is of whatever ref the branch is replayed onto, the
 /// recorded base or an `--onto` aimed anywhere else. A branch cut with
 /// `git checkout -b` records no parent and resolves to trunk, so the first
@@ -264,7 +269,10 @@ fn walk_range(
 }
 
 /// The triple a restack replays: the oldest commit of the branch that is not
-/// already on the base, the branch's tip, and the base to land on.
+/// already on the base, the branch's tip, and the base to land on. Which
+/// commits of the range the base already holds by change id is the engine's
+/// to decide from the triple, so the verb, this replan, and the resolution
+/// chain drop the same ones.
 ///
 /// `onto` is a ref name, resolved fresh: the base having moved since the hold
 /// was recorded is the ordinary case, and reading it again is the whole point
@@ -808,6 +816,23 @@ pub(crate) fn plan_restack(
         range = walked;
     }
 
+    // The commits of the range the base already holds by change id. The
+    // engine drops them without a merge, so the probe must not merge them
+    // either: it is handed the commits the plan will replay. The walked
+    // range stays the measure of what the branch holds, for HEAD standing
+    // inside it.
+    let replayed_range: Vec<gix::ObjectId> = match range.first() {
+        Some(&target) => {
+            let superseded = rewrite::superseded_in(repo, target, branch_tip, base_tip)?;
+            range
+                .iter()
+                .filter(|&id| !superseded.contains_key(id))
+                .copied()
+                .collect()
+        }
+        None => Vec::new(),
+    };
+
     let head_carried = if up_to_date {
         false
     } else if fast_forward {
@@ -876,10 +901,11 @@ pub(crate) fn plan_restack(
         } else {
             None
         };
-        // The probe replays the range §5 walked rather than walking its own,
-        // so it answers about the commits the plan will rewrite and none of
-        // the base's own; §5 already refused a merge in it.
-        match futures::probe_range(repo, base_tip, &range, branch_tip, probe_open)? {
+        // The probe replays the range §5 walked, less what the base already
+        // holds, rather than walking its own, so it answers about the
+        // commits the plan will rewrite and none of the base's own; §5
+        // already refused a merge in it.
+        match futures::probe_range(repo, base_tip, &replayed_range, branch_tip, probe_open)? {
             Verdict::Clean { .. } => {
                 // Standing mid-stack: the open change belongs to the head
                 // branch's tip, not the target's, so it needs its own probe.
@@ -887,17 +913,23 @@ pub(crate) fn plan_restack(
                 // proven clean, so only the open-change step can still fail.
                 if let (Some(open_t), Some(hb), Some(ht)) = (open, head_branch.as_deref(), head_tip)
                     && hb != branch
-                    && let Some(pos) = range.iter().position(|id| *id == ht)
+                    && let Some(pos) = replayed_range.iter().position(|id| *id == ht)
                     && let Verdict::Conflict {
                         at: at @ At::OpenChange,
                         paths,
-                    } = futures::probe_range(repo, base_tip, &range[..=pos], ht, Some(open_t))?
+                    } = futures::probe_range(
+                        repo,
+                        base_tip,
+                        &replayed_range[..=pos],
+                        ht,
+                        Some(open_t),
+                    )?
                 {
-                    return hold_plan(&at, &paths, range.len());
+                    return hold_plan(&at, &paths, replayed_range.len());
                 }
             }
             Verdict::Conflict { at, paths } => {
-                return hold_plan(&at, &paths, range.len());
+                return hold_plan(&at, &paths, replayed_range.len());
             }
             verdict => {
                 return Err(Error::msg(format!(
@@ -1004,7 +1036,7 @@ pub(crate) fn plan_restack(
             if !paths.is_empty() {
                 // A fast-forward restacks no commit, so the stack the report
                 // sizes is empty: range was never built and stands at zero.
-                return hold_plan(&At::OpenChange, &paths, range.len());
+                return hold_plan(&At::OpenChange, &paths, replayed_range.len());
             }
             if open_t == ht_tree {
                 new_worktree = Some(ours_tree);

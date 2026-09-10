@@ -414,14 +414,14 @@ ff: origin/lexer moved since you last looked, so nothing was pushed — your com
     ff push
 ```
 
-Nothing was sent and nothing was lost. And when [`ff pull`](../reference/cli/pull.md) reconciles, the history the team holds wins: the shared line comes in whole, and a rewrite it already superseded — a different spelling of a commit somebody else has built on — does not survive the replay:
+Nothing was sent and nothing was lost. And when [`ff pull`](../reference/cli/pull.md) reconciles, the history the team holds wins: the shared line comes in whole, and a rewrite it already superseded — a different spelling of a commit somebody else has built on — does not survive the replay. The change id decides it: your commit and the teammate's rewrite of it carry the same id, so yours is dropped as superseded without a merge, whatever either spelling's content:
 
 ```console
 $ ff pull
 fetching from origin
 took in 2 commit(s) from origin/lexer
 replayed 0 of yours on top
-dropped 37bcef6e "notes: eating chars, explained" — it changes nothing
+dropped 37bcef6e "notes: eating chars, explained" — superseded by 8d1c04a2 in the base
 updated the working copy (1 file(s))
 undo: ff undo
 ```

@@ -216,7 +216,14 @@ fn fold_labels(
     target: gix::ObjectId,
     tip: gix::ObjectId,
 ) -> Result<(String, String)> {
-    let n = rewrite::stack_size(repo, target, tip)?;
+    // The size of a stack under a tree change does not depend on the tree,
+    // and the fold that produces it is what these labels are for, so the
+    // target's own tree stands in.
+    let change = rewrite::Change::Tree {
+        tree: tree_of(repo, target)?,
+        message: None,
+    };
+    let n = rewrite::stack_size(repo, target, tip, &change)?;
     Ok(rewrite::chain_labels(&subject(repo, target)?, 1, n))
 }
 

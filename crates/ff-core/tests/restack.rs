@@ -1425,8 +1425,182 @@ fn onto_trims_the_stale_copy_of_a_base_rewritten_by_git() {
         report.replayed, 1,
         "the reflog, not the op log, is what the trim reads"
     );
+    assert!(
+        report
+            .dropped
+            .iter()
+            .all(|d| d.reason == ff_core::rewrite::DropReason::Empty),
+        "a commit without a header is never superseded: {:?}",
+        report.dropped
+    );
     assert_eq!(rev(&fx, "child^"), rev(&fx, "base"));
     assert!(!is_ancestor(&fx, &b, "child"));
+}
+
+// ---- The range under `--onto`: the base's change ids trim it too ----
+
+/// A commit closed by fufu, so it carries a `change-id` header — the identity
+/// the trim below reads. `fx.commit` is raw git and carries none.
+fn close(fx: &Fixture, msg: &str) -> String {
+    let repo = fx.repo();
+    ff_core::close(
+        &repo,
+        &ff_core::CloseOptions {
+            message: Some(msg.into()),
+            now: Some(NOW),
+            argv: vec!["ff".into(), "commit".into()],
+            ..Default::default()
+        },
+        &Provenance::new("pre", Some("ff commit".into())),
+    )
+    .unwrap();
+    rev(fx, "HEAD")
+}
+
+/// The open change folded into `target` — the way a fufu commit's content
+/// changes without losing its header, where `git commit --amend` drops it.
+fn absorb_into(fx: &Fixture, target: &str) -> String {
+    let repo = fx.repo();
+    let into = gix::ObjectId::from_hex(target.as_bytes()).unwrap();
+    ff_core::absorb::absorb(
+        &repo,
+        Some(into),
+        Vec::new(),
+        ff_core::Verify::Run,
+        &Provenance::new("pre", Some("ff absorb".into())),
+        Some(NOW),
+        vec!["ff".into(), "absorb".into()],
+    )
+    .unwrap();
+    rev(fx, "HEAD")
+}
+
+fn expire_reflogs(fx: &Fixture) {
+    fx.git(&["reflog", "expire", "--expire=now", "--all"]);
+}
+
+/// gh #5 with the base's commit closed by fufu: the child carries a stale
+/// copy of a commit the base has since rewritten, and the reflog that would
+/// have trimmed it is gone. The change id decides it: the copy drops as
+/// superseded, no merge runs, and the child lands on the base's rewrite.
+#[test]
+fn a_stale_copy_of_a_base_rewritten_by_ff_drops_as_superseded() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    fx.commit("A: trunk");
+    fx.git(&["switch", "-q", "-c", "base"]);
+    fx.write("b.txt", "b\n");
+    let b = close(&fx, "B: base work");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("C: child work");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "a\na2\n");
+    fx.commit("A2: trunk moves");
+    fx.git(&["switch", "-q", "base"]);
+    landed(restack_call(&fx, Some("base"), Some("main"), NOW).0);
+    let b_moved = rev(&fx, "base");
+    fx.write("b.txt", "b RESOLVED DIFFERENTLY\n");
+    let b_rewritten = absorb_into(&fx, &b_moved);
+    assert_ne!(b_rewritten, b_moved);
+    // One more on the base, so the superseding commit is not the base's tip.
+    fx.write("d.txt", "d\n");
+    fx.commit("D: more base work");
+    expire_reflogs(&fx);
+    fx.git(&["switch", "-q", "child"]);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("base"), NOW + 1).0);
+
+    assert_eq!(report.replayed, 1, "only the child's own commit replays");
+    assert_eq!(report.dropped.len(), 1, "{:?}", report.dropped);
+    let dropped = &report.dropped[0];
+    assert_eq!(dropped.old, b);
+    assert_eq!(dropped.reason, ff_core::rewrite::DropReason::Superseded);
+    assert_eq!(dropped.by.as_deref(), Some(b_rewritten.as_str()));
+    assert_eq!(
+        rev(&fx, "child^"),
+        rev(&fx, "base"),
+        "lands on the base's tip"
+    );
+    assert!(!is_ancestor(&fx, &b, "child"), "the stale copy is gone");
+    assert_eq!(
+        fx.git(&["show", "child:b.txt"]),
+        "b RESOLVED DIFFERENTLY\n",
+        "the child sits on the base's rewrite, not its own stale copy"
+    );
+    assert_eq!(fx.git(&["show", "child:d.txt"]), "d\n");
+}
+
+/// The same shape with the base rewritten by git: its commit carries no
+/// header, so identity cannot fire, and with the reflog gone the trim has
+/// nothing to read either. The replay merges the stale copy and holds.
+#[test]
+fn a_base_rewritten_by_git_never_supersedes() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (b, _c) = stale_child(&fx, false);
+    expire_reflogs(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("child"), Some("base"), NOW + 1);
+    let held = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("the restack must hold, got {other:?}"),
+    };
+    assert_eq!(held.paths, vec!["b.txt".to_string()]);
+    match &held.at {
+        At::Commit { id, .. } => assert_eq!(*id, b, "stopped on the stale copy"),
+        other => panic!("held on the stale copy, got {other:?}"),
+    }
+}
+
+/// Every commit of the range superseded: the branch is, by identity, the
+/// base's rewritten commits, so it lands on the base's tip with nothing
+/// replayed and everything dropped.
+#[test]
+fn a_branch_that_is_all_stale_copies_lands_on_the_base_tip() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "a\n");
+    fx.commit("A: trunk");
+    fx.git(&["switch", "-q", "-c", "base"]);
+    fx.write("b.txt", "b\n");
+    let b1 = close(&fx, "B1");
+    fx.write("b2.txt", "b2\n");
+    let b2 = close(&fx, "B2");
+    fx.git(&["branch", "child", &b2]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "a\na2\n");
+    fx.commit("A2: trunk moves");
+    fx.git(&["switch", "-q", "base"]);
+    landed(restack_call(&fx, Some("base"), Some("main"), NOW).0);
+    expire_reflogs(&fx);
+    fx.git(&["switch", "-q", "child"]);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("base"), NOW + 1).0);
+
+    assert_eq!(report.replayed, 0);
+    let dropped: Vec<(&str, ff_core::rewrite::DropReason, Option<&str>)> = report
+        .dropped
+        .iter()
+        .map(|d| (d.old.as_str(), d.reason, d.by.as_deref()))
+        .collect();
+    assert_eq!(
+        dropped,
+        vec![
+            (
+                b1.as_str(),
+                ff_core::rewrite::DropReason::Superseded,
+                Some(rev(&fx, "base^")).as_deref()
+            ),
+            (
+                b2.as_str(),
+                ff_core::rewrite::DropReason::Superseded,
+                Some(rev(&fx, "base")).as_deref()
+            ),
+        ]
+    );
+    assert_eq!(rev(&fx, "child"), rev(&fx, "base"));
 }
 
 #[test]

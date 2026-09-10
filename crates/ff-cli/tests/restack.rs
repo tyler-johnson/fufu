@@ -590,3 +590,62 @@ fn a_branch_above_in_another_worktree_is_skipped_and_named() {
     assert_eq!(child_before, rev(&fx, "child"));
     assert_eq!(grandchild_before, rev(&fx, "grandchild"));
 }
+
+/// gh #5 end to end, with the base's commit closed by fufu: the child's stale
+/// copy of a commit the base rewrote drops by change id, with no reflog to
+/// read, and both the text and the JSON say what superseded it.
+#[test]
+fn restack_onto_drops_a_stale_copy_the_base_already_holds() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("A: trunk");
+    fx.git(&["switch", "-q", "-c", "base"]);
+    fx.write("b.txt", "b\n");
+    let closed = ff(&fx, &["commit", "-m", "B: base work"]);
+    assert!(closed.status.success(), "{}", out(&closed));
+    let b = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("C: child work");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "a\na2\n");
+    fx.commit("A2: trunk moves");
+    fx.git(&["switch", "-q", "base"]);
+    let moved = ff(&fx, &["restack"]);
+    assert!(moved.status.success(), "{}", out(&moved));
+    fx.write("b.txt", "b RESOLVED DIFFERENTLY\n");
+    let absorbed = ff(&fx, &["absorb"]);
+    assert!(absorbed.status.success(), "{}", out(&absorbed));
+    let b_rewritten = fx.git(&["rev-parse", "base"]).trim().to_string();
+    fx.git(&["reflog", "expire", "--expire=now", "--all"]);
+    fx.git(&["switch", "-q", "child"]);
+
+    let output = ff(&fx, &["--json", "restack", "--onto", "base"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let restack = &v["data"]["restack"];
+    assert_eq!(restack["replayed"], 1);
+    assert_eq!(restack["dropped"].as_array().map(Vec::len), Some(1));
+    assert_eq!(restack["dropped"][0]["old"], b);
+    assert_eq!(restack["dropped"][0]["reason"], "superseded");
+    assert_eq!(restack["dropped"][0]["by"], b_rewritten);
+    assert_eq!(
+        fx.git(&["show", "child:b.txt"]),
+        "b RESOLVED DIFFERENTLY\n",
+        "the child sits on the base's rewrite"
+    );
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    let output = ff(&fx, &["restack", "--onto", "base"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = out(&output);
+    assert!(
+        text.contains(&format!(
+            "dropped {} \"B: base work\" — superseded by {} in the base",
+            &b[..8],
+            &b_rewritten[..8]
+        )),
+        "{text}"
+    );
+}

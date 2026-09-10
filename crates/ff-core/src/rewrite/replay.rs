@@ -13,16 +13,38 @@ pub struct Rewrite {
     pub new: String,
 }
 
-/// A commit a rewrite did not write: its tree matched its new first parent's,
-/// so it introduces nothing, and fufu writes no empty commit. The old
-/// identity is kept so the verb can name what it removed — a drop is
-/// announced, never silent.
+/// A commit a rewrite did not write. Either its tree matched its new first
+/// parent's, so it introduces nothing, and fufu writes no empty commit; or
+/// the base it was replayed onto already holds a commit with its change id,
+/// so it is a stale copy of one the base has since rewritten, and replaying
+/// it would at best drop it as empty and at worst conflict on content the
+/// branch never touched. The old identity is kept so the verb can name what
+/// it removed — a drop is announced, never silent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dropped {
     /// The commit that was not rewritten, full sha.
     pub old: String,
     /// Its subject, so a report can say what went.
     pub subject: String,
+    /// Why it was not written. Defaulted on read so a record written before
+    /// the field existed still says what it always meant: empty.
+    #[serde(default)]
+    pub reason: DropReason,
+    /// The commit in the base that carries the same change id, full sha.
+    /// Set exactly when `reason` is `Superseded`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+}
+
+/// Why a replay did not write a commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropReason {
+    /// Its replayed tree matched its new first parent's.
+    #[default]
+    Empty,
+    /// The base already holds a commit with its change id.
+    Superseded,
 }
 
 /// What changes about the named commit. Absorb and lift add their variants
@@ -116,7 +138,11 @@ pub fn plan_with(
     now: i64,
     trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<RewritePlan> {
-    let Range { ordered, affected } = range_of(repo, target, tip)?;
+    let Range {
+        ordered,
+        affected,
+        superseded,
+    } = range_of(repo, target, tip, change)?;
 
     // 5. Rewrite the affected commits. A tree-moving change can conflict, so
     // a dry run against an in-memory object store must pass first: it raises
@@ -128,11 +154,38 @@ pub fn plan_with(
         dropped,
         map,
     } = match change {
-        Change::Message(_) => replay(repo, &ordered, &affected, target, change, now, trees)?,
+        Change::Message(_) => replay(
+            repo,
+            &ordered,
+            &affected,
+            &superseded,
+            target,
+            change,
+            now,
+            trees,
+        )?,
         Change::Tree { .. } | Change::Onto(_) => {
             let memory = repo.clone().with_object_memory();
-            replay(&memory, &ordered, &affected, target, change, now, trees)?;
-            replay(repo, &ordered, &affected, target, change, now, trees)?
+            replay(
+                &memory,
+                &ordered,
+                &affected,
+                &superseded,
+                target,
+                change,
+                now,
+                trees,
+            )?;
+            replay(
+                repo,
+                &ordered,
+                &affected,
+                &superseded,
+                target,
+                change,
+                now,
+                trees,
+            )?
         }
     };
 
@@ -177,17 +230,27 @@ pub fn plan_with(
 }
 
 /// The range a rewrite covers: every commit from `target` to `tip`, ordered
-/// oldest-first, and which of them the rewrite touches. Shared by `plan` and
-/// `chain`, which have to agree on both or their step numbering diverges.
+/// oldest-first, which of them the rewrite touches, and which of those it
+/// drops unreplayed because the base already holds them. Shared by `plan`
+/// and `chain`, which have to agree on all three or their step numbering
+/// diverges — and the verb, the replan, and the resolution chain all
+/// re-derive the range from the same triple, so a decision made here is
+/// made once for every path a rewrite can take.
 pub(super) struct Range {
     pub(super) ordered: Vec<gix::ObjectId>,
     pub(super) affected: HashSet<gix::ObjectId>,
+    /// Affected commits whose change id the base already carries, each with
+    /// the base's commit that carries it. Only ever filled under
+    /// [`Change::Onto`]: a reword or a tree change replays onto the same
+    /// history the range already stands on.
+    pub(super) superseded: HashMap<gix::ObjectId, gix::ObjectId>,
 }
 
 pub(super) fn range_of(
     repo: &gix::Repository,
     target: gix::ObjectId,
     tip: gix::ObjectId,
+    change: &Change,
 ) -> Result<Range> {
     // 1. Collect the range, boundary-walked from `tip` and bounded by
     // `target`'s parents. A root `target` has no parents, so the boundary is
@@ -242,7 +305,84 @@ pub(super) fn range_of(
         }
     }
 
-    Ok(Range { ordered, affected })
+    // 5. Under `Onto`, the affected commits the base already holds by
+    // identity. Bounded by the same parents the range walk was, so the base
+    // is read down to where the range's floor stands and no further.
+    let superseded = match change {
+        Change::Onto(onto) => {
+            let candidates: Vec<gix::ObjectId> = ordered
+                .iter()
+                .filter(|&id| affected.contains(id))
+                .copied()
+                .collect();
+            superseded_by(repo, *onto, &boundary, &candidates)?
+        }
+        Change::Message(_) | Change::Tree { .. } => HashMap::new(),
+    };
+
+    Ok(Range {
+        ordered,
+        affected,
+        superseded,
+    })
+}
+
+/// Which of `candidates` a base already holds by identity: for each candidate
+/// carrying a `change-id` header, the newest commit of `onto` above
+/// `boundary` carrying the same header. A candidate without the header is
+/// never superseded — a derived id is a function of the sha, so it matches
+/// no other commit — and when no candidate carries one the base is not
+/// walked at all, which keeps a restack of plain-git commits costing what it
+/// cost before, and landing on the same sha `git rebase` would.
+pub(crate) fn superseded_by(
+    repo: &gix::Repository,
+    onto: gix::ObjectId,
+    boundary: &[gix::ObjectId],
+    candidates: &[gix::ObjectId],
+) -> Result<HashMap<gix::ObjectId, gix::ObjectId>> {
+    let mut wanted: HashMap<crate::changeid::ChangeId, Vec<gix::ObjectId>> = HashMap::new();
+    for &id in candidates {
+        let obj = repo.find_object(id).map_err(Error::repo)?;
+        if let Some(change_id) = crate::changeid::header_of(&obj.data) {
+            wanted.entry(change_id).or_default().push(id);
+        }
+    }
+    let mut found: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
+    if wanted.is_empty() {
+        return Ok(found);
+    }
+    let walk = crate::upstream::range(repo, onto, boundary.iter().copied())?;
+    for info in walk {
+        let info = info.map_err(Error::repo)?;
+        let obj = repo.find_object(info.id).map_err(Error::repo)?;
+        let Some(change_id) = crate::changeid::header_of(&obj.data) else {
+            continue;
+        };
+        // Newest-first, so the first commit of the base carrying the id is
+        // the base's current spelling of it.
+        if let Some(ids) = wanted.remove(&change_id) {
+            for id in ids {
+                found.insert(id, info.id);
+            }
+        }
+        if wanted.is_empty() {
+            break;
+        }
+    }
+    Ok(found)
+}
+
+/// The commits of `target..tip` a replay onto `onto` drops as superseded,
+/// each with the base commit that supersedes it — the engine's own answer,
+/// for a caller that probes the range before planning it and has to hand
+/// the probe the commits the plan will actually replay.
+pub(crate) fn superseded_in(
+    repo: &gix::Repository,
+    target: gix::ObjectId,
+    tip: gix::ObjectId,
+    onto: gix::ObjectId,
+) -> Result<HashMap<gix::ObjectId, gix::ObjectId>> {
+    Ok(range_of(repo, target, tip, &Change::Onto(onto))?.superseded)
 }
 
 /// The branch's tracking ref — the one git would fetch into, from
@@ -332,10 +472,12 @@ struct Replayed {
 /// message, and every other affected commit is replayed onto its rewritten
 /// first parent. Under a tree change a merge commit in the range is refused
 /// before the first write.
+#[allow(clippy::too_many_arguments)]
 fn replay(
     repo: &gix::Repository,
     ordered: &[gix::ObjectId],
     affected: &HashSet<gix::ObjectId>,
+    superseded: &HashMap<gix::ObjectId, gix::ObjectId>,
     target: gix::ObjectId,
     change: &Change,
     now: i64,
@@ -398,6 +540,24 @@ fn replay(
                 .map(|&old| map.get(&old).copied().unwrap_or(old))
                 .collect()
         };
+        // A commit the base already holds by identity is not replayed at all:
+        // no merge, so a base rewrite that changed its content cannot
+        // conflict on a file the branch never touched. `map` points it at
+        // its new first parent exactly as an empty drop does — never at the
+        // commit that supersedes it, which may sit below the base's tip and
+        // would land everything above on the wrong commit.
+        if let Some(by) = superseded.get(&id)
+            && parents.len() == 1
+        {
+            map.insert(id, parents[0]);
+            dropped.push(Dropped {
+                old: id.to_string(),
+                subject: subject(repo, id)?,
+                reason: DropReason::Superseded,
+                by: Some(by.to_string()),
+            });
+            continue;
+        }
         let tree = if id == target {
             match change {
                 Change::Message(_) => {
@@ -480,6 +640,8 @@ fn replay(
             dropped.push(Dropped {
                 old: id.to_string(),
                 subject: subject(repo, id)?,
+                reason: DropReason::Empty,
+                by: None,
             });
             continue;
         }
@@ -603,4 +765,41 @@ fn order_range(
         }
     }
     ordered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DropReason, Dropped};
+
+    #[test]
+    fn a_record_without_a_reason_reads_as_empty() {
+        let d: Dropped = serde_json::from_str(r#"{"old":"abc","subject":"s"}"#).unwrap();
+        assert_eq!(d.reason, DropReason::Empty);
+        assert_eq!(d.by, None);
+    }
+
+    #[test]
+    fn a_superseded_drop_round_trips() {
+        let d = Dropped {
+            old: "abc".into(),
+            subject: "s".into(),
+            reason: DropReason::Superseded,
+            by: Some("def".into()),
+        };
+        let json = serde_json::to_string(&d).unwrap();
+        assert_eq!(
+            json,
+            r#"{"old":"abc","subject":"s","reason":"superseded","by":"def"}"#
+        );
+        assert_eq!(serde_json::from_str::<Dropped>(&json).unwrap(), d);
+        let empty = Dropped {
+            reason: DropReason::Empty,
+            by: None,
+            ..d
+        };
+        assert_eq!(
+            serde_json::to_string(&empty).unwrap(),
+            r#"{"old":"abc","subject":"s","reason":"empty"}"#
+        );
+    }
 }

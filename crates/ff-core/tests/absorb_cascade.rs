@@ -42,24 +42,52 @@ fn stacked_on(fx: &Fixture, branch: &str, parent: &str) {
 /// `feat` with an open edit to `a.txt`, the file f1 introduced. Returns
 /// (f1, f2, t1).
 fn stack(fx: &Fixture, top_file: (&str, &str)) -> (String, String, String) {
+    stack_via(fx, top_file, &|fx, msg| fx.commit(msg))
+}
+
+/// `stack`, with every commit made by `commit` — raw git, or `close` for
+/// commits that carry a change id.
+fn stack_via(
+    fx: &Fixture,
+    top_file: (&str, &str),
+    commit: &dyn Fn(&Fixture, &str) -> String,
+) -> (String, String, String) {
     fx.write("root.txt", "root\n");
     fx.commit("root");
 
     fx.git(&["switch", "-q", "-c", "feat"]);
     fx.write("a.txt", "a\n");
-    let f1 = fx.commit("f1");
+    let f1 = commit(fx, "f1");
     fx.write("b.txt", "b\n");
-    let f2 = fx.commit("f2");
+    let f2 = commit(fx, "f2");
     stacked_on(fx, "feat", "main");
 
     fx.git(&["switch", "-q", "-c", "top"]);
     fx.write(top_file.0, top_file.1);
-    let t1 = fx.commit("t1");
+    let t1 = commit(fx, "t1");
     stacked_on(fx, "top", "feat");
 
     fx.git(&["switch", "-q", "feat"]);
     fx.write("a.txt", "a\nmore\n");
     (f1, f2, t1)
+}
+
+/// A commit closed by fufu, so it carries a `change-id` header. `fx.commit`
+/// is raw git and carries none.
+fn close(fx: &Fixture, msg: &str) -> String {
+    let repo = fx.repo();
+    ff_core::close(
+        &repo,
+        &ff_core::CloseOptions {
+            message: Some(msg.into()),
+            now: Some(NOW),
+            argv: vec!["ff".into(), "commit".into()],
+            ..Default::default()
+        },
+        &Provenance::new("pre", Some("ff commit".into())),
+    )
+    .unwrap();
+    rev(fx, "HEAD")
 }
 
 fn absorb_into(fx: &Fixture, target: &str) -> ff_core::AbsorbReport {
@@ -271,6 +299,61 @@ fn a_stacked_branch_in_another_worktree_is_skipped() {
         }
         other => panic!("skipped for the worktree, got {other:?}"),
     }
+}
+
+/// A child a rewrite left alone — held in another worktree while its base
+/// was absorbed into — still sits on the base's old commits. The next
+/// cascade to reach it sheds those by identity: the base holds their change
+/// ids, so they drop as superseded without a merge, and only the child's own
+/// commit replays.
+#[test]
+fn a_child_a_rewrite_left_alone_sheds_the_base_it_carries_by_identity() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, f2, t1) = stack_via(&fx, ("t.txt", "t\n"), &close);
+    let bay = fx.root().join("bay");
+    ff_core::linked::add::create(&fx.repo(), &bay, "top", 0).expect("create");
+
+    let first = absorb_into(&fx, &f1);
+    assert_eq!(first.cascade.skipped.len(), 1, "top is held in the bay");
+    assert_eq!(rev(&fx, "top"), t1, "top still carries f1 and f2");
+    let feat_moved = rev(&fx, "feat");
+    fx.git(&["worktree", "remove", "--force", bay.to_str().unwrap()]);
+
+    fx.write("b.txt", "b\nmore\n");
+    let second = absorb_into(&fx, &feat_moved);
+
+    assert_eq!(second.cascade.moved.len(), 1, "{:?}", second.cascade);
+    let moved = &second.cascade.moved[0];
+    assert_eq!(moved.branch, "top");
+    assert_eq!(moved.replayed, 1, "only t1 replays");
+    let dropped: Vec<(&str, ff_core::rewrite::DropReason, Option<&str>)> = moved
+        .dropped
+        .iter()
+        .map(|d| (d.old.as_str(), d.reason, d.by.as_deref()))
+        .collect();
+    assert_eq!(
+        dropped,
+        vec![
+            (
+                f1.as_str(),
+                ff_core::rewrite::DropReason::Superseded,
+                Some(rev(&fx, "feat^")).as_deref()
+            ),
+            (
+                f2.as_str(),
+                ff_core::rewrite::DropReason::Superseded,
+                Some(rev(&fx, "feat")).as_deref()
+            ),
+        ]
+    );
+    assert_eq!(rev(&fx, "top^"), rev(&fx, "feat"));
+    assert!(!is_ancestor(&fx, &f2, "top"), "the stale copies are gone");
+    assert_eq!(fx.git(&["show", "top:b.txt"]), "b\nmore\n");
+
+    undo(&fx);
+    assert_eq!(rev(&fx, "top"), t1);
+    assert_eq!(rev(&fx, "feat"), feat_moved);
 }
 
 #[test]

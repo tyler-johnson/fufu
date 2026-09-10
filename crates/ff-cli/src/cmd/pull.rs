@@ -178,7 +178,7 @@ pub fn run(
     }
 
     for r in &reports {
-        if let Some(line) = would.dropped(&r.dropped, colored) {
+        for line in would.dropped(&r.dropped, colored) {
             println!("{line}");
             said = true;
         }
@@ -302,15 +302,19 @@ impl Would {
         }
     }
 
-    /// The dropped line, in the conditional under a dry run: the render
-    /// helper's sentence opens with the verb, so the tense is one word.
-    fn dropped(self, dropped: &[ff_core::rewrite::Dropped], colored: bool) -> Option<String> {
-        let line = crate::render::dropped_line(dropped, None, colored)?;
-        Some(if self.0 {
-            line.replacen("dropped ", "would drop ", 1)
-        } else {
-            line
-        })
+    /// The dropped lines, in the conditional under a dry run: the render
+    /// helper's sentences open with the verb, so the tense is one word.
+    fn dropped(self, dropped: &[ff_core::rewrite::Dropped], colored: bool) -> Vec<String> {
+        crate::render::dropped_lines(dropped, None, colored)
+            .into_iter()
+            .map(|line| {
+                if self.0 {
+                    line.replacen("dropped ", "would drop ", 1)
+                } else {
+                    line
+                }
+            })
+            .collect()
     }
 
     /// The block for a hold: the render helper's after a real run, with
@@ -344,7 +348,7 @@ impl Would {
                 "{} would follow {}: {} commit(s) to replay",
                 m.branch, m.base, m.replayed
             ));
-            if let Some(line) = self.dropped(&m.dropped, colored) {
+            for line in self.dropped(&m.dropped, colored) {
                 out.push(format!("    {line}"));
             }
         }

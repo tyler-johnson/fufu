@@ -75,9 +75,7 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>, no_verify: bool)
                     );
                 }
             }
-            if let Some(line) =
-                crate::render::dropped_line(&report.dropped, Some(&report.into), colored)
-            {
+            for line in crate::render::dropped_lines(&report.dropped, Some(&report.into), colored) {
                 println!("{line}");
             }
             if report.published > 0 {

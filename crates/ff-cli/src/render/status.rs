@@ -619,7 +619,7 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
             "{} followed {}: replayed {} commit(s)",
             m.branch, m.base, m.replayed
         ));
-        if let Some(line) = dropped_line(&m.dropped, None, colored) {
+        for line in dropped_lines(&m.dropped, None, colored) {
             out.push(format!("    {line}"));
         }
         if !m.diverged.is_empty() {
@@ -708,42 +708,79 @@ fn left_alone(names: &[String]) -> String {
     }
 }
 
-/// The one line the rewrite verbs print for commits a rewrite dropped —
-/// `None` when nothing was dropped, so the caller prints nothing. Names a
-/// single drop; counts several and shows the first three, the
-/// `rewrite::join_paths` shape.
+/// The lines the rewrite verbs print for commits a rewrite dropped — empty
+/// when nothing was dropped, so the caller prints nothing. One line per
+/// reason present: the commits that replayed empty, then the ones the base
+/// already held by change id. Each names a single drop; counts several and
+/// shows the first three, the `rewrite::join_paths` shape.
 ///
 /// `already_named` is the commit the caller's own headline has just spoken
 /// about — the target a lift emptied, the anchor a session emptied. Saying
 /// it a second time here would be the same sentence twice, so it is left
 /// out; `None` from a verb whose headline names no commit, like `ff restack`.
-pub(crate) fn dropped_line(
+pub(crate) fn dropped_lines(
     dropped: &[ff_core::rewrite::Dropped],
     already_named: Option<&str>,
     colored: bool,
-) -> Option<String> {
+) -> Vec<String> {
+    use ff_core::rewrite::DropReason;
     let rest: Vec<&ff_core::rewrite::Dropped> = dropped
         .iter()
         .filter(|d| already_named != Some(d.old.as_str()))
         .collect();
-    let first = rest.first()?;
+    let mut out = Vec::new();
+    for reason in [DropReason::Empty, DropReason::Superseded] {
+        let group: Vec<&ff_core::rewrite::Dropped> = rest
+            .iter()
+            .copied()
+            .filter(|d| d.reason == reason)
+            .collect();
+        if let Some(line) = dropped_line(&group, reason, colored) {
+            out.push(line);
+        }
+    }
+    out
+}
+
+/// One reason's line: `None` when no drop had that reason.
+fn dropped_line(
+    group: &[&ff_core::rewrite::Dropped],
+    reason: ff_core::rewrite::DropReason,
+    colored: bool,
+) -> Option<String> {
+    use ff_core::rewrite::DropReason;
+    let first = group.first()?;
     let sha = |d: &&ff_core::rewrite::Dropped| paint_sha(ff_core::sha::short(&d.old), colored);
-    if rest.len() == 1 {
+    if group.len() == 1 {
+        let why = match reason {
+            DropReason::Empty => "it changes nothing".to_string(),
+            DropReason::Superseded => format!(
+                "superseded by {} in the base",
+                paint_sha(
+                    ff_core::sha::short(first.by.as_deref().unwrap_or_default()),
+                    colored
+                )
+            ),
+        };
         return Some(format!(
-            "dropped {} \"{}\" — it changes nothing",
+            "dropped {} \"{}\" — {why}",
             sha(first),
             truncate_subject(&first.subject)
         ));
     }
-    let names: Vec<String> = rest.iter().take(3).map(&sha).collect();
-    let tail = if rest.len() > 3 {
-        format!(", and {} more", rest.len() - 3)
+    let names: Vec<String> = group.iter().take(3).map(&sha).collect();
+    let tail = if group.len() > 3 {
+        format!(", and {} more", group.len() - 3)
     } else {
         String::new()
     };
+    let what = match reason {
+        DropReason::Empty => "that change nothing",
+        DropReason::Superseded => "the base already holds",
+    };
     Some(format!(
-        "dropped {} commit(s) that change nothing: {}{tail}",
-        rest.len(),
+        "dropped {} commit(s) {what}: {}{tail}",
+        group.len(),
         names.join(", ")
     ))
 }

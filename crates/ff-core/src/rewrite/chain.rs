@@ -88,10 +88,17 @@ pub fn chain(
     change: &Change,
     resolutions: &[Resolution],
 ) -> Result<Chain> {
-    let Range { ordered, affected } = range_of(repo, target, tip)?;
+    let Range {
+        ordered,
+        affected,
+        superseded,
+    } = range_of(repo, target, tip, change)?;
     // The full size of the stack, even when the chain stops early: the label
     // tells the reader the size of the stack, not the size of this attempt.
-    let n = ordered.iter().filter(|&&id| affected.contains(&id)).count();
+    // A commit the base already holds is no step of it: the replay drops it
+    // without a merge, so the chain runs no merge for it either.
+    let replays = |id: &gix::ObjectId| affected.contains(id) && !superseded.contains_key(id);
+    let n = ordered.iter().filter(|id| replays(id)).count();
 
     let start_cursor = match change {
         Change::Onto(onto) => tree_of(repo, *onto)?,
@@ -107,7 +114,7 @@ pub fn chain(
     let mut tangled: Option<Tangle> = None;
 
     for &id in &ordered {
-        if !affected.contains(&id) {
+        if !replays(&id) {
             continue;
         }
         let k = steps.len() + 1;
@@ -558,15 +565,23 @@ pub(crate) fn chain_labels(subject: &str, k: usize, n: usize) -> (String, String
     )
 }
 
-/// How many commits a rewrite of `target..tip` replays — the `n` a chain
-/// label's `(k/n)` counts against.
+/// How many commits a rewrite of `target..tip` under `change` replays — the
+/// `n` a chain label's `(k/n)` counts against.
 pub(crate) fn stack_size(
     repo: &gix::Repository,
     target: gix::ObjectId,
     tip: gix::ObjectId,
+    change: &Change,
 ) -> Result<usize> {
-    let Range { ordered, affected } = range_of(repo, target, tip)?;
-    Ok(ordered.iter().filter(|&&id| affected.contains(&id)).count())
+    let Range {
+        ordered,
+        affected,
+        superseded,
+    } = range_of(repo, target, tip, change)?;
+    Ok(ordered
+        .iter()
+        .filter(|&id| affected.contains(id) && !superseded.contains_key(id))
+        .count())
 }
 
 /// The tree of a commit's old first parent, or the empty tree for a root.

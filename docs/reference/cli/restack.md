@@ -4,7 +4,7 @@ Replays a branch's commits onto the base it sits on — the branch it was forked
 
 The positional names the branch being moved, so a branch you are not standing on restacks without touching a file on disk. Offline: it never reaches the network.
 
-- The replay carries the branch's own commits and no others. The range stops where the branch forked from the history of whatever it is replayed onto, read from that ref's reflog, so a base rewritten beneath it does not hand its old commits back as the branch's. `--onto` reads the target's reflog the same way, which is how a branch cut outside fufu and first aimed at the branch it really sits on sheds the stale copies it carries.
+- The replay carries the branch's own commits and no others. A commit whose change id the target already holds is a stale copy of one the target has since rewritten: it is dropped as superseded by the target's commit, with no merge attempted, so a base rewrite that changed its content cannot conflict on a file the branch never touched. For a commit without the header — one made by git, or one a raw `git rebase` stripped — the range stops where the branch forked from the history of whatever it is replayed onto, read from that ref's reflog. `--onto` reads the target's reflog the same way, which is how a branch cut outside fufu and first aimed at the branch it really sits on sheds the stale copies it carries.
 - A replay that would conflict stops with nothing changed rather than leaving you mid-rebase.
 - A branch inside the replayed range with no commits of its own is left where it stood, and named.
 
