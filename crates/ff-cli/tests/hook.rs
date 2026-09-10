@@ -228,6 +228,59 @@ fn strict_denies_and_still_exits_zero() {
     assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
 }
 
+/// `merge` is a passthrough word: fufu's answer is `ff git merge` itself,
+/// and the hook is the one place that spelling is heard. Coach names it
+/// beside `ff pull`; strict denies the raw call and names it. Neither says
+/// `restack`, which moves the branch being re-aimed and never the target.
+#[test]
+fn merge_is_answered_with_the_passthrough() {
+    let fx = repo();
+    let body = git_payload("s", &fx.path(), "git merge --ff-only flight");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    let hook = &value["hookSpecificOutput"];
+    let context = hook["additionalContext"].as_str().unwrap_or_default();
+    assert!(
+        context.contains("ff pull") && context.contains("ff git merge"),
+        "coach names ff pull and the passthrough: {text}"
+    );
+    assert!(
+        !context.contains("restack"),
+        "restack never advances the target: {text}"
+    );
+    assert!(
+        hook.get("permissionDecision").is_none(),
+        "coach must not decide permission: {text}"
+    );
+    assert_eq!(
+        chain_subject(&fx),
+        "claude[s]: Bash(git merge --ff-only flight)"
+    );
+
+    let fx = repo();
+    fx.set_config("fufu.gitPolicy", "strict");
+    let body = git_payload("s", &fx.path(), "git merge --ff-only flight");
+    let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("valid json");
+    let hook = &value["hookSpecificOutput"];
+    assert_eq!(hook["permissionDecision"], "deny");
+    let reason = hook["permissionDecisionReason"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        reason.contains("ff git merge") && !reason.contains("restack"),
+        "the denial names the passthrough: {text}"
+    );
+    assert_eq!(
+        chain_subject(&fx),
+        "claude[s]: Bash(git merge --ff-only flight)"
+    );
+}
+
 /// A command fufu cannot read as one plain git invocation fails open: no
 /// denial, under strict, and the snapshot lands anyway.
 #[test]

@@ -10,6 +10,8 @@ What `fufu.gitPolicy` decides is what fufu *says* about a git word it has a verb
 
 Words fufu has no verb for (`apply`, `bisect`, `gc`) are never touched under any tier.
 
+`tag` and `merge` have no fufu verb of their own, and their answer is `ff git` itself, so they run under every tier here; the hook still names the passthrough.
+
 The same setting governs raw git in an agent's own shell, through the hook: there coach injects the alternative into the model's context and strict asks the client to stop the call.
 
 Every flag here belongs to git, including --help. This page is `ff help git`.

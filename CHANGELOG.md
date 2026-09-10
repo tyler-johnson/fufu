@@ -15,6 +15,7 @@
 - `ff restack` and the cascade drop a commit whose change id the base already holds, reflog or no reflog: `dropped … — superseded by <sha> in the base`. JSON `dropped` entries gain `reason` and, under `superseded`, `by`.
 - A branch created outside fufu records the branch it was cut from as its base when its tip is exactly one other non-trunk branch's tip or git's reflog names it. The absorb line says `forked from <branch>`, and `ff undo` takes the record back. Anything less certain stays on trunk.
 - A git upstream under another local branch's name, or trunk's, is the branch's base rather than its shared copy: `ff status` shows it on the base axis, `ff branch list` shows no copy, and the `branch/aliased-copy` refusal goes. An upstream under a name no local branch holds is still the branch's own copy.
+- `ff git merge` runs under `fufu.gitPolicy strict`, the way `ff git tag` does, and the coaching line for `git merge` names `ff pull` and `ff git merge` in place of `ff restack --onto`, which moves the branch and never the target.
 
 ### Removed
 

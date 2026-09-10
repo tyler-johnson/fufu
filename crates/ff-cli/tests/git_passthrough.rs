@@ -239,3 +239,73 @@ fn strict_refuses_only_what_it_can_answer() {
     let log = std::fs::read_to_string(&fake.log).unwrap();
     assert!(log.contains("argv: [apply] [p.diff]"), "{log:?}");
 }
+
+/// `merge` is a passthrough word like `tag`: fufu has no verb of its own
+/// for it, and its answer is `ff git merge` itself, so strict runs it. Real
+/// git this time, since the point is that the fast-forward lands.
+#[test]
+fn merge_is_a_passthrough_word() {
+    let path = std::env::var_os("PATH").expect("PATH");
+    let path = Path::new(&path);
+
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["switch", "-c", "flight"]);
+    fx.write("b.txt", "b\n");
+    fx.commit("flight work");
+    fx.git(&["switch", "main"]);
+    fx.set_config("fufu.gitPolicy", "strict");
+
+    let out = ff_with_path(
+        path,
+        &fx.path(),
+        &["git", "merge", "--ff-only", "flight"],
+        &[],
+    );
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        out.status.success(),
+        "strict runs the passthrough: {stderr:?}"
+    );
+    assert!(
+        !stderr.contains("strict") && !stderr.contains("tip"),
+        "nothing to refuse and nothing to coach: {stderr:?}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]),
+        fx.git(&["rev-parse", "flight"]),
+        "the fast-forward landed"
+    );
+
+    // Strict still refuses what it can answer.
+    fx.write("a.txt", "dirty\n");
+    let out = ff_with_path(path, &fx.path(), &["git", "commit", "-m", "x"], &[]);
+    assert_eq!(out.status.code(), Some(2), "strict refuses with exit 2");
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("ff commit"),
+        "the refusal names the verb: {stderr:?}"
+    );
+
+    // Under coach the passthrough is not answered with itself.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["switch", "-c", "flight"]);
+    fx.write("b.txt", "b\n");
+    fx.commit("flight work");
+    fx.git(&["switch", "main"]);
+    let out = ff_with_path(
+        path,
+        &fx.path(),
+        &["git", "merge", "--ff-only", "flight"],
+        &[],
+    );
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(out.status.success(), "{stderr:?}");
+    assert!(
+        !stderr.contains("tip"),
+        "you typed the passthrough; it is not the tip: {stderr:?}"
+    );
+}

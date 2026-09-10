@@ -82,7 +82,7 @@ Color theme for ff output. muted gives desaturated 256-color (the default); vivi
 
 `fufu.gitPolicy` — choice of `observe`, `coach`, `strict`; default `coach`
 
-What fufu says when git is reached for directly — through ff git, or in an agent's own shell. observe records and stays quiet; coach (the default) names the fufu verb once per word; strict refuses the words fufu has verbs for. Nothing is ever silently run in its place.
+What fufu says when git is reached for directly — through ff git, or in an agent's own shell. observe records and stays quiet; coach (the default) names the fufu verb once per word; strict refuses the words fufu has verbs for, and tag and merge, whose answer is ff git itself, run. Nothing is ever silently run in its place.
 
 ### futuresDepth
 

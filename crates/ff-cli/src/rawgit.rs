@@ -28,12 +28,13 @@ pub struct Word {
 }
 
 impl Word {
-    /// Whether fufu's answer *is* the passthrough. `tag` is the one: fufu
-    /// has no verb of its own, and what it has to say is that `ff git tag`
-    /// runs the real thing capture-first. Naming that at somebody who
+    /// Whether fufu's answer *is* the passthrough. `tag` and `merge` are
+    /// the two, for the same reason: fufu has no verb of its own for
+    /// either, and what it has to say is that `ff git tag` and `ff git
+    /// merge` run the real thing capture-first. Naming that at somebody who
     /// already typed `ff git tag` would be answering them with their own
-    /// command line, so the alias path stays quiet on it and only the
-    /// raw-git path hears about it.
+    /// command line, so the alias path stays quiet on it under every tier
+    /// and only the raw-git path hears about it.
     pub fn is_passthrough(&self) -> bool {
         self.ff.starts_with("ff git ")
     }
@@ -97,8 +98,8 @@ pub const TABLE: &[Word] = &[
     },
     Word {
         git: "merge",
-        ff: "ff restack --onto",
-        why: "fufu replays rather than merges — ff restack --onto puts this branch on top",
+        ff: "ff git merge",
+        why: "ff pull brings work in by replay, and a merge into a branch runs capture-first as ff git merge",
     },
     Word {
         git: "rebase",
@@ -335,6 +336,40 @@ mod tests {
         assert_eq!(
             classify_argv(&argv(&["-C", "path", "commit"])),
             Shape::Ambiguous
+        );
+    }
+
+    /// A passthrough word's `why` is the only line that ever names its
+    /// spelling: the alias tip never prints a passthrough, so the hook's
+    /// line has to carry `ff git <word>` itself. And `merge` is one now —
+    /// `ff restack --onto` moves the branch being re-aimed, never the
+    /// target, so it was never the answer to a merge.
+    #[test]
+    fn a_passthrough_word_names_its_own_spelling() {
+        let passthroughs: Vec<&Word> = TABLE.iter().filter(|w| w.is_passthrough()).collect();
+        assert!(!passthroughs.is_empty());
+        for entry in &passthroughs {
+            let spelling = format!("ff git {}", entry.git);
+            assert_eq!(
+                entry.ff, spelling,
+                "{:?} is not the plain passthrough",
+                entry.ff
+            );
+            assert!(
+                entry.why.contains(&spelling),
+                "the hook line is the only place {spelling:?} is heard, and {:?} never says it",
+                entry.why
+            );
+        }
+        let merge = word("merge").unwrap();
+        assert!(
+            merge.is_passthrough(),
+            "{:?} is not a passthrough",
+            merge.ff
+        );
+        assert!(
+            !merge.ff.contains("restack --onto") && !merge.why.contains("restack --onto"),
+            "restack --onto moves the branch and never the target: {merge:?}"
         );
     }
 

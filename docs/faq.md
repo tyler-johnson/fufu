@@ -87,7 +87,7 @@ Rollback is not erasure — commits that reached the world stay reached — but 
 
 `fufu.gitPolicy strict` refuses exactly the git writes fufu has a verb for — `git commit`, `commit -p` included, `git stash push`, `git reset`, and their kin — and names the fufu verb to run instead. It never silently runs something in the refused command's place.
 
-Reads pass untouched at every level. So do writes with no fufu answer, such as `apply`, `am`, `bisect`, and `submodule`. Ambiguous compound shell strings fail open rather than guessing.
+Reads pass untouched at every level. So do writes with no fufu answer, such as `apply`, `am`, `bisect`, and `submodule`, and so do `tag` and `merge`, whose answer is `ff git` itself. Ambiguous compound shell strings fail open rather than guessing.
 
 The capture already happened before the command ran either way, so the policy is a nudge with teeth rather than the safety net itself. See [plain-git teammates](guides/plain-git-teammates.md#the-alias-and-gitpolicy) and [why agents](agents/why.md).
 
