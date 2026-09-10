@@ -59,6 +59,10 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `extension/skill-failed` | 1 | the extension did not answer the skill handshake |
 | `extension/tools-failed` | 1 | the extension did not answer the tool handshake |
 | `extension/unsupported-contract` | 1 | the extension speaks a contract this fufu does not |
+| `fold/conflict` | 1 | the replay would conflict, so nothing was folded |
+| `fold/other-tree-conflict` | 1 | the target's open change in the other worktree would conflict with the fold |
+| `fold/remote-target` | 1 | the target lives on a remote, and fold lands into a local branch only |
+| `fold/trunk-source` | 1 | trunk is what branches fold into, and folds into nothing |
 | `held/already-held` | 3 | a rewrite is already held on this branch |
 | `held/expired` | 3 | the held rewrite no longer has a question to answer |
 | `held/moved` | 3 | the repository changed while the resolution was open |
@@ -121,6 +125,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/bad-session` | 2 | that is not a usable session name |
 | `usage/bad-value` | 2 | the value did not parse as this setting's type |
 | `usage/collide-same-branch` | 2 | collide was given one branch twice |
+| `usage/fold-into-self` | 2 | a branch cannot be folded into itself |
 | `usage/foreign-verb` | 2 | that is a git or jj verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
 | `usage/lift-from-open` | 2 | lift was named the open change as its source |

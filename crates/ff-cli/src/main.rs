@@ -303,6 +303,7 @@ fn main() {
         }) => cmd::absorb::run(&ctx, into, paths, no_verify),
         Some(cli::Command::Lift { from, paths }) => cmd::lift::run(&ctx, from, paths),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
+        Some(cli::Command::Fold { target, stay }) => cmd::fold::run(&ctx, target, stay),
         Some(cli::Command::Pull {
             branches,
             all,

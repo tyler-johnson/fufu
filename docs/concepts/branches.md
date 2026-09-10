@@ -66,9 +66,10 @@ That record is what "base" means everywhere fufu says the word: the base axis on
 
 ### The cascade
 
-When a branch's tip moves, the branches stacked on it follow. Six verbs move a tip and set that cascade going:
+When a branch's tip moves, the branches stacked on it follow. Seven verbs move a tip and set that cascade going:
 
 - [`ff restack`](../reference/cli/restack.md)
+- [`ff fold`](../reference/cli/fold.md)
 - [`ff pull`](../reference/cli/pull.md)
 - [`ff absorb`](../reference/cli/absorb.md)
 - [`ff lift`](../reference/cli/lift.md)
@@ -87,7 +88,7 @@ Three kinds of branch are skipped rather than replayed, and the verb names each 
 
 A branch with no commits of its own stays put.
 
-The verb says what followed, what held, and what was skipped. `ff restack` and `ff pull` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
+The verb says what followed, what held, and what was skipped. `ff restack`, `ff fold`, and `ff pull` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
 
 [Stacked changes](../guides/stacked-changes.md) walks a stack through review.
 

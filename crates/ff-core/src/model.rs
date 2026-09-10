@@ -376,6 +376,10 @@ pub struct RewindReport {
     pub files: Vec<String>,
     pub warnings: Vec<String>,
     pub pre_op: Option<String>,
+    /// What another worktree's chain still holds of an operation this move
+    /// stepped over: `ff fold --stay` writes two chains, and an undo of
+    /// either side names the other half.
+    pub companions: Vec<String>,
 }
 
 /// The result of `ff op revert` — the one verb in the `ff op` family that
@@ -534,6 +538,70 @@ pub struct RestackReport {
     /// What happened to the branches stacked above this one. Empty when
     /// nothing sits on it.
     pub cascade: Cascade,
+}
+
+/// A fold that landed: the branch's commits replayed onto the target's tip,
+/// the target advanced to the result, and the branch taken away — or, under
+/// `--stay`, kept sitting on the new tip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FoldReport {
+    /// The branch that was folded.
+    pub source: String,
+    /// The branch it landed on.
+    pub target: String,
+    /// The source was an anonymous branch, with no name to lose.
+    pub anonymous: bool,
+    /// `--stay`: the source survives, sitting on the target's new tip.
+    pub stay: bool,
+    /// Commits replayed. Zero when the target's history already held the
+    /// branch's commits.
+    pub replayed: usize,
+    /// How many commits the target moved ahead by.
+    pub advanced: usize,
+    /// The source's tip before the fold, full sha: where the deleted branch
+    /// stood, and where `ff undo` puts it back.
+    pub old_tip: String,
+    /// The target's tip after the fold, full sha.
+    pub new_tip: String,
+    /// Commits the replay dropped because they introduce nothing, or the
+    /// target already held them by change id. Oldest-first.
+    pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Branches inside the replayed range left where they stood.
+    pub diverged: Vec<String>,
+    /// How many of the rewritten commits the source's remote already has.
+    pub published: usize,
+    /// The tracking ref `published` was measured against.
+    pub published_on: Option<String>,
+    /// Worktree files written or deleted in this worktree.
+    pub files: usize,
+    /// Anything still open here once the fold has landed.
+    pub still_open: bool,
+    /// Where the source's pointer into the log went. `None` under
+    /// `--stay`, and when the branch had no operations of its own.
+    pub trash_ref: Option<String>,
+    /// The source's parked change, dropped with the branch.
+    pub parked_demoted: Option<String>,
+    /// The target has a parked change, and whether it would still apply.
+    /// Disclosed, never applied over the change that rode the fold.
+    pub parked: Option<Parked>,
+    /// Branches that sat on the source, re-aimed at the target.
+    pub reaimed: Vec<String>,
+    /// What happened to the branches stacked above the source.
+    pub cascade: Cascade,
+    /// The other worktree the target advanced in, under `--stay`.
+    pub moved_tree: Option<MovedTree>,
+}
+
+/// A worktree `ff fold --stay` advanced the target in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MovedTree {
+    /// Its chain id.
+    pub id: String,
+    pub path: String,
+    /// Files written or deleted there.
+    pub files: usize,
+    /// Its open change rode the move and is still open.
+    pub still_open: bool,
 }
 
 /// A parked change the restack leaves untouched, disclosed not resolved.

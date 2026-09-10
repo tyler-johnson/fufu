@@ -47,7 +47,7 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
 
 /// A three-way tree merge, resolved but not yet written: the caller probes
 /// with a handle that writes nothing, and only then merges for real.
-fn merge_into(
+pub(crate) fn merge_into(
     repo: &gix::Repository,
     base: gix::ObjectId,
     ours: gix::ObjectId,
@@ -484,10 +484,10 @@ pub(crate) struct ReplayPlan {
     pub carried: Vec<RefTransition>,
     pub rewrites: Vec<rewrite::Rewrite>,
     pub dropped: Vec<rewrite::Dropped>,
-    diverged: Vec<String>,
-    replayed: usize,
-    published: usize,
-    fast_forward: bool,
+    pub(crate) diverged: Vec<String>,
+    pub(crate) replayed: usize,
+    pub(crate) published: usize,
+    pub(crate) fast_forward: bool,
     reaimed: bool,
     parent_changes: bool,
     recorded_parent: Option<String>,

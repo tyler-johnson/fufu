@@ -4,6 +4,7 @@
 
 ### Added
 
+- `ff fold [<target>] [--stay]` lands the branch you stand on into another, trunk when none is named: its commits replay onto the target's tip, the target fast-forwards, the branch is deleted with its timeline parked under trash, and the worktree moves to the target with the open change still open, one undoable operation with the branches above following and re-aimed at the target. `--stay` keeps the branch sitting on the result and, when another worktree holds the target, advances it there on both chains, each half's undo naming the other. Refusals: `fold/trunk-source`, `fold/remote-target`, `fold/conflict` (nothing is held; `ff restack --onto` holds the same replay), `fold/other-tree-conflict`, `usage/fold-into-self`, and `branch/checked-out-elsewhere` without `--stay`. `--json` carries the report as `fold`.
 - `ff evolog <rev>` drills into a change: every operation, on any worktree's chain, that produced a commit carrying its change id, then the captures behind the close. `--json` carries `change_id`, `commit`, `operations`, and `snapshots`.
 
 ### Changed

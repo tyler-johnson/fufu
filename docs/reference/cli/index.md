@@ -38,6 +38,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff absorb`](absorb.md) — Fold working changes into a commit that has already closed
 - [`ff lift`](lift.md) — Take changes back out of a closed commit, into the open change
 - [`ff restack`](restack.md) — Replay a branch's commits onto the base it sits on
+- [`ff fold`](fold.md) — Land this branch on another and take the branch away
 - [`ff edit`](edit.md) — Open an editing session on a commit: go there, edit it, come back
 - [`ff done`](done.md) — Finish the editing session: amend, replay what waited, land back
 - [`ff resolve`](resolve.md) — Materialize a held rewrite's conflicts and fix them, all at once

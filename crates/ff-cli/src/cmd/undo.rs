@@ -116,6 +116,11 @@ pub fn report_move(ctx: &Ctx, report: &ff_core::RewindReport, name: &'static str
     if !report.files.is_empty() {
         println!("  {} worktree file(s) restored", report.files.len());
     }
+    // A two-chain operation's other half is not this chain's to move: say
+    // what the other tree still holds, and where its undo is.
+    for companion in &report.companions {
+        println!("  {companion}");
+    }
     for warning in &report.warnings {
         println!(
             "{}",

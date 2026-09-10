@@ -886,6 +886,51 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff log", "ff restack <branch> --onto <base>"],
     },
     Entry {
+        id: "fold/trunk-source",
+        summary: "trunk is what branches fold into, and folds into nothing",
+        detail: "ff fold lands the branch you are standing on into another one and takes the \
+                 branch away, and trunk is the branch everything else lands on: there is \
+                 nothing beneath it to land on, and no line of work that should lose the \
+                 name. Stand on the branch you meant to fold and run it from there.",
+        exits: &["ff switch <branch>", "ff status"],
+    },
+    Entry {
+        id: "fold/remote-target",
+        summary: "the target lives on a remote, and fold lands into a local branch only",
+        detail: "A fold moves the target's ref to the result, and a ref under a remote is not \
+                 this repository's to move: the remote's copy moves when something is \
+                 pushed to it. The default target is trunk, and a clone whose trunk is only \
+                 origin's — no local branch of that name — has no local branch to land on, \
+                 which is what this refusal is usually saying. ff start makes the local \
+                 branch from the remote's; ff push is how a branch reaches a remote.",
+        exits: &["ff start <remote>/<branch>", "ff branch list", "ff push"],
+    },
+    Entry {
+        id: "fold/conflict",
+        summary: "the replay would conflict, so nothing was folded",
+        detail: "A fold replays the branch's commits onto the target's tip before the target \
+                 moves, and a replay that would conflict is refused with nothing changed — \
+                 no ref, no file, no hold. That is a choice, and the reason is that a fold \
+                 ends with the branch gone and you standing on the target, which is no \
+                 place to leave a conflict waiting. ff restack --onto the same target \
+                 performs the same replay as a held rewrite, so ff resolve can pick it up \
+                 and ff done land it; once the branch sits clean on the target, ff fold \
+                 fast-forwards it.",
+        exits: &["ff restack --onto <target>", "ff status"],
+    },
+    Entry {
+        id: "fold/other-tree-conflict",
+        summary: "the target's open change in the other worktree would conflict with the fold",
+        detail: "ff fold --stay advances the target in the worktree that holds it, and that \
+                 tree's uncommitted work rides over the new tip the way your own open change \
+                 rides a restack. Here it would not: the files named are edited there and \
+                 changed by the commits landing, so carrying the change over would leave \
+                 conflict markers in a tree nobody is looking at. Nothing was written on \
+                 either chain. Commit or restore the change in that worktree, or switch it \
+                 off the target so a plain ff fold can land here.",
+        exits: &["ff fold <target>", "ff worktree list", "ff status"],
+    },
+    Entry {
         id: "session/none",
         summary: "there is no editing session to finish",
         detail: "An editing session is what ff edit opens: a branch minted at a commit and \
@@ -934,6 +979,15 @@ pub static ENTRIES: &[Entry] = &[
                  a branch replayed onto itself is the same history it already is. Name the base \
                  you want it to sit on, or drop the flag to use the one recorded.",
         exits: &["ff restack <branch> --onto <base>", "ff branch list"],
+    },
+    Entry {
+        id: "usage/fold-into-self",
+        summary: "a branch cannot be folded into itself",
+        detail: "The target names the branch to land on, and that has to be a different one — \
+                 a branch folded into itself is the same history it already is, minus the \
+                 name. Name the branch you want it to land on, or leave the target off to \
+                 land on trunk.",
+        exits: &["ff fold <branch>", "ff branch list"],
     },
     Entry {
         id: "extension/not-found",

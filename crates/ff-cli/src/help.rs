@@ -97,6 +97,7 @@ pages! {
     ABSORB           ABSORB_EXAMPLES           "help/absorb.md"
     LIFT             LIFT_EXAMPLES             "help/lift.md"
     RESTACK          RESTACK_EXAMPLES          "help/restack.md"
+    FOLD             FOLD_EXAMPLES             "help/fold.md"
     PULL             PULL_EXAMPLES             "help/pull.md"
     PUSH             PUSH_EXAMPLES             "help/push.md"
     REMOTE           REMOTE_EXAMPLES           "help/remote.md"
@@ -349,6 +350,7 @@ pub const GROUPS: &[Group] = &[
             r("absorb"),
             r("lift"),
             r("restack"),
+            r("fold"),
             r("edit"),
             r("done"),
             r("resolve"),

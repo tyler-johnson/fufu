@@ -12,6 +12,7 @@ pub mod done;
 pub mod edit;
 pub mod error;
 mod evolog;
+pub mod fold;
 pub mod futures;
 mod head;
 pub mod held;

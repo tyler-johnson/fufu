@@ -472,8 +472,14 @@ pub fn rewind(
     //    rule: what is left behind restores its `old`, what is entered
     //    applies its `new`, and the last write is the one the landing
     //    recorded.
+    let mut companions: Vec<String> = Vec::new();
     for (op, replay) in replay_order(&back, &fwd) {
         if let Some(op_record) = op.record()? {
+            // The other half of a two-chain operation is not this chain's to
+            // move; the report says what the other tree still holds.
+            if let Some(companion) = &op_record.companion {
+                companions.push(companion.text.clone());
+            }
             if let Some(d) = &op_record.description {
                 let mut meta = branchmeta::read(repo, &d.branch)?;
                 meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
@@ -511,6 +517,35 @@ pub fn rewind(
                 let mut meta = branchmeta::read(repo, &r.branch)?;
                 meta.resolving = if replay { r.new.clone() } else { r.old.clone() };
                 branchmeta::write(repo, &r.branch, &meta)?;
+            }
+            // A branch pointer the op parked under trash comes back with the
+            // branch, so the next capture there continues its timeline
+            // rather than forking the log; entering parks it again.
+            for p in &op_record.pointers {
+                let (src, dst) = if replay {
+                    (&p.from, &p.to)
+                } else {
+                    (&p.to, &p.from)
+                };
+                let tip = gix::ObjectId::from_hex(p.tip.as_bytes()).map_err(Error::repo)?;
+                if !matches!(repo.try_find_object(tip), Ok(Some(_))) {
+                    warnings.push(format!(
+                        "{}: its pointer's operation {} is gone; the pointer was not moved",
+                        p.branch, p.tip
+                    ));
+                    continue;
+                }
+                refs::write_ref(
+                    repo,
+                    dst,
+                    tip,
+                    gix::refs::transaction::PreviousValue::Any,
+                    now,
+                    &format!("fufu: state as of {target_id}"),
+                )?;
+                if refs::ref_target(repo, src)? == Some(tip) {
+                    refs::delete_ref(repo, src, tip, now)?;
+                }
             }
         }
     }
@@ -557,6 +592,7 @@ pub fn rewind(
             files,
             warnings,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
+            companions,
         },
         ctx,
     ))

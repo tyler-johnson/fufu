@@ -117,6 +117,7 @@ One rule decides the table: the tree hook runs where worktree content becomes co
 | `ff describe` (open change) | no | no — a pending description is not a commit; the hooks fire when it closes | no | no |
 | [`ff lift`](reference/cli/lift.md) | no — no worktree content enters a commit | no | no | no |
 | [`ff restack`](reference/cli/restack.md), `ff pull` | no — `git rebase` runs none either | no | no | no |
+| [`ff fold`](reference/cli/fold.md) | no — a replay, like restack | no | no | no |
 
 `post-commit` stays on `ff commit` alone, because git fires it from `git commit` and not from `rebase`, and absorb, done and describe are rebases.
 

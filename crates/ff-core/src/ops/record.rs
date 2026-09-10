@@ -128,6 +128,42 @@ pub struct Published {
     pub to: String,
 }
 
+/// A branch's pointer into the log parked under trash: the branch was taken
+/// away, and the way back to its timeline is kept beside the log rather than
+/// swept. Recorded so an undo that brings the branch back brings its pointer
+/// back with it, and the next capture there continues the timeline instead
+/// of forking the log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PointerTransition {
+    pub branch: String,
+    /// The pointer as it stood: `refs/fufu/snap/<branch>`.
+    pub from: String,
+    /// Where it went: `refs/fufu/trash/<branch>`.
+    pub to: String,
+    /// The operation it named, full sha.
+    pub tip: String,
+}
+
+/// The other half of an operation that wrote two chains: `ff fold --stay`
+/// advances a target another worktree holds, and records that move on the
+/// holder's chain beside its own. Each side names the other so an undo of
+/// either says what the other tree still holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Companion {
+    /// The other chain's id.
+    pub chain: String,
+    /// The other worktree's path, for the message.
+    pub path: String,
+    /// The other chain's operation, when it was known at write time: the
+    /// second record written names the first, and the first cannot name the
+    /// second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    /// What an undo here leaves standing over there, in the words the undo
+    /// prints.
+    pub text: String,
+}
+
 /// A resolution session opened or ended on a branch (`None` = absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolveTransition {
@@ -191,9 +227,11 @@ pub struct OpRecord {
     pub change_id: Option<ChangeIdTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentTransition>,
-    /// The recorded parents a reconciliation inferred for branches created
-    /// outside fufu, one per branch, so undo takes each back with the
-    /// creation. Skipped when empty, so no `RECORD_VERSION` bump.
+    /// Recorded parents set several at a time: the ones a reconciliation
+    /// inferred for branches created outside fufu, and the ones `ff fold`
+    /// re-aims from the folded branch at its target. One per branch, so
+    /// undo takes each back with the operation. Skipped when empty, so no
+    /// `RECORD_VERSION` bump.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inferred_parents: Vec<ParentTransition>,
     /// An editing session opened or ended. Spelled `edit_session` to stay
@@ -249,6 +287,15 @@ pub struct OpRecord {
     /// rather than a file beside it — one authority, one trim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_cursor: Option<u32>,
+    /// The other chain this operation's twin was written on, when a verb
+    /// wrote two. Optional and skipped when absent, so no `RECORD_VERSION`
+    /// bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub companion: Option<Companion>,
+    /// Branch pointers this operation parked under trash. Skipped when
+    /// empty, so no `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointers: Vec<PointerTransition>,
 }
 
 impl OpRecord {
@@ -283,6 +330,8 @@ impl OpRecord {
             undo_of: None,
             undo_cursor: None,
             published: None,
+            companion: None,
+            pointers: Vec::new(),
         }
     }
 }

@@ -346,6 +346,16 @@ pub enum Command {
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
     },
+    /// Land this branch on another and take the branch away
+    #[command(long_about = help::term(help::FOLD), after_long_help = help::term_examples(help::FOLD_EXAMPLES))]
+    Fold {
+        /// Branch to fold into; without it, trunk
+        #[arg(value_name = "branch")]
+        target: Option<String>,
+        /// Advance a target another worktree holds, there, and keep this branch here
+        #[arg(long)]
+        stay: bool,
+    },
     // agent notice quotes this: `ff pull`
     /// Line every branch up with its base and its remote
     #[command(visible_alias = "sync", long_about = help::term(help::PULL), after_long_help = help::term_examples(help::PULL_EXAMPLES))]
@@ -994,6 +1004,7 @@ impl Command {
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
+            Command::Fold { .. } => "fold",
             Command::Pull { .. } => "pull",
             Command::Push { .. } => "push",
             Command::Remote => "remote",
@@ -1083,6 +1094,7 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
+            | Command::Fold { .. }
             | Command::Pull { .. }
             | Command::Edit { .. }
             | Command::Done { .. }
@@ -1211,6 +1223,7 @@ impl Command {
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
+            | Command::Fold { .. }
             | Command::Pull { .. }
             | Command::Push { .. }
             | Command::Done { .. }
