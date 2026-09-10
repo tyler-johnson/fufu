@@ -4,26 +4,25 @@
 
 ### Added
 
-- `ff fold [<target>] [--stay]` lands the branch you stand on into another, trunk when none is named: its commits replay onto the target's tip, the target fast-forwards, the branch is deleted with its timeline parked under trash, and the worktree moves to the target with the open change still open, one undoable operation with the branches above following and re-aimed at the target. `--stay` keeps the branch sitting on the result and, when another worktree holds the target, advances it there on both chains, each half's undo naming the other. Refusals: `fold/trunk-source`, `fold/remote-target`, `fold/conflict` (nothing is held; `ff restack --onto` holds the same replay), `fold/other-tree-conflict`, `usage/fold-into-self`, and `branch/checked-out-elsewhere` without `--stay`. `--json` carries the report as `fold`.
-- `ff branch <name> [<rev>]` creates a branch at `<rev>`, trunk by default, without switching, as one undoable operation; a branch name as `<rev>` is recorded as the parent, and `@` is the commit under the open change. `--json` carries it as `branch create`.
+- `ff fold [<target>] [--stay]` lands the branch you stand on into another, trunk when none is named: its commits replay onto the target's tip, the target fast-forwards, the branch goes to trash, and the worktree moves to the target with the open change still open, one undoable operation with the branches above re-aimed at the target. `--stay` keeps the branch on the result, and advances a target another worktree holds. A replay that would conflict is `fold/conflict` and changes nothing. `--json` carries the report as `fold`.
+- `ff branch <name> [<rev>]` creates a branch at `<rev>`, trunk by default, without switching, as one undoable operation. A branch name as `<rev>` is recorded as the parent, and `@` is the commit under the open change. `--json` carries it as `branch create`.
 - `ff evolog <rev>` drills into a change: every operation, on any worktree's chain, that produced a commit carrying its change id, then the captures behind the close. `--json` carries `change_id`, `commit`, `operations`, and `snapshots`.
 
 ### Changed
 
-- The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through every rewrite fufu performs, in place of the op anchor. `ff commit` writes it as jj's `change-id` header inside the signed payload, and a commit made outside fufu derives one from its sha, so the column is never blank. `--json` carries `change_id` beside the ids it carried before.
-- A letters token in a revision slot is a change id or a unique prefix of one, and a prefix of the open change's id is `@`. An ambiguous prefix is `usage/revset-ambiguous`; a change standing on more than one visible commit is `usage/revset-divergent`. Operation ids are hex now and keep their own slots.
-- Operation and capture ids print and parse as hex, twelve characters in every column, like jj's: `ff op log`, `ff evolog`, `ff history`, `ff undo`, and the bold prefix `--at-op` reads, and every `id` the JSON surface carries for an operation. Letters are a change id and nothing else: `ff op show <change id>` and `--at-op <change id>` are `usage/rev-in-op-position`, and `ff log -r <op id>` is `usage/op-in-rev-position`.
+- The letters column on `ff log`, `ff status`, the map, and `ff show` is a change id, the identity a commit keeps through every rewrite fufu performs, in place of the op anchor. `ff commit` writes it as jj's `change-id` header, and a commit made outside fufu derives one from its sha. `--json` carries `change_id`.
+- A letters token in a revision slot is a change id or a unique prefix of one; an ambiguous prefix is `usage/revset-ambiguous`, and a change standing on more than one visible commit is `usage/revset-divergent`. Operation and capture ids are hex, twelve characters, like jj's, on `ff op log`, `ff evolog`, `ff history`, `ff undo`, `--at-op`, and every `id` the JSON surface carries for an operation. A change id in an op slot is `usage/rev-in-op-position`, and an op id in a revision slot is `usage/op-in-rev-position`.
 - `ff switch <change id>` redirects to `ff start` at that commit, the way `ff switch <sha>` does.
-- `ff restack` and the cascade drop a commit whose change id the base already holds, reflog or no reflog: `dropped … — superseded by <sha> in the base`. JSON `dropped` entries gain `reason` and, under `superseded`, `by`.
-- A branch created outside fufu records the branch it was cut from as its base when its tip is exactly one other non-trunk branch's tip or git's reflog names it. The absorb line says `forked from <branch>`, and `ff undo` takes the record back. Anything less certain stays on trunk.
-- A git upstream under another local branch's name, or trunk's, is the branch's base rather than its shared copy: `ff status` shows it on the base axis, `ff branch` shows no copy, and the `branch/aliased-copy` refusal goes. An upstream under a name no local branch holds is still the branch's own copy.
-- `ff branch`, `ff worktree`, and `ff extension` take flags, not subcommands: bare lists, a positional creates or adds, `-d`/`--delete` deletes or removes; `--at`, `--at-op`, and `--all` are the list's alone.
-- `ff git merge` runs under `fufu.gitPolicy strict`, the way `ff git tag` does, and the coaching line for `git merge` names `ff pull` and `ff git merge` in place of `ff restack --onto`, which moves the branch and never the target.
+- `ff restack` and the cascade drop a commit whose change id the base already holds: `dropped … — superseded by <sha> in the base`. JSON `dropped` entries gain `reason` and, under `superseded`, `by`.
+- A branch created outside fufu records the branch it was cut from as its base when that is certain: its tip is one other non-trunk branch's tip, or git's reflog names it. The absorb line says `forked from <branch>`, and `ff undo` takes the record back.
+- A git upstream under another local branch's name, or trunk's, is the branch's base rather than its shared copy: `ff status` shows it on the base axis, `ff branch` shows no copy, and the `branch/aliased-copy` refusal goes.
+- `ff branch`, `ff worktree`, and `ff extension` take flags, not subcommands: bare lists, a positional creates or adds, `-d`/`--delete` deletes or removes. `--at`, `--at-op`, and `--all` are the list's alone.
+- `ff git merge` runs under `fufu.gitPolicy strict`, the way `ff git tag` does, and the coaching line for `git merge` names `ff pull` and `ff git merge` in place of `ff restack --onto`.
 
 ### Removed
 
 - `id_letters` from `ff status --json` and `ff log --json`; `id` is the operation's hex, and what `--at-op` reads.
-- The `list`, `create`, `delete`, `add`, and `remove` subcommand spellings under `ff branch`, `ff worktree`, and `ff extension`, and the `usage/unknown-subcommand` redirect from `ff branch <name>` to `ff describe -b`: that slot creates now.
+- The `list`, `create`, `delete`, `add`, and `remove` subcommand spellings under `ff branch`, `ff worktree`, and `ff extension`, and the `usage/unknown-subcommand` redirect from `ff branch <name>` to `ff describe -b`.
 
 ### Fixed
 
@@ -34,7 +33,7 @@
 ### Known issues
 
 - A rebase or cherry-pick run outside fufu drops the `change-id` header, and the commit comes back with a derived id. jj has the same limitation.
-- A capture's mint is not journaled: after `ff undo` and `ff redo` of a partial close, the remainder can wear a different id than it did between them.
+- After `ff undo` then `ff redo` of a partial close, the remainder can carry a different change id than it did between them.
 
 ## v0.13.0 — 2026-09-08
 
