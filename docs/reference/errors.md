@@ -31,7 +31,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 
 | id | exit | meaning |
 | --- | --- | --- |
-| `branch/aliased-copy` | 1 | the copy that branch tracks wears another branch's name |
 | `branch/ambiguous` | 1 | that branch prefix matches more than one branch |
 | `branch/checked-out-elsewhere` | 1 | another worktree has that branch checked out |
 | `branch/exists` | 1 | a branch of that name already exists |

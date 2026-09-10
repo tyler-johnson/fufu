@@ -13,11 +13,13 @@
 - `ff switch <change id>` now redirects to `ff start` at that commit, the way `ff switch <sha>` does; it used to be `branch/not-found`.
 - `ff restack` and the cascade drop a commit whose change id the base already holds as superseded by the base's commit, with no merge attempted, so a stale copy of a base commit the base has since rewritten no longer conflicts on content the branch never touched, reflog or no reflog. The dropped line says `superseded by <sha> in the base`; JSON `dropped` entries gain `reason` (`empty` or `superseded`) and, under `superseded`, `by`. The reflog trim stays for commits without the header.
 - A branch created outside fufu is absorbed with the branch it was cut from recorded as its base, when its tip is exactly one other non-trunk branch's tip or git's reflog names the branch: `ff status` says `forked from <branch>` on the absorb line, the cascade sees the branch from then on, and `ff undo` of the absorb takes the record back. Anything less certain stays on trunk.
+- `ff status` and `ff branch list` no longer show a remote axis for a branch whose git upstream wears another local branch's name, or trunk's: that tracking ref is the base the branch was cut from, and `ff status` shows it on the base axis as `base origin/main`. `ff branch delete --shared` has no copy to remove on such a branch, and its `branch/aliased-copy` refusal goes with it. An upstream under a name no local branch holds, what a rename leaves, is still the branch's own copy.
 
 ### Fixed
 
 - `ff commit -b <fresh>` from a named branch clears the branch it leaves behind: its pending description no longer lingers on the old branch.
 - `ff restack --onto` trims the replay by the target's reflog, not only the recorded base's, so a branch cut outside fufu no longer replays the stale copy of a commit its real base has since rewritten. (#5)
+- `ff push` on a branch whose git upstream is another branch's tracking ref — `git checkout -b feature --track origin/main` — creates `origin/feature` and records `origin/main` as the branch's base, instead of pushing the branch to `refs/heads/main` under a lease on main's tip. `ff pull` replays the branch onto the moved base, and `ff undo` past the push takes the recorded base back. (#7)
 
 ### Known issues
 

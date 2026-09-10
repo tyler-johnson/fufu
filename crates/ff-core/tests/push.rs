@@ -384,6 +384,97 @@ fn undo_rewinds_the_log_past_the_note_and_not_past_the_memory() {
     );
 }
 
+/// GitHub #7: `git checkout -b feature --track origin/main` leaves `feature`
+/// with an upstream under another branch's name. That upstream is the base
+/// the branch was cut from, not a shared copy, so the push is the create of
+/// `origin/feature` and never a push to `refs/heads/main`; the base is
+/// recorded as the parent before `-u` rewrites the upstream, and the record
+/// rides the push's row so a move of the log past it takes the parent back.
+#[test]
+fn a_branch_tracking_another_name_is_created_under_its_own() {
+    let fx = Fixture::new_cloned();
+    fx.write("root.txt", "root\n");
+    let root = fx.commit("root");
+    push_for_real(&fx, "main");
+    fx.git(&["checkout", "-q", "-b", "feature", "--track", "origin/main"]);
+    fx.write("f.txt", "f\n");
+    let f1 = fx.commit("f1");
+
+    let (report, _) = plan(&fx, true);
+    match &report.push {
+        Push::Create {
+            remote,
+            remote_branch,
+            tip,
+        } => {
+            assert_eq!(remote, "origin");
+            assert_eq!(remote_branch, "feature");
+            assert_eq!(tip, &f1);
+        }
+        other => panic!("the push creates origin/feature, got {other:?}"),
+    }
+
+    // The push as `ff push` makes it: plan, `git push -u`, record.
+    let repo = fx.repo();
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Push).unwrap();
+    assert!(pre.tracking.is_none(), "origin/main is not feature's copy");
+    assert_eq!(pre.upstream_alias.as_deref(), Some("origin/main"));
+    let (report, ctx) = ff_core::push::push(
+        &repo,
+        &pre,
+        ff_core::push::PushOptions {
+            dry_run: false,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "push".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    fx.git(&["push", "-q", "-u", "origin", "feature:feature"]);
+    ff_core::push::record(&repo, &pre, &report, ctx.as_ref().unwrap(), &prov()).unwrap();
+
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "main"]).trim(),
+        root,
+        "main on the remote is untouched"
+    );
+    assert_eq!(fx.remote_git(&["rev-parse", "feature"]).trim(), f1);
+    assert_eq!(
+        fx.git(&["config", "branch.feature.merge"]).trim(),
+        "refs/heads/feature"
+    );
+    let repo = fx.repo();
+    let meta = ff_core::branchmeta::read(&repo, "feature").unwrap();
+    assert_eq!(
+        meta.parent.as_deref(),
+        Some("origin/main"),
+        "the base survives the tracking rewrite"
+    );
+    let base = ff_core::futures::base_for(&repo, "feature")
+        .unwrap()
+        .expect("a base");
+    assert_eq!(base.name, "origin/main");
+    let remote = ff_core::futures::remote_for(&repo, "feature")
+        .unwrap()
+        .expect("a copy of its own now");
+    assert_eq!(remote.name, "origin/feature");
+
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+    let meta = ff_core::branchmeta::read(&fx.repo(), "feature").unwrap();
+    assert_eq!(
+        meta.parent, None,
+        "undo past the push's row takes the record back"
+    );
+}
+
 /// A tip that is an ancestor of the shared copy does not send commits, it
 /// takes them off — which is what `ff undo` then `ff push` does, and the
 /// only way back across the wire fufu has.

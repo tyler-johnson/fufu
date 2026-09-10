@@ -48,8 +48,14 @@ pub struct Preflight {
     /// no remote at all, which makes pull entirely a base-axis affair and
     /// leaves push with nowhere to send anything.
     pub remote: Option<String>,
-    /// The branch's shared copy, when it has an upstream.
+    /// The branch's shared copy, when it has an upstream of its own.
     pub tracking: Option<Tracking>,
+    /// The tracking ref the branch's upstream names when it is another
+    /// branch's, as a person says it: `origin/main` for a branch cut with
+    /// `--track origin/main`. That is the branch's base, not its copy, so
+    /// `tracking` is `None` beside it and the push that creates the copy
+    /// records this as the parent before tracking is rewritten over it.
+    pub upstream_alias: Option<String>,
     /// A rewrite is already held on this branch, so its exit is blocked
     /// before either verb has done anything at all.
     pub held: bool,
@@ -227,6 +233,7 @@ pub fn preflight_branch(
         }
     };
 
+    let upstream_alias = crate::futures::upstream_alias(repo, &branch)?.map(|(name, _)| name);
     let tracking = match crate::futures::remote_for(repo, &branch)? {
         None => None,
         Some(pull_ref) => {
@@ -257,6 +264,7 @@ pub fn preflight_branch(
         branch_tip,
         remote,
         tracking,
+        upstream_alias,
         held,
     })
 }

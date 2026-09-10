@@ -45,29 +45,11 @@ fn unknown(words: &[OsString]) -> Error {
 fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
-    // `--shared` probes first, because its one refusal — an aliased tracking
-    // ref — would remove somebody else's copy, and that must land before the
-    // local delete rather than merely before the push. The wire's cwd is
-    // resolved here beside it; the copy it will remove is re-read from the
-    // report once the delete is done.
+    // The wire's cwd is resolved before the local delete; the copy `--shared`
+    // will remove is read from the report once the delete is done, and an
+    // upstream under another branch's name is not one — it is the base the
+    // branch was cut from, and the report leaves it unnamed.
     let cwd = if shared {
-        if let Some(probe) = &ff_core::branch::shared_copy(&repo, target)?
-            && probe.aliased
-        {
-            return Err(Error::coded(
-                "branch/aliased-copy",
-                format!(
-                    "{} is what {target} tracks, and it wears another branch's name: \
-                     --shared would remove somebody else's copy",
-                    probe.name
-                ),
-                vec![
-                    format!("ff branch delete {target}"),
-                    "ff branch list".into(),
-                    "ff remote".into(),
-                ],
-            ));
-        }
         let cwd = repo
             .workdir()
             // Uncoded on purpose: this is not a bare repository, so there is
@@ -139,12 +121,7 @@ fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
             }
         }
         (Some(shared), false) => {
-            if shared.aliased {
-                println!(
-                    "  {} is what this branch tracked, and it wears another branch's name — left alone",
-                    shared.name
-                );
-            } else if shared.tip.is_empty() {
+            if shared.tip.is_empty() {
                 println!(
                     "  its upstream {} is configured and not there — nothing to remove",
                     shared.name

@@ -302,7 +302,6 @@ fn delete_report_names_the_shared_copy() {
     assert_eq!(shared.r#ref, "refs/remotes/origin/shared");
     assert_eq!(shared.remote_branch, "shared");
     assert_eq!(shared.tip, sha);
-    assert!(!shared.aliased);
 
     // The reported copy is left standing: it is reported, not removed.
     assert_eq!(
@@ -326,13 +325,15 @@ fn delete_without_an_upstream_reports_no_shared_copy() {
 }
 
 #[test]
-fn delete_flags_an_aliased_tracking_ref() {
-    // Pins that a tracking ref wearing another branch's name is reported as
-    // aliased, not named as the branch's own copy.
+fn delete_of_a_branch_tracking_another_name_reports_no_shared_copy() {
+    // Pins that a tracking ref wearing another local branch's name is not
+    // the branch's copy: it is the base the branch was cut from, so the
+    // report names no shared copy and the tracking ref is left standing.
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     let sha = fx.commit("one");
     ident(&fx);
+    fx.git(&["branch", "other"]);
     fx.git(&["branch", "shared"]);
     fx.set_config("remote.origin.url", "file:///nonexistent");
     fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
@@ -342,11 +343,11 @@ fn delete_flags_an_aliased_tracking_ref() {
 
     let (report, _ctx) =
         ff_core::branch::delete(&fx.repo(), "shared", &prov(), Some(NOW), Vec::new()).unwrap();
-    let shared = report.shared.expect("shared must be named in the report");
-    assert!(shared.aliased);
-    assert_eq!(shared.remote_branch, "other");
-    assert_eq!(shared.name, "origin/other");
-    assert_ne!(shared.remote_branch, "shared");
+    assert!(report.shared.is_none(), "{:?}", report.shared);
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/other"]).trim(),
+        sha
+    );
 }
 
 #[test]

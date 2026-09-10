@@ -26,7 +26,9 @@ pub fn upstream(repo: &gix::Repository) -> Result<Option<Upstream>> {
     upstream_for(repo, ref_name, local_id)
 }
 
-/// The upstream of an arbitrary branch ref.
+/// The upstream of an arbitrary branch ref. `None` when the upstream wears
+/// another branch's name: that is the branch's base, which
+/// [`crate::futures::base_for`] reports, and not a copy of it.
 pub(crate) fn upstream_for(
     repo: &gix::Repository,
     ref_name: gix::refs::FullName,
@@ -37,6 +39,9 @@ pub(crate) fn upstream_for(
     else {
         return Ok(None);
     };
+    if crate::futures::alias_of(repo, ref_name.as_ref())?.is_some() {
+        return Ok(None);
+    }
     let tracking = tracking.map_err(Error::repo)?;
     let short = tracking.as_ref().shorten().to_string();
 

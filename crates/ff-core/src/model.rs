@@ -1041,8 +1041,6 @@ pub struct SharedCopy {
     pub remote_branch: String,
     /// The tracking tip; the empty string when configured and absent.
     pub tip: String,
-    /// True when the tracking ref wears another branch's name.
-    pub aliased: bool,
 }
 
 /// The result of deleting a branch.

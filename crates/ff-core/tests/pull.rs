@@ -1410,6 +1410,49 @@ fn a_fast_forwarded_trunk_moves_every_bare_started_branch() {
     assert!(!report.blocked());
 }
 
+/// GitHub #7's incoming half: a branch whose upstream names `origin/main`
+/// has no remote axis of its own, and `origin/main` is its base, so a moved
+/// `origin/main` reaches it through the replay a recorded parent gets.
+#[test]
+fn a_branch_tracking_another_name_replays_onto_it_as_its_base() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let c0 = fx.commit("root");
+    track_branch(&fx, "main", &c0);
+    let m2 = ahead_of_main(&fx, "m2.txt");
+    fx.git(&["checkout", "-q", "-b", "feature", "--track", "origin/main"]);
+    fx.write("f.txt", "f\n");
+    let f1 = fx.commit("f1");
+
+    let report = pull_around(&fx, true, || {
+        fx.git(&["update-ref", "refs/remotes/origin/main", &m2]);
+    });
+
+    assert_eq!(
+        report.remote,
+        RemoteAxis::NoRemote,
+        "origin/main is not feature's copy"
+    );
+    match &report.base {
+        BaseAxis::Ran {
+            name,
+            outcome: RestackOutcome::Restacked(r),
+        } => {
+            assert_eq!(name, "origin/main");
+            assert_eq!(r.replayed, 1);
+        }
+        other => panic!("the base axis replays onto origin/main, got {other:?}"),
+    }
+    let tip = tip_of(&fx, "refs/heads/feature");
+    assert_ne!(tip, f1, "feature followed origin/main");
+    assert!(
+        is_ancestor(&fx, &m2, &tip),
+        "feature sits on the new origin/main"
+    );
+    assert!(!report.blocked());
+}
+
 /// The verb operations in the log, captures and notes excluded, so the
 /// count says how many things the user asked for happened.
 fn verb_ops(fx: &Fixture) -> usize {

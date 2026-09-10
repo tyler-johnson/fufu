@@ -244,6 +244,13 @@ pub(crate) fn ever_copied(repo: &gix::Repository, pre: &Preflight) -> Result<boo
 /// reference nothing and pin nothing, and this one names a sha, so `to` is
 /// pinned rather than left for gc to eat out from under the row.
 ///
+/// The one local trace a push leaves is on a branch whose upstream wore
+/// another branch's name: the create that gives it a copy of its own also
+/// rewrites `branch.<n>.merge`, so the base that upstream named is recorded
+/// as the parent here, before the row goes down, and the transition rides
+/// the row so a move of the log past it takes the record back with it. A
+/// parent already recorded stands.
+///
 /// The pointer goes down after the note, and it is the half the readers use.
 /// See [`crate::published`] for why the row alone would not do.
 pub fn record(
@@ -286,6 +293,18 @@ pub fn record(
         from,
         to: to.clone(),
     });
+    if let (Push::Create { .. }, Some(parent)) = (&report.push, pre.upstream_alias.as_ref()) {
+        let mut meta = crate::branchmeta::read(repo, &pre.branch)?;
+        if meta.parent.is_none() {
+            meta.parent = Some(parent.clone());
+            crate::branchmeta::write(repo, &pre.branch, &meta)?;
+            record.parent = Some(crate::ops::record::ParentTransition {
+                branch: pre.branch.clone(),
+                old: None,
+                new: Some(parent.clone()),
+            });
+        }
+    }
     // The one pin. `to` is the whole answer this row exists to give, and a
     // row naming a sha gc has since collected would be a dangling claim.
     let pins: Vec<gix::ObjectId> = gix::ObjectId::from_hex(to.as_bytes()).into_iter().collect();

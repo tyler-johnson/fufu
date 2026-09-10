@@ -316,10 +316,10 @@ pub fn branch_row(info: &BranchInfo, label_width: usize, colored: bool) -> Vec<S
             notes.push(paint_warn("remote is gone", colored));
         } else {
             if up.ahead > 0 {
-                notes.push(to_push(up.ahead, None, colored));
+                notes.push(to_push(up.ahead, colored));
             }
             if up.behind > 0 {
-                notes.push(to_pull(up.behind, None, colored));
+                notes.push(to_pull(up.behind, colored));
             }
         }
     }

@@ -2,7 +2,7 @@ Send a branch to its remote — the one thing fufu does that no operation log ca
 
 The push carries a lease: it goes through only if the shared copy still stands where you last saw it. If somebody pushed since, nothing is sent and nothing is lost — take their work in first, then send. This verb does not fetch on its own, since a lease is only worth something as the tip you last looked at.
 
-A branch with no shared copy yet gets one, tracking set up in the same step. One that was deleted is put back under a lease that says it must not exist, which is a different act from creating one that never existed — fufu tells them apart from its record of what it has sent.
+A branch with no shared copy yet gets one, tracking set up in the same step. An upstream under another branch's name — the shape `git checkout -b feature --track origin/main` leaves — is read as the branch's base, not its copy: the push creates `origin/feature` and records `origin/main` as what the branch sits on. One that was deleted is put back under a lease that says it must not exist, which is a different act from creating one that never existed — fufu tells them apart from its record of what it has sent.
 
 A held rewrite blocks the exit. Nothing is sent while the branch's commits are still about to be rewritten out from under.
 

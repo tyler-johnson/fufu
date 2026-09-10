@@ -70,17 +70,6 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff worktree list", "git worktree list"],
     },
     Entry {
-        id: "branch/aliased-copy",
-        summary: "the copy that branch tracks wears another branch's name",
-        detail: "--shared removes the shared copy of the branch you are deleting, and this \
-                 branch's upstream points somewhere that is not it: branch.<n>.merge names one \
-                 branch and the branch itself is called another. fufu will not send a delete to \
-                 a ref it cannot say is yours, because the copy it would take down is somebody \
-                 else's. The plain delete still works, and leaves everything on the remote \
-                 standing.",
-        exits: &["ff branch list", "ff remote"],
-    },
-    Entry {
         id: "branch/shared-lease-refused",
         summary: "the shared copy moved since you last looked, so it was not deleted",
         detail: "Every push fufu makes is leased: it says what it last saw the remote standing \

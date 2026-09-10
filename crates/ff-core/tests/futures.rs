@@ -621,28 +621,82 @@ fn the_remote_is_this_branchs_own_copy() {
     );
 }
 
-#[test]
-fn a_tracking_ref_wearing_another_name_is_an_alias() {
-    let fx = Fixture::new();
+/// `main` with one commit, `feature` forked from it with one of its own,
+/// and `feature` tracking `origin/main` — the shape `git checkout -b feature
+/// --track origin/main` leaves. Returns main's sha.
+fn feature_tracking_main(fx: &Fixture) -> String {
     fx.write("a.txt", "a\n");
     fx.commit("base");
     let main_sha = fx.git(&["rev-parse", "main"]).trim().to_string();
-    fx.git(&["branch", "feature"]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "f\n");
+    fx.commit("mine");
     fx.git(&["config", "remote.origin.url", "file:///nonexistent"]);
     fx.git(&[
         "config",
         "remote.origin.fetch",
         "+refs/heads/*:refs/remotes/origin/*",
     ]);
-    // feature tracks origin/main: a tracking ref wearing another branch's name.
     fx.git(&["config", "branch.feature.remote", "origin"]);
     fx.git(&["config", "branch.feature.merge", "refs/heads/main"]);
     fx.git(&["update-ref", "refs/remotes/origin/main", &main_sha]);
-    let got = futures::remote_for(&fx.repo(), "feature")
-        .expect("remote_for")
-        .expect("a remote");
-    assert_eq!(got.role, Role::RemoteAlias);
-    assert_eq!(got.name, "origin/main");
+    main_sha
+}
+
+/// A tracking ref wearing another branch's name is not the branch's copy:
+/// `ff push` would otherwise send `feature` to `refs/heads/main`.
+#[test]
+fn a_tracking_ref_wearing_another_name_is_no_remote() {
+    let fx = Fixture::new();
+    feature_tracking_main(&fx);
+    assert!(
+        futures::remote_for(&fx.repo(), "feature")
+            .expect("remote_for")
+            .is_none()
+    );
+    assert_eq!(
+        futures::upstream_alias(&fx.repo(), "feature").expect("upstream_alias"),
+        Some(("origin/main".into(), "refs/remotes/origin/main".into()))
+    );
+}
+
+/// The same tracking ref is the base: git's spelling of
+/// `ff start origin/main -b feature`, and displayed the same way.
+#[test]
+fn a_tracking_ref_wearing_another_name_is_the_base() {
+    let fx = Fixture::new();
+    let main_sha = feature_tracking_main(&fx);
+    let got = futures::base_for(&fx.repo(), "feature")
+        .expect("base_for")
+        .expect("a base");
+    assert_eq!(
+        got,
+        futures::PullRef {
+            name: "origin/main".into(),
+            r#ref: "refs/remotes/origin/main".into(),
+            tip: main_sha,
+            role: Role::Parent,
+        }
+    );
+}
+
+/// A parent on record was said out loud — `ff start`, `ff restack --onto`
+/// — and stands above what the upstream implies.
+#[test]
+fn a_recorded_parent_wins_over_the_aliased_upstream() {
+    let fx = Fixture::new();
+    feature_tracking_main(&fx);
+    fx.git(&["branch", "side", "main"]);
+    let repo = fx.repo();
+    let mut meta = ff_core::branchmeta::read(&repo, "feature").unwrap();
+    meta.parent = Some("side".into());
+    ff_core::branchmeta::write(&repo, "feature", &meta).unwrap();
+    let got = futures::base_for(&repo, "feature")
+        .expect("base_for")
+        .expect("a base");
+    assert_eq!(got.name, "side");
+    assert_eq!(got.r#ref, "refs/heads/side");
+    assert_eq!(got.role, Role::Parent);
 }
 
 #[test]
@@ -1193,8 +1247,9 @@ fn standing_on_a_remote_only_trunk_has_no_base() {
 }
 
 /// A branch can be configured to track the very ref that is also its base.
-/// Both axes then name one set of commits, and one set of commits is one
-/// thing to reconcile.
+/// That upstream wears another branch's name, so it is the base and not a
+/// shared copy: one set of commits is one thing to reconcile, and the axis
+/// it lands on is the one `ff pull` replays onto.
 #[test]
 fn an_upstream_that_is_also_the_base_is_one_axis() {
     let fx = Fixture::new();
@@ -1224,12 +1279,13 @@ fn an_upstream_that_is_also_the_base_is_one_axis() {
     let futures = futures::futures_for(&repo, "feature", Some(head), None).expect("futures_for");
 
     assert!(
-        futures.base.is_none(),
-        "the base is the half that goes quiet: the remote is the noun that also decides the push"
+        futures.remote.is_none(),
+        "the remote is the half that goes quiet: a copy under another name is no copy"
     );
-    let remote = futures.remote.expect("the remote axis survives");
-    assert_eq!(remote.against.r#ref, "refs/remotes/origin/main");
-    assert_eq!(remote.against.role, Role::RemoteAlias);
+    let base = futures.base.expect("the base axis survives");
+    assert_eq!(base.against.r#ref, "refs/remotes/origin/main");
+    assert_eq!(base.against.name, "origin/main");
+    assert_eq!(base.against.role, Role::Parent);
 }
 
 /// Two remotes, neither named origin: remotes exist and none can be named.

@@ -449,9 +449,10 @@ pub fn rename_current(
 }
 
 /// The shared copy `name` answered to, or `None` when it answered to
-/// nothing. Reads the tracking ref and config; never refuses and never
-/// guesses a remote. Callers use it to decide `--shared` before anything is
-/// deleted.
+/// nothing — an upstream under another branch's name included, since that
+/// is the branch's base and not a copy `--shared` may remove. Reads the
+/// tracking ref and config; never refuses and never guesses a remote.
+/// Callers use it to decide `--shared` before anything is deleted.
 pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::model::SharedCopy>> {
     let Some(pull_ref) = crate::futures::remote_for(repo, name)? else {
         return Ok(None);
@@ -479,7 +480,6 @@ pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::m
         r#ref: pull_ref.r#ref,
         remote_branch,
         tip: pull_ref.tip,
-        aliased: pull_ref.role == crate::futures::Role::RemoteAlias,
     }))
 }
 

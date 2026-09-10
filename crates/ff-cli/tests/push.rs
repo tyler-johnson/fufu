@@ -413,6 +413,93 @@ fn a_held_branch_is_blocked_beside_one_that_lands_at_exit_3() {
     assert_eq!(rows[1]["push"], "Blocked", "{v}");
 }
 
+/// GitHub #7's shape: a clone with `main` pushed, and `feature` cut from it
+/// the git way, `git checkout -b feature --track origin/main`, one commit
+/// deep. Its upstream wears another branch's name, which fufu reads as the
+/// base it was cut from — `ff start origin/main -b feature` — and not as a
+/// shared copy. Standing on `feature`.
+fn feature_tracking_main() -> Fixture {
+    let fx = Fixture::new_cloned();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    ok(&ff(&fx, &["push"]));
+    fx.git(&["checkout", "-q", "-b", "feature", "--track", "origin/main"]);
+    fx.write("f.txt", "f\n");
+    fx.commit("f1");
+    fx
+}
+
+/// `ff status` on the shape: `origin/main` is the base axis, nothing is
+/// counted toward it as a remote, and when it moves the base is what says so.
+#[test]
+fn status_reads_an_upstream_under_another_name_as_the_base() {
+    let fx = feature_tracking_main();
+
+    let text = ok(&ff(&fx, &["status"]));
+    assert!(!text.contains("to push"), "{text}");
+    let v = json(&ff(&fx, &["--json", "status"]));
+    assert_eq!(v["data"]["base"]["name"], "origin/main", "{v}");
+    assert_eq!(v["data"]["base"]["role"], "parent", "{v}");
+    assert_eq!(v["data"]["base"]["above"], 1, "{v}");
+    assert!(v["data"]["futures"]["remote"].is_null(), "{v}");
+    assert!(v["data"]["upstream"].is_null(), "{v}");
+
+    // A teammate lands on main: the base moved, and no remote axis of
+    // feature's own has anything to say about it.
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    fx.commit("m2");
+    fx.git(&["push", "-q", "origin", "main"]);
+    fx.git(&["switch", "-q", "feature"]);
+    let text = ok(&ff(&fx, &["status"]));
+    assert!(
+        text.contains("base origin/main moved — rebases cleanly (1 commit replayed)"),
+        "{text}"
+    );
+    assert!(!text.contains("to pull"), "{text}");
+    assert!(!text.contains("to push"), "{text}");
+}
+
+/// `ff push` on the shape is the create of `origin/feature`: `main` on the
+/// remote is untouched, tracking is set to the copy it made, and the base
+/// the old upstream named survives as the recorded parent.
+#[test]
+fn push_creates_a_copy_of_its_own_beside_the_base_it_tracked() {
+    let fx = feature_tracking_main();
+    let root = fx.git(&["rev-parse", "main"]).trim().to_string();
+    let f1 = fx.git(&["rev-parse", "feature"]).trim().to_string();
+
+    let text = ok(&ff(&fx, &["push", "-n"]));
+    assert_eq!(
+        text,
+        "would create origin/feature and set feature to track it\n\
+         nothing was sent — drop --dry-run to send it\n"
+    );
+    assert_eq!(remote_tip(&fx, "feature"), None);
+
+    let text = ok(&ff(&fx, &["push"]));
+    assert_eq!(
+        text,
+        format!("created origin/feature and set feature to track it\n{TAIL}")
+    );
+    assert_eq!(
+        remote_tip(&fx, "main").as_deref(),
+        Some(root.as_str()),
+        "main on the remote is untouched"
+    );
+    assert_eq!(remote_tip(&fx, "feature").as_deref(), Some(f1.as_str()));
+    assert_eq!(
+        fx.git(&["config", "branch.feature.merge"]).trim(),
+        "refs/heads/feature"
+    );
+    let v = json(&ff(&fx, &["--json", "status"]));
+    assert_eq!(v["data"]["base"]["name"], "origin/main", "{v}");
+    assert_eq!(
+        v["data"]["futures"]["remote"]["against"]["name"], "origin/feature",
+        "{v}"
+    );
+}
+
 /// `--dry-run` with names says which push each would be and sends none:
 /// one closing line for the run, no copy on the far side, nothing on the
 /// log, and the envelope says so.

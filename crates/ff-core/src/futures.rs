@@ -95,8 +95,6 @@ pub enum Role {
     Parent,
     /// The shared copy of this same branch.
     Remote,
-    /// A tracking ref wearing another branch's name.
-    RemoteAlias,
 }
 
 impl Role {
@@ -377,7 +375,7 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>>
     // `ff start origin/x` then `ff describe -b x` — whose own tracking ref is
     // then the parent it recorded.
     let meta = crate::branchmeta::read(repo, branch)?;
-    if let Some(parent) = meta.parent.filter(|p| p != branch)
+    if let Some(parent) = meta.parent.clone().filter(|p| p != branch)
         && let Some((full_ref, tip)) = crate::refs::branchish(repo, &parent)?
         && !remote_for(repo, branch)?.is_some_and(|own| own.r#ref == full_ref)
     {
@@ -389,7 +387,27 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>>
         }));
     }
 
-    // 2. Trunk is the base unless it is the branch underfoot, in which case
+    // 2. A git upstream under the name of another branch here — `git
+    // checkout -b feature --track origin/main`, the shape `git worktree add
+    // -b` leaves — is git's spelling of `ff start origin/main -b feature`:
+    // the tracking ref is the base the branch was cut from, not a shared
+    // copy of it, and `remote_for` has already declined to call it one.
+    // Displayed by its short name the way a recorded `origin/main` parent
+    // is. A recorded parent wins, above, because `ff start` or `ff restack
+    // --onto` said so explicitly.
+    if meta.parent.is_none()
+        && let Some((name, full_ref)) = upstream_alias(repo, branch)?
+        && let Some(tip) = crate::refs::ref_target(repo, &full_ref)?
+    {
+        return Ok(Some(PullRef {
+            name,
+            r#ref: full_ref,
+            tip: tip.to_string(),
+            role: Role::Parent,
+        }));
+    }
+
+    // 3. Trunk is the base unless it is the branch underfoot, in which case
     // there is no base at all: trunk sits on nothing. Identity is by name and
     // never by ref: a trunk that lives only on the remote is spelled
     // `refs/remotes/origin/main` while the branch underfoot is
@@ -419,8 +437,63 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>>
     Ok(None)
 }
 
+/// The tracking ref `branch.<name>.merge` names when it is another branch's,
+/// as `(name, ref)`: `("origin/main", "refs/remotes/origin/main")` for a
+/// branch cut with `--track origin/main`. That is the base the branch was
+/// cut from, git's spelling of `ff start origin/main -b feature`, and not a
+/// copy of the branch.
+///
+/// `None` when the branch has no upstream, when its upstream is its own
+/// copy, and when the name the upstream wears is no branch here: a local
+/// branch or trunk is one this branch could have been cut from, while a
+/// name no local branch holds is this branch's own copy under an earlier
+/// name, which is what a rename leaves and is still its copy. A branch
+/// whose upstream cannot be named otherwise is overwhelmingly its own copy,
+/// and guessing "base" would put a wrong name on the screen.
+pub fn upstream_alias(repo: &gix::Repository, branch: &str) -> Result<Option<(String, String)>> {
+    let own_ref = format!("refs/heads/{branch}");
+    let full: gix::refs::FullName = own_ref.as_str().try_into().map_err(Error::repo)?;
+    alias_of(repo, full.as_ref())
+}
+
+/// [`upstream_alias`] by full ref, for the callers that hold one.
+pub(crate) fn alias_of(
+    repo: &gix::Repository,
+    full: &gix::refs::FullNameRef,
+) -> Result<Option<(String, String)>> {
+    let Some(tracking) = repo.branch_remote_tracking_ref_name(full, gix::remote::Direction::Fetch)
+    else {
+        return Ok(None);
+    };
+    let tracking = tracking.map_err(Error::repo)?;
+    let Some(Ok(remote_name)) = repo.branch_remote_ref_name(full, gix::remote::Direction::Fetch)
+    else {
+        return Ok(None);
+    };
+    let wearer = remote_name.as_ref().shorten();
+    if wearer == full.shorten() {
+        return Ok(None);
+    }
+    let wearer = wearer.to_string();
+    let local = crate::refs::ref_target(repo, &format!("refs/heads/{wearer}"))?.is_some();
+    let trunk = crate::trunk::trunk(repo)
+        .ok()
+        .is_some_and(|t| t.name == wearer);
+    if !local && !trunk {
+        return Ok(None);
+    }
+    Ok(Some((
+        tracking.as_ref().shorten().to_string(),
+        tracking.as_ref().as_bstr().to_string(),
+    )))
+}
+
 /// The shared copy of `branch` — the tracking ref git would fetch into.
-/// `None` when no upstream is configured.
+/// `None` when no upstream is configured, and `None` when the upstream
+/// wears the name of another branch here, or trunk's: that tracking ref is
+/// the base the branch was cut from, which [`base_for`] reports, and a push
+/// on such a branch creates its copy rather than sending it to somebody
+/// else's. [`upstream_alias`] draws the line.
 pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>> {
     let own_ref = format!("refs/heads/{branch}");
     let full: gix::refs::FullName = own_ref.as_str().try_into().map_err(Error::repo)?;
@@ -430,18 +503,11 @@ pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef
         return Ok(None);
     };
     let tracking = tracking.map_err(Error::repo)?;
+    if alias_of(repo, full.as_ref())?.is_some() {
+        return Ok(None);
+    }
     let name = tracking.as_ref().shorten().to_string();
     let r#ref = tracking.as_ref().as_bstr().to_string();
-
-    // The remote-side branch name from `branch.<name>.merge`: when it is
-    // another branch's name, this tracking ref is an alias, not the branch's
-    // own copy. A branch whose upstream cannot be named otherwise is
-    // overwhelmingly its own copy, and guessing "alias" would put a wrong
-    // name on the screen.
-    let role = match repo.branch_remote_ref_name(full.as_ref(), gix::remote::Direction::Fetch) {
-        Some(Ok(remote_name)) if remote_name.as_ref().shorten() != branch => Role::RemoteAlias,
-        _ => Role::Remote,
-    };
 
     // Asymmetry with `base_for`, on purpose: an unresolvable base is a base
     // fufu cannot name, so `base_for` returns None; an unresolvable remote is
@@ -456,7 +522,7 @@ pub fn remote_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef
         name,
         r#ref,
         tip,
-        role,
+        role: Role::Remote,
     }))
 }
 

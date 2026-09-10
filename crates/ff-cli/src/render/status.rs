@@ -403,7 +403,7 @@ pub(super) fn pull_parts(futures: &ff_core::futures::Futures, colored: bool) -> 
     parts
 }
 
-/// `{n} to push[ to <ref>]`, pending work headed for the remote.
+/// `{n} to push`, pending work headed for the remote.
 ///
 /// The verb that handles it, so a count is always something you can act on.
 /// `to_pull` is its mirror and carries the rest of the reasoning.
@@ -412,15 +412,11 @@ pub(super) fn pull_parts(futures: &ff_core::futures::Futures, colored: bool) -> 
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
-pub(super) fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
-    let phrase = match toward {
-        Some(ref_name) => format!("{n} to push to {ref_name}"),
-        None => format!("{n} to push"),
-    };
-    paint_ahead(&phrase, colored)
+pub(super) fn to_push(n: usize, colored: bool) -> String {
+    paint_ahead(&format!("{n} to push"), colored)
 }
 
-/// `{n} to pull[ from <ref>]`, pending work the remote already has.
+/// `{n} to pull`, pending work the remote already has.
 ///
 /// Each half names the verb that handles it — `{n} to pull`, `{n} to push` —
 /// so a count is always something you can act on. The verbs' own output is
@@ -432,12 +428,8 @@ pub(super) fn to_push(n: usize, toward: Option<&str>, colored: bool) -> String {
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
-pub(super) fn to_pull(n: usize, toward: Option<&str>, colored: bool) -> String {
-    let phrase = match toward {
-        Some(ref_name) => format!("{n} to pull from {ref_name}"),
-        None => format!("{n} to pull"),
-    };
-    paint_ahead(&phrase, colored)
+pub(super) fn to_pull(n: usize, colored: bool) -> String {
+    paint_ahead(&format!("{n} to pull"), colored)
 }
 
 /// One axis's phrase, or `None` when `ff pull` would not act on it.
@@ -446,19 +438,16 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
 
     let role = f.against.role;
     // The role word, carrying a name only when the name is news — a base that
-    // is not trunk, a remote that is not this branch's own copy. Every other
-    // time the name is noise. Ref syntax never appears: `origin/feature` is a
-    // cache of what a remote held at last fetch wearing a branch's name, and
-    // making a person reconcile that by hand is the confusion fufu deletes.
+    // is not trunk. Every other time the name is noise: the remote is always
+    // this branch's own copy, since a tracking ref under another name is a
+    // base. Ref syntax never appears: `origin/feature` is a cache of what a
+    // remote held at last fetch wearing a branch's name, and making a person
+    // reconcile that by hand is the confusion fufu deletes.
     let which = match role {
         Role::Trunk => "base".to_string(),
         Role::Parent => format!("base {}", f.against.name),
         Role::Remote => "remote".to_string(),
-        Role::RemoteAlias => format!("remote {}", f.against.name),
     };
-    // Push and pull count against a place, so an aliased remote names it
-    // inline rather than wearing the `remote <name>` prefix.
-    let alias = matches!(role, Role::RemoteAlias).then_some(f.against.name.as_str());
 
     Some(match &f.verdict {
         // Pull never merges you into your base, so unmerged work is a
@@ -468,8 +457,8 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
         // Against the remote the same verdict means the opposite: these are
         // precisely the commits push will send.
         Verdict::UpToDate { ahead: 0 } => return None,
-        Verdict::UpToDate { ahead } => to_push(*ahead, alias, colored),
-        Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, alias, colored),
+        Verdict::UpToDate { ahead } => to_push(*ahead, colored),
+        Verdict::FastForward { behind } if !role.is_base() => to_pull(*behind, colored),
         Verdict::FastForward { .. } => paint_ok(&format!("{which} moved — fast-forwards"), colored),
         Verdict::Clean { replayed, dropped } => {
             // Zero dropped stays byte-identical to the line before the
@@ -997,10 +986,10 @@ mod tests {
             verdict,
         };
         let push = axis_phrase(&remote(Verdict::UpToDate { ahead: 6 }), false).unwrap();
-        assert_eq!(push, to_push(6, None, false));
+        assert_eq!(push, to_push(6, false));
         assert_eq!(push, "6 to push");
         let pull = axis_phrase(&remote(Verdict::FastForward { behind: 2 }), false).unwrap();
-        assert_eq!(pull, to_pull(2, None, false));
+        assert_eq!(pull, to_pull(2, false));
         assert_eq!(pull, "2 to pull");
     }
 }
