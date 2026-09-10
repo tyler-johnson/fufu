@@ -194,8 +194,12 @@ fn ops_view_walks_the_log_and_prefixes_resolve() {
     assert_eq!(ops[1].kind, "note");
     assert_eq!(ops[1].verb, "init");
     assert!(
-        ops[0].id.chars().all(|c| ('k'..='z').contains(&c)),
-        "the ops view spells ids in letters: {:?}",
+        ops[0].id.len() == 40
+            && ops[0]
+                .id
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "the ops view spells ids in hex: {:?}",
         ops[0].id
     );
 
@@ -209,14 +213,14 @@ fn ops_view_walks_the_log_and_prefixes_resolve() {
     let resolved = log.resolve(&target[..6]).unwrap();
     assert_eq!(resolved.to_string(), *target);
     assert_eq!(
-        log.resolve("zzzzzz").unwrap_err().id(),
+        log.resolve(&"a".repeat(40)).unwrap_err().id(),
         "op/not-found",
         "a prefix matching nothing is not found"
     );
     assert_eq!(
-        log.resolve(&"a".repeat(40)).unwrap_err().id(),
-        "op/not-found",
-        "hex is refused where an operation belongs"
+        log.resolve("zzzzzz").unwrap_err().id(),
+        "usage/rev-in-op-position",
+        "letters are a change id, refused where an operation belongs"
     );
 }
 

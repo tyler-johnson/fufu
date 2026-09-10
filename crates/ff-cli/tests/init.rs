@@ -208,11 +208,14 @@ fn the_json_envelope_carries_path_branch_created_and_floor() {
     // Resolved, not echoed: `.` would say nothing a caller did not know.
     let path = v["data"]["path"].as_str().expect("a path");
     assert!(Path::new(path).is_absolute(), "{path}");
-    // The floor is addressed in letters, never hex.
+    // The floor is an operation id: hex, never the letters a change id wears.
     let floor = v["data"]["floor"].as_str().expect("a floor");
     assert!(
-        floor.chars().all(|c| ('k'..='z').contains(&c)),
-        "letters, not hex: {floor}"
+        floor.len() == 40
+            && floor
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "hex, not letters: {floor}"
     );
 
     // And the adopt run says `created: false` against the same repository.

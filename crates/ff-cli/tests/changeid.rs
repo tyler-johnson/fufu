@@ -686,8 +686,10 @@ fn evolog_of_the_open_change_is_the_bare_form() {
     fx.write("a.txt", "c\n");
     ok(ff(&fx, &[]));
 
-    let bare = stdout(&ok(ff(&fx, &["evolog"])));
-    let at = stdout(&ok(ff(&fx, &["evolog", "@"])));
+    // Each run prints its own relative age, and a second can tick over
+    // between two, so the rows are compared without that column.
+    let bare = ageless(&stdout(&ok(ff(&fx, &["evolog"]))));
+    let at = ageless(&stdout(&ok(ff(&fx, &["evolog", "@"]))));
     assert_eq!(bare, at);
     assert!(!bare.contains("captures"), "{bare}");
 
@@ -699,6 +701,32 @@ fn evolog_of_the_open_change_is_the_bare_form() {
     );
     assert!(v["data"].get("operations").is_none(), "{v}");
     let open = open_id_on_disk(&fx, "main").unwrap();
-    let by_prefix = stdout(&ok(ff(&fx, &["evolog", &open[..8]])));
+    let by_prefix = ageless(&stdout(&ok(ff(&fx, &["evolog", &open[..8]]))));
     assert_eq!(by_prefix, bare, "a prefix of the open id is @");
+}
+
+/// The text with every `<n><unit> ago` token dropped.
+fn ageless(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let mut kept = Vec::with_capacity(words.len());
+            let mut i = 0;
+            while i < words.len() {
+                let is_age = words.get(i + 1) == Some(&"ago")
+                    && words[i].len() >= 2
+                    && words[i][..words[i].len() - 1]
+                        .bytes()
+                        .all(|b| b.is_ascii_digit());
+                if is_age {
+                    i += 2;
+                } else {
+                    kept.push(words[i]);
+                    i += 1;
+                }
+            }
+            kept.join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
