@@ -24,7 +24,7 @@ Check the result:
 
 ```console
 $ ff version
-fufu 0.13.0 (3d47f8e 2026-09-08)
+fufu 0.14.0 (d7d475b 2026-09-10)
 https://github.com/tyler-johnson/fufu
 ```
 
@@ -81,7 +81,7 @@ To skip the scripts entirely, every release publishes versioned archives — `ff
 
 ```console
 $ sha256sum -c --ignore-missing checksums.txt
-ff_0.13.0_linux_amd64.tar.gz: OK
+ff_0.14.0_linux_amd64.tar.gz: OK
 ```
 
 One honest limit: `checksums.txt` is not itself signed today, so verification proves your download matches what CI published with the release, not who published it. Pin a version and fetch over TLS from the releases page.
