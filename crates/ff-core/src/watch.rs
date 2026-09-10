@@ -306,9 +306,9 @@ pub fn classify_in(
 /// was last seen.
 ///
 /// The map only ever grows. A chain it has not seen is anchored and
-/// announced — which is the seed on the first tick and an `ff worktree add`
+/// announced — which is the seed on the first tick and an `ff worktree <path>`
 /// on any later one, through one code path rather than two. A chain whose
-/// worktree is retired stays, because `ff worktree remove` captures into
+/// worktree is retired stays, because `ff worktree -d` captures into
 /// that chain before the directory goes: dropping it at a tick boundary
 /// would race the last thing it ever said.
 ///

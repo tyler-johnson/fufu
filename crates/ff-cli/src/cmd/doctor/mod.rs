@@ -23,7 +23,7 @@ pub(super) struct Row {
     // `Cow` rather than `&'static str`: every other row is named for a
     // fixed subject (a client slug, a config key) known at compile time,
     // but a row about a declared extension is named for what somebody
-    // else's `ff extension add` recorded.
+    // else's `ff extension <name>` recorded.
     name: Cow<'static, str>,
     detail: String,
     fixable: bool,

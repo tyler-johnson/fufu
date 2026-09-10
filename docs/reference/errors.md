@@ -157,7 +157,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/unknown-error-id` | 2 | no error goes by that id |
 | `usage/unknown-key` | 2 | no fufu setting goes by that name |
 | `usage/unknown-slug` | 2 | that is not a slug ff hook knows |
-| `usage/unknown-subcommand` | 2 | that family does not have that subcommand |
 | `worktree/busy` | 1 | something is running in that worktree |
 | `worktree/exists` | 1 | that path is already taken |
 | `worktree/is-current` | 1 | that is the worktree you are standing in |

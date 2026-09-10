@@ -1,7 +1,7 @@
 //! The extension registry: which extensions somebody declared on this
 //! machine, and the one reader everything else asks.
 //!
-//! `ff extension add <name>` records the manifest the handshake just read,
+//! `ff extension <name>` records the manifest the handshake just read,
 //! and from then on fufu will describe the extension — `ff help <name>` and
 //! `ff explain <name>/<id>` delegate to the binary, its briefing line rides
 //! fufu's, its skills install beside fufu's, the neutral agent event fans
@@ -320,7 +320,7 @@ fn forget_from(file: &Path, name: &str) -> Result<bool> {
 ///
 /// [`load`] is the reader's door and drops what this fufu will not describe;
 /// a write that went through it would drop those records from the file too,
-/// so one upgrade and one `ff extension add` would silently unregister
+/// so one upgrade and one `ff extension <name>` would silently unregister
 /// somebody else's extension.
 fn for_writing(file: &Path) -> Result<Vec<Record>> {
     raw(file).map_err(|why| {
@@ -385,7 +385,7 @@ fn write(file: &Path, records: &[Record]) -> Result<()> {
 
 /// The file's own shape, and the record's, which is the manifest untyped:
 /// what the writers rewrite is what they read, so a record this fufu will
-/// not describe still survives somebody else's `ff extension add`.
+/// not describe still survives somebody else's `ff extension <name>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct File {
     ff: u32,

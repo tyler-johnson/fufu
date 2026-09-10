@@ -50,7 +50,7 @@ fn text_at(path: &Path) -> String {
 }
 
 /// Write the registry this machine reads, declaring one extension with the
-/// given `mcp` field. Bypasses `ff extension add`'s handshake, the same
+/// given `mcp` field. Bypasses `ff extension <name>`'s handshake, the same
 /// shortcut `tests/hook_extension_skills.rs` takes: these tests are about
 /// what a hook install does with a manifest already on record.
 fn declare(home: &Path, name: &str, mcp: Option<Value>) {
@@ -235,7 +235,7 @@ fn a_hand_written_extension_registration_is_left_alone() {
     assert_eq!(text_at(&codex), mine);
 }
 
-/// An extension taken back with `ff extension remove` is written out of
+/// An extension taken back with `ff extension -d` is written out of
 /// Codex's block by the next install, because the block is fufu's outright
 /// and is written whole.
 #[test]

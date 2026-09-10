@@ -130,7 +130,7 @@ fn tools_envelope(name: &str) -> String {
 }
 
 /// Write the registry this machine reads by hand, recording `manifest` at
-/// `path` — the door to a record `ff extension add` would never write,
+/// `path` — the door to a record `ff extension <name>` would never write,
 /// such as one from a contract this fufu does not speak.
 fn record(home: &Path, path: &Path, manifest: &str) {
     let manifest: Value = serde_json::from_str(manifest).expect("the manifest is json");
@@ -194,7 +194,7 @@ fn an_undeclared_binary_on_path_raises_no_finding() {
         row["detail"]
             .as_str()
             .unwrap()
-            .contains("ff extension add <name> declares one"),
+            .contains("ff extension <name> declares one"),
         "{row}"
     );
     // And nothing named "bay" itself: an undeclared extension gets the one
@@ -208,11 +208,7 @@ fn an_undeclared_binary_on_path_raises_no_finding() {
 fn a_declared_extension_that_matches_is_ok() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    let added = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let added = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(added.status.success(), "{:?}", stdout(&added));
 
     let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
@@ -238,11 +234,7 @@ fn a_declared_extension_that_produces_tools_names_them() {
         &manifest_with_tools("tower", "0.4.1"),
         Some(&tools_envelope("tower")),
     );
-    let added = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let added = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(added.status.success(), "{:?}", stdout(&added));
 
     let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
@@ -269,11 +261,7 @@ fn a_declared_extension_whose_tools_handshake_fails_is_a_warning() {
         &manifest_with_tools("tower", "0.4.1"),
         Some("echo 'no tools here' >&2\n  exit 1"),
     );
-    let added = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let added = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(added.status.success(), "{:?}", stdout(&added));
 
     let out = ff(home.path(), Some(bin.path()), &["doctor", "--json"]);
@@ -295,11 +283,7 @@ fn a_declared_extension_whose_tools_handshake_fails_is_a_warning() {
 fn a_declared_extension_whose_version_drifted_is_a_finding() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    let added = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let added = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(added.status.success(), "{:?}", stdout(&added));
 
     // The binary is upgraded without a re-declaration — the registry still
@@ -314,13 +298,13 @@ fn a_declared_extension_whose_version_drifted_is_a_finding() {
     let detail = row["detail"].as_str().unwrap();
     assert!(detail.contains("0.4.1"), "{detail}");
     assert!(detail.contains("0.5.0"), "{detail}");
-    assert!(detail.contains("ff extension add tower"), "{detail}");
+    assert!(detail.contains("ff extension tower"), "{detail}");
 }
 
 /// A record behind the binary on its contract: recorded under a contract
 /// this fufu does not speak, with `ff-<name>` on PATH answering this one.
 /// The same drift row a moved version gets, naming both and the
-/// `ff extension add` that re-records it — the channels no script runs,
+/// `ff extension <name>` that re-records it — the channels no script runs,
 /// a Homebrew upgrade or a hand copy, leave exactly this behind.
 #[test]
 fn a_recorded_contract_behind_the_binary_is_a_finding() {
@@ -343,7 +327,7 @@ fn a_recorded_contract_behind_the_binary_is_a_finding() {
         detail.contains("ff-tower on PATH now answers 0.5.0 (contract 1)"),
         "{detail}"
     );
-    assert!(detail.contains("ff extension add tower"), "{detail}");
+    assert!(detail.contains("ff extension tower"), "{detail}");
     // Its row is the extension's own: the aggregate for records this fufu
     // cannot re-declare names nothing, and a stale record is a declaration
     // rather than an undeclared binary.
@@ -351,7 +335,7 @@ fn a_recorded_contract_behind_the_binary_is_a_finding() {
 }
 
 /// A stale record with no binary on PATH to ask stays where it was: the
-/// aggregate row, with no repair named, since `ff extension add` would
+/// aggregate row, with no repair named, since `ff extension <name>` would
 /// find nothing to record.
 #[test]
 fn a_stale_record_with_no_binary_stays_aggregated() {
@@ -384,11 +368,7 @@ fn a_stale_record_with_no_binary_stays_aggregated() {
 fn a_declared_extension_whose_binary_is_gone_is_a_finding() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    let added = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let added = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(added.status.success(), "{:?}", stdout(&added));
     std::fs::remove_file(bin.path().join("ff-tower")).expect("uninstall it");
 
@@ -408,7 +388,7 @@ fn a_declared_extension_whose_binary_is_gone_is_a_finding() {
         row["detail"]
             .as_str()
             .unwrap()
-            .contains("ff extension remove tower"),
+            .contains("ff extension -d tower"),
         "{row}"
     );
 }

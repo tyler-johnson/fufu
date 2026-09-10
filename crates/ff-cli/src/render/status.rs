@@ -408,7 +408,7 @@ pub(super) fn pull_parts(futures: &ff_core::futures::Futures, colored: bool) -> 
 /// The verb that handles it, so a count is always something you can act on.
 /// `to_pull` is its mirror and carries the rest of the reasoning.
 ///
-/// `ff branch list` walks every branch and must not pay a merge simulation
+/// `ff branch` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
@@ -424,7 +424,7 @@ pub(super) fn to_push(n: usize, colored: bool) -> String {
 /// sent them. A status line is shorter than a sentence and wants the verb,
 /// not the motion.
 ///
-/// `ff branch list` walks every branch and must not pay a merge simulation
+/// `ff branch` walks every branch and must not pay a merge simulation
 /// per row, so it spells the remote axis off `BranchInfo.upstream`'s cheap
 /// local counts — and it must spell it in these exact words, so the two
 /// callers read one definition.
@@ -970,7 +970,7 @@ mod tests {
 
     #[test]
     fn the_row_and_the_axis_word_pending_work_alike() {
-        // The guard against the drift this change fixes: `ff branch list`
+        // The guard against the drift this change fixes: `ff branch`
         // spells the remote axis off the cheap upstream counts, `ff status`
         // off the simulation — the two must never say different words for
         // the same fact, and a literal on each side keeps a refactor that

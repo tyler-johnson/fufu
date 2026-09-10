@@ -1,48 +1,65 @@
-//! `ff branch` — the branch family: list (named and anonymous segregated)
-//! and delete. Naming a branch is not here; `ff describe -b` is the one
-//! verb that does it.
+//! `ff branch` — the branch family: bare is the list (named and anonymous
+//! segregated), `<name> [<rev>]` creates one where you are not, `-d` takes
+//! one away. Naming the branch you are on is not here; `ff describe -b` is
+//! the one verb that does it.
 
-use std::ffi::OsString;
+use ff_core::Result;
 
-use ff_core::{Error, Result};
-
-use crate::cli::BranchAction;
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, action: Option<BranchAction>) -> Result<()> {
-    match action {
-        None => list(ctx, false),
-        Some(BranchAction::List { all, .. }) => list(ctx, all),
-        Some(BranchAction::Delete { target, shared }) => delete(ctx, &target, shared),
-        Some(BranchAction::Other(words)) => Err(unknown(&words)),
+pub fn run(
+    ctx: &Ctx,
+    name: Option<String>,
+    rev: Option<String>,
+    delete: Option<String>,
+    shared: bool,
+    all: bool,
+) -> Result<()> {
+    // The parser has already refused every pairing that crosses shapes, so
+    // the order here only says which field names the shape.
+    if let Some(target) = delete {
+        delete_branch(ctx, &target, shared)
+    } else if let Some(name) = name {
+        create(ctx, &name, rev.as_deref())
+    } else {
+        list(ctx, all)
     }
 }
 
-/// A removal, not a rename. `ff branch <name>` claimed the anonymous branch
-/// you were standing on; that act is `ff describe -b <name>` now and takes
-/// proper names too, so the redirect names the verb rather than translating
-/// the invocation. Every other stray word lands here as well, which is why
-/// the message also says what the family does take.
-fn unknown(words: &[OsString]) -> Error {
-    let typed = words
-        .first()
-        .map(|w| w.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    Error::coded(
-        "usage/unknown-subcommand",
-        format!(
-            "ff branch takes list or delete, not {typed:?} — naming the branch you are on is \
-             ff describe -b"
-        ),
-        vec![
-            "ff branch list".into(),
-            format!("ff describe -b {typed}"),
-            "ff branch delete <branch>".into(),
-        ],
-    )
+fn create(ctx: &Ctx, name: &str, rev: Option<&str>) -> Result<()> {
+    let repo = ff_core::discover(".")?;
+    let (report, verb_ctx) = ff_core::branch::create(
+        &repo,
+        name,
+        rev,
+        &crate::provenance::pre_ff(ctx),
+        None,
+        std::env::args().collect(),
+    )?;
+    crate::render::init_palette(&repo);
+    crate::render::reconcile_notice(&verb_ctx.reconcile);
+    let colored = crate::pager::color_enabled();
+
+    if ctx.json {
+        let payload = serde_json::json!({
+            "create": report,
+            "reconcile": verb_ctx.reconcile,
+            "undo": "ff undo",
+        });
+        crate::machine::emit("branch create", &payload)?;
+        return Ok(());
+    }
+    println!(
+        "created {} at {} (forked from {})",
+        report.name,
+        crate::render::paint_sha(ff_core::sha::short(report.at.as_str()), colored),
+        report.forked_from
+    );
+    println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+    Ok(())
 }
 
-fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
+fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
     // The wire's cwd is resolved before the local delete; the copy `--shared`
@@ -132,7 +149,7 @@ fn delete(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
                 // the undo puts it back. `ff push`'s tail says the same
                 // shape for the same reason.
                 println!(
-                    "  the shared copy {} is still there — ff undo then ff branch delete {} --shared removes it too",
+                    "  the shared copy {} is still there — ff undo then ff branch -d {} --shared removes it too",
                     shared.name, report.name
                 );
             }
@@ -165,7 +182,7 @@ fn list(ctx: &Ctx, all: bool) -> Result<()> {
     // Listing branches as of a past operation needs that operation's ref
     // table threaded through the walk, which is the follow-up this plan
     // named rather than the flag being absent.
-    ctx.refuse_past("ff branch list")?;
+    ctx.refuse_past("ff branch")?;
     let repo = ff_core::discover(".")?;
     // Reads don't reconcile here; `ff status` owns loudness.
     // Ten is the map's own default branch bound — the bound keeps a clone

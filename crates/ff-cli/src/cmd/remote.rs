@@ -14,7 +14,7 @@ use crate::ctx::Ctx;
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     // Reading the remotes as of a past operation would need a past-state view
-    // of the config that does not exist — the same refusal `ff branch list`
+    // of the config that does not exist — the same refusal `ff branch`
     // makes for its rows.
     ctx.refuse_past("ff remote")?;
 

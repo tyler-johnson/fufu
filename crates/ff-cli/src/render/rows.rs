@@ -275,7 +275,7 @@ pub fn branch_label_width(name: &str) -> usize {
     BRANCH_SIGIL.chars().count() + 2 + name.chars().count()
 }
 
-/// One `ff branch list` row (one or two lines, never a trailing empty
+/// One `ff branch` row (one or two lines, never a trailing empty
 /// string): the map's row grammar laid out as a table — the same
 /// `branch_label`, the same `@` you-are-here glyph, and the note the map
 /// hangs on a second line, so a verdict can never scroll off the right edge
@@ -379,7 +379,7 @@ pub fn remote_label_width(name: &str) -> usize {
     BRANCH_SIGIL.chars().count() + name.chars().count()
 }
 
-/// One `ff branch list` row for a branch that exists only on a remote:
+/// One `ff branch` row for a branch that exists only on a remote:
 /// `branch_row`'s head line with a blank marker, and nothing hung beneath —
 /// a branch that is not local has no base axis and no upstream, so the note
 /// line would be silence, and the row is one line, always. A tracking ref

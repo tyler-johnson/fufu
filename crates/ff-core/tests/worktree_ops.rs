@@ -246,7 +246,7 @@ fn the_removal_leaves_the_chain_addressable() {
 /// does not record it in this worktree's ref table. Recording it would claim
 /// a ref this tree does not own, and the next reconcile would find it absent
 /// from the world and report a deletion nobody performed — which is exactly
-/// what `ff worktree add` then `ff worktree remove` used to print.
+/// what `ff worktree <path>` then `ff worktree -d` used to print.
 #[test]
 fn a_creation_does_not_claim_the_branch_it_made() {
     let fx = Fixture::new();

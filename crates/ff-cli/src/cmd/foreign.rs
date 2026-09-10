@@ -71,7 +71,7 @@ pub fn stash(args: &[OsString]) -> Result<()> {
     // listing what is parked is the map, and resuming a parked change is
     // simply switching back to the branch holding it.
     let exits = match subject(args).as_deref() {
-        Some("list") => vec!["ff".into(), "ff branch list".into()],
+        Some("list") => vec!["ff".into(), "ff branch".into()],
         Some("pop" | "apply") => vec!["ff switch <branch>".into()],
         _ => vec!["ff switch <branch>".into(), "ff start".into(), "ff".into()],
     };
@@ -160,7 +160,7 @@ pub fn abandon(args: &[OsString]) -> Result<()> {
         "there is no ff abandon: the open change is dropped with ff restore --all, an editing \
          session or a held rewrite with ff done --abandon, and a commit that has closed comes \
          apart with ff lift --from <rev>, which drops it once nothing is left. A branch goes \
-         with ff branch delete"
+         with ff branch -d"
             .into(),
         exits,
     )

@@ -108,13 +108,7 @@ fn it_answers_json_from_another_repository() {
 
     let text = ok_at(
         away.path(),
-        &[
-            "-C",
-            fx.path().to_str().unwrap(),
-            "worktree",
-            "list",
-            "--json",
-        ],
+        &["-C", fx.path().to_str().unwrap(), "worktree", "--json"],
     );
     let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
     let rows = value["data"]["worktrees"]

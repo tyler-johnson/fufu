@@ -48,7 +48,7 @@ fufu runs that propagation in memory instead. Each step of the held rewrite repl
 
 The current side is labeled `the rewrite so far`. The incoming side carries the step that wrote it — `>>>>>>> rebasing "add parser options" (3/10)` — because the incoming side is where git puts the commit, and therefore where a reader already looks. Those labels are not decoration: they are what attributes each fix back to its owning step when the session lands.
 
-The branch you left stays put, and the hold stays on it, because it is what the session is resolving. Your open change [parks](changes.md) there, as it does on any switch, and comes back when the session ends. The session travels the way any branch does: switching away parks the fixes in progress on it, switching back resumes them, and `ff status` and `ff branch list` show it as they show an editing session. A rogue `git checkout` away leaves a committed marker tree behind rather than a marker-laden working copy.
+The branch you left stays put, and the hold stays on it, because it is what the session is resolving. Your open change [parks](changes.md) there, as it does on any switch, and comes back when the session ends. The session travels the way any branch does: switching away parks the fixes in progress on it, switching back resumes them, and `ff status` and `ff branch` show it as they show an editing session. A rogue `git checkout` away leaves a committed marker tree behind rather than a marker-laden working copy.
 
 ### Landing the session
 
@@ -68,7 +68,7 @@ Deferring a conflict is only safe if you cannot forget it. Holds get three disci
 - **A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working copy are the more urgent fact.
 - **Exits are blocked**, which is the next section.
 
-[`ff branch list`](../reference/cli/branch-list.md) marks a held branch the same way it marks an unfinished session, so standing work is visible wherever branches are listed.
+[`ff branch`](../reference/cli/branch.md) marks a held branch the same way it marks an unfinished session, so standing work is visible wherever branches are listed.
 
 Deferred and quiet is how work rots. The disclosure is what makes the deferral safe.
 

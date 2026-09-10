@@ -634,7 +634,7 @@ fn a_skipped_worktree_branch_is_named_with_its_path() {
     fx.commit("root");
     fx.git(&["branch", "side"]);
     let bay = fx.root().join("bay");
-    let added = ff(&fx, &["worktree", "add", &bay.to_string_lossy(), "side"]);
+    let added = ff(&fx, &["worktree", &bay.to_string_lossy(), "side"]);
     assert!(added.status.success(), "{}", out(&added));
     fx.write("m.txt", "m\n");
     fx.commit("m1");
@@ -763,7 +763,7 @@ fn the_json_envelope_lists_the_other_branches() {
     // A branch open in another worktree.
     fx.git(&["branch", "w"]);
     let bay = fx.root().join("bay");
-    let added = ff(&fx, &["worktree", "add", &bay.to_string_lossy(), "w"]);
+    let added = ff(&fx, &["worktree", &bay.to_string_lossy(), "w"]);
     assert!(added.status.success(), "{}", out(&added));
 
     let output = ff(&fx, &["--json", "pull", "--all"]);

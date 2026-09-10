@@ -8,12 +8,12 @@ use super::Row;
 /// earns an `info` row at most and never a `WARN`. The findings here are the
 /// registry not reading as one, a record from a contract this fufu does not
 /// speak, a declared binary that has left PATH, and a declared binary whose
-/// manifest no longer matches what `ff extension add` recorded: the same
+/// manifest no longer matches what `ff extension <name>` recorded: the same
 /// severity and the same shape `wiring.rs`'s stale-hook row already uses.
 ///
 /// The drifted-manifest row is the one that covers the channels no script
 /// runs. A Homebrew upgrade or a hand copy replaces the binary and runs no
-/// `ff extension add`, so the record falls behind the binary, and `ff hook`
+/// `ff extension <name>`, so the record falls behind the binary, and `ff hook`
 /// keeps writing the skills the record names until something re-records
 /// it. Version and contract share the row: either one moving is the same
 /// finding with the same repair. A record whose contract this fufu does
@@ -91,7 +91,7 @@ pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Ve
         rows.push(Row::info(
             "extensions",
             format!(
-                "{} on PATH, undeclared: {} (ff extension add <name> declares one)",
+                "{} on PATH, undeclared: {} (ff extension <name> declares one)",
                 undeclared.len(),
                 named.join(", ")
             ),
@@ -126,7 +126,7 @@ fn declared_row(
         return Row::warn(
             name.to_string(),
             format!(
-                "declared {} — no ff-{name} on PATH any more (ff extension remove {name} forgets it)",
+                "declared {} — no ff-{name} on PATH any more (ff extension -d {name} forgets it)",
                 recorded.version
             ),
         );
@@ -167,7 +167,7 @@ fn declared_row(
 }
 
 /// The record is behind the binary: what was recorded, what `ff-<name>` on
-/// PATH answers now, and the `ff extension add` that re-records it. One
+/// PATH answers now, and the `ff extension <name>` that re-records it. One
 /// row for a version that moved, a contract that moved, or both, and the
 /// same row whether the record was on the declared list or stale.
 fn drifted_row(
@@ -180,7 +180,7 @@ fn drifted_row(
         name.to_string(),
         format!(
             "recorded {recorded_version} (contract {recorded_contract}), ff-{name} on PATH now \
-             answers {} (contract {}) — ff extension add {name} re-declares it",
+             answers {} (contract {}) — ff extension {name} re-declares it",
             live.version, live.contract
         ),
     )
@@ -358,7 +358,7 @@ fn mcp_extension_row(
 }
 
 /// Names registered as an MCP server in some client's file that no
-/// declared extension names any more — the trace `ff extension remove`
+/// declared extension names any more — the trace `ff extension -d`
 /// leaves behind. News, never a finding, the same as an upstream section
 /// pointing at a branch's still-published shared copy: it is what a plain
 /// removal leaves on purpose, or a hand-written entry doctor cannot tell

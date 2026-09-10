@@ -7,20 +7,26 @@
 //! somebody deleted with work in it — its tip is what `ff restore --at-op`
 //! takes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ff_core::Result;
 
-use crate::cli::WorktreeAction;
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, action: Option<WorktreeAction>) -> Result<()> {
-    // Bare `ff worktree` is the list, on the same rule as bare `ff branch`.
-    match action {
-        None => list(ctx),
-        Some(WorktreeAction::List { .. }) => list(ctx),
-        Some(WorktreeAction::Add { path, branch }) => add(ctx, &path, branch.as_deref()),
-        Some(WorktreeAction::Remove { target }) => remove(ctx, &target),
+pub fn run(
+    ctx: &Ctx,
+    path: Option<PathBuf>,
+    branch: Option<String>,
+    delete: Option<String>,
+) -> Result<()> {
+    // Bare `ff worktree` is the list, on the same rule as bare `ff branch`;
+    // the parser has already refused a path next to `-d`.
+    if let Some(target) = delete {
+        remove(ctx, &target)
+    } else if let Some(path) = path {
+        add(ctx, &path, branch.as_deref())
+    } else {
+        list(ctx)
     }
 }
 
@@ -150,15 +156,15 @@ fn resolve(repo: &ff_core::gix::Repository, target: &str) -> Result<String> {
     Err(ff_core::Error::coded(
         "worktree/not-found",
         format!("no worktree at {target}"),
-        vec!["ff worktree list".into()],
+        vec!["ff worktree".into()],
     ))
 }
 
 fn list(ctx: &Ctx) -> Result<()> {
     // Reading the worktrees as of a past operation would need a past-state
     // view of the layout on disk, which does not exist — the same refusal
-    // `ff remote` and `ff branch list` make, for the same reason.
-    ctx.refuse_past("ff worktree list")?;
+    // `ff remote` and `ff branch` make, for the same reason.
+    ctx.refuse_past("ff worktree")?;
 
     let repo = ff_core::discover(".")?;
     let survey = ff_core::survey(&repo)?;

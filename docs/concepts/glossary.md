@@ -6,7 +6,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and [`ff undo`](../reference/cli/undo.md) reaches back to the moment of arming and no further.
 
-**bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working copy, an index, HEAD, and an operation chain of its own. [`ff worktree add`](../reference/cli/worktree-add.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
+**bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working copy, an index, HEAD, and an operation chain of its own. [`ff worktree <path>`](../reference/cli/worktree.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
 
 **capture** — An automatic [snapshot](snapshots-and-undo.md) of the working copy, taken before every fufu command and around every mutation an agent or editor makes through it, at machine rate. A capture is an operation that moves no ref — the tree alone — and its description is written by fufu, never by a person.
 

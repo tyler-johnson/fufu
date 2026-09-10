@@ -7,9 +7,6 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff init`](init.md) — Start a repository with the safety net already on
 - [`ff clone`](clone.md) — Clone a repository, and arm it on arrival
 - [`ff worktree`](worktree.md) — Worktrees of this repository, and the chains of ones that are gone
-    - [`ff worktree list`](worktree-list.md) — Every worktree here, and every chain whose worktree is gone
-    - [`ff worktree add`](worktree-add.md) — Make a worktree: a second checkout of this repository, with its own log
-    - [`ff worktree remove`](worktree-remove.md) — Take a worktree away, capturing what it holds first
 
 ## work on the current change
 
@@ -32,9 +29,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 - [`ff start`](start.md) — Begin new work on a fresh branch
 - [`ff switch`](switch.md) — Switch branches; a dirty tree is parked, a parked change resumes
-- [`ff branch`](branch.md) — Manage lines of work: what exists, and removing one
-    - [`ff branch list`](branch-list.md) — Named branches and anonymous ones, kept apart
-    - [`ff branch delete`](branch-delete.md) — Delete a branch — its timeline moves to trash, and `ff undo` is enough
+- [`ff branch`](branch.md) — Lines of work: what exists, making one, and removing one
 - [`ff absorb`](absorb.md) — Fold working changes into a commit that has already closed
 - [`ff lift`](lift.md) — Take changes back out of a closed commit, into the open change
 - [`ff restack`](restack.md) — Replay a branch's commits onto the base it sits on
@@ -66,9 +61,6 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff hook`](hook.md) — Hook fufu into the agent clients and shells on this machine
 - [`ff unhook`](unhook.md) — Remove exactly what hook added
 - [`ff extension`](extension.md) — Extensions this machine declares, so fufu describes them to an agent
-    - [`ff extension add`](extension-add.md) — Ask an ff-<name> for its manifest, check it, and record it here
-    - [`ff extension list`](extension-list.md) — Every extension declared on this machine, and what each answers to
-    - [`ff extension remove`](extension-remove.md) — Take one off the list; fufu stops describing it
 - [`ff trigger`](trigger.md) — Snapshot the working copy now
 - [`ff watch`](watch.md) — Stream operations as they land, one JSON object per line
 - [`ff mcp`](mcp.md) — Serve fufu to an agent client over the Model Context Protocol, on stdio

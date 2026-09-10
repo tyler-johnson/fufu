@@ -1,11 +1,11 @@
 //! The `ff branch` family, end to end against the real binary.
 //!
-//! What is being pinned is a split, not a rename. `ff branch` used to mean
-//! three things at once — list, claim, delete — and the claim has moved to
-//! `ff describe -b`, where naming a branch sits on the same axis as naming
-//! a change. So the tests come in pairs: the family keeps only the
-//! bookkeeping and answers the retired spelling by name, while describe
-//! takes both halves of naming, petname and chosen name alike.
+//! Three shapes under one verb: bare is the list, `<name> [<rev>]` creates
+//! a branch and leaves you where you stand, `-d` deletes one. Naming is
+//! not here — it moved to `ff describe -b`, where naming a branch sits on
+//! the same axis as naming a change — so the tests come in pairs: the
+//! family keeps the bookkeeping and the mint, while describe takes both
+//! halves of naming, petname and chosen name alike.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -60,58 +60,206 @@ fn current(fx: &Fixture) -> String {
     fx.git(&["symbolic-ref", "--short", "HEAD"]).trim().into()
 }
 
-/// Bare `ff branch` is the list — the one spelling kept from before the
-/// split, because a family whose read is its default is how `git branch`
-/// already reads and nothing about the split argues with that.
+/// Bare `ff branch` is the list, because a family whose read is its
+/// default is how `git branch` already reads.
 #[test]
 fn bare_branch_is_the_list() {
     let fx = repo();
     fx.git(&["branch", "other"]);
 
     let bare = ff(&fx, &["branch"]);
-    let spelled = ff(&fx, &["branch", "list"]);
     assert!(bare.status.success(), "stderr: {}", stderr(&bare));
-    assert!(spelled.status.success(), "stderr: {}", stderr(&spelled));
-    assert_eq!(stdout(&bare), stdout(&spelled), "one shape, two spellings");
     assert!(stdout(&bare).contains("other"));
 }
 
-/// One payload, one envelope name. The family names the full path the way
-/// `ff op` does, and bare `ff branch` names the shape it emits rather than
-/// the family — a listing and a deletion under one `branch` label is the
-/// thing `ff session` did that the op family was built to avoid.
+/// One payload, one envelope name. The family names the shape it emits
+/// rather than the family, the way `ff op` does — a listing and a deletion
+/// under one `branch` label is the thing `ff session` did that the op
+/// family was built to avoid.
 #[test]
 fn envelope_names_the_full_path() {
     let fx = repo();
     fx.git(&["branch", "doomed"]);
 
-    for spelling in [&["branch", "--json"][..], &["branch", "list", "--json"][..]] {
-        let out = ff(&fx, spelling);
-        assert!(out.status.success(), "stderr: {}", stderr(&out));
-        assert_eq!(json(&out)["cmd"], "branch list", "{spelling:?}");
-    }
+    let out = ff(&fx, &["branch", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(json(&out)["cmd"], "branch list");
 
-    let out = ff(&fx, &["branch", "delete", "doomed", "--json"]);
+    let out = ff(&fx, &["branch", "-d", "doomed", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     assert_eq!(json(&out)["cmd"], "branch delete");
 }
 
-/// The retired claim is answered by name. A word that is not a subcommand
-/// is nearly always the old `ff branch <name>`, so the family says where
-/// naming went instead of letting the parser call it an unexpected
-/// argument — which would teach that the act is gone rather than moved.
+/// `ff branch <name>` mints at trunk and leaves you where you stand: the
+/// verb that also moves there is `ff start`.
 #[test]
-fn the_retired_claim_redirects_to_describe() {
+fn create_mints_at_trunk_and_stays_put() {
     let fx = repo();
-    let out = ff(&fx, &["branch", "unicode-cleanup"]);
-    assert_eq!(out.status.code(), Some(2), "a usage error");
-    let text = stderr(&out);
-    assert!(text.contains("ff describe -b"), "{text}");
-    assert!(
-        text.contains("unicode-cleanup"),
-        "the name is carried: {text}"
+    fx.git(&["branch", "other"]);
+
+    let out = ff(&fx, &["branch", "spike"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("created spike"), "{text}");
+    assert!(text.contains("forked from main"), "{text}");
+    assert_eq!(current(&fx), "main", "nothing moved");
+    assert_eq!(
+        fx.git(&["rev-parse", "spike"]).trim(),
+        fx.git(&["rev-parse", "main"]).trim()
     );
-    assert_eq!(current(&fx), "main", "and nothing was renamed");
+}
+
+/// `<rev>` says where: a revision puts the tip on that commit and records
+/// no parent; a branch name puts the tip on that branch and records it as
+/// the parent, so the list measures the new branch against it.
+#[test]
+fn create_at_a_revision_and_at_a_branch() {
+    let fx = repo();
+    fx.write("b.txt", "b\n");
+    fx.commit("second");
+    fx.git(&["branch", "other"]);
+    fx.git(&["checkout", "-q", "other"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("on other");
+    fx.git(&["checkout", "-q", "main"]);
+
+    let out = ff(&fx, &["branch", "a", "main~1", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&out);
+    assert_eq!(
+        fx.git(&["rev-parse", "a"]).trim(),
+        fx.git(&["rev-parse", "main~1"]).trim()
+    );
+    assert_eq!(v["data"]["create"]["parent"], serde_json::Value::Null);
+    let forked = v["data"]["create"]["forked_from"]
+        .as_str()
+        .expect("a short sha");
+    assert!(
+        forked.len() < 40 && forked.chars().all(|c| c.is_ascii_hexdigit()),
+        "{forked}"
+    );
+
+    let out = ff(&fx, &["branch", "b", "other", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&out);
+    assert_eq!(v["data"]["create"]["forked_from"], "other");
+    assert_eq!(v["data"]["create"]["parent"], "other");
+    assert_eq!(
+        fx.git(&["rev-parse", "b"]).trim(),
+        fx.git(&["rev-parse", "other"]).trim()
+    );
+
+    let list = json(&ff(&fx, &["branch", "--json"]));
+    let b = list["data"]["named"]
+        .as_array()
+        .expect("named")
+        .iter()
+        .find(|row| row["name"] == "b")
+        .expect("b is listed");
+    assert_eq!(b["future"]["against"]["name"], "other", "{b}");
+    assert_eq!(b["future"]["against"]["role"], "parent", "{b}");
+}
+
+/// `@` is the commit under the open change, and the open change stays
+/// where it is: the tree is untouched, the branch underfoot is the same.
+#[test]
+fn create_at_the_open_change() {
+    let fx = repo();
+    fx.write("a.txt", "dirty\n");
+
+    let out = ff(&fx, &["branch", "here", "@"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        fx.git(&["rev-parse", "here"]).trim(),
+        fx.git(&["rev-parse", "HEAD"]).trim()
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).expect("a.txt"),
+        "dirty\n",
+        "the working copy is untouched"
+    );
+    assert_eq!(current(&fx), "main");
+}
+
+/// A taken name is refused by the same id `ff start -b` refuses it with.
+#[test]
+fn create_refuses_a_taken_name() {
+    let fx = repo();
+    let out = ff(&fx, &["branch", "main", "--json"]);
+    assert!(!out.status.success());
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "branch/exists", "{v}");
+    let exits = v["error"]["exits"].as_array().expect("exits");
+    assert!(exits.iter().any(|e| e == "ff branch"), "{v}");
+}
+
+/// One operation, so one `ff undo` takes it back — and the log names the
+/// verb that was typed.
+#[test]
+fn create_is_one_operation_and_undo_takes_it_back() {
+    let fx = repo();
+    let out = ff(&fx, &["branch", "spike"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let ops = json(&ff(&fx, &["--json", "op", "log", "-n", "0"]));
+    let branch_ops: Vec<_> = ops["data"]["ops"]
+        .as_array()
+        .expect("ops")
+        .iter()
+        .filter(|op| op["verb"] == "branch")
+        .collect();
+    assert_eq!(branch_ops.len(), 1, "{ops}");
+
+    let out = ff(&fx, &["undo"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let list = json(&ff(&fx, &["branch", "--json"]));
+    assert!(
+        !list["data"]["named"]
+            .as_array()
+            .expect("named")
+            .iter()
+            .any(|row| row["name"] == "spike"),
+        "{list}"
+    );
+}
+
+/// The envelope names the shape: `branch create`, carrying the report and
+/// the way back.
+#[test]
+fn create_envelope_is_branch_create() {
+    let fx = repo();
+    let out = ff(&fx, &["branch", "spike", "--json"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&out);
+    assert_eq!(v["cmd"], "branch create");
+    assert_eq!(v["data"]["create"]["name"], "spike");
+    assert_eq!(v["data"]["undo"], "ff undo");
+}
+
+/// No subcommand words survive, hidden or visible: the positional is a
+/// name, so `ff branch list` is a branch called `list`.
+#[test]
+fn a_branch_named_list_is_a_branch() {
+    let fx = repo();
+    let out = ff(&fx, &["branch", "list"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert!(stdout(&ff(&fx, &["branch"])).contains("list"));
+    assert_eq!(current(&fx), "main");
+}
+
+/// The list's flags belong to the list, and `--shared` to the delete: the
+/// parser refuses the crossings rather than the verb.
+#[test]
+fn the_list_flags_refuse_the_mutators() {
+    let fx = repo();
+    for spelling in [
+        &["branch", "spike", "--all"][..],
+        &["branch", "-d", "spike", "--at-op", "@"][..],
+        &["branch", "--shared"][..],
+    ] {
+        let out = ff(&fx, spelling);
+        assert_eq!(out.status.code(), Some(2), "{spelling:?}: {}", stderr(&out));
+    }
 }
 
 /// Delete is the family's one mutation, and it is undoable — the branch's
@@ -122,7 +270,7 @@ fn delete_removes_a_branch_and_undo_puts_it_back() {
     let fx = repo();
     fx.git(&["branch", "old-experiment"]);
 
-    let out = ff(&fx, &["branch", "delete", "old-experiment"]);
+    let out = ff(&fx, &["branch", "-d", "old-experiment"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     assert!(!stdout(&ff(&fx, &["branch"])).contains("old-experiment"));
 
@@ -250,17 +398,14 @@ fn branch_marks_a_held_branch() {
     );
 }
 
-/// `--at-op` is declared on the read, and declared on both spellings of it:
-/// before the subcommand and after. Either way it is the coded refusal
-/// naming the follow-up, not an unknown argument.
+/// `--at-op` and `--at` are declared on the read, so either is the coded
+/// refusal naming the follow-up, not an unknown argument.
 #[test]
-fn at_op_is_takeable_on_either_side_of_the_subcommand() {
+fn at_op_and_at_reach_the_list_refusal() {
     let fx = repo();
     for spelling in [
         &["branch", "--at-op", "@"][..],
-        &["branch", "list", "--at-op", "@"][..],
         &["branch", "--at", "2h"][..],
-        &["branch", "list", "--at", "2h"][..],
     ] {
         let out = ff(&fx, spelling);
         let text = stderr(&out);
@@ -292,7 +437,7 @@ fn remote_only_branches_are_listed_without_the_brackets() {
     fx.git(&["update-ref", "refs/remotes/origin/spike", sha]);
     fx.git(&["update-ref", "refs/remotes/origin/other", sha]);
 
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     assert!(text.contains("remote only:"), "{text}");
@@ -318,14 +463,14 @@ fn the_remote_section_is_bounded_and_says_what_it_left_out() {
         fx.git(&["update-ref", &format!("refs/remotes/origin/b{i:02}"), sha]);
     }
 
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
     assert_eq!(rows, 10, "the bound shows ten: {text}");
     assert!(text.contains("~ 2 more"), "{text}");
 
-    let out = ff(&fx, &["branch", "list", "--all"]);
+    let out = ff(&fx, &["branch", "--all"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
@@ -344,13 +489,13 @@ fn json_carries_the_third_bucket_and_the_count() {
         fx.git(&["update-ref", &format!("refs/remotes/origin/b{i:02}"), sha]);
     }
 
-    let out = ff(&fx, &["branch", "list", "--json"]);
+    let out = ff(&fx, &["branch", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let v = json(&out);
     assert_eq!(v["data"]["remote_only"].as_array().map(Vec::len), Some(10));
     assert_eq!(v["data"]["remote_more"], 2);
 
-    let out = ff(&fx, &["branch", "list", "--all", "--json"]);
+    let out = ff(&fx, &["branch", "--all", "--json"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let v = json(&out);
     assert_eq!(v["data"]["remote_only"].as_array().map(Vec::len), Some(12));

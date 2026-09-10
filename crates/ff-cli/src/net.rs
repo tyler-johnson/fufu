@@ -314,7 +314,7 @@ pub fn push_delete(
                 "{remote}/{remote_branch} moved since you last looked, so the shared copy \
                  is still there — the branch here is deleted, and ff undo brings it back"
             ),
-            vec!["ff undo".into(), "ff branch list".into()],
+            vec!["ff undo".into(), "ff branch".into()],
         ));
     }
     if run.stderr.contains("[remote rejected]") {

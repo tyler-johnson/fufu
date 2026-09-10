@@ -4,7 +4,7 @@
 //! An undeclared extension is a filename on PATH and nothing else, which is
 //! why fufu says nothing about one. Declaring is where fufu reads the
 //! binary: `ff-<name> --ff-manifest` prints the manifest as an ordinary
-//! envelope on one line and exits 0, so `ff extension add` can ask a binary
+//! envelope on one line and exits 0, so `ff extension <name>` can ask a binary
 //! what it is before it has any reason to trust it. A manifest that does
 //! not parse, names a contract fufu does not speak, or claims a name other
 //! than the binary's is refused whole and nothing is recorded, because a
@@ -89,7 +89,7 @@ pub struct Manifest {
     pub verbs: Vec<Verb>,
     /// Whether every write the extension makes is captured by fufu and
     /// taken back by `ff undo` — true only when it writes through fufu's
-    /// own verbs. Informational: `ff extension add` reports it, and nothing
+    /// own verbs. Informational: `ff extension <name>` reports it, and nothing
     /// refuses on it.
     pub undoable: bool,
     /// One line for fufu's briefing to an agent, or `true` to ask the
@@ -534,7 +534,7 @@ pub fn ask(path: &Path, name: &str) -> Result<Manifest> {
 /// and a binary that promised nothing has no reason to answer.
 ///
 /// **This asker is time-boxed and [`ask`] is not**, and the difference is
-/// the caller rather than the flag. `ff extension add` and `ff doctor` are
+/// the caller rather than the flag. `ff extension <name>` and `ff doctor` are
 /// verbs a person typed, watching, able to interrupt a binary that hangs.
 /// The caller here is `ff mcp` starting up, where nobody is watching and a
 /// hanging extension would hang a server before it ever served anything.

@@ -31,19 +31,33 @@ pub struct StartOptions {
 
 /// Where the new branch forks from.
 #[derive(Debug)]
-struct ForkPoint {
-    at: gix::ObjectId,
+pub(crate) struct ForkPoint {
+    pub at: gix::ObjectId,
     /// A branch name when the fork point came from one, else a short sha.
-    forked_from: String,
+    pub forked_from: String,
     /// The branch the user explicitly forked from, when the target named one
     /// — local, or someone else's by way of a tracking ref. `None` for a bare
     /// (trunk) start and for a target that resolved to a bare commit.
-    parent: Option<String>,
+    pub parent: Option<String>,
+}
+
+/// What a target that resolves to `@` means to the caller.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Open {
+    /// `start` always opens a clean branch, so `@` is not a fork point.
+    Refused,
+    /// The commit under the open change — `None` when the branch is unborn
+    /// and there is nothing under it yet.
+    Under(Option<gix::ObjectId>),
 }
 
 /// Resolve the fork point, never guessing: the target is a revset that has to
 /// name exactly one revision, and the revset resolver is the only thing here
 /// that reads it.
+///
+/// `open` is what `@` resolves to: `start` refuses it, while `ff branch
+/// <name> @` hands in the commit under the open change, so the tip lands
+/// there like any bare commit's.
 ///
 /// It used to try branch names first and hand anything else to git's own
 /// parser, which meant a name that was both a branch and a commit forked at
@@ -52,7 +66,11 @@ struct ForkPoint {
 /// both address spaces unconditionally and names both candidates rather than
 /// ranking them. (This file mentions git's parser by description rather than
 /// by name on purpose — the guard test in `revset::resolve` greps for it.)
-fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<ForkPoint> {
+pub(crate) fn resolve_fork_point(
+    repo: &gix::Repository,
+    target: Option<&str>,
+    open: Open,
+) -> Result<ForkPoint> {
     match target {
         None => {
             let t = crate::trunk::trunk(repo)?;
@@ -74,9 +92,17 @@ fn resolve_fork_point(repo: &gix::Repository, target: Option<&str>) -> Result<Fo
             // Refused on the *resolved* revision rather than on the literal
             // "@": `latest(@)` and `heads(@)` were never a different request,
             // and a check on the spelling would have let them through.
-            let at = match point.rev {
-                Rev::Open => return Err(open_is_not_a_start_target()),
-                Rev::Commit(id) => id.object_id(),
+            let at = match (point.rev, open) {
+                (Rev::Open, Open::Refused) => return Err(open_is_not_a_start_target()),
+                (Rev::Open, Open::Under(Some(id))) => id,
+                (Rev::Open, Open::Under(None)) => {
+                    return Err(Error::coded(
+                        "target/unresolvable",
+                        "@ has no commit under it yet",
+                        vec!["ff commit".into()],
+                    ));
+                }
+                (Rev::Commit(id), _) => id.object_id(),
             };
             // A branch name reports the branch; anything else reports the
             // commit it landed on, in the spelling `ff log` prints. The
@@ -121,7 +147,7 @@ pub fn start(
     opts: &StartOptions,
     prov: &Provenance,
 ) -> Result<(StartReport, verb::VerbContext)> {
-    let fork = resolve_fork_point(repo, opts.target.as_deref())?;
+    let fork = resolve_fork_point(repo, opts.target.as_deref(), Open::Refused)?;
 
     let name = match &opts.branch {
         Some(name) => {
@@ -138,13 +164,19 @@ pub fn start(
         None => crate::petname::mint(repo)?,
     };
 
+    let now = resolve_now(opts.now);
     mint_branch(
         repo,
-        &name,
-        fork.at,
-        &fork.forked_from,
-        fork.parent.as_deref(),
-        resolve_now(opts.now),
+        &Mint {
+            name: &name,
+            at: fork.at,
+            forked_from: &fork.forked_from,
+            parent: fork.parent.as_deref(),
+            verb: "start",
+            summary: &format!("mint branch {name} at {}", crate::sha::short_oid(fork.at)),
+            tree: crate::ops::verb::worktree_or_head(repo)?,
+        },
+        now,
         &opts.argv,
         prov,
     )?;
@@ -182,41 +214,60 @@ pub fn start(
     ))
 }
 
+/// What one minted branch is: the name and where it lands, the fork base
+/// its metadata records, and the operation that records the minting.
+#[derive(Clone, Copy)]
+pub(crate) struct Mint<'a> {
+    pub name: &'a str,
+    pub at: gix::ObjectId,
+    pub forked_from: &'a str,
+    pub parent: Option<&'a str>,
+    /// The `OpRecord` verb: `start` from here, `branch` from `ff branch
+    /// <name>`, so `ff op log` names the verb that was typed.
+    pub verb: &'static str,
+    pub summary: &'a str,
+    /// The tree the operation records — the worktree as it stands, which
+    /// minting a name never touches.
+    pub tree: gix::ObjectId,
+}
+
 /// Mint a branch at a commit, recorded, with its fork base written once.
 ///
-/// This runs BEFORE the switch that follows it, and therefore before any
-/// preamble — so it reconciles nothing and captures nothing itself. That is
-/// safe precisely because it is write-ahead: the planned table it records
-/// already contains the branch it is about to create, so the switch's own
-/// reconcile finds the world exactly where this operation said it would be.
-#[allow(clippy::too_many_arguments)]
-fn mint_branch(
+/// Under `start` this runs BEFORE the switch that follows it, and therefore
+/// before any preamble — so it reconciles nothing and captures nothing
+/// itself. That is safe precisely because it is write-ahead: the planned
+/// table it records already contains the branch it is about to create, so
+/// the switch's own reconcile finds the world exactly where this operation
+/// said it would be. `ff branch <name>` has no switch after it, so it runs
+/// `begin_verb` first and hands the captured tree in.
+pub(crate) fn mint_branch(
     repo: &gix::Repository,
-    name: &str,
-    at: gix::ObjectId,
-    forked_from: &str,
-    parent: Option<&str>,
+    mint: &Mint<'_>,
     now: i64,
     argv: &[String],
     prov: &Provenance,
 ) -> Result<()> {
+    let Mint {
+        name,
+        at,
+        forked_from,
+        parent,
+        verb,
+        summary,
+        tree,
+    } = *mint;
     let head = crate::head::head_state(repo)?;
     let mut planned = observe_refs(repo)?;
     planned
         .refs
         .insert(format!("refs/heads/{name}"), at.to_string());
-    let mut record = OpRecord::new(
-        "start",
-        format!("mint branch {name} at {}", &at.to_string()[..8]),
-        now,
-    );
+    let mut record = OpRecord::new(verb, summary, now);
     record.argv = argv.to_vec();
     record.refs = vec![RefTransition {
         name: format!("refs/heads/{name}"),
         old: None,
         new: Some(at.to_string()),
     }];
-    let tree = crate::ops::verb::worktree_or_head(repo)?;
     verb::append_op(
         repo,
         OpKind::Op,
@@ -224,7 +275,7 @@ fn mint_branch(
             record,
             planned,
             // Minting a name touches neither the working tree nor the index;
-            // the switch that follows is what moves them.
+            // under start, the switch that follows is what moves them.
             tree,
             index_tree: crate::index::tree_from_index(repo)?,
             // Recorded against the branch it runs ON, not the one it creates:
@@ -304,7 +355,7 @@ mod tests {
     fn a_branch_name_reports_the_branch_name() {
         let (fx, sha) = one_commit();
         let repo = fx.repo();
-        let fork = resolve_fork_point(&repo, Some("main")).expect("main resolves");
+        let fork = resolve_fork_point(&repo, Some("main"), Open::Refused).expect("main resolves");
         assert_eq!(fork.forked_from, "main");
         assert_eq!(fork.at.to_string(), sha);
     }
@@ -317,7 +368,7 @@ mod tests {
         let (fx, sha) = one_commit();
         let repo = fx.repo();
         for target in [sha.as_str(), "main^{commit}", "HEAD"] {
-            let fork = resolve_fork_point(&repo, Some(target)).expect("resolves");
+            let fork = resolve_fork_point(&repo, Some(target), Open::Refused).expect("resolves");
             assert_eq!(fork.at.to_string(), sha);
             assert!(
                 sha.starts_with(&fork.forked_from) && fork.forked_from.len() < sha.len(),
@@ -335,7 +386,8 @@ mod tests {
         let (fx, sha) = one_commit();
         fx.git(&["update-ref", "refs/remotes/origin/feature", &sha]);
         let repo = fx.repo();
-        let fork = resolve_fork_point(&repo, Some("origin/feature")).expect("resolves");
+        let fork =
+            resolve_fork_point(&repo, Some("origin/feature"), Open::Refused).expect("resolves");
         assert_eq!(fork.at.to_string(), sha);
         assert_eq!(fork.forked_from, "origin/feature");
         assert_eq!(fork.parent.as_deref(), Some("origin/feature"));
@@ -350,7 +402,7 @@ mod tests {
         fx.git(&["branch", both]);
         let repo = fx.repo();
 
-        let err = resolve_fork_point(&repo, Some(both)).expect_err("must refuse");
+        let err = resolve_fork_point(&repo, Some(both), Open::Refused).expect_err("must refuse");
         assert_eq!(err.id(), "usage/revset-ambiguous");
         let text = err.to_string();
         assert!(
@@ -367,7 +419,8 @@ mod tests {
         let (fx, _) = one_commit();
         let repo = fx.repo();
         for target in ["@", "latest(@)", "heads(@)"] {
-            let err = resolve_fork_point(&repo, Some(target)).expect_err("must refuse");
+            let err =
+                resolve_fork_point(&repo, Some(target), Open::Refused).expect_err("must refuse");
             assert_eq!(err.id(), "target/unresolvable", "{target}");
             assert!(
                 err.to_string().contains("ff commit -b"),
@@ -382,7 +435,8 @@ mod tests {
     fn an_unresolvable_target_is_the_revsets_refusal() {
         let (fx, _) = one_commit();
         let repo = fx.repo();
-        let err = resolve_fork_point(&repo, Some("nosuchthing")).expect_err("must refuse");
+        let err =
+            resolve_fork_point(&repo, Some("nosuchthing"), Open::Refused).expect_err("must refuse");
         assert_eq!(err.id(), "usage/revset-unknown-revision");
     }
 
@@ -396,7 +450,8 @@ mod tests {
         fx.write("a.txt", "b\n");
         fx.commit("two");
         let repo = fx.repo();
-        let err = resolve_fork_point(&repo, Some("::main")).expect_err("must refuse");
+        let err =
+            resolve_fork_point(&repo, Some("::main"), Open::Refused).expect_err("must refuse");
         assert_eq!(err.id(), "usage/revset-not-a-point");
     }
 }

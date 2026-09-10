@@ -38,7 +38,7 @@ Contrast jj's bookmarks, which sit still until told to move. fufu's branches beh
 
 ## Listing and deleting
 
-[`ff branch list`](../reference/cli/branch-list.md) — bare [`ff branch`](../reference/cli/branch.md) is the same list — shows named branches first, then the anonymous ones. They are kept apart so a petname never reads as something you chose.
+[`ff branch`](../reference/cli/branch.md) lists, and `ff branch <name>` creates one where you are not: it shows named branches first, then the anonymous ones. They are kept apart so a petname never reads as something you chose.
 
 Each row carries the branch's tip and the subject there, plus what is hanging off it:
 
@@ -48,7 +48,7 @@ Each row carries the branch's tip and the subject there, plus what is hanging of
 
 Below your own branches come the ones a remote holds and you do not. You cannot switch to those directly, because `ff switch` resolves local names only. `ff start origin/spike` is the verb that forks one of them into a branch here.
 
-[`ff branch delete`](../reference/cli/branch-delete.md) removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its parked change is demoted to an ordinary stash entry, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
+`ff branch -d` removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its parked change is demoted to an ordinary stash entry, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
 
 A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease: the removal goes through only if the remote copy still stands where you last saw it. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
 
@@ -62,7 +62,7 @@ What happens to the open change on either side of the move — parked here, resu
 
 `ff start <branch> -b <name>` forks from another branch's tip and records that branch as the new one's **base**. A bare `ff start` forks from trunk and records nothing, so its base is trunk wherever trunk goes. A branch created outside fufu gets the same record when the repository can say where it was cut: its tip is exactly one other non-trunk branch's tip, or git's reflog names the branch it was created from. Anything less certain leaves it on trunk, and `ff restack --onto` is the correction. The git spelling of the same intent, `git checkout -b <name> --track <other>`, is read the same way: an upstream wearing another branch's name is the base the branch was cut from, not a shared copy of it, and the first [`ff push`](../reference/cli/push.md) records it as the parent when it sets tracking to the copy it creates.
 
-That record is what "base" means everywhere fufu says the word: the base axis on [`ff status`](../reference/cli/status.md), the standing `ff branch list` reports, and the replay every rewrite performs. [`ff restack --onto`](../reference/cli/restack.md) is the one way to change it.
+That record is what "base" means everywhere fufu says the word: the base axis on [`ff status`](../reference/cli/status.md), the standing `ff branch` reports, and the replay every rewrite performs. [`ff restack --onto`](../reference/cli/restack.md) is the one way to change it.
 
 ### The cascade
 

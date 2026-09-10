@@ -2054,7 +2054,7 @@ fn a_failure_with_no_exits_of_its_own_borrows_the_registrys() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("no branch named nope"), "{stderr}");
     assert!(stderr.contains("try:"), "{stderr}");
-    assert!(stderr.contains("ff branch list"), "{stderr}");
+    assert!(stderr.contains("ff branch"), "{stderr}");
 }
 
 /// Both surfaces read the one registry, so a machine is told what a terminal
@@ -2069,7 +2069,7 @@ fn the_borrowed_exits_reach_the_json_envelope_too() {
     assert_eq!(v["error"]["id"], "branch/not-found");
     let exits = v["error"]["exits"].as_array().expect("exits array");
     assert!(
-        exits.iter().any(|e| e == "ff branch list"),
+        exits.iter().any(|e| e == "ff branch"),
         "envelope carries the registry's exits: {exits:?}"
     );
 }

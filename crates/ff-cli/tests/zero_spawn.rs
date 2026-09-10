@@ -291,7 +291,7 @@ fn phase2_verbs_never_spawn() {
         &["switch", "main"][..],
         &["branch"][..],
         &["worktree"][..],
-        &["worktree", "list"][..],
+        &["worktree"][..],
         &["op", "log"][..],
         &["undo"][..],
         &["redo"][..],
@@ -299,7 +299,7 @@ fn phase2_verbs_never_spawn() {
         &["start", "-m", "next change"][..],
         // The plain delete stays spawn-free even though it now reads the
         // branch's remote axis.
-        &["branch", "delete", "other"][..],
+        &["branch", "-d", "other"][..],
     ] {
         let out = ff_trapped(&trap, &fx.path(), args);
         assert!(

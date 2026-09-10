@@ -1043,7 +1043,7 @@ pub struct BranchListOptions {
     pub remote_limit: Option<usize>,
 }
 
-/// One live worktree, for `ff worktree list`.
+/// One live worktree, for `ff worktree`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorktreeRow {
     /// The id git files it under, which is also its operation chain's key.
@@ -1062,7 +1062,7 @@ pub struct WorktreeRow {
     pub current: bool,
 }
 
-/// One operation chain whose worktree is gone, for `ff worktree list`.
+/// One operation chain whose worktree is gone, for `ff worktree`.
 ///
 /// The chain outliving the worktree is deliberate: `git worktree remove` is
 /// foreign, so what was never captured is git's to lose, but everything fufu
@@ -1080,7 +1080,7 @@ pub struct OrphanRow {
     pub time: Option<i64>,
 }
 
-/// What `ff worktree list` reports.
+/// What `ff worktree` reports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Survey {
     pub worktrees: Vec<WorktreeRow>,
@@ -1108,6 +1108,20 @@ pub struct SharedCopy {
     pub remote_branch: String,
     /// The tracking tip; the empty string when configured and absent.
     pub tip: String,
+}
+
+/// The result of `ff branch <name> [<rev>]`: a branch minted where it was
+/// asked, and nothing moved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchCreateReport {
+    pub name: String,
+    /// Full sha the branch was created at.
+    pub at: String,
+    /// Short name of what it forked from: a branch, or a short sha.
+    pub forked_from: String,
+    /// The branch it forked from when the target named one.
+    pub parent: Option<String>,
+    pub pre_op: Option<String>,
 }
 
 /// The result of deleting a branch.

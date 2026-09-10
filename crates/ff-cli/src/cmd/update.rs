@@ -186,7 +186,7 @@ fn extension(declared: &Declared, yes: bool, trouble: &mut Vec<String>) -> ff_co
         println!("  recorded at {}", declared.path.display());
         unmoved(
             trouble,
-            format!("ff-{name} is not on PATH any more — ff extension remove {name} forgets it"),
+            format!("ff-{name} is not on PATH any more — ff extension -d {name} forgets it"),
         );
         return Ok(false);
     };

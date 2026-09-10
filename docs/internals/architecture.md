@@ -64,7 +64,7 @@ The key is the invalidation, since a stale entry is by definition one that will 
 
 ### Where the answer is spent
 
-[`ff status`](../reference/cli/status.md) reports futures, not just facts — "main moved — rebases cleanly (3 commits replayed)" before anything moves, or the commit and files a rebase would break on. The bare `ff` map and [`ff branch list`](../reference/cli/branch-list.md) deliberately do not pay a merge simulation per row: verdicts belong to status, and the most-typed commands must stay flat.
+[`ff status`](../reference/cli/status.md) reports futures, not just facts — "main moved — rebases cleanly (3 commits replayed)" before anything moves, or the commit and files a rebase would break on. The bare `ff` map and [`ff branch`](../reference/cli/branch.md) deliberately do not pay a merge simulation per row: verdicts belong to status, and the most-typed commands must stay flat.
 
 ## Floor 3 — the verbs
 

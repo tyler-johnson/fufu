@@ -489,7 +489,7 @@ fn status_json_in_a_linked_worktree() {
     fx.write("a.txt", "one\n");
     fx.commit("one");
     let bay = fx.root().join("bay");
-    let add = ff(&fx, &["worktree", "add", bay.to_str().unwrap(), "side"]);
+    let add = ff(&fx, &["worktree", bay.to_str().unwrap(), "side"]);
     assert!(add.status.success(), "{}", out(&add));
 
     let data = json(&ff_at(&bay, &["status", "--json"]))["data"].clone();

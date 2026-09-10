@@ -15,7 +15,7 @@ Official builds also look for new releases without being asked. A check runs at 
 
 ### Declared extensions
 
-After fufu, the same walk over every extension declared with `ff extension add`, in the order they were declared, by the rules above. Each manifest may carry an `update` block of recipes keyed by channel — `brew` (the formula), `install` (the script's URL, with `bin` saying where the script places the binary, `~/.local/bin` when it does not say), `releases` (the page) — and a `build`, `official` or `source`. Absent `build` is `official`.
+After fufu, the same walk over every extension declared with `ff extension <name>`, in the order they were declared, by the rules above. Each manifest may carry an `update` block of recipes keyed by channel — `brew` (the formula), `install` (the script's URL, with `bin` saying where the script places the binary, `~/.local/bin` when it does not say), `releases` (the page) — and a `build`, `official` or `source`. Absent `build` is `official`.
 
 - a `source` build is told to rebuild it the way it was built, and nothing else: no recipe is read and no release is checked
 - a binary under a Homebrew prefix gets `brew upgrade <formula>`

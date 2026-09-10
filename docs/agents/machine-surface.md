@@ -333,7 +333,7 @@ Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does
 
 ### Declared
 
-A **declared** extension is one somebody registered with [`ff extension add <name>`](../reference/cli/extension-add.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory.
+A **declared** extension is one somebody registered with [`ff extension <name>`](../reference/cli/extension.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory.
 
 The record is per machine rather than per repository, since the binary is on PATH and declaring it is a decision about the machine. A declared extension is handed the same three variables, and declaring adds none.
 
@@ -346,7 +346,7 @@ What declaring buys is that fufu will describe it to an agent:
 - the MCP tools it produces are served beside fufu's seven, and an MCP server of its own registers beside fufu's
 - `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move; the background release check reads a github.com `releases` page and announces a new release beside fufu's own
 
-[`ff extension`](../reference/cli/extension.md) is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
+`ff extension` is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
 
 `ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
 

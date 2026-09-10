@@ -184,7 +184,7 @@ pub fn dispatch(name: &str, argv: Vec<OsString>) -> ! {
             &ff_core::Error::coded(
                 "usage/no-such-directory",
                 format!("-C {}: {err}", dir.display()),
-                vec!["ff status".into(), "ff worktree list".into()],
+                vec!["ff status".into(), "ff worktree".into()],
             ),
         );
     }
@@ -553,7 +553,7 @@ fn delegate_failed(name: &str) -> ff_core::Error {
             "ff-{name} did not answer: it may have left PATH since it was declared, refused to \
              start, exited nonzero, or run past the time box fufu gives it"
         ),
-        vec!["ff doctor".into(), "ff extension list".into()],
+        vec!["ff doctor".into(), "ff extension".into()],
     )
 }
 

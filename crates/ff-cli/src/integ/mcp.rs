@@ -30,7 +30,7 @@
 //! hand-written, reported, and never touched.
 //!
 //! The registry is what says a server belongs in the file at all, which is
-//! what makes an extension taken back with `ff extension remove` a case
+//! what makes an extension taken back with `ff extension -d` a case
 //! rather than a question: the next `ff hook` writes Codex's block whole
 //! and the table goes with it, and the JSON key is left behind the way the
 //! manifest's other traces are once nothing reads the registry for that
@@ -741,7 +741,7 @@ pub fn extension_wiring(spec: &Spec, name: &str) -> ServerWiring {
 
 /// Every name this client's file registers a server under that is neither
 /// fufu's own nor any currently declared extension's — the trace `ff
-/// extension remove` leaves behind. Codex's is transient: the next `ff
+/// extension -d` leaves behind. Codex's is transient: the next `ff
 /// hook codex` rewrites the block whole and the table goes with it. A JSON
 /// key has no such moment and sits there until somebody removes it by
 /// hand, which is what makes it worth doctor naming.
@@ -1303,7 +1303,7 @@ mod tests {
         spec.servers.push(tower());
         install(&spec).unwrap();
         // tower is taken back off the registry's answer, the way
-        // `ff extension remove tower` would leave `spec.servers`.
+        // `ff extension -d tower` would leave `spec.servers`.
         spec.servers.pop();
         assert_eq!(orphaned(&spec), vec!["tower".to_string()]);
         // And it is no longer one of the extensions this client reports.

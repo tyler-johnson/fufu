@@ -4,7 +4,7 @@
 
 A worktree is for the moments when one tree is the bottleneck — a long build or test run that should keep going while you edit something else, an agent working a branch alongside you, a review checkout you keep standing.
 
-`ff worktree add` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working copy, the index, HEAD, and the operation log are the worktree's own.
+`ff worktree <path>` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working copy, the index, HEAD, and the operation log are the worktree's own.
 
 Every transcript below is real `ff` output. fufu calls a secondary worktree a bay in places, and this page does too.
 
@@ -17,10 +17,10 @@ $ ff worktree
 * main      /tmp/tmp.LEBjpAkBuj/demo  main
 ```
 
-`ff worktree add <path>` makes the bay. The branch is a name you give, or a new branch named after the directory when you do not say, or a minted name when that name is already taken:
+`ff worktree <path>` makes the bay. The branch is a name you give, or a new branch named after the directory when you do not say, or a minted name when that name is already taken:
 
 ```console
-$ ff worktree add ../bay
+$ ff worktree ../bay
 made bay at /tmp/tmp.LEBjpAkBuj/bay on bay
   on a new branch
   its log is refs/fufu/wt/bay/ops
@@ -170,7 +170,7 @@ While the branch is open in the bay, the first tree cannot take it. git allows o
 $ ff switch ff/kind-ridge
 ff: 'ff/kind-ridge' is already used by worktree at '/tmp/tmp.LEBjpAkBuj/bay'
   try:
-    ff worktree list
+    ff worktree
     git worktree list
 ```
 
@@ -185,19 +185,19 @@ undo: ff undo
 
 ## Removal captures first
 
-The bay now holds a half-written, uncommitted file. `git worktree remove` demands `--force` for a dirty tree because it has nowhere to put the work. [`ff worktree remove`](../reference/cli/worktree-remove.md) has no `--force`, because the capture comes first, into the bay's own chain, and the removal says where the work went:
+The bay now holds a half-written, uncommitted file. `git worktree remove` demands `--force` for a dirty tree because it has nowhere to put the work. `ff worktree -d` has no `--force`, because the capture comes first, into the bay's own chain, and the removal says where the work went:
 
 ```console
-$ ff worktree remove bay
+$ ff worktree -d bay
 removed bay (was on bay)
   captured first as fd5974d0070a — ff restore <path> --at-op fd5974d0070a
   its log stays at refs/fufu/wt/bay/ops
 ```
 
-The chain outlives the checkout. [`ff worktree list`](../reference/cli/worktree-list.md) shows it under the gone chains, with the capture's operation id on the row:
+The chain outlives the checkout. `ff worktree` shows it under the gone chains, with the capture's operation id on the row:
 
 ```console
-$ ff worktree list
+$ ff worktree
 * main      /tmp/tmp.LEBjpAkBuj/demo  main
 
 chains whose worktree is gone
@@ -209,7 +209,7 @@ That id is an address. [`ff restore`](../reference/cli/restore.md) with `--at-op
 
 ```console
 $ ff restore src/lexer_test.rs --at-op fd5974d0070a
-restored from fd59 (pre: ff worktree remove bay)
+restored from fd59 (pre: ff worktree -d bay)
   restored  src/lexer_test.rs
 undo: ff undo
 
@@ -230,6 +230,6 @@ The removal is one operation on the chain of the tree that ran it, so `ff undo` 
 
 ## From here
 
-- [`ff worktree add`](../reference/cli/worktree-add.md), [`list`](../reference/cli/worktree-list.md), [`remove`](../reference/cli/worktree-remove.md), and [`ff watch`](../reference/cli/watch.md) — the reference for every flag.
+- `ff worktree` and [`ff watch`](../reference/cli/watch.md) — the reference for every flag.
 - [Changes](../concepts/changes.md) and [branches](../concepts/branches.md) — the model behind parking and resuming.
 - [Snapshots and undo](../concepts/snapshots-and-undo.md) — what a chain holds and what each press of undo restores.

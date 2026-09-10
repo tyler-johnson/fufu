@@ -41,7 +41,7 @@ $ ff doctor
   info  trim           nothing to drop — every operation is inside the keep window
   info  auto-trim      last ran 3h ago (at most every 1d)
   ok    remotes        1 configured (origin) — every branch names one
-  info  upstreams      config for ci-windows-sharding names no branch here — the shared copy is still on the remote, which is what `ff branch delete` leaves behind
+  info  upstreams      config for ci-windows-sharding names no branch here — the shared copy is still on the remote, which is what `ff branch -d` leaves behind
   ok    claude         plugin wired in ~/.claude/skills/fufu
   ok    codex          settings wired in ~/.codex/hooks.json — Codex trusts a hook by its hash: run /hooks in Codex to review this one, or it is skipped and nothing captures
   ok    alias          git='ff git' wired in ~/.bashrc (`ff hook bash` manages it)
@@ -77,7 +77,7 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 ### The remote floor
 
 - **remotes** — only in repositories that have remotes at all; a local-only repository has no remote floor and no finding. Every branch must be able to name the remote it answers to. A branch that cannot — typically two remotes and nothing choosing between them — is a `WARN`, because [`ff pull`](../reference/cli/pull.md) and [`ff push`](../reference/cli/push.md) will both refuse until `ff push --to <remote>` chooses one.
-- **upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch delete`](../reference/cli/branch-delete.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
+- **upstreams** — `[branch "<name>"]` config sections naming branches that are not here. Two cases, deliberately kept apart. A section whose shared copy still exists on the remote is `info`: that residue is what a plain [`ff branch -d`](../reference/cli/branch.md) of a published branch leaves behind, on purpose, so undo stays exact. A section pointing at nothing on either side is drift, a `WARN`, and the other thing `--fix` repairs.
 - **tracking** — branches that exist here but whose upstream's shared copy is gone. `info`, because [`ff status`](../reference/cli/status.md) already reports `remote is gone` for the branch underfoot; repo-wide it is news.
 
 ### Raw git
@@ -103,11 +103,11 @@ These rows come from the same status vector [`ff hook -l`](../reference/cli/hook
 
 ### Extensions
 
-Every `ff-<name>` a PATH walk finds, whether it is declared with [`ff extension add`](cli/extension-add.md), and for a declared one whether the binary still matches what was recorded. Declaring is a decision about the machine, not the repository, so this floor runs the same whether or not you are standing in one.
+Every `ff-<name>` a PATH walk finds, whether it is declared with [`ff extension <name>`](cli/extension.md), and for a declared one whether the binary still matches what was recorded. Declaring is a decision about the machine, not the repository, so this floor runs the same whether or not you are standing in one.
 
 #### Undeclared extensions
 
-An undeclared extension is never a finding. It is git's own idiom working as designed — an `ff-<name>` on PATH runs exactly as it did before anyone registered it — so doctor names it once, aggregated, as `info`: how many were found and their names, with the `ff extension add` that would vouch for one.
+An undeclared extension is never a finding. It is git's own idiom working as designed — an `ff-<name>` on PATH runs exactly as it did before anyone registered it — so doctor names it once, aggregated, as `info`: how many were found and their names, with the `ff extension <name>` that would vouch for one.
 
 #### Declared extensions
 
@@ -116,8 +116,8 @@ Every declared extension gets a row named for it, the same shape a wiring row ta
 Three things are findings:
 
 - the binary has left PATH since it was declared — dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep;
-- the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension add`;
-- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension add <name>` that re-declares it. It is the row that covers the channels no script runs: a Homebrew upgrade or a hand copy replaces the binary and re-declares nothing, and until something does, `ff hook` writes the skills the record names rather than the binary's.
+- the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension <name>`;
+- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension <name>` that re-declares it. It is the row that covers the channels no script runs: a Homebrew upgrade or a hand copy replaces the binary and re-declares nothing, and until something does, `ff hook` writes the skills the record names rather than the binary's.
 
 Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
 
@@ -138,13 +138,13 @@ Most manifests name none, and say nothing about it. When one does, the row adds 
 
 #### A registration nothing declares any more
 
-A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`. It is the trace `ff extension remove` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
+A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`. It is the trace `ff extension -d` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
 
 #### The registry itself
 
-A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal [`ff extension list`](cli/extension-list.md) reports.
+A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal `ff extension` reports.
 
-A record naming a contract this fufu does not speak is a `WARN` too. Doctor asks its binary the way it asks a declared one, and when `ff-<name>` on PATH answers this fufu's contract the record is behind the binary: the row is the drift row above, named for the extension, with the `ff extension add <name>` that re-records it. Otherwise the record is named in the `extensions` aggregate with the contract it claims, and is kept in the file and described to nobody until a fufu that speaks that contract reads it.
+A record naming a contract this fufu does not speak is a `WARN` too. Doctor asks its binary the way it asks a declared one, and when `ff-<name>` on PATH answers this fufu's contract the record is behind the binary: the row is the drift row above, named for the extension, with the `ff extension <name>` that re-records it. Otherwise the record is named in the `extensions` aggregate with the contract it claims, and is kept in the file and described to nobody until a fufu that speaks that contract reads it.
 
 ### The update lane
 
@@ -213,7 +213,7 @@ The next fufu operation recreates the reflog and the row goes back to `ok`; entr
   WARN  upstreams      config for feature-x names no branch here and no tracking ref either — `ff doctor --fix` removes the section
 ```
 
-`--fix` removes exactly these sections and no others. A section whose shared copy is still on the remote stays untouched — that residue is `ff branch delete` doing its job, and the `info` variant of this lane says so.
+`--fix` removes exactly these sections and no others. A section whose shared copy is still on the remote stays untouched — that residue is `ff branch -d` doing its job, and the `info` variant of this lane says so.
 
 ### The wiring drifted
 
@@ -227,16 +227,16 @@ A skill written by an older fufu, a hook stored in a retired spelling, a client 
 
 ### A declared extension drifted
 
-`ff-tower` was upgraded on PATH without a re-declaration, so what `ff extension add` recorded and what the binary now answers disagree:
+`ff-tower` was upgraded on PATH without a re-declaration, so what `ff extension <name>` recorded and what the binary now answers disagree:
 
 ```console
-  WARN  tower          recorded 0.4.1 (contract 1), ff-tower on PATH now answers 0.5.0 (contract 1) — ff extension add tower re-declares it
+  WARN  tower          recorded 0.4.1 (contract 1), ff-tower on PATH now answers 0.5.0 (contract 1) — ff extension tower re-declares it
 ```
 
-The row names the repair: `ff extension add tower` reads the manifest again and records what is actually there. A binary that has left PATH entirely reads the same way, naming the removal instead:
+The row names the repair: `ff extension tower` reads the manifest again and records what is actually there. A binary that has left PATH entirely reads the same way, naming the removal instead:
 
 ```console
-  WARN  tower          declared 0.4.1 — no ff-tower on PATH any more (ff extension remove tower forgets it)
+  WARN  tower          declared 0.4.1 — no ff-tower on PATH any more (ff extension -d tower forgets it)
 ```
 
 Neither is a finding `--fix` repairs — re-declaring is a decision about which version to trust, not a mechanical rewrite — so both stay yours to run.

@@ -66,7 +66,7 @@ fn start_in(home: tempfile::TempDir, dir: &Path, extra: &[&str], envs: &[(&str, 
 }
 
 /// Declare one extension on the machine `home` stands for, the way
-/// `ff extension add` records one. Unix only, since every test that
+/// `ff extension <name>` records one. Unix only, since every test that
 /// declares one then runs it as a shell script.
 #[cfg(unix)]
 fn declare(home: &Path, name: &str, verbs: &[&str], undoable: bool) {
@@ -800,7 +800,7 @@ fn a_promised_tool_is_listed_beside_the_seven_and_routes_to_the_verb() {
 
 /// A produced tool carries the hints it stated about itself, so what the
 /// manifest says under `undoable` decides nothing here: `false` is what
-/// `ff extension add` reported, and the tool is listed and runs.
+/// `ff extension <name>` reported, and the tool is listed and runs.
 ///
 /// Unix only, for the reason `a_held_outcome_is_data_at_exit_3_and_the_code_rides_meta` is.
 #[cfg(unix)]

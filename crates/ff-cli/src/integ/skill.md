@@ -107,8 +107,8 @@ A **held rewrite** is a conflict fufu chose not to interrupt you with. The verb 
 - `ff start` begins new work on a fresh branch, forked from trunk; a revision or branch argument forks there instead. The open change parks where it was and the new branch opens clean — nothing is carried across a fork. `ff start` never creates a commit.
 - `ff switch <branch>` parks whatever is open with the branch being left and brings back whatever was parked at the destination — same files, same edits, same pending description. There is no stash dance. A unique prefix of the name is enough.
 - `ff describe -b <name>` names the branch you are on. Naming is not on `ff branch`, because a plain `git branch -m` would orphan the capture chain, the parked change, and the pending description.
-- `ff branch` lists; `ff branch delete <name>` removes one, undoably.
-- `ff worktree add <name>` makes a second checkout on a branch of its own. Each worktree has its own operation chain, its own undo, and its own lock.
+- `ff branch` lists; `ff branch -d <name>` removes one, undoably.
+- `ff worktree <path>` makes a second checkout on a branch of its own. Each worktree has its own operation chain, its own undo, and its own lock.
 
 ## Remotes
 
@@ -145,7 +145,7 @@ Every verb takes `--json` and emits a versioned envelope, `{"ff": 1, "cmd": "sta
 - `ff explain <id>` looks up an error id; `ff explain --list` shows them all.
 - `ff config` lists every setting with its value and default, validated through the readers' own parsers. Storage is plain git config under `fufu.*`.
 - `ff doctor` reads the whole safety net in one pass and exits 1 on findings, so CI can gate on it. It is read-only except `--fix`.
-- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`. `ff extension add <name>` records what `ff-<name>` says it is, and declaring it is what makes fufu describe the verb to an agent everywhere it already speaks — the briefing, `ff explain`, `ff doctor`, and the tool.
+- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`. `ff extension <name>` records what `ff-<name>` says it is, and declaring it is what makes fufu describe the verb to an agent everywhere it already speaks — the briefing, `ff explain`, `ff doctor`, and the tool.
 
 ## The authority
 

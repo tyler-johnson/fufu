@@ -219,7 +219,7 @@ pub(crate) fn notice_for(
 ///
 /// The recorded version rather than the binary's own, because this runs on
 /// every verb and a handshake is a spawn. The record follows the binary
-/// through `ff extension add` and `ff hook -u`, which is what the doctor
+/// through `ff extension <name>` and `ff hook -u`, which is what the doctor
 /// row is there to keep true.
 pub(crate) fn extension_due(
     state: &UpdateState,

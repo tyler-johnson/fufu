@@ -186,7 +186,7 @@ pub struct Status {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mcp_extensions: Vec<mcp::McpExtension>,
     /// Names this client's file registers a server under that nothing
-    /// declares any more — the trace `ff extension remove` leaves behind.
+    /// declares any more — the trace `ff extension -d` leaves behind.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mcp_orphaned: Vec<String>,
     /// The wiring works, but it is written in a spelling install would

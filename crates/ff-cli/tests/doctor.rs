@@ -672,7 +672,7 @@ fn ambiguous_remotes_are_a_finding() {
     );
 }
 
-/// A plain `ff branch delete` of a published branch keeps its section and
+/// A plain `ff branch -d` of a published branch keeps its section and
 /// tracking ref on purpose, so doctor reports it as `info`, not a warning,
 /// and the run stays green.
 #[test]
@@ -704,12 +704,12 @@ fn a_plain_delete_of_a_published_branch_is_not_a_finding() {
         String::from_utf8_lossy(&pub_shared.stderr)
     );
 
-    // Delete `shared` from under `main` — `ff branch delete` refuses the
+    // Delete `shared` from under `main` — `ff branch -d` refuses the
     // current branch, so stand on `main`.
     fx.git(&["switch", "-q", "main"]);
     let del = doctor_env(
         &fx.path(),
-        &["branch", "delete", "shared"],
+        &["branch", "-d", "shared"],
         &fx.root().join("home"),
     );
     assert!(
@@ -782,7 +782,7 @@ fn a_section_pointing_at_nothing_is_fixable() {
     fx.git(&["switch", "-q", "main"]);
     let del = doctor_env(
         &fx.path(),
-        &["branch", "delete", "shared"],
+        &["branch", "-d", "shared"],
         &fx.root().join("home"),
     );
     assert!(

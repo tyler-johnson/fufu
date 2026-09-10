@@ -76,7 +76,7 @@ fn manifest(name: &str, skills: &[&str]) -> Value {
 }
 
 /// Write the registry this machine reads, declaring one extension. Bypasses
-/// `ff extension add`'s handshake — these tests are about what a hook
+/// `ff extension <name>`'s handshake — these tests are about what a hook
 /// install does with a manifest already on record, not about declaring one,
 /// the same shortcut `tests/hook.rs`'s `declared_extensions` module takes.
 ///
@@ -115,7 +115,7 @@ fn registry(home: &Path) -> Value {
     serde_json::from_str(&text_at(&userdirs::registry(home))).expect("a registry")
 }
 
-/// A registry with nothing in it, which is what `ff extension remove` of
+/// A registry with nothing in it, which is what `ff extension -d` of
 /// the last extension leaves.
 fn undeclare_all(home: &Path) {
     std::fs::write(
@@ -510,7 +510,7 @@ fn unhook_codex_removes_a_still_declared_extensions_skills() {
     assert!(!root.join("fufu").exists());
 }
 
-/// An extension taken back with `ff extension remove` before `ff unhook
+/// An extension taken back with `ff extension -d` before `ff unhook
 /// codex` runs leaves its directories behind: the removal loop walks the
 /// registry, and there is nothing left in it naming that extension's
 /// skills. A documented limitation, not a bug — Codex's `skills/` is not a
@@ -529,13 +529,9 @@ fn unhook_codex_leaves_an_undeclared_extensions_skills_behind() {
     assert!(root.join("tower-plan").exists());
 
     assert!(
-        ff(
-            home.path(),
-            Some(bin.path()),
-            &["extension", "remove", "tower"]
-        )
-        .status
-        .success()
+        ff(home.path(), Some(bin.path()), &["extension", "-d", "tower"])
+            .status
+            .success()
     );
     assert!(
         ff(home.path(), Some(bin.path()), &["unhook", "codex"])

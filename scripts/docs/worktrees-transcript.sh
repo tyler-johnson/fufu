@@ -77,7 +77,7 @@ rm -rf seed
 show "$FF" clone "$SCENE/demo.git"
 cd demo && ident
 show "$FF" worktree
-show "$FF" worktree add ../bay
+show "$FF" worktree ../bay
 show "$FF" worktree
 
 # --- each tree has its own open change ---
@@ -152,12 +152,12 @@ cd "$SCENE/bay"
 printf 'a half-written test\n' > src/lexer_test.rs
 
 cd "$SCENE/demo"
-printf '$ %s\n' "ff worktree remove bay"
-remove_out=$("$FF" worktree remove bay 2>&1)
+printf '$ %s\n' "ff worktree -d bay"
+remove_out=$("$FF" worktree -d bay 2>&1)
 printf '%s\n\n' "$remove_out"
 cap=$(printf '%s\n' "$remove_out" | sed -n 's/.*captured first as \([0-9a-f]*\).*/\1/p')
 [ -n "$cap" ] || { echo "remove reported no capture op" >&2; exit 1; }
 
-show "$FF" worktree list
+show "$FF" worktree
 show "$FF" restore src/lexer_test.rs --at-op "$cap"
 show "$FF" status

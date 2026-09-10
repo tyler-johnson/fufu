@@ -8,7 +8,7 @@ This page is about the other half: **declaring** an extension, which is how fufu
 
 An **undeclared** extension is any `ff-<name>` on PATH. fufu snapshots the worktree, sets three environment variables, and runs it. That is the whole relationship: fufu found a filename, so a filename is all it knows. `ff help <name>` does not reach it, and no MCP tool of its own is served.
 
-A **declared** extension is one somebody ran [`ff extension add <name>`](cli/extension-add.md) on. fufu asked the binary for a manifest, checked it, and recorded it. Declaring buys no new capability and no new environment — a declared extension runs exactly as it did before. What it buys is that fufu will now *talk about* the extension:
+A **declared** extension is one somebody ran [`ff extension <name>`](cli/extension.md) on. fufu asked the binary for a manifest, checked it, and recorded it. Declaring buys no new capability and no new environment — a declared extension runs exactly as it did before. What it buys is that fufu will now *talk about* the extension:
 
 - `ff help <name>` and [`ff explain <name>/<id>`](cli/explain.md) delegate to the binary.
 - A line from the extension rides fufu's briefing to an agent.
@@ -62,10 +62,10 @@ hello from /tmp/project
 Declaring it takes one command, and asks the binary that `--ff-manifest` question:
 
 ```console
-$ ff extension add hello
+$ ff extension hello
 declared hello 0.1.0 from /usr/local/bin/ff-hello
   its verbs: greet
-undo: ff extension remove hello
+undo: ff extension -d hello
 $ ff extension
 hello  0.1.0  greet
 ```
@@ -95,12 +95,12 @@ For anything else about the repository, run git — [`ff git rev-parse --show-to
 
 ## What fufu asks your binary
 
-Every one of these is your binary, started by fufu with these arguments. The first two reach any `ff-<name>` on PATH — `--ff-manifest` is how `ff extension add` asks a binary what it is before it trusts it. The rest are only asked of a *declared* extension.
+Every one of these is your binary, started by fufu with these arguments. The first two reach any `ff-<name>` on PATH — `--ff-manifest` is how `ff extension <name>` asks a binary what it is before it trusts it. The rest are only asked of a *declared* extension.
 
 | fufu runs | when | you print |
 | --- | --- | --- |
 | `ff-<name> <verb> …` | someone typed `ff <name> <verb> …` | whatever the verb does |
-| `ff-<name> --ff-manifest` | `ff extension add`, `ff doctor` | the manifest envelope, exit 0 |
+| `ff-<name> --ff-manifest` | `ff extension <name>`, `ff doctor` | the manifest envelope, exit 0 |
 | `ff-<name> --ff-tools` | `ff mcp` starts, `ff doctor` | the tool descriptors, exit 0 |
 | `ff-<name> help` | `ff help <name>` | your help page, on stdout |
 | `ff-<name> explain <id>` | `ff explain <name>/<id>` | prose for that id — the `<name>/` prefix is stripped before it reaches you |
@@ -141,7 +141,7 @@ Under `--json`, stdout is the envelope and nothing else. A banner, a progress li
 
 `ff-<name> --ff-manifest` prints the manifest as an ordinary envelope on one line and exits 0.
 
-Recognize the flag before anything else on your command line, answer it outside a repository, and take no other argument. `ff extension add` uses it to ask a binary what it is before it has any reason to trust it, and hands down nothing but `FF_NONINTERACTIVE=1`. This handshake is **not** time-boxed — a person typed the verb and can interrupt it.
+Recognize the flag before anything else on your command line, answer it outside a repository, and take no other argument. `ff extension <name>` uses it to ask a binary what it is before it has any reason to trust it, and hands down nothing but `FF_NONINTERACTIVE=1`. This handshake is **not** time-boxed — a person typed the verb and can interrupt it.
 
 Here is one with every optional field present, pretty-printed for the page:
 
@@ -176,7 +176,7 @@ Here is one with every optional field present, pretty-printed for the page:
 | `version` | string | yes | Your own version. fufu records it and never parses it; `ff doctor` compares the binary against it to report drift. |
 | `contract` | integer | yes | The machine-surface contract you speak — the number `FF_CONTRACT` carries, currently `1`. A manifest naming a contract fufu does not speak is refused. |
 | `verbs` | array of objects | yes, non-empty | The verbs you answer to, in the order you want them listed. Each carries `name`, one word; `read_only`, where false means the verb writes something; and an optional one-line `summary`. Read-only is per verb because most extensions are mostly readers with a few writers. |
-| `undoable` | boolean | yes | Whether [`ff undo`](cli/undo.md) takes back every write you make. Informational: [`ff extension add`](cli/extension-add.md) reports it. See [below](#undoable-and-what-false-costs). |
+| `undoable` | boolean | yes | Whether [`ff undo`](cli/undo.md) takes back every write you make. Informational: `ff extension <name>` reports it. See [below](#undoable-and-what-false-costs). |
 | `briefing` | string or `true` | no | One line for fufu's briefing to an agent. See [below](#optional-a-briefing-line). |
 | `skills` | array of strings | no | The names of skills you ship, each produced by `--ff-skill`. See [below](#optional-skills). |
 | `events` | array of objects | no | Agent events you subscribe to. See [below](#optional-agent-events). |
@@ -191,31 +191,31 @@ Unknown fields are tolerated and kept, so a later contract can add one without b
 
 Say `true` only when every write you make goes through fufu's own verbs, so that `ff undo` takes all of it back.
 
-fufu reports it — `ff extension add` says so when it is `false` — and nothing refuses on it: a person reads it, and any [MCP tools you produce](#optional-mcp-tools) carry annotations of their own.
+fufu reports it — `ff extension <name>` says so when it is `false` — and nothing refuses on it: a person reads it, and any [MCP tools you produce](#optional-mcp-tools) carry annotations of their own.
 
 ## Declaring it, checking it, taking it back
 
-Three verbs cover the whole of it: `ff extension add`, [`ff extension list`](cli/extension-list.md) (bare [`ff extension`](cli/extension.md) is the same list), and [`ff extension remove`](cli/extension-remove.md).
+One verb, three shapes, covers the whole of it: bare `ff extension` lists, `ff extension <name>` declares, and `ff extension -d <name>` removes.
 
 ```console
-$ ff extension add hello        # ask ff-hello what it is, and record it
-$ ff extension                  # what this machine declares
-$ ff extension list --json      # the manifests as they were recorded
-$ ff extension remove hello     # fufu stops describing it; ff-hello still runs
+$ ff extension hello        # ask ff-hello what it is, and record it
+$ ff extension              # what this machine declares
+$ ff extension --json       # the manifests as they were recorded
+$ ff extension -d hello     # fufu stops describing it; ff-hello still runs
 ```
 
 Declaring the same name again replaces the record and keeps its place in the order, which is the order subscribers are fanned out in and the order [`ff mcp`](cli/mcp.md) lists produced tools in. Upgrading a binary is not a reordering.
 
 What gets recorded is the manifest as it was read, unknown fields and all, plus the path the walk landed on and the time. The path is evidence, not a route — dispatch stays a fresh PATH walk, so a binary that moves is still found.
 
-`ff undo` does not reach any of this: the record lives outside every repository, so the way back is `ff extension add <name>` again.
+`ff undo` does not reach any of this: the record lives outside every repository, so the way back is `ff extension <name>` again.
 
 `ff doctor` is where you check your work, and the [Doctor page](doctor.md) reads its rows. It runs the handshakes for real rather than trusting the record, so it costs one spawn per declared extension and a second one for each that promised tools:
 
 ```console
 $ ff doctor
   ok    hello          0.1.0 matches ff-hello on PATH
-  info  extensions     1 on PATH, undeclared: ff-tower (ff extension add <name> declares one)
+  info  extensions     1 on PATH, undeclared: ff-tower (ff extension <name> declares one)
 ```
 
 It is the one place a failed tools handshake shows up, because everywhere else fufu stays silent about it.
@@ -269,13 +269,13 @@ A skill that does not come back whole is left out of the install and said, one d
 
 Claude Code takes each skill inside fufu's plugin, at `~/.claude/skills/fufu/skills/<skill>/`, and a person types it as `/fufu:<skill>`. The plugin's `skills/` directory is wholly fufu's, so a rerun of `ff hook claude` sweeps it: a skill of an extension no longer declared goes.
 
-Codex takes each skill at `~/.codex/skills/<skill>/`, and a person mentions it as `$<skill>`. That directory is shared with everything else Codex has, so nothing sweeps it: `ff extension remove` before `ff unhook codex` leaves the extension's skills behind.
+Codex takes each skill at `~/.codex/skills/<skill>/`, and a person mentions it as `$<skill>`. That directory is shared with everything else Codex has, so nothing sweeps it: `ff extension -d` before `ff unhook codex` leaves the extension's skills behind.
 
 Cursor and Gemini read no skills directory and get nothing.
 
 Both clients want `name` and `description` in `SKILL.md`'s front matter, and `disable-model-invocation: true` keeps a skill for people to type rather than one the model may load on its own.
 
-Rerunning `ff hook` re-asks the manifest first and re-records it, then refreshes every skill from the binary, so a binary that now names a skill its record does not gets that skill installed. `ff hook -u` does the same for every client already wired, and the install scripts run it after placing a new `ff`. `ff extension remove` stops the *next* install from carrying them; `ff hook --skill <skill>` prints any declared skill's `SKILL.md` without installing anything.
+Rerunning `ff hook` re-asks the manifest first and re-records it, then refreshes every skill from the binary, so a binary that now names a skill its record does not gets that skill installed. `ff hook -u` does the same for every client already wired, and the install scripts run it after placing a new `ff`. `ff extension -d` stops the *next* install from carrying them; `ff hook --skill <skill>` prints any declared skill's `SKILL.md` without installing anything.
 
 ## Optional: agent events
 
@@ -291,7 +291,7 @@ Subscribe in the manifest:
 
 `matcher` is the tool names that subscription wants, with `|` between them. It is **required on `BeforeTool` and refused on every other kind**, because every `BeforeTool` subscriber is a process spawn on the agent's critical path.
 
-It is not a regular expression — only the alternation every client's own hook matcher already writes. A name matches whole and case-sensitively, so `Edit` is `Edit` and not `NotebookEdit`. A matcher carrying anything but tool names and `|` is refused at `ff extension add`, rather than left to quietly never fire.
+It is not a regular expression — only the alternation every client's own hook matcher already writes. A name matches whole and case-sensitively, so `Edit` is `Edit` and not `NotebookEdit`. A matcher carrying anything but tool names and `|` is refused at `ff extension <name>`, rather than left to quietly never fire.
 
 When the event fires, fufu runs `ff-<name> trigger` **after** the capture — never before it, because a subscriber that fails must not cost a snapshot — in the event's own directory, with the three variables, and the event as one JSON object on stdin followed by EOF.
 
@@ -354,7 +354,7 @@ Say `"tools": true` in the manifest. That is a promise rather than a list: fufu 
 
 `--ff-tools` behaves exactly like `--ff-manifest` — recognized before anything else on the command line, answers outside a repository, takes no other argument, prints one envelope, exits 0 — with one difference. **It is time-boxed, at about a second.**
 
-`ff extension add` and `ff doctor` are verbs a person typed and can interrupt; this one is asked by a server starting up with nobody in front of it, where a binary that hangs would hang the server before it served anything.
+`ff extension <name>` and `ff doctor` are verbs a person typed and can interrupt; this one is asked by a server starting up with nobody in front of it, where a binary that hangs would hang the server before it served anything.
 
 Nothing is handed down but `FF_NONINTERACTIVE=1`: you need neither the repository nor the contract to say what tools you have.
 
@@ -465,9 +465,9 @@ fufu never writes a binary itself, its own included: whatever placed one owns re
 
 A block that names no recipe, an empty recipe, or `bin` without `install` is refused with `extension/bad-manifest`. A channel the block has no recipe for, and a manifest with no block, are both named by `ff update` as ones fufu cannot move, with the path the binary sits at.
 
-After a move that ran, `ff update` ends with `ff hook -u`: every declared manifest is re-asked and re-recorded, and every install already wired is re-run, so a new binary that names a new skill sees it installed. Point your own install script at `ff extension add <name>` and `ff hook -u` too, for the person who runs it by hand.
+After a move that ran, `ff update` ends with `ff hook -u`: every declared manifest is re-asked and re-recorded, and every install already wired is re-run, so a new binary that names a new skill sees it installed. Point your own install script at `ff extension <name>` and `ff hook -u` too, for the person who runs it by hand.
 
-A channel no script runs, a Homebrew upgrade or a hand copy, replaces the binary and re-records nothing. `ff doctor` is where that shows: a record behind the binary on PATH, on its version or its contract, is a `WARN` on the extension's row naming both and the `ff extension add <name>` that re-records it.
+A channel no script runs, a Homebrew upgrade or a hand copy, replaces the binary and re-records nothing. `ff doctor` is where that shows: a record behind the binary on PATH, on its version or its contract, is a `WARN` on the extension's row naming both and the `ff extension <name>` that re-records it.
 
 ## What fufu refuses, and when
 
@@ -502,4 +502,4 @@ Before you declare:
 - Human output goes to stderr under `--json`.
 - `update` names the channels you ship on, and `build` is honest.
 
-Then `ff extension add <name>`, and `ff doctor` to confirm what fufu sees.
+Then `ff extension <name>`, and `ff doctor` to confirm what fufu sees.

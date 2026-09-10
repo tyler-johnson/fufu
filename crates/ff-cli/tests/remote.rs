@@ -348,7 +348,7 @@ fn published_branches() -> Fixture {
 #[test]
 fn shared_delete_removes_the_copy_and_the_traces() {
     let fx = published_branches();
-    let text = ok(&ff(&fx, &["branch", "delete", "shared", "--shared"]));
+    let text = ok(&ff(&fx, &["branch", "-d", "shared", "--shared"]));
 
     let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
     assert!(
@@ -385,7 +385,7 @@ fn shared_delete_removes_the_copy_and_the_traces() {
 #[test]
 fn a_plain_delete_removes_none_of_them() {
     let fx = published_branches();
-    let text = ok(&ff(&fx, &["branch", "delete", "shared"]));
+    let text = ok(&ff(&fx, &["branch", "-d", "shared"]));
 
     let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
     assert!(
@@ -437,7 +437,7 @@ fn a_moved_copy_refuses_and_leaves_the_far_side_standing() {
     fx.git_in(&mover, &["commit", "-q", "-m", "move"]);
     fx.git_in(&mover, &["push", "origin", "shared"]);
 
-    let out = ff(&fx, &["--json", "branch", "delete", "shared", "--shared"]);
+    let out = ff(&fx, &["--json", "branch", "-d", "shared", "--shared"]);
     assert!(
         !out.status.success(),
         "the stale lease is refused: {}",

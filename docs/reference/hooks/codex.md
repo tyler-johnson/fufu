@@ -65,7 +65,7 @@ The trust line is the one thing to act on. Codex trusts a hook by its hash: run 
 
 ## What `ff unhook codex` removes
 
-The two entries, the skill directory, the marked block, and every skill of every extension still on the registry when it runs, by name and with no handshake — a skill of one this fufu no longer describes because it was taken back with `ff extension remove` first is left where it is.
+The two entries, the skill directory, the marked block, and every skill of every extension still on the registry when it runs, by name and with no handshake — a skill of one this fufu no longer describes because it was taken back with `ff extension -d` first is left where it is.
 
 ```console
 $ ff unhook codex

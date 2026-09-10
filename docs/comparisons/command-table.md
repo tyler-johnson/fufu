@@ -33,10 +33,11 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 | the `git rebase --continue` loop | [`ff resolve`](../reference/cli/resolve.md) … `ff done` | all conflicts at once, on your schedule ²² |
 | `git fetch` + `git rebase origin/main`, `git pull --rebase` | [`ff pull`](../reference/cli/pull.md) | one replay for base and remote; nothing leaves the machine ²³ |
 | `git push` / `--force-with-lease` / `-u` | [`ff push`](../reference/cli/push.md) | leased; the four push shapes distinguished by `--dry-run` ²⁴ |
-| `git branch` | [`ff branch list`](../reference/cli/branch-list.md) | named and anonymous kept apart; remote-only branches follow ²⁵ |
+| `git branch` | [`ff branch`](../reference/cli/branch.md) | named and anonymous kept apart; remote-only branches follow ²⁵ |
+| `git branch <name>` | `ff branch <name>` | at trunk unless a revision says otherwise; stays put, one undoable operation ²⁵ᵃ |
 | `git branch -m` | `ff describe -b` | the rename carries everything the branch owns ²⁶ |
-| `git branch -d` / `-D` | [`ff branch delete`](../reference/cli/branch-delete.md) | trash, undoable; no merged-check to argue with ²⁷ |
-| `git worktree add` | [`ff worktree add`](../reference/cli/worktree-add.md) | undo works there from the first command ²⁸ |
+| `git branch -d` / `-D` | `ff branch -d` | trash, undoable; no merged-check to argue with ²⁷ |
+| `git worktree add` | [`ff worktree <path>`](../reference/cli/worktree.md) | undo works there from the first command ²⁸ |
 | `git remote -v` | [`ff remote`](../reference/cli/remote.md) | a read; fufu's own verbs check names against it ²⁹ |
 | `git reflog` + archaeology | [`ff history`](../reference/cli/history.md), `ff undo` | whole-repo: refs and tree together ³⁰ |
 | `git cherry-pick` / `git merge` / `git revert` | `ff git cherry-pick` … | no fufu verb; snapshot first, then git verbatim ³¹ |
@@ -70,6 +71,7 @@ Almost no mapping is exact, because a fufu verb exists only where it does someth
 - ²³ `ff pull` fetches, takes in what arrived from the base and from the remote copy, and replays your commits onto the result — landing only if clean, holding otherwise — and never pushes; there is no standalone fetch verb (`--no-fetch` skips the fetch, and a bare fetch is `ff git fetch`); `--dry-run` says what would move, hold, and be skipped, and writes nothing but the fetch's remote-tracking refs.
 - ²⁴ Every push carries a lease — it goes through only if the shared copy still stands where you last saw it — and `--dry-run` says which of the four pushes it would be: creating the shared copy, replacing it, putting back a deleted one, or rolling one back; `--to <remote>` records which remote the branch answers to, standing in for `-u`.
 - ²⁵ Each row carries the tip, any parked change, the pending description, and how the branch stands against its upstream; a remote-only branch becomes a local one with `ff start origin/<name>`, not with switch.
+- ²⁵ᵃ `ff branch <name> [<rev>]` mints the branch and leaves you where you stand; a branch name as `<rev>` is recorded as its parent, `@` is the commit under the open change, and `ff start` is the verb that also moves there.
 - ²⁶ There is no separate rename command: `ff describe -b` names the branch you are on — a petname earning a real name, or a chosen name replaced — and the capture chain, any parked change, and the pending description come along, the parts a bare `git branch -m` would orphan.
 - ²⁷ The branch's pointer moves to trash and `ff undo` brings it back with its timeline, so no merged-check argues with you; the copy on the remote stays unless you pass `--shared`, which deletes it under a lease — the half undo cannot reach.
 - ²⁸ The chain floor is laid as the worktree is made; the branch defaults to one named after the directory, and a branch open in another worktree is refused rather than checked out twice.

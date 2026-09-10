@@ -194,7 +194,7 @@ fn plan_fold(
         return Err(Error::coded(
             "usage/fold-into-self",
             format!("{source} cannot be folded into itself"),
-            vec!["ff fold <branch>".into(), "ff branch list".into()],
+            vec!["ff fold <branch>".into(), "ff branch".into()],
         ));
     }
     if !onto.full.starts_with("refs/heads/") {
@@ -206,7 +206,7 @@ fn plan_fold(
             ),
             vec![
                 format!("ff start {}", onto.name),
-                "ff branch list".into(),
+                "ff branch".into(),
                 "ff push".into(),
             ],
         ));
@@ -225,10 +225,7 @@ fn plan_fold(
                 "'{target}' is already used by worktree at '{}'",
                 holder.path.display()
             ),
-            vec![
-                format!("ff fold {target} --stay"),
-                "ff worktree list".into(),
-            ],
+            vec![format!("ff fold {target} --stay"), "ff worktree".into()],
         ));
     }
 
@@ -798,7 +795,7 @@ fn prepare_other(
                 ),
                 vec![
                     format!("ff fold {target}"),
-                    "ff worktree list".into(),
+                    "ff worktree".into(),
                     "ff status".into(),
                 ],
             ));

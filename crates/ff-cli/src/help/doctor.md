@@ -5,14 +5,14 @@ What it reads, in order:
 - The engine — the operation log and its age, the fufu identity on its tip, reflogs, the gc guard, log health and pending foreign drift, settings validated through the readers' own parsers, a trim preview and the auto-trim clock.
 - The remote floor — whether every branch can name the remote it answers to, config left naming branches that are not here, and tracking refs that have gone.
 - The wiring — agent hooks, the shell alias, and a warning when nothing at all feeds capture.
-- Extensions — every `ff-<name>` found on PATH, whether it is declared, whether a declared one still matches the version and contract recorded at `ff extension add`, and whether one that promised tools produced any.
+- Extensions — every `ff-<name>` found on PATH, whether it is declared, whether a declared one still matches the version and contract recorded at `ff extension <name>`, and whether one that promised tools produced any.
 - Commit signing — whether it is on, and whether the format, program and key it names will actually work — then the update lane.
 
 Rows come at three levels: ok counts nothing, info is news rather than a problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1 findings — so CI can gate on it, and --json emits the same rows for machines.
 
 ### The one write: --fix
 
-It repairs exactly two things: the gc reflog-expiry keys, and a config section left naming a branch that is gone from both sides. It never touches a section whose shared copy is still standing — that one is `ff branch delete` doing its job, not drift.
+It repairs exactly two things: the gc reflog-expiry keys, and a config section left naming a branch that is gone from both sides. It never touches a section whose shared copy is still standing — that one is `ff branch -d` doing its job, not drift.
 
 ## Examples
 

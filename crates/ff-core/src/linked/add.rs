@@ -35,7 +35,7 @@ pub fn create(repo: &gix::Repository, path: &Path, branch: &str, now: i64) -> Re
             return Err(Error::coded(
                 "branch/not-found",
                 format!("no branch named {branch}"),
-                vec!["ff branch list".into()],
+                vec!["ff branch".into()],
             ));
         }
     };
@@ -182,7 +182,7 @@ pub fn add_worktree(
     // op before the work it names, but the effect records an id that `create`
     // picks, so the checkout has to happen first. A crash between the two
     // leaves a worktree git knows about and fufu did not record; the next
-    // `ff worktree list` shows it as an ordinary row, because the layout is
+    // `ff worktree` shows it as an ordinary row, because the layout is
     // git's own.
     let chain = crate::snapshot::chain::chain_name(&head);
     // The branch this op may have created is NOT recorded here, and that is

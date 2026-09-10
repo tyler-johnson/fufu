@@ -121,16 +121,12 @@ fn declaring_records_the_manifest_the_handshake_read() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
 
-    let out = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let out = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let said = stdout(&out);
     assert!(said.starts_with("declared tower 0.4.1 from "), "{said}");
     assert!(said.contains("its verbs: board, done"), "{said}");
-    assert!(said.contains("ff extension remove tower"), "{said}");
+    assert!(said.contains("ff extension -d tower"), "{said}");
 
     // What landed on disk is the manifest, under the name and the path the
     // walk resolved.
@@ -163,7 +159,7 @@ fn the_declaration_envelope_carries_the_manifest() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let envelope = envelope(&out);
@@ -194,11 +190,7 @@ fn the_declaration_says_what_it_bought() {
             "mcp":{"command":"ff","args":["tower","serve"]}}"#,
     );
 
-    let said = stdout(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    ));
+    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "tower"]));
     assert!(said.contains("ff undo does not reach them"), "{said}");
     assert!(said.contains("its briefing line rides fufu's"), "{said}");
     assert!(
@@ -228,7 +220,7 @@ fn a_skill_not_under_the_extensions_name_is_refused() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert!(!out.status.success());
     assert_eq!(error_id(&out), "extension/bad-manifest");
@@ -269,7 +261,7 @@ fn a_binary_that_fails_the_handshake_is_refused_and_records_nothing() {
         let out = ff(
             home.path(),
             Some(bin.path()),
-            &["extension", "add", "tower", "--json"],
+            &["extension", "tower", "--json"],
         );
         assert!(!out.status.success(), "{body}");
         assert_eq!(error_id(&out), id, "{body}");
@@ -291,7 +283,7 @@ fn a_contract_this_fufu_does_not_speak_is_refused() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert_eq!(error_id(&out), "extension/unsupported-contract");
     assert!(registry(home.path()).is_none());
@@ -307,7 +299,7 @@ fn a_manifest_claiming_another_name_is_refused() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert_eq!(error_id(&out), "extension/name-mismatch");
     assert!(registry(home.path()).is_none());
@@ -319,7 +311,7 @@ fn a_name_nothing_on_path_answers_to_is_refused() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert_eq!(error_id(&out), "extension/not-found");
     assert!(registry(home.path()).is_none());
@@ -333,19 +325,11 @@ fn re_declaring_replaces_the_record_and_keeps_its_place() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
     ext_bin(bin.path(), "bay", &manifest("bay", "0.1.0"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
-    ff(home.path(), Some(bin.path()), &["extension", "add", "bay"]);
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
+    ff(home.path(), Some(bin.path()), &["extension", "bay"]);
 
     ext_bin(bin.path(), "tower", &manifest("tower", "0.5.0"));
-    let out = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let out = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     let said = stdout(&out);
     assert!(said.starts_with("re-declared tower 0.5.0 from "), "{said}");
     assert!(said.contains("(was 0.4.1)"), "{said}");
@@ -367,13 +351,9 @@ fn an_empty_registry_says_so_in_both_surfaces() {
         said.contains("nothing is declared on this machine"),
         "{said}"
     );
-    assert!(said.contains("ff extension add"), "{said}");
+    assert!(said.contains("ff extension <name>"), "{said}");
 
-    let out = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "list", "--json"],
-    );
+    let out = ff(home.path(), Some(bin.path()), &["extension", "--json"]);
     let envelope = envelope(&out);
     assert_eq!(envelope["cmd"], "extension list");
     assert_eq!(envelope["data"]["declared"], serde_json::json!([]));
@@ -393,26 +373,18 @@ fn the_listing_names_each_extension_and_its_verbs() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
     ext_bin(bin.path(), "bay", &manifest("bay", "0.1.0"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
-    ff(home.path(), Some(bin.path()), &["extension", "add", "bay"]);
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
+    ff(home.path(), Some(bin.path()), &["extension", "bay"]);
 
     let bare = stdout(&ff(home.path(), Some(bin.path()), &["extension"]));
-    let spelled = stdout(&ff(home.path(), Some(bin.path()), &["extension", "list"]));
+    let spelled = stdout(&ff(home.path(), Some(bin.path()), &["extension"]));
     assert_eq!(bare, spelled, "bare ff extension is the list");
     let rows: Vec<&str> = bare.lines().collect();
     assert_eq!(rows.len(), 2, "{bare}");
     assert_eq!(rows[0], "tower  0.4.1  board, done");
     assert_eq!(rows[1], "bay    0.1.0  board, done");
 
-    let envelope = envelope(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "list", "--json"],
-    ));
+    let envelope = envelope(&ff(home.path(), Some(bin.path()), &["extension", "--json"]));
     let declared = envelope["data"]["declared"]
         .as_array()
         .expect("a declared list");
@@ -430,22 +402,14 @@ fn the_listing_names_each_extension_and_its_verbs() {
 fn a_record_whose_binary_left_path_is_listed_and_marked() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     std::fs::remove_file(bin.path().join("ff-tower")).expect("uninstall it");
 
-    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "list"]));
+    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension"]));
     assert!(said.contains("tower  0.4.1  board, done"), "{said}");
     assert!(said.contains("no ff-tower on PATH any more"), "{said}");
 
-    let envelope = envelope(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "list", "--json"],
-    ));
+    let envelope = envelope(&ff(home.path(), Some(bin.path()), &["extension", "--json"]));
     assert_eq!(envelope["data"]["declared"][0]["resolved"], Value::Null);
 }
 
@@ -454,18 +418,10 @@ fn removing_takes_one_name_off_and_leaves_the_rest() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
     ext_bin(bin.path(), "bay", &manifest("bay", "0.1.0"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
-    ff(home.path(), Some(bin.path()), &["extension", "add", "bay"]);
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
+    ff(home.path(), Some(bin.path()), &["extension", "bay"]);
 
-    let out = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "remove", "tower"],
-    );
+    let out = ff(home.path(), Some(bin.path()), &["extension", "-d", "tower"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let said = stdout(&out);
     assert!(said.starts_with("removed tower\n"), "{said}");
@@ -489,16 +445,12 @@ fn removing_takes_one_name_off_and_leaves_the_rest() {
 fn removing_a_name_that_was_never_declared_is_refused() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "remove", "bay", "--json"],
+        &["extension", "-d", "bay", "--json"],
     );
     assert!(!out.status.success());
     assert_eq!(error_id(&out), "extension/not-declared");
@@ -516,7 +468,7 @@ fn a_registry_that_does_not_read_as_one_stops_both_surfaces() {
     std::fs::create_dir_all(file.parent().expect("parent")).expect("create the fufu dir");
     std::fs::write(&file, "{ this was hand-edited").expect("write it");
 
-    let out = ff(home.path(), Some(bin.path()), &["extension", "list"]);
+    let out = ff(home.path(), Some(bin.path()), &["extension"]);
     assert!(out.status.success(), "a listing is still a listing");
     assert!(
         stderr(&out).contains("the registry does not read as one"),
@@ -534,7 +486,7 @@ fn a_registry_that_does_not_read_as_one_stops_both_surfaces() {
     let out = ff(
         home.path(),
         Some(bin.path()),
-        &["extension", "add", "tower", "--json"],
+        &["extension", "tower", "--json"],
     );
     assert_eq!(error_id(&out), "extension/registry-unreadable");
     assert_eq!(
@@ -549,11 +501,7 @@ fn a_registry_that_does_not_read_as_one_stops_both_surfaces() {
 fn a_record_from_another_contract_is_listed_apart() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let file = userdirs::registry(home.path());
     let mut written: Value =
@@ -561,7 +509,7 @@ fn a_record_from_another_contract_is_listed_apart() {
     written["extensions"][0]["manifest"]["contract"] = serde_json::json!(99);
     std::fs::write(&file, written.to_string()).expect("rewrite");
 
-    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "list"]));
+    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension"]));
     assert!(
         said.contains("nothing is declared on this machine"),
         "{said}"
@@ -572,11 +520,7 @@ fn a_record_from_another_contract_is_listed_apart() {
     );
     assert!(said.contains("tower  contract 99"), "{said}");
 
-    let envelope = envelope(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "list", "--json"],
-    ));
+    let envelope = envelope(&ff(home.path(), Some(bin.path()), &["extension", "--json"]));
     assert_eq!(envelope["data"]["declared"], serde_json::json!([]));
     assert_eq!(envelope["data"]["stale"][0]["name"], "tower");
     assert_eq!(envelope["data"]["stale"][0]["contract"], 99);
@@ -590,9 +534,9 @@ fn the_family_answers_outside_a_repository() {
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
 
     for args in [
-        vec!["extension", "add", "tower"],
-        vec!["extension", "list"],
-        vec!["extension", "remove", "tower"],
+        vec!["extension", "tower"],
+        vec!["extension"],
+        vec!["extension", "-d", "tower"],
     ] {
         let out = ff(home.path(), Some(bin.path()), &args);
         assert!(
@@ -633,11 +577,7 @@ fi
 fn help_delegates_to_a_declared_extension() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let out = ff(home.path(), Some(bin.path()), &["help", "tower"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
@@ -685,11 +625,7 @@ fn help_does_not_reach_an_undeclared_extension() {
 fn help_of_an_unresolvable_declared_extension_reports_rather_than_prints_nothing() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     std::fs::remove_file(bin.path().join("ff-tower")).expect("uninstall it");
 
     let out = ff(home.path(), Some(bin.path()), &["help", "tower"]);
@@ -706,11 +642,7 @@ fn help_of_an_unresolvable_declared_extension_reports_rather_than_prints_nothing
 fn help_of_a_failing_declared_extension_reports_rather_than_prints_nothing() {
     let (home, bin) = machine();
     ext_bin_with_fallback(bin.path(), "tower", &manifest("tower", "0.4.1"), "exit 1");
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let out = ff(home.path(), Some(bin.path()), &["help", "tower"]);
     assert!(!out.status.success());
@@ -725,11 +657,7 @@ fn help_of_a_failing_declared_extension_reports_rather_than_prints_nothing() {
 fn explain_delegates_the_id_to_a_declared_extension() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let out = ff(
         home.path(),
@@ -784,11 +712,7 @@ fn explain_of_a_builtin_id_is_unchanged() {
 fn explain_of_a_failing_declared_extension_reports_rather_than_prints_nothing() {
     let (home, bin) = machine();
     ext_bin_with_fallback(bin.path(), "tower", &manifest("tower", "0.4.1"), "exit 1");
-    ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    ff(home.path(), Some(bin.path()), &["extension", "tower"]);
 
     let out = ff(
         home.path(),
@@ -800,7 +724,7 @@ fn explain_of_a_failing_declared_extension_reports_rather_than_prints_nothing() 
 }
 
 /// The `update` block and `build` round-trip: what the handshake read is
-/// what the registry records and what `ff extension list --json` reads
+/// what the registry records and what `ff extension --json` reads
 /// back, field for field, and the declaration says how `ff update` will
 /// answer for it.
 #[test]
@@ -818,11 +742,7 @@ fn the_update_block_and_build_round_trip_through_the_registry() {
             "build":"official"}"#,
     );
 
-    let out = ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    );
+    let out = ff(home.path(), Some(bin.path()), &["extension", "tower"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let said = stdout(&out);
     assert!(
@@ -843,11 +763,7 @@ fn the_update_block_and_build_round_trip_through_the_registry() {
     );
     assert_eq!(record["build"], "official");
 
-    let listed = envelope(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "list", "--json"],
-    ));
+    let listed = envelope(&ff(home.path(), Some(bin.path()), &["extension", "--json"]));
     let manifest = &listed["data"]["declared"][0]["manifest"];
     assert_eq!(manifest["update"]["brew"], "tyler-johnson/tap/tower");
     assert_eq!(manifest["update"]["bin"], "~/.local/bin");
@@ -862,11 +778,7 @@ fn the_update_block_and_build_round_trip_through_the_registry() {
 fn a_manifest_without_the_update_fields_records_none() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
-    let said = stdout(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    ));
+    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "tower"]));
     assert!(
         said.contains("ff update cannot move it — its manifest carries no update recipes"),
         "{said}"
@@ -881,11 +793,7 @@ fn a_manifest_without_the_update_fields_records_none() {
         r#"{"name":"tower","version":"0.4.2","contract":1,
             "verbs":[{"name":"board","read_only":true}],"undoable":true,"build":"source"}"#,
     );
-    let said = stdout(&ff(
-        home.path(),
-        Some(bin.path()),
-        &["extension", "add", "tower"],
-    ));
+    let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "tower"]));
     assert!(
         said.contains("it is built from source — ff update says to rebuild it"),
         "{said}"
@@ -910,7 +818,7 @@ fn an_update_block_that_does_not_hold_together_is_refused() {
         let out = ff(
             home.path(),
             Some(bin.path()),
-            &["extension", "add", "tower", "--json"],
+            &["extension", "tower", "--json"],
         );
         assert!(!out.status.success(), "{block}");
         assert_eq!(error_id(&out), "extension/bad-manifest", "{block}");
@@ -919,4 +827,17 @@ fn an_update_block_that_does_not_hold_together_is_refused() {
             "{block}: nothing is recorded"
         );
     }
+}
+
+/// A name and `-d` are two shapes, and the parser refuses the pair rather
+/// than the verb picking one.
+#[test]
+fn a_name_and_delete_together_are_a_usage_error() {
+    let (home, bin) = machine();
+    let out = ff(
+        home.path(),
+        Some(bin.path()),
+        &["extension", "tower", "-d", "tower"],
+    );
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
 }

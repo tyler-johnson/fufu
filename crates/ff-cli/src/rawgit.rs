@@ -94,7 +94,7 @@ pub const TABLE: &[Word] = &[
     Word {
         git: "branch",
         ff: "ff branch",
-        why: "ff branch lists and deletes; ff describe -b names the branch you are on",
+        why: "ff branch lists, creates, and deletes; ff describe -b names the branch you are on",
     },
     Word {
         git: "merge",

@@ -1,4 +1,4 @@
-Lands the branch you are standing on onto another and takes the branch away: its commits replay onto the target's tip, the target fast-forwards to the result, the branch is deleted the way `ff branch delete` deletes one, and this worktree moves to the target with the open change still open. Trunk is the target when you name none. One operation, so one `ff undo` takes all four moves back.
+Lands the branch you are standing on onto another and takes the branch away: its commits replay onto the target's tip, the target fast-forwards to the result, the branch is deleted the way `ff branch -d` deletes one, and this worktree moves to the target with the open change still open. Trunk is the target when you name none. One operation, so one `ff undo` takes all four moves back.
 
 Nothing is merged. The history that lands is linear, the same shape `git rebase --onto` and then `git merge --ff-only` would leave, with the branch's pointer into the log parked under trash and its tip pinned. An anonymous branch — the one a bare `ff start` mints — has no name to lose, and folding it is how a bay lands.
 

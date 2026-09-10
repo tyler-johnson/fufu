@@ -20,28 +20,28 @@ pub static ENTRIES: &[Entry] = &[
         detail: "fufu never reuses a branch name implicitly. A name that is already taken could be \
                  someone's work, and quietly landing on top of it is the one guess worth refusing. \
                  Pick another name, or switch to that branch if it was the one you meant.",
-        exits: &["ff branch list", "ff describe -b <name>"],
+        exits: &["ff branch", "ff describe -b <name>"],
     },
     Entry {
         id: "branch/not-found",
         summary: "no branch here goes by that name",
         detail: "Names resolve against local branches, so a branch that exists on the remote but \
                  not here will not be found. Its tracking ref does have a name — the remote's, \
-                 then the branch's — and ff start forks a local branch from that. ff branch list \
+                 then the branch's — and ff start forks a local branch from that. ff branch \
                  shows those under remote only, spelled exactly as ff start takes them, so the \
                  name to type is on the screen rather than reconstructed. The remote is not \
                  spelled origin here because it is only usually called that, and an exit that \
                  guessed wrong would send you to a ref that does not exist: ff remote says what \
                  yours is called.",
-        exits: &["ff branch list", "ff remote", "ff start <remote>/<branch>"],
+        exits: &["ff branch", "ff remote", "ff start <remote>/<branch>"],
     },
     Entry {
         id: "branch/ambiguous",
         summary: "that branch prefix matches more than one branch",
         detail: "A prefix has to name one branch, and this one names several. Every candidate is \
                  listed so you can pick; typing one more character is usually enough. \
-                 ff branch list says what is local.",
-        exits: &["ff branch list"],
+                 ff branch says what is local.",
+        exits: &["ff branch"],
     },
     Entry {
         id: "branch/invalid-name",
@@ -67,7 +67,7 @@ pub static ENTRIES: &[Entry] = &[
                  because that worktree's HEAD would stop resolving. gix has no such check, so \
                  fufu carries its own and reports which worktree holds it. Switch that worktree \
                  away, or remove it, and try again.",
-        exits: &["ff worktree list", "git worktree list"],
+        exits: &["ff worktree", "git worktree list"],
     },
     Entry {
         id: "branch/shared-lease-refused",
@@ -78,7 +78,7 @@ pub static ENTRIES: &[Entry] = &[
                  have not seen — which is exactly the case where deleting it would lose work. \
                  The local half of the delete did happen and is undoable, so ff undo brings the \
                  branch back; look at what arrived before deciding the copy should go.",
-        exits: &["ff undo", "ff branch list"],
+        exits: &["ff undo", "ff branch"],
     },
     Entry {
         id: "repo/bare",
@@ -472,7 +472,7 @@ pub static ENTRIES: &[Entry] = &[
                  not one of fufu's own symbols. Object prefixes have to be at least four \
                  characters — git's own minimum, borrowed rather than restated — so a shorter one \
                  reads as an ordinary name and finds nothing.",
-        exits: &["ff log", "ff branch list"],
+        exits: &["ff log", "ff branch"],
     },
     Entry {
         id: "usage/revset-not-a-commit",
@@ -551,7 +551,7 @@ pub static ENTRIES: &[Entry] = &[
                  that came out empty. The common causes are a range whose endpoints are the wrong \
                  way round, an intersection of two sets that never overlap, and a predicate no \
                  commit satisfies.",
-        exits: &["ff log", "ff branch list"],
+        exits: &["ff log", "ff branch"],
     },
     Entry {
         id: "usage/revset-not-a-point",
@@ -619,7 +619,7 @@ pub static ENTRIES: &[Entry] = &[
                  taken against the wrong repository. The path may name any directory inside the \
                  repository you mean, a linked worktree included, and a relative one is read from \
                  where you typed it.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "usage/no-such-path",
@@ -634,16 +634,6 @@ pub static ENTRIES: &[Entry] = &[
                  path slot is usually a forgotten -m, which is why the exits say so when the \
                  token has spaces in it.",
         exits: &["ff status", "ff log"],
-    },
-    Entry {
-        id: "usage/unknown-subcommand",
-        summary: "that family does not have that subcommand",
-        detail: "A verb that groups subcommands answers an unknown one itself rather than letting \
-                 the parser call it an unexpected argument, because the usual cause is not a typo. \
-                 ff branch <name> used to claim the anonymous branch you were standing on; naming \
-                 a branch is ff describe -b now, on the same axis as -m, and it takes proper names \
-                 too. What is left in the family is the bookkeeping: list, and delete.",
-        exits: &["ff branch list", "ff describe -b <name>"],
     },
     Entry {
         id: "usage/git-policy",
@@ -685,7 +675,7 @@ pub static ENTRIES: &[Entry] = &[
                  the other branch. The one-name form already means the branch you are on \
                  against the one you named, so it is the same mistake when you are standing on \
                  the name you passed.",
-        exits: &["ff collide <a> <b>", "ff branch list"],
+        exits: &["ff collide <a> <b>", "ff branch"],
     },
     Entry {
         id: "usage/lift-from-open",
@@ -903,7 +893,7 @@ pub static ENTRIES: &[Entry] = &[
                  origin's — no local branch of that name — has no local branch to land on, \
                  which is what this refusal is usually saying. ff start makes the local \
                  branch from the remote's; ff push is how a branch reaches a remote.",
-        exits: &["ff start <remote>/<branch>", "ff branch list", "ff push"],
+        exits: &["ff start <remote>/<branch>", "ff branch", "ff push"],
     },
     Entry {
         id: "fold/conflict",
@@ -928,7 +918,7 @@ pub static ENTRIES: &[Entry] = &[
                  conflict markers in a tree nobody is looking at. Nothing was written on \
                  either chain. Commit or restore the change in that worktree, or switch it \
                  off the target so a plain ff fold can land here.",
-        exits: &["ff fold <target>", "ff worktree list", "ff status"],
+        exits: &["ff fold <target>", "ff worktree", "ff status"],
     },
     Entry {
         id: "session/none",
@@ -978,7 +968,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "--onto names the branch to replay onto, and that has to be a different one — \
                  a branch replayed onto itself is the same history it already is. Name the base \
                  you want it to sit on, or drop the flag to use the one recorded.",
-        exits: &["ff restack <branch> --onto <base>", "ff branch list"],
+        exits: &["ff restack <branch> --onto <base>", "ff branch"],
     },
     Entry {
         id: "usage/fold-into-self",
@@ -987,7 +977,7 @@ pub static ENTRIES: &[Entry] = &[
                  a branch folded into itself is the same history it already is, minus the \
                  name. Name the branch you want it to land on, or leave the target off to \
                  land on trunk.",
-        exits: &["ff fold <branch>", "ff branch list"],
+        exits: &["ff fold <branch>", "ff branch"],
     },
     Entry {
         id: "extension/not-found",
@@ -1112,7 +1102,7 @@ pub static ENTRIES: &[Entry] = &[
                  runs from a shell whether it is declared or not, and what removing takes \
                  away is fufu describing it. ff hook --skill <skill> refuses the same way when \
                  no declared extension's manifest names a skill by that name.",
-        exits: &["ff extension list"],
+        exits: &["ff extension"],
     },
     Entry {
         id: "extension/delegate-failed",
@@ -1126,7 +1116,7 @@ pub static ENTRIES: &[Entry] = &[
                  may have left PATH since it was declared, refused to start, exited nonzero, or \
                  simply run past the time box, and all four look the same from here. Nothing was \
                  captured or changed.",
-        exits: &["ff doctor", "ff extension list"],
+        exits: &["ff doctor", "ff extension"],
     },
     Entry {
         id: "extension/registry-unreadable",
@@ -1349,7 +1339,7 @@ pub static ENTRIES: &[Entry] = &[
                  and will not write into one holding anything, because the checkout would mix \
                  with what is already there. Name an empty directory, or remove what is in \
                  this one.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "worktree/not-found",
@@ -1359,7 +1349,7 @@ pub static ENTRIES: &[Entry] = &[
                  administrative directory and its operation chain stand after the checkout is \
                  gone, and a chain whose worktree is gone is not itself a worktree, so it is \
                  not named here.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "worktree/is-main",
@@ -1367,7 +1357,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "Every linked worktree's administrative directory lives inside the main \
                  worktree's git directory, so removing the main one would take the others with \
                  it. git refuses the same thing for the same reason.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "worktree/unborn",
@@ -1375,7 +1365,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "A worktree is a checkout of a commit, and a repository with no commits has \
                  none to check out. The first commit is what gives it something to stand on; \
                  make it, and the worktree can be made.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "worktree/is-current",
@@ -1383,7 +1373,7 @@ pub static ENTRIES: &[Entry] = &[
         detail: "Removing it would delete the directory the command is running from. Run it \
                  from another worktree, and the one you are in becomes a target like any \
                  other.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "worktree/busy",
@@ -1392,7 +1382,7 @@ pub static ENTRIES: &[Entry] = &[
                  removal. A locked operation log means another fufu command is mid-flight \
                  there, and capturing under it would race. Nothing was removed; wait for the \
                  other command to finish and try again.",
-        exits: &["ff worktree list"],
+        exits: &["ff worktree"],
     },
     Entry {
         id: "usage/unknown-error-id",
@@ -1432,7 +1422,7 @@ pub fn find(id: &str) -> Option<&'static Entry> {
 /// Most `Error::coded` calls pass `vec![]`, and that was never a claim that
 /// there is no way out — the way out is a property of the id, and the id
 /// already has one written down here. `ff explain branch/not-found` has
-/// always said `ff branch list`; the failure itself said nothing at all, so
+/// always said `ff branch`; the failure itself said nothing at all, so
 /// an agent that hit `no branch named x` went to git rather than to the
 /// verb sitting one line away. Both surfaces now read the same registry, and
 /// a raise site only carries exits of its own when it knows something the id

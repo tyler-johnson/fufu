@@ -124,7 +124,7 @@ fn a_manifest_naming_no_server_is_silent_about_one() {
     let (home, bin) = machine();
     ext_bin(bin.path(), "tower", &manifest("tower", "0.4.1"));
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -156,7 +156,7 @@ fn a_missing_registration_for_a_wired_client_is_a_fixable_warning() {
         &manifest_with_mcp("tower", "0.4.1", &["serve", "--mcp"]),
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -213,7 +213,7 @@ fn a_stale_registration_is_a_warning_and_fix_leaves_it_alone() {
         &manifest_with_mcp("tower", "0.4.1", &["serve"]),
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -231,7 +231,7 @@ fn a_stale_registration_is_a_warning_and_fix_leaves_it_alone() {
         &manifest_with_mcp("tower", "0.4.1", &["serve", "--mcp"]),
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -270,7 +270,7 @@ fn a_hand_written_entry_is_reported_and_never_a_finding() {
         &manifest_with_mcp("tower", "0.4.1", &["serve"]),
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -301,7 +301,7 @@ fn a_hand_written_entry_is_reported_and_never_a_finding() {
 }
 
 /// A registration for a name nothing declares any more — the trace `ff
-/// extension remove` leaves behind — is news, aggregated the way an
+/// extension -d` leaves behind — is news, aggregated the way an
 /// undeclared binary on PATH is, and never named as a row of its own.
 #[test]
 fn an_orphaned_registration_is_reported_and_never_a_finding() {
@@ -312,7 +312,7 @@ fn an_orphaned_registration_is_reported_and_never_a_finding() {
         &manifest_with_mcp("tower", "0.4.1", &["serve"]),
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "add", "tower"])
+        ff(home.path(), bin.path(), &["extension", "tower"])
             .status
             .success()
     );
@@ -322,7 +322,7 @@ fn an_orphaned_registration_is_reported_and_never_a_finding() {
             .success()
     );
     assert!(
-        ff(home.path(), bin.path(), &["extension", "remove", "tower"])
+        ff(home.path(), bin.path(), &["extension", "-d", "tower"])
             .status
             .success()
     );

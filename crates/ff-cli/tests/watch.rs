@@ -150,14 +150,10 @@ fn a_closed_pipe_is_a_clean_exit_not_a_panic() {
 }
 
 /// A bay off `started()`, through the verb, so its chain floor is laid the
-/// way a real `ff worktree add` lays it.
+/// way a real `ff worktree <path>` lays it.
 fn bay(fx: &Fixture, name: &str) -> std::path::PathBuf {
-    let out = ff(fx, &["worktree", "add", name]);
-    assert!(
-        out.status.success(),
-        "worktree add failed: {}",
-        stdout(&out)
-    );
+    let out = ff(fx, &["worktree", name]);
+    assert!(out.status.success(), "ff worktree failed: {}", stdout(&out));
     fx.path().join(name)
 }
 

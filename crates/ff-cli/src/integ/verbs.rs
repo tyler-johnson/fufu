@@ -66,7 +66,7 @@ pub fn hook(
 /// A `name` beyond fufu's own is a skill some declared extension names,
 /// asked for through `--ff-skill` the way an install asks, and printed as
 /// its `SKILL.md` — the file a client reads a skill by. A name nothing on
-/// this machine declares is refused the way `ff extension remove` refuses
+/// this machine declares is refused the way `ff extension -d` refuses
 /// one; the handshake's own refusals carry through as they are.
 fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
     let text = if name == super::skill::NAME {
@@ -81,7 +81,7 @@ fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
                 Error::coded(
                     "extension/not-declared",
                     format!("nothing on this machine declares a skill named `{name}`"),
-                    vec!["ff extension list".into()],
+                    vec!["ff extension".into()],
                 )
             })?;
         let binary = declared.resolve().ok_or_else(|| {

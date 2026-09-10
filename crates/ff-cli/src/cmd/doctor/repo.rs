@@ -598,7 +598,7 @@ pub(super) fn branch_checks(repo: &ff_core::gix::Repository, fix: bool) -> Resul
     }
 
     // upstreams — `[branch "<n>"]` sections naming branches that are not
-    // here. A plain `ff branch delete` of a published branch deliberately
+    // here. A plain `ff branch -d` of a published branch deliberately
     // keeps both the section and its tracking ref, and says so, so that
     // undo stays exact — that residue is `info`, not a warning. Only a
     // section whose shared copy is *also* gone is repairable, and only
@@ -633,7 +633,7 @@ pub(super) fn branch_checks(repo: &ff_core::gix::Repository, fix: bool) -> Resul
             rows.push(Row::info(
                 "upstreams",
                 format!(
-                    "config for {list} names no branch here — the shared copy is still on the remote, which is what `ff branch delete` leaves behind"
+                    "config for {list} names no branch here — the shared copy is still on the remote, which is what `ff branch -d` leaves behind"
                 ),
             ));
         }

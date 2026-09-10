@@ -196,7 +196,7 @@ pub(crate) fn retire(repo: &gix::Repository, id: &str, now: i64) -> Result<Optio
                 return Err(Error::coded(
                     "worktree/busy",
                     format!("something is running in {id}: its operation log is locked"),
-                    vec!["ff worktree list".into()],
+                    vec!["ff worktree".into()],
                 ));
             }
         },
@@ -235,7 +235,7 @@ pub(crate) fn revive(
             Error::coded(
                 "branch/not-found",
                 format!("no branch named {branch}"),
-                vec!["ff branch list".into()],
+                vec!["ff branch".into()],
             )
         })?;
 

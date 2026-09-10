@@ -123,7 +123,7 @@ fn relocate(args: &cli::Cli) -> ff_core::Result<()> {
         ff_core::Error::coded(
             "usage/no-such-directory",
             format!("-C {}: {err}", dir.display()),
-            vec!["ff status".into(), "ff worktree list".into()],
+            vec!["ff status".into(), "ff worktree".into()],
         )
     })
 }
@@ -283,8 +283,20 @@ fn main() {
         Some(cli::Command::Undo) => cmd::undo::run(&ctx),
         Some(cli::Command::Redo) => cmd::undo::redo(&ctx),
         Some(cli::Command::Op { action }) => cmd::op::run(&ctx, action),
-        Some(cli::Command::Branch { action, .. }) => cmd::branch::run(&ctx, action),
-        Some(cli::Command::Worktree { action, .. }) => cmd::worktree::run(&ctx, action),
+        Some(cli::Command::Branch {
+            name,
+            rev,
+            delete,
+            shared,
+            all,
+            ..
+        }) => cmd::branch::run(&ctx, name, rev, delete, shared, all),
+        Some(cli::Command::Worktree {
+            path,
+            branch,
+            delete,
+            ..
+        }) => cmd::worktree::run(&ctx, path, branch, delete),
         Some(cli::Command::Start {
             target,
             message,
@@ -337,7 +349,7 @@ fn main() {
             skill,
         }) => integ::hook(&ctx, slugs, all, list, settings, update, skill),
         Some(cli::Command::Unhook { slugs, all }) => integ::unhook(&ctx, slugs, all),
-        Some(cli::Command::Extension { action }) => cmd::extension::run(&ctx, action),
+        Some(cli::Command::Extension { name, delete }) => cmd::extension::run(&ctx, name, delete),
         Some(cli::Command::Trigger { source, message }) => integ::trigger(&ctx, source, message),
         Some(cli::Command::Watch {
             all,

@@ -83,7 +83,7 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new} already exists"),
-            vec!["ff branch list".into()],
+            vec!["ff branch".into()],
         ));
     }
     guard_other_worktrees(repo, old)?;
@@ -205,7 +205,7 @@ pub(crate) fn retarget_head(repo: &gix::Repository, full_ref: &str, now: i64) ->
     }
 }
 
-/// List branches for `ff branch list`: three buckets — named branches and
+/// List branches for `ff branch`: three buckets — named branches and
 /// anonymous ones segregated, each with its tip, parked marker, pending
 /// description, and upstream annotation, and beside them the branches that
 /// exist on a remote and no local branch tracks.
@@ -363,7 +363,7 @@ pub fn rename_current(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new_name} already exists"),
-            vec!["ff branch list".into()],
+            vec!["ff branch".into()],
         ));
     }
     guard_other_worktrees(repo, &current)?;
@@ -509,7 +509,63 @@ pub fn forget_shared(
     Ok(())
 }
 
-/// `ff branch delete <name>` — delete a branch, recorded. The branch's pointer
+/// `ff branch <name> [<rev>]` — create a branch at a revision, recorded, and
+/// stay where you are. Trunk's tip when `<rev>` is omitted; a branch name
+/// records that branch as the parent, the way `ff start <branch>` does; `@`
+/// puts the tip on the commit under the open change, and the open change
+/// stays where it is. One operation, so `ff undo` takes the whole of it
+/// back. The verb that also moves there is `ff start`.
+pub fn create(
+    repo: &gix::Repository,
+    name: &str,
+    target: Option<&str>,
+    prov: &crate::snapshot::Provenance,
+    now: Option<i64>,
+    argv: Vec<String>,
+) -> Result<(crate::model::BranchCreateReport, verb::VerbContext)> {
+    // The preamble is this verb's own: under `start` the switch that follows
+    // the mint runs it, and here nothing follows.
+    let ctx = verb::begin_verb(repo, prov, now)?;
+    let now = ctx.now;
+    validate_name(name)?;
+    if refs::ref_target(repo, &heads_ref(name))?.is_some() {
+        return Err(Error::coded(
+            "branch/exists",
+            format!("a branch named {name} already exists"),
+            vec!["ff branch".into()],
+        ));
+    }
+    let head = crate::head::head_state(repo)?;
+    let open = crate::start::Open::Under(crate::snapshot::chain::base_commit(&head)?);
+    let fork = crate::start::resolve_fork_point(repo, target, open)?;
+    crate::start::mint_branch(
+        repo,
+        &crate::start::Mint {
+            name,
+            at: fork.at,
+            forked_from: &fork.forked_from,
+            parent: fork.parent.as_deref(),
+            verb: "branch",
+            summary: &format!("create branch {name} at {}", crate::sha::short_oid(fork.at)),
+            tree: ctx.pre_tree,
+        },
+        now,
+        &argv,
+        prov,
+    )?;
+    Ok((
+        crate::model::BranchCreateReport {
+            name: name.to_string(),
+            at: fork.at.to_string(),
+            forked_from: fork.forked_from,
+            parent: fork.parent,
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
+        },
+        ctx,
+    ))
+}
+
+/// `ff branch -d <name>` — delete a branch, recorded. The branch's pointer
 /// into the log moves to trash (trim's one-deep pattern) rather than being
 /// dropped, the parked entry is demoted (its stash entry survives), and the
 /// tip stays pinned by the operation — so the deletion is undoable, which is
@@ -641,7 +697,7 @@ pub fn create_at(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {branch} already exists"),
-            vec!["ff branch list".into()],
+            vec!["ff branch".into()],
         ));
     }
     refs::write_ref(

@@ -443,19 +443,39 @@ pub enum Command {
         #[arg(long)]
         abandon: bool,
     },
-    /// Manage lines of work: what exists, and removing one
+    /// Lines of work: what exists, making one, and removing one
     #[command(visible_aliases = ["br", "bookmark"], long_about = help::term(help::BRANCH), after_long_help = help::term_examples(help::BRANCH_EXAMPLES))]
     Branch {
-        #[command(subcommand)]
-        action: Option<BranchAction>,
+        /// Create a branch by this name, and stay where you are
+        #[arg(value_name = "name", conflicts_with_all = ["delete", "all", "at", "at_op"])]
+        name: Option<String>,
+        /// Where it forks from: a revision, `@`, or a branch; trunk when omitted
+        #[arg(value_name = "rev", requires = "name")]
+        rev: Option<String>,
+        /// Delete a branch — its timeline moves to trash, and `ff undo` is enough
+        #[arg(short = 'd', long = "delete", value_name = "branch", conflicts_with_all = ["all", "at", "at_op"])]
+        delete: Option<String>,
+        /// Remove the copy on the remote too — that half `ff undo` cannot reach
+        #[arg(long, requires = "delete")]
+        shared: bool,
+        /// Every remote-only branch, not just the newest few
+        #[arg(long)]
+        all: bool,
         #[command(flatten)]
         past: Past,
     },
     /// Worktrees of this repository, and the chains of ones that are gone
     #[command(visible_alias = "workspace", long_about = help::term(help::WORKTREE), after_long_help = help::term_examples(help::WORKTREE_EXAMPLES))]
     Worktree {
-        #[command(subcommand)]
-        action: Option<WorktreeAction>,
+        /// Make a worktree here: a second checkout of this repository, with its own log
+        #[arg(value_name = "path", conflicts_with_all = ["delete", "at", "at_op"])]
+        path: Option<PathBuf>,
+        /// The branch it stands on — a new one named after the directory if you do not say
+        #[arg(value_name = "branch", requires = "path")]
+        branch: Option<String>,
+        /// Take a worktree away, capturing what it holds first — by path or by the id `ff worktree` shows
+        #[arg(short = 'd', long = "delete", value_name = "worktree", conflicts_with_all = ["at", "at_op"])]
+        delete: Option<String>,
         #[command(flatten)]
         past: Past,
     },
@@ -503,8 +523,12 @@ pub enum Command {
     /// Extensions this machine declares, so fufu describes them to an agent
     #[command(long_about = help::term(help::EXTENSION), after_long_help = help::term_examples(help::EXTENSION_EXAMPLES))]
     Extension {
-        #[command(subcommand)]
-        action: Option<ExtensionAction>,
+        /// Declare one: ask ff-<name> for its manifest, check it, and record it here
+        #[arg(value_name = "name", conflicts_with = "delete")]
+        name: Option<String>,
+        /// Take one off the list; fufu stops describing it
+        #[arg(short = 'd', long = "delete", value_name = "name")]
+        delete: Option<String>,
     },
     /// Snapshot the working copy now
     #[command(long_about = help::term(help::TRIGGER), after_long_help = help::term_examples(help::TRIGGER_EXAMPLES))]
@@ -758,158 +782,6 @@ impl OpAction {
     }
 }
 
-/// `ff branch` — the branch family, and it does not name anything. Naming
-/// the branch you are on is `ff describe -b`, on the same axis as `-m`: one
-/// verb for saying what a piece of work is, whether the subject is the
-/// change's description or the branch's name. So this family is the
-/// bookkeeping that is left — what exists, and taking one away.
-#[derive(Subcommand)]
-pub enum BranchAction {
-    /// Named branches and anonymous ones, kept apart
-    #[command(long_about = help::term(help::BRANCH_LIST), after_long_help = help::term_examples(help::BRANCH_LIST_EXAMPLES))]
-    List {
-        /// Every remote-only branch, not just the newest few
-        #[arg(long)]
-        all: bool,
-        #[command(flatten)]
-        past: Past,
-    },
-    /// Delete a branch — its timeline moves to trash, and `ff undo` is enough
-    #[command(long_about = help::term(help::BRANCH_DELETE), after_long_help = help::term_examples(help::BRANCH_DELETE_EXAMPLES))]
-    Delete {
-        /// The branch to delete, by its full name
-        #[arg(value_name = "branch")]
-        target: String,
-        /// Remove the copy on the remote too — that half `ff undo` cannot reach
-        #[arg(long)]
-        shared: bool,
-    },
-    /// Anything else — most often the retired `ff branch <name>` claim.
-    #[command(external_subcommand)]
-    Other(Vec<OsString>),
-}
-
-impl BranchAction {
-    /// The envelope name — the full path, as in the `ff op` family.
-    fn name(&self) -> &'static str {
-        match self {
-            BranchAction::List { .. } | BranchAction::Other(_) => "branch list",
-            BranchAction::Delete { .. } => "branch delete",
-        }
-    }
-
-    fn past(&self) -> Option<&Past> {
-        match self {
-            BranchAction::List { past, .. } => Some(past),
-            BranchAction::Delete { .. } | BranchAction::Other(_) => None,
-        }
-    }
-
-    fn lanes(&self) -> Lanes {
-        match self {
-            // Bare `ff branch` is the list, and `Other` is a refusal that
-            // renders like one: both read.
-            BranchAction::List { .. } | BranchAction::Other(_) => Lanes::READ,
-            // `ff_core::branch::delete` runs `begin_verb`, whose capture is
-            // the mandatory pre-verb one — a second CLI capture would be a
-            // full extra worktree diff.
-            BranchAction::Delete { .. } => Lanes::MUTATOR,
-        }
-    }
-}
-
-#[derive(Subcommand)]
-pub enum WorktreeAction {
-    /// Every worktree here, and every chain whose worktree is gone
-    #[command(long_about = help::term(help::WORKTREE_LIST), after_long_help = help::term_examples(help::WORKTREE_LIST_EXAMPLES))]
-    List {
-        #[command(flatten)]
-        past: Past,
-    },
-    /// Make a worktree: a second checkout of this repository, with its own log
-    #[command(long_about = help::term(help::WORKTREE_ADD), after_long_help = help::term_examples(help::WORKTREE_ADD_EXAMPLES))]
-    Add {
-        /// Where to put it
-        #[arg(value_name = "path")]
-        path: PathBuf,
-        /// The branch it stands on — a new one named after the directory if you do not say
-        #[arg(value_name = "branch")]
-        branch: Option<String>,
-    },
-    /// Take a worktree away, capturing what it holds first
-    #[command(long_about = help::term(help::WORKTREE_REMOVE), after_long_help = help::term_examples(help::WORKTREE_REMOVE_EXAMPLES))]
-    Remove {
-        /// The worktree, by path or by the id `ff worktree list` shows
-        #[arg(value_name = "worktree")]
-        target: String,
-    },
-}
-
-/// `ff extension` — the declaration family. Declaring is a person's gesture
-/// about this machine: it buys the extension no capability and no
-/// environment, only fufu's willingness to describe it to an agent. So the
-/// family is the list, putting a name on it, and taking one off.
-#[derive(Subcommand)]
-pub enum ExtensionAction {
-    /// Ask an ff-<name> for its manifest, check it, and record it here
-    #[command(long_about = help::term(help::EXTENSION_ADD), after_long_help = help::term_examples(help::EXTENSION_ADD_EXAMPLES))]
-    Add {
-        /// The name after `ff-`, as the binary on PATH spells it
-        #[arg(value_name = "name")]
-        name: String,
-    },
-    /// Every extension declared on this machine, and what each answers to
-    #[command(long_about = help::term(help::EXTENSION_LIST), after_long_help = help::term_examples(help::EXTENSION_LIST_EXAMPLES))]
-    List,
-    /// Take one off the list; fufu stops describing it
-    #[command(long_about = help::term(help::EXTENSION_REMOVE), after_long_help = help::term_examples(help::EXTENSION_REMOVE_EXAMPLES))]
-    Remove {
-        /// The name it was declared under
-        #[arg(value_name = "name")]
-        name: String,
-    },
-}
-
-impl ExtensionAction {
-    /// The envelope name — the full path, as in the `ff op` family.
-    fn name(&self) -> &'static str {
-        match self {
-            ExtensionAction::Add { .. } => "extension add",
-            ExtensionAction::List => "extension list",
-            ExtensionAction::Remove { .. } => "extension remove",
-        }
-    }
-}
-
-impl WorktreeAction {
-    /// The envelope name — the full path, as in the `ff op` family.
-    fn name(&self) -> &'static str {
-        match self {
-            WorktreeAction::List { .. } => "worktree list",
-            WorktreeAction::Add { .. } => "worktree add",
-            WorktreeAction::Remove { .. } => "worktree remove",
-        }
-    }
-
-    fn past(&self) -> Option<&Past> {
-        match self {
-            WorktreeAction::List { past } => Some(past),
-            // Neither mutator reads a past state: they only add to now, and
-            // the parser has already refused the flags there.
-            WorktreeAction::Add { .. } | WorktreeAction::Remove { .. } => None,
-        }
-    }
-
-    fn lanes(&self) -> Lanes {
-        match self {
-            // A listing reads and nothing more.
-            WorktreeAction::List { .. } => Lanes::READ,
-            // The core already captures.
-            WorktreeAction::Add { .. } | WorktreeAction::Remove { .. } => Lanes::MUTATOR,
-        }
-    }
-}
-
 /// The ambient lanes: what rides an invocation besides the verb itself —
 /// the pre-command capture, the passive update lane (cache refresh,
 /// auto-install, the one-line notice), and the daily auto-trim. One table on
@@ -991,14 +863,18 @@ impl Command {
             // Bare `ff branch` is the list, so it names the shape it emits
             // rather than the family — two payloads under one name is what
             // the `ff op` family was built to avoid.
-            Command::Branch { action, .. } => {
-                action.as_ref().map_or("branch list", BranchAction::name)
-            }
+            Command::Branch { name, delete, .. } => match (name, delete) {
+                (_, Some(_)) => "branch delete",
+                (Some(_), None) => "branch create",
+                (None, None) => "branch list",
+            },
             // The same rule as bare `ff branch`: name the shape it emits,
             // not the family.
-            Command::Worktree { action, .. } => action
-                .as_ref()
-                .map_or("worktree list", WorktreeAction::name),
+            Command::Worktree { path, delete, .. } => match (path, delete) {
+                (_, Some(_)) => "worktree remove",
+                (Some(_), None) => "worktree add",
+                (None, None) => "worktree list",
+            },
             Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
             Command::Absorb { .. } => "absorb",
@@ -1017,9 +893,11 @@ impl Command {
             Command::Unhook { .. } => "unhook",
             // The same rule as bare `ff branch`: name the shape it emits,
             // not the family.
-            Command::Extension { action } => action
-                .as_ref()
-                .map_or("extension list", ExtensionAction::name),
+            Command::Extension { name, delete } => match (name, delete) {
+                (_, Some(_)) => "extension remove",
+                (Some(_), None) => "extension add",
+                (None, None) => "extension list",
+            },
             Command::Trigger { .. } => "trigger",
             Command::Watch { .. } => "watch",
             Command::Mcp => "mcp",
@@ -1053,19 +931,11 @@ impl Command {
             Command::Status { past }
             | Command::Log { past, .. }
             | Command::Evolog { past, .. }
-            | Command::Restore { past, .. } => Some(past),
-            // Declared twice on purpose: once for the bare form, once for
-            // the spelled-out `list`, so `--at-op` is takeable on either
-            // side of the subcommand rather than only before it.
-            Command::Branch { action, past } => {
-                Some(action.as_ref().and_then(BranchAction::past).unwrap_or(past))
-            }
-            // Declared twice on purpose, on the same rule as `ff branch`:
-            // once for the bare form, once for the spelled-out `list`, so
-            // `--at-op` is takeable on either side of the subcommand.
-            Command::Worktree { action, past } => {
-                Some(action.as_ref().and_then(WorktreeAction::past).unwrap_or(past))
-            }
+            | Command::Restore { past, .. }
+            // The list's flags: the parser has already refused them next to
+            // a positional or `-d`, so a mutator never sees them set.
+            | Command::Branch { past, .. }
+            | Command::Worktree { past, .. } => Some(past),
             Command::Op { action } => action.past(),
             // The map declares no past flags, on the same rule as bare `ff`:
             // reading it as of a past operation would need a past-state view
@@ -1259,14 +1129,26 @@ impl Command {
             | Command::Evolog { .. }
             | Command::Config { .. }
             | Command::Remote => Lanes::READ,
-            // The two families hold both readers and mutators, so the action
-            // decides.
+            // The families that hold both readers and mutators.
             Command::Op { action } => action.lanes(),
-            Command::Branch { action, .. } => {
-                action.as_ref().map_or(Lanes::READ, BranchAction::lanes)
+            // The two families hold both readers and mutators, so the shape
+            // decides: bare is the list and reads; a positional or `-d`
+            // runs a core verb whose `begin_verb` capture is the mandatory
+            // pre-verb one, and a second CLI capture would be a full extra
+            // worktree diff.
+            Command::Branch { name, delete, .. } => {
+                if name.is_some() || delete.is_some() {
+                    Lanes::MUTATOR
+                } else {
+                    Lanes::READ
+                }
             }
-            Command::Worktree { action, .. } => {
-                action.as_ref().map_or(Lanes::READ, WorktreeAction::lanes)
+            Command::Worktree { path, delete, .. } => {
+                if path.is_some() || delete.is_some() {
+                    Lanes::MUTATOR
+                } else {
+                    Lanes::READ
+                }
             }
         }
     }

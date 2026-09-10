@@ -1,13 +1,14 @@
 //! `ff extension` — what this machine has declared, and the two gestures
 //! that change it.
 //!
-//! `add` is the whole of the verb's weight: it runs the `--ff-manifest`
-//! handshake, checks the contract the manifest claims against fufu's own,
-//! and records what came back. From then on fufu will describe the
-//! extension — `ff help <name>` reaches it, its briefing line rides fufu's,
-//! its skills install beside fufu's, the neutral agent event fans out to
-//! it, and the tools it produces are served beside fufu's own. `list` is
-//! that record read back, and `remove` takes a name off it.
+//! `ff extension <name>` is the whole of the verb's weight: it runs the
+//! `--ff-manifest` handshake, checks the contract the manifest claims
+//! against fufu's own, and records what came back. From then on fufu will
+//! describe the extension — `ff help <name>` reaches it, its briefing line
+//! rides fufu's, its skills install beside fufu's, the neutral agent event
+//! fans out to it, and the tools it produces are served beside fufu's own.
+//! Bare `ff extension` is that record read back, and `-d` takes a name off
+//! it.
 //!
 //! Declaring buys the extension no capability and no environment; an
 //! undeclared `ff-<name>` runs from a shell exactly as it ran before. What
@@ -17,17 +18,19 @@
 
 use ff_core::{Error, Result};
 
-use crate::cli::ExtensionAction;
 use crate::ctx::Ctx;
 use crate::manifest::{Briefing, Build, Manifest};
 use crate::registry;
 
-pub fn run(ctx: &Ctx, action: Option<ExtensionAction>) -> Result<()> {
-    // Bare `ff extension` is the list, on the same rule as bare `ff branch`.
-    match action {
-        None | Some(ExtensionAction::List) => list(ctx),
-        Some(ExtensionAction::Add { name }) => add(ctx, &name),
-        Some(ExtensionAction::Remove { name }) => remove(ctx, &name),
+pub fn run(ctx: &Ctx, name: Option<String>, delete: Option<String>) -> Result<()> {
+    // Bare `ff extension` is the list, on the same rule as bare `ff branch`;
+    // the parser has already refused a name next to `-d`.
+    if let Some(name) = delete {
+        remove(ctx, &name)
+    } else if let Some(name) = name {
+        add(ctx, &name)
+    } else {
+        list(ctx)
     }
 }
 
@@ -88,7 +91,7 @@ fn add(ctx: &Ctx, name: &str) -> Result<()> {
     }
     println!(
         "{}",
-        crate::render::paint_dim(&format!("undo: ff extension remove {name}"), colored)
+        crate::render::paint_dim(&format!("undo: ff extension -d {name}"), colored)
     );
     Ok(())
 }
@@ -168,10 +171,7 @@ fn remove(ctx: &Ctx, name: &str) -> Result<()> {
         return Err(Error::coded(
             "extension/not-declared",
             format!("nothing on this machine is declared under `{name}`"),
-            vec![
-                "ff extension list".into(),
-                format!("ff extension add {name}"),
-            ],
+            vec!["ff extension".into(), format!("ff extension {name}")],
         ));
     }
 
@@ -246,7 +246,7 @@ fn list(ctx: &Ctx) -> Result<()> {
         println!("nothing is declared on this machine");
         println!(
             "{}",
-            crate::render::paint_dim("ff extension add <name> declares one", colored)
+            crate::render::paint_dim("ff extension <name> declares one", colored)
         );
     } else {
         let name_width = registry

@@ -226,7 +226,7 @@ fn builtin(word: &str) -> bool {
 /// extensions cannot produce one name — the extension is in it — but an
 /// extension name may itself carry `_`, so `a__b` and `a` producing `b__c`
 /// can meet. The first declared keeps the name, which is the order
-/// `ff extension list` prints and the order a person can read. The list
+/// `ff extension` prints and the order a person can read. The list
 /// already holds fufu's seven, and a produced name carries the separator,
 /// so those cannot be taken either way.
 ///

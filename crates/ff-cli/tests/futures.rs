@@ -1,4 +1,4 @@
-//! `ff status`'s futures line and `ff branch list`'s verdict notes: the two
+//! `ff status`'s futures line and `ff branch`'s verdict notes: the two
 //! surfaces the futures simulation reports through. Runs the real `ff`
 //! binary against hermetic fixtures — the runner idiom is copied from
 //! `tests/cli.rs`.
@@ -767,7 +767,7 @@ fn json_is_byte_identical_run_to_run() {
 #[test]
 fn branch_row_notes_a_clean_rebase() {
     let fx = clean_fixture();
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
@@ -785,7 +785,7 @@ fn branch_row_notes_a_clean_rebase() {
 #[test]
 fn branch_row_notes_a_conflict() {
     let fx = conflicting_fixture();
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
@@ -803,7 +803,7 @@ fn branch_row_notes_a_conflict() {
 #[test]
 fn branch_row_is_silent_when_up_to_date() {
     let fx = up_to_date_fixture();
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
@@ -826,15 +826,15 @@ fn branch_row_is_silent_when_up_to_date() {
 
 #[test]
 fn branch_and_status_agree_about_the_open_change() {
-    // Anti-contradiction test: `ff branch list` and `ff status` must never
+    // Anti-contradiction test: `ff branch` and `ff status` must never
     // disagree about the same fact. The row you are standing on carries the
     // open change into its simulation for exactly this reason.
     //
-    // `ff branch list` deliberately never captures ("reads don't reconcile
+    // `ff branch` deliberately never captures ("reads don't reconcile
     // here; `ff status` owns loudness" — cmd/branch.rs), so it only ever
     // sees an open change once *some* fufu command has recorded one. Run
     // `ff status` first to record the open change, then check that `ff
-    // branch list` reads the same fact `ff status` just reported.
+    // branch` reads the same fact `ff status` just reported.
     let fx = open_change_conflict_fixture();
 
     let status_out = ff(&fx, &["status"]);
@@ -849,7 +849,7 @@ fn branch_and_status_agree_about_the_open_change() {
         "got: {status_text}"
     );
 
-    let branch_out = ff(&fx, &["branch", "list"]);
+    let branch_out = ff(&fx, &["branch"]);
     assert!(branch_out.status.success());
     let branch_text = stdout(&branch_out);
     assert!(
@@ -878,7 +878,7 @@ fn branch_and_status_use_the_same_words() {
         .find(|p| p.contains("base moved"))
         .unwrap_or_else(|| panic!("no base phrase in {header:?}"));
 
-    let branch_out = ff(&fx, &["branch", "list"]);
+    let branch_out = ff(&fx, &["branch"]);
     assert!(branch_out.status.success());
     let branch_text = stdout(&branch_out);
     let note = branch_text
@@ -899,7 +899,7 @@ fn branch_and_status_use_the_same_words() {
 fn the_verdict_survives_a_long_subject() {
     let fx = long_subject_conflict_fixture();
     let subject = long_subject();
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success());
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
@@ -932,7 +932,7 @@ fn branch_list_colors_per_theme() {
     for t in THEMES {
         let clean = clean_fixture();
         clean.set_config("fufu.theme", t.theme);
-        let out = ff_colored(&clean, &["branch", "list"]);
+        let out = ff_colored(&clean, &["branch"]);
         assert!(out.status.success());
         let text = stdout(&out);
         let line = text
@@ -948,7 +948,7 @@ fn branch_list_colors_per_theme() {
 
         let conflicting = conflicting_fixture();
         conflicting.set_config("fufu.theme", t.theme);
-        let out = ff_colored(&conflicting, &["branch", "list"]);
+        let out = ff_colored(&conflicting, &["branch"]);
         assert!(out.status.success());
         let text = stdout(&out);
         let line = text
@@ -965,7 +965,7 @@ fn branch_list_colors_per_theme() {
         // Blue is for commits pending against the remote, either direction.
         let ahead = to_push_fixture();
         ahead.set_config("fufu.theme", t.theme);
-        let out = ff_colored(&ahead, &["branch", "list"]);
+        let out = ff_colored(&ahead, &["branch"]);
         assert!(out.status.success());
         let text = stdout(&out);
         let line = text
@@ -983,7 +983,7 @@ fn branch_list_colors_per_theme() {
         // same three-escape run `tests/map.rs` pins for the map.
         let clean = clean_fixture();
         clean.set_config("fufu.theme", t.theme);
-        let out = ff_colored(&clean, &["branch", "list"]);
+        let out = ff_colored(&clean, &["branch"]);
         assert!(out.status.success());
         let text = stdout(&out);
         let line = text
@@ -1004,7 +1004,7 @@ fn branch_list_colors_per_theme() {
 #[test]
 fn branch_list_piped_is_plain_and_still_says_where_you_are() {
     let fx = clean_fixture();
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(!text.contains('\x1b'), "piped output is plain: {text:?}");
@@ -1029,7 +1029,7 @@ fn branch_list_piped_is_plain_and_still_says_where_you_are() {
 #[test]
 fn an_unborn_branch_gets_an_em_dash() {
     let fx = Fixture::new(); // no commits at all
-    let out = ff(&fx, &["branch", "list"]);
+    let out = ff(&fx, &["branch"]);
     assert!(
         out.status.success(),
         "stderr: {}",

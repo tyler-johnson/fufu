@@ -24,7 +24,7 @@ pub fn run(ctx: &Ctx, id: Option<String>, list: bool) -> Result<()> {
     };
 
     // The prefix a declared extension's own ids carry — `tower/flight/not-
-    // found` — is exactly the name `ff extension add` recorded it under, so
+    // found` — is exactly the name `ff extension <name>` recorded it under, so
     // the split that routes an id back to its raiser is the same split that
     // finds it here. A prefix nothing is declared under falls through to
     // the lookup below and gets today's usual `usage/unknown-error-id`.

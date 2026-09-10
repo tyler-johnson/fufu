@@ -10,5 +10,5 @@ A read and nothing more. Adding a remote is a name and a URL, two facts fufu has
 ff remote                      what the remotes here are called
 ff remote --json               the same, for a machine
 ff push --to origin            send a branch to one of them, by name
-ff branch list                 what those remotes are holding
+ff branch                      what those remotes are holding
 ```

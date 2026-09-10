@@ -121,7 +121,7 @@ A source name fufu does not know exits 0 silently, so the same command is safe t
 
 This is a supported shape, and the wiring above is all it takes.
 
-- **A worktree each.** Give every agent its own with [`ff worktree add`](../reference/cli/worktree-add.md), and their operation logs never touch. Each worktree writes its own chain — its own line of captures and operations — under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work.
+- **A worktree each.** Give every agent its own with [`ff worktree <path>`](../reference/cli/worktree.md), and their operation logs never touch. Each worktree writes its own chain — its own line of captures and operations — under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work.
 - **One worktree shared.** Two agents there settle at that chain's lock instead. A capture that loses the lock is skipped, because the winner is already recording. A verb waits briefly and then refuses with `ref/contended`, exit 4, rather than interleaving — run it again.
 
 One chain is also one undo. `ff undo` takes back the last operation whoever wrote it, so undoing agent A's mistake after agent B has moved on takes back B's work first.
@@ -144,7 +144,7 @@ $ ff hook --skill
 
 ### An extension's briefing line
 
-An extension declared with [`ff extension add`](../reference/cli/extension-add.md) may add one line to the same briefing, and one line is the whole of what it may add.
+An extension declared with [`ff extension <name>`](../reference/cli/extension.md) may add one line to the same briefing, and one line is the whole of what it may add.
 
 The manifest's `briefing` field says where the line comes from:
 

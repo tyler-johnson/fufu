@@ -97,7 +97,7 @@ pub fn remove_worktree(
         return Err(Error::coded(
             "worktree/is-current",
             format!("{id} is the worktree you are in; run this from another one"),
-            vec!["ff worktree list".into()],
+            vec!["ff worktree".into()],
         ));
     }
 
@@ -140,7 +140,7 @@ pub fn remove_worktree(
                 return Err(Error::coded(
                     "worktree/busy",
                     format!("something is running in {id}: its operation log is locked"),
-                    vec!["ff worktree list".into()],
+                    vec!["ff worktree".into()],
                 ));
             }
         },
