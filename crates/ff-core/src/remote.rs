@@ -36,7 +36,7 @@ pub fn list(repo: &gix::Repository) -> Result<Vec<RemoteInfo>> {
         .remote_names()
         .into_iter()
         .map(|name| {
-            let fetch_url = repo.find_remote(name.as_ref()).ok().and_then(|remote| {
+            let fetch_url = repo.find_remote(&*name).ok().and_then(|remote| {
                 remote
                     .url(gix::remote::Direction::Fetch)
                     .map(|url| url.to_bstring().to_string())

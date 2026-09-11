@@ -109,8 +109,8 @@ pub(crate) fn count_file_changes(
     let rhs_obj = repo.find_object(rhs).map_err(Error::repo)?.detach();
     let mut recorder = gix::diff::tree::Recorder::default();
     gix::diff::tree(
-        gix::objs::TreeRefIter::from_bytes(&lhs_obj.data),
-        gix::objs::TreeRefIter::from_bytes(&rhs_obj.data),
+        gix::objs::TreeRefIter::from_bytes(&lhs_obj.data, repo.object_hash()),
+        gix::objs::TreeRefIter::from_bytes(&rhs_obj.data, repo.object_hash()),
         gix::diff::tree::State::default(),
         &repo.objects,
         &mut recorder,

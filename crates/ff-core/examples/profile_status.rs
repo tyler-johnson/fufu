@@ -71,7 +71,7 @@ fn main() {
         gix::status::tree_index::TrackRenames::default(),
         |_change, _, _| {
             n += 1;
-            Ok::<_, std::convert::Infallible>(gix::diff::index::Action::Continue)
+            Ok::<_, std::convert::Infallible>(gix::diff::index::Action::Continue(()))
         },
     )
     .unwrap();

@@ -97,19 +97,13 @@ pub(crate) fn hunks_of(
     // them makes a last line that gained a newline compare equal to one that
     // never had it — better-looking stats, and a patch that then silently
     // claims a trailing newline the file does not have.
-    let input = gix::diff::blob::intern::InternedInput::new(
-        prep.old.intern_source(),
-        prep.new.intern_source(),
-    );
+    let input =
+        gix::diff::blob::InternedInput::new(prep.old.intern_source(), prep.new.intern_source());
 
-    let mut changes: Vec<(Range<u32>, Range<u32>)> = Vec::new();
-    gix::diff::blob::diff(
-        algorithm,
-        &input,
-        |before: Range<u32>, after: Range<u32>| {
-            changes.push((before, after));
-        },
-    );
+    let changes: Vec<(Range<u32>, Range<u32>)> = gix::diff::blob::Diff::compute(algorithm, &input)
+        .hunks()
+        .map(|hunk| (hunk.before, hunk.after))
+        .collect();
 
     Ok(Some(assemble(&input, &changes)))
 }
@@ -120,11 +114,11 @@ pub(crate) fn hunks_of(
 /// context they would each print — otherwise the context would run together
 /// and the reader could not tell one change from the next.
 fn assemble(
-    input: &gix::diff::blob::intern::InternedInput<&[u8]>,
+    input: &gix::diff::blob::InternedInput<&[u8]>,
     changes: &[(Range<u32>, Range<u32>)],
 ) -> Vec<Hunk> {
     let old_len = input.before.len() as u32;
-    let line = |tokens: &[gix::diff::blob::intern::Token], at: u32, kind: LineKind| -> PatchLine {
+    let line = |tokens: &[gix::diff::blob::Token], at: u32, kind: LineKind| -> PatchLine {
         let raw: &[u8] = input.interner[tokens[at as usize]];
         let text = raw.strip_suffix(b"\n").unwrap_or(raw);
         PatchLine {

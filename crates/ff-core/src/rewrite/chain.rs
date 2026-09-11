@@ -302,7 +302,7 @@ fn marked_paths(
             &to,
             |change| -> std::result::Result<_, std::convert::Infallible> {
                 changed.push(change.location().to_string());
-                Ok(gix::object::tree::diff::Action::Continue)
+                Ok(gix::object::tree::diff::Action::Continue(()))
             },
         )
         .map_err(Error::repo)?;
@@ -497,20 +497,17 @@ pub fn attribute(
 /// imara-diff, and its `InternedInput` tokenizes a `&str` into lines, so
 /// these are line ranges, not byte or word ranges.
 fn line_hunks(before: &str, after: &str) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
-    use gix::diff::blob::{Algorithm, intern::InternedInput};
+    use gix::diff::blob::{Algorithm, Diff, InternedInput};
     let input = InternedInput::new(before, after);
-    let mut hunks: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> = Vec::new();
-    gix::diff::blob::diff(
-        Algorithm::Histogram,
-        &input,
-        |b: std::ops::Range<u32>, a: std::ops::Range<u32>| {
-            hunks.push((
-                b.start as usize..b.end as usize,
-                a.start as usize..a.end as usize,
-            ));
-        },
-    );
-    hunks
+    Diff::compute(Algorithm::Histogram, &input)
+        .hunks()
+        .map(|hunk| {
+            (
+                hunk.before.start as usize..hunk.before.end as usize,
+                hunk.after.start as usize..hunk.after.end as usize,
+            )
+        })
+        .collect()
 }
 
 /// One non-trivial step: the commit's tree replayed onto `ours`. When the two
@@ -587,7 +584,8 @@ pub(crate) fn stack_size(
 /// The tree of a commit's old first parent, or the empty tree for a root.
 fn old_first_parent_tree(repo: &gix::Repository, id: gix::ObjectId) -> Result<gix::ObjectId> {
     let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit_ref =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     match commit_ref.parents.first() {
         Some(hex) => {
             let parent = gix::ObjectId::from_hex(hex).map_err(Error::repo)?;

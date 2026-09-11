@@ -101,7 +101,7 @@ pub fn of_commit(raw: &[u8], sha: &gix::oid) -> ChangeId {
 /// rewritten by fufu or jj, and the operation log has its history; one
 /// without gets a derived id and has none.
 pub fn header_of(raw: &[u8]) -> Option<ChangeId> {
-    gix::objs::CommitRef::from_bytes(raw)
+    gix::objs::CommitRef::from_bytes(raw, gix::hash::Kind::Sha1)
         .ok()
         .and_then(|commit| {
             commit

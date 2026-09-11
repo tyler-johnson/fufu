@@ -34,7 +34,8 @@ use crate::refs::user_signature;
 fn describe_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<String> {
     use gix::prelude::ObjectIdExt;
     let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     let subject = commit.message().summary().to_string();
     drop(commit);
     drop(obj);
@@ -313,7 +314,8 @@ pub struct StashCommit {
 
 pub fn read_stash_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<StashCommit> {
     let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     let wip_tree = commit.tree();
     let parents: Vec<gix::ObjectId> = commit.parents().collect();
     drop(commit);
@@ -678,7 +680,7 @@ fn tree_files(
         out: &mut Vec<(String, gix::objs::tree::EntryKind, gix::ObjectId)>,
     ) -> Result<()> {
         let obj = repo.find_object(tree).map_err(Error::repo)?.detach();
-        for entry in gix::objs::TreeRefIter::from_bytes(&obj.data) {
+        for entry in gix::objs::TreeRefIter::from_bytes(&obj.data, repo.object_hash()) {
             let entry = entry.map_err(Error::repo)?;
             let path = if prefix.is_empty() {
                 entry.filename.to_string()

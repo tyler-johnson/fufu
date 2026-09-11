@@ -42,7 +42,7 @@ fn ref_name(branch: &str) -> String {
 /// Does the shared copy of `branch` stand exactly where this repository last
 /// sent it?
 pub fn published_tip(repo: &gix::Repository, branch: &str, sha: &str) -> Result<bool> {
-    Ok(last_published(repo, branch)?.is_some_and(|to| to.to_string() == sha))
+    Ok(last_published(repo, branch)?.is_some_and(|to| to == sha))
 }
 
 /// Has this repository ever sent `branch` anywhere?

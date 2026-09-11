@@ -55,8 +55,7 @@ pub enum MsgSource<'a> {
 /// Resolve a hook by name to a runnable path, or `None` to skip.
 fn find_hook(repo: &gix::Repository, name: &str) -> Result<Option<PathBuf>> {
     let dir = match repo.config_snapshot().trusted_path("core.hooksPath") {
-        Some(Ok(path)) => {
-            let path = path.into_owned();
+        Ok(Some(path)) => {
             if path.is_absolute() {
                 path
             } else {
@@ -67,8 +66,8 @@ fn find_hook(repo: &gix::Repository, name: &str) -> Result<Option<PathBuf>> {
                 }
             }
         }
-        Some(Err(err)) => return Err(Error::msg(format!("core.hooksPath: {err}"))),
-        None => repo.common_dir().join("hooks"),
+        Err(err) => return Err(Error::msg(format!("core.hooksPath: {err}"))),
+        Ok(None) => repo.common_dir().join("hooks"),
     };
     let hook = dir.join(name);
     let Ok(md) = std::fs::metadata(&hook) else {

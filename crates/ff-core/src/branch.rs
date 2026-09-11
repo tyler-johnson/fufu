@@ -233,7 +233,8 @@ pub fn list(
         let subject = match tip {
             Some(id) => {
                 let obj = repo.find_object(id).map_err(Error::repo)?;
-                let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+                let commit = gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash())
+                    .map_err(Error::repo)?;
                 Some(commit.message().summary().to_string())
             }
             None => None,
@@ -292,7 +293,7 @@ pub fn list(
             // empty.
             let (subject, tip_time) = match repo.find_commit(r.tip) {
                 Ok(obj) => (
-                    gix::objs::CommitRef::from_bytes(&obj.data)
+                    gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash())
                         .ok()
                         .map(|commit| commit.message().summary().to_string()),
                     obj.committer()

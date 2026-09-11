@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `ff pull`'s native fetch no longer opens every linked worktree once per advertised ref; gix upgraded to 0.87.1 (#10).
+
 ## v0.14.0 — 2026-09-10
 
 ### Added

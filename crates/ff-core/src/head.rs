@@ -19,7 +19,7 @@ pub fn head_state(repo: &gix::Repository) -> Result<HeadState> {
                 None => repo
                     .find_reference(reference.name.as_ref())
                     .map_err(Error::repo)?
-                    .peel_to_id_in_place()
+                    .peel_to_id()
                     .map_err(Error::repo)?
                     .to_string(),
             };

@@ -164,7 +164,7 @@ fn program_of(snap: &gix::config::Snapshot<'_>, format: Format) -> String {
 
 fn allowed_signers(snap: &gix::config::Snapshot<'_>) -> Option<String> {
     match snap.trusted_path("gpg.ssh.allowedSignersFile") {
-        Some(Ok(path)) => Some(path.display().to_string()),
+        Ok(Some(path)) => Some(path.display().to_string()),
         _ => None,
     }
 }
@@ -174,7 +174,7 @@ fn revocation_file(repo: &gix::Repository) -> Option<String> {
         .config_snapshot()
         .trusted_path("gpg.ssh.revocationFile")
     {
-        Some(Ok(path)) => Some(path.display().to_string()),
+        Ok(Some(path)) => Some(path.display().to_string()),
         _ => None,
     }
 }

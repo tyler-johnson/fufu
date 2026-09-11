@@ -14,7 +14,7 @@ pub fn upstream(repo: &gix::Repository) -> Result<Option<Upstream>> {
                 None => repo
                     .find_reference(reference.name.as_ref())
                     .map_err(Error::repo)?
-                    .peel_to_id_in_place()
+                    .peel_to_id()
                     .map_err(Error::repo)?
                     .detach(),
             };
@@ -57,10 +57,7 @@ pub(crate) fn upstream_for(
         }
         Err(err) => return Err(Error::repo(err)),
     };
-    let upstream_id = tracking_ref
-        .peel_to_id_in_place()
-        .map_err(Error::repo)?
-        .detach();
+    let upstream_id = tracking_ref.peel_to_id().map_err(Error::repo)?.detach();
 
     let Some(local_id) = local_id else {
         // Unborn branch with a live upstream: no commits to compare.
@@ -148,8 +145,8 @@ impl gix::objs::Find for Grafted<'_> {
         id: &gix::oid,
         buffer: &'a mut Vec<u8>,
     ) -> std::result::Result<Option<gix::objs::Data<'a>>, gix::objs::find::Error> {
-        let kind = match self.objects.try_find(id, buffer)? {
-            Some(data) => data.kind,
+        let (kind, object_hash) = match self.objects.try_find(id, buffer)? {
+            Some(data) => (data.kind, data.object_hash),
             None => return Ok(None),
         };
         let grafted = kind == gix::objs::Kind::Commit
@@ -160,7 +157,11 @@ impl gix::objs::Find for Grafted<'_> {
         if grafted {
             strip_parents(buffer);
         }
-        Ok(Some(gix::objs::Data { kind, data: buffer }))
+        Ok(Some(gix::objs::Data {
+            kind,
+            object_hash,
+            data: buffer,
+        }))
     }
 }
 

@@ -209,8 +209,8 @@ fn strip_pointers_from_oldest(
     for (i, old_hex) in newest_first.iter().rev().enumerate() {
         let old_id = gix::ObjectId::from_hex(old_hex.as_bytes()).unwrap();
         let obj = repo.find_object(old_id).unwrap();
-        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).unwrap();
-        let mut commit: gix::objs::Commit = commit_ref.into();
+        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).unwrap();
+        let mut commit: gix::objs::Commit = commit_ref.into_owned().unwrap();
         drop(obj);
         if let Some(p) = prev_new
             && !commit.parents.is_empty()

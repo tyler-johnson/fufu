@@ -1,4 +1,4 @@
-//! Snapshot tree assembly. gix 0.73 has no index→tree writer, so the capture
+//! Snapshot tree assembly. gix has no index→tree writer (still true in 0.87), so the capture
 //! tree is built as: HEAD tree + staged deltas + worktree deltas + untracked,
 //! which is exactly what `read-tree HEAD && add -A && write-tree` produces —
 //! the differential harness holds that equality permanently.

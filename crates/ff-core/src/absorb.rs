@@ -83,7 +83,8 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
 /// The first parent's tree, or the empty tree for a root commit.
 fn parent_tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
     let obj = repo.find_object(commit).map_err(Error::repo)?;
-    let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit_ref =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     match commit_ref.parents.first() {
         Some(hex) => tree_of(repo, gix::ObjectId::from_hex(hex).map_err(Error::repo)?),
         None => Ok(gix::ObjectId::empty_tree(repo.object_hash())),
@@ -121,8 +122,8 @@ fn filtered(
     let rhs = repo.find_object(other).map_err(Error::repo)?.detach();
     let mut recorder = gix::diff::tree::Recorder::default();
     gix::diff::tree(
-        gix::objs::TreeRefIter::from_bytes(&lhs.data),
-        gix::objs::TreeRefIter::from_bytes(&rhs.data),
+        gix::objs::TreeRefIter::from_bytes(&lhs.data, repo.object_hash()),
+        gix::objs::TreeRefIter::from_bytes(&rhs.data, repo.object_hash()),
         gix::diff::tree::State::default(),
         &repo.objects,
         &mut recorder,
@@ -780,9 +781,9 @@ pub fn absorb_with(
     // The target's new identity — or the fact that the rewrite dropped it.
     // Absent from `rewrites` legitimately only when the plan names it in
     // `dropped`; anywhere else it is an ordering bug, not a drop.
-    let new_target = match plan.rewrites.iter().find(|r| r.old == target.to_string()) {
+    let new_target = match plan.rewrites.iter().find(|r| r.old == target) {
         Some(r) => Some(r.new.clone()),
-        None if plan.dropped.iter().any(|d| d.old == target.to_string()) => None,
+        None if plan.dropped.iter().any(|d| d.old == target) => None,
         None => return Err(Error::msg("the target was not in the rewrite plan")),
     };
 
@@ -1120,9 +1121,9 @@ pub fn lift_with(
     // The target's new identity — or the fact that the rewrite dropped it.
     // Absent from `rewrites` legitimately only when the plan names it in
     // `dropped`; anywhere else it is an ordering bug, not a drop.
-    let new_target = match plan.rewrites.iter().find(|r| r.old == target.to_string()) {
+    let new_target = match plan.rewrites.iter().find(|r| r.old == target) {
         Some(r) => Some(r.new.clone()),
-        None if plan.dropped.iter().any(|d| d.old == target.to_string()) => None,
+        None if plan.dropped.iter().any(|d| d.old == target) => None,
         None => return Err(Error::msg("the target was not in the rewrite plan")),
     };
 

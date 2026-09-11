@@ -256,8 +256,8 @@ pub(super) fn range_of(
     // `target`'s parents. A root `target` has no parents, so the boundary is
     // empty and the range is all of `tip`'s ancestry.
     let target_obj = repo.find_object(target).map_err(Error::repo)?;
-    let target_commit_ref =
-        gix::objs::CommitRef::from_bytes(&target_obj.data).map_err(Error::repo)?;
+    let target_commit_ref = gix::objs::CommitRef::from_bytes(&target_obj.data, repo.object_hash())
+        .map_err(Error::repo)?;
     let boundary: Vec<gix::ObjectId> = target_commit_ref
         .parents
         .iter()
@@ -425,10 +425,7 @@ pub fn published_count(repo: &gix::Repository, branch: &str, plan: &RewritePlan)
         Err(gix::reference::find::existing::Error::NotFound { .. }) => return Ok(0),
         Err(err) => return Err(Error::repo(err)),
     };
-    let remote_tip = tracking_ref
-        .peel_to_id_in_place()
-        .map_err(Error::repo)?
-        .detach();
+    let remote_tip = tracking_ref.peel_to_id().map_err(Error::repo)?.detach();
 
     let mut count = 0usize;
     for sha in plan
@@ -523,7 +520,8 @@ fn replay(
             continue;
         }
         let obj = repo.find_object(id).map_err(Error::repo)?;
-        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+        let commit_ref =
+            gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
 
         let old_parents: Vec<gix::ObjectId> = commit_ref
             .parents
@@ -592,7 +590,11 @@ fn replay(
                 trees,
             )?
         };
-        let author = commit_ref.author.to_owned().map_err(Error::repo)?;
+        let author = commit_ref
+            .author()
+            .map_err(Error::repo)?
+            .to_owned()
+            .map_err(Error::repo)?;
         let message: BString = if id == target {
             match change {
                 Change::Message(text) => crate::close::normalize_message(text).into(),

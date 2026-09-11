@@ -767,8 +767,7 @@ fn prepare_other(
         }
     })?;
     match crate::head::head_state(&other)? {
-        HeadState::Branch { name, commit, .. }
-            if name == *target && commit == plan.onto.tip.to_string() => {}
+        HeadState::Branch { name, commit, .. } if name == *target && commit == plan.onto.tip => {}
         _ => {
             return Err(contended(format!(
                 "{path} moved off {target} while fold was planning; nothing was written"

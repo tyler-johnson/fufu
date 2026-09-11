@@ -4,8 +4,14 @@ use super::Row;
 
 fn tip_time(repo: &ff_core::gix::Repository, id: ff_core::gix::ObjectId) -> Result<i64> {
     let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit = ff_core::gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-    Ok(commit.committer.time().map_err(Error::repo)?.seconds)
+    let commit = ff_core::gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash())
+        .map_err(Error::repo)?;
+    Ok(commit
+        .committer()
+        .map_err(Error::repo)?
+        .time()
+        .map_err(Error::repo)?
+        .seconds)
 }
 
 /// Whether the shared copy of `branch` still exists on its remote: `None`
@@ -164,7 +170,7 @@ pub(super) fn log_checks(repo: &ff_core::gix::Repository, now: i64, fix: bool) -
         let all_never = ff_core::snapshot::config::GC_KEYS.iter().all(|key| {
             config_file
                 .string(format!("gc.{}.{}", ff_core::snapshot::config::GC_SUBSECTION, key).as_str())
-                .is_some_and(|v| *v == "never")
+                .is_some_and(|v| v == "never")
         });
 
         if all_never {

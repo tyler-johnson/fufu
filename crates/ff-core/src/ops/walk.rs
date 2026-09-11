@@ -207,7 +207,8 @@ pub fn is_op_commit(repo: &gix::Repository, id: gix::ObjectId) -> Result<bool> {
     if obj.kind != gix::objs::Kind::Commit {
         return Ok(false);
     }
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     Ok(is_fufu_commit(&commit)
         && message::parse(&String::from_utf8_lossy(commit.message)).is_some())
 }
@@ -220,14 +221,20 @@ pub fn decode(repo: &gix::Repository, id: gix::ObjectId) -> Result<Operation<'_>
         .map_err(Error::repo)?
         .filter(|obj| obj.kind == gix::objs::Kind::Commit)
         .ok_or_else(|| not_an_op(id))?;
-    let commit = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     if !is_fufu_commit(&commit) {
         return Err(not_an_op(id));
     }
     let text = String::from_utf8_lossy(commit.message).into_owned();
     let skeleton = message::parse(&text).ok_or_else(|| not_an_op(id))?;
     let tree = commit.tree();
-    let time = commit.committer.time().map_err(Error::repo)?.seconds;
+    let time = commit
+        .committer()
+        .map_err(Error::repo)?
+        .time()
+        .map_err(Error::repo)?
+        .seconds;
     let parents: Vec<gix::ObjectId> = commit.parents().collect();
     drop(commit);
     drop(obj);

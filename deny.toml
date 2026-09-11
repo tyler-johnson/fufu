@@ -30,4 +30,10 @@ exceptions = [
     { allow = ["ISC"], crate = "untrusted" },
     { allow = ["ISC"], crate = "rustls-webpki" },
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+    # `ff clone` TLS stack: gix-transport asks reqwest for rustls with its
+    # aws-lc-rs provider. Both crates are ISC alongside Apache-2.0, and the
+    # sys crate's bundled C sources carry MIT and BSD-3-Clause, already allowed.
+    { allow = ["ISC"], crate = "aws-lc-rs" },
+    { allow = ["ISC"], crate = "aws-lc-sys" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
 ]

@@ -99,7 +99,7 @@ pub fn run(
 /// one the clone itself uses, so a URL refused here is one the clone would
 /// have refused anyway, refused before anything is created.
 fn default_dir(url: &str) -> Result<String> {
-    let parsed = gix::url::parse(url.into()).map_err(|err| {
+    let parsed = gix::url::parse(url).map_err(|err| {
         Error::coded(
             "clone/bad-url",
             format!("that is not a repository fufu can address: {err}"),

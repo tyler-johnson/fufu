@@ -183,11 +183,7 @@ pub fn preflight_branch(
     // ambiguity refusal never runs — then `remote::for_branch` decides:
     // named, none configured, or ambiguous and the refusal lands here.
     let remote = if let Some(name) = to {
-        if !repo
-            .remote_names()
-            .iter()
-            .any(|remote| remote.to_string() == name)
-        {
+        if !repo.remote_names().iter().any(|remote| remote == name) {
             return Err(Error::coded(
                 "push/unknown-remote",
                 format!("no remote named {name}: fufu will not invent one to push to"),

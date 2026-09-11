@@ -64,14 +64,16 @@ fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectI
 /// message is what the amend compares and lands.
 fn message_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
     let obj = repo.find_object(commit).map_err(Error::repo)?;
-    let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit_ref =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     Ok(commit_ref.message.to_string())
 }
 
 /// A commit's first parent, or `None` for a root.
 fn first_parent(repo: &gix::Repository, id: gix::ObjectId) -> Result<Option<gix::ObjectId>> {
     let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
+    let commit_ref =
+        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
     match commit_ref.parents.first() {
         Some(hex) => Ok(Some(gix::ObjectId::from_hex(hex).map_err(Error::repo)?)),
         None => Ok(None),
@@ -204,7 +206,7 @@ fn finish_resolution(
         .transpose()?;
     let plan = held::replan_at(repo, hold, Some(branch), open)?;
     let chain = rewrite::chain(repo, plan.target, plan.tip, &plan.change, &[])?;
-    if chain.tree.to_string() != resolve.from {
+    if chain.tree != resolve.from {
         return Err(Error::coded(
             "held/moved",
             format!(
@@ -989,9 +991,9 @@ pub fn done_with(
     // all means the session changed nothing, and a session that changed
     // nothing did not drop its commit.
     let amended = match &rewrite_plan {
-        Some(plan) => match plan.rewrites.iter().find(|r| r.old == anchor.to_string()) {
+        Some(plan) => match plan.rewrites.iter().find(|r| r.old == anchor) {
             Some(r) => Some(r.new.clone()),
-            None if plan.dropped.iter().any(|d| d.old == anchor.to_string()) => None,
+            None if plan.dropped.iter().any(|d| d.old == anchor) => None,
             None => {
                 return Err(Error::msg(
                     "the session's commit was not in the rewrite plan",

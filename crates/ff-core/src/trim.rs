@@ -474,8 +474,9 @@ fn walk_log(repo: &gix::Repository, tip: gix::ObjectId) -> Result<Vec<Entry>> {
             break;
         };
         let obj = repo.find_object(id).map_err(Error::repo)?;
-        let commit_ref = gix::objs::CommitRef::from_bytes(&obj.data).map_err(Error::repo)?;
-        let commit: gix::objs::Commit = commit_ref.into();
+        let commit_ref =
+            gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
+        let commit: gix::objs::Commit = commit_ref.into_owned().map_err(Error::repo)?;
         drop(obj);
         let message = String::from_utf8_lossy(commit.message.as_ref()).into_owned();
         let prev = op.prev().map(|p| p.object_id());

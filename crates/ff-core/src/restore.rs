@@ -72,7 +72,7 @@ pub fn parse_time(raw: &str, now: i64) -> Result<i64> {
     if let Some(secs) = parse_compact_age(raw) {
         return Ok(now - secs);
     }
-    let time = gix::date::parse(raw, Some(std::time::SystemTime::now())).map_err(|err| {
+    let time = gix::date::parse(raw, Some(gix::date::Zoned::now())).map_err(|err| {
         Error::coded(
             "usage/bad-restore-target",
             format!("unrecognized time {raw:?}: {err}"),

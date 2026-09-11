@@ -95,7 +95,11 @@ pub(crate) fn apply_tree_transition(
                             .convert_to_worktree(
                                 &blob.data,
                                 change.path.as_str().into(),
-                                gix::filter::plumbing::driver::apply::Delay::Forbid,
+                                gix::filter::plumbing::pipeline::convert::to_worktree::Options {
+                                    can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
+                                    unknown_encoding:
+                                        gix::filter::plumbing::pipeline::convert::to_worktree::UnknownEncoding::Fail,
+                                },
                             )
                             .map_err(Error::repo)?;
                         let bytes: Vec<u8> = match converted.as_bytes() {
@@ -176,8 +180,8 @@ fn tree_changes(
     let rhs = repo.find_object(to).map_err(Error::repo)?.detach();
     let mut recorder = gix::diff::tree::Recorder::default();
     gix::diff::tree(
-        gix::objs::TreeRefIter::from_bytes(&lhs.data),
-        gix::objs::TreeRefIter::from_bytes(&rhs.data),
+        gix::objs::TreeRefIter::from_bytes(&lhs.data, repo.object_hash()),
+        gix::objs::TreeRefIter::from_bytes(&rhs.data, repo.object_hash()),
         gix::diff::tree::State::default(),
         &repo.objects,
         &mut recorder,

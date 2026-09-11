@@ -58,7 +58,8 @@ pub fn write_index_for_tree_except(
         .boolean_filter("index.skipHash", &mut |md: &gix::config::file::Metadata| {
             md.source != gix::config::Source::Api
         })
-        .and_then(|res| res.ok())
+        .ok()
+        .flatten()
         .unwrap_or_default();
 
     // Serialize entries without extensions, splice in the synthesized cache
@@ -256,7 +257,7 @@ fn cache_tree_for(
         name: &[u8],
     ) -> Result<gix::index::extension::Tree> {
         let obj = repo.find_object(id).map_err(Error::repo)?.detach();
-        let iter = gix::objs::TreeRefIter::from_bytes(&obj.data);
+        let iter = gix::objs::TreeRefIter::from_bytes(&obj.data, repo.object_hash());
         let mut children = Vec::new();
         let mut entries: u32 = 0;
         for entry in iter {

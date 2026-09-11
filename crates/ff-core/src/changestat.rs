@@ -204,14 +204,14 @@ pub fn tree_diff(
 
             if !change.entry_mode().is_no_tree() {
                 // Directory entry — skip entirely, never push a FileStat.
-                return Ok::<Action, std::convert::Infallible>(Action::Continue);
+                return Ok::<Action, std::convert::Infallible>(Action::Continue(()));
             }
 
             // The path filter runs before the blob work, not after: a
             // narrowed `ff diff src/` must not pay to diff the rest of the
             // tree it is not going to print.
             if !opts.paths.is_empty() && !crate::restore::path_selected(&path, &opts.paths) {
-                return Ok::<Action, std::convert::Infallible>(Action::Continue);
+                return Ok::<Action, std::convert::Infallible>(Action::Continue(()));
             }
 
             let mut hunks = None;
@@ -264,7 +264,7 @@ pub fn tree_diff(
                 new_id,
             });
 
-            Ok::<Action, std::convert::Infallible>(Action::Continue)
+            Ok::<Action, std::convert::Infallible>(Action::Continue(()))
         })
         .map_err(Error::repo)?;
 

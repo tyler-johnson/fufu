@@ -468,7 +468,7 @@ fn object_candidate(repo: &gix::Repository, base: &str) -> Result<Option<gix::Ob
 /// A ref's peeled target, for comparing two names that may hold one commit.
 fn peeled(repo: &gix::Repository, full: &str) -> Result<Option<gix::ObjectId>> {
     match repo.try_find_reference(full).map_err(Error::repo)? {
-        Some(mut r) => Ok(Some(r.peel_to_id_in_place().map_err(Error::repo)?.detach())),
+        Some(mut r) => Ok(Some(r.peel_to_id().map_err(Error::repo)?.detach())),
         None => Ok(None),
     }
 }
@@ -498,7 +498,7 @@ fn tips_under(
         if !prefixes.iter().any(|p| name.starts_with(p)) {
             continue;
         }
-        let Ok(id) = reference.peel_to_id_in_place() else {
+        let Ok(id) = reference.peel_to_id() else {
             continue;
         };
         let id = id.detach();

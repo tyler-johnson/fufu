@@ -58,7 +58,7 @@ pub const GC_KEYS: [&str; 2] = ["reflogExpire", "reflogExpireUnreachable"];
 pub fn load_config_file(
     path: &std::path::Path,
     source: gix::config::Source,
-) -> Result<gix::config::File<'static>> {
+) -> Result<gix::config::File> {
     let metadata = gix::config::file::Metadata::from(source);
     match std::fs::read(path) {
         Ok(mut bytes) => {
@@ -75,7 +75,7 @@ pub fn load_config_file(
 /// Serialize and write via `<path>.lock` (git's own lock convention: create-new
 /// fails if a concurrent git holds it) + atomic rename; the lock file is
 /// removed on failure.
-pub fn write_config_file(path: &std::path::Path, file: &gix::config::File<'_>) -> Result<()> {
+pub fn write_config_file(path: &std::path::Path, file: &gix::config::File) -> Result<()> {
     let mut bytes = Vec::new();
     file.write_to(&mut bytes).map_err(Error::repo)?;
 
@@ -124,7 +124,9 @@ pub fn ensure_gc_config(repo: &gix::Repository) -> Result<()> {
         .map_err(Error::repo)?;
     for key in GC_KEYS {
         if !existing.contains(&key) {
-            section.push(key.try_into().map_err(Error::repo)?, Some("never".into()));
+            section
+                .push(key, Some("never".into()))
+                .map_err(Error::repo)?;
         }
     }
 
@@ -168,7 +170,6 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
             // for an octopus upstream — would otherwise come out squared.
             let mut names: Vec<String> = Vec::new();
             for name in section.value_names() {
-                let name = name.as_ref().to_string();
                 if !names.contains(&name) {
                     names.push(name);
                 }
@@ -179,7 +180,7 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
                     section
                         .values(&name)
                         .into_iter()
-                        .map(move |value| (name.clone(), value.into_owned()))
+                        .map(move |value| (name.clone(), value))
                 })
                 .collect()
         }
@@ -194,7 +195,9 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
         .section_mut_or_create_new("branch", Some(new.into()))
         .map_err(Error::repo)?;
     for (name, value) in moved {
-        section.push(name.try_into().map_err(Error::repo)?, Some(value.as_ref()));
+        section
+            .push(&name, Some(value.as_ref()))
+            .map_err(Error::repo)?;
     }
     let _ = file.remove_section("branch", Some(old.into()));
 
@@ -232,15 +235,13 @@ pub fn set_branch_upstream(repo: &gix::Repository, branch: &str, remote: &str) -
     let mut section = file
         .section_mut_or_create_new("branch", Some(branch.into()))
         .map_err(Error::repo)?;
-    section.push(
-        "remote".try_into().map_err(Error::repo)?,
-        Some(gix::bstr::BStr::new(remote.as_bytes())),
-    );
+    section
+        .push("remote", Some(gix::bstr::BStr::new(remote.as_bytes())))
+        .map_err(Error::repo)?;
     let merge = format!("refs/heads/{branch}");
-    section.push(
-        "merge".try_into().map_err(Error::repo)?,
-        Some(gix::bstr::BStr::new(merge.as_bytes())),
-    );
+    section
+        .push("merge", Some(gix::bstr::BStr::new(merge.as_bytes())))
+        .map_err(Error::repo)?;
 
     write_config_file(&path, &file)
 }

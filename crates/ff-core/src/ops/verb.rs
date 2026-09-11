@@ -657,7 +657,7 @@ fn reflog_hint(repo: &gix::Repository, name: &str, target: Option<&str>) -> Opti
     let mut platform = reference.log_iter();
     let iter = platform.rev().ok()??;
     for line in iter.flatten() {
-        if line.new_oid.to_string() == target {
+        if line.new_oid == target {
             let msg = line.message.to_string();
             if !msg.is_empty() {
                 return Some(msg);

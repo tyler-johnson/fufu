@@ -168,10 +168,10 @@ pub const FUFU_EMAIL: &str = "fufu@local";
 /// record commit bears the identity too, and only [`is_op_commit`] tells the
 /// two apart.
 pub(crate) fn is_fufu_commit(commit: &gix::objs::CommitRef<'_>) -> bool {
-    commit.author.name == FUFU_NAME
-        && commit.author.email == FUFU_EMAIL
-        && commit.committer.name == FUFU_NAME
-        && commit.committer.email == FUFU_EMAIL
+    let is_fufu =
+        |actor: &gix::actor::SignatureRef<'_>| actor.name == FUFU_NAME && actor.email == FUFU_EMAIL;
+    commit.author().is_ok_and(|actor| is_fufu(&actor))
+        && commit.committer().is_ok_and(|actor| is_fufu(&actor))
 }
 
 /// What an operation is. Kinds sort the log; they do not fork the model —
