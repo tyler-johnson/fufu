@@ -14,7 +14,7 @@ use ff_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 
 use super::briefing::NOTICE;
-use super::{AgentEvent, AgentProtocol, EventKind, Reply, mcp, skill};
+use super::{AgentEvent, AgentProtocol, EventKind, Reply, skill};
 use crate::ctx::Ctx;
 
 /// A payload larger than this is refused rather than read into memory.
@@ -168,15 +168,12 @@ fn speak(
         dirty = true;
         // The skill and tools lines join the notice before the envelope
         // rather than after it, because a client that wants JSON wants one
-        // field and not two. Each is asked of the adapter at print time: an
-        // install and a disk can disagree, and naming a skill or a server
-        // that is not there is worse than saying nothing at all.
+        // field and not two. It is asked of the adapter at print time: an
+        // install and a disk can disagree, and naming a skill that is not
+        // there is worse than saying nothing at all.
         let mut text = NOTICE.to_string();
         if proto.has_skill() {
             text.push_str(skill::LINE);
-        }
-        if proto.has_mcp() {
-            text.push_str(mcp::LINE);
         }
         reply.context.push(text);
         // A declared extension's line is briefing, so it rides this same

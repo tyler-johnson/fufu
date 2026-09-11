@@ -130,9 +130,6 @@ fn bought(manifest: &Manifest) -> Vec<String> {
             .collect();
         notes.push(format!("it subscribes to {}", kinds.join(", ")));
     }
-    if manifest.mcp.is_some() {
-        notes.push("it brings a server of its own, registered beside fufu's".to_string());
-    }
     // How `ff update` will answer for it: a source build is named as one
     // to rebuild, a block names the channels it can be moved on, and a
     // manifest with neither is one fufu will say it cannot move.

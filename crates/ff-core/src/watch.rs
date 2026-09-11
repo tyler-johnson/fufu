@@ -80,7 +80,7 @@ pub enum Motion {
     Start { tip: Option<OpId> },
     /// An operation was appended.
     Landed {
-        /// Boxed because `OpEntry` is ten fields, and without the box every
+        /// Boxed because `OpEntry` is nine fields, and without the box every
         /// other variant would be that size too.
         op: Box<OpEntry>,
     },

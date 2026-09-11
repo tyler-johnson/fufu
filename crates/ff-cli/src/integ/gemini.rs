@@ -45,22 +45,13 @@ fn spec() -> Result<settings::Spec> {
     })
 }
 
-/// The MCP server goes in the same file as the hooks, under its own key;
-/// Gemini spells no transport, so the entry carries none.
+/// Where a fufu before v0.15 registered its MCP server: the same file as
+/// the hooks, under its own key.
 fn mcp_spec() -> Result<mcp::Spec> {
-    Ok(mcp::Spec::new(
-        config_dir()?.join("settings.json"),
-        mcp::Shape::Json { with_type: false },
-    ))
-}
-
-/// Every declared extension's own server in `settings.json`, and every
-/// name registered there that nothing declares any more.
-fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
-    match mcp_spec() {
-        Ok(spec) => mcp::extensions(&spec),
-        Err(_) => (Vec::new(), Vec::new()),
-    }
+    Ok(mcp::Spec {
+        path: config_dir()?.join("settings.json"),
+        shape: mcp::Shape::Json,
+    })
 }
 
 impl Integration for Gemini {
@@ -81,7 +72,6 @@ impl Integration for Gemini {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
-        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -89,25 +79,19 @@ impl Integration for Gemini {
             note: None,
             parts: Vec::new(),
             skill: None,
-            mcp: Some(match mcp_spec() {
-                Ok(spec) => mcp::wiring(&spec),
-                Err(err) => Wiring::Unavailable(err.to_string()),
-            }),
-            mcp_extensions,
-            mcp_orphaned,
             stale,
         }
     }
 
     fn install(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::install(&spec()?)?;
-        change.absorb(mcp::install(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         Ok(change)
     }
 
     fn uninstall(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::uninstall(&spec()?)?;
-        change.absorb(mcp::uninstall(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         Ok(change)
     }
 
@@ -136,16 +120,6 @@ impl AgentProtocol for Gemini {
             })
             .to_string(),
         )
-    }
-
-    fn has_mcp(&self) -> bool {
-        match mcp_spec() {
-            Ok(spec) => matches!(
-                mcp::wiring(&spec),
-                Wiring::Wired { .. } | Wiring::HandWritten
-            ),
-            Err(_) => false,
-        }
     }
 }
 

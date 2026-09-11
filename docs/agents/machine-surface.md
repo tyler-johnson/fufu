@@ -116,7 +116,6 @@ $ ff status --json | jq .
       "time": 1788748661,
       "branch": "main",
       "session": null,
-      "route": "shell",
       "undo_of": null
     }
   }
@@ -134,7 +133,7 @@ Reading it:
 - **`futures`** — the pull verdicts the human header compresses into one line. Each side, when present, holds what it is measured `against` and a `verdict` such as `{"kind":"up-to-date","ahead":0}`.
 - **`upstream`** — `ahead`, `behind`, and `gone`, when a remote tracking branch exists.
 - **`foreign`, `held`, `resolving`** — null except when raw git drifted behind fufu's back, a rewrite is [held](../concepts/held-rewrites.md), or a resolve session is open. `resolving.session` names the session branch, and `resolving.here` says whether HEAD is on it; on the branch the hold stands on, `here` is false and `held` is set.
-- **`last_op`** — the newest operation on this worktree's chain, as `ff op log --json` spells its row: `kind` (`op`, `capture`, `foreign`, or `note`), `verb`, `summary`, `branch`, `session`, and `route`. Status's own capture is never the row, so a dirty read still names the last thing that happened before it; foreign motion is reconciled first, so a `foreign` row agrees with `foreign`.
+- **`last_op`** — the newest operation on this worktree's chain, as `ff op log --json` spells its row: `kind` (`op`, `capture`, `foreign`, or `note`), `verb`, `summary`, `branch`, and `session`. Status's own capture is never the row, so a dirty read still names the last thing that happened before it; foreign motion is reconciled first, so a `foreign` row agrees with `foreign`.
 
 A script that checks `foreign`, `held`, and `resolving` before acting knows whether the repository needs a human first.
 
@@ -292,35 +291,6 @@ The refusal is a usage error — id `usage/git-policy` — because the command l
 
 One more contract keeps scripts out of stuck states: no verb ever blocks on a prompt or an editor with nobody there to answer. Wherever fufu would ask, a flag supplies the answer up front, and when stdin is not a terminal — or `FF_NONINTERACTIVE` is set to force it — the question becomes a structured error naming that flag, such as [`ff describe`](../reference/cli/describe.md) with no `-m` failing instead of opening an editor.
 
-## The MCP surface
-
-[`ff mcp`](../reference/cli/mcp.md) is the same contract over the Model Context Protocol: seven typed tools, `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`, each taking the verb's own flags as fields and a `cwd`, and each answering with the envelope above. Every call runs the binary as a child with `--json` and relays what it printed, so nothing on this page changes for a caller that arrives through a tool — it is a shell over one contract, not a second implementation.
-
-```json
-{"name": "explain", "arguments": {"id": "no/such-id"}}
-```
-
-```json
-{"content": [{"type": "text", "text": "{\"ff\":1,\"cmd\":\"explain\",\"error\":{\"id\":\"usage/unknown-error-id\",\"message\":\"no such error id: no/such-id\",\"exits\":[\"ff explain --list\"]}}"}],
- "structuredContent": {"ff": 1, "cmd": "explain", "error": {"id": "usage/unknown-error-id", "message": "no such error id: no/such-id", "exits": ["ff explain --list"]}},
- "isError": true,
- "_meta": {"exit": 2}}
-```
-
-The envelope arrives twice, as the text content and as `structuredContent`, so a client that reads either gets the whole of it.
-
-`isError` is the envelope's kind, not the exit code: true when an `error` envelope came back, or when the child failed without printing one, and false on a `data` envelope whatever the code beside it. `_meta.exit` carries the child's exit code as an integer on every result a child produced, and is absent when no child ran — the tool's own refusals, a spawn that failed — or the child died by signal. A fufu failure is a *successful* tool call carrying `isError`, never a protocol error — a client renders a protocol error opaquely, and the `error.id` inside is what the agent has to read.
-
-The held case is where the two part. A `ff pull` that held is a successful call, `isError` false, whose `data` says which branch held and carries `_meta.exit` of 3; a `ff doctor` with findings is the same at 1. A client may not show `_meta` to the model, so the agent's own signal for a held outcome is the report in `data`, and `_meta.exit` is for a strict client or a harness that wants the number.
-
-The exit-code rules restate as tool rules. An id under `held/*` means nothing moved and a person is needed, so the agent stops and says so. `ref/contended` means the same call run once more.
-
-### What the tool serves
-
-The seven, each with the verb's own flags as fields: `status` takes `at-op` and `at`; `pull` takes `branches`, `all`, `dry-run`, and `no-fetch`; `push` takes `branches`, `dry-run`, and `to`; `undo` and `redo` take nothing; `explain` takes `id` and `list`; `help` takes `verb`, the words after `ff help` as an array, and returns the page as text with no structured content, or the map of every verb with none. Every one takes `cwd`, the directory to run in, and `--session` on the server tags every child's operations. A name nothing serves is a protocol error, since no child ran.
-
-Everything else is the shell. Beside the seven, the server lists a tool per descriptor a declared extension produced, named `<extension>__<tool>` and typed under [the tool list](../reference/extensions.md#optional-mcp-tools), taking `cwd` the same way. [Agent setup](setup.md#serve-the-verbs-as-a-tool) covers registering it.
-
 ## Extensions
 
 `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, which is git's own extension model. There are two kinds of extension, and what separates them is not what one is allowed to do — it is what fufu will say about it.
@@ -329,7 +299,7 @@ Everything else is the shell. Beside the seven, the server lists a tool per desc
 
 An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
 
-Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does not reach it, and no tool of its own is served.
+Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does not reach it.
 
 ### Declared
 
@@ -343,10 +313,9 @@ What declaring buys is that fufu will describe it to an agent:
 - its briefing line rides fufu's
 - its skills install beside fufu's
 - the neutral agent event fans out to it
-- the MCP tools it produces are served beside fufu's seven, and an MCP server of its own registers beside fufu's
 - `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move; the background release check reads a github.com `releases` page and announces a new release beside fufu's own
 
-`ff extension` is the shell's, not a tool's. The registry is the allowlist for all of the above, so an agent must not be able to write it through a tool.
+`ff extension` is a person's verb. The registry is the allowlist for all of the above, so an agent must not be able to write it through anything but the shell a person is watching.
 
 `ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
 
@@ -391,15 +360,15 @@ An extension gets the answers handed to it. `ff <name>` runs `ff-<name>` from PA
 
 ```console
 $ ff op log --json | jq -c '.data.ops[]'
-{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","route":"shell","undo_of":null}
-{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","route":"shell","undo_of":null}
-{"id":"syvwzwqxsrnuwptyuxqqkmrzlwuutotsvvzkswko","short_id":"syvw","kind":"capture","verb":"","summary":"pre: ff status --json","time":1787985378,"branch":"main","session":null,"route":"shell","undo_of":null}
-{"id":"ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr","short_id":"ksrn","kind":"op","verb":"commit","summary":"commit on main: parser: skeleton","time":1787985378,"branch":"main","session":null,"route":"shell","undo_of":null}
-{"id":"noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll","short_id":"noym","kind":"capture","verb":"","summary":"pre: ff commit -m parser: skeleton","time":1787985378,"branch":"main","session":null,"route":"shell","undo_of":null}
-{"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","kind":"note","verb":"init","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"route":"shell","undo_of":null}
+{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"syvwzwqxsrnuwptyuxqqkmrzlwuutotsvvzkswko","short_id":"syvw","kind":"capture","verb":"","summary":"pre: ff status --json","time":1787985378,"branch":"main","session":null,"undo_of":null}
+{"id":"ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr","short_id":"ksrn","kind":"op","verb":"commit","summary":"commit on main: parser: skeleton","time":1787985378,"branch":"main","session":null,"undo_of":null}
+{"id":"noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll","short_id":"noym","kind":"capture","verb":"","summary":"pre: ff commit -m parser: skeleton","time":1787985378,"branch":"main","session":null,"undo_of":null}
+{"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","kind":"note","verb":"init","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"undo_of":null}
 ```
 
-`verb` names which fufu verb an `op` was; a capture's `summary` says what it ran ahead of — the `pre:` prefix is literal, because operations are written before the mutation they describe, so an entry is a claim about the next moment rather than a report on the last one. `route` says how the invocation arrived, `shell` or `tool`. `undo_of` links an operation to the one it reversed, when it was one.
+`verb` names which fufu verb an `op` was; a capture's `summary` says what it ran ahead of — the `pre:` prefix is literal, because operations are written before the mutation they describe, so an entry is a claim about the next moment rather than a report on the last one. `undo_of` links an operation to the one it reversed, when it was one.
 
 An operation id addresses the operation everywhere the `ff op` family takes one, and the shortest unique prefix is enough — `short_id` is exactly that prefix. [`ff op show`](../reference/cli/op-show.md) reads one out whole, ref transitions included:
 
@@ -415,7 +384,6 @@ $ ff op show ksrn --json | jq .
     "time": 1787985378,
     "branch": "main",
     "session": null,
-    "route": "shell",
     "base": null,
     "prev": "noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll",
     "tree": "5d90422423db5ef6b431e8b9e60e0baf04b8742a",
@@ -443,13 +411,11 @@ A session is a tag on an operation, and nothing more. Set one — `--session <na
 
 ```console
 $ ff op log 'session(flight-3)' --json | jq -c '.data.ops[]'
-{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","route":"shell","undo_of":null}
-{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","route":"shell","undo_of":null}
+{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
 ```
 
 `kind(capture)`, `kind(op)`, and the rest of the grammar compose the same way, so "everything agent flight-3 did that was a real verb" is one expression. Two agents interleaving in one repository stay separable forever, because the tag rides each operation rather than a range between two points.
-
-The route rides beside the session: `shell` for an invocation typed at a shell, `tool` for one an [`ff mcp`](../reference/cli/mcp.md) tool ran and anything it spawned, and `route(tool)` filters the same way `session()` does. An agent's hook captures read `shell`, since the hook is not the tool. An operation with no `route` is one recorded before the field existed, or by a path with no invocation behind it; absent means unknown and never reads as `shell`.
 
 For a consumer that wants the log pushed rather than polled, [`ff watch`](../reference/cli/watch.md) streams it: one JSON object per line as operations land, opening on a `start` line naming the tip. `--session` and `--kind` filter it, and `--all` merges every worktree into one stream.
 

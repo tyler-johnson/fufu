@@ -48,7 +48,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `editor/failed` | 1 | the editor did not produce a description |
 | `extension/bad-manifest` | 1 | the manifest came back, and fufu cannot read it |
 | `extension/bad-skill` | 1 | the skill came back, and fufu cannot read it |
-| `extension/bad-tools` | 1 | the tool list came back, and fufu cannot read it |
 | `extension/delegate-failed` | 1 | the extension did not answer when fufu delegated to it |
 | `extension/handshake-failed` | 1 | the extension did not answer the manifest handshake |
 | `extension/name-mismatch` | 1 | the manifest claims a name other than the binary's |
@@ -57,7 +56,6 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `extension/registry-unreadable` | 1 | the registry is there and does not read as one |
 | `extension/registry-unwritable` | 1 | there is nowhere to record the declaration |
 | `extension/skill-failed` | 1 | the extension did not answer the skill handshake |
-| `extension/tools-failed` | 1 | the extension did not answer the tool handshake |
 | `extension/unsupported-contract` | 1 | the extension speaks a contract this fufu does not |
 | `fold/conflict` | 1 | the replay would conflict, so nothing was folded |
 | `fold/other-tree-conflict` | 1 | the target's open change in the other worktree would conflict with the fold |

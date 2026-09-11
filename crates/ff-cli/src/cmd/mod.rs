@@ -21,7 +21,6 @@ pub mod init;
 pub mod lift;
 pub mod log;
 pub mod map;
-pub mod mcp;
 pub mod op;
 pub mod pull;
 pub mod push;

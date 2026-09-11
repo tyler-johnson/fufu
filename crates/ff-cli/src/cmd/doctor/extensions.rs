@@ -23,18 +23,11 @@ use super::Row;
 /// aggregate one.
 ///
 /// A handshake runs for every declared extension found on PATH — one spawn
-/// apiece. `ff mcp` and the trigger fan-out both trust the record rather
-/// than pay that cost on every call; doctor is the one place slow and
-/// thorough is the point, so it asks each binary directly rather than
-/// taking the registry's word for what is still true.
-///
-/// An extension whose manifest promises tools costs a second spawn beside
-/// the first — `--ff-manifest`, then `--ff-tools` — doubling doctor's cost
-/// for exactly the extensions that promised tools. That is the same
-/// tradeoff on the same side: `ff mcp` and the trigger fan-out stay silent
-/// on a failed or missing tools handshake, on the trigger doctrine, which
-/// is exactly why this is the one place a person finds out.
-pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Vec<Row> {
+/// apiece. The trigger fan-out trusts the record rather than pay that cost
+/// on every call; doctor is the one place slow and thorough is the point,
+/// so it asks each binary directly rather than taking the registry's word
+/// for what is still true.
+pub(super) fn extension_rows() -> Vec<Row> {
     let registry = crate::registry::read();
     let mut rows = Vec::new();
 
@@ -75,7 +68,7 @@ pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Ve
     }
 
     for declared in registry.declared() {
-        rows.push(declared_row(declared, statuses, fix));
+        rows.push(declared_row(declared));
     }
 
     // A stale record is a declaration too, one this fufu does not speak:
@@ -98,27 +91,13 @@ pub(super) fn extension_rows(statuses: &[crate::integ::Status], fix: bool) -> Ve
         ));
     }
 
-    if let Some(row) = orphaned_mcp_row(statuses) {
-        rows.push(row);
-    }
-
     rows
 }
 
 /// One declared extension: gone from PATH, failed its handshake, drifted
 /// from what was recorded, or matches. Named for the extension rather than
 /// for "extensions", the way a wiring row is named for its client.
-///
-/// A manifest naming a server of its own folds that server's registration
-/// into this same row rather than a row of its own — a server sits on both
-/// the client axis and the extension axis, and the extension axis already
-/// has a row. Silent when the manifest names no server, which is most of
-/// them.
-fn declared_row(
-    declared: &crate::registry::Declared,
-    statuses: &[crate::integ::Status],
-    fix: bool,
-) -> Row {
+fn declared_row(declared: &crate::registry::Declared) -> Row {
     let name = declared.name();
     let recorded = &declared.manifest;
 
@@ -150,19 +129,10 @@ fn declared_row(
         Ok(live) if live.version != recorded.version || live.contract != recorded.contract => {
             drifted_row(name, &recorded.version, recorded.contract, &live)
         }
-        Ok(live) => {
-            let mut row = Row::ok(
-                name.to_string(),
-                format!("{} matches ff-{name} on PATH", live.version),
-            );
-            if let Some(mcp) = mcp_extension_row(declared, statuses, fix) {
-                row = merge(row, mcp);
-            }
-            if let Some(tools) = tools_row(name, &path, &live) {
-                row = merge(row, tools);
-            }
-            row
-        }
+        Ok(live) => Row::ok(
+            name.to_string(),
+            format!("{} matches ff-{name} on PATH", live.version),
+        ),
     }
 }
 
@@ -184,206 +154,6 @@ fn drifted_row(
             live.version, live.contract
         ),
     )
-}
-
-/// A declared extension's own tools, asked for when its manifest promises
-/// them — the second spawn `extension_rows` argues for, hung off the same
-/// row `mcp_extension_row` hangs a server clause on. `None` when the
-/// manifest promises none, which is most of them.
-///
-/// A failed or missing handshake is a `WARN`: `ff mcp` and the trigger
-/// fan-out are silent about it on the trigger doctrine, so a promise kept
-/// only in the manifest and never in what the binary produces is invisible
-/// everywhere but here. A count that came back is a clause on an otherwise
-/// healthy row, naming the tools rather than only how many.
-fn tools_row(name: &str, path: &std::path::Path, live: &crate::manifest::Manifest) -> Option<Row> {
-    if !live.tools {
-        return None;
-    }
-    Some(match crate::manifest::ask_tools(path, name) {
-        Err(err) => Row::warn(
-            name.to_string(),
-            format!("promises tools, but the handshake failed: {err}"),
-        ),
-        Ok(tools) => {
-            let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
-            Row::ok(
-                name.to_string(),
-                format!(
-                    "produces {} tool{}: {}",
-                    tools.len(),
-                    if tools.len() == 1 { "" } else { "s" },
-                    names.join(", ")
-                ),
-            )
-        }
-    })
-}
-
-/// `base` and an added clause about the same extension, folded into one
-/// row: the worse level wins, `fixable` is inherited from whichever side
-/// set it, and the two details join into one sentence.
-fn merge(base: Row, extra: Row) -> Row {
-    use super::Level;
-
-    let warn = matches!(base.level, Level::Warn) || matches!(extra.level, Level::Warn);
-    let info = matches!(base.level, Level::Info) || matches!(extra.level, Level::Info);
-    Row {
-        level: if warn {
-            Level::Warn
-        } else if info {
-            Level::Info
-        } else {
-            Level::Ok
-        },
-        name: base.name,
-        detail: format!("{}; {}", base.detail, extra.detail),
-        fixable: base.fixable || extra.fixable,
-    }
-}
-
-/// A declared extension's own server, folded across the clients whose
-/// files carry it — the same aggregation `wiring::mcp_row` does for
-/// fufu's own, returned as a clause for `declared_row` rather than a
-/// second aggregate. `None` when the manifest names no server, or when no
-/// client on this machine shows any trace of one.
-fn mcp_extension_row(
-    declared: &crate::registry::Declared,
-    statuses: &[crate::integ::Status],
-    fix: bool,
-) -> Option<Row> {
-    use crate::integ::Wiring;
-    use crate::integ::mcp::ServerWiring;
-
-    declared.manifest.mcp.as_ref()?;
-    let name = declared.name();
-
-    let entries: Vec<(&crate::integ::Status, &ServerWiring)> = statuses
-        .iter()
-        .filter_map(|status| {
-            status
-                .mcp_extensions
-                .iter()
-                .find(|ext| ext.name == name)
-                .map(|ext| (status, &ext.wiring))
-        })
-        .filter(|(status, wiring)| status.presence.is_present() || wiring.at().is_some())
-        .collect();
-    if entries.is_empty() {
-        return None;
-    }
-
-    // A wired hook with no server beside it: an install predating the
-    // manifest naming one, repaired the same way a missing fufu server is.
-    if let Some((status, _)) = entries.iter().find(|(status, wiring)| {
-        matches!(wiring, ServerWiring::NotWired)
-            && matches!(status.wiring, Wiring::Wired { .. } | Wiring::Partial { .. })
-    }) {
-        return Some(super::wiring::fixed_or_fixable_named(
-            name.to_string(),
-            status,
-            format!(
-                "its MCP server is not registered with {}, whose hook is wired",
-                status.slug
-            ),
-            &format!("`ff hook {}`", status.slug),
-            fix,
-        ));
-    }
-
-    // A stale entry: the same binary, arguments the manifest has since
-    // moved past. `ff hook <slug>` will not overwrite it — the ownership
-    // test that would let a repair rewrite an entry is exactly the one a
-    // stale entry fails — so this is never offered as fixable.
-    if let Some((status, wiring)) = entries
-        .iter()
-        .find(|(_, wiring)| matches!(wiring, ServerWiring::Stale { .. }))
-    {
-        let at = wiring
-            .at()
-            .map(|at| at.display().to_string())
-            .unwrap_or_default();
-        return Some(Row::warn(
-            name.to_string(),
-            format!(
-                "its MCP server in {at} runs an older argument list than the manifest now \
-                 declares — `ff hook {}` will not overwrite an entry it does not own outright; \
-                 remove it there and run `ff hook {}` again",
-                status.slug, status.slug
-            ),
-        ));
-    }
-
-    let registered: Vec<&str> = entries
-        .iter()
-        .filter(|(_, wiring)| matches!(wiring, ServerWiring::Wired { .. }))
-        .map(|(status, _)| status.slug)
-        .collect();
-    let hand: Vec<&str> = entries
-        .iter()
-        .filter(|(_, wiring)| matches!(wiring, ServerWiring::HandWritten))
-        .map(|(status, _)| status.slug)
-        .collect();
-    if registered.is_empty() && hand.is_empty() {
-        let slugs: Vec<&str> = entries.iter().map(|(status, _)| status.slug).collect();
-        return Some(Row::info(
-            name.to_string(),
-            format!(
-                "its MCP server is not registered (optional — `ff hook {}` registers it)",
-                slugs.join(" ")
-            ),
-        ));
-    }
-    let mut detail = String::new();
-    if !registered.is_empty() {
-        detail.push_str(&format!(
-            "its MCP server registered with {}",
-            registered.join(", ")
-        ));
-    }
-    if !hand.is_empty() {
-        if !detail.is_empty() {
-            detail.push_str("; ");
-        }
-        detail.push_str(&format!(
-            "a hand-written entry stands for it in {}",
-            hand.join(", ")
-        ));
-    }
-    Some(if registered.is_empty() || !hand.is_empty() {
-        Row::info(name.to_string(), detail)
-    } else {
-        Row::ok(name.to_string(), detail)
-    })
-}
-
-/// Names registered as an MCP server in some client's file that no
-/// declared extension names any more — the trace `ff extension -d`
-/// leaves behind. News, never a finding, the same as an upstream section
-/// pointing at a branch's still-published shared copy: it is what a plain
-/// removal leaves on purpose, or a hand-written entry doctor cannot tell
-/// apart from one.
-fn orphaned_mcp_row(statuses: &[crate::integ::Status]) -> Option<Row> {
-    let mut named: Vec<String> = statuses
-        .iter()
-        .flat_map(|status| {
-            status
-                .mcp_orphaned
-                .iter()
-                .map(|name| format!("{name} ({})", status.slug))
-        })
-        .collect();
-    if named.is_empty() {
-        return None;
-    }
-    named.sort();
-    Some(Row::info(
-        "extensions",
-        format!(
-            "registered as an MCP server but declared by nothing here: {}",
-            named.join(", ")
-        ),
-    ))
 }
 
 #[cfg(test)]
@@ -464,7 +234,7 @@ mod tests {
             "0.4.1",
             std::path::PathBuf::from("/usr/local/bin/ff-nothing-on-path-answers-to-this"),
         );
-        let row = declared_row(&entry, &[], false);
+        let row = declared_row(&entry);
         assert!(matches!(row.level, Level::Warn), "{}", row.detail);
         assert!(!row.fixable);
         assert!(

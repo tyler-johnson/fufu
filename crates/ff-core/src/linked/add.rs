@@ -217,7 +217,6 @@ pub fn add_worktree(
             branch: chain,
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
-            route: prov.route,
             pins: &pins,
         },
         now,

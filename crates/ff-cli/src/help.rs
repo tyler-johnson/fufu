@@ -113,7 +113,6 @@ pages! {
     EXTENSION        EXTENSION_EXAMPLES        "help/extension.md"
     TRIGGER          TRIGGER_EXAMPLES          "help/trigger.md"
     WATCH            WATCH_EXAMPLES            "help/watch.md"
-    MCP              MCP_EXAMPLES              "help/mcp.md"
     CONFIG           CONFIG_EXAMPLES           "help/config.md"
     DOCTOR           DOCTOR_EXAMPLES           "help/doctor.md"
     VERSION          VERSION_EXAMPLES          "help/version.md"
@@ -364,7 +363,6 @@ pub const GROUPS: &[Group] = &[
             r("extension"),
             r("trigger"),
             r("watch"),
-            r("mcp"),
             r("config"),
             r("doctor"),
         ],

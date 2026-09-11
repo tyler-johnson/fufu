@@ -24,10 +24,6 @@
 //! `--settings` gets none of them, on the same rule fufu's own skill does
 //! not.
 //!
-//! The MCP server rides the plugin too, as its `.mcp.json`: the fourth
-//! file in the directory, written and removed with the other three. That
-//! is why `--settings` carries no server, on the same rule as the skill.
-//!
 //! The migration from settings entries to the plugin is add-then-remove:
 //! install the plugin, verify it, then strip the settings entries. The
 //! other order leaves a window with no capture at all; this one leaves a
@@ -40,7 +36,7 @@ use ff_core::{Error, Result};
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
-    Reply, Status, Wiring, mcp, payload, settings, skill,
+    Reply, Status, Wiring, payload, settings, skill,
 };
 use settings::Need;
 
@@ -57,9 +53,9 @@ const LEGACY: [&str; 2] = ["ff hook agent trigger claude", "ff hook claude"];
 /// read as wired rather than as gone.
 const TAIL: &str = "trigger claude";
 
-/// What Claude Code sets in the environment of every MCP server it starts:
-/// the session that launched it. `/clear` hands the hook a new id and
-/// leaves this process, and this variable, as they were.
+/// What Claude Code sets in the environment of the processes it starts:
+/// the session that launched them. `/clear` hands the hook a new id and
+/// leaves such a process, and this variable, as they were.
 pub const SESSION_VAR: &str = "CLAUDE_CODE_SESSION_ID";
 
 /// Every event fufu wires, and what each one is for.
@@ -130,28 +126,11 @@ fn skill_wiring() -> Wiring {
     }
 }
 
-/// The plugin's `.mcp.json`, which is the one MCP file a plugin carries.
-fn mcp_spec() -> Result<mcp::Spec> {
-    Ok(mcp::Spec::new(
-        plugin_dir()?.join(".mcp.json"),
-        mcp::Shape::Json { with_type: true },
-    ))
-}
-
-fn mcp_wiring() -> Wiring {
-    match mcp_spec() {
-        Ok(spec) => mcp::wiring(&spec),
-        Err(_) => Wiring::NotWired,
-    }
-}
-
-/// Every declared extension's own server in the plugin's `.mcp.json`, and
-/// every name registered there that nothing declares any more.
-fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
-    match mcp_spec() {
-        Ok(spec) => mcp::extensions(&spec),
-        Err(_) => (Vec::new(), Vec::new()),
-    }
+/// The plugin's `.mcp.json`, which a fufu before v0.15 wrote and which
+/// would have Claude Code start a verb that no longer exists. Removed on
+/// install, since the plugin is rewritten in place rather than swept.
+fn mcp_path() -> Result<PathBuf> {
+    Ok(plugin_dir()?.join(".mcp.json"))
 }
 
 fn spec() -> Result<settings::Spec> {
@@ -331,9 +310,7 @@ fn write_ext_skills() -> Result<Vec<ExtSkills>> {
 }
 
 /// Writes the plugin whole, and answers what each extension's skills came
-/// to along with the server registration's own report — which names a
-/// declared extension's server as well as fufu's, and is therefore the
-/// installer's word on it rather than a line this adapter can spell.
+/// to, along with the one line a stripped `.mcp.json` earns.
 fn write_plugin() -> Result<(Vec<ExtSkills>, Change)> {
     let (manifest, hooks) = plugin_body();
     let manifest_path = manifest_path()?;
@@ -347,10 +324,16 @@ fn write_plugin() -> Result<(Vec<ExtSkills>, Change)> {
     std::fs::write(&hooks_path, hooks).map_err(ff_core::Error::repo)?;
     skill::write(&skill_dir()?)?;
     let ext_skills = write_ext_skills()?;
-    // The merge engine on a file only fufu writes: the result is the whole
-    // file, and the engine is what keeps the entries' shape in one place.
-    let servers = mcp::install(&mcp_spec()?)?;
-    Ok((ext_skills, servers))
+    let mcp_path = mcp_path()?;
+    let stripped = match std::fs::remove_file(&mcp_path) {
+        Ok(()) => Change::changed(format!("MCP server removed from {}", mcp_path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Change {
+            changed: false,
+            lines: Vec::new(),
+        },
+        Err(err) => return Err(ff_core::Error::repo(err)),
+    };
+    Ok((ext_skills, stripped))
 }
 
 /// One line per extension whose skills landed, naming them, and one per
@@ -427,9 +410,8 @@ impl Integration for Claude {
         // something a person asks for with `ff hook claude`, which says so.
         // Only a retired *command spelling*, or an install written before
         // fufu grew an event, is stale; a skill that has drifted is its
-        // own row, because it is its own repair, and so is the server.
+        // own row, because it is its own repair.
         let stale = plugin_stale() || spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
-        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -437,9 +419,6 @@ impl Integration for Claude {
             note,
             parts: Vec::new(),
             skill: Some(skill_wiring()),
-            mcp: Some(mcp_wiring()),
-            mcp_extensions,
-            mcp_orphaned,
             stale,
         }
     }
@@ -453,7 +432,7 @@ impl Integration for Claude {
             return Ok(change);
         }
 
-        let (ext_skills, servers) = write_plugin()?;
+        let (ext_skills, stripped_mcp) = write_plugin()?;
         // Verify before removing the other wiring: a plugin that did not
         // land must not take the settings entries down with it.
         let verified = plugin_wiring();
@@ -478,7 +457,7 @@ impl Integration for Claude {
         change
             .lines
             .extend(skill_lines(&ext_skills, &skills_root()?));
-        change.lines.extend(servers.lines);
+        change.lines.extend(stripped_mcp.lines);
         change.lines.push(
             "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
                 .into(),
@@ -557,10 +536,6 @@ impl AgentProtocol for Claude {
 
     fn has_skill(&self) -> bool {
         skill_dir().is_ok_and(|dir| skill::installed(&dir))
-    }
-
-    fn has_mcp(&self) -> bool {
-        matches!(mcp_wiring(), Wiring::Wired { .. } | Wiring::HandWritten)
     }
 }
 

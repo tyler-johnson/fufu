@@ -136,7 +136,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
 
     // extensions found on PATH, declared or not — always run: an extension
     // is a machine-wide thing, not a repository one.
-    rows.extend(extensions::extension_rows(&statuses, fix));
+    rows.extend(extensions::extension_rows());
 
     render::render(&rows, fix, ctx.json, colored);
 

@@ -27,9 +27,7 @@ use crate::manifest::Briefing;
 /// recovery, rewriting, conflicts, the machine surface — lives in the
 /// shipped skill (`integ/skill.md`), which costs nothing until a client
 /// decides it is wanted. The two are budgeted differently on purpose, and
-/// that is the whole reason the split exists. The typed tools are the same
-/// kind of split: `mcp::LINE` names them, and the runtime appends it only
-/// where the client has the server registered.
+/// that is the whole reason the split exists.
 ///
 /// Every command here is real and spelled the way the CLI takes it — a
 /// retired or mistyped form teaches the agent to fail. Keep it short: this
@@ -143,15 +141,15 @@ mod notice {
 
     use super::{LINE_CAP, NOTICE, usable};
     use crate::cli::Cli;
-    use crate::integ::mcp;
     use crate::integ::skill::SKILL;
 
-    /// The notice and the tools line together, which is the text a wired
-    /// session reads. The line is held to the same live-surface guard the
-    /// notice is, so it is walked with it rather than beside it.
+    /// The text a wired session reads.
     fn briefing() -> String {
-        format!("{NOTICE}{}", mcp::LINE)
+        NOTICE.to_string()
     }
+
+    /// What the notice may weigh, in bytes.
+    const NOTICE_BUDGET: usize = 750;
 
     /// cli.rs as text, for the marker trail. Read as source rather than
     /// through clap because a comment is exactly what clap discards.
@@ -305,46 +303,28 @@ mod notice {
     /// tokens, and a rewrite that doubles it has to say so here. The number
     /// came down when the skill took the advanced surface off it; growing
     /// it back is choosing to charge every session for something one
-    /// session in twenty needs. The fifty bytes the typed tools cost moved
-    /// to `mcp::LINE`, paid only where a server is registered.
+    /// session in twenty needs.
     #[test]
     fn stays_within_its_budget() {
         assert!(
-            NOTICE.len() <= 750,
+            NOTICE.len() <= NOTICE_BUDGET,
             "the notice is {} bytes; trim it or raise the budget deliberately",
             NOTICE.len()
         );
     }
 
-    /// The tools line is one sentence pair: the seven and the preference.
-    /// It is paid only where a server is registered, but paid every session
-    /// there, so it is budgeted the way the notice is.
-    #[test]
-    fn the_tools_line_stays_within_its_budget() {
-        assert!(
-            mcp::LINE.len() <= 200,
-            "the tools line is {} bytes; trim it or raise the budget deliberately",
-            mcp::LINE.len()
-        );
-    }
-
     /// A declared extension spends the same budget the notice does, so its
     /// line is capped where the notice is budgeted. The number is stated
-    /// against the briefing rather than on its own: a line a third of the
+    /// against the budget rather than on its own: a line a third of the
     /// whole always-on text is already a lot for one extension to ask of
     /// every session, and a machine with several of them declared would be
-    /// paying it several times over. A wired session pays the notice and
-    /// the tools line both, and that is the text an extension's line stands
-    /// beside.
-    #[test]
-    fn the_extension_line_cap_sits_under_the_notices_budget() {
-        let briefing = briefing().len();
-        assert!(
-            LINE_CAP * 3 <= briefing,
-            "an extension's {LINE_CAP} characters are no longer small against the briefing's \
-             {briefing} bytes; move one or the other deliberately"
-        );
-    }
+    /// paying it several times over. Both are constants, so the check is
+    /// one the compiler makes.
+    const _: () = assert!(
+        LINE_CAP * 3 <= NOTICE_BUDGET,
+        "an extension's line cap is no longer small against the notice's budget; move one or \
+         the other deliberately"
+    );
 
     /// The cap is a cap and not a truncation: a line past it is dropped
     /// whole, because half a sentence is still prose the agent reads as

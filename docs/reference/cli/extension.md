@@ -7,11 +7,10 @@ What declaring buys is that fufu will describe the extension:
 - `ff help <name>` and [`ff explain <name>/<id>`](explain.md) reach the binary
 - its briefing line rides fufu's, and [`ff hook`](hook.md) asks the binary for its skills and installs them beside fufu's
 - the agent event fans out to it
-- the MCP tools it produces are served by [`ff mcp`](mcp.md) beside fufu's own
 
 It buys the extension no capability and no environment — an undeclared `ff-<name>` runs from a shell exactly as it always did, on the same three variables.
 
-The list lives under your config directory rather than in a repository, because the binary is on PATH and declaring it is a decision about this machine. It is also why no MCP tool reaches this verb: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
+The list lives under your config directory rather than in a repository, because the binary is on PATH and declaring it is a decision about this machine. It is also why no agent tool reaches this verb: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
 
 ## Declaring
 
@@ -31,7 +30,7 @@ What is recorded is the manifest as it was read, unknown fields and all, plus th
 
 ## The list
 
-One row per declared extension — its name, the version recorded when it was declared, and the verbs it answers to — in the order they were declared, which is the order subscribers are fanned out in and `ff mcp` lists produced tools in.
+One row per declared extension — its name, the version recorded when it was declared, and the verbs it answers to — in the order they were declared, which is the order subscribers are fanned out in.
 
 A row whose binary has left PATH says so and stays: dispatch is a fresh walk every time, so a name that resolves to nothing today is a fact about PATH rather than a reason to forget the declaration.
 
@@ -42,7 +41,7 @@ Two things can appear below the rows:
 
 ## Removing
 
-Takes the name off the list. fufu stops describing the extension — its produced tools leave `ff mcp`, `ff help <name>` stops reaching the binary, its briefing line and its skills and its subscriptions all stop being fufu's business.
+Takes the name off the list. fufu stops describing the extension — `ff help <name>` stops reaching the binary, its briefing line and its skills and its subscriptions all stop being fufu's business.
 
 Nothing is uninstalled. `ff-<name>` is still on PATH and `ff <name>` still runs it, on the same three variables it always had. Skills a `ff hook` install already wrote stay where they were written; the next `ff hook claude` sweeps them from the plugin, and Codex's stay until the next install stops carrying them.
 
@@ -81,6 +80,6 @@ ff extension                 what this machine declares
 ff extension --json          the manifests as they were recorded
 ff extension tower           ask ff-tower what it is, and record it
 ff extension -d tower        take it back off; ff-tower still runs
-ff hook claude               its skills and its server go in with fufu's
+ff hook claude               its skills go in with fufu's
 ff doctor                    every ff-<name> on PATH, declared or not
 ```

@@ -88,7 +88,6 @@ e6147bdc6c3b  op  0s ago
   commit on parser-stream: parser: drop whitespace from the stream
   on        parser-stream
   session   1b234d04-d951-438c-9b46-3de76978f90d
-  route     shell
   base      67c170fb
   refs/heads/parser-stream → 374f6317
   (the worktree is unchanged across it)

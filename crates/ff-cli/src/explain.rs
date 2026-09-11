@@ -517,7 +517,7 @@ pub static ENTRIES: &[Entry] = &[
         summary: "no revset function goes by that name",
         detail: "The registry holds every function the language has, and the error lists the ones \
                  that exist. Revision space has latest, heads, roots, description and author; \
-                 operation space has on_branch, session, route and kind, plus the same three \
+                 operation space has on_branch, session and kind, plus the same three \
                  set functions. base() belongs to revision space and takes operations, because it is \
                  the crossing between them.",
         exits: &["ff log -r 'latest(main)'", "ff op log 'kind(op)'"],
@@ -536,7 +536,7 @@ pub static ENTRIES: &[Entry] = &[
         summary: "that function reads operations, and this position takes revisions",
         detail: "One grammar spans both address spaces — the same operators and the same functions \
                  over operations instead of over history — but the vocabularies differ, because \
-                 each space can only name what it has. on_branch(), session(), route() and \
+                 each space can only name what it has. on_branch(), session() and \
                  kind() are questions about operations, so they belong in an ff op log \
                  expression. base() \
                  goes the other way: it takes operations and returns the commits they ran on, which makes \
@@ -1013,35 +1013,6 @@ pub static ENTRIES: &[Entry] = &[
                  field fufu has never heard of is not the problem — unknown fields are kept. A \
                  manifest is refused whole rather than in part, because a half-declared \
                  extension is one fufu would describe and could not serve.",
-        exits: &[],
-    },
-    Entry {
-        id: "extension/tools-failed",
-        summary: "the extension did not answer the tool handshake",
-        detail: "An extension whose manifest says tools: true is asked for its tools with \
-                 ff-<name> --ff-tools, which it answers with one envelope on one line, exiting \
-                 0. This binary did something else: it would not run, it exited nonzero, it \
-                 printed something that is not one envelope, it answered with an error in place \
-                 of the list, or it ran past the time box fufu gives it. The box is fufu's \
-                 rather than the extension's, because the caller is a server starting up with \
-                 nobody in front of it to interrupt a binary that hangs. Nothing is refused to \
-                 the agent over it — fufu's own tools are served exactly as they were, and \
-                 what is lost is the tools it promised.",
-        exits: &["ff doctor"],
-    },
-    Entry {
-        id: "extension/bad-tools",
-        summary: "the tool list came back, and fufu cannot read it",
-        detail: "The handshake answered with an envelope whose data is not the tool list the \
-                 machine surface types: an array of descriptors, each carrying name, one word \
-                 in the characters a client spells a tool with; description, which is what an \
-                 agent reads before it calls; inputSchema, a JSON Schema object of type object; \
-                 and annotations stating readOnlyHint and destructiveHint, which MCP leaves \
-                 optional and fufu requires, since a tool is offered on what it says about \
-                 itself. Two descriptors may not share a name, and a list that promised tools \
-                 may not be empty. The list is refused whole rather than in part, because a \
-                 tool an agent can call by a name that is sometimes there is worse than one it \
-                 cannot call at all.",
         exits: &[],
     },
     Entry {

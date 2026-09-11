@@ -361,9 +361,6 @@ impl Integration for Shell {
                 },
             ],
             skill: None,
-            mcp: None,
-            mcp_extensions: Vec::new(),
-            mcp_orphaned: Vec::new(),
             stale,
         }
     }

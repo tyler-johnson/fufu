@@ -105,7 +105,6 @@ pub fn trim(repo: &gix::Repository, opts: &TrimOptions) -> Result<TrimReport> {
                 branch: crate::snapshot::chain::chain_name(&head),
                 base: crate::snapshot::chain::base_commit(&head)?,
                 session: None,
-                route: None,
                 pins: &[],
             },
             now,

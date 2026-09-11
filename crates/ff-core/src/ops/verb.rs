@@ -18,7 +18,6 @@ use crate::ops::id::OpId;
 use crate::ops::record::{OpRecord, ParentTransition, RefTransition, RefsTable, observe_refs_held};
 use crate::ops::{BRANCH_PREFIX, LEGACY_OPS_REF, LEGACY_OPS_TRASH_REF, OpKind, OpLog};
 use crate::refs;
-use crate::snapshot::Route;
 use crate::snapshot::{Provenance, TakeOptions};
 
 /// Where the two pre-cutover logs are parked. Not a converted history and
@@ -124,7 +123,6 @@ pub(crate) struct VerbOp<'p> {
     /// *creates* is pinned separately.
     pub base: Option<gix::ObjectId>,
     pub session: Option<String>,
-    pub route: Option<Route>,
     pub pins: &'p [gix::ObjectId],
 }
 
@@ -142,7 +140,6 @@ pub(crate) fn append_op(
         branch: op.branch,
         base: op.base,
         session: op.session,
-        route: op.route,
         skipped: Vec::new(),
         refs: Some(op.planned),
         index_tree: Some(op.index_tree),
@@ -451,7 +448,6 @@ fn append_observed_with_pins(
             branch,
             base,
             session: None,
-            route: None,
             pins,
         },
         now,
@@ -745,7 +741,6 @@ pub fn read_ops_of(
             time: op.time(),
             branch: op.branch().map(str::to_string),
             session: op.session().map(str::to_string),
-            route: op.route().map(|r| r.as_str().to_string()),
             undo_of: record.and_then(|r| r.undo_of.clone()),
         });
     }

@@ -463,7 +463,6 @@ pub fn close(
             },
             base: head_commit,
             session: prov.session.clone(),
-            route: prov.route,
             pins: &pins,
         },
         now,

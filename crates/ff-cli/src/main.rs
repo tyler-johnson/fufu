@@ -358,7 +358,6 @@ fn main() {
             session,
             count,
         }) => cmd::watch::run(&ctx, all, since, kind, session, count),
-        Some(cli::Command::Mcp) => cmd::mcp::run(&ctx),
         Some(cli::Command::Config {
             key,
             value,

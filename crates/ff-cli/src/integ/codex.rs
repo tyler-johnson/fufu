@@ -11,12 +11,10 @@
 //! to make impossible. The trust step gates the hook and nothing else: the
 //! shipped skill is a file Codex reads, not a command it runs.
 //!
-//! Three mechanisms, then, and they are independent. The hooks are entries
+//! Two mechanisms, then, and they are independent. The hooks are entries
 //! merged into a settings file that belongs to the user; the skill is a
 //! directory fufu owns outright under `~/.codex/skills/`, written whole and
-//! removed whole; the MCP server is a marked block in `config.toml`, the
-//! one TOML file among the four clients, appended and removed by its
-//! markers. No install can take another down with it.
+//! removed whole. No install can take the other down with it.
 //!
 //! A declared extension's own skills take a directory each beside fufu's,
 //! `~/.codex/skills/<skill>/`, produced by the binary through `--ff-skill`
@@ -83,20 +81,13 @@ fn spec() -> Result<settings::Spec> {
     })
 }
 
+/// Where a fufu before v0.15 registered its MCP server: a marked block in
+/// `config.toml`, the one TOML file among the four clients.
 fn mcp_spec() -> Result<mcp::Spec> {
-    Ok(mcp::Spec::new(
-        config_dir()?.join("config.toml"),
-        mcp::Shape::TomlBlock,
-    ))
-}
-
-/// Every declared extension's own table in the marked block, and every
-/// table there that nothing declares any more.
-fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
-    match mcp_spec() {
-        Ok(spec) => mcp::extensions(&spec),
-        Err(_) => (Vec::new(), Vec::new()),
-    }
+    Ok(mcp::Spec {
+        path: config_dir()?.join("config.toml"),
+        shape: mcp::Shape::TomlBlock,
+    })
 }
 
 impl Integration for Codex {
@@ -117,7 +108,6 @@ impl Integration for Codex {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
-        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -127,12 +117,6 @@ impl Integration for Codex {
             wiring,
             parts: Vec::new(),
             skill: Some(skill_wiring()),
-            mcp: Some(match mcp_spec() {
-                Ok(spec) => mcp::wiring(&spec),
-                Err(err) => Wiring::Unavailable(err.to_string()),
-            }),
-            mcp_extensions,
-            mcp_orphaned,
             stale,
         }
     }
@@ -166,7 +150,7 @@ impl Integration for Codex {
                 change.lines.push(format!("{name} left out: {why}"));
             }
         }
-        change.absorb(mcp::install(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         change.lines.push(TRUST.into());
         Ok(change)
     }
@@ -191,7 +175,7 @@ impl Integration for Codex {
                 }
             }
         }
-        change.absorb(mcp::uninstall(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         Ok(change)
     }
 
@@ -218,16 +202,6 @@ impl AgentProtocol for Codex {
 
     fn has_skill(&self) -> bool {
         skill_dir().is_ok_and(|dir| skill::installed(&dir))
-    }
-
-    fn has_mcp(&self) -> bool {
-        match mcp_spec() {
-            Ok(spec) => matches!(
-                mcp::wiring(&spec),
-                Wiring::Wired { .. } | Wiring::HandWritten
-            ),
-            Err(_) => false,
-        }
     }
 }
 

@@ -53,22 +53,13 @@ fn spec() -> Result<settings::Spec> {
     })
 }
 
-/// The MCP server goes in a file of its own, `mcp.json`, which is where
-/// Cursor reads servers from; the hooks file is not it.
+/// Where a fufu before v0.15 registered its MCP server: `mcp.json`, which
+/// is where Cursor reads servers from; the hooks file is not it.
 fn mcp_spec() -> Result<mcp::Spec> {
-    Ok(mcp::Spec::new(
-        config_dir()?.join("mcp.json"),
-        mcp::Shape::Json { with_type: true },
-    ))
-}
-
-/// Every declared extension's own server in `mcp.json`, and every name
-/// registered there that nothing declares any more.
-fn mcp_ext_status() -> (Vec<mcp::McpExtension>, Vec<String>) {
-    match mcp_spec() {
-        Ok(spec) => mcp::extensions(&spec),
-        Err(_) => (Vec::new(), Vec::new()),
-    }
+    Ok(mcp::Spec {
+        path: config_dir()?.join("mcp.json"),
+        shape: mcp::Shape::Json,
+    })
 }
 
 /// Cursor's payload. Same idea as the shared dialect, different names for
@@ -105,7 +96,6 @@ impl Integration for Cursor {
             Err(err) => Wiring::Unavailable(err.to_string()),
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
-        let (mcp_extensions, mcp_orphaned) = mcp_ext_status();
         Status {
             slug: self.slug(),
             presence: self.detect(),
@@ -113,26 +103,20 @@ impl Integration for Cursor {
             wiring,
             parts: Vec::new(),
             skill: None,
-            mcp: Some(match mcp_spec() {
-                Ok(spec) => mcp::wiring(&spec),
-                Err(err) => Wiring::Unavailable(err.to_string()),
-            }),
-            mcp_extensions,
-            mcp_orphaned,
             stale,
         }
     }
 
     fn install(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::install(&spec()?)?;
-        change.absorb(mcp::install(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         change.lines.push(CLOUD.into());
         Ok(change)
     }
 
     fn uninstall(&self, _opts: &InstallOptions) -> Result<Change> {
         let mut change = settings::uninstall(&spec()?)?;
-        change.absorb(mcp::uninstall(&mcp_spec()?)?);
+        change.absorb(mcp::strip(&mcp_spec()?)?);
         Ok(change)
     }
 
@@ -191,16 +175,6 @@ impl AgentProtocol for Cursor {
             return None;
         }
         Some(serde_json::json!({ "additional_context": reply.joined() }).to_string())
-    }
-
-    fn has_mcp(&self) -> bool {
-        match mcp_spec() {
-            Ok(spec) => matches!(
-                mcp::wiring(&spec),
-                Wiring::Wired { .. } | Wiring::HandWritten
-            ),
-            Err(_) => false,
-        }
     }
 }
 

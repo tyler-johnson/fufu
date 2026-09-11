@@ -130,8 +130,8 @@ The stream saw the whole thing — the two opening events, then the bay's pre-co
 $ ff watch --all -n 4
 {"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"start","tip":"4b5d2b4b70d06802fdabcea74ef9ff27e862f1d3"}}
 {"ff":1,"cmd":"watch","data":{"worktree":"main","motion":"start","tip":"7c512cc40e40dd57932ffc261451fe57c5536be1"}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"a5913a16a56f81240e84850bb436de10d2674701","short_id":"a591","kind":"capture","verb":"","summary":"pre: ff commit -m lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","route":"shell","undo_of":null}}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"f6fedc28bd6d0a66b16d613cca0e540e826490c5","short_id":"f6fe","kind":"op","verb":"commit","summary":"commit on bay: lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","route":"shell","undo_of":null}}}
+{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"a5913a16a56f81240e84850bb436de10d2674701","short_id":"a591","kind":"capture","verb":"","summary":"pre: ff commit -m lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","undo_of":null}}}
+{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"f6fedc28bd6d0a66b16d613cca0e540e826490c5","short_id":"f6fe","kind":"op","verb":"commit","summary":"commit on bay: lexer: spans and byte offsets","time":1789008213,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","undo_of":null}}}
 ```
 
 That capture event is the point for anyone supervising a bay from outside it: capture runs in a secondary worktree exactly as in the first, and a watcher in any tree sees it happen. `--kind` narrows the stream to captures or verbs, `--session` follows one agent's motion, and a stream under `--all` keeps a bay's chain even after the worktree is removed; the [watch reference](../reference/cli/watch.md) has the full event grammar.

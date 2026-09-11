@@ -807,14 +807,11 @@ fn the_briefing_teaches_only_live_spellings() {
     );
 }
 
-/// The briefing names the skill only where the skill actually landed, and
-/// the typed tools only where the server is registered. A machine with no
-/// plugin — or one on the `--settings` escape hatch — must not be told to
-/// read a manual that is not there, or to prefer tools it does not have.
-/// The two are read independently: a plugin whose `.mcp.json` is gone
-/// still gets the skill line and loses the tools line.
+/// The briefing names the skill only where the skill actually landed. A
+/// machine with no plugin — or one on the `--settings` escape hatch — must
+/// not be told to read a manual that is not there.
 #[test]
-fn the_briefing_names_the_skill_and_the_tools_only_where_they_are_installed() {
+fn the_briefing_names_the_skill_only_where_it_is_installed() {
     let fx = repo();
     let home = tempfile::TempDir::new().unwrap();
     let body = payload("UserPromptSubmit", "s-1", &fx.path(), r#""prompt":"hi""#);
@@ -827,10 +824,6 @@ fn the_briefing_names_the_skill_and_the_tools_only_where_they_are_installed() {
     assert!(
         !bare.contains("skill"),
         "nothing is installed, so nothing is named: {bare:?}"
-    );
-    assert!(
-        !bare.contains("`fufu` tools"),
-        "no server is registered, so no tools are named: {bare:?}"
     );
 
     // Install the plugin, and brief a fresh session so the marker does not
@@ -856,28 +849,8 @@ fn the_briefing_names_the_skill_and_the_tools_only_where_they_are_installed() {
         "the skill is on disk, so the briefing points at it: {briefed:?}"
     );
     assert!(
-        briefed.contains("`fufu` tools"),
-        "the plugin's .mcp.json registers the server, so the briefing points at the tools: \
-         {briefed:?}"
-    );
-
-    // Take the server's registration away and leave the skill: the two
-    // lines come from two reads, not one.
-    let mcp_json = home.path().join(".claude/skills/fufu/.mcp.json");
-    assert!(mcp_json.is_file(), "ff hook claude wrote {mcp_json:?}");
-    std::fs::remove_file(&mcp_json).unwrap();
-    let body = payload("UserPromptSubmit", "s-3", &fx.path(), r#""prompt":"hi""#);
-    let skill_only = String::from_utf8(
-        ff_stdin_home(&fx.path(), &["trigger", "claude"], &body, home.path()).stdout,
-    )
-    .unwrap();
-    assert!(
-        skill_only.contains("`fufu` skill"),
-        "the skill is still on disk: {skill_only:?}"
-    );
-    assert!(
-        !skill_only.contains("`fufu` tools"),
-        "the server's registration is gone, so the tools are not named: {skill_only:?}"
+        !briefed.contains("tools"),
+        "the briefing ends after the skill line: {briefed:?}"
     );
 }
 

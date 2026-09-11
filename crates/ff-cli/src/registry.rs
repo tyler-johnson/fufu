@@ -152,8 +152,7 @@ impl Registry {
 /// describe, and the two fields beside it are what `ff doctor` reports.
 ///
 /// Nothing is looked for on disk. A read is one file parse and no PATH walk,
-/// because the trigger fan-out and the MCP server both call this per event
-/// and per tool call. [`Declared::resolve`] is the walk, taken by whoever is
+/// because the trigger fan-out calls this per event. [`Declared::resolve`] is the walk, taken by whoever is
 /// about to run the binary, and it answers `None` when the binary has left
 /// PATH — a record outliving its binary, which costs a caller a `None` and
 /// costs every other caller nothing.
@@ -164,10 +163,7 @@ impl Registry {
 /// -u` is why: it re-records every manifest and then runs the installs in
 /// the same process, and the installs read the list through here. Each
 /// reload leaks one registry, which is one small allocation per write in a
-/// process that writes at most a few times. The one long-lived reader is
-/// `ff mcp`, where serving the tools that were advertised at handshake for
-/// the life of the connection is what keeps the list and the calls
-/// agreeing; nothing writes in that process, so its one read stands.
+/// process that writes at most a few times.
 pub fn read() -> &'static Registry {
     if let Some(registry) = *CACHE
         .read()

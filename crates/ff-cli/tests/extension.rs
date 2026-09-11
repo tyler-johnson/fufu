@@ -152,7 +152,6 @@ fn the_declaration_envelope_carries_the_manifest() {
         "undoable":true,"briefing":"Work is filed as flights.",
         "skills":["tower","tower-plan","tower-loop"],
         "events":[{"kind":"SessionStart"}],
-        "mcp":{"command":"ff","args":["tower","serve","--mcp"]},
         "colors":{"badge":"amber"}}"#;
     ext_bin(bin.path(), "tower", full);
 
@@ -186,8 +185,7 @@ fn the_declaration_says_what_it_bought() {
             "verbs":[{"name":"board","read_only":true}],"undoable":false,
             "briefing":"Work is filed as flights.",
             "skills":["tower","tower-plan"],
-            "events":[{"kind":"SessionStart"},{"kind":"BeforeTool","matcher":"Edit"}],
-            "mcp":{"command":"ff","args":["tower","serve"]}}"#,
+            "events":[{"kind":"SessionStart"},{"kind":"BeforeTool","matcher":"Edit"}]}"#,
     );
 
     let said = stdout(&ff(home.path(), Some(bin.path()), &["extension", "tower"]));
@@ -201,7 +199,6 @@ fn the_declaration_says_what_it_bought() {
         said.contains("it subscribes to SessionStart, BeforeTool"),
         "{said}"
     );
-    assert!(said.contains("a server of its own"), "{said}");
 }
 
 /// A skill's name is the extension's own or carries it as a prefix, because

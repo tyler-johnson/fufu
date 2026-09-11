@@ -63,7 +63,6 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff extension`](extension.md) — Extensions this machine declares, so fufu describes them to an agent
 - [`ff trigger`](trigger.md) — Snapshot the working copy now
 - [`ff watch`](watch.md) — Stream operations as they land, one JSON object per line
-- [`ff mcp`](mcp.md) — Serve fufu to an agent client over the Model Context Protocol, on stdio
 - [`ff config`](config.md) — Read and write fufu's settings (plain git config under fufu.*)
 - [`ff doctor`](doctor.md) — Verify the safety net: the log, identity, reflogs, gc guard, wiring
 

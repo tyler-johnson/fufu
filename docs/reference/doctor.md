@@ -5,7 +5,7 @@ A safety net you cannot inspect is not trustworthy, and every floor of fufu's ca
 - a log ref moved by something that is not fufu, a reflog that never got created, or the gc guard deleted out of local config;
 - a branch that answers to no remote anything can name;
 - hooks never installed, or a stale binary;
-- a declared extension whose manifest has drifted, or tools it promised and never produced.
+- a declared extension whose manifest has drifted.
 
 [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix).
 
@@ -47,7 +47,6 @@ $ ff doctor
   ok    alias          git='ff git' wired in ~/.bashrc (`ff hook bash` manages it)
   ok    ambient        prompt hook snapshots at every prompt, wired in ~/.bashrc (`ff hook bash` manages it)
   ok    skill          fufu's manual, for claude, codex
-  ok    mcp            registered with claude, codex
   info  update         source build — updates via cargo install
 
 no findings — the net is under you
@@ -98,7 +97,6 @@ These rows come from the same status vector [`ff hook -l`](../reference/cli/hook
 - **alias** — whether `git='ff git'` is wired in a shell rc file, folded across the shells: one shell wired answers the question. A hand-written alias is `info` (heuristic — check `type git` in your shell), never a finding.
 - **ambient** — the prompt hook that snapshots at every prompt, reported separately from the alias because the shells wire the two pieces independently.
 - **skill** — fufu's shipped manual, aggregated across the clients that read one. Absence is never a finding: without the skill an agent is down to the once-per-session briefing, which costs it spelling and not file state. Drift is the one thing worth a `WARN`, because a manual describing a fufu that has moved teaches commands that fail.
-- **mcp** — [`ff mcp`](cli/mcp.md), fufu's own server, aggregated across the agent clients. `ok` names the clients that have it; `info` when none does, since an agent without it shells out to `ff`. The one `WARN` is a client whose hook is wired and whose server is not, the shape an install predating the server leaves; `--fix` runs that client's installer again. A declared extension's own server gets its own row under [Extensions](#extensions).
 - **triggers** — the one finding about the whole net rather than any piece of it. When nothing at all feeds capture — no agent hook, no alias, no prompt hook, not even a hand-written line — doctor warns that snapshots only happen when you run `ff` by hand, and points at `ff hook`. A silent engine feels safe while capturing nothing.
 
 ### Extensions
@@ -119,22 +117,7 @@ Three things are findings:
 - the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension <name>`;
 - the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension <name>` that re-declares it. It is the row that covers the channels no script runs: a Homebrew upgrade or a hand copy replaces the binary and re-declares nothing, and until something does, `ff hook` writes the skills the record names rather than the binary's.
 
-Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way `ff mcp` and the trigger fan-out do.
-
-#### A manifest promising tools
-
-Most manifests promise no tools. When one does, doctor also asks `ff-<name> --ff-tools` — a second spawn beside the manifest ask — and folds the answer into the same row.
-
-`ff mcp` and the trigger fan-out never ask, on the trigger doctrine of silence, so this row is the only place a failed or missing tools handshake is ever reported. A handshake that fails is a `WARN` on the same row an otherwise healthy extension gets, naming what fufu saw; one that answers is a clause naming the tools that came back.
-
-#### A manifest naming a server of its own
-
-Most manifests name none, and say nothing about it. When one does, the row adds a clause for each client whose file it checked:
-
-- registered, once any client has it;
-- a client whose hook is wired and whose entry is missing — a `WARN`, fixable the same way a missing fufu server is, because `ff hook <slug>` writes both together;
-- an entry that still runs the extension's own binary but with arguments the manifest has since moved past — a `WARN`, never fixable: the same ownership test that lets `ff hook <slug>` rewrite an entry it owns is the one a changed argument list fails, so the row says to remove the entry by hand and run the hook again;
-- an entry somebody wrote themselves — `info`, the same rule a hand-written fufu entry gets: reported, and never touched.
+Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way the trigger fan-out does.
 
 #### A registration nothing declares any more
 
@@ -240,20 +223,6 @@ The row names the repair: `ff extension tower` reads the manifest again and reco
 ```
 
 Neither is a finding `--fix` repairs — re-declaring is a decision about which version to trust, not a mechanical rewrite — so both stay yours to run.
-
-### A declared extension promised tools and produced none
-
-`ff-tower`'s manifest sets `tools: true`, but `ff-tower --ff-tools` no longer answers with a list — the one place this shows up, since `ff mcp` and the trigger fan-out stay silent about it:
-
-```console
-  WARN  tower          0.4.1 matches ff-tower on PATH; promises tools, but the handshake failed: ff-tower --ff-tools did not answer with a tool list: its stdout is not one envelope on one line
-```
-
-There is no repair to name — nothing here is fufu's to fix — so the row is a pointer at the extension's own binary. A binary that answers is a clause on the same, otherwise `ok`, row instead:
-
-```console
-  ok    tower          0.4.1 matches ff-tower on PATH; produces 2 tools: board, file
-```
 
 ## The one write: --fix
 

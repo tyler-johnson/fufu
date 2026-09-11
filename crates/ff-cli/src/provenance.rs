@@ -4,21 +4,9 @@
 
 use std::ffi::OsString;
 
-use ff_core::{Provenance, Route};
+use ff_core::Provenance;
 
 use crate::ctx::Ctx;
-
-/// Which road this invocation arrived on. The MCP server marks every tool
-/// child and what it spawns, so an unmarked process is a shell. The trigger never
-/// runs under the marker, so an agent's hook capture reads `shell`: the
-/// hook is not the tool.
-fn route() -> Route {
-    if crate::cmd::mcp::child::is_tool_call() {
-        Route::Tool
-    } else {
-        Route::Shell
-    }
-}
 
 /// `pre: ff <args>` — rebuilt from this process's own argv.
 pub fn pre_ff(ctx: &Ctx) -> Provenance {
@@ -30,7 +18,6 @@ pub fn pre_ff(ctx: &Ctx) -> Provenance {
     }
     let prov = Provenance::new("pre", Some(summary));
     prov.with_session(ctx.session.clone())
-        .with_route(Some(route()))
 }
 
 /// `pre: ff <name> <args…>` for a PATH-dispatched extension. Takes the
@@ -44,7 +31,7 @@ pub fn pre_ext(session: Option<String>) -> Provenance {
         summary.push_str(arg);
     }
     let prov = Provenance::new("pre", Some(summary));
-    prov.with_session(session).with_route(Some(route()))
+    prov.with_session(session)
 }
 
 /// `pre: git <args>` for the passthrough.
@@ -56,7 +43,6 @@ pub fn pre_git(ctx: &Ctx, args: &[OsString]) -> Provenance {
     }
     let prov = Provenance::new("pre", Some(summary));
     prov.with_session(ctx.session.clone())
-        .with_route(Some(route()))
 }
 
 /// Truncate to at most `max` characters, appending `…` when cut.
@@ -98,7 +84,7 @@ pub fn agent(ctx: &Ctx, source: &str, session_id: &str, detail: String) -> Prove
     // If the client's id is unusable or empty, fall back to the
     // invocation's own session — the flag, or the environment behind it.
     let session = session.or_else(|| ctx.session.clone());
-    prov.with_session(session).with_route(Some(route()))
+    prov.with_session(session)
 }
 
 #[cfg(test)]

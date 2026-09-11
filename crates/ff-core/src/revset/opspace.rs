@@ -39,7 +39,6 @@ use std::collections::HashSet;
 
 use crate::error::{Error, Result};
 use crate::ops::{OpId, OpKind, OpLog};
-use crate::snapshot::Route;
 
 use super::parse::{Arg, Expr, PatternKind};
 use super::pattern::Pattern;
@@ -91,13 +90,12 @@ enum Plan {
     Scan(Predicate),
 }
 
-/// What the four op-space predicates read. Each exists because captures
+/// What the three op-space predicates read. Each exists because captures
 /// outnumber verb operations by more than an order of magnitude and an
 /// unfiltered log is mostly machine noise.
 enum Predicate {
     OnBranch(Pattern),
     Session(Pattern),
-    Route(Route),
     Kind(OpKind),
 }
 
@@ -223,12 +221,10 @@ fn member(repo: &gix::Repository, id: OpId) -> Result<OpMember> {
     })
 }
 
-/// The functions operations have. Five, and each earns its place against a
+/// The functions operations have. Four, and each earns its place against a
 /// caller that already exists: `base` because it is the only crossing back to
 /// history, `on_branch` because one log spans every branch, `session` and
-/// `kind` because an unfiltered log is mostly the capture floor, and `route`
-/// because whether an agent's work took the shell or the tool is a question
-/// the log has to answer.
+/// `kind` because an unfiltered log is mostly the capture floor.
 ///
 /// `latest`, `heads` and `roots` are not op-space functions so much as set
 /// functions — they read no field either space owns, so they work in both.
@@ -267,11 +263,6 @@ fn function(repo: &gix::Repository, name: &str, args: &[Arg]) -> Result<Plan> {
             one(args)?;
             Plan::Scan(Predicate::Kind(kind_arg(&args[0])?))
         }
-        // Two members, matched by name for the same reason.
-        "route" => {
-            one(args)?;
-            Plan::Scan(Predicate::Route(route_arg(&args[0])?))
-        }
         // `base()` returns commits, so it is a revision-space function whose
         // *argument* is an operation set. Calling it here would be asking for
         // history in a position that takes operations.
@@ -304,15 +295,6 @@ fn kind_arg(arg: &Arg) -> Result<OpKind> {
         Arg::Set(_) => return Err(arity_kind("kind", "<kind>")),
     };
     OpKind::from_str(&word).ok_or_else(|| bad_kind(&word))
-}
-
-fn route_arg(arg: &Arg) -> Result<Route> {
-    let word = match arg {
-        Arg::Set(Expr::Revision(text)) => text.clone(),
-        Arg::Pattern { value, .. } => value.clone(),
-        Arg::Set(_) => return Err(arity_kind("route", "<route>")),
-    };
-    Route::parse(&word).ok_or_else(|| bad_route(&word))
 }
 
 // ── evaluation ────────────────────────────────────────────────────────────
@@ -446,8 +428,6 @@ fn matches(repo: &gix::Repository, id: OpId, pred: &Predicate) -> Result<bool> {
     Ok(match pred {
         Predicate::OnBranch(pattern) => op.branch().is_some_and(|b| pattern.matches(b)),
         Predicate::Session(pattern) => op.session().is_some_and(|s| pattern.matches(s)),
-        // An op with no route is unknown, and unknown matches neither.
-        Predicate::Route(route) => op.route() == Some(*route),
         Predicate::Kind(kind) => op.kind() == *kind,
     })
 }
@@ -506,7 +486,7 @@ fn unknown_function(name: &str) -> Error {
         "usage/revset-unknown-function",
         format!(
             "no revset function named `{name}`; operations have base, on_branch, session, \
-             route, kind, plus latest, heads and roots"
+             kind, plus latest, heads and roots"
         ),
         vec![
             "ff op log 'kind(op)'".into(),
@@ -542,17 +522,6 @@ fn bad_kind(word: &str) -> Error {
     )
 }
 
-fn bad_route(word: &str) -> Error {
-    Error::coded(
-        "usage/revset-arity",
-        format!("no route named `{word}`; there are two: shell, tool"),
-        vec![
-            "ff op log 'route(tool)'".into(),
-            "ff op log 'route(shell)'".into(),
-        ],
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use ff_testsupport::Fixture;
@@ -576,10 +545,8 @@ mod tests {
         let capture = |fx: &Fixture, body: &str, at: i64, session: Option<&str>| {
             fx.write("a.txt", body);
             let repo = fx.repo();
-            // The tagged capture came through the tool; the rest say nothing.
             let prov = crate::snapshot::Provenance::new("manual", Some(body.into()))
-                .with_session(session.map(str::to_string))
-                .with_route(session.map(|_| Route::Tool));
+                .with_session(session.map(str::to_string));
             crate::ops::capture_with(
                 &repo,
                 &prov,
@@ -602,8 +569,7 @@ mod tests {
                 argv: Vec::new(),
                 ..Default::default()
             },
-            &crate::snapshot::Provenance::new("pre", Some("ff commit".into()))
-                .with_route(Some(Route::Shell)),
+            &crate::snapshot::Provenance::new("pre", Some("ff commit".into())),
         )
         .unwrap();
         capture(&fx, "three\n", NOW - 10, None);
@@ -665,7 +631,7 @@ mod tests {
         assert_eq!(ids(&repo, "latest(kind(capture))"), vec![all[0]]);
     }
 
-    /// The four predicates operations have, and the set algebra over them.
+    /// The three predicates operations have, and the set algebra over them.
     #[test]
     fn predicates_and_set_algebra() {
         let fx = logged();
@@ -678,11 +644,6 @@ mod tests {
 
         let tagged = ids(&repo, "session(nightly)");
         assert_eq!(tagged.len(), 1, "one tagged capture");
-
-        // The route is a name, not a pattern, and an op without one is
-        // unknown rather than shell.
-        assert_eq!(ids(&repo, "route(tool)"), tagged, "the tagged capture");
-        assert_eq!(ids(&repo, "route(shell)"), ops, "the close");
 
         assert!(!ids(&repo, "on_branch(main)").is_empty());
         assert!(ids(&repo, "on_branch(nosuchbranch)").is_empty());
@@ -732,7 +693,6 @@ mod tests {
             ("base(@)".to_string(), "usage/revset-wrong-space"),
             ("kind(nope)".to_string(), "usage/revset-arity"),
             ("kind(op, x)".to_string(), "usage/revset-arity"),
-            ("route(hook)".to_string(), "usage/revset-arity"),
         ] {
             let expr = parse(&src).expect("parses");
             let err = match evaluate(&repo, &expr) {

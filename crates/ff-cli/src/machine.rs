@@ -26,10 +26,8 @@ pub fn emit_error(cmd: &str, err: &Error) -> Result<()> {
     write_line(&mut std::io::stdout(), &error_envelope(cmd, err))
 }
 
-/// The error envelope as a value, for the one caller that hands it to a
-/// client rather than printing it: `ff mcp`'s report of a child it could
-/// not run carries exactly what `emit_error` would have printed.
-pub fn error_envelope(cmd: &str, err: &Error) -> serde_json::Value {
+/// The error envelope as a value.
+fn error_envelope(cmd: &str, err: &Error) -> serde_json::Value {
     serde_json::json!({
         "ff": CONTRACT,
         "cmd": cmd,
@@ -53,8 +51,8 @@ pub fn error_object(err: &Error) -> serde_json::Value {
 /// Exactly one JSON object carrying an `ff` key, and nothing else.
 ///
 /// The rule for reading an envelope back, beside the rules for writing one:
-/// the MCP server applies it to a child `ff`'s stdout, and the `--ff-manifest`
-/// handshake to an extension's. Anything else — a banner, a progress line, a
+/// the `--ff-manifest` handshake applies it to an extension's stdout.
+/// Anything else — a banner, a progress line, a
 /// pretty-printed envelope — is not one envelope on one line, and both
 /// callers say so rather than guessing at what was meant.
 pub fn one_envelope(stdout: &str) -> Option<serde_json::Value> {

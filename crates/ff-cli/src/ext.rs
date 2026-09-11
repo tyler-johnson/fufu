@@ -414,8 +414,7 @@ pub fn ask_at(path: &Path, question: &Ask<'_>) -> Option<Vec<u8>> {
 /// say to a person has no person in front of it here.
 ///
 /// `Err` is one phrase saying what happened, for a caller that reports one.
-/// [`ask_at`] puts it behind `FF_DEBUG` on the trigger doctrine, and the
-/// `--ff-tools` handshake puts it in the refusal it raises.
+/// [`ask_at`] puts it behind `FF_DEBUG` on the trigger doctrine.
 pub fn time_boxed(
     cmd: &mut Command,
     stdin: &[u8],

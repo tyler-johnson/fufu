@@ -28,7 +28,7 @@ pub fn config_root(home: &Path) -> PathBuf {
 }
 
 /// The cache root a pinned `ff` resolves under `home`. The update check's
-/// state file and the MCP server's presence markers sit below it.
+/// state file sits below it.
 pub fn cache_root(home: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library").join("Caches")

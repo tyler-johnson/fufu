@@ -2,7 +2,7 @@ Removes exactly what `ff hook` added, and nothing else. Foreign entries in a set
 
 The directories fufu owns outright — the Claude plugin, and the skill each client that reads one was given — go whole. A declared extension's skills go with them: nested inside the plugin for Claude, and one directory per skill beside fufu's own for Codex, removed by name for every extension still declared when `ff unhook` runs.
 
-The MCP server's registration goes with the hook it was written beside, and one written by hand stays.
+An MCP server registration an earlier fufu wrote goes with the hook it was written beside, and one written by hand stays.
 
 Bare `ff unhook` reports and asks, the same way `ff hook` does.
 

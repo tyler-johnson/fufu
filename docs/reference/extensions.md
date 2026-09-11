@@ -6,7 +6,7 @@ This page is about the other half: **declaring** an extension, which is how fufu
 
 ## The two kinds
 
-An **undeclared** extension is any `ff-<name>` on PATH. fufu snapshots the worktree, sets three environment variables, and runs it. That is the whole relationship: fufu found a filename, so a filename is all it knows. `ff help <name>` does not reach it, and no MCP tool of its own is served.
+An **undeclared** extension is any `ff-<name>` on PATH. fufu snapshots the worktree, sets three environment variables, and runs it. That is the whole relationship: fufu found a filename, so a filename is all it knows. `ff help <name>` does not reach it.
 
 A **declared** extension is one somebody ran [`ff extension <name>`](cli/extension.md) on. fufu asked the binary for a manifest, checked it, and recorded it. Declaring buys no new capability and no new environment — a declared extension runs exactly as it did before. What it buys is that fufu will now *talk about* the extension:
 
@@ -14,11 +14,10 @@ A **declared** extension is one somebody ran [`ff extension <name>`](cli/extensi
 - A line from the extension rides fufu's briefing to an agent.
 - Its skills install beside fufu's on [`ff hook`](cli/hook.md).
 - Agent events fan out to it.
-- The MCP tools it produces are served by [`ff mcp`](cli/mcp.md) beside fufu's own, and an MCP server of its own is registered beside fufu's.
 - [`ff doctor`](cli/doctor.md) reports on it.
 - [`ff update`](cli/update.md) moves it by the recipes its manifest carries, and refreshes its hooks after.
 
-The record lives under your config directory, not in a repository, because the binary is on PATH and declaring it is a decision about the machine. Declaring is also the one thing an agent cannot do through the MCP tool: the list is the allowlist for everything above, so putting a name on it stays a person's gesture.
+The record lives under your config directory, not in a repository, because the binary is on PATH and declaring it is a decision about the machine. Declaring is also a person's gesture: the list is the allowlist for everything above.
 
 ## The smallest extension that works
 
@@ -101,7 +100,6 @@ Every one of these is your binary, started by fufu with these arguments. The fir
 | --- | --- | --- |
 | `ff-<name> <verb> …` | someone typed `ff <name> <verb> …` | whatever the verb does |
 | `ff-<name> --ff-manifest` | `ff extension <name>`, `ff doctor` | the manifest envelope, exit 0 |
-| `ff-<name> --ff-tools` | `ff mcp` starts, `ff doctor` | the tool descriptors, exit 0 |
 | `ff-<name> help` | `ff help <name>` | your help page, on stdout |
 | `ff-<name> explain <id>` | `ff explain <name>/<id>` | prose for that id — the `<name>/` prefix is stripped before it reaches you |
 | `ff-<name> briefing` | a briefing is built, and your manifest says `briefing: true` | one line |
@@ -131,7 +129,7 @@ An agent reading your output should not have to know it left fufu. Five rules do
 
 If you have no such outcome, you simply have no id in that family.
 
-**Exit with fufu's codes, and make the code agree with the id.** `<name>/usage/*` exits 2, `<name>/held/*` exits 3, `<name>/ref/contended` exits 4, any other failure exits 1, and 0 is done — or yes, for a verb that answers a question. The code must still agree with the id on an error envelope, because a shell caller reads the code and nothing else. The MCP relay sets `isError` from the envelope and carries the code in `_meta.exit`, so a held outcome may ride a `data` envelope at 3 with its report, as fufu's own [`ff pull`](cli/pull.md) does.
+**Exit with fufu's codes, and make the code agree with the id.** `<name>/usage/*` exits 2, `<name>/held/*` exits 3, `<name>/ref/contended` exits 4, any other failure exits 1, and 0 is done — or yes, for a verb that answers a question. The code must still agree with the id on an error envelope, because a shell caller reads the code and nothing else. A held outcome may ride a `data` envelope at 3 with its report, as fufu's own [`ff pull`](cli/pull.md) does.
 
 **Accept `--json` anywhere on the line, and print one object on one line under it.** fufu appends `--json` *last*, after every word the caller sent, so a flag that is only legal before the verb will never be seen. fufu also strips its own globals before running you: `-C` and `--session` never reach your argv.
 
@@ -158,8 +156,6 @@ Here is one with every optional field present, pretty-printed for the page:
   "briefing": "Work is filed as flights on a board; `ff tower` is the board.",
   "skills": ["tower", "tower-plan", "tower-loop"],
   "events": [{"kind": "SessionStart"}, {"kind": "BeforeTool", "matcher": "Edit|Write"}],
-  "tools": true,
-  "mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"]},
   "update": {
     "brew": "tyler-johnson/tap/tower",
     "install": "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh",
@@ -172,7 +168,7 @@ Here is one with every optional field present, pretty-printed for the page:
 
 | field | type | required | meaning |
 | --- | --- | --- | --- |
-| `name` | string | yes | The `<name>` in `ff-<name>`, and the namespace everything else hangs off — `cmd`, your error ids, your skills directory, your MCP server's key. ASCII alphanumeric, `-` and `_`, first character alphanumeric. It must match the binary fufu resolved. |
+| `name` | string | yes | The `<name>` in `ff-<name>`, and the namespace everything else hangs off — `cmd`, your error ids, your skills directory. ASCII alphanumeric, `-` and `_`, first character alphanumeric. It must match the binary fufu resolved. |
 | `version` | string | yes | Your own version. fufu records it and never parses it; `ff doctor` compares the binary against it to report drift. |
 | `contract` | integer | yes | The machine-surface contract you speak — the number `FF_CONTRACT` carries, currently `1`. A manifest naming a contract fufu does not speak is refused. |
 | `verbs` | array of objects | yes, non-empty | The verbs you answer to, in the order you want them listed. Each carries `name`, one word; `read_only`, where false means the verb writes something; and an optional one-line `summary`. Read-only is per verb because most extensions are mostly readers with a few writers. |
@@ -180,8 +176,6 @@ Here is one with every optional field present, pretty-printed for the page:
 | `briefing` | string or `true` | no | One line for fufu's briefing to an agent. See [below](#optional-a-briefing-line). |
 | `skills` | array of strings | no | The names of skills you ship, each produced by `--ff-skill`. See [below](#optional-skills). |
 | `events` | array of objects | no | Agent events you subscribe to. See [below](#optional-agent-events). |
-| `tools` | `true` | no | Whether you produce MCP tool descriptors. See [below](#optional-mcp-tools). |
-| `mcp` | object | no | An MCP server of your own. See [below](#optional-an-mcp-server-of-your-own). |
 | `update` | object | no | How `ff update` moves your binary: recipes keyed by channel. See [below](#optional-how-ff-update-moves-it). |
 | `build` | `"official"` or `"source"` | no | How the binary was built. Absent is `official`. See [below](#optional-how-ff-update-moves-it). |
 
@@ -191,7 +185,7 @@ Unknown fields are tolerated and kept, so a later contract can add one without b
 
 Say `true` only when every write you make goes through fufu's own verbs, so that `ff undo` takes all of it back.
 
-fufu reports it — `ff extension <name>` says so when it is `false` — and nothing refuses on it: a person reads it, and any [MCP tools you produce](#optional-mcp-tools) carry annotations of their own.
+fufu reports it — `ff extension <name>` says so when it is `false` — and nothing refuses on it: a person reads it.
 
 ## Declaring it, checking it, taking it back
 
@@ -204,21 +198,19 @@ $ ff extension --json       # the manifests as they were recorded
 $ ff extension -d hello     # fufu stops describing it; ff-hello still runs
 ```
 
-Declaring the same name again replaces the record and keeps its place in the order, which is the order subscribers are fanned out in and the order [`ff mcp`](cli/mcp.md) lists produced tools in. Upgrading a binary is not a reordering.
+Declaring the same name again replaces the record and keeps its place in the order, which is the order subscribers are fanned out in. Upgrading a binary is not a reordering.
 
 What gets recorded is the manifest as it was read, unknown fields and all, plus the path the walk landed on and the time. The path is evidence, not a route — dispatch stays a fresh PATH walk, so a binary that moves is still found.
 
 `ff undo` does not reach any of this: the record lives outside every repository, so the way back is `ff extension <name>` again.
 
-`ff doctor` is where you check your work, and the [Doctor page](doctor.md) reads its rows. It runs the handshakes for real rather than trusting the record, so it costs one spawn per declared extension and a second one for each that promised tools:
+`ff doctor` is where you check your work, and the [Doctor page](doctor.md) reads its rows. It runs the handshakes for real rather than trusting the record, so it costs one spawn per declared extension:
 
 ```console
 $ ff doctor
   ok    hello          0.1.0 matches ff-hello on PATH
   info  extensions     1 on PATH, undeclared: ff-tower (ff extension <name> declares one)
 ```
-
-It is the one place a failed tools handshake shows up, because everywhere else fufu stays silent about it.
 
 ## Optional: a briefing line
 
@@ -234,7 +226,7 @@ Failing to produce a line costs nothing and says nothing. A binary that has left
 
 A skill is a manual a client loads when the situation calls for it, and one a person can type: `/fufu:tower-plan` in Claude Code, `$tower-plan` in Codex. `skills` is the list of the ones you ship, **by name**, and `ff hook` asks your binary for each one's files at install time. Wherever an install has somewhere to put skills, each of yours lands whole in a directory of its own beside fufu's.
 
-Names rather than paths, on the rule `tools` draws: a path written into the manifest names a file that a binary shipped alone out of a tarball does not have beside it, and the markdown embedded in that binary is where your build already put the text.
+Names rather than paths: a path written into the manifest names a file that a binary shipped alone out of a tarball does not have beside it, and the markdown embedded in that binary is where your build already put the text.
 
 A skill's name is ASCII letters and digits, `-` and `_`, and is either your extension's name or starts with it and a dash: `tower`, `tower-plan`, `tower-loop`. Every declared extension's skills share one directory beside fufu's, so a bare `plan` would be whichever extension wrote it last. A manifest naming a skill outside its own namespace is refused with `extension/bad-manifest`.
 
@@ -344,97 +336,6 @@ Four rules govern the handler, and they exist because it rides an event whose re
 
 Most events are ones you have nothing to say about, and printing nothing at all is the right answer to those.
 
-## Optional: MCP tools
-
-fufu can serve **typed tools** of your own beside its seven — each with its own name, description, input schema, and annotations, exactly as any MCP server's tools have.
-
-Say `"tools": true` in the manifest. That is a promise rather than a list: fufu then asks `ff-<name> --ff-tools` for the list itself. Writing the list into the manifest would be a second spelling of your own CLI, kept in step by hand and stale the moment the binary moved on; generating it from the definitions your flags already come from makes drift impossible rather than policed. `briefing: true` draws the same rule.
-
-### `--ff-tools`
-
-`--ff-tools` behaves exactly like `--ff-manifest` — recognized before anything else on the command line, answers outside a repository, takes no other argument, prints one envelope, exits 0 — with one difference. **It is time-boxed, at about a second.**
-
-`ff extension <name>` and `ff doctor` are verbs a person typed and can interrupt; this one is asked by a server starting up with nobody in front of it, where a binary that hangs would hang the server before it served anything.
-
-Nothing is handed down but `FF_NONINTERACTIVE=1`: you need neither the repository nor the contract to say what tools you have.
-
-The envelope's `data` is an array of descriptors, pretty-printed here:
-
-```json
-[
-  {
-    "name": "board",
-    "description": "What is filed, what is moving, and what is stuck.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {"branch": {"type": "string"}},
-      "additionalProperties": false
-    },
-    "annotations": {"readOnlyHint": true, "destructiveHint": false}
-  },
-  {
-    "name": "file",
-    "description": "File a flight on the board.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {"title": {"type": "string"}},
-      "required": ["title"],
-      "positional": ["title"]
-    },
-    "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false}
-  }
-]
-```
-
-| field | type | required | meaning |
-| --- | --- | --- | --- |
-| `name` | string | yes | What the tool is called, **bare** — `board`, not `tower__board`. Namespacing is fufu's job, and a name that arrived namespaced would be namespaced twice. ASCII letters and digits, `-` and `_`. Two descriptors may not share one. |
-| `description` | string | yes | What the tool does, which is the whole of what an agent reads before calling it. Required and non-empty, where MCP leaves it optional. |
-| `inputSchema` | object | yes | The JSON Schema the call's arguments are shaped by. `"type": "object"`, since a call's arguments arrive as an object. |
-| `annotations` | object | yes | MCP's own hints. `readOnlyHint` and `destructiveHint` are both required; `idempotentHint`, `openWorldHint` and `title` are optional. A tool claiming to be read-only and destructive at once is refused. |
-
-The field names are MCP's camel case rather than the manifest's snake case, because a descriptor is MCP's object — if you already have one, copy it across. Unknown fields are tolerated and dropped, since nothing records a descriptor and there is no round trip for one to survive.
-
-Both hints are required because a produced tool is offered on what it says about itself.
-
-The list is refused whole rather than in part: a tool an agent can call by a name that is sometimes there is worse than one it cannot call at all. A list that promised tools may not come back empty.
-
-### How a call becomes a command line
-
-**The client sees `<extension>__<tool>`** — `tower__board` for tower's `board` — which is the shape MCP itself uses when a client prefixes a server's tools. Two extensions cannot collide by both producing a `list`. An extension name may itself carry `_`, so two namespaced names can still meet; the first extension declared keeps the name and the later tool is not listed. fufu's own tools are the bare verb names, and a produced name always carries `__`, so the two never meet.
-
-**A tool's bare name is the verb it calls.** `tower__board` with `{"branch": "main"}` runs `ff tower board --branch main --json`.
-
-**Every property is spelled as a long option, verbatim** — no case or underscore translation, because you generated the schema from the definitions your flags come from.
-
-| JSON value | command line |
-| --- | --- |
-| `true` | `--key` |
-| `false`, `null` | nothing at all |
-| a string or number | `--key <value>` |
-| an array | the flag repeated once per item |
-| an object, or an array inside an array | refused as a protocol error before anything runs |
-
-`inputSchema` may carry one keyword of fufu's own beside JSON Schema's: **`positional`**, an array of property names spelled as bare words, in that array's order, before every option. A positional left out ends the line there rather than shifting the words after it onto the wrong argument.
-
-**`cwd` is a name fufu reserves on every produced tool.** It is added to the schema's properties when your descriptor has none, lifted out of the arguments before spelling, and passed to the child as `-C`, so it never reaches your argv; a descriptor that declares its own `cwd` keeps its description and the same handling.
-
-A call arriving through a produced tool is an ordinary invocation of your binary, so [the five rules](#speaking-fufus-contract) hold unchanged — the envelope key, `cmd`, the id prefix, the exit codes, and `--json` last on the line.
-
-**The list is asked for once, when the server starts, and held for the life of the connection.** What was advertised at handshake is what answers until the client closes, so restarting the client is what picks up an edited extension.
-
-A failed handshake costs the agent nothing and says nothing: fufu serves its own seven, and what is lost is the tools you promised. `ff doctor` is where that shows.
-
-## Optional: an MCP server of your own
-
-```json
-"mcp": {"command": "ff", "args": ["tower", "serve", "--mcp"], "env": {"TOWER_MODE": "board"}}
-```
-
-When a client is hooked, fufu registers this as `mcpServers.<name>` beside its own. `command` is a string, `args` an array of strings, `env` an optional object.
-
-This is for what only a live process can hold: resources a client attaches and re-reads, a notification when state moves, a subscription, session identity across calls, a warm cache. If all you have is typed tools, use [`tools`](#optional-mcp-tools) instead — it needs no process of your own and no separate registration.
-
 ## Optional: how `ff update` moves it
 
 ```json
@@ -481,8 +382,6 @@ These come from declaring — where a refusal records nothing — and from the h
 | `extension/name-mismatch` | the manifest claims a name other than the binary's |
 | `extension/unsupported-contract` | it speaks a contract this fufu does not |
 | `extension/not-declared` | nothing is declared under that name |
-| `extension/tools-failed` | the binary did not answer `--ff-tools` |
-| `extension/bad-tools` | it answered, and fufu cannot read the list |
 | `extension/delegate-failed` | `help`, `explain`, or `briefing` went unanswered |
 | `extension/registry-unreadable` | the record file is there and does not read as one |
 | `extension/registry-unwritable` | there is nowhere to record the declaration |

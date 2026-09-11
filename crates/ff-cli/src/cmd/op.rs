@@ -234,7 +234,6 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
             "time": op.time(),
             "branch": op.branch(),
             "session": op.session(),
-            "route": op.route().map(ff_core::Route::as_str),
             "base": op.base().map(|b| b.to_string()),
             "prev": op.prev().map(|p| p.to_string()),
             "tree": op.tree().to_string(),
@@ -261,9 +260,6 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
     }
     if let Some(session) = op.session() {
         println!("  session   {session}");
-    }
-    if let Some(route) = op.route() {
-        println!("  route     {}", route.as_str());
     }
     if let Some(base) = op.base() {
         println!(

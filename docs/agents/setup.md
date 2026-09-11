@@ -28,7 +28,7 @@ Under every level the snapshot lands before the command runs, so the policy call
 
 ## Standing orders: the CLAUDE.md / AGENTS.md block
 
-The agent needs one paragraph of doctrine: write through `ff`, and never write a backup copy. Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries, with the tools sentence the briefing adds where the server is registered:
+The agent needs one paragraph of doctrine: write through `ff`, and never write a backup copy. Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries:
 
 ```markdown
 ## Version control
@@ -40,8 +40,6 @@ Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the o
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git counterparts.
 
 Every verb's own `--help` is the authority on it.
-
-The `fufu` tools for status, pull, push, undo, redo, explain, and help take each verb's own flags as fields. Prefer one where it is offered; every other verb is the shell.
 ```
 
 With the hook below wired, fufu injects this briefing itself: at the turn boundary, again after anything that rebuilds the context (a resume, a `/clear`, a compaction), and once for each subagent.
@@ -130,7 +128,7 @@ The scoped verb is [`ff op revert <op>`](../reference/cli/op-revert.md), which i
 
 ## Ship the skill
 
-The briefing is deliberately short — four verbs, the git rule, a pointer to `--help`, and, where a server is registered, the typed tools — because the agent pays for it every session.
+The briefing is deliberately short — four verbs, the git rule, and a pointer to `--help` — because the agent pays for it every session.
 
 Everything past that lives in a skill fufu ships: the recovery table, rewriting commits that have already closed, held rewrites and conflicts, the landmines, and the JSON surface. It costs the agent nothing until the situation calls for it.
 
@@ -159,61 +157,6 @@ Failing to produce one costs nothing. A binary that has left PATH, one that will
 
 That is `ff trigger`'s doctrine applied to the one place fufu invites an extension to speak into an agent's context. `FF_DEBUG=1` is where the reason goes when you want one. [Extensions](../reference/extensions.md) is the reference for building one.
 
-## Serve the verbs as a tool
-
-The hook makes fufu ambient. [`ff mcp`](../reference/cli/mcp.md) makes it a tool the agent can reach for by name. The briefing names the tools only where the server is registered, and the server's own `instructions` field carries the same briefing.
-
-It is a Model Context Protocol server on stdio serving seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields, generated from the same definitions the verb's `--help` reads, and a `cwd` — `{"name": "push", "arguments": {"dry-run": true}}` is `ff push --dry-run`. The result is fufu's JSON envelope, as text and as structured content, with `isError` saying whether an error envelope came back and `_meta.exit` carrying the exit code. `help` takes the words after `ff help` as `verb` and returns the page as text.
-
-Every call runs the binary as a child with `--json`, so nothing changes underneath. The child captures first, `fufu.gitPolicy` applies, `held/*` still means nothing moved and a person is needed, and no call can block on a prompt.
-
-These seven are the verbs where the shell adds nothing: fixed and short inputs, no output an agent would pipe, and a result whose structure matters more than its text. Each states its own hints, so `push` is the one that says it is destructive. An extension that produces [typed tools of its own](../reference/extensions.md#optional-mcp-tools) gets those listed beside the seven.
-
-### What the tools do not replace
-
-They do not replace the hook. The server sees only fufu verbs — the snapshot before every *other* tool call, an edit or a shell command, still rides `PreToolUse`. Wire both.
-
-Everything else is the shell, where the agent has the whole surface and `ff help <verb>` for each piece of it. `ff extension` in particular stays there because its registry is the allowlist for everything fufu says about an extension, so an agent must not be able to write it.
-
-The session tags every child's operations, settled with the same precedence every invocation has: `--session`, `FF_SESSION`, then the client's session (`CLAUDE_CODE_SESSION_ID` under Claude Code), read once at start. An agent's work through the tool is then separable in [`ff op log`](../reference/cli/op-log.md), the same way its hook captures are.
-
-### Registering the server
-
-`ff hook <client>` registers the server beside the hook it wires, and `ff unhook <client>` removes it. Where each client keeps it, and the name the tool takes there:
-
-| client | file | tool |
-| --- | --- | --- |
-| Claude Code | `.mcp.json` in the plugin at `~/.claude/skills/fufu/` | `mcp__plugin_fufu_fufu__status` and six siblings |
-| Codex | a marked `[mcp_servers.fufu]` block in `~/.codex/config.toml` | `fufu`'s `status`, `pull`, … |
-| Cursor | `mcpServers.fufu` in `~/.cursor/mcp.json` | `fufu`'s `status`, `pull`, … |
-| Gemini CLI | `mcpServers.fufu` in `~/.gemini/settings.json` | `fufu`'s `status`, `pull`, … |
-
-For a client that registers servers from a file you manage yourself, the entry is one key:
-
-```json
-{
-  "mcpServers": {
-    "fufu": {
-      "type": "stdio",
-      "command": "/usr/local/bin/ff",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-`command` is the absolute path of your `ff`. The installer bakes it in so the server does not depend on the client's `PATH`.
-
-In Claude Code that entry goes in `~/.claude.json` at user scope, which is also what `claude mcp add --scope user fufu -- ff mcp` writes, and the tools are then `mcp__fufu__status` and its siblings. Codex takes the same thing as TOML:
-
-```toml
-[mcp_servers.fufu]
-command = "/usr/local/bin/ff"
-args = ["mcp"]
-```
-
-A registration you wrote by hand is detected and left alone by both `ff hook` and `ff unhook`. [The hook reference](../reference/hooks/index.md) shows each file as the installer leaves it.
-
 ## Verify
 
 [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass, and its wiring lane is the part this page set up. Healthy rows name where each hook landed:
@@ -225,12 +168,11 @@ $ ff doctor
   info  settings       gitPolicy strict
   ok    claude         plugin wired in ~/.claude/skills/fufu
   ok    skill          fufu's manual, for claude
-  ok    mcp            registered with claude
   ok    alias          git='ff git' wired in ~/.bashrc (`ff hook bash` manages it)
   ok    ambient        prompt hook snapshots at every prompt, wired in ~/.bashrc (`ff hook bash` manages it)
 ```
 
-A half-wired client is a `WARN` naming the missing event, and `ff hook <slug>` repairs it. So is a client whose hook is wired without the server — the shape an install from before `ff mcp` leaves — and `ff doctor --fix` runs the installer again.
+A half-wired client is a `WARN` naming the missing event, and `ff hook <slug>` repairs it; so does `ff doctor --fix`, which runs the installer again.
 
 When nothing at all feeds capture, doctor warns about that too, because a silent engine feels safe while capturing nothing. Findings drive the exit code — 0 healthy, 1 findings — and `--json` emits the same rows, so CI can gate on it.
 

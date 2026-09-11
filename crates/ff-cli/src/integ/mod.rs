@@ -171,24 +171,6 @@ pub struct Status {
     /// spelling; a missing hook costs file state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill: Option<Wiring>,
-    /// The MCP server's registration, for the clients that take one. Not
-    /// a `Part` for the skill's reason: it is not capture. An agent with
-    /// the hook and no server shells out to `ff` and loses nothing but a
-    /// typed tool; an agent with the server and no hook captures only on
-    /// fufu verbs, which is the gap the hook exists to close.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp: Option<Wiring>,
-    /// Every declared extension's own server, as this client's file
-    /// carries it — empty for a client with no MCP file at all, and for
-    /// most declared extensions too, since declaring one that names no
-    /// server is the common case. Not a `Part` for the same reason `mcp`
-    /// above is not one.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mcp_extensions: Vec<mcp::McpExtension>,
-    /// Names this client's file registers a server under that nothing
-    /// declares any more — the trace `ff extension -d` leaves behind.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mcp_orphaned: Vec<String>,
     /// The wiring works, but it is written in a spelling install would
     /// rewrite — a retired command name, or the mechanism fufu has moved
     /// off. It keeps capturing, so this is never an outage; it is what
@@ -363,15 +345,6 @@ pub trait AgentProtocol: Sync {
     /// capture and no skill, and telling an agent to read a skill that is
     /// not there is worse than saying nothing.
     fn has_skill(&self) -> bool {
-        false
-    }
-
-    /// Whether fufu's MCP server is registered with this client right now.
-    /// Read at briefing time rather than assumed from the install, for the
-    /// same reason `has_skill` is: the two can disagree, and naming tools
-    /// the client does not have is worse than saying nothing. A hand-written
-    /// registration counts, because the tools are offered either way.
-    fn has_mcp(&self) -> bool {
         false
     }
 }

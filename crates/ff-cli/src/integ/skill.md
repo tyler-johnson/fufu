@@ -1,6 +1,6 @@
 ---
 name: fufu
-description: Advanced use of fufu (ff), the git interface that snapshots the working copy before every action. Use when recovering file state or a whole tree after a bad edit, undoing or reverting an operation, splitting or reordering commits that have already closed, resolving a held rewrite, re-aiming a branch onto a new base, reading fufu's JSON from a script, choosing between a typed tool and the shell, or whenever git's usual advice — staging, stash, reflog, rebase -i — would fight fufu's model.
+description: Advanced use of fufu (ff), the git interface that snapshots the working copy before every action. Use when recovering file state or a whole tree after a bad edit, undoing or reverting an operation, splitting or reordering commits that have already closed, resolving a held rewrite, re-aiming a branch onto a new base, reading fufu's JSON from a script, or whenever git's usual advice — staging, stash, reflog, rebase -i — would fight fufu's model.
 ---
 
 # fufu
@@ -8,10 +8,6 @@ description: Advanced use of fufu (ff), the git interface that snapshots the wor
 `ff` is a primary interface to an ordinary git repository. It owns capture, movement, history rewriting, and undo; git owns the durable graph. At every instant the repository is a boring git repository — HEAD attached, ordinary commits, `git status` legible — so reading with git is always fine, and everything below is about writing.
 
 The once-per-session briefing already gave the agent four verbs and the git rule. This is the rest.
-
-## The tool
-
-The MCP server `ff mcp` registers with the client as `fufu` and serves seven typed tools: `status`, `pull`, `push`, `undo`, `redo`, `explain`, and `help`. Each takes the verb's own flags as fields — `{"dry-run": true}` on `push` is `ff push --dry-run` — and a `cwd`, and returns the envelope as structured content. `help` takes a verb's words as `verb`, `["op", "log"]` for the op log's page, and returns the page as text. The structured content is the same `{"ff": 1, …}` envelope the Machine surface section describes, so `isError` and `_meta.exit` say what the exit code and the `error` envelope would. A declared extension's tools are listed beside the seven as `<extension>__<tool>`. Where the client offers these tools, prefer them over the same verb typed; everything else on this page is the shell.
 
 ## The model
 

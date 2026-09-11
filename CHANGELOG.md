@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- `ff hook <slug>`, `ff hook -u`, and `ff unhook <slug>` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`, and say so; a hand-written one is left alone.
+
+### Removed
+
+- `ff mcp` and its registration in the four agent clients: Claude's plugin `.mcp.json`, Codex's marked block in `config.toml`, and `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. `ff hook -l` and `ff hook --json` no longer report `mcp`.
+- The briefing's tools line.
+- `ff doctor`'s `mcp` row, and the tools and server clauses on a declared extension's row.
+- The manifest's `tools` and `mcp` fields, the `--ff-tools` handshake, and the error ids `extension/tools-failed` and `extension/bad-tools`. A manifest still carrying the fields is tolerated the way any unknown field is.
+- The operation route: `route()` in the op revset, the `route` line on `ff op show`, and `route` in op JSON on `ff op show`, `ff op log`, `ff watch`, and `ff status`'s `last_op`. A `fufu-route:` trailer on an earlier operation is read past.
+
 ### Fixed
 
 - `ff pull`'s native fetch no longer opens every linked worktree once per advertised ref; gix upgraded to 0.87.1 (#10).
