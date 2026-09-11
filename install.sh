@@ -83,9 +83,9 @@ mv -f "$INSTALL_DIR/ff.new" "$INSTALL_DIR/ff"
 
 echo "installed fufu $version to $INSTALL_DIR/ff"
 
-# Refresh what is already wired through the binary just placed: a declared
-# extension's manifest is re-asked, and every wired client and shell is
-# re-run. The `curl | sh` shell may not have the new binary on PATH, so
+# Refresh what is already wired through the binary just placed: every
+# wired client and shell is re-run. The `curl | sh` shell may not have the
+# new binary on PATH, so
 # it is named by path; and a refresh that cannot run must not fail the
 # install, so its exit is ignored under `set -e`.
 "$INSTALL_DIR/ff" hook -u </dev/null || true

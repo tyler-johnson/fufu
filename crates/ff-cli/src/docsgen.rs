@@ -72,7 +72,7 @@ fn usage(cmd: &clap::Command) -> String {
 /// verb's page: `` `ff op log` `` reads `[`ff op log`](op-log.md)` once and
 /// bare after, which is the convention the hand-written pages keep. The
 /// page's own verb stays bare, fenced blocks and headings are left alone, and
-/// a span naming no page (`ff help`, an extension) is not touched. Paths are
+/// a span naming no page (`ff help`, an `ff-<name>` from PATH) is not touched. Paths are
 /// matched longest first, so `ff op log` reaches its own page rather than
 /// `ff op`'s.
 fn linkify(md: &str, this: &str, verbs: &[String]) -> String {

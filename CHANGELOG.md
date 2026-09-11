@@ -10,8 +10,8 @@
 
 - `ff mcp` and its registration in the four agent clients: Claude's plugin `.mcp.json`, Codex's marked block in `config.toml`, and `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. `ff hook -l` and `ff hook --json` no longer report `mcp`.
 - The briefing's tools line.
-- `ff doctor`'s `mcp` row, and the tools and server clauses on a declared extension's row.
-- The manifest's `tools` and `mcp` fields, the `--ff-tools` handshake, and the error ids `extension/tools-failed` and `extension/bad-tools`. A manifest still carrying the fields is tolerated the way any unknown field is.
+- `ff doctor`'s `mcp` row.
+- The declared extension side: `ff extension` and the registry under the user's config directory (a file left on disk is ignored), the `--ff-manifest`, `--ff-tools`, and `--ff-skill` handshakes, `ff help <name>` and `ff explain <name>/<id>` delegation, the briefing's extension line, the agent-event fan-out, extension skills under `skills/<skill>/` for Claude and Codex, `ff hook --skill <name>` (bare `--skill` stays), `extensions` in `ff hook --json`, `ff update`'s extension walk and release check, `ff doctor`'s declared rows, and the `extension/*` error ids. `ff <name>` still runs `ff-<name>` from PATH with `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`.
 - The operation route: `route()` in the op revset, the `route` line on `ff op show`, and `route` in op JSON on `ff op show`, `ff op log`, `ff watch`, and `ff status`'s `last_op`. A `fufu-route:` trailer on an earlier operation is read past.
 
 ### Fixed

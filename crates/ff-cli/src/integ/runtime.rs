@@ -111,22 +111,8 @@ pub fn pipeline(
     // Everything fufu says, after the capture and never conditional on it:
     // a briefing or a correction fufu could not compute must never cost a
     // snapshot.
-    //
-    // The fan-out is on this side of the adapter rather than inside `speak`,
-    // because a subscription buys being told and not being printed: a source
-    // with no protocol at all — a shell prompt, a hand-taken snapshot — hands
-    // the event out too, and every subscriber runs whether or not this client
-    // has a channel for what they said.
-    let subscribed = super::fanout::run(event, source, repo.workdir(), ctx.session.as_deref());
     if let Some(proto) = proto {
-        speak(
-            &repo,
-            source,
-            event,
-            proto,
-            ctx.session.as_deref(),
-            subscribed,
-        );
+        speak(&repo, source, event, proto);
     }
 
     crate::selfupdate::notify::maybe_spawn_check(&repo);
@@ -155,8 +141,6 @@ fn speak(
     slug: &str,
     event: &AgentEvent,
     proto: &dyn AgentProtocol,
-    session: Option<&str>,
-    subscribed: Vec<String>,
 ) {
     let mut reply = Reply::new(event.kind);
 
@@ -166,23 +150,16 @@ fn speak(
     if let Some(next) = briefing_due(&marker, event.kind, &event.session, &event.agent) {
         marker = next;
         dirty = true;
-        // The skill and tools lines join the notice before the envelope
-        // rather than after it, because a client that wants JSON wants one
-        // field and not two. It is asked of the adapter at print time: an
-        // install and a disk can disagree, and naming a skill that is not
-        // there is worse than saying nothing at all.
+        // The skill line joins the notice before the envelope rather than
+        // after it, because a client that wants JSON wants one field and
+        // not two. It is asked of the adapter at print time: an install and
+        // a disk can disagree, and naming a skill that is not there is
+        // worse than saying nothing at all.
         let mut text = NOTICE.to_string();
         if proto.has_skill() {
             text.push_str(skill::LINE);
         }
         reply.context.push(text);
-        // A declared extension's line is briefing, so it rides this same
-        // boundary and this same marker rather than a lane of its own. Each
-        // is its own entry, which is what puts each on its own line when the
-        // adapter joins them.
-        for line in super::briefing::extension_lines(&event.cwd, repo.workdir(), session) {
-            reply.context.push(line);
-        }
     }
 
     if event.kind == EventKind::BeforeTool
@@ -190,12 +167,6 @@ fn speak(
     {
         correct(repo, &event.session, command, &mut reply);
     }
-
-    // A subscriber speaks after fufu does, in the registry's order. fufu's
-    // own lines are the ones the agent has to have; an extension's are the
-    // ones it asked for, and they are merged into the one reply this client
-    // was going to get rather than printed beside it.
-    reply.context.extend(subscribed);
 
     if reply.is_empty() {
         return;

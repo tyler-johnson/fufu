@@ -15,15 +15,9 @@
 //! merged into a settings file that belongs to the user; the skill is a
 //! directory fufu owns outright under `~/.codex/skills/`, written whole and
 //! removed whole. No install can take the other down with it.
-//!
-//! A declared extension's own skills take a directory each beside fufu's,
-//! `~/.codex/skills/<skill>/`, produced by the binary through `--ff-skill`
-//! and mentioned `$<skill>`, on the same written-whole, removed-whole rule.
-//! Carrying the extension's name as a prefix rather than nested inside a
-//! directory fufu owns outright the way Claude's plugin makes possible, so a
-//! name collision with something already living under `~/.codex/skills/` is
-//! a risk this mechanism accepts rather than one it can detect, and a skill
-//! of an extension no longer declared is one nothing here prunes.
+//! `~/.codex/skills/` is shared with the user's own skills, so nothing here
+//! sweeps it: a directory an earlier fufu wrote there for anything other
+//! than its own skill stays on disk.
 
 use std::path::PathBuf;
 
@@ -61,13 +55,6 @@ fn skill_wiring() -> Wiring {
         Ok(dir) => skill::wiring(&dir),
         Err(_) => Wiring::NotWired,
     }
-}
-
-/// Where every skill lives, fufu's own and a declared extension's alike:
-/// `~/.codex/skills/<skill>/`. An extension's skills carry its name as a
-/// prefix, the same namespace everything else about it hangs off.
-fn skills_root() -> Result<PathBuf> {
-    Ok(config_dir()?.join("skills"))
 }
 
 fn spec() -> Result<settings::Spec> {
@@ -129,27 +116,6 @@ impl Integration for Codex {
             "skill written to {}",
             dir.display()
         )));
-        let root = skills_root()?;
-        for declared in crate::registry::read().declared() {
-            let (skills, failed) = skill::ext_skills(declared);
-            let mut written = Vec::new();
-            for ext_skill in &skills {
-                skill::write_ext_skill(&root, ext_skill)?;
-                written.push(ext_skill.name.as_str());
-            }
-            if !written.is_empty() {
-                let plural = if written.len() == 1 { "" } else { "s" };
-                change.absorb(Change::changed(format!(
-                    "{} skill{plural} written to {}: {}",
-                    declared.name(),
-                    root.display(),
-                    written.join(", ")
-                )));
-            }
-            for (name, why) in &failed {
-                change.lines.push(format!("{name} left out: {why}"));
-            }
-        }
         change.absorb(mcp::strip(&mcp_spec()?)?);
         change.lines.push(TRUST.into());
         Ok(change)
@@ -160,20 +126,6 @@ impl Integration for Codex {
         let dir = skill_dir()?;
         if skill::remove(&dir)? {
             change.absorb(Change::changed(format!("removed {}", dir.display())));
-        }
-        // Only the extensions still declared, and by the names on record
-        // with no handshake: an extension taken back with `ff extension
-        // remove` before this runs leaves its directories behind, the same
-        // way its manifest's other traces do once nothing reads the registry
-        // for its name any more.
-        let root = skills_root()?;
-        for declared in crate::registry::read().declared() {
-            for name in &declared.manifest.skills {
-                let ext_dir = root.join(name);
-                if skill::remove(&ext_dir)? {
-                    change.absorb(Change::changed(format!("removed {}", ext_dir.display())));
-                }
-            }
         }
         change.absorb(mcp::strip(&mcp_spec()?)?);
         Ok(change)

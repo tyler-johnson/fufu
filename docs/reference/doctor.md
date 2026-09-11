@@ -4,8 +4,7 @@ A safety net you cannot inspect is not trustworthy, and every floor of fufu's ca
 
 - a log ref moved by something that is not fufu, a reflog that never got created, or the gc guard deleted out of local config;
 - a branch that answers to no remote anything can name;
-- hooks never installed, or a stale binary;
-- a declared extension whose manifest has drifted.
+- hooks never installed, or a stale binary.
 
 [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix).
 
@@ -101,33 +100,7 @@ These rows come from the same status vector [`ff hook -l`](../reference/cli/hook
 
 ### Extensions
 
-Every `ff-<name>` a PATH walk finds, whether it is declared with [`ff extension <name>`](cli/extension.md), and for a declared one whether the binary still matches what was recorded. Declaring is a decision about the machine, not the repository, so this floor runs the same whether or not you are standing in one.
-
-#### Undeclared extensions
-
-An undeclared extension is never a finding. It is git's own idiom working as designed — an `ff-<name>` on PATH runs exactly as it did before anyone registered it — so doctor names it once, aggregated, as `info`: how many were found and their names, with the `ff extension <name>` that would vouch for one.
-
-#### Declared extensions
-
-Every declared extension gets a row named for it, the same shape a wiring row takes for a client. `ok` names the version and says it matches what is on PATH.
-
-Three things are findings:
-
-- the binary has left PATH since it was declared — dispatch is the PATH walk every time, so a record outliving its binary is a promise fufu can no longer keep;
-- the handshake fails when doctor asks again: `ff-<name> --ff-manifest` no longer answers the way it did at `ff extension <name>`;
-- the binary's live manifest names a different version or contract than what was recorded. That is drift, reported with both values and the `ff extension <name>` that re-declares it. It is the row that covers the channels no script runs: a Homebrew upgrade or a hand copy replaces the binary and re-declares nothing, and until something does, `ff hook` writes the skills the record names rather than the binary's.
-
-Doctor runs the handshake for every declared extension found on PATH, one spawn apiece. It is the slow, thorough verb, the one place worth asking each binary directly rather than trusting the record the way the trigger fan-out does.
-
-#### A registration nothing declares any more
-
-A registration for a name nothing declares any more is folded into the `extensions` aggregate, `info`. It is the trace `ff extension -d` leaves behind — Codex's marked block loses the table on its next `ff hook`, but a JSON key has no such moment and sits until somebody removes it by hand — reported the same way an upstream section pointing at a branch's still-published shared copy is: residue, never a finding.
-
-#### The registry itself
-
-A file that will not read as a registry — hand-edited into something broken — is a `WARN`: nothing is declared until it reads again, the same refusal `ff extension` reports.
-
-A record naming a contract this fufu does not speak is a `WARN` too. Doctor asks its binary the way it asks a declared one, and when `ff-<name>` on PATH answers this fufu's contract the record is behind the binary: the row is the drift row above, named for the extension, with the `ff extension <name>` that re-records it. Otherwise the record is named in the `extensions` aggregate with the contract it claims, and is kept in the file and described to nobody until a fufu that speaks that contract reads it.
+Every `ff-<name>` a PATH walk finds, in one aggregate `info` row: how many were found and their names. It is never a finding, because an `ff-<name>` on PATH is git's own idiom working as designed, and fufu records nothing about one to check it against. A binary on PATH is a fact about the machine, not the repository, so this floor runs the same whether or not you are standing in one.
 
 ### The update lane
 
@@ -208,22 +181,6 @@ A skill written by an older fufu, a hook stored in a retired spelling, a client 
 
 `ff hook <slug>` rewires it, and `ff doctor --fix` does the same thing in passing. This is why the wiring repair lives in doctor at all: a stored string is only rewritten when somebody runs the installer again, and doctor is the command people run when they are already suspicious.
 
-### A declared extension drifted
-
-`ff-tower` was upgraded on PATH without a re-declaration, so what `ff extension <name>` recorded and what the binary now answers disagree:
-
-```console
-  WARN  tower          recorded 0.4.1 (contract 1), ff-tower on PATH now answers 0.5.0 (contract 1) — ff extension tower re-declares it
-```
-
-The row names the repair: `ff extension tower` reads the manifest again and records what is actually there. A binary that has left PATH entirely reads the same way, naming the removal instead:
-
-```console
-  WARN  tower          declared 0.4.1 — no ff-tower on PATH any more (ff extension -d tower forgets it)
-```
-
-Neither is a finding `--fix` repairs — re-declaring is a decision about which version to trust, not a mechanical rewrite — so both stay yours to run.
-
 ## The one write: --fix
 
 Read-only is the design, because doctor must never absorb the drift it reports. `--fix` is the one consented write, and it repairs exactly the findings whose rows say so:
@@ -242,6 +199,5 @@ Everything else — a moved log ref, a missing reflog, an invalid setting — is
 
 - **After adopting a repository** — the engine floor confirms the log opened and the gc guard is in place, and the wiring floor confirms something actually feeds capture. [Agent setup](../agents/setup.md#verify) runs it as the verification step.
 - **After a version bump** — the update lane confirms which binary answered, and the wiring rows catch hooks and skills written by the fufu you just replaced.
-- **After upgrading a declared extension** — the extensions floor catches a binary that moved without a re-declaration before an agent trusts a stale manifest. A binary behind its latest release is the [update lane](cli/update.md)'s to notice, not doctor's.
 - **When something feels off** — an `ff undo` that did less than expected, a branch that will not push, an agent whose edits are not showing up in [`ff history`](../reference/cli/history.md). One pass names the floor that degraded.
 - **In CI** — the exit code gates: 0 healthy, 1 findings, and `--json` gives the pipeline the rows.

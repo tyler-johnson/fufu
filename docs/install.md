@@ -94,7 +94,7 @@ The pieces above, as one list to file with security:
 2. **Verify, with the limit in the same breath.** The scripts check the sha256 against `checksums.txt` and refuse on a mismatch; by hand it is the `sha256sum -c` above. `checksums.txt` is unsigned, so this proves the download matches what CI published with the release, not who published it. Signed provenance is not offered today.
 3. **Turn the update check off.** [`ff config --global updateCheck false`](reference/cli/config.md), which is the git config key [`fufu.updateCheck`](reference/config.md#updatecheck). What it turns off, in official builds:
 
-    - at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag, and one more for each declared extension whose manifest names a github.com releases page;
+    - at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag;
     - it sends `GITHUB_TOKEN` as a bearer header if the environment has one;
     - it caches the answers in `<cache>/fufu/update.json` for a one-line notice apiece.
 

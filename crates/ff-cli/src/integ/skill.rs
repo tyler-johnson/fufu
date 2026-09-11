@@ -11,20 +11,12 @@
 //! owns outright, written whole and removed whole, with no foreign content
 //! to preserve. Claude takes it inside the plugin it already owns; Codex
 //! takes a directory of its own beside the settings file it does not.
-//!
-//! The second half of the file is the same idea for a declared extension's
-//! own skills: the manifest names them, `ext_skills` asks the binary for
-//! each one's files through `--ff-skill`, and `write_ext_skill` lands them
-//! under a directory beside fufu's own — one more directory this fufu owns
-//! outright, keyed by the skill's name instead of fixed to `fufu`.
 
 use std::path::{Path, PathBuf};
 
 use ff_core::{Error, Result};
 
 use super::{Mechanism, Wiring};
-use crate::manifest;
-use crate::registry::Declared;
 
 /// The skill, as both clients read it. Kept as Markdown rather than a Rust
 /// string so it stays a document: the frontmatter has to be the first
@@ -35,7 +27,7 @@ pub const SKILL: &str = include_str!("skill.md");
 /// The directory fufu owns inside a client's skills location, and the one
 /// file in it. Both are the clients' conventions rather than fufu's.
 pub const NAME: &str = "fufu";
-const FILE: &str = manifest::SKILL_FILE;
+const FILE: &str = "SKILL.md";
 
 /// What the briefing adds where the skill actually landed. It is appended
 /// by the runtime rather than baked into the notice, because a client with
@@ -85,77 +77,6 @@ pub fn wiring(dir: &Path) -> Wiring {
         },
         Err(_) => Wiring::NotWired,
     }
-}
-
-// ---- a declared extension's own skills --------------------------------------
-
-/// One skill an extension produced through `--ff-skill`, ready to write.
-pub struct ExtSkill {
-    pub name: String,
-    pub files: Vec<manifest::SkillFile>,
-}
-
-/// Ask a declared extension for every skill its manifest names. Answers the
-/// ones that came back whole, and the names that did not with why, so an
-/// installer can write the first and say the second.
-///
-/// One skill failing costs no other its place, and none of them fails the
-/// install: an extension with one fewer skill is a smaller loss than a hook
-/// install that stops partway through every client. A binary gone from
-/// PATH makes every skill a failure, named as such — the handshake needs a
-/// binary to run, and a manifest on record is not one.
-pub fn ext_skills(declared: &Declared) -> (Vec<ExtSkill>, Vec<(String, Error)>) {
-    let name = declared.name();
-    let Some(binary) = declared.resolve() else {
-        let gone = declared
-            .manifest
-            .skills
-            .iter()
-            .map(|skill| {
-                (
-                    skill.clone(),
-                    Error::coded(
-                        "extension/not-found",
-                        format!("ff-{name} is not on PATH"),
-                        vec!["ff doctor".into()],
-                    ),
-                )
-            })
-            .collect();
-        return (Vec::new(), gone);
-    };
-    let mut skills = Vec::new();
-    let mut failed = Vec::new();
-    for skill in &declared.manifest.skills {
-        match manifest::ask_skill(&binary, name, skill) {
-            Ok(files) => skills.push(ExtSkill {
-                name: skill.clone(),
-                files,
-            }),
-            Err(err) => failed.push((skill.clone(), err)),
-        }
-    }
-    (skills, failed)
-}
-
-/// `root/<skill.name>`, removed if present, then every file written under
-/// it. Answers the directory it wrote.
-///
-/// Removed first and rewritten from scratch rather than merged, because a
-/// file the skill no longer carries must not linger: refreshing means the
-/// directory now holds exactly what the binary produced, and not that plus
-/// whatever an earlier install left behind.
-pub fn write_ext_skill(root: &Path, skill: &ExtSkill) -> Result<PathBuf> {
-    let dir = root.join(&skill.name);
-    remove(&dir)?;
-    for file in &skill.files {
-        let path = dir.join(&file.path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(Error::repo)?;
-        }
-        std::fs::write(&path, &file.content).map_err(Error::repo)?;
-    }
-    Ok(dir)
 }
 
 #[cfg(test)]

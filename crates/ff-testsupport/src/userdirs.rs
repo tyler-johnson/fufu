@@ -1,24 +1,20 @@
 //! Where a spawned `ff` keeps per-user state when a test pins its HOME.
 //!
-//! `ff-cli`'s `userdirs` resolves the cache and config roots per platform,
-//! and no one variable redirects all three: linux reads `XDG_CACHE_HOME`
-//! and `XDG_CONFIG_HOME`, macOS reads only `HOME`, and Windows reads
-//! neither and takes `LOCALAPPDATA` and `APPDATA`. A suite that pins the
-//! pair it knows is isolated on the platform it was written on and reads
-//! whoever is running it everywhere else — which is how a corrupt registry
-//! written to `$HOME/.config` came back as no registry at all on macOS.
+//! `ff-cli`'s `userdirs` resolves the cache root per platform, and no one
+//! variable redirects it everywhere: linux reads `XDG_CACHE_HOME`, macOS
+//! reads only `HOME`, and Windows reads neither and takes `LOCALAPPDATA`.
+//! A suite that pins the variable it knows is isolated on the platform it
+//! was written on and reads whoever is running it everywhere else.
 //!
 //! So the layout is spelled here once. [`pin`] sets every variable the
-//! resolver consults, and [`config_root`], [`cache_root`] and [`registry`]
-//! say where what it pinned will land. A test reaching into either root
-//! asks for the path rather than joining one, so the directory it writes
-//! and the directory the binary reads cannot drift apart.
+//! resolver consults, and [`config_root`] and [`cache_root`] say where
+//! what it pinned will land. The config root is pinned too, so git's own
+//! `~/.config/git/config` stays out of a test.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The config root a pinned `ff` resolves under `home`. The extension
-/// registry sits below it.
+/// The config root a pinned `ff` resolves under `home`.
 pub fn config_root(home: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library").join("Application Support")
@@ -35,12 +31,6 @@ pub fn cache_root(home: &Path) -> PathBuf {
     } else {
         home.join(".cache")
     }
-}
-
-/// The extension registry file under that config root, which is the one
-/// path a test should ever write a declaration to.
-pub fn registry(home: &Path) -> PathBuf {
-    config_root(home).join("fufu").join("extensions.json")
 }
 
 /// Point both roots at `home` on every platform.

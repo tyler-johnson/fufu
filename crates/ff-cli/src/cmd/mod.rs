@@ -11,7 +11,6 @@ pub mod done;
 pub mod edit;
 pub mod evolog;
 pub mod explain;
-pub mod extension;
 pub mod fold;
 pub mod foreign;
 pub mod git;

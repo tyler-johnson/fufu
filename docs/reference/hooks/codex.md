@@ -4,8 +4,6 @@ Two entries merged into `~/.codex/hooks.json`, and [fufu's skill](../../agents/s
 
 The hooks file belongs to you: fufu parses it, adds its entries, and writes everything else back untouched. The skill directory belongs to fufu, written whole and removed whole.
 
-A declared extension's skills get a directory each the same way, `~/.codex/skills/<skill>/`, and a person mentions one as `$<skill>`. The manifest names the skills and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. A skill the binary will not produce is left out and said. [`ff hook --skill <skill>`](../../reference/cli/hook.md) prints a skill's `SKILL.md` without installing anything.
-
 ## What it writes
 
 ```console
@@ -56,7 +54,7 @@ The trust line is the one thing to act on. Codex trusts a hook by its hash: run 
 
 ## What `ff unhook codex` removes
 
-The two entries, the skill directory, and every skill of every extension still on the registry when it runs, by name and with no handshake — a skill of one this fufu no longer describes because it was taken back with `ff extension -d` first is left where it is.
+The two entries and the skill directory.
 
 ```console
 $ ff unhook codex

@@ -69,9 +69,9 @@ try {
 
 Write-Host "installed fufu $version to $installDir\ff.exe"
 
-# Refresh what is already wired through the binary just placed: a declared
-# extension's manifest is re-asked, and every wired client and shell is
-# re-run. The shell running this may not have the new binary on PATH, so
+# Refresh what is already wired through the binary just placed: every
+# wired client and shell is re-run. The shell running this may not have
+# the new binary on PATH, so
 # it is named by path; and a refresh that cannot run must not fail the
 # install, so its failure is swallowed under Stop.
 try { & (Join-Path $installDir 'ff.exe') hook -u } catch { }

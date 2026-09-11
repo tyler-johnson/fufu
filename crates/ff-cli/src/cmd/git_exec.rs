@@ -1,6 +1,6 @@
 //! Verbatim execution of an external program. For git the process is
 //! replaced on unix (`exec`), so its exit code, signals, and terminal
-//! behavior are exactly its own; the same seam now serves PATH extensions.
+//! behavior are exactly its own; the same seam serves PATH extensions.
 //! Returns only on failure: 126 = could not exec, 127 = program not found.
 
 use std::ffi::OsString;

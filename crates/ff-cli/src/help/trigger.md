@@ -10,12 +10,6 @@ Three rules hold for every one of them:
 - A source name fufu does not know exits 0 and says nothing too, which is what makes a fufu trigger safe to wire into a client fufu has never heard of.
 - They never veto the action they fired on. The one veto there is, `fufu.gitPolicy strict` for raw git, is config saying so, and it travels as JSON the client may ignore rather than as an exit code.
 
-### Extensions
-
-Every one of those events reaches the declared extensions that subscribed to its kind, after the capture and never before it, and whatever `context` their replies carry is merged into the one reply the client was already getting.
-
-A subscriber inherits this page's doctrine whole: it exits 0 whatever happened, it is silent, and it cannot veto. The time box is fufu's, half a second shared across the whole fan-out. Which events an extension asks for is its manifest's business; `ff extension` is the verb that declares one.
-
 ## Examples
 
 ```

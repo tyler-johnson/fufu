@@ -140,23 +140,6 @@ That skill is the difference between an agent that reads [`ff evolog`](../refere
 $ ff hook --skill
 ```
 
-### An extension's briefing line
-
-An extension declared with [`ff extension <name>`](../reference/cli/extension.md) may add one line to the same briefing, and one line is the whole of what it may add.
-
-The manifest's `briefing` field says where the line comes from:
-
-- a string there is the line itself.
-- `true` there means fufu runs `ff-<name> briefing` when the briefing is built, in the event's own directory, and takes its stdout.
-
-Either way the line is trimmed to one line and capped at 240 characters. A line past the cap is dropped rather than cut, because half a sentence is still prose the agent reads as instructions.
-
-The lines ride the same boundaries fufu's own notice does, and come out in the order the extensions were declared, after everything fufu had to say.
-
-Failing to produce one costs nothing. A binary that has left PATH, one that will not start, one that exits nonzero, one that prints something that is not a line, and one still thinking when the time box runs out are all the same outcome: no line, no message to the agent, and a briefing exactly as it would have been.
-
-That is `ff trigger`'s doctrine applied to the one place fufu invites an extension to speak into an agent's context. `FF_DEBUG=1` is where the reason goes when you want one. [Extensions](../reference/extensions.md) is the reference for building one.
-
 ## Verify
 
 [`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass, and its wiring lane is the part this page set up. Healthy rows name where each hook landed:

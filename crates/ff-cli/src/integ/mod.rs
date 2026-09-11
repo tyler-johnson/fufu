@@ -34,7 +34,6 @@ pub mod claude;
 pub mod codex;
 pub mod cursor;
 pub mod event;
-pub mod fanout;
 pub mod gemini;
 pub mod manual;
 pub mod mcp;

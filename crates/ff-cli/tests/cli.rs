@@ -1584,9 +1584,8 @@ fn start_always_mints() {
 }
 
 /// `ff update` with the user roots pinned under a scratch home, so the
-/// walk reads a registry with nothing declared rather than this machine's:
-/// a declared extension here would add its block, and under `-y` its own
-/// refusal beside fufu's.
+/// update-check cache it reads and writes is the scratch home's rather
+/// than this machine's.
 fn ff_update(fx: &Fixture, args: &[&str]) -> Output {
     let home = tempfile::TempDir::new().expect("scratch home");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));

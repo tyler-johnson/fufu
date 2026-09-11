@@ -141,7 +141,7 @@ Every verb takes `--json` and emits a versioned envelope, `{"ff": 1, "cmd": "sta
 - `ff explain <id>` looks up an error id; `ff explain --list` shows them all.
 - `ff config` lists every setting with its value and default, validated through the readers' own parsers. Storage is plain git config under `fufu.*`.
 - `ff doctor` reads the whole safety net in one pass and exits 1 on findings, so CI can gate on it. It is read-only except `--fix`.
-- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`. `ff extension <name>` records what `ff-<name>` says it is, and declaring it is what makes fufu describe the verb to an agent everywhere it already speaks — the briefing, `ff explain`, `ff doctor`, and the tool.
+- A verb fufu does not know runs `ff-<name>` from PATH, git-style. The child inherits `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`.
 
 ## The authority
 

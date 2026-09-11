@@ -1,26 +1,20 @@
 //! The passive lane's state file; the spawn/pending machinery; the cadence
 //! grammar has been extracted to [`crate::cadence`].
 //!
-//! The lane covers fufu and every declared extension the gate in
-//! [`crate::selfupdate::release_repo`] lets through: an official build
-//! whose `releases` recipe is a github.com page. One background check per
-//! cadence fetches each latest release beside fufu's own, the state file
-//! keeps a `latest` and a `notified` per extension beside fufu's, and the
-//! notice is one line per stale binary, each release announced at most
-//! once. The gates are fufu's own and are not duplicated: an official
-//! build of fufu, not CI, a terminal, and `fufu.updateCheck` not off.
+//! One background check per cadence fetches fufu's latest release, the
+//! state file keeps a `latest` and a `notified`, and the notice is one
+//! line, each release announced at most once. The gates: an official build
+//! of fufu, not CI, a terminal, and `fufu.updateCheck` not off.
 
-use std::collections::BTreeMap;
 use std::io::IsTerminal;
 
 use serde::{Deserialize, Serialize};
 
 /// update.json — all timestamps are unix seconds. `interval_secs` caches the
 /// parsed `fufu.updateCheck` so the hot path is one file read, no config load:
-/// 0 = unset/default, -1 = disabled, else seconds. `extensions` is one
-/// entry per declared extension the lane checks, keyed by name, and absent
-/// when there are none, so a file an older fufu wrote reads as it did and
-/// one this fufu writes reads under an older fufu, which ignores the key.
+/// 0 = unset/default, -1 = disabled, else seconds. A key this fufu does
+/// not know — the `extensions` block an earlier fufu wrote — is read past,
+/// not refused.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UpdateState {
@@ -30,21 +24,6 @@ pub struct UpdateState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notified: Option<String>,
     pub interval_secs: i64,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub extensions: BTreeMap<String, ExtensionState>,
-}
-
-/// One declared extension's half of the state file: the latest release
-/// tag the check read, and the one the notice last announced. The same
-/// pair fufu keeps for itself; the check's timestamp is shared, because
-/// one check covers everything.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ExtensionState {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub notified: Option<String>,
 }
 
 /// Path to the passive-lane state file (`<cache_root>/fufu/update.json`).
@@ -212,105 +191,11 @@ pub(crate) fn notice_for(
     ))
 }
 
-/// The extension half of [`compute_due`], minus all IO: the state file's
-/// entry for `name` against the version its record carries. `None` when
-/// there is nothing to say — no entry, a tag or a recorded version that
-/// does not read as one, nothing newer, or a release already announced.
-///
-/// The recorded version rather than the binary's own, because this runs on
-/// every verb and a handshake is a spawn. The record follows the binary
-/// through `ff extension <name>` and `ff hook -u`, which is what the doctor
-/// row is there to keep true.
-pub(crate) fn extension_due(
-    state: &UpdateState,
-    name: &str,
-    recorded_version: &str,
-    tty: bool,
-) -> Option<Due> {
-    if !tty {
-        return None;
-    }
-    let entry = state.extensions.get(name)?;
-    let latest = entry.latest.as_ref()?;
-    let latest_ver = crate::selfupdate::parse_release(latest)?;
-    let current = crate::selfupdate::parse_semver(recorded_version)?;
-    if latest_ver <= current {
-        return None;
-    }
-    if entry.notified.as_deref() == Some(latest.as_str()) {
-        return None;
-    }
-    Some(Due {
-        notice: true,
-        latest: latest.clone(),
-    })
-}
-
-/// The extension half of [`notice_for`], minus all IO. The tail names the
-/// block's recipe for the channel the binary sits on, the way `ff update`
-/// would print it: the install recipe is `ff update`, which runs it; a
-/// brew recipe is the command; anything else, a channel the block has no
-/// recipe for included, is the releases page, which the gate guarantees
-/// is there.
-pub(crate) fn extension_notice_for(
-    due: &Due,
-    want_notice: bool,
-    name: &str,
-    recorded_version: &str,
-    kind: crate::selfupdate::InstallKind,
-    block: &crate::manifest::Update,
-) -> Option<String> {
-    use crate::selfupdate::InstallKind;
-    if !due.notice || !want_notice {
-        return None;
-    }
-    let recipe = crate::selfupdate::recipe_for(block, kind);
-    let suffix = match (kind, recipe) {
-        (InstallKind::Script, Some(_)) => " — update with: ff update".to_string(),
-        (InstallKind::Homebrew, Some(how)) => format!(" — update with: {how}"),
-        _ => format!(" — see {}", block.releases.as_deref().unwrap_or_default()),
-    };
-    Some(format!(
-        "ff: ff-{name} {} is available (running {recorded_version}){suffix}",
-        due.latest
-    ))
-}
-
-/// The background check's extension half: one lookup per declared
-/// extension the gate lets through, with the lookup injected so the
-/// refresh is testable without a network. A lookup that answers replaces
-/// `latest` and keeps `notified`; one that fails leaves the entry as it
-/// was. Entries for extensions no longer declared, or no longer eligible,
-/// are dropped, so the file follows the registry.
-pub(crate) fn refresh_extensions(
-    state: &mut UpdateState,
-    declared: &[crate::registry::Declared],
-    lookup: impl Fn(&str) -> Option<String>,
-) {
-    let mut kept: BTreeMap<String, ExtensionState> = BTreeMap::new();
-    for extension in declared {
-        let Some(repo) = crate::selfupdate::release_repo(&extension.manifest) else {
-            continue;
-        };
-        let name = extension.name();
-        let mut entry = state.extensions.remove(name).unwrap_or_default();
-        if let Some(tag) = lookup(&repo)
-            && crate::selfupdate::parse_release(&tag).is_some()
-        {
-            entry.latest = Some(tag);
-        }
-        kept.insert(name.to_string(), entry);
-    }
-    state.extensions = kept;
-}
-
-/// One line the passive lane has to say, and whose release it announces:
-/// fufu's own when `about` is `None`, else the named extension's. What
-/// [`pending`] hands back and [`mark_notified`] spends.
+/// One line the passive lane has to say. What [`pending`] hands back and
+/// [`mark_notified`] spends.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Notice {
     pub line: String,
-    pub about: Option<String>,
 }
 
 /// Background cache-refresh spawn. Never errors, returns ().
@@ -359,16 +244,13 @@ pub fn maybe_spawn_check(repo: &ff_core::gix::Repository) {
     spawn_detached(&exe, &["update", "--check"]);
 }
 
-/// The release notices pending: fufu's own first, then one per declared
-/// extension whose latest release is ahead of its record, in registry
-/// order. Empty when there is nothing to say.
+/// The release notice pending, when fufu's latest release is ahead of this
+/// binary. Empty when there is nothing to say.
 ///
 /// This lane never installs anything: it notices, and names the command
 /// that would.
 ///
-/// The fast path is one file read. The registry is read only when the
-/// file carries an extension entry, and an extension's binary is found by
-/// a PATH scan rather than a handshake: nothing here spawns.
+/// The fast path is one file read: nothing here spawns.
 pub fn pending(
     repo: &ff_core::gix::Repository,
     current_version: &str,
@@ -383,70 +265,28 @@ pub fn pending(
     let state = load_state(&path);
     let tty = std::io::stderr().is_terminal();
 
-    let fufu = crate::selfupdate::parse_semver(current_version)
-        .and_then(|current| compute_due(&state, current, tty));
-    let extensions: Vec<(&crate::registry::Declared, Due)> = if state.extensions.is_empty() {
-        Vec::new()
-    } else {
-        crate::registry::read()
-            .declared()
-            .iter()
-            .filter_map(|declared| {
-                extension_due(&state, declared.name(), &declared.manifest.version, tty)
-                    .map(|due| (declared, due))
-            })
-            .collect()
-    };
-    if fufu.is_none() && extensions.is_empty() {
+    let Some(due) = crate::selfupdate::parse_semver(current_version)
+        .and_then(|current| compute_due(&state, current, tty))
+    else {
         return Vec::new();
-    }
+    };
 
     // Something is due — NOW check live config.
     if crate::cadence::read_encoded(repo.config_snapshot().plumbing(), "fufu.updateCheck") == -1 {
         return Vec::new();
     }
 
-    let mut notices = Vec::new();
-    if let Some(due) = fufu {
-        // An unresolvable exe cannot be classified; the releases page is the
-        // answer that is true for every install.
-        let kind = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.canonicalize().ok())
-            .map(|exe| crate::selfupdate::classify_install(&exe, true))
-            .unwrap_or(crate::selfupdate::InstallKind::Unmanaged);
-        if let Some(line) = notice_for(&due, want_notice, current_version, kind) {
-            notices.push(Notice { line, about: None });
-        }
-    }
-    for (declared, due) in extensions {
-        // A binary that has left PATH has nothing to announce; the record
-        // is doctor's to report, and the release waits for a binary.
-        let Some(exe) = declared.resolve() else {
-            continue;
-        };
-        let Some(block) = &declared.manifest.update else {
-            continue;
-        };
-        let exe = exe.canonicalize().unwrap_or(exe);
-        let bin = crate::selfupdate::extension_bin_dir(block.bin.as_deref()).unwrap_or_default();
-        let kind =
-            crate::selfupdate::classify_extension_at(&exe, true, block.install.is_some(), &bin);
-        if let Some(line) = extension_notice_for(
-            &due,
-            want_notice,
-            declared.name(),
-            &declared.manifest.version,
-            kind,
-            block,
-        ) {
-            notices.push(Notice {
-                line,
-                about: Some(declared.name().to_string()),
-            });
-        }
-    }
-    notices
+    // An unresolvable exe cannot be classified; the releases page is the
+    // answer that is true for every install.
+    let kind = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|exe| crate::selfupdate::classify_install(&exe, true))
+        .unwrap_or(crate::selfupdate::InstallKind::Unmanaged);
+    notice_for(&due, want_notice, current_version, kind)
+        .map(|line| Notice { line })
+        .into_iter()
+        .collect()
 }
 
 /// Mark what was just printed as notified — a release announces at most
@@ -460,19 +300,11 @@ pub fn mark_notified(notices: &[Notice]) {
     let _ = save_state(&path, &state);
 }
 
-/// [`mark_notified`] against a state in hand: fufu's `notified` follows
-/// its `latest` for a notice about fufu, and an extension's follows its
-/// own for a notice about it.
+/// [`mark_notified`] against a state in hand: `notified` follows `latest`
+/// once a notice was printed.
 pub(crate) fn mark_notified_in(state: &mut UpdateState, notices: &[Notice]) {
-    for notice in notices {
-        match &notice.about {
-            None => state.notified = state.latest.clone(),
-            Some(name) => {
-                if let Some(entry) = state.extensions.get_mut(name) {
-                    entry.notified = entry.latest.clone();
-                }
-            }
-        }
+    if !notices.is_empty() {
+        state.notified = state.latest.clone();
     }
 }
 
@@ -507,56 +339,37 @@ mod tests {
             latest: Some("v0.2.0".into()),
             notified: Some("v0.2.0".into()),
             interval_secs: 86_400,
-            extensions: BTreeMap::new(),
         };
-        save_state(&path, &state).unwrap();
-        assert_eq!(load_state(&path), state);
-        // With no extension entries the file is the one an older fufu
-        // wrote: no key at all.
-        let body = std::fs::read_to_string(&path).unwrap();
-        assert!(!body.contains("extensions"), "{body}");
-
-        // And with entries, they round-trip beside fufu's own.
-        let mut state = state;
-        state.extensions.insert(
-            "tower".into(),
-            ExtensionState {
-                latest: Some("v0.5.0".into()),
-                notified: None,
-            },
-        );
         save_state(&path, &state).unwrap();
         assert_eq!(load_state(&path), state);
     }
 
-    /// A file an older fufu wrote has no `extensions` key and reads as it
-    /// did; one with a key an older fufu never wrote reads too.
+    /// A cache an earlier fufu wrote carries an `extensions` block this one
+    /// knows nothing about. It reads past the block rather than refusing
+    /// the file, and fufu's own fields come through as they are.
     #[test]
-    fn an_old_cache_reads_with_no_extensions() {
+    fn an_old_cache_with_an_extensions_block_reads_past_it() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("update.json");
         std::fs::write(
             &path,
-            r#"{"checked_at":1700000000,"latest":"v0.2.0","notified":"v0.2.0","interval_secs":86400}"#,
-        )
-        .unwrap();
-        let state = load_state(&path);
-        assert_eq!(state.latest.as_deref(), Some("v0.2.0"));
-        assert!(state.extensions.is_empty());
-
-        std::fs::write(
-            &path,
-            r#"{"checked_at":1700000000,"interval_secs":0,"extensions":{"tower":{"latest":"v0.5.0"}}}"#,
+            r#"{"checked_at":1700000000,"latest":"v0.2.0","notified":"v0.2.0","interval_secs":86400,"extensions":{"tower":{"latest":"v0.5.0"}}}"#,
         )
         .unwrap();
         let state = load_state(&path);
         assert_eq!(
-            state.extensions["tower"],
-            ExtensionState {
-                latest: Some("v0.5.0".into()),
-                notified: None
+            state,
+            UpdateState {
+                checked_at: 1_700_000_000,
+                latest: Some("v0.2.0".into()),
+                notified: Some("v0.2.0".into()),
+                interval_secs: 86_400,
             }
         );
+        // And what this fufu writes back carries no such block.
+        save_state(&path, &state).unwrap();
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(!body.contains("extensions"), "{body}");
     }
 
     #[test]
@@ -765,336 +578,5 @@ mod tests {
             check_status_from(true, &state, None),
             CheckStatus::NoCheckYet
         );
-    }
-
-    // ------------------------------------------------------------------
-    // the extension half — the same pure cores over the per-extension
-    // entries, and the refresh with the lookup injected
-    // ------------------------------------------------------------------
-
-    const RELEASES: &str = "https://github.com/tyler-johnson/tower/releases/latest";
-    const INSTALL: &str = "https://raw.githubusercontent.com/tyler-johnson/tower/main/install.sh";
-
-    fn ext_state(name: &str, latest: Option<&str>, notified: Option<&str>) -> UpdateState {
-        let mut state = UpdateState::default();
-        state.extensions.insert(
-            name.into(),
-            ExtensionState {
-                latest: latest.map(str::to_string),
-                notified: notified.map(str::to_string),
-            },
-        );
-        state
-    }
-
-    /// A declared extension with the `update` block and `build` given as
-    /// JSON, recorded at a version.
-    fn declared(
-        name: &str,
-        version: &str,
-        update: serde_json::Value,
-        build: Option<&str>,
-    ) -> crate::registry::Declared {
-        let mut value = serde_json::json!({
-            "name": name,
-            "version": version,
-            "contract": crate::machine::CONTRACT,
-            "verbs": [{"name": "board", "read_only": true}],
-            "undoable": true,
-        });
-        if !update.is_null() {
-            value["update"] = update;
-        }
-        if let Some(build) = build {
-            value["build"] = serde_json::Value::String(build.into());
-        }
-        crate::registry::Declared {
-            manifest: crate::manifest::parse(value).expect("a manifest the page types"),
-            path: std::path::PathBuf::from(format!("/usr/local/bin/ff-{name}")),
-            declared_at: 1,
-        }
-    }
-
-    fn full_block() -> serde_json::Value {
-        serde_json::json!({"brew": "tyler-johnson/tap/tower", "install": INSTALL, "releases": RELEASES})
-    }
-
-    /// A stale extension is due once: the line is due, marking it spent
-    /// makes it not due, and a newer release after that is due again.
-    #[test]
-    fn a_stale_extension_is_due_once() {
-        let mut state = ext_state("tower", Some("v0.5.0"), None);
-        assert_eq!(
-            extension_due(&state, "tower", "0.4.1", true),
-            Some(Due {
-                notice: true,
-                latest: "v0.5.0".into()
-            })
-        );
-        mark_notified_in(
-            &mut state,
-            &[Notice {
-                line: String::new(),
-                about: Some("tower".into()),
-            }],
-        );
-        assert_eq!(
-            state.extensions["tower"].notified.as_deref(),
-            Some("v0.5.0")
-        );
-        assert!(extension_due(&state, "tower", "0.4.1", true).is_none());
-
-        state.extensions.get_mut("tower").unwrap().latest = Some("v0.6.0".into());
-        assert_eq!(
-            extension_due(&state, "tower", "0.4.1", true)
-                .expect("due again")
-                .latest,
-            "v0.6.0"
-        );
-    }
-
-    /// Marking fufu's own notice spends fufu's and no extension's, and the
-    /// other way round.
-    #[test]
-    fn marking_spends_only_what_was_printed() {
-        let mut state = ext_state("tower", Some("v0.5.0"), None);
-        state.latest = Some("v0.2.0".into());
-        mark_notified_in(
-            &mut state,
-            &[Notice {
-                line: String::new(),
-                about: None,
-            }],
-        );
-        assert_eq!(state.notified.as_deref(), Some("v0.2.0"));
-        assert_eq!(state.extensions["tower"].notified, None);
-        // A name with no entry is nothing to mark.
-        mark_notified_in(
-            &mut state,
-            &[Notice {
-                line: String::new(),
-                about: Some("bay".into()),
-            }],
-        );
-        assert!(!state.extensions.contains_key("bay"));
-    }
-
-    #[test]
-    fn an_extension_with_nothing_newer_is_not_due() {
-        // No entry at all.
-        assert!(extension_due(&UpdateState::default(), "tower", "0.4.1", true).is_none());
-        // An entry with no latest yet.
-        assert!(extension_due(&ext_state("tower", None, None), "tower", "0.4.1", true).is_none());
-        // Level, and behind.
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("v0.4.1"), None),
-                "tower",
-                "0.4.1",
-                true
-            )
-            .is_none()
-        );
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("v0.4.0"), None),
-                "tower",
-                "0.4.1",
-                true
-            )
-            .is_none()
-        );
-        // No terminal.
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("v0.5.0"), None),
-                "tower",
-                "0.4.1",
-                false
-            )
-            .is_none()
-        );
-        // A recorded version that does not read as one, and a tag that
-        // does not either.
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("v0.5.0"), None),
-                "tower",
-                "0.4.1-dev",
-                true
-            )
-            .is_none()
-        );
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("nightly"), None),
-                "tower",
-                "0.4.1",
-                true
-            )
-            .is_none()
-        );
-        // A bare tag is a version too.
-        assert!(
-            extension_due(
-                &ext_state("tower", Some("0.5.0"), None),
-                "tower",
-                "0.4.1",
-                true
-            )
-            .is_some()
-        );
-    }
-
-    /// The line names the extension, both versions, and the recipe for
-    /// the channel the way `ff update` would print it.
-    #[test]
-    fn an_extension_notice_names_its_recipe() {
-        use crate::selfupdate::InstallKind;
-        let due = Due {
-            notice: true,
-            latest: "v0.5.0".into(),
-        };
-        let block = declared("tower", "0.4.1", full_block(), None)
-            .manifest
-            .update
-            .unwrap();
-        let line = |kind| extension_notice_for(&due, true, "tower", "0.4.1", kind, &block);
-        assert_eq!(
-            line(InstallKind::Script).as_deref(),
-            Some("ff: ff-tower v0.5.0 is available (running 0.4.1) — update with: ff update")
-        );
-        assert_eq!(
-            line(InstallKind::Homebrew).as_deref(),
-            Some(
-                "ff: ff-tower v0.5.0 is available (running 0.4.1) — update with: brew upgrade tyler-johnson/tap/tower"
-            )
-        );
-        assert_eq!(
-            line(InstallKind::Unmanaged).as_deref(),
-            Some(&*format!(
-                "ff: ff-tower v0.5.0 is available (running 0.4.1) — see {RELEASES}"
-            ))
-        );
-        // A channel the block has no recipe for falls back to the page.
-        let page_only = declared(
-            "tower",
-            "0.4.1",
-            serde_json::json!({"releases": RELEASES}),
-            None,
-        )
-        .manifest
-        .update
-        .unwrap();
-        assert_eq!(
-            extension_notice_for(
-                &due,
-                true,
-                "tower",
-                "0.4.1",
-                InstallKind::Homebrew,
-                &page_only
-            )
-            .as_deref(),
-            Some(&*format!(
-                "ff: ff-tower v0.5.0 is available (running 0.4.1) — see {RELEASES}"
-            ))
-        );
-        // Not wanted, or not due: nothing.
-        assert!(
-            extension_notice_for(&due, false, "tower", "0.4.1", InstallKind::Script, &block)
-                .is_none()
-        );
-        let not_due = Due {
-            notice: false,
-            latest: "v0.5.0".into(),
-        };
-        assert!(
-            extension_notice_for(
-                &not_due,
-                true,
-                "tower",
-                "0.4.1",
-                InstallKind::Script,
-                &block
-            )
-            .is_none()
-        );
-    }
-
-    /// The refresh looks up an official build with a github.com page and
-    /// nothing else: a `source` build, a manifest with no `releases`
-    /// recipe, and a page on another host each get no lookup and no entry.
-    #[test]
-    fn the_refresh_checks_only_what_the_gate_lets_through() {
-        let extensions = [
-            declared("tower", "0.4.1", full_block(), None),
-            declared("built", "1.0.0", full_block(), Some("source")),
-            declared(
-                "brewed",
-                "1.0.0",
-                serde_json::json!({"brew": "tyler-johnson/tap/brewed"}),
-                None,
-            ),
-            declared(
-                "elsewhere",
-                "1.0.0",
-                serde_json::json!({"releases": "https://gitlab.com/tyler-johnson/elsewhere/-/releases"}),
-                None,
-            ),
-            declared("bare", "1.0.0", serde_json::Value::Null, None),
-        ];
-        let asked = std::cell::RefCell::new(Vec::new());
-        let mut state = UpdateState::default();
-        refresh_extensions(&mut state, &extensions, |repo| {
-            asked.borrow_mut().push(repo.to_string());
-            Some("v0.5.0".into())
-        });
-        assert_eq!(*asked.borrow(), ["tyler-johnson/tower"]);
-        let names: Vec<&String> = state.extensions.keys().collect();
-        assert_eq!(names, ["tower"]);
-        assert_eq!(state.extensions["tower"].latest.as_deref(), Some("v0.5.0"));
-        assert!(extension_due(&state, "built", "1.0.0", true).is_none());
-        assert!(extension_due(&state, "brewed", "1.0.0", true).is_none());
-        assert!(extension_due(&state, "elsewhere", "1.0.0", true).is_none());
-    }
-
-    /// A lookup that fails leaves the entry as it was, one that answers a
-    /// tag that is not a version leaves `latest` alone, and `notified`
-    /// survives both. An entry for an extension no longer declared goes.
-    #[test]
-    fn the_refresh_keeps_what_it_cannot_replace_and_drops_what_is_gone() {
-        let mut state = ext_state("tower", Some("v0.5.0"), Some("v0.5.0"));
-        state.extensions.insert(
-            "removed".into(),
-            ExtensionState {
-                latest: Some("v1.0.0".into()),
-                notified: None,
-            },
-        );
-        let extensions = [declared("tower", "0.4.1", full_block(), None)];
-
-        refresh_extensions(&mut state, &extensions, |_| None);
-        assert_eq!(
-            state.extensions["tower"],
-            ExtensionState {
-                latest: Some("v0.5.0".into()),
-                notified: Some("v0.5.0".into()),
-            }
-        );
-        assert!(!state.extensions.contains_key("removed"));
-
-        refresh_extensions(&mut state, &extensions, |_| Some("nightly".into()));
-        assert_eq!(state.extensions["tower"].latest.as_deref(), Some("v0.5.0"));
-
-        refresh_extensions(&mut state, &extensions, |_| Some("v0.6.0".into()));
-        assert_eq!(
-            state.extensions["tower"],
-            ExtensionState {
-                latest: Some("v0.6.0".into()),
-                notified: Some("v0.5.0".into()),
-            }
-        );
-        assert!(extension_due(&state, "tower", "0.4.1", true).is_some());
     }
 }

@@ -6,8 +6,6 @@ mod render;
 mod repo;
 mod wiring;
 
-use std::borrow::Cow;
-
 use ff_core::Result;
 
 use crate::ctx::Ctx;
@@ -20,47 +18,43 @@ pub(super) enum Level {
 
 pub(super) struct Row {
     level: Level,
-    // `Cow` rather than `&'static str`: every other row is named for a
-    // fixed subject (a client slug, a config key) known at compile time,
-    // but a row about a declared extension is named for what somebody
-    // else's `ff extension <name>` recorded.
-    name: Cow<'static, str>,
+    name: &'static str,
     detail: String,
     fixable: bool,
 }
 
 impl Row {
-    fn ok(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
+    fn ok(name: &'static str, detail: String) -> Self {
         Self {
             level: Level::Ok,
-            name: name.into(),
+            name,
             detail,
             fixable: false,
         }
     }
 
-    fn info(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
+    fn info(name: &'static str, detail: String) -> Self {
         Self {
             level: Level::Info,
-            name: name.into(),
+            name,
             detail,
             fixable: false,
         }
     }
 
-    fn warn(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
+    fn warn(name: &'static str, detail: String) -> Self {
         Self {
             level: Level::Warn,
-            name: name.into(),
+            name,
             detail,
             fixable: false,
         }
     }
 
-    fn warn_fixable(name: impl Into<Cow<'static, str>>, detail: String) -> Self {
+    fn warn_fixable(name: &'static str, detail: String) -> Self {
         Self {
             level: Level::Warn,
-            name: name.into(),
+            name,
             detail,
             fixable: true,
         }
@@ -134,8 +128,8 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
     rows.extend(wiring::wiring_rows(&statuses, fix));
     rows.push(wiring::update_row());
 
-    // extensions found on PATH, declared or not — always run: an extension
-    // is a machine-wide thing, not a repository one.
+    // extensions found on PATH — always run: an extension is a
+    // machine-wide thing, not a repository one.
     rows.extend(extensions::extension_rows());
 
     render::render(&rows, fix, ctx.json, colored);

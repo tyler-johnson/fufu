@@ -7,8 +7,6 @@ Two mechanisms cover the eight slugs.
 - A shell takes marked lines in its rc file: the alias `git='ff git'` (a `git` function in PowerShell), so every git command you type snapshots first, and a prompt hook that runs [`ff trigger shell`](../cli/trigger.md) before each prompt.
 - An agent client takes hook entries merged into a settings file it owns, each running `ff trigger <slug>` before a tool call and at the turn boundary, with the rest of the file left as it was. Claude Code is the exception: it takes a plugin directory fufu owns outright, written whole and removed whole.
 
-Claude Code and Codex carry a third thing for every extension declared with `ff extension <name>`: its own skills, named by its manifest and produced by its binary, installed one directory each under `skills/<skill>/` beside fufu's own. Every install re-asks each declared extension's manifest first and re-records it, so the skills are the ones the binary names now. Cursor and Gemini read no skills directory, for an extension exactly as for fufu, and get its briefing line alone.
-
 The rules are the same everywhere:
 
 - A line or an entry you wrote by hand is detected, reported, and never touched. In a shell the two pieces are independent, so a hand-written alias leaves the prompt hook to be installed and the other way around.

@@ -6,8 +6,6 @@ A plugin directory at `~/.claude/skills/fufu/`, which fufu owns outright: writte
 - `hooks/hooks.json`, the seven events below.
 - `skills/fufu/SKILL.md`, [fufu's skill](../../agents/setup.md), the manual an agent reads for recovery, rewriting closed commits, and the JSON. [`ff hook --skill`](../../reference/cli/hook.md) prints the same text.
 
-A declared extension's own skills land beside `skills/fufu/`, one directory per skill under `skills/<skill>/`, and a person types one as `/fufu:<skill>`. The manifest names the skills and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. [`ff hook --skill <skill>`](../../reference/cli/hook.md) prints a skill's `SKILL.md` the way a bare `ff hook --skill` prints fufu's own. A skill the binary will not produce is left out and said, and the rest of the install lands. The plugin's `skills/` is wholly fufu's, so a rerun sweeps it: a skill of an extension no longer declared goes.
-
 ## What it writes
 
 ```console
@@ -126,7 +124,7 @@ On a machine wired through settings entries, `ff hook claude` writes the plugin,
 
 ## What `ff unhook claude` removes
 
-The plugin directory and every extension skill nested inside it, and any fufu entries in `~/.claude/settings.json`, whichever of the two an earlier install wrote. Both are checked every time.
+The plugin directory, and any fufu entries in `~/.claude/settings.json`, whichever of the two an earlier install wrote. Both are checked every time.
 
 ```console
 $ ff unhook claude

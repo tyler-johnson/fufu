@@ -110,7 +110,6 @@ pages! {
     WORKTREE         WORKTREE_EXAMPLES         "help/worktree.md"
     HOOK             HOOK_EXAMPLES             "help/hook.md"
     UNHOOK           UNHOOK_EXAMPLES           "help/unhook.md"
-    EXTENSION        EXTENSION_EXAMPLES        "help/extension.md"
     TRIGGER          TRIGGER_EXAMPLES          "help/trigger.md"
     WATCH            WATCH_EXAMPLES            "help/watch.md"
     CONFIG           CONFIG_EXAMPLES           "help/config.md"
@@ -360,7 +359,6 @@ pub const GROUPS: &[Group] = &[
         commands: &[
             r("hook"),
             r("unhook"),
-            r("extension"),
             r("trigger"),
             r("watch"),
             r("config"),

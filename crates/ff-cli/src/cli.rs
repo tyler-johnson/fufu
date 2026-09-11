@@ -494,21 +494,13 @@ pub enum Command {
         /// claude only: wire settings entries instead of the plugin
         #[arg(long)]
         settings: bool,
-        /// Refresh what is wired: re-ask every declared extension's
-        /// manifest, then re-run the install for every slug already wired,
-        /// adding none
+        /// Refresh what is wired: re-run the install for every slug already
+        /// wired, adding none
         #[arg(short = 'u', long = "update", conflicts_with_all = ["slugs", "all", "list", "settings", "skill"])]
         update: bool,
-        /// Print a skill and stop: fufu's own with no name, a declared
-        /// extension's with a skill's name
-        #[arg(
-            long,
-            value_name = "name",
-            num_args = 0..=1,
-            default_missing_value = "fufu",
-            conflicts_with_all = ["slugs", "all", "list", "settings"]
-        )]
-        skill: Option<String>,
+        /// Print fufu's skill and stop, for a client that reads none
+        #[arg(long, conflicts_with_all = ["slugs", "all", "list", "settings"])]
+        skill: bool,
     },
     /// Remove exactly what hook added
     #[command(long_about = help::term(help::UNHOOK), after_long_help = help::term_examples(help::UNHOOK_EXAMPLES))]
@@ -519,16 +511,6 @@ pub enum Command {
         /// Everything detected, without asking
         #[arg(long)]
         all: bool,
-    },
-    /// Extensions this machine declares, so fufu describes them to an agent
-    #[command(long_about = help::term(help::EXTENSION), after_long_help = help::term_examples(help::EXTENSION_EXAMPLES))]
-    Extension {
-        /// Declare one: ask ff-<name> for its manifest, check it, and record it here
-        #[arg(value_name = "name", conflicts_with = "delete")]
-        name: Option<String>,
-        /// Take one off the list; fufu stops describing it
-        #[arg(short = 'd', long = "delete", value_name = "name")]
-        delete: Option<String>,
     },
     /// Snapshot the working copy now
     #[command(long_about = help::term(help::TRIGGER), after_long_help = help::term_examples(help::TRIGGER_EXAMPLES))]
@@ -888,13 +870,6 @@ impl Command {
             Command::Resolve { .. } => "resolve",
             Command::Hook { .. } => "hook",
             Command::Unhook { .. } => "unhook",
-            // The same rule as bare `ff branch`: name the shape it emits,
-            // not the family.
-            Command::Extension { name, delete } => match (name, delete) {
-                (_, Some(_)) => "extension remove",
-                (Some(_), None) => "extension add",
-                (None, None) => "extension list",
-            },
             Command::Trigger { .. } => "trigger",
             Command::Watch { .. } => "watch",
             Command::Config { .. } => "config",
@@ -968,9 +943,6 @@ impl Command {
             | Command::Unhook { .. }
             | Command::Trigger { .. }
             | Command::Config { .. }
-            // The registry is per machine and lives outside every
-            // repository, so there is no past state of it to read.
-            | Command::Extension { .. }
             | Command::Remote
             | Command::Doctor { .. }
             | Command::Explain { .. }
@@ -1037,10 +1009,6 @@ impl Command {
             | Command::Hook { .. }
             | Command::Unhook { .. }
             | Command::Trigger { .. }
-            // No repository in its answer: the whole family reads and
-            // writes one file under the user's config directory, and it
-            // answers outside a repository the way `ff hook` does.
-            | Command::Extension { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
             | Command::Merge { .. }

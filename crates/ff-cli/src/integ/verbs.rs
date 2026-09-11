@@ -27,14 +27,14 @@ pub fn hook(
     list: bool,
     settings: bool,
     update: bool,
-    skill: Option<String>,
+    skill: bool,
 ) -> Result<()> {
     // First, ahead of everything: a print reads no stdin and opens no
     // config file on its way out. It is also the one route to the manual
     // for a client that reads no skills directory — and for one fufu has
     // never heard of.
-    if let Some(name) = skill {
-        return print_skill(ctx, &name);
+    if skill {
+        return print_skill(ctx);
     }
     if let Some(result) = legacy(ctx, &slugs, settings) {
         return result;
@@ -43,63 +43,20 @@ pub fn hook(
         return refresh(ctx);
     }
     if list {
-        return report(ctx, &super::statuses(), &[], &[]);
+        return report(ctx, &super::statuses(), &[]);
     }
 
     let targets = targets(ctx, &slugs, all, "hook")?;
-    // An install re-asks the manifests first, so the skills it writes are
-    // the ones each binary names now. Nothing to install asks nothing.
-    let extensions = if targets.is_empty() {
-        Vec::new()
-    } else {
-        refresh_manifests(ctx)
-    };
     let opts = InstallOptions { settings };
-    act(ctx, &targets, &opts, Verb::Hook, &extensions)
+    act(ctx, &targets, &opts, Verb::Hook)
 }
 
 /// The shipped text, verbatim, so `ff hook --skill > rules.md` produces a
 /// file byte-identical to the one an install writes. The JSON form carries
 /// the same string, because anything fufu tells a person a script can read
 /// as data.
-///
-/// A `name` beyond fufu's own is a skill some declared extension names,
-/// asked for through `--ff-skill` the way an install asks, and printed as
-/// its `SKILL.md` — the file a client reads a skill by. A name nothing on
-/// this machine declares is refused the way `ff extension -d` refuses
-/// one; the handshake's own refusals carry through as they are.
-fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
-    let text = if name == super::skill::NAME {
-        super::skill::SKILL.to_string()
-    } else {
-        let registry = crate::registry::read();
-        let declared = registry
-            .declared()
-            .iter()
-            .find(|declared| declared.manifest.skills.iter().any(|skill| skill == name))
-            .ok_or_else(|| {
-                Error::coded(
-                    "extension/not-declared",
-                    format!("nothing on this machine declares a skill named `{name}`"),
-                    vec!["ff extension".into()],
-                )
-            })?;
-        let binary = declared.resolve().ok_or_else(|| {
-            Error::coded(
-                "extension/not-found",
-                format!(
-                    "no ff-{} on PATH, so there is nothing to ask for the skill",
-                    declared.name()
-                ),
-                vec!["ff doctor".into()],
-            )
-        })?;
-        crate::manifest::ask_skill(&binary, declared.name(), name)?
-            .into_iter()
-            .find(|file| file.path == std::path::Path::new(crate::manifest::SKILL_FILE))
-            .map(|file| file.content)
-            .unwrap_or_default()
-    };
+fn print_skill(ctx: &Ctx) -> Result<()> {
+    let text = super::skill::SKILL;
     if ctx.json {
         return crate::machine::emit(ctx.command, &serde_json::json!({ "skill": text }));
     }
@@ -109,7 +66,7 @@ fn print_skill(ctx: &Ctx, name: &str) -> Result<()> {
 
 pub fn unhook(ctx: &Ctx, slugs: Vec<String>, all: bool) -> Result<()> {
     let targets = targets(ctx, &slugs, all, "unhook")?;
-    act(ctx, &targets, &InstallOptions::default(), Verb::Unhook, &[])
+    act(ctx, &targets, &InstallOptions::default(), Verb::Unhook)
 }
 
 #[derive(Clone, Copy)]
@@ -125,15 +82,11 @@ enum Verb {
 
 /// `ff hook -u`: refresh what is wired, and wire nothing new.
 ///
-/// The manifest pass every install runs, then the install re-run for every
-/// slug already wired, the way `ff doctor --fix` does. The pass runs even
-/// with nothing wired: a declared extension with no client wired is still
-/// worth re-recording. The install scripts run this through the binary
-/// they just placed, so an upgrade refreshes the machine without a person
-/// having to remember which verb does.
+/// The install re-run for every slug already wired, the way `ff doctor
+/// --fix` does. The install scripts run this through the binary they just
+/// placed, so an upgrade refreshes the machine without a person having to
+/// remember which verb does.
 fn refresh(ctx: &Ctx) -> Result<()> {
-    let extensions = refresh_manifests(ctx);
-
     // Wired is what fufu wrote, whole or in part. A hand-written line is
     // never fufu's to rewrite, and a slug that is not wired is exactly what
     // this verb must not add.
@@ -145,133 +98,12 @@ fn refresh(ctx: &Ctx) -> Result<()> {
         .collect();
     if targets.is_empty() {
         if ctx.json {
-            return report(ctx, &statuses, &[], &extensions);
+            return report(ctx, &statuses, &[]);
         }
         println!("nothing is wired on this machine — ff hook wires it");
         return Ok(());
     }
-    act(
-        ctx,
-        &targets,
-        &InstallOptions::default(),
-        Verb::Update,
-        &extensions,
-    )
-}
-
-/// One declared extension after the manifest pass: what it is now, what
-/// it was, and why it could not be re-asked when it could not.
-#[derive(Debug, serde::Serialize)]
-struct Refreshed {
-    name: String,
-    /// The version on record after the pass: the binary's answer, or the
-    /// old record's when the binary would not answer.
-    version: String,
-    /// The version the record carried before, when the binary's differs.
-    was: Option<String>,
-    /// Whether the manifest on record is a different one than before.
-    changed: bool,
-    /// Why the record was kept as it stood: the binary off PATH, or a
-    /// handshake it failed.
-    error: Option<String>,
-}
-
-/// Re-ask every declared extension, re-record what it says, and say what
-/// moved.
-///
-/// Every install runs this first, because a skill install reads the skill
-/// list from the record and not from the binary: a binary that moved on by
-/// itself — replaced in the background, or by hand — leaves its record
-/// naming the skills it used to have, and the new one's would never be
-/// asked for until the record caught up.
-///
-/// A failure is a line and not an error: the record stands, and the install
-/// still runs from it. A record is rewritten when the manifest or the
-/// binary's path differs from what was recorded, and left alone when
-/// neither moved, so a run over a current machine writes nothing and says
-/// nothing. The lines are the human surface; `--json` carries the rows in
-/// the report instead.
-fn refresh_manifests(ctx: &Ctx) -> Vec<Refreshed> {
-    let refreshed = re_ask_manifests();
-    if !ctx.json {
-        let colored = crate::pager::color_enabled();
-        for refreshed in &refreshed {
-            if let Some(why) = &refreshed.error {
-                println!(
-                    "{} kept as recorded: {why}",
-                    crate::render::paint_dim(&refreshed.name, colored)
-                );
-            } else if refreshed.changed {
-                let was = match &refreshed.was {
-                    Some(was) => format!(" (was {was})"),
-                    None => String::new(),
-                };
-                println!(
-                    "{} {} {}{was}",
-                    crate::render::paint_ok("re-declared", colored),
-                    refreshed.name,
-                    refreshed.version
-                );
-            }
-        }
-    }
-    refreshed
-}
-
-/// The manifest pass itself, silent.
-fn re_ask_manifests() -> Vec<Refreshed> {
-    let mut refreshed = Vec::new();
-    // Every record is read before any is written: `declare` drops the
-    // read cache, and this walk is over the list as it stood.
-    let declared: Vec<crate::registry::Declared> = crate::registry::read().declared().to_vec();
-    for old in declared {
-        let name = old.name().to_string();
-        let kept = |why: String| Refreshed {
-            name: name.clone(),
-            version: old.manifest.version.clone(),
-            was: None,
-            changed: false,
-            error: Some(why),
-        };
-        let Some(path) = old.resolve() else {
-            refreshed.push(kept(format!("ff-{name} is not on PATH")));
-            continue;
-        };
-        let manifest = match crate::manifest::ask(&path, &name) {
-            Ok(manifest) => manifest,
-            Err(err) => {
-                refreshed.push(kept(err.to_string()));
-                continue;
-            }
-        };
-        let changed =
-            serde_json::to_value(&manifest).ok() != serde_json::to_value(&old.manifest).ok();
-        if changed || path != old.path {
-            let shook = crate::manifest::Handshake { path, manifest };
-            if let Err(err) = crate::registry::declare(&shook) {
-                refreshed.push(kept(err.to_string()));
-                continue;
-            }
-            let manifest = shook.manifest;
-            refreshed.push(Refreshed {
-                name,
-                was: (manifest.version != old.manifest.version)
-                    .then(|| old.manifest.version.clone()),
-                version: manifest.version,
-                changed,
-                error: None,
-            });
-        } else {
-            refreshed.push(Refreshed {
-                name,
-                version: manifest.version,
-                was: None,
-                changed: false,
-                error: None,
-            });
-        }
-    }
-    refreshed
+    act(ctx, &targets, &InstallOptions::default(), Verb::Update)
 }
 
 /// Which slugs this invocation acts on.
@@ -322,7 +154,7 @@ fn targets(
     }
 
     // Bare `ff hook`: report, then ask.
-    report(ctx, &super::statuses(), &[], &[])?;
+    report(ctx, &super::statuses(), &[])?;
     if detected.is_empty() {
         return Ok(Vec::new());
     }
@@ -353,14 +185,11 @@ fn nothing_hooked(detected: &[&'static dyn Integration], verb: &str) -> String {
     )
 }
 
-/// `extensions` is what the manifest pass found, carried into the JSON
-/// report; `unhook` runs no such pass and hands in nothing.
 fn act(
     ctx: &Ctx,
     targets: &[&'static dyn Integration],
     opts: &InstallOptions,
     verb: Verb,
-    extensions: &[Refreshed],
 ) -> Result<()> {
     if targets.is_empty() {
         // `--all` over a machine with nothing on it. Saying so beats
@@ -406,7 +235,7 @@ fn act(
         }
     }
     if ctx.json {
-        return report(ctx, &super::statuses(), &acted, extensions);
+        return report(ctx, &super::statuses(), &acted);
     }
     Ok(())
 }
@@ -415,23 +244,13 @@ fn act(
 
 /// One rendering of `statuses()`, which is also what `ff doctor` reads —
 /// the two cannot disagree, because there is only one derivation.
-///
-/// The JSON envelope carries `extensions` beside `integrations` and
-/// `changed`: one row per declared extension after an install's manifest
-/// pass, and an empty list from every spelling that runs none.
-fn report(
-    ctx: &Ctx,
-    statuses: &[Status],
-    acted: &[&'static str],
-    extensions: &[Refreshed],
-) -> Result<()> {
+fn report(ctx: &Ctx, statuses: &[Status], acted: &[&'static str]) -> Result<()> {
     if ctx.json {
         return crate::machine::emit(
             ctx.command,
             &serde_json::json!({
                 "integrations": statuses,
                 "changed": acted,
-                "extensions": extensions,
             }),
         );
     }
@@ -568,12 +387,12 @@ fn legacy(ctx: &Ctx, slugs: &[String], settings: bool) -> Option<Result<()>> {
             false,
             settings,
             false,
-            None,
+            false,
         ),
         ("agent", "uninstall") => unhook(ctx, vec![name.unwrap_or_else(|| "claude".into())], false),
         ("shell", "install") => {
             match name.or_else(|| super::shell::default_shell().map(str::to_string)) {
-                Some(shell) => hook(ctx, vec![shell], false, false, settings, false, None),
+                Some(shell) => hook(ctx, vec![shell], false, false, settings, false, false),
                 None => Err(no_shell()),
             }
         }
@@ -583,7 +402,7 @@ fn legacy(ctx: &Ctx, slugs: &[String], settings: bool) -> Option<Result<()>> {
                 None => Err(no_shell()),
             }
         }
-        (_, "list") => report(ctx, &super::statuses(), &[], &[]),
+        (_, "list") => report(ctx, &super::statuses(), &[]),
         // `ff hook editor` was reserved and never installed anything; there
         // is nothing to forward it to.
         _ => Err(Error::coded(

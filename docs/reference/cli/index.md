@@ -60,7 +60,6 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 - [`ff hook`](hook.md) — Hook fufu into the agent clients and shells on this machine
 - [`ff unhook`](unhook.md) — Remove exactly what hook added
-- [`ff extension`](extension.md) — Extensions this machine declares, so fufu describes them to an agent
 - [`ff trigger`](trigger.md) — Snapshot the working copy now
 - [`ff watch`](watch.md) — Stream operations as they land, one JSON object per line
 - [`ff config`](config.md) — Read and write fufu's settings (plain git config under fufu.*)

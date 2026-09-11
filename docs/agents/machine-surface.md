@@ -293,39 +293,9 @@ One more contract keeps scripts out of stuck states: no verb ever blocks on a pr
 
 ## Extensions
 
-`ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, which is git's own extension model. There are two kinds of extension, and what separates them is not what one is allowed to do — it is what fufu will say about it.
+`ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, which is git's own extension model. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
 
-### Undeclared
-
-An **undeclared** extension is any `ff-<name>` a PATH walk finds. fufu captures the worktree, sets three variables, and runs it: `FF_REPO` is the worktree it was invoked against, unset outside one; `FF_CONTRACT` is the envelope version above; `FF_SESSION` is the session tag when one is set.
-
-Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does not reach it.
-
-### Declared
-
-A **declared** extension is one somebody registered with [`ff extension <name>`](../reference/cli/extension.md). That verb runs `ff-<name> --ff-manifest`, checks the contract the manifest claims against fufu's own, and records the manifest under the user's config directory.
-
-The record is per machine rather than per repository, since the binary is on PATH and declaring it is a decision about the machine. A declared extension is handed the same three variables, and declaring adds none.
-
-What declaring buys is that fufu will describe it to an agent:
-
-- `ff help <name>` and `ff explain <name>/<id>` delegate to the binary
-- its briefing line rides fufu's
-- its skills install beside fufu's
-- the neutral agent event fans out to it
-- `ff update` moves it by the recipes its manifest's `update` block carries for the channel its binary sits on, tells the person to rebuild a `build` of `source`, and refreshes its hooks after a move; the background release check reads a github.com `releases` page and announces a new release beside fufu's own
-
-`ff extension` is a person's verb. The registry is the allowlist for all of the above, so an agent must not be able to write it through anything but the shell a person is watching.
-
-`ff doctor` reports every `ff-<name>` on PATH, whether it is declared, and whether a declared one's binary still matches the manifest that was recorded.
-
-### What a served extension owes
-
-An extension that fufu serves owes more than a binary on PATH does. It prints fufu's envelope with `ff` as the top-level key, spells `cmd` as `<name> <verb>`, namespaces its error ids under `<name>/`, exits on the five codes above with the code agreeing with the id, and takes `--json` in last position. It may also do what `ff pull` does: a `data` envelope at 3 for a held outcome with a report, which the tool relays as a successful call.
-
-Beyond that it answers a manifest handshake. It may also answer a tool-list handshake, answer a skill handshake for each skill its manifest names, produce a briefing line, subscribe to the agent event that fans out after each capture, and say in its manifest how `ff update` moves it.
-
-[Extensions](../reference/extensions.md) is the reference for building one, and types every field of all of it.
+Nothing else passes, and fufu says nothing about the verb: `ff help <name>` does not reach it, and `ff doctor` names every `ff-<name>` it finds on PATH in one `info` row.
 
 ## Piped output never pages
 
@@ -352,7 +322,7 @@ In a git repository, the readers simply work — fufu arms itself on first conta
 
 An extension gets the answers handed to it. `ff <name>` runs `ff-<name>` from PATH when no built-in verb matches, and the child inherits `FF_REPO` (the worktree it was invoked against, unset outside one), `FF_CONTRACT` (the envelope version it is about to parse), and `FF_SESSION` (the session tag when one is set).
 
-[Extensions](#extensions) has the two kinds, and [the reference page](../reference/extensions.md) has the contract a declared one answers in. For the repository root in any other context, `ff git rev-parse --show-toplevel` is the passthrough spelling.
+For the repository root in any other context, `ff git rev-parse --show-toplevel` is the passthrough spelling.
 
 ## Reading the operation log from a script
 

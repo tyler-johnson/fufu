@@ -16,15 +16,6 @@ Claude Code and Codex also take fufu's skill — the manual for what the once-pe
 
 An MCP server registration an earlier fufu wrote is removed on the next `ff hook`; one you wrote yourself is left alone.
 
-### Declared extensions
-
-An extension declared with `ff extension <name>` rides along in two ways:
-
-- One line on the same briefing: the text its manifest carries, or whatever `ff-<name> briefing` prints when the briefing is built. An extension that is gone from PATH, broken, or slow contributes nothing and costs the briefing nothing.
-- Its skills, one directory each as `skills/<skill>/` beside `skills/fufu/` for the same two clients, typed `/fufu:<skill>` in Claude Code and `$<skill>` in Codex. The manifest names them and the binary produces each one's files through `ff-<name> --ff-skill <skill>` when the install runs. Cursor and Gemini read no skills directory, so an extension gets the briefing line there and nothing more. A skill the binary will not produce, or produces in a shape fufu cannot read, is left out and said rather than failing the install. Every install re-asks each declared extension's manifest first and re-records it, so a binary that moved on names its new skills; a binary off PATH or failing the handshake keeps its record and is said, and the install goes on from the record.
-
-`ff hook --skill <skill>` prints a declared extension's skill the way a bare `ff hook --skill` prints fufu's own. `ff unhook` takes fufu's wiring and the extensions' back together.
-
 ## Examples
 
 ```
@@ -34,7 +25,6 @@ ff hook --all            everything detected, no question
 ff hook -l               report and stop
 ff hook -u               refresh what is wired, after a binary moved on
 ff hook --skill          print the manual, for a client that reads no skill
-ff hook --skill tower-plan   print one of a declared extension's skills
 ff unhook claude         take back exactly what hook added
 ff doctor                check that something is feeding capture
 ```
