@@ -263,20 +263,26 @@ fn absorb_stack(fx: &Fixture) -> (String, String) {
     (c1, c2)
 }
 
+/// `ff absorb --into <into> [<paths>]`, as a `MoveOptions`.
+fn absorb_opts(into: &str, paths: Vec<String>) -> ff_core::absorb::MoveOptions {
+    ff_core::absorb::MoveOptions {
+        verb: ff_core::absorb::MoveVerb::Absorb,
+        from: None,
+        into: Some(ff_core::absorb::Endpoint::Commit(oid(into))),
+        paths,
+        message: None,
+        verify: ff_core::Verify::Run,
+        now: Some(NOW),
+        argv: vec!["ff".into(), "absorb".into()],
+    }
+}
+
 fn hold_an_absorb(fx: &Fixture, into: &str, paths: Vec<String>) {
     let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::absorb(
-        &repo,
-        Some(oid(into)),
-        paths,
-        ff_core::Verify::Run,
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
-    )
-    .unwrap();
+    let (outcome, _ctx) =
+        ff_core::absorb::move_change(&repo, &absorb_opts(into, paths), &prov()).unwrap();
     assert!(
-        matches!(outcome, ff_core::AbsorbOutcome::Held(_)),
+        matches!(outcome, ff_core::MoveOutcome::Held(_)),
         "the precondition is a held absorb, got {outcome:?}"
     );
 }
@@ -895,17 +901,23 @@ fn a_resolved_lift_lands_the_open_change_back() {
     let _c2 = fx.commit("c2");
 
     let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::lift(
+    let (outcome, _ctx) = ff_core::absorb::move_change(
         &repo,
-        Some(oid(&c1)),
-        vec!["doc.txt".into()],
+        &ff_core::absorb::MoveOptions {
+            verb: ff_core::absorb::MoveVerb::Lift,
+            from: Some(vec![ff_core::absorb::Endpoint::Commit(oid(&c1))]),
+            into: None,
+            paths: vec!["doc.txt".into()],
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "lift".into()],
+        },
         &prov(),
-        Some(NOW),
-        vec!["ff".into(), "lift".into()],
     )
     .unwrap();
     assert!(
-        matches!(outcome, ff_core::LiftOutcome::Held(_)),
+        matches!(outcome, ff_core::MoveOutcome::Held(_)),
         "the precondition is a held lift, got {outcome:?}"
     );
     drop(repo);
@@ -2012,19 +2024,11 @@ fn resolving_a_child_hold_replays_only_its_own_commits() {
     // about the line.
     fx.write("a.txt", "one, edited\n");
     let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::absorb(
-        &repo,
-        Some(oid(&c1)),
-        Vec::new(),
-        ff_core::Verify::Run,
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
-    )
-    .unwrap();
+    let (outcome, _ctx) =
+        ff_core::absorb::move_change(&repo, &absorb_opts(&c1, Vec::new()), &prov()).unwrap();
     drop(repo);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => r,
         other => panic!("the absorb lands, got {other:?}"),
     };
     assert_eq!(report.cascade.held.len(), 1, "{:?}", report.cascade);
@@ -2068,4 +2072,89 @@ fn resolving_a_child_hold_replays_only_its_own_commits() {
         Some("c\n"),
         "feat's own commits are beneath, through the absorbed feat"
     );
+}
+
+/// A run of sources holds like one: the replay above the run conflicts, the
+/// session shows it, and `ff done` lands the whole move — every source
+/// dropped, the commit above replayed with the fix — as one operation.
+#[test]
+fn a_held_run_resolves_and_lands() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `c1` introduces `doc.txt`, `c2` edits it, `c3` edits it again: lifting
+    // both `c1` and `c2` out makes `c3`'s edit a modification of nothing.
+    fx.write("f0.txt", "base\n");
+    let c0 = fx.commit("base");
+    fx.write("doc.txt", "v1\n");
+    let c1 = fx.commit("c1");
+    fx.write("doc.txt", "v2\n");
+    let c2 = fx.commit("c2");
+    fx.write("doc.txt", "v3\n");
+    fx.write("g.txt", "g\n");
+    let c3 = fx.commit("c3");
+
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::absorb::move_change(
+        &repo,
+        &ff_core::absorb::MoveOptions {
+            verb: ff_core::absorb::MoveVerb::Lift,
+            from: Some(vec![
+                ff_core::absorb::Endpoint::Commit(oid(&c1)),
+                ff_core::absorb::Endpoint::Commit(oid(&c2)),
+            ]),
+            into: None,
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "lift".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    let held = match outcome {
+        ff_core::MoveOutcome::Held(r) => r,
+        other => panic!("the precondition is a held lift, got {other:?}"),
+    };
+    assert_eq!(
+        held.at,
+        ff_core::futures::At::Commit {
+            id: c3.clone(),
+            subject: "c3".into()
+        }
+    );
+    drop(repo);
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "doc.txt", "resolved\n");
+    let report = resolved(&fx, NOW + 200);
+    assert_eq!(report.verb, "lift");
+    assert!(report.still_held.is_none());
+
+    // The run is gone, and `c3` sits on the base with the fix in it.
+    assert_eq!(tip(&fx, "main"), report.new_tip);
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&c0));
+    assert_eq!(landed.len(), 1, "both sources dropped: {landed:?}");
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s", &report.new_tip])
+            .trim(),
+        "c3"
+    );
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "doc.txt").as_deref(),
+        Some("resolved\n")
+    );
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "g.txt").as_deref(),
+        Some("g\n")
+    );
+    assert!(
+        ff_core::held::of(&repo, "main").unwrap().is_none()
+            && ff_core::held::resolving(&repo, "main").unwrap().is_none(),
+        "the landing cleared both the hold and the session"
+    );
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "lift");
+    assert_eq!(record.dropped.len(), 2, "{:?}", record.dropped);
 }

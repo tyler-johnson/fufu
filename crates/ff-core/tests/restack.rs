@@ -1462,14 +1462,19 @@ fn close(fx: &Fixture, msg: &str) -> String {
 fn absorb_into(fx: &Fixture, target: &str) -> String {
     let repo = fx.repo();
     let into = gix::ObjectId::from_hex(target.as_bytes()).unwrap();
-    ff_core::absorb::absorb(
+    ff_core::absorb::move_change(
         &repo,
-        Some(into),
-        Vec::new(),
-        ff_core::Verify::Run,
+        &ff_core::absorb::MoveOptions {
+            verb: ff_core::absorb::MoveVerb::Absorb,
+            from: None,
+            into: Some(ff_core::absorb::Endpoint::Commit(into)),
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
         &Provenance::new("pre", Some("ff absorb".into())),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
     )
     .unwrap();
     rev(fx, "HEAD")

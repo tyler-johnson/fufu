@@ -425,45 +425,74 @@ pub struct RewordReport {
     pub cascade: Cascade,
 }
 
-/// The result of `ff absorb`: the open change — or the part of it a path
-/// filter selected — folded into a commit at a distance, and the restack it
-/// forced.
+/// The result of `ff absorb` and `ff lift`, which are one move with two
+/// defaults: content taken out of a run of commits — the open change among
+/// them — and landed in one commit, or in the open change, and the restack
+/// it forced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AbsorbOutcome {
-    /// The change was folded into the target and restacked.
-    Absorbed(AbsorbReport),
+pub enum MoveOutcome {
+    /// The content moved and everything above was restacked. Boxed: the
+    /// report names every source, and the other two arms are slim.
+    Moved(Box<MoveReport>),
     /// The replay conflicts, so nothing was written and the rewrite is
     /// waiting. A hold is an outcome and not an error — something happened,
     /// and it has a report — even though the caller still exits 3, because a
     /// human decision is required before anything moves.
     Held(HeldReport),
-    /// A clean tree, or a path filter that selected nothing.
-    NothingToAbsorb { branch: String },
+    /// The sources introduce nothing on the selected paths: a clean tree, a
+    /// path filter that selected nothing, or a commit that never touched
+    /// the paths named.
+    Nothing { verb: String, branch: String },
 }
 
-/// An absorb that landed.
+/// One source of a move, as the report names it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AbsorbReport {
-    /// The branch the absorb ran on.
-    pub branch: String,
-    /// The target commit before the absorb.
-    pub into: String,
-    /// The target commit after it. `None` when the rewrite dropped the
-    /// commit — it introduces nothing now, and fufu writes no empty commit —
-    /// in which case it is named in `dropped`.
+pub struct MoveSource {
+    /// Full sha, or `@` for the open change.
+    pub id: String,
+    /// The commit's subject; `None` for `@`.
+    pub subject: Option<String>,
+    /// The commit after the move; `None` when it was dropped, or for `@`.
     pub new: Option<String>,
-    /// The target's subject, which an absorb never changes.
-    pub subject: String,
-    /// Descendants restacked behind the target.
+    /// Whether the move emptied the commit, so the rewrite dropped it.
+    pub dropped: bool,
+}
+
+/// Where a move landed, as the report names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MoveTarget {
+    /// Full sha, or `@` for the open change.
+    pub id: String,
+    /// The commit after the move; `None` when it was dropped — the fold left
+    /// it introducing nothing — or for `@`.
+    pub new: Option<String>,
+    /// The commit's subject; `None` for `@`.
+    pub subject: Option<String>,
+}
+
+/// A move that landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MoveReport {
+    /// The spelling typed: `absorb` or `lift`.
+    pub verb: String,
+    /// The branch the move ran on.
+    pub branch: String,
+    /// The sources, deepest first.
+    pub from: Vec<MoveSource>,
+    pub into: MoveTarget,
+    /// The paths whose content moved.
+    pub files: Vec<String>,
+    /// Commits replayed that were neither a source nor the target.
     pub restacked: usize,
     /// Other local branches carried with the rewrite, short names, sorted.
     pub moved: Vec<String>,
     /// How many of the rewritten commits the branch's remote already has.
     pub published: usize,
-    /// The paths the filter selected; empty means the whole open change.
+    /// The paths the filter selected; empty means whole commits.
     pub paths: Vec<String>,
-    /// Whether anything is still open once the absorb has landed.
+    /// Whether anything is still open once the move has landed. Only ever
+    /// true when the open change was a source.
     pub still_open: bool,
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
@@ -942,51 +971,6 @@ pub struct HeldReport {
     /// How many commits the rewrite would have replayed in all, so the report
     /// can say "1 of 5" rather than leaving the size of the stack unsaid.
     pub of: usize,
-}
-
-/// The result of `ff lift`: paths taken out of a commit and back into the
-/// open change, and the restack it forced.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LiftOutcome {
-    /// The paths were lifted out of the target and restacked.
-    Lifted(LiftReport),
-    /// The replay conflicts, so nothing was written and the rewrite is
-    /// waiting. A hold is an outcome and not an error — something happened,
-    /// and it has a report — even though the caller still exits 3, because a
-    /// human decision is required before anything moves.
-    Held(HeldReport),
-    /// The selected paths are not among the ones that commit introduced.
-    NothingToLift { from: String },
-}
-
-/// A lift that landed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LiftReport {
-    /// The branch the lift ran on.
-    pub branch: String,
-    /// The target commit before the lift.
-    pub from: String,
-    /// The target commit after it. `None` when the rewrite dropped the
-    /// commit — it introduces nothing now, and fufu writes no empty commit —
-    /// in which case it is named in `dropped`.
-    pub new: Option<String>,
-    /// The target's subject, which a lift never changes.
-    pub subject: String,
-    /// Descendants restacked behind the target.
-    pub restacked: usize,
-    /// Other local branches carried with the rewrite, short names, sorted.
-    pub moved: Vec<String>,
-    /// How many of the rewritten commits the branch's remote already has.
-    pub published: usize,
-    /// The paths the filter selected; empty means the whole commit.
-    pub paths: Vec<String>,
-    /// Commits the rewrite dropped because they introduce nothing — fufu
-    /// writes no empty commit. Oldest-first.
-    pub dropped: Vec<crate::rewrite::Dropped>,
-    /// What happened to the branches stacked above this one. Empty when
-    /// nothing sits on it.
-    pub cascade: Cascade,
 }
 
 /// One branch row for `ff branch`.

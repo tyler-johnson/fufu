@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::gix;
 use ff_core::rewrite::Decided;
-use ff_core::{AbsorbOutcome, DoneOutcome, EditOutcome, LiftOutcome, Provenance, RestackOutcome};
+use ff_core::{DoneOutcome, EditOutcome, MoveOutcome, Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -81,15 +82,21 @@ fn absorb_with_call(
     into: &str,
     decided: &Decided,
     now: i64,
-) -> (AbsorbOutcome, ff_core::ops::VerbContext) {
+) -> (MoveOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::absorb::absorb_with(
+    ff_core::absorb::move_with(
         &repo,
-        Some(oid(into)),
-        Vec::new(),
-        ff_core::Verify::Run,
+        &MoveOptions {
+            verb: MoveVerb::Absorb,
+            from: None,
+            into: Some(Endpoint::Commit(oid(into))),
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(now),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
         &prov(),
-        (Some(now), vec!["ff".into(), "absorb".into()]),
         decided,
     )
     .unwrap()
@@ -100,14 +107,21 @@ fn lift_with_call(
     from: &str,
     decided: &Decided,
     now: i64,
-) -> (LiftOutcome, ff_core::ops::VerbContext) {
+) -> (MoveOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::absorb::lift_with(
+    ff_core::absorb::move_with(
         &repo,
-        Some(oid(from)),
-        vec!["lift.txt".into()],
+        &MoveOptions {
+            verb: MoveVerb::Lift,
+            from: Some(vec![Endpoint::Commit(oid(from))]),
+            into: None,
+            paths: vec!["lift.txt".into()],
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(now),
+            argv: vec!["ff".into(), "lift".into()],
+        },
         &prov(),
-        (Some(now), vec!["ff".into(), "lift".into()]),
         decided,
     )
     .unwrap()
@@ -332,7 +346,7 @@ fn a_decided_absorb_skips_the_fold() {
     };
     let (outcome, _ctx) = absorb_with_call(&fx, &c1, &decided, NOW);
     let report = match outcome {
-        AbsorbOutcome::Absorbed(r) => r,
+        MoveOutcome::Moved(r) => r,
         other => panic!("a decided absorb must land rather than hold, got {other:?}"),
     };
     assert!(
@@ -340,7 +354,11 @@ fn a_decided_absorb_skips_the_fold() {
         "a decided landing records no hold"
     );
 
-    let new_c1 = report.new.clone().expect("the target survives the rewrite");
+    let new_c1 = report
+        .into
+        .new
+        .clone()
+        .expect("the target survives the rewrite");
     assert_eq!(
         tree_of(&fx, &new_c1),
         supplied,
@@ -372,7 +390,7 @@ fn a_decided_lift_lands() {
     // c0's — so `main` lands on the rewritten c2, which the assertions below
     // read as the new tip.
     match outcome {
-        LiftOutcome::Lifted(_) => {}
+        MoveOutcome::Moved(_) => {}
         other => panic!("a decided lift must land rather than hold, got {other:?}"),
     };
     assert!(

@@ -235,6 +235,54 @@ fn a_branch_leaf_reports_its_name_and_anything_else_does_not() {
 
 // --- sets ---
 
+/// Commits closed in one second are the shape that leaked: under `HEAD~1..`
+/// on a branch off `main`, gix's hidden walk popped `main`'s tip — an
+/// ancestor of the hidden `HEAD~1` — as a tip before the hidden walk
+/// painted it, and a tip is never a candidate the painting takes back. The
+/// set must be what `git rev-list` says. The author dates differ so the
+/// object ids do, which is what decides the walk's order among equal
+/// committer times; a few seeds cover the orders.
+#[test]
+fn a_range_hides_a_tip_under_the_hidden_commit_at_equal_times() {
+    for seed in 0..6 {
+        let fx = Fixture::new();
+        let commit = |msg: &str, author_time: i64| {
+            fx.git(&["add", "-A"]);
+            fx.git_env_in(
+                &fx.path(),
+                &["commit", "-q", "-m", msg],
+                &[
+                    ("GIT_COMMITTER_DATE", "@1000 +0000"),
+                    ("GIT_AUTHOR_DATE", &format!("@{author_time} +0000")),
+                ],
+            );
+            fx.git(&["rev-parse", "HEAD"]).trim().to_string()
+        };
+        fx.write("base.txt", "base\n");
+        let base = commit("base", 2000 + seed);
+        fx.git(&["switch", "-q", "-c", "feat"]);
+        fx.write("a.txt", "one\n");
+        let c1 = commit("c1", 3000 + seed);
+        fx.write("b.txt", "two\n");
+        let c2 = commit("c2", 4000 + seed);
+        fx.write("c.txt", "three\n");
+        let c3 = commit("c3", 5000 + seed);
+
+        assert_eq!(set(&fx, "HEAD~1.."), vec![c3.clone()], "seed {seed}");
+        assert_eq!(
+            set(&fx, "HEAD~2.."),
+            vec![c3.clone(), c2.clone()],
+            "seed {seed}"
+        );
+        assert_eq!(
+            set(&fx, "HEAD~1.."),
+            git_set(&fx, &["HEAD~1..", "--all"]),
+            "seed {seed}: the same set git's own walk yields"
+        );
+        assert!(!set(&fx, &format!("{c1}..")).contains(&base), "seed {seed}");
+    }
+}
+
 #[test]
 fn ancestors_agree_with_rev_list() {
     let w = world();

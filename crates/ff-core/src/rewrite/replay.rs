@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use gix::bstr::BString;
 use serde::{Deserialize, Serialize};
@@ -47,8 +47,9 @@ pub enum DropReason {
     Superseded,
 }
 
-/// What changes about the named commit. Absorb and lift add their variants
-/// here rather than forking the engine.
+/// What changes about the named commit. A move — absorb and lift, which are
+/// one verb with two defaults — is a variant here rather than a fork of the
+/// engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     Message(String),
@@ -65,6 +66,42 @@ pub enum Change {
     /// target itself rather than only its descendants — which is what moves
     /// a range's floor onto a different base.
     Onto(gix::ObjectId),
+    /// A move: content leaves a run of sources and lands in one target,
+    /// everything between replayed without it. The target of the rewrite is
+    /// the bottom commit — the deepest of the sources and the move's own
+    /// target — and the rest of the run is named here.
+    Move {
+        /// The bottom commit's new tree: the move's target with the sources
+        /// folded in when the target is lowest, else the lowest source with
+        /// its moved paths reset to its parent's content.
+        tree: gix::ObjectId,
+        /// The bottom commit's new message, when it is the move's target and
+        /// `-m` said so.
+        message: Option<BString>,
+        /// Every other source, keyed by its old id: replayed as if its own
+        /// tree were the one given — its own with the moved paths reset to
+        /// its first parent's content — so the replay carries everything but
+        /// what moved. A source that comes out equal to its new parent is
+        /// dropped by the existing empty rule.
+        sources: BTreeMap<gix::ObjectId, gix::ObjectId>,
+        /// The move's target when it stands above the bottom.
+        into: Option<MoveInto>,
+    },
+}
+
+/// A move's target, standing above the bottom of the rewrite. It is replayed
+/// with its moved paths reset to its parent's content, the way a source is,
+/// and then takes `paths` from `tree`: the content the move lands in it is
+/// never merged, so the replay cannot conflict on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoveInto {
+    pub id: gix::ObjectId,
+    /// The tree its replay takes `paths` from: its own, with any sources
+    /// above it folded in up front.
+    pub tree: gix::ObjectId,
+    /// The path filter; empty selects everything.
+    pub paths: Vec<String>,
+    pub message: Option<BString>,
 }
 
 /// The result of re-parenting `target..tip` after applying a [`Change`] to
@@ -164,7 +201,7 @@ pub fn plan_with(
             now,
             trees,
         )?,
-        Change::Tree { .. } | Change::Onto(_) => {
+        Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
             let memory = repo.clone().with_object_memory();
             replay(
                 &memory,
@@ -317,7 +354,7 @@ pub(super) fn range_of(
                 .collect();
             superseded_by(repo, *onto, &boundary, &candidates)?
         }
-        Change::Message(_) | Change::Tree { .. } => HashMap::new(),
+        Change::Message(_) | Change::Tree { .. } | Change::Move { .. } => HashMap::new(),
     };
 
     Ok(Range {
@@ -480,12 +517,17 @@ fn replay(
     now: i64,
     trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<Replayed> {
-    // Re-parenting a merge is unambiguous; replaying one is not — and
-    // absorb never replays its target, so a merge target is exempt only
-    // under Tree, not under Onto.
-    if matches!(change, Change::Tree { .. } | Change::Onto(_)) {
+    // Re-parenting a merge is unambiguous; replaying one is not — and a
+    // tree change never replays its target, so a merge target is exempt
+    // under Tree and Move, not under Onto.
+    if matches!(
+        change,
+        Change::Tree { .. } | Change::Onto(_) | Change::Move { .. }
+    ) {
         for &id in ordered {
-            if (matches!(change, Change::Tree { .. }) && id == target) || !affected.contains(&id) {
+            if (matches!(change, Change::Tree { .. } | Change::Move { .. }) && id == target)
+                || !affected.contains(&id)
+            {
                 continue;
             }
             let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
@@ -565,13 +607,22 @@ fn replay(
                 // carries: the change's own tree is the fold as it was
                 // computed, markers and all, and the decision is that fold
                 // with the reader's fix in it. The decision wins.
-                Change::Tree { tree, .. } => *trees.get(&id).unwrap_or(tree),
+                Change::Tree { tree, .. } | Change::Move { tree, .. } => {
+                    *trees.get(&id).unwrap_or(tree)
+                }
                 Change::Onto(onto) => {
                     let base = match old_parents.first() {
                         Some(parent) => tree_of(repo, *parent)?,
                         None => gix::ObjectId::empty_tree(repo.object_hash()),
                     };
-                    replayed_tree(repo, id, base, tree_of(repo, *onto)?, trees)?
+                    replayed_tree(
+                        repo,
+                        id,
+                        base,
+                        tree_of(repo, *onto)?,
+                        tree_of(repo, id)?,
+                        trees,
+                    )?
                 }
             }
         } else {
@@ -582,13 +633,26 @@ fn replay(
                 ));
             };
             let new_parent0 = *map.get(&old_parent0).unwrap_or(&old_parent0);
-            replayed_tree(
+            let old_parent_tree = tree_of(repo, old_parent0)?;
+            let replayed = replayed_tree(
                 repo,
                 id,
-                tree_of(repo, old_parent0)?,
+                old_parent_tree,
                 tree_of(repo, new_parent0)?,
+                their_of(repo, change, id, old_parent_tree)?,
                 trees,
-            )?
+            )?;
+            // The move's target, above the bottom, takes the moved paths
+            // from the fold rather than from the merge — unless a landing
+            // has already decided its tree, fold and fixes included.
+            match change {
+                Change::Move {
+                    into: Some(into), ..
+                } if into.id == id && !trees.contains_key(&id) => {
+                    filtered(repo, replayed, into.tree, &into.paths)?
+                }
+                _ => replayed,
+            }
         };
         let author = commit_ref
             .author()
@@ -604,13 +668,24 @@ fn replay(
                 Change::Tree {
                     message: Some(text),
                     ..
-                } => text.clone(),
-                Change::Tree { message: None, .. } | Change::Onto(_) => {
-                    commit_ref.message.to_owned()
                 }
+                | Change::Move {
+                    message: Some(text),
+                    ..
+                } => text.clone(),
+                Change::Tree { message: None, .. }
+                | Change::Move { message: None, .. }
+                | Change::Onto(_) => commit_ref.message.to_owned(),
             }
         } else {
-            commit_ref.message.to_owned()
+            match change {
+                Change::Move {
+                    into: Some(into), ..
+                } if into.id == id && into.message.is_some() => {
+                    into.message.clone().unwrap_or_default()
+                }
+                _ => commit_ref.message.to_owned(),
+            }
         };
         let mut extra_headers: Vec<(BString, BString)> = Vec::new();
         for (key, value) in &commit_ref.extra_headers {
@@ -674,28 +749,167 @@ fn replay(
     })
 }
 
+/// The tree a replay carries for `id`: its own, unless the change says it
+/// is a move's source — or its target above the bottom — whose moved paths
+/// are reset to `old_parent_tree`'s content first, so the replay carries
+/// everything but what moved.
+pub(super) fn their_of(
+    repo: &gix::Repository,
+    change: &Change,
+    id: gix::ObjectId,
+    old_parent_tree: gix::ObjectId,
+) -> Result<gix::ObjectId> {
+    if let Change::Move { sources, into, .. } = change {
+        if let Some(&lifted) = sources.get(&id) {
+            return Ok(lifted);
+        }
+        if let Some(into) = into
+            && into.id == id
+        {
+            return filtered(repo, tree_of(repo, id)?, old_parent_tree, &into.paths);
+        }
+    }
+    tree_of(repo, id)
+}
+
+/// `base` with the selected paths taking `other`'s content. An empty
+/// `selectors` list selects everything, so the result is `other`.
+pub(crate) fn filtered(
+    repo: &gix::Repository,
+    base: gix::ObjectId,
+    other: gix::ObjectId,
+    selectors: &[String],
+) -> Result<gix::ObjectId> {
+    if base == other {
+        return Ok(base);
+    }
+    if selectors.is_empty() {
+        return Ok(other);
+    }
+    let mut editor = repo.edit_tree(base).map_err(Error::repo)?;
+    for entry in diff_entries(repo, base, other)? {
+        if !crate::restore::path_selected(&entry.path, selectors) {
+            continue;
+        }
+        match entry.blob {
+            Some((kind, oid)) => {
+                editor
+                    .upsert(entry.path.as_str(), kind, oid)
+                    .map_err(Error::repo)?;
+            }
+            None => {
+                editor.remove(entry.path.as_str()).map_err(Error::repo)?;
+            }
+        }
+    }
+    Ok(editor.write().map_err(Error::repo)?.detach())
+}
+
+/// The paths whose content differs between two trees, sorted.
+pub(crate) fn changed_paths(
+    repo: &gix::Repository,
+    base: gix::ObjectId,
+    other: gix::ObjectId,
+) -> Result<Vec<String>> {
+    if base == other {
+        return Ok(Vec::new());
+    }
+    let mut paths: Vec<String> = diff_entries(repo, base, other)?
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// One file that differs between two trees, as the second has it.
+struct DiffEntry {
+    path: String,
+    /// The entry's kind and blob; `None` for a deletion.
+    blob: Option<(gix::objs::tree::EntryKind, gix::ObjectId)>,
+}
+
+/// Every file entry that differs between two trees, as `other` has it.
+/// Directories are not entries and are not listed.
+fn diff_entries(
+    repo: &gix::Repository,
+    base: gix::ObjectId,
+    other: gix::ObjectId,
+) -> Result<Vec<DiffEntry>> {
+    let lhs = repo.find_object(base).map_err(Error::repo)?.detach();
+    let rhs = repo.find_object(other).map_err(Error::repo)?.detach();
+    let mut recorder = gix::diff::tree::Recorder::default();
+    gix::diff::tree(
+        gix::objs::TreeRefIter::from_bytes(&lhs.data, repo.object_hash()),
+        gix::objs::TreeRefIter::from_bytes(&rhs.data, repo.object_hash()),
+        gix::diff::tree::State::default(),
+        &repo.objects,
+        &mut recorder,
+    )
+    .map_err(Error::repo)?;
+    use gix::diff::tree::recorder::Change as Rec;
+    let mut out = Vec::new();
+    for record in recorder.records {
+        match record {
+            Rec::Addition {
+                entry_mode,
+                oid,
+                path,
+                ..
+            }
+            | Rec::Modification {
+                entry_mode,
+                oid,
+                path,
+                ..
+            } => {
+                if entry_mode.is_tree() {
+                    continue;
+                }
+                out.push(DiffEntry {
+                    path: path.to_string(),
+                    blob: Some((entry_mode.kind(), oid)),
+                });
+            }
+            Rec::Deletion {
+                entry_mode, path, ..
+            } => {
+                if entry_mode.is_tree() {
+                    continue;
+                }
+                out.push(DiffEntry {
+                    path: path.to_string(),
+                    blob: None,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The new tree of a replayed commit, target or descendant. When `trees`
 /// decides this commit's tree in advance, that tree is taken directly — this
 /// is how a resolved held rewrite lands, the merge having nothing left to
-/// decide. Otherwise: when its first parent's tree did not move, the commit's
-/// own tree is carried unchanged and no merge runs at all — which is what
-/// keeps a reword costing what it cost before — and otherwise its tree is
-/// replayed onto the rewritten parent, and an unresolved merge refuses the
-/// whole rewrite.
+/// decide. Otherwise: when its first parent's tree did not move, `their` —
+/// the commit's own tree, or the one the change says to carry for it — is
+/// carried unchanged and no merge runs at all, which is what keeps a reword
+/// costing what it cost before; and otherwise `their` is replayed onto the
+/// rewritten parent, and an unresolved merge refuses the whole rewrite.
 fn replayed_tree(
     repo: &gix::Repository,
     id: gix::ObjectId,
     base_tree: gix::ObjectId,
     ours_tree: gix::ObjectId,
+    their: gix::ObjectId,
     trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<gix::ObjectId> {
     if let Some(&given) = trees.get(&id) {
         return Ok(given);
     }
     if base_tree == ours_tree {
-        return tree_of(repo, id);
+        return Ok(their);
     }
-    let their = tree_of(repo, id)?;
     let options = repo.tree_merge_options().map_err(Error::repo)?;
     let mut outcome = repo
         .merge_trees(base_tree, ours_tree, their, Default::default(), options)

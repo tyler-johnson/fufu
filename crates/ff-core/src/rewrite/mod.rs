@@ -15,7 +15,7 @@ pub use chain::{
 };
 pub(crate) use chain::{carries_markers, chain_labels, stack_size};
 pub use replay::{
-    Change, Clearing, Decided, DropReason, Dropped, Rewrite, RewritePlan, plan, plan_with,
-    published_count, tracking_name,
+    Change, Clearing, Decided, DropReason, Dropped, MoveInto, Rewrite, RewritePlan, plan,
+    plan_with, published_count, tracking_name,
 };
-pub(crate) use replay::{join_paths, superseded_in};
+pub(crate) use replay::{changed_paths, filtered, join_paths, superseded_in};

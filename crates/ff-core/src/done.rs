@@ -445,19 +445,36 @@ fn finish_resolution(
                 }
             }
         }
-        Intent::Absorb { into, paths } => {
-            let into = gix::ObjectId::from_hex(into.as_bytes()).map_err(Error::repo)?;
-            let (outcome, _ctx) = crate::absorb::absorb_with(
+        Intent::Absorb { .. } | Intent::Lift { .. } => {
+            let held::MoveIntent {
+                verb,
+                from,
+                into,
+                message,
+                paths,
+            } = hold.intent.as_move().expect("the arm matched a move");
+            let from: Vec<crate::absorb::Endpoint> = from
+                .iter()
+                .map(|end| crate::absorb::Endpoint::parse(end))
+                .collect::<Result<_>>()?;
+            let into = crate::absorb::Endpoint::parse(into)?;
+            let (outcome, _ctx) = crate::absorb::move_with(
                 repo,
-                Some(into),
-                paths.clone(),
-                verify,
+                &crate::absorb::MoveOptions {
+                    verb,
+                    from: Some(from),
+                    into: Some(into),
+                    paths: paths.to_vec(),
+                    message: message.map(String::from),
+                    verify,
+                    now: Some(rec.now),
+                    argv: rec.argv.clone(),
+                },
                 rec.prov,
-                (Some(rec.now), rec.argv.clone()),
                 &decided,
             )?;
             match outcome {
-                crate::AbsorbOutcome::Absorbed(report) => Landed {
+                crate::MoveOutcome::Moved(report) => Landed {
                     replayed: report.restacked,
                     new_tip: tip_of(repo, &report.branch)?,
                     landed_on: report.branch,
@@ -466,32 +483,8 @@ fn finish_resolution(
                 },
                 other => {
                     return Err(Error::msg(format!(
-                        "internal: the decided absorb did not land: {other:?}"
-                    )));
-                }
-            }
-        }
-        Intent::Lift { from, paths } => {
-            let from = gix::ObjectId::from_hex(from.as_bytes()).map_err(Error::repo)?;
-            let (outcome, _ctx) = crate::absorb::lift_with(
-                repo,
-                Some(from),
-                paths.clone(),
-                rec.prov,
-                (Some(rec.now), rec.argv.clone()),
-                &decided,
-            )?;
-            match outcome {
-                crate::LiftOutcome::Lifted(report) => Landed {
-                    replayed: report.restacked,
-                    new_tip: tip_of(repo, &report.branch)?,
-                    landed_on: report.branch,
-                    cascade: report.cascade,
-                    arrival: ArrivalReport::None,
-                },
-                other => {
-                    return Err(Error::msg(format!(
-                        "internal: the decided lift did not land: {other:?}"
+                        "internal: the decided {} did not land: {other:?}",
+                        verb.as_str()
                     )));
                 }
             }

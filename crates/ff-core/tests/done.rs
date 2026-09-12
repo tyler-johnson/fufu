@@ -614,14 +614,19 @@ fn an_absorb_inside_a_session_still_lands() {
 
     fx.write("c1.txt", "c1 absorbed\n");
     let repo = fx.repo();
-    let (_outcome, _ctx) = ff_core::absorb::absorb(
+    let (_outcome, _ctx) = ff_core::absorb::move_change(
         &repo,
-        None,
-        Vec::new(),
-        ff_core::Verify::Run,
+        &ff_core::absorb::MoveOptions {
+            verb: ff_core::absorb::MoveVerb::Absorb,
+            from: None,
+            into: None,
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW + 50),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
         &prov(),
-        Some(NOW + 50),
-        vec!["ff".into(), "absorb".into()],
     )
     .unwrap();
 

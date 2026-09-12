@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use gix::bstr::ByteSlice;
 
 use super::markers::{Block, CHAIN_OURS, OPENER, blocks};
-use super::replay::{Change, Range, range_of, subject, tree_of};
+use super::replay::{Change, Range, filtered, range_of, subject, their_of, tree_of};
 use crate::error::{Error, Result};
 
 /// One unresolved region standing in a tree, and the step that wrote it.
@@ -102,7 +102,7 @@ pub fn chain(
 
     let start_cursor = match change {
         Change::Onto(onto) => tree_of(repo, *onto)?,
-        Change::Tree { tree, .. } => *tree,
+        Change::Tree { tree, .. } | Change::Move { tree, .. } => *tree,
         // A reword moves no tree, so the cursor never stands in for a tree;
         // the empty tree only matters if no step runs at all.
         Change::Message(_) => gix::ObjectId::empty_tree(repo.object_hash()),
@@ -132,21 +132,40 @@ pub fn chain(
                 // paths it changed are scanned like any other step's, or the
                 // region would stand in every later tree with no step
                 // claiming it.
-                Change::Tree { tree, .. } => {
+                Change::Tree { tree, .. } | Change::Move { tree, .. } => {
                     (*tree, marked_paths(repo, tree_of(repo, id)?, *tree)?)
                 }
                 Change::Message(_) => (tree_of(repo, id)?, Vec::new()),
                 Change::Onto(onto) => {
                     let base = old_first_parent_tree(repo, id)?;
-                    merged(repo, id, base, tree_of(repo, *onto)?, k, n, &subject)?
+                    let their = tree_of(repo, id)?;
+                    merged(repo, base, tree_of(repo, *onto)?, their, k, n, &subject)?
                 }
             }
         } else {
             match change {
                 Change::Message(_) => (tree_of(repo, id)?, Vec::new()),
-                Change::Tree { .. } | Change::Onto(_) => {
+                Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
                     let base = old_first_parent_tree(repo, id)?;
-                    merged(repo, id, base, cursor, k, n, &subject)?
+                    let their = their_of(repo, change, id, base)?;
+                    let (tree, mut paths) = merged(repo, base, cursor, their, k, n, &subject)?;
+                    // A move's target above the bottom takes the moved paths
+                    // from the fold, the way the replay does. The fold can
+                    // carry marks of its own — a conflicted fold is handed in
+                    // exactly as a conflicted bottom is — so its paths are
+                    // this step's too.
+                    match change {
+                        Change::Move {
+                            into: Some(into), ..
+                        } if into.id == id => {
+                            let tree = filtered(repo, tree, into.tree, &into.paths)?;
+                            paths.extend(marked_paths(repo, tree_of(repo, id)?, into.tree)?);
+                            paths.sort();
+                            paths.dedup();
+                            (tree, paths)
+                        }
+                        _ => (tree, paths),
+                    }
                 }
             }
         };
@@ -510,24 +529,23 @@ fn line_hunks(before: &str, after: &str) -> Vec<(std::ops::Range<usize>, std::op
         .collect()
 }
 
-/// One non-trivial step: the commit's tree replayed onto `ours`. When the two
-/// agree, no merge runs and the commit's own tree is carried — the same
-/// short-circuit `replayed_tree` takes. Otherwise the three-way merge runs
-/// with the chain's attribution labels, and the unresolved regions are the
-/// step's paths.
+/// One non-trivial step: `their` — the commit's tree, or the one the change
+/// says to carry for it — replayed onto `ours`. When base and ours agree, no
+/// merge runs and `their` is carried — the same short-circuit `replayed_tree`
+/// takes. Otherwise the three-way merge runs with the chain's attribution
+/// labels, and the unresolved regions are the step's paths.
 fn merged(
     repo: &gix::Repository,
-    id: gix::ObjectId,
     base: gix::ObjectId,
     ours: gix::ObjectId,
+    their: gix::ObjectId,
     k: usize,
     n: usize,
     subject: &str,
 ) -> Result<(gix::ObjectId, Vec<String>)> {
     if base == ours {
-        return Ok((tree_of(repo, id)?, Vec::new()));
+        return Ok((their, Vec::new()));
     }
-    let their = tree_of(repo, id)?;
     let options = repo.tree_merge_options().map_err(Error::repo)?;
     let (ours_label, theirs) = chain_labels(subject, k, n);
     let labels = gix::merge::blob::builtin_driver::text::Labels {

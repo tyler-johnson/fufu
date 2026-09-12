@@ -410,19 +410,41 @@ fn walk_from<'r>(
     if tips.is_empty() {
         return Ok(Box::new(std::iter::empty()));
     }
+    // A tip that is an ancestor of a hidden tip can slip out of gix's walk
+    // when the two share a commit time: the tip is popped as interesting
+    // before the hidden walk paints it, and a tip is never a candidate the
+    // painting takes back. Trunk's tip under `HEAD~1..` on a branch whose
+    // commits landed in the same second is exactly that shape, so every
+    // yielded tip is checked against the hidden set — a merge base per
+    // yielded tip, and none at all without a hidden set.
+    let tip_set: HashSet<gix::ObjectId> = if hidden.is_empty() {
+        HashSet::new()
+    } else {
+        tips.iter().copied().collect()
+    };
     let mut platform = repo
         .rev_walk(tips)
         .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst));
     if !hidden.is_empty() {
-        platform = platform.with_hidden(hidden);
+        platform = platform.with_hidden(hidden.clone());
     }
     let walk = platform.all().map_err(Error::repo)?;
-    Ok(Box::new(walk.map(|info| {
-        let info = info.map_err(Error::repo)?;
-        Ok(Member {
+    Ok(Box::new(walk.filter_map(move |info| {
+        let info = match info {
+            Ok(info) => info,
+            Err(err) => return Some(Err(Error::repo(err))),
+        };
+        if tip_set.contains(&info.id) {
+            match repo.merge_bases_many(info.id, &hidden) {
+                Ok(bases) if bases.iter().any(|b| b.detach() == info.id) => return None,
+                Ok(_) => {}
+                Err(err) => return Some(Err(Error::repo(err))),
+            }
+        }
+        Some(Ok(Member {
             rev: Rev::Commit(CommitId::new(info.id)),
             time: info.commit_time.unwrap_or_default(),
-        })
+        }))
     })))
 }
 

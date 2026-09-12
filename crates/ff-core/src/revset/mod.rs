@@ -120,6 +120,16 @@ impl Revset {
         opspace::evaluate(repo, &self.expr)
     }
 
+    /// Every member, collected. An empty set is refused with the same
+    /// advice `point` gives: a verb that takes a set still needs one.
+    pub fn members(&self, repo: &gix::Repository) -> Result<Vec<Rev>> {
+        let members: Vec<Rev> = self.evaluate(repo)?.collect::<Result<_>>()?;
+        if members.is_empty() {
+            return Err(empty_set(&self.src));
+        }
+        Ok(members)
+    }
+
     /// Exactly one member, or an error. Zero and many are different errors
     /// because they need different advice, and neither is ever resolved by
     /// picking one — disambiguation is a spelling the reader chooses.

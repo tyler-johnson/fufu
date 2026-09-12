@@ -5,8 +5,9 @@
 //! is skipped and named. `diff_absorb.rs` is the differential suite against
 //! git; this is the stack.
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::gix;
-use ff_core::{AbsorbOutcome, Provenance};
+use ff_core::{MoveOutcome, Provenance};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -90,21 +91,26 @@ fn close(fx: &Fixture, msg: &str) -> String {
     rev(fx, "HEAD")
 }
 
-fn absorb_into(fx: &Fixture, target: &str) -> ff_core::AbsorbReport {
+fn absorb_into(fx: &Fixture, target: &str) -> ff_core::MoveReport {
     let repo = fx.repo();
     let into = gix::ObjectId::from_hex(target.as_bytes()).unwrap();
-    let (outcome, _ctx) = ff_core::absorb::absorb(
+    let (outcome, _ctx) = ff_core::absorb::move_change(
         &repo,
-        Some(into),
-        Vec::new(),
-        ff_core::Verify::Run,
+        &MoveOptions {
+            verb: MoveVerb::Absorb,
+            from: None,
+            into: Some(Endpoint::Commit(into)),
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
         &prov(),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
     )
     .unwrap();
     match outcome {
-        AbsorbOutcome::Absorbed(report) => report,
+        MoveOutcome::Moved(report) => *report,
         other => panic!("the absorb must land, got {other:?}"),
     }
 }

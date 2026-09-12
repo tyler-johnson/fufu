@@ -5,9 +5,10 @@
 //! hold per branch: a second conflicting rewrite refuses rather than guessing
 //! an order, while a clean rewrite on another branch runs on by.
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::futures::At;
 use ff_core::gix;
-use ff_core::{AbsorbOutcome, DoneOutcome, EditOutcome, LiftOutcome, Provenance, RestackOutcome};
+use ff_core::{DoneOutcome, EditOutcome, MoveOutcome, Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -100,16 +101,21 @@ fn oid(hex: &str) -> gix::ObjectId {
     gix::ObjectId::from_hex(hex.trim().as_bytes()).unwrap()
 }
 
-fn absorb_call(fx: &Fixture, into: &str, now: i64) -> (AbsorbOutcome, ff_core::ops::VerbContext) {
+fn absorb_call(fx: &Fixture, into: &str, now: i64) -> (MoveOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::absorb::absorb(
+    ff_core::absorb::move_change(
         &repo,
-        Some(oid(into)),
-        Vec::new(),
-        ff_core::Verify::Run,
+        &MoveOptions {
+            verb: MoveVerb::Absorb,
+            from: None,
+            into: Some(Endpoint::Commit(oid(into))),
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(now),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
         &prov(),
-        Some(now),
-        vec!["ff".into(), "absorb".into()],
     )
     .unwrap()
 }
@@ -119,15 +125,21 @@ fn lift_call(
     from: &str,
     paths: Vec<String>,
     now: i64,
-) -> (LiftOutcome, ff_core::ops::VerbContext) {
+) -> (MoveOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::absorb::lift(
+    ff_core::absorb::move_change(
         &repo,
-        Some(oid(from)),
-        paths,
+        &MoveOptions {
+            verb: MoveVerb::Lift,
+            from: Some(vec![Endpoint::Commit(oid(from))]),
+            into: None,
+            paths,
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(now),
+            argv: vec!["ff".into(), "lift".into()],
+        },
         &prov(),
-        Some(now),
-        vec!["ff".into(), "lift".into()],
     )
     .unwrap()
 }
@@ -445,7 +457,7 @@ fn a_conflicting_absorb_holds() {
 
     let (outcome, _ctx) = absorb_call(&fx, &c1, NOW);
     let report = match outcome {
-        AbsorbOutcome::Held(r) => r,
+        MoveOutcome::Held(r) => r,
         other => panic!("a conflicting absorb must hold, got {other:?}"),
     };
 
@@ -484,7 +496,7 @@ fn a_conflicting_absorb_of_descendants_holds() {
 
     let (outcome, _ctx) = absorb_call(&fx, &c1, NOW);
     let report = match outcome {
-        AbsorbOutcome::Held(r) => r,
+        MoveOutcome::Held(r) => r,
         other => panic!("a conflicting absorb must hold, got {other:?}"),
     };
 
@@ -520,7 +532,7 @@ fn a_conflicting_lift_holds() {
 
     let (outcome, _ctx) = lift_call(&fx, &c1, vec!["doc.txt".into()], NOW);
     let report = match outcome {
-        LiftOutcome::Held(r) => r,
+        MoveOutcome::Held(r) => r,
         other => panic!("a conflicting lift must hold, got {other:?}"),
     };
 
@@ -533,8 +545,8 @@ fn a_conflicting_lift_holds() {
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
     match &held.intent {
-        ff_core::held::Intent::Lift { from, paths } => {
-            assert_eq!(from, &c1, "the intent names the target");
+        ff_core::held::Intent::Lift { from, paths, .. } => {
+            assert_eq!(from, &vec![c1.clone()], "the intent names the source");
             assert_eq!(
                 paths,
                 &vec!["doc.txt".to_string()],
@@ -597,7 +609,7 @@ fn undoing_an_absorb_hold_removes_it() {
     let c1 = fold_conflict_stack(&fx);
 
     let (outcome, _ctx) = absorb_call(&fx, &c1, NOW);
-    assert!(matches!(outcome, AbsorbOutcome::Held(_)));
+    assert!(matches!(outcome, MoveOutcome::Held(_)));
     assert!(
         ff_core::held::of(&fx.repo(), "main").unwrap().is_some(),
         "the hold stands before the undo"

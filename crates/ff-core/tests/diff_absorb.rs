@@ -1,9 +1,11 @@
-//! Differential contract for `absorb::absorb` and `absorb::lift`: fufu's
-//! absorb must produce byte-identical commits to `git commit --fixup` folded
-//! in by `git rebase -i --autosquash --update-refs`, and neither verb writes
-//! a single file — the worktree is byte-identical before and after, and only
-//! refs, the index, and the operation log move.
+//! Differential contract for `absorb::move_change` in both its spellings:
+//! fufu's absorb must produce byte-identical commits to `git commit --fixup`
+//! folded in by `git rebase -i --autosquash --update-refs`, a run of sources
+//! must land the tree `git rebase -i`'s squash lands, and neither spelling
+//! writes a single file — the worktree is byte-identical before and after,
+//! and only refs, the index, and the operation log move.
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::gix;
 use ff_testsupport::Fixture;
 use ff_testsupport::hooks::{STAGED_HOOK, install_hook, staged_marker};
@@ -27,23 +29,60 @@ fn oid(hex: &str) -> gix::ObjectId {
     gix::ObjectId::from_hex(hex.trim().as_bytes()).unwrap()
 }
 
+fn commit(hex: &str) -> Endpoint {
+    Endpoint::Commit(oid(hex))
+}
+
+/// A move with every option defaulted but the ends: the verb's word fills
+/// in whatever is `None`.
+fn opts(verb: MoveVerb, from: Option<Vec<Endpoint>>, into: Option<Endpoint>) -> MoveOptions {
+    MoveOptions {
+        verb,
+        from,
+        into,
+        paths: Vec::new(),
+        message: None,
+        verify: ff_core::Verify::Run,
+        now: Some(NOW),
+        argv: vec!["ff".into(), verb.as_str().into()],
+    }
+}
+
+/// The call without the unwrap, for the scenarios a hook or a guard refuses.
+fn move_result(
+    fx: &Fixture,
+    opts: &MoveOptions,
+) -> ff_core::Result<(ff_core::MoveOutcome, ff_core::ops::VerbContext)> {
+    let repo = fx.repo();
+    ff_core::absorb::move_change(&repo, opts, &prov())
+}
+
+fn move_call(
+    fx: &Fixture,
+    opts: &MoveOptions,
+) -> (ff_core::MoveOutcome, ff_core::ops::VerbContext) {
+    move_result(fx, opts).unwrap()
+}
+
+/// The move, expected to land.
+fn moved(fx: &Fixture, opts: &MoveOptions) -> ff_core::MoveReport {
+    match move_call(fx, opts).0 {
+        ff_core::MoveOutcome::Moved(r) => *r,
+        other => panic!("the move must land, got {other:?}"),
+    }
+}
+
+/// `ff absorb [--into <rev>] [<paths>]`.
 fn absorb_call(
     fx: &Fixture,
     into: Option<&str>,
     paths: Vec<String>,
     now: i64,
-) -> (ff_core::AbsorbOutcome, ff_core::ops::VerbContext) {
-    let repo = fx.repo();
-    ff_core::absorb::absorb(
-        &repo,
-        into.map(oid),
-        paths,
-        ff_core::Verify::Run,
-        &prov(),
-        Some(now),
-        vec!["ff".into(), "absorb".into()],
-    )
-    .unwrap()
+) -> (ff_core::MoveOutcome, ff_core::ops::VerbContext) {
+    let mut o = opts(MoveVerb::Absorb, None, into.map(commit));
+    o.paths = paths;
+    o.now = Some(now);
+    move_call(fx, &o)
 }
 
 /// The same call without the unwrap, for the scenarios a hook refuses.
@@ -52,35 +91,42 @@ fn absorb_result(
     into: Option<&str>,
     paths: Vec<String>,
     verify: ff_core::Verify,
-) -> ff_core::Result<(ff_core::AbsorbOutcome, ff_core::ops::VerbContext)> {
-    let repo = fx.repo();
-    ff_core::absorb::absorb(
-        &repo,
-        into.map(oid),
-        paths,
-        verify,
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
-    )
+) -> ff_core::Result<(ff_core::MoveOutcome, ff_core::ops::VerbContext)> {
+    let mut o = opts(MoveVerb::Absorb, None, into.map(commit));
+    o.paths = paths;
+    o.verify = verify;
+    move_result(fx, &o)
 }
 
+/// `ff lift [--from <rev>] [<paths>]`.
 fn lift_call(
     fx: &Fixture,
     from: Option<&str>,
     paths: Vec<String>,
     now: i64,
-) -> (ff_core::LiftOutcome, ff_core::ops::VerbContext) {
-    let repo = fx.repo();
-    ff_core::absorb::lift(
-        &repo,
-        from.map(oid),
-        paths,
-        &prov(),
-        Some(now),
-        vec!["ff".into(), "lift".into()],
-    )
-    .unwrap()
+) -> (ff_core::MoveOutcome, ff_core::ops::VerbContext) {
+    let mut o = opts(MoveVerb::Lift, from.map(|f| vec![commit(f)]), None);
+    o.paths = paths;
+    o.now = Some(now);
+    move_call(fx, &o)
+}
+
+/// A file's content at a revision, or `None` when the path is not there.
+fn file_at(fx: &Fixture, rev: &str, path: &str) -> Option<String> {
+    let out = fx.try_git(&["show", &format!("{rev}:{path}")]);
+    out.status
+        .success()
+        .then(|| String::from_utf8(out.stdout).unwrap())
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn tree_of(fx: &Fixture, rev: &str) -> String {
+    fx.git(&["rev-parse", &format!("{rev}^{{tree}}")])
+        .trim()
+        .to_string()
 }
 
 /// Every worktree file as (repo-relative path, bytes), sorted by path.
@@ -191,7 +237,7 @@ fn absorb_into_mid_stack_matches_git() {
 
     let (outcome, _ctx) = absorb_call(&fx_ff, Some(&c1_ff), Vec::new(), NOW);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the absorb must land, got {other:?}"),
     };
     git_oracle_absorb(&fx_git, &c1_git, NOW);
@@ -210,8 +256,8 @@ fn absorb_into_mid_stack_matches_git() {
     );
 
     let new_c1 = fx_ff.git(&["rev-parse", "main~3"]).trim().to_string();
-    assert_eq!(report.into, c1_ff);
-    assert_eq!(report.new.as_deref(), Some(new_c1.as_str()));
+    assert_eq!(report.into.id, c1_ff);
+    assert_eq!(report.into.new.as_deref(), Some(new_c1.as_str()));
     assert_eq!(report.restacked, 3);
     assert_eq!(report.moved, vec!["mid".to_string()]);
     assert!(!report.still_open);
@@ -248,7 +294,7 @@ fn absorb_overlapping_edit_matches_git() {
 
     let (outcome, _ctx) = absorb_call(&fx_ff, Some(&c1_ff), Vec::new(), NOW);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the absorb must land, got {other:?}"),
     };
     git_oracle_absorb(&fx_git, &c1_git, NOW);
@@ -274,9 +320,9 @@ fn absorb_overlapping_edit_matches_git() {
         "every rewritten commit must be byte-identical\nfufu:\n{log_ff}\ngit:\n{log_git}"
     );
 
-    assert_eq!(report.into, c1_ff);
+    assert_eq!(report.into.id, c1_ff);
     assert_eq!(
-        report.new.as_deref(),
+        report.into.new.as_deref(),
         Some(fx_ff.git(&["rev-parse", "main~1"]).trim())
     );
     assert_eq!(report.restacked, 1);
@@ -299,7 +345,7 @@ fn absorb_writes_no_files() {
 
     let (outcome, ctx) = absorb_call(&fx, None, Vec::new(), NOW);
     match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => assert!(!r.still_open),
+        ff_core::MoveOutcome::Moved(r) => assert!(!r.still_open),
         other => panic!("the absorb must land, got {other:?}"),
     }
 
@@ -341,20 +387,10 @@ fn a_conflicting_fold_holds_and_moves_nothing() {
     let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
     let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
 
-    let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::absorb(
-        &repo,
-        Some(oid(&c1)),
-        Vec::new(),
-        ff_core::Verify::Run,
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "absorb".into()],
-    )
-    .unwrap();
+    let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
 
     let report = match outcome {
-        ff_core::AbsorbOutcome::Held(r) => r,
+        ff_core::MoveOutcome::Held(r) => r,
         other => panic!("a conflicting fold must hold, got {other:?}"),
     };
 
@@ -376,7 +412,10 @@ fn a_conflicting_fold_holds_and_moves_nothing() {
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
     match &held.intent {
-        ff_core::held::Intent::Absorb { into, paths } => {
+        ff_core::held::Intent::Absorb {
+            from, into, paths, ..
+        } => {
+            assert_eq!(from, &vec!["@".to_string()]);
             assert_eq!(into, &c1);
             assert!(paths.is_empty(), "no filter was given");
         }
@@ -415,7 +454,7 @@ fn absorb_paths_filter_selects() {
     fx.backdate();
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), vec!["a.txt".into()], NOW);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the absorb must land, got {other:?}"),
     };
 
@@ -456,7 +495,7 @@ fn absorb_clean_tree_is_nothing_to_absorb() {
 
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
     match outcome {
-        ff_core::AbsorbOutcome::NothingToAbsorb { branch } => {
+        ff_core::MoveOutcome::Nothing { branch, .. } => {
             assert_eq!(branch, "main");
         }
         other => panic!("a clean tree must not absorb, got {other:?}"),
@@ -481,8 +520,8 @@ fn absorb_records_the_rewrite_map() {
     fx.write("f1.txt", "one-prime\n");
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
     match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => {
-            assert_eq!(r.into, c1);
+        ff_core::MoveOutcome::Moved(r) => {
+            assert_eq!(r.into.id, c1);
             assert_eq!(r.restacked, 3);
         }
         other => panic!("the absorb must land, got {other:?}"),
@@ -524,13 +563,13 @@ fn lift_moves_no_files_and_grows_the_open_change() {
 
     let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
     let report = match outcome {
-        ff_core::LiftOutcome::Lifted(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the lift must land, got {other:?}"),
     };
-    assert_eq!(report.from, c2);
+    assert_eq!(report.from[0].id, c2);
     assert!(
-        report.new.is_some(),
-        "b.txt still introduces its own content: the target keeps its own identity"
+        report.from[0].new.is_some(),
+        "b.txt still introduces its own content: the source keeps its own identity"
     );
     assert!(
         !report.dropped.iter().any(|d| d.old == c2),
@@ -572,14 +611,14 @@ fn lift_everything_drops_the_commit() {
 
     let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
     let report = match outcome {
-        ff_core::LiftOutcome::Lifted(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the lift must land, got {other:?}"),
     };
 
     // A lift that takes the commit's only introduction leaves it introducing
     // nothing, and fufu writes no empty commit: the commit is gone.
     assert!(
-        report.new.is_none(),
+        report.from[0].dropped,
         "a.txt was the commit's only introduction"
     );
     assert_eq!(
@@ -614,19 +653,10 @@ fn a_conflicting_lift_holds_and_moves_nothing() {
     let main_before = fx.git(&["rev-parse", "main"]).trim().to_string();
     let mid_before = fx.git(&["rev-parse", "mid"]).trim().to_string();
 
-    let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::lift(
-        &repo,
-        Some(oid(&c1)),
-        vec!["doc.txt".into()],
-        &prov(),
-        Some(NOW),
-        vec!["ff".into(), "lift".into()],
-    )
-    .unwrap();
+    let (outcome, _ctx) = lift_call(&fx, Some(&c1), vec!["doc.txt".into()], NOW);
 
     let report = match outcome {
-        ff_core::LiftOutcome::Held(r) => r,
+        ff_core::MoveOutcome::Held(r) => r,
         other => panic!("a conflicting lift must hold, got {other:?}"),
     };
 
@@ -645,8 +675,11 @@ fn a_conflicting_lift_holds_and_moves_nothing() {
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
     match &held.intent {
-        ff_core::held::Intent::Lift { from, paths } => {
-            assert_eq!(from, &c1);
+        ff_core::held::Intent::Lift {
+            from, into, paths, ..
+        } => {
+            assert_eq!(from, &vec![c1.clone()]);
+            assert_eq!(into, "@");
             assert_eq!(paths, &vec!["doc.txt".to_string()]);
         }
         other => panic!("the intent must be Lift, got {other:?}"),
@@ -686,8 +719,11 @@ fn absorb_undoes_a_lift() {
     // land on the original tip's tree — the content never moved.
     let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
     match outcome {
-        ff_core::LiftOutcome::Lifted(r) => {
-            assert!(r.new.is_none(), "a.txt was the commit's only introduction");
+        ff_core::MoveOutcome::Moved(r) => {
+            assert!(
+                r.from[0].dropped,
+                "a.txt was the commit's only introduction"
+            );
             assert_eq!(r.dropped.len(), 1, "the lifted commit is named in dropped");
             assert_eq!(r.dropped[0].old, c1);
             assert!(
@@ -701,7 +737,7 @@ fn absorb_undoes_a_lift() {
     }
     let (outcome, _ctx) = absorb_call(&fx, None, Vec::new(), NOW);
     match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => assert!(!r.still_open),
+        ff_core::MoveOutcome::Moved(r) => assert!(!r.still_open),
         other => panic!("the absorb must land, got {other:?}"),
     }
 
@@ -724,18 +760,18 @@ fn absorb_into_head_is_an_amend() {
     fx.write("a.txt", "c\n");
     let (outcome, _ctx) = absorb_call(&fx, None, Vec::new(), NOW);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the absorb must land, got {other:?}"),
     };
 
     // The target is the tip: no merge runs, and the open change is empty
     // once the absorb lands.
-    assert_eq!(report.into, c2);
+    assert_eq!(report.into.id, c2);
     assert_eq!(
-        report.new.as_deref(),
+        report.into.new.as_deref(),
         Some(fx.git(&["rev-parse", "main"]).trim())
     );
-    assert_ne!(report.new.as_deref(), Some(c2.as_str()));
+    assert_ne!(report.into.new.as_deref(), Some(c2.as_str()));
     assert_eq!(report.restacked, 0);
     assert!(report.moved.is_empty());
     assert!(!report.still_open);
@@ -795,10 +831,10 @@ fn no_verify_skips_the_absorb_gate() {
 
     let (outcome, _ctx) = absorb_result(&fx, Some(&c1), Vec::new(), ff_core::Verify::Skip).unwrap();
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("--no-verify must land, got {other:?}"),
     };
-    let new_c1 = report.new.expect("the target survived");
+    let new_c1 = report.into.new.expect("the target survived");
     assert_eq!(fx.git(&["show", &format!("{new_c1}:a.txt")]), "changed\n");
 }
 
@@ -819,10 +855,10 @@ fn a_pre_commit_formatter_rewrite_is_what_gets_absorbed() {
 
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
     let report = match outcome {
-        ff_core::AbsorbOutcome::Absorbed(r) => r,
+        ff_core::MoveOutcome::Moved(r) => *r,
         other => panic!("the absorb must land, got {other:?}"),
     };
-    let new_c1 = report.new.expect("the target survived");
+    let new_c1 = report.into.new.expect("the target survived");
     assert_eq!(
         fx.git(&["show", &format!("{new_c1}:a.txt")]),
         "formatted\n",
@@ -844,7 +880,7 @@ fn the_absorb_gate_sees_exactly_what_is_folding_in() {
     fx.write("new.txt", "new\n");
 
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), Vec::new(), NOW);
-    assert!(matches!(outcome, ff_core::AbsorbOutcome::Absorbed(_)));
+    assert!(matches!(outcome, ff_core::MoveOutcome::Moved(_)));
     assert_eq!(
         staged_marker(&fx),
         vec!["a.txt", "new.txt"],
@@ -866,7 +902,7 @@ fn the_absorb_gate_sees_only_the_selected_paths() {
     fx.write("b.txt", "b changed\n");
 
     let (outcome, _ctx) = absorb_call(&fx, Some(&c1), vec!["a.txt".into()], NOW);
-    assert!(matches!(outcome, ff_core::AbsorbOutcome::Absorbed(_)));
+    assert!(matches!(outcome, ff_core::MoveOutcome::Moved(_)));
     assert_eq!(
         staged_marker(&fx),
         vec!["a.txt"],
@@ -893,5 +929,599 @@ fn lift_runs_no_hook() {
     install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
 
     let (outcome, _ctx) = lift_call(&fx, None, vec!["a.txt".into()], NOW);
-    assert!(matches!(outcome, ff_core::LiftOutcome::Lifted(_)));
+    assert!(matches!(outcome, ff_core::MoveOutcome::Moved(_)));
+}
+
+// ---------------------------------------------------------------------------
+// One move, two spellings: `--from` a run of commits, `--into` any commit on
+// the line or the open change. The shapes below are the ladder the module
+// doc names, and git's `rebase -i` squash is the oracle where it has one.
+// ---------------------------------------------------------------------------
+
+/// `base` on `main`, then `c1 ← c2 ← c3` on `feat`, each adding its own
+/// file. The run sits on a branch off trunk, the way a move's default
+/// target expects: the commit under a run that reaches the bottom of the
+/// branch is trunk's, and a bare absorb refuses to rewrite it.
+fn run_stack(fx: &Fixture) -> [String; 4] {
+    fx.write("f0.txt", "base\n");
+    let c0 = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("f1.txt", "one\n");
+    let c1 = fx.commit("c1");
+    fx.write("f2.txt", "two\n");
+    let c2 = fx.commit("c2");
+    fx.write("f3.txt", "three\n");
+    let c3 = fx.commit("c3");
+    [c0, c1, c2, c3]
+}
+
+/// The git oracle for a run folding into the commit under it: `rebase -i`
+/// with the run's commits marked `fixup`, committer date pinned to `now`.
+fn git_oracle_squash(fx: &Fixture, onto: &str, now: i64) {
+    let upstream = fx
+        .git(&["rev-parse", &format!("{onto}^")])
+        .trim()
+        .to_string();
+    fx.git_env_in(
+        &fx.path(),
+        &["rebase", "-i", &upstream],
+        &[
+            ("GIT_SEQUENCE_EDITOR", "sed -i -e '2,$s/^pick/fixup/'"),
+            ("GIT_COMMITTER_DATE", &format!("@{now} +0000")),
+        ],
+    );
+}
+
+#[test]
+fn a_run_of_commits_folds_into_the_commit_under_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [c0, c1, c2, c3] = run_stack(&fx);
+    let fx_git = Fixture::new();
+    ident(&fx_git);
+    let [_c0, c1_git, _c2, _c3] = run_stack(&fx_git);
+    assert_eq!(c1, c1_git, "setup must be lockstep before any rewrite");
+
+    // `ff absorb --from c1..c3`: c2 and c3 fold into c1, the commit under
+    // them, which is absorb's default target.
+    let report = moved(
+        &fx,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c2), commit(&c3)]), None),
+    );
+    git_oracle_squash(&fx_git, &c1_git, NOW);
+
+    assert_eq!(report.verb, "absorb");
+    assert_eq!(report.into.id, c1);
+    let new_c1 = report.into.new.clone().expect("the target survives");
+    assert_eq!(rev(&fx, "feat"), new_c1);
+    assert_eq!(
+        tree_of(&fx, "feat"),
+        tree_of(&fx, &c3),
+        "the target now carries everything the run did"
+    );
+    assert_eq!(
+        tree_of(&fx, "feat"),
+        tree_of(&fx_git, "feat"),
+        "the same tree git's squash lands"
+    );
+    assert_eq!(rev(&fx, "feat~1"), c0, "the run is gone: c1' sits on base");
+    assert_eq!(fx.git(&["rev-list", "--count", "feat"]).trim(), "2");
+
+    let ids: Vec<&str> = report.from.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, vec![c2.as_str(), c3.as_str()], "deepest first");
+    assert!(report.from.iter().all(|s| s.dropped && s.new.is_none()));
+    assert_eq!(report.dropped.len(), 2, "both sources are named dropped");
+    assert_eq!(
+        report.files,
+        vec!["f2.txt".to_string(), "f3.txt".to_string()]
+    );
+    assert_eq!(report.restacked, 0);
+    assert!(!report.still_open);
+
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "absorb");
+    assert!(
+        record.summary.starts_with("move "),
+        "one shape for both spellings: {}",
+        record.summary
+    );
+    let ops = ff_core::ops::read_ops(&fx.repo(), 0).unwrap();
+    assert_eq!(
+        ops.iter().filter(|op| op.verb == "absorb").count(),
+        1,
+        "one operation"
+    );
+}
+
+#[test]
+fn a_run_lifts_into_the_open_change() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, c2, c3] = run_stack(&fx);
+    let files_before = worktree_files(&fx);
+
+    // `ff lift --from c1..c3`: c2 and c3 come out of the history and into
+    // the open change, which is lift's default target.
+    let report = moved(
+        &fx,
+        &opts(MoveVerb::Lift, Some(vec![commit(&c2), commit(&c3)]), None),
+    );
+
+    assert_eq!(report.verb, "lift");
+    assert_eq!(report.into.id, "@");
+    assert_eq!(report.into.new, None);
+    assert_eq!(rev(&fx, "feat"), c1, "the tip is c1 again, untouched");
+    assert_eq!(worktree_files(&fx), files_before, "no file moved");
+    assert!(report.from.iter().all(|s| s.dropped));
+    assert!(
+        !report.still_open,
+        "still_open is only ever the open change's as a source"
+    );
+
+    // The open change holds both commits' work: both files are untracked
+    // additions against the tip.
+    let status = fx.git(&["status", "--porcelain"]);
+    assert!(status.contains("?? f2.txt"), "{status}");
+    assert!(status.contains("?? f3.txt"), "{status}");
+}
+
+#[test]
+fn a_path_filter_leaves_the_rest_in_each_source() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f0.txt", "base\n");
+    let _c0 = fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("a.txt", "a1\n");
+    let c1 = fx.commit("c1");
+    fx.write("a.txt", "a2\n");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("c2");
+    fx.write("a.txt", "a3\n");
+    fx.write("c.txt", "c\n");
+    let c3 = fx.commit("c3");
+
+    let mut o = opts(
+        MoveVerb::Absorb,
+        Some(vec![commit(&c2), commit(&c3)]),
+        Some(commit(&c1)),
+    );
+    o.paths = vec!["a.txt".into()];
+    let report = moved(&fx, &o);
+
+    assert_eq!(report.files, vec!["a.txt".to_string()]);
+    assert_eq!(report.paths, vec!["a.txt".to_string()]);
+    // c1 carries a.txt's final content; c2 and c3 keep their own files and
+    // survive, so nothing is dropped.
+    assert!(report.dropped.is_empty(), "{:?}", report.dropped);
+    assert_eq!(fx.git(&["rev-list", "--count", "feat"]).trim(), "4");
+    assert_eq!(file_at(&fx, "feat~2", "a.txt").as_deref(), Some("a3\n"));
+    assert_eq!(file_at(&fx, "feat~2", "b.txt"), None);
+    assert_eq!(file_at(&fx, "feat~1", "b.txt").as_deref(), Some("b\n"));
+    assert_eq!(file_at(&fx, "feat~1", "a.txt").as_deref(), Some("a3\n"));
+    assert_eq!(file_at(&fx, "feat", "c.txt").as_deref(), Some("c\n"));
+    assert_eq!(
+        tree_of(&fx, "feat"),
+        tree_of(&fx, &c3),
+        "the tip's tree is unchanged"
+    );
+    assert_eq!(
+        report.restacked, 0,
+        "every replayed commit was an end of the move"
+    );
+}
+
+#[test]
+fn a_closed_target_above_the_sources_gains_them() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [c0, c1, c2, c3] = run_stack(&fx);
+
+    // `ff lift --from HEAD~2 --into HEAD`: c1 moves up into c3, and c2 is
+    // replayed without it.
+    let report = moved(
+        &fx,
+        &opts(MoveVerb::Lift, Some(vec![commit(&c1)]), Some(commit(&c3))),
+    );
+
+    assert_eq!(
+        tree_of(&fx, "feat"),
+        tree_of(&fx, &c3),
+        "HEAD's tree is unchanged"
+    );
+    assert_eq!(fx.git(&["rev-list", "--count", "feat"]).trim(), "3");
+    assert_eq!(rev(&fx, "feat~2"), c0);
+    assert_eq!(report.from[0].id, c1);
+    assert!(report.from[0].dropped, "c1 introduces nothing now");
+    assert_eq!(report.into.id, c3);
+    assert_eq!(report.into.new.as_deref(), Some(rev(&fx, "feat").as_str()));
+    assert_eq!(report.restacked, 1, "c2 was replayed");
+    assert_eq!(fx.git(&["log", "-1", "--format=%s", "feat~1"]).trim(), "c2");
+    assert_eq!(
+        file_at(&fx, "feat~1", "f1.txt"),
+        None,
+        "c2 replayed without c1's file"
+    );
+    assert_eq!(file_at(&fx, "feat", "f1.txt").as_deref(), Some("one\n"));
+    let _ = c2;
+}
+
+#[test]
+fn a_target_inside_the_run_takes_both_sides() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [c0, c1, c2, c3] = run_stack(&fx);
+
+    // Sources c1 and c3 around the target c2: the run is contiguous with
+    // the target in the gap, and c2 takes both.
+    let report = moved(
+        &fx,
+        &opts(
+            MoveVerb::Absorb,
+            Some(vec![commit(&c1), commit(&c3)]),
+            Some(commit(&c2)),
+        ),
+    );
+
+    assert_eq!(fx.git(&["rev-list", "--count", "feat"]).trim(), "2");
+    assert_eq!(rev(&fx, "feat~1"), c0);
+    assert_eq!(tree_of(&fx, "feat"), tree_of(&fx, &c3));
+    assert_eq!(fx.git(&["log", "-1", "--format=%s", "feat"]).trim(), "c2");
+    assert_eq!(report.into.id, c2);
+    assert!(report.from.iter().all(|s| s.dropped));
+    assert_eq!(report.restacked, 0);
+}
+
+#[test]
+fn a_gap_is_refused_with_the_range_spelling() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, c2, c3] = run_stack(&fx);
+    fx.write("f4.txt", "four\n");
+    let c4 = fx.commit("c4");
+
+    let err = move_result(
+        &fx,
+        &opts(
+            MoveVerb::Absorb,
+            Some(vec![commit(&c1), commit(&c3)]),
+            Some(commit(&c4)),
+        ),
+    )
+    .unwrap_err();
+    assert_eq!(err.id(), "usage/move-gap", "{err}");
+    let exits = err.exits();
+    assert!(
+        exits.iter().any(|e| e
+            == &format!(
+                "ff absorb --from {}~..{}",
+                ff_core::sha::short(&c1),
+                ff_core::sha::short(&c3)
+            )),
+        "the exit spells the whole run: {exits:?}"
+    );
+    assert_eq!(rev(&fx, "feat"), c4, "a refusal moves nothing");
+    let _ = c2;
+}
+
+#[test]
+fn an_endpoint_off_the_line_is_refused() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, _c2, c3] = run_stack(&fx);
+    fx.git(&["switch", "-q", "-c", "side", &c1]);
+    fx.write("s.txt", "side\n");
+    let side = fx.commit("side");
+    fx.git(&["switch", "-q", "feat"]);
+
+    let err = move_result(&fx, &opts(MoveVerb::Lift, Some(vec![commit(&side)]), None)).unwrap_err();
+    assert_eq!(err.id(), "rewrite/not-in-history", "{err}");
+    let err = move_result(&fx, &opts(MoveVerb::Absorb, None, Some(commit(&side)))).unwrap_err();
+    assert_eq!(err.id(), "rewrite/not-in-history", "{err}");
+    assert_eq!(rev(&fx, "feat"), c3);
+}
+
+#[test]
+fn the_target_alone_is_refused() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, _c1, c2, c3] = run_stack(&fx);
+
+    let err = move_result(
+        &fx,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c2)]), Some(commit(&c2))),
+    )
+    .unwrap_err();
+    assert_eq!(err.id(), "usage/move-into-self", "{err}");
+
+    // The bare words keep their own ids: absorb aimed at the open change
+    // with default sources, lift from the open change with default target.
+    let err = move_result(&fx, &opts(MoveVerb::Absorb, None, Some(Endpoint::Open))).unwrap_err();
+    assert_eq!(err.id(), "usage/absorb-into-open", "{err}");
+    let err =
+        move_result(&fx, &opts(MoveVerb::Lift, Some(vec![Endpoint::Open]), None)).unwrap_err();
+    assert_eq!(err.id(), "usage/lift-from-open", "{err}");
+    assert_eq!(rev(&fx, "feat"), c3);
+}
+
+#[test]
+fn a_default_target_trunk_holds_is_refused() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f0.txt", "base\n");
+    let base = fx.commit("base");
+    fx.set_config("fufu.trunk", "main");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("f1.txt", "one\n");
+    let c1 = fx.commit("c1");
+    fx.write("f2.txt", "two\n");
+    let c2 = fx.commit("c2");
+
+    // `ff absorb --from main..`: the commit under the run is trunk's tip.
+    let err = move_result(
+        &fx,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c1), commit(&c2)]), None),
+    )
+    .unwrap_err();
+    assert_eq!(err.id(), "absorb/into-trunk", "{err}");
+    assert!(err.to_string().contains("on main"), "{err}");
+    let exits = err.exits();
+    assert!(
+        exits.iter().any(|e| e
+            == &format!(
+                "ff absorb --from {}..{} --into {}",
+                ff_core::sha::short(&c1),
+                ff_core::sha::short(&c2),
+                ff_core::sha::short(&c1)
+            )),
+        "the exit folds the run into its own lowest commit: {exits:?}"
+    );
+    assert_eq!(rev(&fx, "feat"), c2);
+    assert_eq!(rev(&fx, "main"), base);
+
+    // Named, the same target is allowed: trunk is rewritten on purpose.
+    let report = moved(
+        &fx,
+        &opts(
+            MoveVerb::Absorb,
+            Some(vec![commit(&c1)]),
+            Some(commit(&base)),
+        ),
+    );
+    assert_eq!(report.into.id, base);
+}
+
+#[test]
+fn dash_m_rewords_a_closed_target_under_commit_msg() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, _c1, _c2, _c3] = run_stack(&fx);
+    install_hook(
+        &fx,
+        "commit-msg",
+        "#!/bin/sh\nprintf '%s [hooked]\\n' \"$(cat \"$1\")\" > \"$1\"\n",
+    );
+    fx.write("f3.txt", "three, edited\n");
+
+    let mut o = opts(MoveVerb::Absorb, None, None);
+    o.message = Some("c3, reworded".into());
+    let report = moved(&fx, &o);
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%B", "feat"]).trim(),
+        "c3, reworded [hooked]",
+        "the target's message went through commit-msg"
+    );
+    assert_eq!(
+        file_at(&fx, "feat", "f3.txt").as_deref(),
+        Some("three, edited\n")
+    );
+    assert!(report.into.new.is_some());
+    assert_eq!(
+        report.into.subject.as_deref(),
+        Some("c3, reworded [hooked]"),
+        "the report names the target by its new subject"
+    );
+
+    // A declining hook refuses before anything is planned.
+    install_hook(&fx, "commit-msg", "#!/bin/sh\nexit 1\n");
+    fx.write("f3.txt", "three, edited again\n");
+    let tip = rev(&fx, "feat");
+    let err = move_result(&fx, &o).unwrap_err();
+    assert_eq!(err.id(), "hook/declined", "{err}");
+    assert_eq!(rev(&fx, "feat"), tip, "nothing moved");
+
+    // `--no-verify` skips it, and a target higher up takes the message too.
+    o.verify = ff_core::Verify::Skip;
+    o.message = Some("c3, again".into());
+    moved(&fx, &o);
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s", "feat"]).trim(),
+        "c3, again"
+    );
+}
+
+#[test]
+fn dash_m_describes_the_open_change() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, _c1, c2, _c3] = run_stack(&fx);
+
+    let mut o = opts(MoveVerb::Lift, None, None);
+    o.message = Some("the lifted work\n".into());
+    let report = moved(&fx, &o);
+    assert_eq!(report.into.id, "@");
+    assert_eq!(rev(&fx, "feat"), c2);
+
+    let meta = ff_core::branchmeta::read(&fx.repo(), "feat").unwrap();
+    assert_eq!(
+        meta.pending_description.as_deref(),
+        Some("the lifted work"),
+        "the message is the open change's pending description"
+    );
+    assert!(
+        meta.change_id.is_some(),
+        "a described change has an identity"
+    );
+
+    let record = tip_record(&fx.repo());
+    let description = record.description.expect("the description is journaled");
+    assert_eq!(description.new.as_deref(), Some("the lifted work"));
+    assert_eq!(description.old, None);
+    assert!(record.change_id.is_some(), "and the mint with it");
+
+    // One undo takes the description and the mint back with the move.
+    let repo = fx.repo();
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            force: false,
+            now: Some(NOW + 100),
+            argv: vec!["ff".into(), "undo".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    let meta = ff_core::branchmeta::read(&repo, "feat").unwrap();
+    assert_eq!(meta.pending_description, None);
+    assert_eq!(meta.change_id, None);
+}
+
+#[test]
+fn pre_commit_runs_only_when_the_open_change_is_a_source() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, c2, c3] = run_stack(&fx);
+    install_hook(&fx, "pre-commit", "#!/bin/sh\nexit 1\n");
+
+    // Closed sources: nothing on disk becomes commit content, so the gate
+    // is not asked.
+    let report = moved(
+        &fx,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c3)]), Some(commit(&c2))),
+    );
+    assert_eq!(report.into.id, c2);
+    let tip = rev(&fx, "feat");
+
+    // The open change among the sources: it is.
+    fx.write("f1.txt", "one, edited\n");
+    let err = move_result(&fx, &opts(MoveVerb::Absorb, None, Some(commit(&c1)))).unwrap_err();
+    assert_eq!(err.id(), "hook/declined", "{err}");
+    assert_eq!(rev(&fx, "feat"), tip);
+}
+
+#[test]
+fn the_two_spellings_land_the_same_tree_and_say_so() {
+    let fx_a = Fixture::new();
+    ident(&fx_a);
+    let [_c0, c1, c2, _c3] = run_stack(&fx_a);
+    let fx_l = Fixture::new();
+    ident(&fx_l);
+    let [_c0, c1_l, c2_l, _c3] = run_stack(&fx_l);
+    assert_eq!(c1, c1_l);
+
+    let absorb = moved(
+        &fx_a,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c2)]), Some(commit(&c1))),
+    );
+    let lift = moved(
+        &fx_l,
+        &opts(
+            MoveVerb::Lift,
+            Some(vec![commit(&c2_l)]),
+            Some(commit(&c1_l)),
+        ),
+    );
+
+    assert_eq!(
+        rev(&fx_a, "feat"),
+        rev(&fx_l, "feat"),
+        "the same commits, byte for byte"
+    );
+    assert_eq!(absorb.verb, "absorb");
+    assert_eq!(lift.verb, "lift");
+    let absorb = ff_core::MoveReport {
+        verb: "lift".into(),
+        ..absorb
+    };
+    assert_eq!(absorb, lift, "the same report, modulo the spelling");
+}
+
+#[test]
+fn a_conflicting_upper_fold_holds_at_the_target() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f0.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feat"]);
+    fx.write("f.txt", "a\n");
+    let t = fx.commit("target");
+    fx.write("f.txt", "b\n");
+    let m = fx.commit("middle");
+    fx.write("f.txt", "c\n");
+    let b = fx.commit("above");
+    let before = rev(&fx, "feat");
+
+    // `above` folds into `target` across `middle`, and all three rewrote
+    // the same line: the fold above the target conflicts, and the move
+    // holds there — at the target, since the open change is not a source.
+    let (outcome, _ctx) = move_call(
+        &fx,
+        &opts(MoveVerb::Lift, Some(vec![commit(&b)]), Some(commit(&t))),
+    );
+    let report = match outcome {
+        ff_core::MoveOutcome::Held(r) => r,
+        other => panic!("a conflicting fold must hold, got {other:?}"),
+    };
+    assert_eq!(report.verb, "lift");
+    assert_eq!(
+        report.at,
+        ff_core::futures::At::Commit {
+            id: t.clone(),
+            subject: "target".into()
+        }
+    );
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    assert_eq!(rev(&fx, "feat"), before, "a hold moves no ref");
+
+    let held = ff_core::held::of(&fx.repo(), "feat")
+        .unwrap()
+        .expect("held");
+    match &held.intent {
+        ff_core::held::Intent::Lift { from, into, .. } => {
+            assert_eq!(from, &vec![b.clone()]);
+            assert_eq!(into, &t);
+        }
+        other => panic!("the intent must be Lift, got {other:?}"),
+    }
+    let _ = m;
+}
+
+#[test]
+fn undo_of_a_run_move_restores_every_source() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let [_c0, c1, c2, c3] = run_stack(&fx);
+
+    moved(
+        &fx,
+        &opts(MoveVerb::Absorb, Some(vec![commit(&c2), commit(&c3)]), None),
+    );
+    assert_eq!(fx.git(&["rev-list", "--count", "feat"]).trim(), "2");
+
+    let repo = fx.repo();
+    ff_core::undo(
+        &repo,
+        &ff_core::RewindOptions {
+            force: false,
+            now: Some(NOW + 100),
+            argv: vec!["ff".into(), "undo".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+    drop(repo);
+    assert_eq!(rev(&fx, "feat"), c3, "the tip is back");
+    assert_eq!(rev(&fx, "feat~1"), c2);
+    assert_eq!(rev(&fx, "feat~2"), c1);
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim(), "");
 }

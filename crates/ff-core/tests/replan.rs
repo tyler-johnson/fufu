@@ -5,8 +5,9 @@
 //! is stale rather than resolving something nobody asked for. Expiring is an
 //! operation with a verb attached, so replanning never performs one.
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::gix;
-use ff_core::{AbsorbOutcome, DoneOutcome, EditOutcome, LiftOutcome, Provenance, RestackOutcome};
+use ff_core::{DoneOutcome, EditOutcome, MoveOutcome, Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -45,18 +46,28 @@ fn restack_call(
     .unwrap()
 }
 
-fn absorb_call(fx: &Fixture, into: &str, now: i64) -> (AbsorbOutcome, ff_core::ops::VerbContext) {
+fn move_call(fx: &Fixture, opts: MoveOptions) -> (MoveOutcome, ff_core::ops::VerbContext) {
     let repo = fx.repo();
-    ff_core::absorb::absorb(
-        &repo,
-        Some(oid(into)),
-        Vec::new(),
-        ff_core::Verify::Run,
-        &prov(),
-        Some(now),
-        vec!["ff".into(), "absorb".into()],
-    )
-    .unwrap()
+    ff_core::absorb::move_change(&repo, &opts, &prov()).unwrap()
+}
+
+fn move_opts(verb: MoveVerb, from: Option<Vec<Endpoint>>, into: Option<Endpoint>) -> MoveOptions {
+    MoveOptions {
+        verb,
+        from,
+        into,
+        paths: Vec::new(),
+        message: None,
+        verify: ff_core::Verify::Run,
+        now: Some(NOW),
+        argv: vec!["ff".into(), verb.as_str().into()],
+    }
+}
+
+fn absorb_call(fx: &Fixture, into: &str, now: i64) -> (MoveOutcome, ff_core::ops::VerbContext) {
+    let mut opts = move_opts(MoveVerb::Absorb, None, Some(Endpoint::Commit(oid(into))));
+    opts.now = Some(now);
+    move_call(fx, opts)
 }
 
 fn lift_call(
@@ -64,17 +75,15 @@ fn lift_call(
     from: &str,
     paths: Vec<String>,
     now: i64,
-) -> (LiftOutcome, ff_core::ops::VerbContext) {
-    let repo = fx.repo();
-    ff_core::absorb::lift(
-        &repo,
-        Some(oid(from)),
-        paths,
-        &prov(),
-        Some(now),
-        vec!["ff".into(), "lift".into()],
-    )
-    .unwrap()
+) -> (MoveOutcome, ff_core::ops::VerbContext) {
+    let mut opts = move_opts(
+        MoveVerb::Lift,
+        Some(vec![Endpoint::Commit(oid(from))]),
+        None,
+    );
+    opts.paths = paths;
+    opts.now = Some(now);
+    move_call(fx, opts)
 }
 
 fn edit_call(fx: &Fixture, rev: &str, now: i64) -> (EditOutcome, ff_core::ops::VerbContext) {
@@ -230,7 +239,7 @@ fn a_held_absorb_replans_from_the_working_tree_as_it_stands_now() {
     let c1 = fold_conflict_stack(&fx);
 
     let (outcome, _ctx) = absorb_call(&fx, &c1, NOW);
-    assert!(matches!(outcome, AbsorbOutcome::Held(_)));
+    assert!(matches!(outcome, MoveOutcome::Held(_)));
     let held = ff_core::held::of(&fx.repo(), "main")
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
@@ -254,7 +263,7 @@ fn a_held_lift_replans_the_same_paths() {
     let (c1, _c2) = lift_conflict_stack(&fx);
 
     let (outcome, _ctx) = lift_call(&fx, &c1, vec!["doc.txt".into()], NOW);
-    assert!(matches!(outcome, LiftOutcome::Held(_)));
+    assert!(matches!(outcome, MoveOutcome::Held(_)));
     let held = ff_core::held::of(&fx.repo(), "main")
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
@@ -331,7 +340,7 @@ fn a_hold_whose_target_is_gone_expires() {
     let c1 = fold_conflict_stack(&fx);
 
     let (outcome, _ctx) = absorb_call(&fx, &c1, NOW);
-    assert!(matches!(outcome, AbsorbOutcome::Held(_)));
+    assert!(matches!(outcome, MoveOutcome::Held(_)));
     let held = ff_core::held::of(&fx.repo(), "main")
         .unwrap()
         .expect("the hold must stand on the branch underfoot");
@@ -366,5 +375,63 @@ fn replanning_leaves_the_hold_alone() {
         ff_core::held::of(&fx.repo(), "feature").unwrap(),
         Some(held.clone()),
         "replanning answers a question; expiring is an operation it does not perform"
+    );
+}
+
+#[test]
+fn a_held_run_replans_from_the_intent() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `c1` introduces `doc.txt`, `c2` and `c3` edit it: lifting the first
+    // two out makes `c3`'s edit a modification of nothing.
+    fx.write("f0.txt", "base\n");
+    let _c0 = fx.commit("base");
+    fx.write("doc.txt", "v1\n");
+    let c1 = fx.commit("c1");
+    fx.write("doc.txt", "v2\n");
+    let c2 = fx.commit("c2");
+    fx.write("doc.txt", "v3\n");
+    let c3 = fx.commit("c3");
+
+    let (outcome, _ctx) = move_call(
+        &fx,
+        move_opts(
+            MoveVerb::Lift,
+            Some(vec![Endpoint::Commit(oid(&c1)), Endpoint::Commit(oid(&c2))]),
+            None,
+        ),
+    );
+    assert!(matches!(outcome, MoveOutcome::Held(_)), "{outcome:?}");
+    let held = ff_core::held::of(&fx.repo(), "main")
+        .unwrap()
+        .expect("the hold must stand on the branch underfoot");
+    match &held.intent {
+        ff_core::held::Intent::Lift { from, into, .. } => {
+            assert_eq!(from, &vec![c1.clone(), c2.clone()], "deepest first");
+            assert_eq!(into, "@");
+        }
+        other => panic!("the intent must be Lift, got {other:?}"),
+    }
+
+    // The replan re-derives the whole move: the bottom is the lowest source,
+    // and every other source rides the change by its old id.
+    let replan = ff_core::held::replan(&fx.repo(), &held).unwrap();
+    assert_eq!(
+        replan.target,
+        oid(&c1),
+        "the rewrite starts at the lowest source"
+    );
+    assert_eq!(replan.tip, oid(&c3));
+    match &replan.change {
+        ff_core::rewrite::Change::Move { sources, into, .. } => {
+            assert_eq!(sources.keys().copied().collect::<Vec<_>>(), vec![oid(&c2)]);
+            assert!(into.is_none(), "the open change is the target");
+        }
+        other => panic!("a move replans as a move, got {other:?}"),
+    }
+    let again = ff_core::held::replan(&fx.repo(), &held).unwrap();
+    assert_eq!(
+        replan.change, again.change,
+        "a pure function of the repository"
     );
 }

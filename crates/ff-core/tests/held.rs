@@ -68,11 +68,15 @@ fn every_intent_round_trips() {
             session: "main".into(),
         },
         Intent::Absorb {
+            from: vec!["@".into()],
             into: "main".into(),
+            message: None,
             paths: vec!["a.txt".into()],
         },
         Intent::Lift {
-            from: "main".into(),
+            from: vec!["main".into(), "other".into()],
+            into: "@".into(),
+            message: Some("reworded".into()),
             paths: vec!["a.txt".into()],
         },
     ];

@@ -2,9 +2,10 @@
 //! rides lift's own operation, a conflict above holds that branch and not
 //! the lift, and a branch another worktree holds is skipped and named.
 
+use ff_core::absorb::{Endpoint, MoveOptions, MoveVerb};
 use ff_core::futures::At;
 use ff_core::gix;
-use ff_core::{LiftOutcome, Provenance};
+use ff_core::{MoveOutcome, Provenance};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -81,19 +82,25 @@ fn undo(fx: &Fixture) {
     ff_core::undo(&repo, &opts, &prov()).unwrap();
 }
 
-fn lift_call(fx: &Fixture, from: &str, paths: &[&str]) -> ff_core::LiftReport {
+fn lift_call(fx: &Fixture, from: &str, paths: &[&str]) -> ff_core::MoveReport {
     let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::absorb::lift(
+    let (outcome, _ctx) = ff_core::absorb::move_change(
         &repo,
-        Some(oid(from)),
-        paths.iter().map(|p| p.to_string()).collect(),
+        &MoveOptions {
+            verb: MoveVerb::Lift,
+            from: Some(vec![Endpoint::Commit(oid(from))]),
+            into: None,
+            paths: paths.iter().map(|p| p.to_string()).collect(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW),
+            argv: vec!["ff".into(), "lift".into()],
+        },
         &prov(),
-        Some(NOW),
-        vec!["ff".into(), "lift".into()],
     )
     .unwrap();
     match outcome {
-        LiftOutcome::Lifted(report) => report,
+        MoveOutcome::Moved(report) => *report,
         other => panic!("the lift must land, got {other:?}"),
     }
 }

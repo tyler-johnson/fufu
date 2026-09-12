@@ -38,16 +38,109 @@ pub enum Intent {
     Restack { branch: String, onto: String },
     /// `ff done`: land the editing session on `session`.
     Done { session: String },
-    /// `ff absorb`: fold the open change into `into`. The tree is not
+    /// `ff absorb`: the move, in the spelling it was typed. The two move
+    /// variants carry one body — the sources, the target, the target's
+    /// message, the path filter — and differ only in the tag, because `ff
+    /// status` and the hold's re-run spell the verb the way it was typed.
+    /// Each end is a full sha or `@`, the open change. The open tree is not
     /// recorded — the working tree still holds it, and re-deriving from the
-    /// working tree as it stands now is what makes the hold durable.
-    Absorb { into: String, paths: Vec<String> },
-    /// `ff lift`: take `paths` out of `from` and back into the open change.
-    Lift { from: String, paths: Vec<String> },
+    /// working tree as it stands now is what makes the hold durable. A hold
+    /// recorded before both verbs took both ends reads back with the verb's
+    /// old defaults filled in.
+    Absorb {
+        #[serde(default = "open_only")]
+        from: Vec<String>,
+        into: String,
+        #[serde(default)]
+        message: Option<String>,
+        paths: Vec<String>,
+    },
+    /// `ff lift`: the same move, spelled the other way.
+    Lift {
+        #[serde(deserialize_with = "string_or_seq")]
+        from: Vec<String>,
+        #[serde(default = "open")]
+        into: String,
+        #[serde(default)]
+        message: Option<String>,
+        paths: Vec<String>,
+    },
     /// `ff switch`: the change parked on `branch` — its open commit, `open`
     /// — conflicts with the tip it arrived on. The replay is that one commit
     /// onto the branch's tip, and `ff resolve` lays it into the open change.
     Arrive { branch: String, open: String },
+}
+
+/// The move a held absorb or lift asks for, read off either variant.
+pub(crate) struct MoveIntent<'a> {
+    pub verb: crate::absorb::MoveVerb,
+    pub from: &'a [String],
+    pub into: &'a str,
+    pub message: Option<&'a str>,
+    pub paths: &'a [String],
+}
+
+impl Intent {
+    /// The move a held absorb or lift asks for: the verb as spelled, the
+    /// sources, the target, the message, and the path filter. `None` for
+    /// every other intent.
+    pub(crate) fn as_move(&self) -> Option<MoveIntent<'_>> {
+        match self {
+            Intent::Absorb {
+                from,
+                into,
+                message,
+                paths,
+            } => Some(MoveIntent {
+                verb: crate::absorb::MoveVerb::Absorb,
+                from,
+                into,
+                message: message.as_deref(),
+                paths,
+            }),
+            Intent::Lift {
+                from,
+                into,
+                message,
+                paths,
+            } => Some(MoveIntent {
+                verb: crate::absorb::MoveVerb::Lift,
+                from,
+                into,
+                message: message.as_deref(),
+                paths,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Absorb's default sources, for a hold recorded before `--from` existed.
+fn open_only() -> Vec<String> {
+    vec!["@".to_string()]
+}
+
+/// Lift's default target, for a hold recorded before `--into` existed.
+fn open() -> String {
+    "@".to_string()
+}
+
+/// A lift's `from`: one sha on a record written before a lift could name a
+/// run, a list since.
+fn string_or_seq<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(one) => vec![one],
+        OneOrMany::Many(many) => many,
+    })
 }
 
 /// A rewrite that conflicted and is waiting, recorded as one field of the
@@ -216,17 +309,31 @@ pub fn replan_at(
         Intent::Done { session } => {
             crate::done::replan_done(repo, session, open).map_err(|e| expired("done", e))
         }
-        Intent::Absorb { into, paths } => {
-            let into_id = gix::ObjectId::from_hex(into.as_bytes())
-                .map_err(|e| expired("absorb", Error::msg(e.to_string())))?;
-            crate::absorb::replan_absorb(repo, on, Some(into_id), paths, open)
-                .map_err(|e| expired("absorb", e))
-        }
-        Intent::Lift { from, paths } => {
-            let from_id = gix::ObjectId::from_hex(from.as_bytes())
-                .map_err(|e| expired("lift", Error::msg(e.to_string())))?;
-            crate::absorb::replan_lift(repo, on, Some(from_id), paths)
-                .map_err(|e| expired("lift", e))
+        Intent::Absorb { .. } | Intent::Lift { .. } => {
+            let MoveIntent {
+                verb,
+                from,
+                into,
+                message,
+                paths,
+            } = held.intent.as_move().expect("the arm matched a move");
+            let verb = verb.as_str();
+            let from: Vec<crate::absorb::Endpoint> = from
+                .iter()
+                .map(|end| crate::absorb::Endpoint::parse(end))
+                .collect::<Result<_>>()
+                .map_err(|e| expired(verb, e))?;
+            let into = crate::absorb::Endpoint::parse(into).map_err(|e| expired(verb, e))?;
+            crate::absorb::replan_move(
+                repo,
+                on,
+                &from,
+                into,
+                paths,
+                open,
+                message.map(|m| m.as_bytes().into()),
+            )
+            .map_err(|e| expired(verb, e))
         }
         // The open commit alone, onto the branch's tip as it stands now.
         Intent::Arrive { branch, open } => {
