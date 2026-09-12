@@ -8,10 +8,16 @@
 //! reversibility.
 //!
 //! Push does not fetch. That is not an omission — the lease wants the
-//! tracking ref *as you last saw it*, and the last thing that moved it was
-//! the last fetch. Going to the network first to refresh that value would
-//! ask git to protect you against a change you just accepted sight unseen.
-//! `ff pull` is how you look.
+//! shared copy *as you last saw it*, and the lease is fufu's own record of
+//! that, `refs/fufu/seen/<branch>` ([`crate::seen`]), not the tracking
+//! ref. No fetch moves the record, fufu's or anyone's: an editor's
+//! background fetch, `ff git fetch`, and `ff pull --dry-run` all move the
+//! tracking ref and leave the record where the last report put it. A
+//! tracking ref standing off the record is a copy that moved since you
+//! looked, and [`plan`] refuses it here, before the wire, the way git would
+//! have refused it at the wire. Going to the network first would ask git to
+//! protect you against a change you just accepted sight unseen. `ff pull`
+//! is how you look.
 //!
 //! What it decides is small: is there anywhere to send this, is the exit
 //! blocked, does the remote already have it, and if not, what the push does
@@ -32,11 +38,12 @@
 //! lost after a successful push, the next pull reads the remote as theirs
 //! and replays, which never loses work.
 //!
-//! Two marks, not one, and [`crate::published`] is where the reason lives:
-//! the note is the record a person reads and is rewound by `ff undo` with
-//! everything else above the landing; the pointer is the answer pull needs
-//! and is the one thing undo must not step back, because undo cannot step
-//! back the wire.
+//! Three marks, not one, and [`crate::published`] is where the reason
+//! lives: the note is the record a person reads and is rewound by `ff undo`
+//! with everything else above the landing; the published pointer is the
+//! answer pull needs and the seen pointer is the next push's lease, and
+//! neither is a thing undo may step back, because undo cannot step back
+//! the wire.
 
 use std::collections::HashSet;
 
@@ -142,8 +149,17 @@ pub fn push(
 }
 
 /// What the push of one branch is, decided from refs alone: nowhere to send
-/// it, the exit blocked, the shared copy already level, or the push and
-/// the lease it goes out under.
+/// it, the exit blocked, the shared copy already level, the copy moved
+/// since you last looked, or the push and the lease it goes out under.
+///
+/// The lease is the seen record, and the tracking tip is checked against
+/// it here rather than left to the wire: a tracking ref that stands off the
+/// record was moved by a fetch behind fufu's back, and a lease read from it
+/// would vouch for a tip nobody looked at. A fast-forward of the tracking
+/// tip goes whatever the record says, since no lease value can take
+/// anything off the copy; that is also how a branch with no record at all
+/// — one from before the record existed, or whose upstream git set — gets
+/// one, written by [`record`] afterwards.
 pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
     let push = if crate::held::of(repo, &pre.branch)?.is_some() {
         // The exits-blocked discipline: a held rewrite means the branch's
@@ -164,26 +180,114 @@ pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
                         tip: tip.to_string(),
                     },
                     Some(tracking) if tracking.tip == Some(tip) => Push::UpToDate,
-                    // Configured, and either standing somewhere else or not
-                    // there at all. Every one of these is the same push under
-                    // a different lease: the tip as last seen, or the empty
-                    // string, which is git's spelling for *must not exist*.
-                    // Typing `ff push` is saying that out loud; when
-                    // pushing was a default, this case needed a flag to
-                    // mean it. Only the sentence afterwards differs, and
-                    // `shape` is what tells the four apart.
-                    Some(tracking) => Push::Push {
-                        remote: remote.clone(),
-                        remote_branch: tracking.remote_branch.clone(),
-                        lease: tracking.tip.map(|id| id.to_string()).unwrap_or_default(),
-                        tip: tip.to_string(),
-                        shape: shape(repo, pre, tracking, tip)?,
-                    },
+                    Some(tracking) => {
+                        if let Some(why) = refuse(repo, tracking, tip)? {
+                            return Ok(Push::Refused {
+                                remote: remote.clone(),
+                                remote_branch: tracking.remote_branch.clone(),
+                                tip: tip.to_string(),
+                                why,
+                            });
+                        }
+                        // Configured, and either standing somewhere else or
+                        // not there at all. Every one of these is the same
+                        // push under a different lease: the tip as last
+                        // seen, or the empty string, which is git's
+                        // spelling for *must not exist*. Typing `ff push`
+                        // is saying that out loud; when pushing was a
+                        // default, this case needed a flag to mean it. Only
+                        // the sentence afterwards differs, and `shape` is
+                        // what tells the four apart.
+                        Push::Push {
+                            remote: remote.clone(),
+                            remote_branch: tracking.remote_branch.clone(),
+                            lease: tracking.tip.map(|id| id.to_string()).unwrap_or_default(),
+                            tip: tip.to_string(),
+                            shape: shape(repo, pre, tracking, tip)?,
+                        }
+                    }
                 }
             }
         }
     };
     Ok(push)
+}
+
+/// Whether the tracking tip is one the lease can vouch for, and why not
+/// when it is not. An absent tracking ref is never refused: the empty
+/// lease says *must not exist*, and `shape` decides whether that is a
+/// first copy or a re-creation. A fast-forward of the tracking tip is
+/// never refused either, whatever the record says: it sends commits and
+/// takes none off, so there is nothing a lease could be vouching for, and
+/// the wire still catches a move that lands after this reading.
+fn refuse(
+    repo: &gix::Repository,
+    tracking: &crate::preflight::Tracking,
+    tip: gix::ObjectId,
+) -> Result<Option<crate::model::Refusal>> {
+    let Some(now) = tracking.tip else {
+        return Ok(None);
+    };
+    if tracking.seen == Some(now) {
+        return Ok(None);
+    }
+    let bases: Vec<gix::ObjectId> = repo
+        .merge_bases_many(tip, &[now])
+        .map_err(Error::repo)?
+        .into_iter()
+        .map(|id| id.detach())
+        .collect();
+    if bases.contains(&now) {
+        return Ok(None);
+    }
+    let behind = crate::upstream::count_exclusive(repo, now, &bases)?;
+    Ok(Some(match tracking.seen {
+        Some(seen) => crate::model::Refusal::Moved {
+            seen: seen.to_string(),
+            now: now.to_string(),
+            behind,
+        },
+        None => crate::model::Refusal::Unseen {
+            now: now.to_string(),
+            behind,
+        },
+    }))
+}
+
+/// The coded error a refused row carries: what the copy holds that the
+/// branch does not, and the way through, which is a pull and then the push
+/// again. `None` for every other push.
+pub fn refusal(branch: &str, push: &Push) -> Option<Error> {
+    let Push::Refused {
+        remote,
+        remote_branch,
+        why,
+        ..
+    } = push
+    else {
+        return None;
+    };
+    let exits = vec![format!("ff pull {branch}"), format!("ff push {branch}")];
+    Some(match why {
+        // The same state the wire's refusal names, so the same id: nothing
+        // sent, and the commits are still here.
+        crate::model::Refusal::Moved { behind, .. } => Error::coded(
+            "push/lease-refused",
+            format!(
+                "{remote}/{remote_branch} moved since you last looked ({behind} commit(s) you \
+                 have not taken in), so nothing was pushed — ff pull takes them in"
+            ),
+            exits,
+        ),
+        crate::model::Refusal::Unseen { behind, .. } => Error::coded(
+            "push/unseen",
+            format!(
+                "fufu has no record of where you last looked at {remote}/{remote_branch}, and \
+                 it holds {behind} commit(s) {branch} does not — nothing was pushed"
+            ),
+            exits,
+        ),
+    })
 }
 
 /// Which of the four pushes this is.
@@ -202,7 +306,7 @@ fn shape(
     tracking: &crate::preflight::Tracking,
     tip: gix::ObjectId,
 ) -> Result<PushShape> {
-    let Some(seen) = tracking.tip else {
+    let Some(tracking_tip) = tracking.tip else {
         return Ok(if ever_copied(repo, pre)? {
             PushShape::Recreate
         } else {
@@ -213,7 +317,7 @@ fn shape(
     // send commits, it takes them off the shared copy. Saying "published" of
     // that would name the opposite act.
     let ancestor = repo
-        .merge_bases_many(tip, &[seen])
+        .merge_bases_many(tip, &[tracking_tip])
         .map_err(Error::repo)?
         .into_iter()
         .any(|base| base.detach() == tip);
@@ -279,7 +383,9 @@ pub fn record(
             tip,
         ),
         // Nothing left the machine, so there is nothing to remember.
-        Push::NotNamed | Push::NoRemote | Push::Blocked | Push::UpToDate => return Ok(None),
+        Push::NotNamed | Push::NoRemote | Push::Blocked | Push::UpToDate | Push::Refused { .. } => {
+            return Ok(None);
+        }
     };
 
     let mut record = OpRecord::new(
@@ -332,6 +438,128 @@ pub fn record(
     )?;
     if let Ok(oid) = gix::ObjectId::from_hex(to.as_bytes()) {
         crate::published::mark(repo, &pre.branch, oid, ctx.now)?;
+        // The copy stands where this push left it, and the person watched
+        // it go there: the next lease is this tip.
+        crate::seen::mark(repo, &pre.branch, oid, ctx.now)?;
     }
     Ok(Some(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use ff_testsupport::Fixture;
+
+    use super::*;
+    use crate::model::Refusal;
+    use crate::preflight::{Verb, preflight_branch};
+
+    /// `main` two commits deep, `other` one commit off the root, and `main`
+    /// tracking `origin/main` with the tracking ref written by hand: the
+    /// remote is never reached, since `plan` reads refs alone.
+    fn tracked() -> (Fixture, String, String, String) {
+        let fx = Fixture::new();
+        fx.write("root.txt", "root\n");
+        let root = fx.commit("root");
+        fx.write("a.txt", "a\n");
+        let a = fx.commit("a");
+        fx.git(&["switch", "-q", "-c", "other", &root]);
+        fx.write("theirs.txt", "theirs\n");
+        let theirs = fx.commit("theirs");
+        fx.git(&["switch", "-q", "main"]);
+        fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+        fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+        fx.set_config("branch.main.remote", "origin");
+        fx.set_config("branch.main.merge", "refs/heads/main");
+        (fx, root, a, theirs)
+    }
+
+    fn plan_main(fx: &Fixture, tracking: Option<&str>, seen: Option<&str>) -> Push {
+        match tracking {
+            Some(sha) => fx.git(&["update-ref", "refs/remotes/origin/main", sha]),
+            None => fx.git(&["update-ref", "-d", "refs/remotes/origin/main"]),
+        };
+        match seen {
+            Some(sha) => fx.git(&["update-ref", "refs/fufu/seen/main", sha]),
+            None => fx.git(&["update-ref", "-d", "refs/fufu/seen/main"]),
+        };
+        let repo = fx.repo();
+        let pre = preflight_branch(&repo, Verb::Push, "main", None).expect("preflight");
+        plan(&repo, &pre).expect("plan")
+    }
+
+    /// The lease is the seen record, and the plan reads the tracking tip
+    /// against it: level with the record, the push goes under it; off the
+    /// record, refused as moved, with the count of what the copy holds;
+    /// no record, refused as unseen. A fast-forward of the tracking tip
+    /// goes either way, and no tracking ref keeps the empty lease as
+    /// before, whatever the record says.
+    #[test]
+    fn the_plan_reads_the_tracking_tip_against_the_seen_record() {
+        let (fx, root, a, theirs) = tracked();
+
+        match plan_main(&fx, Some(&root), Some(&root)) {
+            Push::Push { lease, tip, .. } => {
+                assert_eq!(lease, root);
+                assert_eq!(tip, a);
+            }
+            other => panic!("level with the record: {other:?}"),
+        }
+
+        match plan_main(&fx, Some(&theirs), Some(&root)) {
+            Push::Refused {
+                why: Refusal::Moved { seen, now, behind },
+                ..
+            } => {
+                assert_eq!(seen, root);
+                assert_eq!(now, theirs);
+                assert_eq!(behind, 1);
+            }
+            other => panic!("off the record: {other:?}"),
+        }
+
+        for seen in [None, Some(theirs.as_str())] {
+            match plan_main(&fx, Some(&root), seen) {
+                Push::Push { lease, .. } => assert_eq!(lease, root),
+                other => panic!("a fast-forward under {seen:?}: {other:?}"),
+            }
+        }
+
+        match plan_main(&fx, Some(&theirs), None) {
+            Push::Refused {
+                why: Refusal::Unseen { now, behind },
+                ..
+            } => {
+                assert_eq!(now, theirs);
+                assert_eq!(behind, 1);
+            }
+            other => panic!("no record, diverged: {other:?}"),
+        }
+
+        for seen in [Some(root.as_str()), None] {
+            match plan_main(&fx, None, seen) {
+                Push::Push { lease, .. } => assert_eq!(lease, ""),
+                other => panic!("no tracking ref: {other:?}"),
+            }
+        }
+    }
+
+    /// A refused row's error: the same id as the wire's refusal for a copy
+    /// that moved, a new one for a copy never looked at, and both exits
+    /// name the branch.
+    #[test]
+    fn a_refused_row_carries_the_coded_error() {
+        let (fx, root, _, theirs) = tracked();
+        let moved = plan_main(&fx, Some(&theirs), Some(&root));
+        let err = refusal("main", &moved).expect("moved is refused");
+        assert_eq!(err.id(), "push/lease-refused");
+        assert!(err.to_string().contains("1 commit(s)"), "{err}");
+        assert_eq!(err.exits(), ["ff pull main", "ff push main"]);
+
+        let unseen = plan_main(&fx, Some(&theirs), None);
+        let err = refusal("main", &unseen).expect("unseen is refused");
+        assert_eq!(err.id(), "push/unseen");
+        assert!(err.to_string().contains("no record"), "{err}");
+
+        assert!(refusal("main", &plan_main(&fx, Some(&root), None)).is_none());
+    }
 }

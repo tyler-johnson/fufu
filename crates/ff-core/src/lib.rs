@@ -43,6 +43,7 @@ mod restore;
 mod revert;
 pub mod revset;
 pub mod rewrite;
+pub mod seen;
 pub mod sha;
 pub mod sign;
 pub mod snapshot;

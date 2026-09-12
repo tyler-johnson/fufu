@@ -339,6 +339,10 @@ pub fn pull(
         },
         Some(tracking) => {
             let after = opts.tracking_after.expect("checked above");
+            // The tip this axis reads is the tip the report will name,
+            // whatever it decides: it is what the person is shown, so it is
+            // what the next push leases against.
+            run.seen.push((pre.branch.clone(), after));
             let bases: Vec<gix::ObjectId> = repo
                 .merge_bases_many(pre.branch_tip, &[after])
                 .map_err(Error::repo)?
@@ -476,11 +480,25 @@ pub fn pull(
     // then the worktree. A run that planned nothing records nothing, and a
     // dry run records nothing either: it measures the worktree write it
     // would have made and leaves the plan where it stands.
+    let seen = std::mem::take(&mut run.seen);
     let (files, still_open) = match ctx.as_ref() {
         _ if run.is_empty() => (0, false),
         None => run.planned_worktree(repo)?,
         Some(ctx) => run.commit(repo, ctx, pre, prov, opts.argv.clone())?,
     };
+    // The seen record, last and outside the operation: every branch whose
+    // remote axis was read is marked at the tip it was read at, whether
+    // that axis ran, was yours, was undone, or was level. `Yours` is the
+    // case the next push exists for. A dry run writes nothing of fufu's,
+    // so it leaves the record where it was; `--no-fetch` reads the tracking
+    // ref as it stands and reports that tip, so it marks it. Not on the
+    // operation, since `ff undo` does not un-see a tip: what was shown was
+    // shown.
+    if !opts.dry_run {
+        for (branch, id) in seen {
+            crate::seen::mark(repo, &branch, id, now)?;
+        }
+    }
     // The files the one worktree write touched are the run's, since the
     // branch underfoot may have been carried by another branch's cascade
     // and then have no landed axis of its own. When one of its axes did
@@ -570,6 +588,11 @@ struct Run {
     held: Option<HeldTransition>,
     cascade_held: Vec<HeldTransition>,
     pins: Vec<gix::ObjectId>,
+    /// Every branch whose remote axis read its tracking tip, with the tip
+    /// read: the seen record each gets once the run has committed, and not
+    /// before, since a stamp mid-plan would be a write a failed plan leaves
+    /// behind.
+    seen: Vec<(String, gix::ObjectId)>,
 }
 
 impl Run {
@@ -584,6 +607,7 @@ impl Run {
             held: None,
             cascade_held: Vec::new(),
             pins: Vec::new(),
+            seen: Vec::new(),
         }
     }
 
@@ -841,6 +865,9 @@ fn other_remote_axis(
     let Some(after) = tracking.after else {
         return Ok(BranchRemote::Gone { name });
     };
+    // Read, and about to be reported, whatever the outcome below: the next
+    // push of this branch leases against this tip.
+    run.seen.push((other.branch.clone(), after));
     // The tip as the run has planned it rather than the pre-run reading: the
     // branch underfoot's remote axis ran first and its cascade may have
     // moved this one, and a decision made against the old tip would hand

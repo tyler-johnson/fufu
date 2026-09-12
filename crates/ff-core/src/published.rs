@@ -6,7 +6,10 @@
 //! The question both readers ask is one question: *is the tracking tip a tip
 //! this branch published?* If the remote stands exactly where you last sent
 //! it, everything reachable from it that you now lack was yours when you
-//! sent it, which is why one sha answers it and a set is not needed.
+//! sent it, which is why one sha answers it and a set is not needed. A
+//! second pointer beside this one, [`crate::seen`], answers push's question
+//! — *where did fufu last show me the copy standing?* — and the two differ
+//! after a pull, which sees a tip it did not send.
 //!
 //! **The memory is a ref, not a row on the log**, and the reason is undo.
 //! `ff undo` is a pointer move: `refs/fufu/ops` steps back to the landing

@@ -489,12 +489,52 @@ pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::m
         r#ref: pull_ref.r#ref,
         remote_branch,
         tip: pull_ref.tip,
+        seen: crate::seen::last_seen(repo, name)?.map(|id| id.to_string()),
     }))
 }
 
-/// The three local traces of the shared copy, removed at once: the tracking
-/// ref, the `[branch "<name>"]` section, and the published note. This runs
-/// only after the wire delete returned `Ok`, and none of the three is under
+/// The lease `--shared` deletes the copy under, or the refusal. The lease
+/// is the tip fufu last showed the copy standing at, never the tracking
+/// tip, which any fetch moves: a tracking ref standing off the record is a
+/// copy holding commits nobody looked at, and a delete under a lease read
+/// from it would take them with it. Both refusals come before the local
+/// delete, so the branch stays where it is. An absent tracking ref keeps
+/// the empty lease: the copy is gone, and there is nothing to delete. The
+/// exits name the local branch, `name`, which the copy's name may differ
+/// from.
+pub fn shared_lease(name: &str, shared: &crate::model::SharedCopy) -> Result<String> {
+    if shared.tip.is_empty() {
+        return Ok(String::new());
+    }
+    let exits = vec![
+        format!("ff pull {name}"),
+        format!("ff branch -d {name} --shared"),
+    ];
+    match shared.seen.as_deref() {
+        Some(seen) if seen == shared.tip => Ok(shared.tip.clone()),
+        Some(_) => Err(Error::coded(
+            "branch/shared-moved",
+            format!(
+                "{} moved since you last looked, so nothing was deleted here or there",
+                shared.name
+            ),
+            exits,
+        )),
+        None => Err(Error::coded(
+            "branch/shared-unseen",
+            format!(
+                "fufu has no record of where you last looked at {}, so nothing was deleted",
+                shared.name
+            ),
+            exits,
+        )),
+    }
+}
+
+/// The local traces of the shared copy, removed at once: the tracking ref,
+/// the `[branch "<name>"]` section, the published note, and the seen
+/// record. This runs only after the wire delete returned `Ok`, and none of
+/// them is under
 /// `TRACKED_PREFIXES`, so this is deliberately the one direction `ff undo`
 /// cannot walk back — and it is correct, because the shared copy is gone and
 /// there is nothing left for any of them to point at. Step one is tolerant
@@ -515,6 +555,7 @@ pub fn forget_shared(
     if let Some(tip) = refs::ref_target(repo, &published)? {
         refs::delete_ref(repo, &published, tip, now)?;
     }
+    crate::seen::forget(repo, name, now)?;
     Ok(())
 }
 

@@ -721,6 +721,9 @@ fn mint_and_switch(
     )?;
     if let Some((remote, _)) = &plan.tracking {
         crate::snapshot::config::set_branch_upstream(repo, &name, remote)?;
+        // The person took the remote's tip as their starting point, so it
+        // is the tip they last looked at: the first push leases against it.
+        crate::seen::mark(repo, &name, plan.at, now)?;
     }
     move_worktree(repo, &target_ref, ctx.pre_tree, fork_tree, end_tree, now)?;
 

@@ -40,7 +40,8 @@ impl Verb {
 /// What either verb must know before it reaches the network: the branch
 /// underfoot, the remote it answers to, and where the tracking ref stands.
 /// Pull reads it twice, once on each side of its fetch; push reads it
-/// once, and the tip it finds is exactly "what I last saw".
+/// once. The tracking tip is what the last fetch left, whoever ran it;
+/// `seen` is what you last looked at, and push leases against that.
 pub struct Preflight {
     pub branch: String,
     pub branch_tip: gix::ObjectId,
@@ -72,6 +73,11 @@ pub struct Tracking {
     pub remote_branch: String,
     /// Its tip as it stands, before any fetch. `None` when it is absent.
     pub tip: Option<gix::ObjectId>,
+    /// The tip a foreground verb last showed the shared copy standing at,
+    /// fufu's own record under `refs/fufu/seen/`. `None` when there is no
+    /// record: a branch from before the record existed, or one whose
+    /// upstream git set. Push leases against this, never against `tip`.
+    pub seen: Option<gix::ObjectId>,
 }
 
 /// The preflight facts of the branch underfoot, with the remote named
@@ -251,6 +257,7 @@ pub fn preflight_branch(
                 name: pull_ref.name,
                 remote_branch,
                 tip,
+                seen: crate::seen::last_seen(repo, &branch)?,
             })
         }
     };

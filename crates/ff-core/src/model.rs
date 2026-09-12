@@ -1104,6 +1104,10 @@ pub struct SharedCopy {
     pub remote_branch: String,
     /// The tracking tip; the empty string when configured and absent.
     pub tip: String,
+    /// The tip fufu last showed the copy standing at, from
+    /// `refs/fufu/seen/`; `None` when there is no record. The delete's
+    /// lease is this, never `tip`.
+    pub seen: Option<String>,
 }
 
 /// The result of `ff branch <name> [<rev>]`: a branch minted where it was
@@ -1589,11 +1593,12 @@ pub enum Push {
         remote_branch: String,
         tip: String,
     },
-    /// Send it, under a lease whose expected value is the tracking ref as it
-    /// stands — "what I last saw", which is precisely what push knows
-    /// without going to the network itself. An empty lease is git's own
-    /// spelling for *must not exist*, and creates or re-creates a shared
-    /// copy that is not there.
+    /// Send it, under a lease whose expected value is the tip fufu last
+    /// showed you the shared copy standing at — its own record under
+    /// `refs/fufu/seen/`, not the tracking ref, which any fetch moves
+    /// behind fufu's back. An empty lease is git's own spelling for *must
+    /// not exist*, and creates or re-creates a shared copy that is not
+    /// there.
     Push {
         remote: String,
         remote_branch: String,
@@ -1605,6 +1610,35 @@ pub enum Push {
         /// "somebody deleted this" in a fresh clone where nobody had.
         shape: PushShape,
     },
+    /// Refused before the wire: the shared copy is not where you last
+    /// looked, or fufu has no record of you looking at all. Nothing is
+    /// sent, and among several branches the refusal is this one's alone.
+    Refused {
+        remote: String,
+        remote_branch: String,
+        tip: String,
+        why: Refusal,
+    },
+}
+
+/// Why a push was refused before the wire, decided from the tracking ref
+/// and fufu's record of the tip last looked at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Refusal {
+    /// A tip is recorded as seen and the tracking ref stands elsewhere: a
+    /// fetch behind fufu's back moved it, and what arrived has not been
+    /// looked at. `behind` counts the commits the copy holds that the branch
+    /// lacks.
+    Moved {
+        seen: String,
+        now: String,
+        behind: usize,
+    },
+    /// No record of a tip seen, and the push is not a fast-forward of the
+    /// tracking tip, so the copy holds `behind` commits the branch lacks
+    /// and no lease value could vouch for them.
+    Unseen { now: String, behind: usize },
 }
 
 /// What a push does to the shared copy on the other end. Decided from refs
