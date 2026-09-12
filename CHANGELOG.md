@@ -6,8 +6,12 @@
 
 - A branch a remote holds is a target for `ff switch`, bare or qualified: `ff switch spike` with only `origin/spike` mints the local branch under that name, tracking it, the way `git switch spike` does; a bare name two remotes hold is `branch/ambiguous`, listing both. `--json` carries `switch.minted` — `forked_from`, `parent`, `tracking`, `carried` — and the operation records the upstream it set as `upstream` on `op.json`, so `ff undo` takes the section back.
 - Bare `-b` on `ff switch`: `ff switch main -b` forks main onto an anonymous branch. It goes after the target; `ff switch -b main` asks for a branch named main.
+- `--from <revset>` on `ff absorb`, `--into <rev>` on `ff lift`, and `-m <msg>` and `--no-verify` on both. The sources are a contiguous run of commits on the branch's line, the open change allowed on top; the target is any commit on the line — below the run, above it, or inside it — or the open change. `ff absorb --from HEAD~2..` folds two commits into the third, the way `git rebase -i`'s squash does; `ff lift --from HEAD~2..` uncommits both; `ff lift --from HEAD~3 --into HEAD` moves a commit's content up the stack. A source the move empties is dropped and named. `-m` rewords a closed target under `commit-msg`, or sets the open change's pending description.
+- `usage/move-gap` for sources that are not one run, exiting with the run's spelling; `usage/move-into-self` for a target that is its only source; `absorb/into-trunk` for a bare absorb whose default target — the commit under the sources — sits on trunk.
 
 ### Changed
+
+- `ff absorb` and `ff lift` are one move and say the same thing: `moved <n> file(s) from <sources> into <target>`, then the restack, the drops, and the rest. `--json` carries the report under `move` (was `absorb` / `lift`), with `from` (each source's id, subject, new sha, and whether it was dropped), `into`, and `files`; the envelope's `cmd` stays the verb typed. The operation's summary is one shape, `move from <sources> into <target> on <branch>`. `usage/absorb-into-open` and `usage/lift-from-open` are raised by the bare shapes only.
 
 - `ff start` and `ff new` are spellings of `ff switch`, and the rule under every spelling is one sentence: find the branch, else mint it. `ff start <branch>` continues the branch (it forked; `ff start <branch> -b` forks). `-m` on a switch that opens nothing is `switch/nothing-opened`. Every spelling is one operation, recorded as `switch`, and one `ff undo` takes back the mint, the copy, and the move.
 - `ff branch`'s remote-only rows wear the brackets, since `ff switch <name>` takes the name.
@@ -31,6 +35,7 @@
 
 ### Removed
 
+- The `absorb` and `lift` payload keys under `--json`; both verbs carry `move`.
 - `ff start`'s own page and the `start` envelope and payload: `ff help start` is switch's page, and `--json` under every spelling is `switch` carrying `switch`. `ff switch <rev>`'s `is a revision, not a branch` redirect line; the revision is the verb's own rung, and the `minted` line says where it forked.
 - `ff mcp` and its registration in the four agent clients: Claude's plugin `.mcp.json`, Codex's marked block in `config.toml`, and `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. `ff hook -l` and `ff hook --json` no longer report `mcp`.
 - The briefing's tools line.
@@ -40,6 +45,7 @@
 
 ### Fixed
 
+- A range revset — `x..`, `x..y`, `~(::x)` — no longer leaks a ref tip that stands under the hidden commit when the two share a commit time: `HEAD~1..` on a branch whose commits closed in the same second as trunk's tip listed trunk's tip.
 - `ff pull`'s native fetch no longer opens every linked worktree once per advertised ref; gix upgraded to 0.87.1 (#10).
 
 ## v0.14.0 — 2026-09-10

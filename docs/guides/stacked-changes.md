@@ -81,7 +81,7 @@ switched to parser-core
 undo: ff undo
 
 $ ff absorb --into 0fffcd68
-absorbed into 46f6832e: parser: wire the module into main
+moved 1 file(s) from the open change into 46f6832e: parser: wire the module into main
 restacked 1 commit(s) above it
 parser-cli followed parser-core: replayed 1 commit(s)
 undo: ff undo

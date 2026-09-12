@@ -31,6 +31,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 
 | id | exit | meaning |
 | --- | --- | --- |
+| `absorb/into-trunk` | 1 | the default target sits on trunk |
 | `branch/ambiguous` | 1 | that name matches more than one branch |
 | `branch/checked-out-elsewhere` | 1 | another worktree has that branch checked out |
 | `branch/exists` | 1 | a branch of that name already exists |
@@ -106,7 +107,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `undo/not-undoable` | 1 | that operation has nothing in it to invert |
 | `undo/nothing` | 1 | the operation log has nothing left to undo |
 | `undo/trimmed` | 1 | the state that undo would put back has been trimmed away |
-| `usage/absorb-into-open` | 2 | absorb was named the open change as its target |
+| `usage/absorb-into-open` | 2 | absorb was aimed at the open change with nothing else to move |
 | `usage/at-op-unsupported` | 2 | that verb does not read a past state yet |
 | `usage/bad-flags` | 2 | those flags do not go together |
 | `usage/bad-restore-target` | 2 | --at was given something that is neither an age nor a date |
@@ -116,7 +117,9 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/fold-into-self` | 2 | a branch cannot be folded into itself |
 | `usage/foreign-verb` | 2 | that is a git or jj verb fufu answers rather than runs |
 | `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
-| `usage/lift-from-open` | 2 | lift was named the open change as its source |
+| `usage/lift-from-open` | 2 | lift was told to take from the open change with nowhere else to land |
+| `usage/move-gap` | 2 | the sources are not one run of commits |
+| `usage/move-into-self` | 2 | the move's only source is its target |
 | `usage/needs-message` | 2 | a description was needed and there was no terminal to ask on |
 | `usage/no-such-directory` | 2 | -C names a directory that is not there |
 | `usage/no-such-path` | 2 | that path names nothing here |

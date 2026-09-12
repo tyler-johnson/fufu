@@ -188,7 +188,7 @@ Review feedback: the heading you just added belongs in the first commit, not in 
 
 ```console
 $ ff absorb --into cf70946d
-absorbed into 42c5fd84: notes: parser skeleton and char stream
+moved 1 file(s) from the open change into 42c5fd84: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -265,7 +265,7 @@ Undo repeats — each press steps one run of work further back. [`ff history`](r
 $ ff history
 ↑1  f7db296a1424    0s ago  redo  absorbed 1 foreign ref change(s)
 @   25d19be607f1    0s ago  now   pushed parser-stream to origin/parser-stream
-↓1  e4fdcc6c937c    0s ago  undo  absorb into cf70946d on parser-stream
+↓1  e4fdcc6c937c    0s ago  undo  move from the open change into cf70946d on parser-stream
 ↓2  ceed90a4e8bb    0s ago  undo  pre: ff absorb --into cf70946d
 ↓3  916d150ba023    0s ago  undo  claim ff/snug-spruce as parser-stream
 ↓4  7cf338c04154    0s ago  undo  switch from main to ff/snug-spruce

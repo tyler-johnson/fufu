@@ -107,15 +107,26 @@ show "$FF" absorb src/lexer.rs --into "$first"
 show "$FF" status
 show "$FF" restore README.md
 
+# --- combine commits: a run folds into the commit under it ---
+printf 'fn number() {}\n' >> src/lexer.rs
+"$FF" commit -m "lexer: numbers" > /dev/null 2>&1
+printf 'fn signed() {}\n' >> src/lexer.rs
+"$FF" commit -m "lexer: numbers, signed" > /dev/null 2>&1
+printf 'fn float() {}\n' >> src/lexer.rs
+"$FF" commit -m "lexer: numbers, floats" > /dev/null 2>&1
+show "$FF" log
+show "$FF" absorb --from HEAD~2.. -m "lexer: numbers, signed and floating"
+show "$FF" log
+
 # --- reopen a closed commit: edit, then done ---
-first=$(git rev-parse --short=8 HEAD~1)
+first=$(git rev-parse --short=8 HEAD~2)
 show "$FF" edit "$first"
 sed -i 's/fn helper() {}/fn helper(input: \&str) {}/' src/lexer.rs
 show "$FF" status
 show "$FF" done
 
 # --- the same door, closed without landing ---
-first=$(git rev-parse --short=8 HEAD~1)
+first=$(git rev-parse --short=8 HEAD~2)
 show "$FF" edit "$first"
 printf '// scratch\n' >> src/lexer.rs
 show "$FF" done --abandon
@@ -140,6 +151,11 @@ show "$FF" commit -m "notes: eat chars notes"
 
 # --- lifting everything drops the commit ---
 show "$FF" lift
+show "$FF" undo
+
+# --- a run comes back out the same way ---
+show "$FF" lift --from HEAD~2..
+show "$FF" status
 show "$FF" undo
 
 # --- collide: would these two branches hit each other? ---

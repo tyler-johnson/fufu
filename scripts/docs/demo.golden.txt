@@ -39,6 +39,7 @@ $ # looks like it's ready to commit
 
 $ ff commit
 closed <sha> on unicode-escapes: lexer: handle unicode escapes (2 file(s))
+re-minted: signing is on
 undo: ff undo
 
 $ # oops, forgot to add one thing
@@ -46,7 +47,7 @@ $ # oops, forgot to add one thing
 $ echo 'mod unicode;' >> src/lib.rs
 
 $ ff absorb
-absorbed into <sha>: lexer: handle unicode escapes
+moved 1 file(s) from the open change into <sha>: lexer: handle unicode escapes
 undo: ff undo
 
 $ ff st
