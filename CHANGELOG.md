@@ -10,12 +10,16 @@
 - `--fetch` and `--no-fetch` on every verb: run the lane's fetch now, or skip it.
 - `fetch/not-here`: `--fetch` on a verb that reads nothing from the remote.
 - `ff doctor`'s `auto-fetch` row: when the tracking refs were last refreshed, or since when the remote has not answered.
+- `ff branch --prune`: one operation deleting every local branch whose shared copy is gone — an upstream configured, its tracking ref absent, and a seen or published record that the copy once stood — after a fetch of its own. A branch holding commits its copy never held, the branch underfoot, one checked out elsewhere, or one holding a rewrite is kept and named; branches stacked on a pruned one are re-aimed at what it sat on. `--dry-run` (`-n`) plans and writes nothing.
+- `fufu.pruneGone`: when true, `ff pull` prunes the same branches inside its run, riding its one operation. `false` today; the default flips in a later release.
+- Bare `ff branch` says how many branches' shared copies are gone, with `ff branch --prune` as the way out; `ff doctor`'s `tracking` row names it too.
 
 ### Changed
 
 - `ff pull --no-fetch` is the global flag, with the same meaning.
 - Every fetch prunes the tracking refs of copies the remote no longer has, `ff pull`'s included.
 - `ff doctor` fetches on every run rather than on the cadence, so the remote floor it reports is the one standing now.
+- `ff branch -d` records the branch's pointer move to trash on the operation, so `ff undo` restores the branch's timeline pointer through the record, the way it does after `ff fold`.
 
 ### Fixed
 

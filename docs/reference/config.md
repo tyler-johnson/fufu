@@ -54,6 +54,12 @@ How long operations live: ff trim drops everything past the cutoff, captures and
 
 How often retention enforces itself: a trim rides an ff command at most this often, per repo. false leaves trimming entirely to `ff trim`; durations work too (12h, 2w), floored at one minute.
 
+### pruneGone
+
+`fufu.pruneGone` — bool; default `false`
+
+Whether ff pull deletes the local branches whose shared copy is gone, as ff branch --prune does, inside its run: the same guard, so a branch holding commits its copy never held is kept and named. false today; the default flips to true in a later release.
+
 ### autoFetch
 
 `fufu.autoFetch` — cadence; default `10m`

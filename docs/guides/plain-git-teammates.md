@@ -128,7 +128,7 @@ Coming back is reconciliation. At your first fufu operation, everything that hap
 
 ## What fufu asks of the branch, and of the repo
 
-Of the repository and the people in it, fufu asks nothing: no server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business.
+Of the repository and the people in it, fufu asks nothing: no server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business. The branch the forge deletes afterwards is [`ff branch --prune`](../reference/cli/branch.md)'s: one operation takes every local branch whose shared copy is gone.
 
 The same fact is a limit. fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
 

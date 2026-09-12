@@ -52,6 +52,8 @@ Below your own branches come the ones a remote holds and you do not. You can swi
 
 A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease: the removal goes through only if the remote copy still stands where you last saw it. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
 
+The other direction is the forge deleting the copy when a pull request merges, which leaves the local branch behind. `ff branch --prune` deletes every local branch whose shared copy is gone in one operation — gone meaning an upstream configured, its tracking ref absent, and a record that the copy once stood — keeping and naming any branch that holds commits the copy never held, and re-aiming what was stacked on a pruned branch at what it sat on. One undo brings them all back. `fufu.pruneGone` lets [`ff pull`](../reference/cli/pull.md) do the same inside its run.
+
 ## Switching by prefix
 
 [`ff switch`](../reference/cli/switch.md) takes a branch name or any unique prefix of one. `ff switch uni` reaches `unicode-cleanup` if nothing else starts that way, and an ambiguous prefix is an error listing the candidates rather than a guess.
