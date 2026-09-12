@@ -19,6 +19,9 @@ use crate::{Error, Result};
 pub enum Verb {
     Pull,
     Push,
+    /// `ff branch --prune`: the same ground as pull, read for the branches
+    /// whose shared copy is gone.
+    Prune,
 }
 
 impl Verb {
@@ -26,6 +29,7 @@ impl Verb {
         match self {
             Verb::Pull => "pull",
             Verb::Push => "push",
+            Verb::Prune => "prune",
         }
     }
 
@@ -33,6 +37,7 @@ impl Verb {
         match self {
             Verb::Pull => "pulling",
             Verb::Push => "pushing",
+            Verb::Prune => "pruning",
         }
     }
 }
@@ -156,8 +161,9 @@ pub fn preflight_branch(
         return Err(Error::coded(
             "held/resolving",
             match verb {
-                Verb::Pull => format!(
-                    "a resolution of {branch} is open on {session}: pulling would move the ground its conflicts were computed against"
+                Verb::Pull | Verb::Prune => format!(
+                    "a resolution of {branch} is open on {session}: {} would move the ground its conflicts were computed against",
+                    verb.gerund()
                 ),
                 Verb::Push => format!(
                     "a resolution of {branch} is open on {session}: the exit stays blocked until the rewrite under it lands"

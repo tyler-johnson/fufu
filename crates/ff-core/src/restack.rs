@@ -708,16 +708,20 @@ pub(crate) fn plan_restack(
             (base, own_copy)
         }
         None => {
-            let pull_ref = futures::base_for(repo, &branch)?.ok_or_else(|| {
-                Error::coded(
-                    "restack/no-base",
-                    format!("{branch} has no base to replay onto"),
-                    vec![
-                        format!("ff restack {branch} --onto <base>"),
-                        "ff status".into(),
-                    ],
-                )
-            })?;
+            // The parent as the run has planned it, when it re-aimed the
+            // branch already.
+            let planned_parent = overlay.parent(&branch);
+            let pull_ref =
+                futures::base_for_planned(repo, &branch, planned_parent)?.ok_or_else(|| {
+                    Error::coded(
+                        "restack/no-base",
+                        format!("{branch} has no base to replay onto"),
+                        vec![
+                            format!("ff restack {branch} --onto <base>"),
+                            "ff status".into(),
+                        ],
+                    )
+                })?;
             // `base_for` refuses the branch's own shared copy itself, so the
             // bare verb never aims at one.
             (onto_from(repo, &pull_ref)?, false)

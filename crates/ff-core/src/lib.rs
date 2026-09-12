@@ -32,6 +32,7 @@ pub mod park;
 pub mod patch;
 pub mod petname;
 pub mod preflight;
+pub mod prune;
 mod published;
 pub mod pull;
 pub mod push;

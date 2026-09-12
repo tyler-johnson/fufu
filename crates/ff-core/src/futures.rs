@@ -354,6 +354,18 @@ pub fn open_tree(repo: &gix::Repository, branch: &str) -> Result<Option<gix::Obj
 /// Which branch `branch` should be measured against. `None` when fufu cannot
 /// honestly name one.
 pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>> {
+    base_for_planned(repo, branch, None)
+}
+
+/// [`base_for`] with the recorded parent a run has planned and not yet
+/// written standing in for the one on disk: `Some(parent)` replaces the
+/// metadata's `parent` — `Some(None)` is a link the run removes — and
+/// `None` reads the metadata, which is `base_for` itself.
+pub(crate) fn base_for_planned(
+    repo: &gix::Repository,
+    branch: &str,
+    planned_parent: Option<Option<String>>,
+) -> Result<Option<PullRef>> {
     // An editing session sits below the branch it will land on by
     // construction: "behind, fast-forwards" is a permanent condition of
     // being a session, the way being ahead is one — pull never merges the
@@ -374,7 +386,10 @@ pub fn base_for(repo: &gix::Repository, branch: &str) -> Result<Option<PullRef>>
     // when a minted branch is later renamed onto the name it forked from —
     // `ff start origin/x` then `ff describe -b x` — whose own tracking ref is
     // then the parent it recorded.
-    let meta = crate::branchmeta::read(repo, branch)?;
+    let mut meta = crate::branchmeta::read(repo, branch)?;
+    if let Some(parent) = planned_parent {
+        meta.parent = parent;
+    }
     if let Some(parent) = meta.parent.clone().filter(|p| p != branch)
         && let Some((full_ref, tip)) = crate::refs::branchish(repo, &parent)?
         && !remote_for(repo, branch)?.is_some_and(|own| own.r#ref == full_ref)

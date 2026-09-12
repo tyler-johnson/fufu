@@ -1029,6 +1029,10 @@ pub struct BranchList {
     /// was left out. The count is data, not a rendering artifact: the human
     /// listing's `~ N more` row and this field are the same fact.
     pub remote_more: usize,
+    /// How many local branches, named and anonymous, have a shared copy
+    /// that is gone: an upstream configured, its tracking ref absent, and
+    /// a record that the copy once stood. `ff branch --prune` takes them.
+    pub gone: usize,
 }
 
 /// What `branch::list` is asked for. The local buckets are never bounded —
@@ -1140,6 +1144,61 @@ pub struct BranchDeleteReport {
     /// The shared copy this branch answered to, left standing. `None` when
     /// the branch answered to nothing.
     pub shared: Option<SharedCopy>,
+    pub pre_op: Option<String>,
+}
+
+/// Why `ff branch --prune` kept a branch whose shared copy is gone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Kept {
+    /// The branch underfoot.
+    Current,
+    /// Checked out in another worktree, at `path`.
+    Elsewhere { path: String },
+    /// A rewrite is held on it; `verb` is the one that held.
+    Held { verb: String },
+    /// Its tip holds `count` commits the shared copy never held: work the
+    /// copy's deletion did not take, so neither does the prune.
+    Ahead { count: usize },
+}
+
+/// A gone branch `ff branch --prune` left standing, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KeptBranch {
+    pub name: String,
+    pub reason: Kept,
+}
+
+/// A branch stacked on a pruned one, re-aimed at what the pruned branch
+/// sat on: `onto` is its new parent, `None` when the pruned branch had none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reaim {
+    pub branch: String,
+    pub onto: Option<String>,
+}
+
+/// One branch `ff branch --prune` deleted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PrunedBranch {
+    pub name: String,
+    pub tip: String,
+    /// Its open commit, left behind and pinned by its timeline in trash.
+    pub open_left: Option<String>,
+    /// Where its pointer into the log was parked.
+    pub trash_ref: Option<String>,
+    /// The branches stacked on it, each re-aimed at what it sat on.
+    pub reaimed: Vec<Reaim>,
+}
+
+/// The result of `ff branch --prune`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchPruneReport {
+    pub pruned: Vec<PrunedBranch>,
+    pub kept: Vec<KeptBranch>,
+    /// A fetch ran this invocation.
+    pub fetched: bool,
+    /// Nothing was written: `pruned` says what would go.
+    pub dry_run: bool,
     pub pre_op: Option<String>,
 }
 
@@ -1368,6 +1427,16 @@ pub struct PullReport {
     /// a branch that just lined up and still has something waiting is
     /// exactly when naming the other half is useful.
     pub pending: Pending,
+    /// The branches whose shared copy is gone that the run deleted, under
+    /// `fufu.pruneGone`: the same classification, guard, and re-aims as
+    /// `ff branch --prune`, riding this one operation. Empty when the
+    /// setting is off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pruned: Vec<PrunedBranch>,
+    /// The gone branches the prune kept, and why. Empty when the setting is
+    /// off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<KeptBranch>,
     /// True when nothing was written (dry run): every axis was planned and
     /// the report says what it would have done, and no branch, hold, file,
     /// or operation moved. `files` and `still_open` then describe the

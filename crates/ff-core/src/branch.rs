@@ -19,6 +19,8 @@ use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, RefTransition, verb};
 use crate::refs;
 use crate::stash;
 
+pub use crate::prune;
+
 /// The namespace prefix for anonymous branches.
 pub const ANON_PREFIX: &str = "ff/";
 
@@ -232,6 +234,7 @@ pub fn list(
     }
     names.sort();
     let held_elsewhere = crate::linked::held_branches(repo)?;
+    let mut gone = 0usize;
     for name in names {
         let full = heads_ref(&name);
         let tip = refs::ref_target(repo, &full)?;
@@ -255,6 +258,11 @@ pub fn list(
         };
         if let Some(upstream) = upstream.as_ref() {
             tracked.insert(upstream.r#ref.clone());
+            // The row's own gone is git's two-part one — a section and no
+            // ref; the record that the copy once stood is read only then.
+            if upstream.gone && prune::is_gone(repo, &name)? {
+                gone += 1;
+            }
         }
         // Only the row we are standing on carries the open change into the
         // simulation: another branch's row must not react to work sitting in
@@ -337,6 +345,7 @@ pub fn list(
         anonymous,
         remote_only,
         remote_more: total.saturating_sub(kept),
+        gone,
     })
 }
 
@@ -704,6 +713,137 @@ pub fn create(
     ))
 }
 
+/// Everything a delete reads before it writes: the mechanics `ff branch
+/// -d` and `ff branch --prune` share, so the two verbs cannot drift. The
+/// plan refuses nothing but a name no branch answers to; the guards — the
+/// branch underfoot, another worktree's, a held rewrite — are each verb's
+/// own, since one refuses and the other keeps and names.
+#[derive(Debug, Clone)]
+pub struct DeletePlan {
+    pub name: String,
+    pub tip: gix::ObjectId,
+    pub parked: Option<gix::ObjectId>,
+    /// The branch's open commit, left behind and pinned by its timeline in
+    /// trash, if it had one.
+    pub open_left: Option<gix::ObjectId>,
+    /// The branch's pointer into the log, if any: what moves to trash.
+    pub snap_tip: Option<gix::ObjectId>,
+    /// The shared copy it answered to, read now while the tracking ref and
+    /// config are still readable.
+    pub shared: Option<crate::model::SharedCopy>,
+}
+
+/// Read what deleting `name` would move. `branch/not-found` is the one
+/// refusal.
+pub fn plan_delete(repo: &gix::Repository, name: &str) -> Result<DeletePlan> {
+    let tip = refs::ref_target(repo, &heads_ref(name))?.ok_or_else(|| {
+        Error::coded(
+            "branch/not-found",
+            format!("no branch named {name}"),
+            vec![],
+        )
+    })?;
+    Ok(DeletePlan {
+        name: name.to_string(),
+        tip,
+        parked: crate::stash::parked_entry(repo, name)?,
+        open_left: refs::ref_target(repo, &crate::open::open_ref(name))?,
+        snap_tip: refs::ref_target(repo, &format!("{BRANCH_PREFIX}{name}"))?,
+        shared: shared_copy(repo, name)?,
+    })
+}
+
+impl DeletePlan {
+    fn snap_ref(&self) -> String {
+        format!("{BRANCH_PREFIX}{}", self.name)
+    }
+
+    fn trash_ref(&self) -> String {
+        format!("refs/fufu/trash/{}", self.name)
+    }
+
+    /// The ref transitions the record carries: the branch and its parked
+    /// entry, each to nothing.
+    pub(crate) fn transitions(&self) -> Vec<RefTransition> {
+        let mut out = vec![RefTransition {
+            name: heads_ref(&self.name),
+            old: Some(self.tip.to_string()),
+            new: None,
+        }];
+        if let Some(parked) = self.parked {
+            out.push(RefTransition {
+                name: crate::stash::parked_ref(&self.name),
+                old: Some(parked.to_string()),
+                new: None,
+            });
+        }
+        out
+    }
+
+    /// The pointer's move to trash, when the branch has one, so an undo
+    /// that brings the branch back brings its timeline with it.
+    pub(crate) fn pointer(&self) -> Option<crate::ops::record::PointerTransition> {
+        self.snap_tip
+            .map(|tip| crate::ops::record::PointerTransition {
+                branch: self.name.clone(),
+                from: self.snap_ref(),
+                to: self.trash_ref(),
+                tip: tip.to_string(),
+            })
+    }
+
+    /// What the operation keeps reachable: the tip, the parked entry, and
+    /// the open commit left behind.
+    pub(crate) fn pins(&self) -> Vec<gix::ObjectId> {
+        let mut pins = vec![self.tip];
+        pins.extend(self.parked);
+        pins.extend(self.open_left);
+        pins
+    }
+
+    /// Take the branch's refs out of the planned table.
+    pub(crate) fn remove_from(&self, planned: &mut crate::ops::record::RefsTable) {
+        planned.refs.remove(&heads_ref(&self.name));
+        if self.parked.is_some() {
+            planned.refs.remove(&crate::stash::parked_ref(&self.name));
+        }
+    }
+
+    /// The mutate half, after the record is on the log: the pointer to
+    /// trash first (never lose the way back), then the open ref, the
+    /// parked entry, the branch, the metadata file, and the cached future.
+    /// Returns the trash ref the pointer went to, if it had one.
+    pub(crate) fn apply(&self, repo: &gix::Repository, now: i64) -> Result<Option<String>> {
+        let mut trash: Option<String> = None;
+        if let Some(snap_tip) = self.snap_tip {
+            let trash_ref = self.trash_ref();
+            refs::write_ref(
+                repo,
+                &trash_ref,
+                snap_tip,
+                gix::refs::transaction::PreviousValue::Any,
+                now,
+                &format!("branch: pre-delete pointer of {}", self.name),
+            )?;
+            refs::delete_ref(repo, &self.snap_ref(), snap_tip, now)?;
+            trash = Some(trash_ref);
+        }
+        // The open ref goes with the pointer: the trash pointer's op carries
+        // the open commit as a parent, so it stays reachable without the ref.
+        crate::open::clear(repo, &self.name, now)?;
+        if let Some(parked) = self.parked {
+            refs::delete_ref(repo, &crate::stash::parked_ref(&self.name), parked, now)?;
+        }
+        refs::delete_ref(repo, &heads_ref(&self.name), self.tip, now)?;
+        // The metadata file goes too.
+        crate::branchmeta::write(repo, &self.name, &crate::branchmeta::BranchMeta::default())?;
+        // And its cached future — a cache, so losing it costs recomputation
+        // only.
+        crate::futures::cache::remove(repo, &self.name)?;
+        Ok(trash)
+    }
+}
+
 /// `ff branch -d <name>` — delete a branch, recorded. The branch's pointer
 /// into the log moves to trash (trim's one-deep pattern) rather than being
 /// dropped, the parked entry is demoted (its stash entry survives), and the
@@ -711,7 +851,8 @@ pub fn create(
 /// why there is no merged-check: nothing is lost. The branch's operations
 /// themselves stay on the log; only the way in through this name goes. What
 /// the branch answered to on a remote is read out and reported, and it
-/// survives the delete.
+/// survives the delete. The mechanics are [`DeletePlan`]'s, shared with
+/// `ff branch --prune`.
 pub fn delete(
     repo: &gix::Repository,
     name: &str,
@@ -730,44 +871,16 @@ pub fn delete(
             vec!["ff switch <branch>".into()],
         ));
     }
-    let full = heads_ref(name);
-    let tip = refs::ref_target(repo, &full)?.ok_or_else(|| {
-        Error::coded(
-            "branch/not-found",
-            format!("no branch named {name}"),
-            vec![],
-        )
-    })?;
+    let plan = plan_delete(repo, name)?;
     guard_other_worktrees(repo, name)?;
-    // Read the shared copy now, while the tracking ref and config are still
-    // readable: the delete keeps both, and this report is the only thing
-    // that will name them.
-    let shared = shared_copy(repo, name)?;
 
-    let parked = crate::stash::parked_entry(repo, name)?;
-    let open_left = refs::ref_target(repo, &crate::open::open_ref(name))?;
     let mut planned = observe_refs(repo)?;
-    planned.refs.remove(&full);
-    let mut transitions = vec![RefTransition {
-        name: full.clone(),
-        old: Some(tip.to_string()),
-        new: None,
-    }];
-    if let Some(parked) = parked {
-        let parked_ref = crate::stash::parked_ref(name);
-        planned.refs.remove(&parked_ref);
-        transitions.push(RefTransition {
-            name: parked_ref,
-            old: Some(parked.to_string()),
-            new: None,
-        });
-    }
+    plan.remove_from(&mut planned);
     let mut record = OpRecord::new("branch", format!("delete branch {name}"), now);
     record.argv = argv;
-    record.refs = transitions;
-    let mut pins = vec![tip];
-    pins.extend(parked);
-    pins.extend(open_left);
+    record.refs = plan.transitions();
+    record.pointers.extend(plan.pointer());
+    let pins = plan.pins();
     verb::append_op(
         repo,
         OpKind::Op,
@@ -784,42 +897,15 @@ pub fn delete(
         },
         now,
     )?;
-
-    // The pointer to trash first (never lose the way back), then the refs.
-    let snap_ref = format!("{BRANCH_PREFIX}{name}");
-    let mut trash: Option<String> = None;
-    if let Some(snap_tip) = refs::ref_target(repo, &snap_ref)? {
-        let trash_ref = format!("refs/fufu/trash/{name}");
-        refs::write_ref(
-            repo,
-            &trash_ref,
-            snap_tip,
-            gix::refs::transaction::PreviousValue::Any,
-            now,
-            &format!("branch: pre-delete pointer of {name}"),
-        )?;
-        refs::delete_ref(repo, &snap_ref, snap_tip, now)?;
-        trash = Some(trash_ref);
-    }
-    // The open ref goes with the pointer: the trash pointer's op carries the
-    // open commit as a parent, so it stays reachable without the ref.
-    crate::open::clear(repo, name, now)?;
-    if let Some(parked) = parked {
-        refs::delete_ref(repo, &crate::stash::parked_ref(name), parked, now)?;
-    }
-    refs::delete_ref(repo, &full, tip, now)?;
-    // The metadata file goes too.
-    crate::branchmeta::write(repo, name, &crate::branchmeta::BranchMeta::default())?;
-    // And its cached future — a cache, so losing it costs recomputation only.
-    crate::futures::cache::remove(repo, name)?;
+    let trash = plan.apply(repo, now)?;
 
     Ok((
         crate::model::BranchDeleteReport {
             name: name.to_string(),
-            tip: tip.to_string(),
+            tip: plan.tip.to_string(),
             trash_ref: trash,
-            open_left: open_left.map(|id| id.to_string()),
-            shared,
+            open_left: plan.open_left.map(|id| id.to_string()),
+            shared: plan.shared,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,

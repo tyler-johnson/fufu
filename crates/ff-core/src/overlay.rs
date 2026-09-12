@@ -31,11 +31,14 @@ pub(crate) struct PlannedHead {
 }
 
 /// What a run has planned and not written: tips by full ref name, holds by
-/// branch, and the working tree's move.
+/// branch, parent links by branch, and the working tree's move.
 #[derive(Default)]
 pub(crate) struct Overlay {
     tips: BTreeMap<String, gix::ObjectId>,
     holds: BTreeMap<String, Held>,
+    /// The recorded parent a run will write for a branch: `None` inside is
+    /// a parent link removed, the way a prune re-aims a child onto trunk.
+    parents: BTreeMap<String, Option<String>>,
     pub head: Option<PlannedHead>,
 }
 
@@ -82,6 +85,16 @@ impl Overlay {
 
     pub fn hold(&mut self, branch: &str, held: Held) {
         self.holds.insert(branch.to_string(), held);
+    }
+
+    /// The parent link the run has planned for `branch`: `None` when the
+    /// run has not touched it, so the planner reads the branch's metadata.
+    pub fn parent(&self, branch: &str) -> Option<Option<String>> {
+        self.parents.get(branch).cloned()
+    }
+
+    pub fn set_parent(&mut self, branch: &str, parent: Option<String>) {
+        self.parents.insert(branch.to_string(), parent);
     }
 
     /// The open change of HEAD's branch, whose tip's tree is `tip_tree`: the

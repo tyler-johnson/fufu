@@ -78,9 +78,10 @@
 use std::collections::HashSet;
 
 use crate::model::{
-    BaseAxis, BranchPull, BranchRemote, Pending, PullReport, RemoteAxis, RestackOutcome, SkipReason,
+    BaseAxis, BranchPull, BranchRemote, KeptBranch, Pending, PrunedBranch, PullReport, RemoteAxis,
+    RestackOutcome, SkipReason,
 };
-use crate::ops::record::{HeldTransition, RefTransition, observe_refs};
+use crate::ops::record::{HeldTransition, ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::overlay::Overlay;
 use crate::preflight::Preflight;
@@ -109,6 +110,11 @@ pub struct PullOptions {
     /// hold, no file, no operation. The report's numbers are the ones a
     /// real run would land.
     pub dry_run: bool,
+    /// `fufu.pruneGone`: delete the branches whose shared copy is gone
+    /// inside this run, before any replay, the way `ff branch --prune`
+    /// would — the same classification, guard, and re-aims, riding this
+    /// one operation.
+    pub prune: bool,
     pub now: Option<i64>,
     pub argv: Vec<String>,
 }
@@ -313,6 +319,39 @@ pub fn pull(
         .map_or_else(|| crate::ops::verb::now_or_wall_clock(opts.now), |c| c.now);
     let mut run = Run::new(&pre.branch, now);
 
+    // The prune, first: a gone branch has nothing to replay, and a bare
+    // pull after a merge is then the whole chore. Planned against the refs
+    // as they stand and written with the run, so the deleted branches
+    // leave the remote phase — they get the report's `pruned` block, not a
+    // row — and the base phase, and the children a delete re-aims read
+    // their new parent through the overlay and replay onto it in this
+    // same run.
+    let mut opts = opts;
+    if opts.prune {
+        let plan = crate::prune::plan(repo, &pre.branch)?;
+        for t in &plan.reaims {
+            run.overlay.set_parent(&t.branch, t.new.clone());
+        }
+        let pruned: HashSet<String> = plan.deletes.iter().map(|d| d.name.clone()).collect();
+        opts.others.retain(|other| !pruned.contains(&other.branch));
+        run.pruned = plan.deletes;
+        run.reaims = plan.reaims;
+        run.kept = plan.kept;
+    }
+    let mut pruned: Vec<PrunedBranch> = run
+        .pruned
+        .iter()
+        .map(|d| PrunedBranch {
+            name: d.name.clone(),
+            tip: d.tip.to_string(),
+            open_left: d.open_left.map(|id| id.to_string()),
+            // Under a dry run, where the pointer would go.
+            trash_ref: d.snap_tip.map(|_| format!("refs/fufu/trash/{}", d.name)),
+            reaimed: crate::prune::reaimed(repo, &run.reaims, &d.name),
+        })
+        .collect();
+    let kept = std::mem::take(&mut run.kept);
+
     // Two phases over the whole repository. The remote phase first, for
     // every branch: each branch against its own shared copy. Then the base
     // phase, parent before child: each branch against the base beneath it.
@@ -450,7 +489,11 @@ pub fn pull(
     // replays twice. A branch another worktree holds kept its `Elsewhere`
     // row and has no base axis, and neither does one filed as `Held`.
     let mut base = BaseAxis::NoBase;
+    let pruned_names: HashSet<String> = run.pruned.iter().map(|d| d.name.clone()).collect();
     for name in base_order(repo)? {
+        if pruned_names.contains(&name) {
+            continue;
+        }
         if name == pre.branch {
             base = if opts.current {
                 current_base_axis(repo, pre, &mut run)?
@@ -484,7 +527,7 @@ pub fn pull(
     let (files, still_open) = match ctx.as_ref() {
         _ if run.is_empty() => (0, false),
         None => run.planned_worktree(repo)?,
-        Some(ctx) => run.commit(repo, ctx, pre, prov, opts.argv.clone())?,
+        Some(ctx) => run.commit(repo, ctx, pre, prov, opts.argv.clone(), &mut pruned)?,
     };
     // The seen record, last and outside the operation: every branch whose
     // remote axis was read is marked at the tip it was read at, whether
@@ -563,6 +606,8 @@ pub fn pull(
             files,
             still_open,
             pending,
+            pruned,
+            kept,
             dry_run: opts.dry_run,
         },
         ctx,
@@ -593,6 +638,11 @@ struct Run {
     /// before, since a stamp mid-plan would be a write a failed plan leaves
     /// behind.
     seen: Vec<(String, gix::ObjectId)>,
+    /// The branches the run deletes under `fufu.pruneGone`, the re-aims of
+    /// the branches stacked on them, and the gone branches it keeps.
+    pruned: Vec<crate::branch::DeletePlan>,
+    reaims: Vec<ParentTransition>,
+    kept: Vec<KeptBranch>,
 }
 
 impl Run {
@@ -608,12 +658,19 @@ impl Run {
             cascade_held: Vec::new(),
             pins: Vec::new(),
             seen: Vec::new(),
+            pruned: Vec::new(),
+            reaims: Vec::new(),
+            kept: Vec::new(),
         }
     }
 
-    /// Nothing planned: no ref moves and no hold, so no operation.
+    /// Nothing planned: no ref moves, no hold, and no delete, so no
+    /// operation.
     fn is_empty(&self) -> bool {
-        self.refs.is_empty() && self.held.is_none() && self.cascade_held.is_empty()
+        self.refs.is_empty()
+            && self.held.is_none()
+            && self.cascade_held.is_empty()
+            && self.pruned.is_empty()
     }
 
     /// A ref-only move: a fast-forward or a mirror move onto the shared copy.
@@ -697,9 +754,11 @@ impl Run {
     }
 
     /// The one operation: the record write-ahead, the refs in one
-    /// transaction, the holds onto their branches, the worktree last. The
-    /// files the worktree write touched come back, with whether the tree
-    /// still holds an open change against the tip it now sits on.
+    /// transaction, the deletes and the re-aims, the holds onto their
+    /// branches, the worktree last. The files the worktree write touched
+    /// come back, with whether the tree still holds an open change against
+    /// the tip it now sits on; each pruned branch's trash ref lands in
+    /// `pruned`.
     fn commit(
         self,
         repo: &gix::Repository,
@@ -707,17 +766,27 @@ impl Run {
         pre: &Preflight,
         prov: &Provenance,
         argv: Vec<String>,
+        pruned: &mut [PrunedBranch],
     ) -> Result<(usize, bool)> {
         let Run {
             overlay,
-            refs,
+            mut refs,
             rewrites,
             dropped,
             held,
             cascade_held,
-            pins,
+            mut pins,
+            pruned: deletes,
+            reaims,
             ..
         } = self;
+        // A delete's transitions come last, so a branch a cascade carried
+        // and the prune then deleted coalesces to the delete: from where
+        // the run found it to nothing.
+        for d in &deletes {
+            refs.extend(d.transitions());
+            pins.extend(d.pins());
+        }
         let refs = coalesce(refs);
         let mut planned = observe_refs(repo)?;
         for t in &refs {
@@ -725,11 +794,18 @@ impl Run {
                 planned.refs.insert(t.name.clone(), new.clone());
             }
         }
+        for d in &deletes {
+            d.remove_from(&mut planned);
+        }
+        let moved = refs.iter().filter(|t| t.new.is_some()).count();
         let holds = held.iter().count() + cascade_held.len();
-        let summary = match holds {
-            0 => format!("pull {} branch(es)", refs.len()),
-            n => format!("pull {} branch(es), {n} held", refs.len()),
-        };
+        let mut summary = format!("pull {moved} branch(es)");
+        if !deletes.is_empty() {
+            summary.push_str(&format!(", {} pruned", deletes.len()));
+        }
+        if holds > 0 {
+            summary.push_str(&format!(", {holds} held"));
+        }
         let mut record = OpRecord::new("pull", summary, ctx.now);
         record.argv = argv;
         record.refs = refs.clone();
@@ -737,6 +813,8 @@ impl Run {
         record.dropped = dropped;
         record.held = held.clone();
         record.cascade_held = cascade_held.clone();
+        record.pointers = deletes.iter().filter_map(|d| d.pointer()).collect();
+        record.inferred_parents = reaims.clone();
 
         // The trees the op leaves behind: the worktree the run planned when
         // it moved the branch underfoot, and the ones it found otherwise.
@@ -788,6 +866,17 @@ impl Run {
                     vec![],
                 ));
             }
+        }
+
+        // The deletes, then the parent links of the branches that stood on
+        // them, now that the record is on the log.
+        for (p, d) in pruned.iter_mut().zip(deletes.iter()) {
+            p.trash_ref = d.apply(repo, ctx.now)?;
+        }
+        for t in &reaims {
+            let mut meta = crate::branchmeta::read(repo, &t.branch)?;
+            meta.parent = t.new.clone();
+            crate::branchmeta::write(repo, &t.branch, &meta)?;
         }
 
         // The holds, now that the refs have moved.
@@ -1005,7 +1094,9 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
     if run.overlay.has_hold(&pre.branch) {
         return Ok(BaseAxis::Skipped);
     }
-    let Some(pull_ref) = crate::futures::base_for(repo, &pre.branch)? else {
+    let planned_parent = run.overlay.parent(&pre.branch);
+    let Some(pull_ref) = crate::futures::base_for_planned(repo, &pre.branch, planned_parent)?
+    else {
         return Ok(BaseAxis::NoBase);
     };
     let plan = plan_restack(
@@ -1034,7 +1125,8 @@ fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Resul
     if run.overlay.held(repo, branch)?.is_some() {
         return Ok(BaseAxis::Skipped);
     }
-    let Some(pull_ref) = crate::futures::base_for(repo, branch)? else {
+    let planned_parent = run.overlay.parent(branch);
+    let Some(pull_ref) = crate::futures::base_for_planned(repo, branch, planned_parent)? else {
         return Ok(BaseAxis::NoBase);
     };
     let name = pull_ref.name;
