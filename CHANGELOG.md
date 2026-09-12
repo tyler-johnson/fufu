@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The seen record, `refs/fufu/seen/<branch>`: the tip of the shared copy a foreground verb last showed you, written by `ff push`, `ff pull` (real runs, `--no-fetch` included), `ff switch` onto a remote's branch, and `ff clone`, and removed by `ff branch -d --shared`. `ff push` and `ff branch -d --shared` lease against it.
+- `push/unseen`, `branch/shared-moved`, and `branch/shared-unseen`: refusals before the wire when the tracking ref stands off the seen record, or there is none and the push is not a fast-forward. `ff push --dry-run` reports the local refusal as `would not push`.
+
+### Fixed
+
+- `ff push` and `ff branch -d --shared` leased against the tracking ref, so any fetch behind fufu's back — an editor's, `ff git fetch`, `ff pull --dry-run` — refreshed the lease to a tip never looked at, and a force-with-lease could take a teammate's push off the shared copy. Both now lease against the seen record and refuse before the wire when the tracking ref has moved off it.
+
+### Known issues
+
+- A repository from an earlier fufu has no seen records. The first push of each branch that only adds commits to its shared copy writes one silently; a branch whose copy holds commits not yet looked at is refused with `push/unseen` once, and `ff pull` records the tip.
+
 ## v0.15.0 — 2026-09-12
 
 ### Added

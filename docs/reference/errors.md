@@ -39,6 +39,8 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `branch/is-current` | 1 | that is the branch you are on |
 | `branch/not-found` | 1 | no branch of that name, here or on a remote |
 | `branch/shared-lease-refused` | 1 | the shared copy moved since you last looked, so it was not deleted |
+| `branch/shared-moved` | 1 | the shared copy is not where fufu last showed it, so nothing was deleted |
+| `branch/shared-unseen` | 1 | fufu has no record of looking at the shared copy, so nothing was deleted |
 | `clone/bad-url` | 1 | that is not a URL fufu can address |
 | `clone/failed` | 1 | the pack arrived and the working copy could not be written |
 | `clone/refused` | 1 | the remote answered, and said no |
@@ -81,6 +83,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `push/unknown-remote` | 1 | --to named a remote this repository does not have |
 | `push/unreachable` | 1 | the remote never answered |
 | `push/unrecorded` | 1 | the push went through and the log could not write it down |
+| `push/unseen` | 1 | fufu has no record of looking at the shared copy, and it holds commits you lack |
 | `ref/contended` | 4 | another process is holding that ref |
 | `repo/bare` | 1 | this is a bare repository, and the verb needs a working copy |
 | `repo/detached` | 1 | HEAD is not on a branch |
