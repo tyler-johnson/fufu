@@ -24,23 +24,25 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "branch/not-found",
-        summary: "no branch here goes by that name",
-        detail: "Names resolve against local branches, so a branch that exists on the remote but \
-                 not here will not be found. Its tracking ref does have a name — the remote's, \
-                 then the branch's — and ff start forks a local branch from that. ff branch \
-                 shows those under remote only, spelled exactly as ff start takes them, so the \
-                 name to type is on the screen rather than reconstructed. The remote is not \
-                 spelled origin here because it is only usually called that, and an exit that \
-                 guessed wrong would send you to a ref that does not exist: ff remote says what \
-                 yours is called.",
-        exits: &["ff branch", "ff remote", "ff start <remote>/<branch>"],
+        summary: "no branch of that name, here or on a remote",
+        detail: "A name is looked up as a branch here, then as a branch a remote holds — bare, \
+                 or qualified as <remote>/<branch> — and then as a revision, and this one is \
+                 none of the three. A branch a remote holds is a target: ff switch <branch> \
+                 switches there, minting the local branch tracking it, and ff branch lists \
+                 what the remotes hold under remote only, spelled exactly as ff switch takes \
+                 it, so the name to type is on the screen rather than reconstructed. A name \
+                 nobody holds is usually a typo; ff branch says what exists, and ff remote \
+                 says what the remotes are called.",
+        exits: &["ff branch", "ff remote"],
     },
     Entry {
         id: "branch/ambiguous",
-        summary: "that branch prefix matches more than one branch",
+        summary: "that name matches more than one branch",
         detail: "A prefix has to name one branch, and this one names several. Every candidate is \
-                 listed so you can pick; typing one more character is usually enough. \
-                 ff branch says what is local.",
+                 listed so you can pick; typing one more character is usually enough. The same \
+                 refusal meets a bare name that two remotes hold: origin/spike and \
+                 upstream/spike are two branches, and the qualified spelling picks one. \
+                 ff branch says what is local and what each remote holds.",
         exits: &["ff branch"],
     },
     Entry {
@@ -338,6 +340,16 @@ pub static ENTRIES: &[Entry] = &[
                  lands at the commit under the open change, and an unborn branch has none yet. \
                  Close the change first, and the branch has a commit to fork at.",
         exits: &["ff commit", "ff log"],
+    },
+    Entry {
+        id: "switch/nothing-opened",
+        summary: "-m describes a change the switch opens, and this switch opens none",
+        detail: "A switch that mints a branch opens a change on it, and -m is that change's \
+                 pending description, written at birth. A switch to a branch that is already \
+                 here opens nothing: it resumes whatever is parked there, description and all, \
+                 so there is no new change for the message to describe. Switch first, then \
+                 ff describe -m says what the change you landed on is.",
+        exits: &["ff describe -m <msg>"],
     },
     Entry {
         id: "usage/revset-adjacent-operands",
@@ -890,9 +902,10 @@ pub static ENTRIES: &[Entry] = &[
                  this repository's to move: the remote's copy moves when something is \
                  pushed to it. The default target is trunk, and a clone whose trunk is only \
                  origin's — no local branch of that name — has no local branch to land on, \
-                 which is what this refusal is usually saying. ff start makes the local \
-                 branch from the remote's; ff push is how a branch reaches a remote.",
-        exits: &["ff start <remote>/<branch>", "ff branch", "ff push"],
+                 which is what this refusal is usually saying. ff switch <branch> makes the \
+                 local branch from the remote's, tracking it; ff push is how a branch reaches \
+                 a remote.",
+        exits: &["ff switch <branch>", "ff branch", "ff push"],
     },
     Entry {
         id: "fold/conflict",

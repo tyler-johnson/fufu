@@ -560,10 +560,11 @@ fn a_change_id_in_an_op_log_expression_is_refused_toward_revisions() {
     assert!(v["error"]["exits"].to_string().contains("ff log -r"), "{v}");
 }
 
-/// `ff switch <change id>` is `ff switch <sha>`: a redirect to `ff start`
-/// at that commit, where it used to be `branch/not-found`.
+/// `ff switch <change id>` is `ff switch <sha>`: the revision rung, which
+/// mints an anonymous branch at that commit, where it used to be
+/// `branch/not-found`.
 #[test]
-fn switch_to_a_change_id_redirects_to_start() {
+fn switch_to_a_change_id_mints_at_its_commit() {
     let fx = repo();
     let (sha, id) = closed(&fx);
     fx.write("b.txt", "b\n");

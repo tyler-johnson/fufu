@@ -257,13 +257,23 @@ pub enum Command {
         #[arg(value_name = "path")]
         paths: Vec<String>,
     },
-    // agent notice quotes this: `ff switch <branch>`
-    /// Switch branches; a dirty tree is parked, a parked change resumes
-    #[command(visible_alias = "sw", long_about = help::term(help::SWITCH), after_long_help = help::term_examples(help::SWITCH_EXAMPLES))]
+    // agent notice quotes this: `ff switch <branch>`, `ff start`
+    /// Switch branches, or begin new work on a fresh one; a dirty tree is parked, a parked change resumes
+    #[command(
+        visible_aliases = ["sw", "start", "new"],
+        long_about = help::term(help::SWITCH),
+        after_long_help = help::term_examples(help::SWITCH_EXAMPLES)
+    )]
     Switch {
-        /// Branch name, or a unique prefix of one
-        #[arg(value_name = "branch")]
-        target: String,
+        /// A branch here, a remote's branch, or a revision; nothing means trunk
+        #[arg(value_name = "target")]
+        target: Option<String>,
+        /// Pending description for the change being opened
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Fork a branch target, or name the minted branch; bare -b goes after the target
+        #[arg(short = 'b', value_name = "name", num_args = 0..=1)]
+        branch: Option<Option<String>>,
     },
     // agent notice quotes this: `ff undo`
     /// Step the whole repository back one run of work
@@ -277,24 +287,6 @@ pub enum Command {
     Op {
         #[command(subcommand)]
         action: OpAction,
-    },
-    // agent notice quotes this: `ff start`
-    /// Begin new work on a fresh branch
-    #[command(
-        visible_alias = "new",
-        long_about = help::term(help::START),
-        after_long_help = help::term_examples(help::START_EXAMPLES)
-    )]
-    Start {
-        /// Branch, revision, or nothing to stay here
-        #[arg(value_name = "target")]
-        target: Option<String>,
-        /// Pending description for the change being opened
-        #[arg(short = 'm', value_name = "msg")]
-        message: Option<String>,
-        /// Name for the minted/forked branch (or claim a placeholder)
-        #[arg(short = 'b', value_name = "branch")]
-        branch: Option<String>,
     },
     /// Edit the pending description of the open change
     #[command(visible_alias = "desc", long_about = help::term(help::DESCRIBE), after_long_help = help::term_examples(help::DESCRIBE_EXAMPLES))]
@@ -854,7 +846,6 @@ impl Command {
                 (Some(_), None) => "worktree add",
                 (None, None) => "worktree list",
             },
-            Command::Start { .. } => "start",
             Command::Describe { .. } => "describe",
             Command::Absorb { .. } => "absorb",
             Command::Lift { .. } => "lift",
@@ -929,7 +920,6 @@ impl Command {
             | Command::Switch { .. }
             | Command::Undo
             | Command::Redo
-            | Command::Start { .. }
             | Command::Describe { .. }
             | Command::Absorb { .. }
             | Command::Lift { .. }
@@ -1042,7 +1032,6 @@ impl Command {
             | Command::Switch { .. }
             | Command::Undo
             | Command::Redo
-            | Command::Start { .. }
             | Command::Describe { .. }
             | Command::Absorb { .. }
             | Command::Lift { .. }

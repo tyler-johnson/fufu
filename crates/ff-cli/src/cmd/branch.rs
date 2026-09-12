@@ -208,8 +208,8 @@ fn list(ctx: &Ctx, all: bool) -> Result<()> {
     let colored = crate::pager::color_enabled();
     // One name column across the whole listing — the widest label, not the
     // widest name, since sigil and brackets ride the column too, and the
-    // remote labels ride the same column, two narrower for wanting no
-    // brackets — floored so a listing of short names does not look cramped.
+    // remote rows wear the same label — floored so a listing of short names
+    // does not look cramped.
     let local_width = list
         .named
         .iter()
@@ -220,7 +220,7 @@ fn list(ctx: &Ctx, all: bool) -> Result<()> {
     let remote_width = list
         .remote_only
         .iter()
-        .map(|info| crate::render::remote_label_width(&info.name))
+        .map(|info| crate::render::branch_label_width(&info.name))
         .max()
         .unwrap_or(0);
     let label_width = local_width.max(remote_width).max(14);

@@ -463,12 +463,10 @@ fn at_op_and_at_reach_the_list_refusal() {
     }
 }
 
-/// The remote row keeps the sigil and drops the brackets: the brackets
-/// promise a name `ff switch` takes, and `switch` resolves local names
-/// only. The local rows keep theirs — the differing spellings on one
-/// screen are the whole claim.
+/// The remote row wears the brackets like any other: they promise a name
+/// `ff switch` takes, and a branch a remote holds is a target by name.
 #[test]
-fn remote_only_branches_are_listed_without_the_brackets() {
+fn remote_only_branches_are_listed_with_the_brackets() {
     let fx = repo();
     let head = fx.git(&["rev-parse", "HEAD"]);
     let sha = head.trim();
@@ -484,15 +482,11 @@ fn remote_only_branches_are_listed_without_the_brackets() {
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     assert!(text.contains("remote only:"), "{text}");
-    assert!(text.contains("▸ origin/spike"), "{text}");
     assert!(
-        !text.contains("[origin/spike]"),
-        "no brackets on a remote name: {text}"
+        text.contains("▸ [origin/spike]"),
+        "brackets on a remote name: {text}"
     );
-    assert!(
-        text.contains("[main]"),
-        "the local rows keep their brackets: {text}"
-    );
+    assert!(text.contains("[main]"), "{text}");
 }
 
 #[test]
@@ -509,14 +503,14 @@ fn the_remote_section_is_bounded_and_says_what_it_left_out() {
     let out = ff(&fx, &["branch"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
+    let rows = text.lines().filter(|l| l.contains("▸ [origin/")).count();
     assert_eq!(rows, 10, "the bound shows ten: {text}");
     assert!(text.contains("~ 2 more"), "{text}");
 
     let out = ff(&fx, &["branch", "--all"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let text = stdout(&out);
-    let rows = text.lines().filter(|l| l.contains("▸ origin/")).count();
+    let rows = text.lines().filter(|l| l.contains("▸ [origin/")).count();
     assert_eq!(rows, 12, "`--all` unbounds the section: {text}");
     assert!(!text.contains("more"), "nothing was left out: {text}");
 }

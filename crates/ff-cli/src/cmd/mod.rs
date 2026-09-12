@@ -28,7 +28,6 @@ pub mod resolve;
 pub mod restack;
 pub mod restore;
 pub mod show;
-pub mod start;
 pub mod status;
 pub mod switch;
 pub mod trim;

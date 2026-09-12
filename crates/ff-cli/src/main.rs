@@ -252,7 +252,11 @@ fn main() {
             no_sign,
             paths,
         }) => cmd::commit::run(&ctx, message, no_verify, branch, sign, no_sign, paths),
-        Some(cli::Command::Switch { target }) => cmd::switch::run(&ctx, target),
+        Some(cli::Command::Switch {
+            target,
+            message,
+            branch,
+        }) => cmd::switch::run(&ctx, target, message, branch),
         Some(cli::Command::Undo) => cmd::undo::run(&ctx),
         Some(cli::Command::Redo) => cmd::undo::redo(&ctx),
         Some(cli::Command::Op { action }) => cmd::op::run(&ctx, action),
@@ -270,11 +274,6 @@ fn main() {
             delete,
             ..
         }) => cmd::worktree::run(&ctx, path, branch, delete),
-        Some(cli::Command::Start {
-            target,
-            message,
-            branch,
-        }) => cmd::start::run(&ctx, target, message, branch),
         Some(cli::Command::Describe {
             rev,
             message,

@@ -1584,12 +1584,14 @@ fn start_always_mints() {
     let out1 = ff(&fx, &["start", "--json"]);
     assert!(out1.status.success());
     let v1: serde_json::Value = serde_json::from_str(&stdout(&out1)).unwrap();
-    let branch1 = v1["data"]["start"]["minted"].as_str().unwrap();
+    assert_eq!(v1["cmd"], "switch", "start is a spelling of switch: {v1}");
+    let branch1 = v1["data"]["switch"]["to"].as_str().unwrap();
+    assert!(v1["data"]["switch"]["minted"].is_object(), "{v1}");
 
     let out2 = ff(&fx, &["start", "--json"]);
     assert!(out2.status.success());
     let v2: serde_json::Value = serde_json::from_str(&stdout(&out2)).unwrap();
-    let branch2 = v2["data"]["start"]["minted"].as_str().unwrap();
+    let branch2 = v2["data"]["switch"]["to"].as_str().unwrap();
 
     assert_ne!(branch1, branch2, "two starts produce two distinct branches");
 }

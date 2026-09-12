@@ -92,7 +92,6 @@ pages! {
     COMMIT           COMMIT_EXAMPLES           "help/commit.md"
     SWITCH           SWITCH_EXAMPLES           "help/switch.md"
     UNDO             UNDO_EXAMPLES             "help/undo.md"
-    START            START_EXAMPLES            "help/start.md"
     DESCRIBE         DESCRIBE_EXAMPLES         "help/describe.md"
     ABSORB           ABSORB_EXAMPLES           "help/absorb.md"
     LIFT             LIFT_EXAMPLES             "help/lift.md"
@@ -334,7 +333,6 @@ pub const GROUPS: &[Group] = &[
     Group {
         heading: "grow, mark and tweak your common history",
         commands: &[
-            c("start"),
             c("switch"),
             c("branch"),
             r("absorb"),
