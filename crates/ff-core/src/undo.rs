@@ -562,7 +562,10 @@ pub fn rewind(
     //    thing: the branch HEAD landed on, and every branch the stepped
     //    operations were recorded on or moved HEAD off. A switch is recorded
     //    on its destination and names its origin in its HEAD transition, and
-    //    both branches' parks follow the move. Best effort: the ref is
+    //    both branches' parks follow the move. A touched branch the landing
+    //    does not have — a start or a `ff branch <name> @` stepped back over
+    //    — loses its open ref with the branch, the way a delete drops it, so
+    //    the copy it carried goes with the mint. Best effort: the ref is
     //    derived, and the next capture rebuilds it too.
     let landing_branch = to_table.head.strip_prefix("ref:refs/heads/");
     let mut touched: std::collections::BTreeSet<String> =
@@ -583,10 +586,12 @@ pub fn rewind(
     }
     touched.remove(crate::snapshot::chain::DETACHED);
     for branch in touched {
-        // A branch the landing does not have has no park to rebuild.
         if Some(branch.as_str()) != landing_branch
             && refs::ref_target(repo, &format!("refs/heads/{branch}"))?.is_none()
         {
+            if let Err(err) = crate::open::clear(repo, &branch, now) {
+                warnings.push(format!("could not drop the open commit of {branch}: {err}"));
+            }
             continue;
         }
         if let Err(err) = crate::open::sync(repo, &branch, now) {
@@ -915,12 +920,9 @@ fn move_pointer(
     )?];
     for (branch, value) in pointers {
         let name = format!("{}{branch}", crate::ops::BRANCH_PREFIX);
-        let Some(current) = refs::ref_target(repo, &name)? else {
-            continue;
-        };
-        match value {
-            Some(id) if id == current => {}
-            Some(id) => edits.push(refs::update_edit(
+        match (refs::ref_target(repo, &name)?, value) {
+            (Some(current), Some(id)) if id == current => {}
+            (Some(current), Some(id)) => edits.push(refs::update_edit(
                 &name,
                 id,
                 gix::refs::transaction::PreviousValue::MustExistAndMatch(
@@ -928,7 +930,18 @@ fn move_pointer(
                 ),
                 &message,
             )?),
-            None => edits.push(refs::delete_edit(&name, current)?),
+            (Some(current), None) => edits.push(refs::delete_edit(&name, current)?),
+            // A branch whose first operation is being re-entered — a start,
+            // a `ff commit -b`, a `ff branch <name> @` — has no pointer
+            // since the undo took it: the redo opens it again, so the
+            // branch's open commit resyncs from its own tip.
+            (None, Some(id)) => edits.push(refs::update_edit(
+                &name,
+                id,
+                gix::refs::transaction::PreviousValue::MustNotExist,
+                &message,
+            )?),
+            (None, None) => {}
         }
     }
 

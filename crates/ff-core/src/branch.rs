@@ -521,9 +521,12 @@ pub fn forget_shared(
 /// `ff branch <name> [<rev>]` — create a branch at a revision, recorded, and
 /// stay where you are. Trunk's tip when `<rev>` is omitted; a branch name
 /// records that branch as the parent, the way `ff start <branch>` does; `@`
-/// puts the tip on the commit under the open change, and the open change
-/// stays where it is. One operation, so `ff undo` takes the whole of it
-/// back. The verb that also moves there is `ff start`.
+/// puts the tip on the commit under the open change and parks a copy of the
+/// open change on the new branch — the same open commit, id, birth, and
+/// description — so `ff switch <name>` resumes it there, while the branch
+/// underfoot keeps its own and nothing moves here. One operation, so `ff
+/// undo` takes the whole of it back. The verb that also moves there is `ff
+/// start`.
 pub fn create(
     repo: &gix::Repository,
     name: &str,
@@ -532,8 +535,9 @@ pub fn create(
     now: Option<i64>,
     argv: Vec<String>,
 ) -> Result<(crate::model::BranchCreateReport, verb::VerbContext)> {
-    // The preamble is this verb's own: under `start` the switch that follows
-    // the mint runs it, and here nothing follows.
+    // The preamble is this verb's own: a dirty tree's park is its open
+    // commit, and the capture is what writes one — the copy under `@` is
+    // that commit, reused.
     let ctx = verb::begin_verb(repo, prov, now)?;
     let now = ctx.now;
     validate_name(name)?;
@@ -545,8 +549,91 @@ pub fn create(
         ));
     }
     let head = crate::head::head_state(repo)?;
-    let open = crate::start::Open::Under(crate::snapshot::chain::base_commit(&head)?);
-    let fork = crate::start::resolve_fork_point(repo, target, open)?;
+    let current = crate::snapshot::chain::chain_name(&head);
+    let head_commit = crate::snapshot::chain::base_commit(&head)?;
+    let fork = crate::start::resolve_fork_point(repo, target, head_commit)?;
+    let parked = if fork.open {
+        crate::switch::park_of(repo, &head, &current, ctx.pre_tree)?
+    } else {
+        None
+    };
+    let carry = parked;
+
+    // The copy is the original's metadata on the new name; the original
+    // keeps its own.
+    let opened = match carry {
+        Some(_) => {
+            let meta = crate::branchmeta::read(repo, &current)?;
+            crate::start::Opened {
+                description: meta.pending_description,
+                change_id: meta.change_id,
+                born: meta.change_born,
+            }
+        }
+        None => crate::start::Opened::default(),
+    };
+
+    let short = crate::sha::short_oid(fork.at);
+    let summary = match carry {
+        Some(_) => format!("create branch {name} at {short}, carrying the open change"),
+        None => format!("create branch {name} at {short}"),
+    };
+    let mut planned = observe_refs(repo)?;
+    planned.refs.insert(heads_ref(name), fork.at.to_string());
+    let mut record = OpRecord::new("branch", summary, now);
+    record.argv = argv;
+    record.refs = vec![RefTransition {
+        name: heads_ref(name),
+        old: None,
+        new: Some(fork.at.to_string()),
+    }];
+    record.description = opened
+        .description
+        .clone()
+        .map(|new| crate::ops::DescriptionTransition {
+            branch: name.to_string(),
+            old: None,
+            new: Some(new),
+        });
+    record.change_id = opened
+        .change_id
+        .clone()
+        .map(|new| crate::ops::ChangeIdTransition {
+            branch: name.to_string(),
+            old: None,
+            new: Some(new),
+            old_born: None,
+            new_born: opened.born,
+        });
+    let mut pins = vec![fork.at];
+    pins.extend(parked);
+    crate::start::clear_stale_open(repo, name, now)?;
+    verb::append_op_hinted(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            // Minting a name touches neither the working tree nor the index.
+            tree: ctx.pre_tree,
+            index_tree: crate::index::tree_from_index(repo)?,
+            // Recorded on the new name when it carries the copy, so the
+            // append writes the new branch's open commit from the record
+            // and undo and redo resync it from the branch's own tip. A
+            // plain mint stays on the branch it runs ON: recorded on the
+            // new name, the dirty worktree would read as that branch's open
+            // change.
+            branch: match carry {
+                Some(_) => name.to_string(),
+                None => current.clone(),
+            },
+            base: head_commit,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        carry,
+        now,
+    )?;
     crate::start::mint_branch(
         repo,
         &crate::start::Mint {
@@ -554,20 +641,21 @@ pub fn create(
             at: fork.at,
             forked_from: &fork.forked_from,
             parent: fork.parent.as_deref(),
-            verb: "branch",
-            summary: &format!("create branch {name} at {}", crate::sha::short_oid(fork.at)),
-            tree: ctx.pre_tree,
+            opened,
         },
         now,
-        &argv,
-        prov,
     )?;
+    let carried = match carry {
+        Some(_) => refs::ref_target(repo, &crate::open::open_ref(name))?.map(|id| id.to_string()),
+        None => None,
+    };
     Ok((
         crate::model::BranchCreateReport {
             name: name.to_string(),
             at: fork.at.to_string(),
             forked_from: fork.forked_from,
             parent: fork.parent,
+            carried,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,

@@ -1,7 +1,8 @@
 //! `ff start` — always mints a fresh branch, forking either at trunk (bare)
-//! or at a resolved revision, and never carries the open change across the
-//! fork. Plus `ff describe` pending-description round trips, unrelated to
-//! start but hosted here alongside the rest of the composition tests.
+//! or at a resolved revision, and carries the open change across the fork
+//! only under `@`, as a copy. Plus `ff describe` pending-description round
+//! trips, unrelated to start but hosted here alongside the rest of the
+//! composition tests.
 
 use ff_core::gix;
 use ff_core::{StartOptions, SwitchOptions};
@@ -183,20 +184,195 @@ fn bare_works_with_remote_only_trunk() {
     );
 }
 
+fn open_ref(fx: &Fixture, branch: &str) -> Option<String> {
+    let out = fx.git(&[
+        "for-each-ref",
+        "--format=%(objectname)",
+        &format!("refs/fufu/open/{branch}"),
+    ]);
+    let out = out.trim();
+    (!out.is_empty()).then(|| out.to_string())
+}
+
+fn rewind_opts(now: i64) -> ff_core::RewindOptions {
+    ff_core::RewindOptions {
+        force: false,
+        now: Some(now),
+        argv: Vec::new(),
+    }
+}
+
+/// The verb operations since `since`'s tip, newest first, read through the
+/// public reader — captures and notes left out, so the count is the count
+/// of decisions.
+fn verb_ops_since(repo: &gix::Repository, since: &Option<ff_core::ops::OpId>) -> Vec<String> {
+    let log = ff_core::ops::OpLog::open(repo).unwrap();
+    let mut out = Vec::new();
+    let mut cursor = log.tip().unwrap();
+    while let Some(id) = cursor {
+        if Some(id) == *since {
+            break;
+        }
+        let op = log.get(id).unwrap();
+        if op.kind() == ff_core::ops::OpKind::Op {
+            out.push(
+                op.record()
+                    .unwrap()
+                    .map(|r| r.verb.clone())
+                    .unwrap_or_default(),
+            );
+        }
+        cursor = op.prev();
+    }
+    out
+}
+
+/// `@` is the one target that carries: the fork lands under the open change
+/// and the new branch receives a copy of it — the same open commit, id,
+/// birth, and description — while main keeps its own, parked. All of it is
+/// one operation, and one undo takes the mint, the copy, and the switch back.
 #[test]
-fn at_is_rejected() {
+fn at_forks_under_the_open_change_and_carries_a_copy() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
-    fx.commit("init");
+    let init = fx.commit("init");
     ident(&fx);
     fx.write("a.txt", "dirty\n");
-
-    let head_before = fx.git(&["symbolic-ref", "HEAD"]);
-    let status_before = fx.git(&["status", "--porcelain=v2"]);
-    let refs_before = fx.git(&["for-each-ref", "--format=%(refname) %(objectname)"]);
-
     let repo = fx.repo();
-    let Err(err) = ff_core::start(
+    ff_core::describe::set_pending(
+        &repo,
+        Some("the plan".into()),
+        &prov(),
+        Some(NOW - 10),
+        Vec::new(),
+    )
+    .unwrap();
+    let main_meta = ff_core::branchmeta::read(&repo, "main").unwrap();
+    let before = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            target: Some("@".into()),
+            branch: Some("spike".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(report.minted, "spike");
+    assert_eq!(
+        fx.git(&["rev-parse", "spike"]).trim(),
+        init,
+        "forked under the open change"
+    );
+    assert_eq!(
+        fx.git(&["symbolic-ref", "HEAD"]).trim(),
+        "refs/heads/spike",
+        "and switched there"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "dirty\n",
+        "the copy is the working tree"
+    );
+    let parked = report.parked.clone().expect("main's change parked");
+    let carried = report.carried.clone().expect("the copy is reported");
+    assert_eq!(carried, parked, "one sha on both branches");
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(parked.as_str()));
+    assert_eq!(open_ref(&fx, "spike").as_deref(), Some(carried.as_str()));
+    assert_eq!(report.parked_from.as_deref(), Some("main"));
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, main_meta.change_id, "same change");
+    assert_eq!(meta.change_born, main_meta.change_born, "same birth");
+    assert_eq!(meta.pending_description.as_deref(), Some("the plan"));
+    assert_eq!(
+        ff_core::branchmeta::read(&repo, "main").unwrap(),
+        main_meta,
+        "main keeps its own"
+    );
+
+    // One operation, recorded on the new branch, carrying every transition.
+    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "start");
+    assert!(record.head.is_some(), "the switch rides the op");
+    assert_eq!(record.refs.len(), 1);
+    assert_eq!(record.refs[0].name, "refs/heads/spike");
+    assert_eq!(record.description.as_ref().unwrap().branch, "spike");
+    assert_eq!(
+        record.description.as_ref().unwrap().new.as_deref(),
+        Some("the plan")
+    );
+    assert_eq!(record.change_id.as_ref().unwrap().branch, "spike");
+    assert_eq!(record.change_id.as_ref().unwrap().new, main_meta.change_id);
+
+    // One undo takes it all back; redo brings it all back.
+    ff_core::undo(&repo, &rewind_opts(NOW + 10), &prov()).unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "dirty\n",
+        "main's change is back underfoot"
+    );
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/spike"])
+            .trim()
+            .is_empty(),
+        "the mint is gone"
+    );
+    assert_eq!(open_ref(&fx, "spike"), None, "and the copy with it");
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(parked.as_str()));
+
+    ff_core::redo(&repo, &rewind_opts(NOW + 20), &prov()).unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/spike");
+    assert_eq!(fx.git(&["rev-parse", "spike"]).trim(), init);
+    assert_eq!(open_ref(&fx, "spike").as_deref(), Some(carried.as_str()));
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(parked.as_str()));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "dirty\n"
+    );
+}
+
+/// A clean tree has nothing to copy: `@` forks under HEAD and opens clean.
+#[test]
+fn at_with_a_clean_tree_carries_nothing() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let init = fx.commit("init");
+    ident(&fx);
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            target: Some("@".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+            .trim(),
+        init
+    );
+    assert_eq!(report.parked, None);
+    assert_eq!(report.carried, None);
+    assert_eq!(open_ref(&fx, &report.minted), None);
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), "", "opens clean");
+    let meta = ff_core::branchmeta::read(&fx.repo(), &report.minted).unwrap();
+    assert_eq!(meta.change_id, None);
+    assert_eq!(meta.pending_description, None);
+}
+
+/// An unborn branch has no commit under its open change to fork at.
+#[test]
+fn at_on_an_unborn_branch_is_refused() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    let err = ff_core::start(
         &repo,
         &StartOptions {
             target: Some("@".into()),
@@ -204,34 +380,185 @@ fn at_is_rejected() {
             ..Default::default()
         },
         &prov(),
-    ) else {
-        panic!("expected an error");
-    };
-    assert_eq!(
-        err.to_string(),
-        "@ is not a start target — ff start always opens a clean branch; \
-         to move the open change onto its own branch, use ff commit -b <name>"
-    );
-
-    assert_eq!(
-        fx.git(&["symbolic-ref", "HEAD"]),
-        head_before,
-        "HEAD unmoved"
-    );
-    assert_eq!(
-        fx.git(&["status", "--porcelain=v2"]),
-        status_before,
-        "working tree untouched"
-    );
-    assert_eq!(
-        fx.git(&["for-each-ref", "--format=%(refname) %(objectname)"]),
-        refs_before,
+    )
+    .expect_err("must refuse");
+    assert_eq!(err.id(), "target/unresolvable");
+    assert_eq!(err.to_string(), "@ has no commit under it yet");
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/"]).trim().is_empty(),
         "no branch minted"
     );
-    assert!(
-        fx.git(&["stash", "list"]).is_empty(),
-        "nothing went to refs/stash"
+}
+
+/// The mint and the switch are one operation, whatever the target: one undo
+/// from a bare start lands back on the branch it left with its tree dirty.
+#[test]
+fn start_is_one_operation() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    let before = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            now: Some(NOW),
+            ..Default::default()
+        },
     );
+    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "start");
+    assert!(record.head.is_some());
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), "", "opens clean");
+
+    ff_core::undo(&repo, &rewind_opts(NOW + 10), &prov()).unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "dirty\n"
+    );
+    assert!(
+        fx.git(&["for-each-ref", &format!("refs/heads/{}", report.minted)])
+            .trim()
+            .is_empty(),
+        "the mint is gone"
+    );
+}
+
+/// `-m` on a carry describes the copy: the same change, under a different
+/// description, so a different sha — and `carried` names the one the new
+/// branch holds.
+#[test]
+fn the_copy_wears_the_dash_m_message() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    ff_core::describe::set_pending(
+        &repo,
+        Some("the plan".into()),
+        &prov(),
+        Some(NOW - 10),
+        Vec::new(),
+    )
+    .unwrap();
+    let main_meta = ff_core::branchmeta::read(&repo, "main").unwrap();
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            target: Some("@".into()),
+            message: Some("the spike".into()),
+            branch: Some("spike".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+    let parked = report.parked.clone().expect("parked");
+    let carried = report.carried.clone().expect("carried");
+    assert_ne!(
+        carried, parked,
+        "a different description is a different sha"
+    );
+    assert_eq!(open_ref(&fx, "spike").as_deref(), Some(carried.as_str()));
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(parked.as_str()));
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, main_meta.change_id, "same change");
+    assert_eq!(meta.pending_description.as_deref(), Some("the spike"));
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s", &carried]).trim(),
+        "the spike"
+    );
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%s", &parked]).trim(),
+        "the plan",
+        "the original keeps its own"
+    );
+    assert_eq!(
+        ff_core::branchmeta::read(&repo, "main")
+            .unwrap()
+            .pending_description
+            .as_deref(),
+        Some("the plan")
+    );
+}
+
+/// The copy is the same change: closed on either branch, it lands as the
+/// same commit — the open commit's sha, which is what both branches hold.
+#[test]
+fn closing_on_both_branches_lands_one_sha() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    ff_core::describe::set_pending(
+        &repo,
+        Some("the plan".into()),
+        &prov(),
+        Some(NOW - 10),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let report = run_start(
+        &fx,
+        StartOptions {
+            target: Some("@".into()),
+            branch: Some("spike".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+    let carried = report.carried.expect("carried");
+
+    let close = |now: i64| {
+        let (outcome, _) = ff_core::close(
+            &repo,
+            &ff_core::CloseOptions {
+                now: Some(now),
+                ..Default::default()
+            },
+            &prov(),
+        )
+        .unwrap();
+        let ff_core::CommitOutcome::Closed { id, .. } = outcome;
+        id
+    };
+    let on_spike = close(NOW + 10);
+    assert_eq!(on_spike, carried);
+
+    let (switch_report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: "main".into(),
+            now: Some(NOW + 20),
+            argv: Vec::new(),
+        },
+        &prov(),
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            switch_report.arrival,
+            ff_core::ArrivalReport::Restored { .. }
+        ),
+        "{:?}",
+        switch_report.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "dirty\n"
+    );
+    let on_main = close(NOW + 30);
+    assert_eq!(on_main, on_spike, "one change, one sha, on both branches");
 }
 
 #[test]
@@ -453,6 +780,10 @@ fn message_describes_the_opened_change() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
     ident(&fx);
+    let before = ff_core::ops::OpLog::open(&fx.repo())
+        .unwrap()
+        .tip()
+        .unwrap();
 
     let report = run_start(
         &fx,
@@ -462,7 +793,8 @@ fn message_describes_the_opened_change() {
             ..Default::default()
         },
     );
-    let meta = ff_core::branchmeta::read(&fx.repo(), &report.minted).unwrap();
+    let repo = fx.repo();
+    let meta = ff_core::branchmeta::read(&repo, &report.minted).unwrap();
     assert_eq!(meta.pending_description.as_deref(), Some("next: the plan"));
     assert_eq!(
         fx.git(&[
@@ -475,6 +807,22 @@ fn message_describes_the_opened_change() {
         "init",
         "the message lands as a pending description, not a commit"
     );
+    // The description rides the start's one operation, and a described
+    // change has an identity from the start.
+    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "start");
+    let transition = record
+        .description
+        .as_ref()
+        .expect("a description transition");
+    assert_eq!(transition.branch, report.minted);
+    assert_eq!(transition.new.as_deref(), Some("next: the plan"));
+    let minted = record.change_id.as_ref().expect("a minted id");
+    assert_eq!(minted.branch, report.minted);
+    assert_eq!(minted.new, meta.change_id);
+    assert_eq!(meta.change_id.as_ref().map(String::len), Some(32));
+    assert_eq!(meta.change_born, Some(NOW));
 }
 
 #[test]

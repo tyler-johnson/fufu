@@ -1003,6 +1003,10 @@ pub struct StartReport {
     /// is a different branch whenever the target names one. `Some` exactly
     /// when `parked` is: the two travel together.
     pub parked_from: Option<String>,
+    /// The open commit the new branch holds a copy of: the parked one under
+    /// `@`, or its re-described twin when `-m` rode along. `None` when
+    /// nothing was open or the target was not `@`.
+    pub carried: Option<String>,
 }
 
 /// One branch row for `ff branch`.
@@ -1149,6 +1153,9 @@ pub struct BranchCreateReport {
     pub forked_from: String,
     /// The branch it forked from when the target named one.
     pub parent: Option<String>,
+    /// The open commit the new branch holds a copy of, under `@`. `None`
+    /// when nothing was open or the target was not `@`.
+    pub carried: Option<String>,
     pub pre_op: Option<String>,
 }
 

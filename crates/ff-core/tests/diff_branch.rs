@@ -272,6 +272,133 @@ fn delete_trashes_chain_leaves_the_open_commit_and_journals() {
     assert!(after.is_quiet(), "{after:?}");
 }
 
+fn open_ref(fx: &Fixture, branch: &str) -> Option<String> {
+    let out = fx.git(&[
+        "for-each-ref",
+        "--format=%(objectname)",
+        &format!("refs/fufu/open/{branch}"),
+    ]);
+    let out = out.trim();
+    (!out.is_empty()).then(|| out.to_string())
+}
+
+fn rewind_opts(now: i64) -> ff_core::RewindOptions {
+    ff_core::RewindOptions {
+        force: false,
+        now: Some(now),
+        argv: Vec::new(),
+    }
+}
+
+/// `ff branch <name> @` parks a copy of the open change on the new branch:
+/// the same open commit and metadata under the new name, recorded on the
+/// new name so the copy goes with the mint under one undo, while the branch
+/// underfoot keeps its own and nothing moves.
+#[test]
+fn create_at_the_open_change_carries_a_copy_and_undo_takes_it_back() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let init = fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "dirty\n");
+    let repo = fx.repo();
+    ff_core::describe::set_pending(
+        &repo,
+        Some("the plan".into()),
+        &prov(),
+        Some(NOW - 10),
+        Vec::new(),
+    )
+    .unwrap();
+    let main_meta = ff_core::branchmeta::read(&repo, "main").unwrap();
+    let main_open = open_ref(&fx, "main").expect("main's open commit");
+    let status_before = fx.git(&["status", "--porcelain=v2"]);
+
+    let (report, _ctx) =
+        ff_core::branch::create(&repo, "spike", Some("@"), &prov(), Some(NOW), Vec::new()).unwrap();
+    assert_eq!(report.at, init);
+    assert_eq!(report.carried.as_deref(), Some(main_open.as_str()));
+    assert_eq!(open_ref(&fx, "spike").as_deref(), Some(main_open.as_str()));
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, main_meta.change_id);
+    assert_eq!(meta.change_born, main_meta.change_born);
+    assert_eq!(meta.pending_description.as_deref(), Some("the plan"));
+    assert_eq!(
+        meta.forked_from.as_deref(),
+        Some(report.forked_from.as_str())
+    );
+
+    // Nothing moved here.
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), status_before);
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(main_open.as_str()));
+    assert_eq!(ff_core::branchmeta::read(&repo, "main").unwrap(), main_meta);
+
+    // Recorded on the new name, with the copy's transitions.
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "branch");
+    assert!(
+        record.summary.contains("carrying the open change"),
+        "{}",
+        record.summary
+    );
+    assert_eq!(record.head, None, "nothing moved");
+    assert_eq!(record.description.as_ref().unwrap().branch, "spike");
+    assert_eq!(record.change_id.as_ref().unwrap().branch, "spike");
+    assert_eq!(record.change_id.as_ref().unwrap().new, main_meta.change_id);
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let tip = log.get(log.tip().unwrap().unwrap()).unwrap();
+    assert_eq!(tip.branch(), Some("spike"));
+
+    ff_core::undo(&repo, &rewind_opts(NOW + 10), &prov()).unwrap();
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/spike"])
+            .trim()
+            .is_empty(),
+        "the mint is gone"
+    );
+    assert_eq!(open_ref(&fx, "spike"), None, "and the copy with it");
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, None);
+    assert_eq!(meta.pending_description, None);
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(main_open.as_str()));
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), status_before);
+
+    ff_core::redo(&repo, &rewind_opts(NOW + 20), &prov()).unwrap();
+    assert_eq!(fx.git(&["rev-parse", "spike"]).trim(), init);
+    assert_eq!(open_ref(&fx, "spike").as_deref(), Some(main_open.as_str()));
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, main_meta.change_id);
+    assert_eq!(meta.pending_description.as_deref(), Some("the plan"));
+    assert_eq!(open_ref(&fx, "main").as_deref(), Some(main_open.as_str()));
+}
+
+/// A clean tree has nothing to copy: `@` is the commit under HEAD, and the
+/// mint is recorded on the branch it runs on, as any other target's is.
+#[test]
+fn create_at_the_open_change_with_a_clean_tree_copies_nothing() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let init = fx.commit("init");
+    ident(&fx);
+    let repo = fx.repo();
+
+    let (report, _ctx) =
+        ff_core::branch::create(&repo, "spike", Some("@"), &prov(), Some(NOW), Vec::new()).unwrap();
+    assert_eq!(report.at, init);
+    assert_eq!(report.carried, None);
+    assert_eq!(open_ref(&fx, "spike"), None);
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.change_id, None);
+    assert_eq!(meta.pending_description, None);
+    let record = tip_record(&repo);
+    assert_eq!(record.description, None);
+    assert_eq!(record.change_id, None);
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let tip = log.get(log.tip().unwrap().unwrap()).unwrap();
+    assert_eq!(tip.branch(), Some("main"));
+}
+
 #[test]
 fn delete_refuses_current_and_unknown() {
     let fx = Fixture::new();

@@ -134,20 +134,8 @@ pub fn switch(
         .map_err(Error::repo)?
         .detach();
 
-    // The park: the open commit the preamble's capture wrote for the tree
-    // it is leaving, when the tree is dirty. Nothing is written for it; a
-    // dirty tree with no commit to stand as its park refuses before anything
-    // moves.
     let head_commit = crate::snapshot::chain::base_commit(&head)?;
-    let head_tree = head_tree_of(repo, &head).unwrap_or(target_tree);
-    let parked = if ctx.pre_tree == head_tree {
-        None
-    } else {
-        Some(
-            open::current(repo, &current, ctx.pre_tree, head_commit)?
-                .ok_or_else(|| park::no_park(&head, &current))?,
-        )
-    };
+    let parked = park_of(repo, &head, &current, ctx.pre_tree)?;
 
     // Plan phase: the arrival, before anything moves — the operation
     // describes the whole switch up front.
@@ -190,13 +178,15 @@ pub fn switch(
         now,
     )?;
 
-    // Mutate: retarget, index, worktree, arrive — in that order. The
-    // worktree holds the pre-verb capture's tree, untracked files included,
-    // so one transition clears the slate.
-    branch::retarget_head(repo, &target_ref, now)?;
-    crate::index::write_index_for_tree(repo, target_tree)?;
-    let everything = |_: &str| true;
-    worktree::apply_tree_transition(repo, ctx.pre_tree, target_tree, &everything)?;
+    // Mutate: retarget, index, worktree, arrive — in that order.
+    move_worktree(
+        repo,
+        &target_ref,
+        ctx.pre_tree,
+        target_tree,
+        target_tree,
+        now,
+    )?;
     let arrival = park::execute_arrival(repo, &target, &arrive, target_tree, now)?;
 
     Ok((
@@ -209,6 +199,45 @@ pub fn switch(
         },
         ctx,
     ))
+}
+
+/// The park a verb leaving `current` leaves behind: `None` on a clean tree,
+/// else the open commit the preamble's capture wrote for `pre_tree`. Nothing
+/// is written for it; a dirty tree with no commit to stand as its park
+/// refuses before anything moves.
+pub(crate) fn park_of(
+    repo: &gix::Repository,
+    head: &HeadState,
+    current: &str,
+    pre_tree: gix::ObjectId,
+) -> Result<Option<gix::ObjectId>> {
+    let head_commit = crate::snapshot::chain::base_commit(head)?;
+    if head_tree_of(repo, head) == Some(pre_tree) {
+        return Ok(None);
+    }
+    Ok(Some(
+        open::current(repo, current, pre_tree, head_commit)?
+            .ok_or_else(|| park::no_park(head, current))?,
+    ))
+}
+
+/// Retarget HEAD, rewrite the index to `index_tree`, and move the worktree
+/// from `from_tree` to `end_tree` — in that order. The worktree holds the
+/// pre-verb capture's tree, untracked files included, so one transition
+/// clears the slate.
+pub(crate) fn move_worktree(
+    repo: &gix::Repository,
+    target_ref: &str,
+    from_tree: gix::ObjectId,
+    index_tree: gix::ObjectId,
+    end_tree: gix::ObjectId,
+    now: i64,
+) -> Result<()> {
+    branch::retarget_head(repo, target_ref, now)?;
+    crate::index::write_index_for_tree(repo, index_tree)?;
+    let everything = |_: &str| true;
+    worktree::apply_tree_transition(repo, from_tree, end_tree, &everything)?;
+    Ok(())
 }
 
 fn head_tree_of(repo: &gix::Repository, head: &HeadState) -> Option<gix::ObjectId> {
