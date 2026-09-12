@@ -4,48 +4,34 @@
 
 ### Added
 
-- A branch a remote holds is a target for `ff switch`, bare or qualified: `ff switch spike` with only `origin/spike` mints the local branch under that name, tracking it, the way `git switch spike` does; a bare name two remotes hold is `branch/ambiguous`, listing both. `--json` carries `switch.minted` — `forked_from`, `parent`, `tracking`, `carried` — and the operation records the upstream it set as `upstream` on `op.json`, so `ff undo` takes the section back.
-- Bare `-b` on `ff switch`: `ff switch main -b` forks main onto an anonymous branch. It goes after the target; `ff switch -b main` asks for a branch named main.
-- `--from <revset>` on `ff absorb`, `--into <rev>` on `ff lift`, and `-m <msg>` and `--no-verify` on both. The sources are a contiguous run of commits on the branch's line, the open change allowed on top; the target is any commit on the line — below the run, above it, or inside it — or the open change. `ff absorb --from HEAD~2..` folds two commits into the third, the way `git rebase -i`'s squash does; `ff lift --from HEAD~2..` uncommits both; `ff lift --from HEAD~3 --into HEAD` moves a commit's content up the stack. A source the move empties is dropped and named. `-m` rewords a closed target under `commit-msg`, or sets the open change's pending description.
-- `usage/move-gap` for sources that are not one run, exiting with the run's spelling; `usage/move-into-self` for a target that is its only source; `absorb/into-trunk` for a bare absorb whose default target — the commit under the sources — sits on trunk.
+- `ff switch <branch>` takes a branch only a remote holds, minting the local branch under that name and tracking it, the way `git switch` does; a name two remotes hold is `branch/ambiguous`.
+- Bare `-b` on `ff switch`: `ff switch main -b` forks main onto an anonymous branch.
+- `--from <revset>` on `ff absorb` and `--into <rev>` on `ff lift`, with `-m` and `--no-verify` on both: a contiguous run of commits moves into any commit on the branch's line, or the open change. `ff absorb --from HEAD~2..` squashes two commits into the third; `ff lift --from HEAD~3 --into HEAD` moves a commit's content up the stack. A source the move empties is dropped and named.
 
 ### Changed
 
-- `ff absorb` and `ff lift` are one move and say the same thing: `moved <n> file(s) from <sources> into <target>`, then the restack, the drops, and the rest. `--json` carries the report under `move` (was `absorb` / `lift`), with `from` (each source's id, subject, new sha, and whether it was dropped), `into`, and `files`; the envelope's `cmd` stays the verb typed. The operation's summary is one shape, `move from <sources> into <target> on <branch>`. `usage/absorb-into-open` and `usage/lift-from-open` are raised by the bare shapes only.
-
-- `ff start` and `ff new` are spellings of `ff switch`, and the rule under every spelling is one sentence: find the branch, else mint it. `ff start <branch>` continues the branch (it forked; `ff start <branch> -b` forks). `-m` on a switch that opens nothing is `switch/nothing-opened`. Every spelling is one operation, recorded as `switch`, and one `ff undo` takes back the mint, the copy, and the move.
-- `ff branch`'s remote-only rows wear the brackets, since `ff switch <name>` takes the name.
-- The open change is a commit. A capture of a dirty tree writes it — the tree over HEAD, the user as author at the change's birth, the pending description, the `change-id` header — at `refs/fufu/open/<branch>`, and the `@` row's sha on `ff log`, `ff status`, `ff show @`, and the map is that commit's rather than a prediction. The ref is deleted when the tree is clean, carried by a rename, and dropped by `ff branch -d`; `ff undo` and `ff redo` put it back. Under signing the column stays blank.
-- `ff commit` moves the branch onto the open commit, so the sha the `@` row showed is the sha the `●` row wears. When it cannot — signing is on, a partial close, a hook changed the tree or the message — it mints one and says why on a `re-minted:` line; `--json` carries it as `reminted` (`signed`, `partial`, `hook_tree`, `hook_message`, or null). A `-m` that differs from the description mints one without the line. A minted commit is authored at the change's birth.
-- `@^` is `HEAD` and `@~n` is `HEAD~(n-1)`: the open change's parent suffixes step onto the commit under it, and `@~3..@` is two commits plus the open change. `@@{n}` stays `usage/revset-open-suffix`, reworded — `@` has no reflog, and `@{n}` alone is HEAD's.
-- Every operation states the open commit it leaves as a `fufu-open` trailer and carries it as its last parent, so the log pins it. The first capture on a dirty tree after upgrading appends once to state one.
-- `ff start @` forks at the commit under the open change and carries a copy of it onto the new branch — the same open commit, change id, birth, and description — while the branch left behind keeps its own, parked; it was refused with `target/unresolvable`. `-m` describes the copy. The report and `--json` carry the copy's sha as `carried`.
-- `ff branch <name> @` parks a copy of the open change on the new branch, so `ff switch <name>` resumes it there; the open change underfoot stays. `--json` carries `carried`.
-- `-m` on a mint rides the switch's one operation rather than appending a `describe` operation. `ff undo` drops the open ref of a branch the landing does not have, and `ff redo` reopens the log pointer of a branch whose first operation it re-enters.
-- `ff hook <slug>`, `ff hook -u`, and `ff unhook <slug>` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`, and say so; a hand-written one is left alone.
-- The park is the open commit. `ff switch`, `ff start`, `ff edit`, and `ff resolve` leave a dirty tree's change where the capture put it, at `refs/fufu/open/<branch>`, where `git log --all` shows it one above the branch; the `parked the open change` line names that sha, the `@` row's.
-- `git stash list` and GUI stash panels no longer show `fufu: wip on <branch>` rows; nothing fufu does writes to `refs/stash`.
-- Staged state is not carried across a park: the open change is the worktree, so a staged hunk comes back as an unstaged edit and a staged-only mode change does not come back.
-- Arriving on a branch whose tip moved under its park replays the open commit onto the new tip with the same change id. A replay that conflicts holds the branch: the switch still happens, exit 3, `ff status` says `held: ff switch conflicts at your open change`, `ff resolve` lays the change into the working copy with markers in place, and `ff resolve --abandon` drops it and names the commit. A tip that already holds the change lands it.
-- `ff branch -d`, `ff fold`, and `ff done --abandon` name the open commit they leave behind, pinned by the operation, and write nothing to `refs/stash`.
-- A park made by an earlier fufu — a stash entry plus `refs/fufu/parked/<branch>` — folds into the branch's open commit on the first arrival there, with a `folded its stash entry` line; `ff doctor` lists such parks on a second `parked` row until then.
-- `ff undo` and `ff redo` resync the open commit of every branch an operation touched, the origin of a switch included.
-- A dirty tree with no `user.name` refuses to switch away, since no open commit could be written to stand as its park.
-- `--json` renames: `arrival.state` gains `held` and `landed` and loses `still_parked`; `restored`, `held`, and `landed` carry `open` (was `stash`) and `folded`; `ff restack` and `ff fold`'s `parked.open` (was `stash`); `ff branch -d` and `ff fold`'s `open_left` (was `parked_demoted`); `ff done --abandon`'s `left` (was `stashed`); `ff resolve --json` gains `laid` and `abandoned.left`.
+- The open change is a commit, written at `refs/fufu/open/<branch>` by every capture of a dirty tree. The `@` row's sha on `ff log`, `ff status`, and `ff show` is that commit's, and `ff commit` moves the branch onto it, minting a new one only where it must (signing, a partial close, a hook that changed the tree or message) and saying so on a `re-minted:` line.
+- The park is the open commit. `ff switch` and its kin leave a dirty tree's change at that ref, `git stash list` no longer shows `fufu: wip on <branch>` rows, and a park made by an earlier fufu folds into the open commit on the first arrival there.
+- Staged state is not carried across a park: a staged hunk comes back as an unstaged edit.
+- Arriving on a branch whose tip moved under its park replays the open commit onto the new tip; a replay that conflicts holds the branch (exit 3), and `ff resolve` lays the change into the working copy.
+- `@^` is `HEAD` and `@~n` is `HEAD~(n-1)`, so `@~3..@` is two commits plus the open change.
+- `ff start` and `ff new` are spellings of `ff switch`, and every spelling is one operation: find the branch, else mint it. `ff start <branch>` continues the branch; `-b` forks.
+- `ff start @` and `ff branch <name> @` carry a copy of the open change onto the new branch while the branch left behind keeps its own; `ff start @` was refused.
+- `ff absorb` and `ff lift` are one move and say the same thing: `moved <n> file(s) from <sources> into <target>`, then the restack and the drops. `--json` carries the report under `move`.
+- A dirty tree with no `user.name` refuses to switch away, since no open commit could stand as its park.
+- `ff hook` and `ff unhook` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`.
+- `--json` renames: `arrival.state` gains `held` and `landed` and loses `still_parked`; `open` replaces `stash` under `restored`, `held`, `landed`, and `parked`; `open_left` replaces `parked_demoted`; `ff done --abandon`'s `left` replaces `stashed`.
 
 ### Removed
 
-- The `absorb` and `lift` payload keys under `--json`; both verbs carry `move`.
-- `ff start`'s own page and the `start` envelope and payload: `ff help start` is switch's page, and `--json` under every spelling is `switch` carrying `switch`. `ff switch <rev>`'s `is a revision, not a branch` redirect line; the revision is the verb's own rung, and the `minted` line says where it forked.
-- `ff mcp` and its registration in the four agent clients: Claude's plugin `.mcp.json`, Codex's marked block in `config.toml`, and `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. `ff hook -l` and `ff hook --json` no longer report `mcp`.
-- The briefing's tools line.
-- `ff doctor`'s `mcp` row.
-- The declared extension side: `ff extension` and the registry under the user's config directory (a file left on disk is ignored), the `--ff-manifest`, `--ff-tools`, and `--ff-skill` handshakes, `ff help <name>` and `ff explain <name>/<id>` delegation, the briefing's extension line, the agent-event fan-out, extension skills under `skills/<skill>/` for Claude and Codex, `ff hook --skill <name>` (bare `--skill` stays), `extensions` in `ff hook --json`, `ff update`'s extension walk and release check, `ff doctor`'s declared rows, and the `extension/*` error ids. `ff <name>` still runs `ff-<name>` from PATH with `FF_REPO`, `FF_CONTRACT`, and `FF_SESSION`.
-- The operation route: `route()` in the op revset, the `route` line on `ff op show`, and `route` in op JSON on `ff op show`, `ff op log`, `ff watch`, and `ff status`'s `last_op`. A `fufu-route:` trailer on an earlier operation is read past.
+- `ff mcp` and its registration in the four agent clients.
+- The declared extension side: `ff extension`, the registry, the `--ff-manifest`, `--ff-tools`, and `--ff-skill` handshakes, and the `extension/*` error ids. `ff <name>` still runs `ff-<name>` from PATH.
+- The operation route: `route()` in the op revset and the `route` line and key on `ff op show`.
+- `ff start`'s own help page and JSON envelope; `ff help start` is switch's page, and `--json` under every spelling is `switch`. The `absorb` and `lift` JSON keys; both verbs carry `move`.
 
 ### Fixed
 
-- A range revset — `x..`, `x..y`, `~(::x)` — no longer leaks a ref tip that stands under the hidden commit when the two share a commit time: `HEAD~1..` on a branch whose commits closed in the same second as trunk's tip listed trunk's tip.
+- A range revset — `x..`, `x..y` — no longer leaks a ref tip that shares a commit time with the hidden commit.
 - `ff pull`'s native fetch no longer opens every linked worktree once per advertised ref; gix upgraded to 0.87.1 (#10).
 
 ## v0.14.0 — 2026-09-10
