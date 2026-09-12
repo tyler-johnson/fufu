@@ -14,7 +14,7 @@ Then what a remote is holding that is not here: the branches a clone or a fetch 
 
 ## Creating
 
-`ff branch <name>` mints a branch at trunk's tip and leaves you where you stand. `<rev>` forks it elsewhere: a revision puts the tip on that commit, and a branch name puts it on that branch's tip and records the branch as the parent, so the new one has a base to be measured against. `@` puts the tip on the commit under the open change, and the open change stays where it is — nothing moves, nothing parks.
+`ff branch <name>` mints a branch at trunk's tip and leaves you where you stand. `<rev>` forks it elsewhere: a revision puts the tip on that commit, and a branch name puts it on that branch's tip and records the branch as the parent, so the new one has a base to be measured against. `@` puts the tip on the commit under the open change and parks a copy of the open change on the new branch, so [`ff switch <name>`](switch.md) resumes it there; nothing moves and nothing parks here.
 
 `ff start` is the verb that also moves there. Creating is one operation, so [`ff undo`](undo.md) takes the whole of it back.
 

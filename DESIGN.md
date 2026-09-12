@@ -189,11 +189,17 @@ arrival materializes the destination's own, so starting is always travel:
 the open change parks where it was and the new branch opens clean, exactly
 as a switch would leave things. Bare, it forks trunk; a `<rev>` forks there
 instead. `-m` describes the change being opened, `-b` names the minted
-branch. Work already begun moves onto its own branch through `ff commit -b
-<name>`, which closes it onto a fresh branch and leaves the current one
-standing — no verb carries a working copy across a fork. `ff edit` sits
-adjacent: it targets *commits* (a session), `ff switch` targets *branches*,
-and `ff edit <branch>` simply behaves as `ff switch`.
+branch. The whole of it is one operation — the mint, the switch, and the
+description — so one `ff undo` takes it back. The one target that carries
+anything is `@`: the fork lands at the commit under the open change and the
+new branch receives a *copy* of it, the same open commit under both names,
+while the branch left behind keeps its own. A copy, so `ff branch <name>
+@` parks one on the new branch without moving, and work already begun still
+moves onto its own branch through `ff commit -b <name>`, which closes it
+onto a fresh branch and leaves the current one standing. That copy is the
+only thing any verb carries across a fork. `ff edit` sits adjacent: it
+targets *commits* (a session), `ff switch` targets *branches*, and `ff edit
+<branch>` simply behaves as `ff switch`.
 
 **Trunk is known.** Several verbs need to know what "main" is: `ff sync`
 rebases onto it, futures in `ff status` measure against it, and bare `ff

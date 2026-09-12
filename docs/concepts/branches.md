@@ -4,7 +4,7 @@
 
 [`ff start`](../reference/cli/start.md) begins every new line of work on a fresh branch. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead.
 
-The [open change](changes.md) — the edits sitting in your working copy — parks with the branch you are leaving, and the new branch opens clean. Nothing ever crosses a fork. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
+The [open change](changes.md) — the edits sitting in your working copy — parks with the branch you are leaving, and the new branch opens clean; only `ff start @` carries a copy of it across, and the branch you left keeps its own. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
 
 ## Minted names
 

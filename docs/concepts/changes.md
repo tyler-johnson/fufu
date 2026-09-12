@@ -56,7 +56,7 @@ Both halves are reported, so you always know where your work went and what came 
 
 `ff start` is the other verb that leaves the open change behind. It forks a fresh branch — from trunk, your main line of development, unless you name a revision — and the change it opens there is clean and empty.
 
-Nothing ever crosses a fork. The open change parks where it was, on the branch it belongs to, and the new line of work begins from a commit alone. If the fork itself is the idea, and you thought of the next task mid-edit, `ff start -m "the next thing"` opens the new change already described. `ff start` never creates a commit.
+Nothing crosses a fork but one thing: `ff start @` forks at the commit under the open change and carries a copy of it, the same sha on both branches, while the branch you left keeps its own. Every other target parks the open change where it was, on the branch it belongs to, and the new line of work begins from a commit alone. If the fork itself is the idea, and you thought of the next task mid-edit, `ff start -m "the next thing"` opens the new change already described. `ff start` never creates a commit.
 
 The three verbs divide the ground cleanly: `ff commit` records, `ff switch` resumes, `ff start` begins.
 
