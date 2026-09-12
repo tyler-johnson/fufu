@@ -254,6 +254,21 @@ ff undo then ff push rolls the shared copy back, under a lease
 
 The same rules protect the other side: if your own push would have overwritten work somebody pushed in good faith, the lease refuses that too. [The push boundary](../concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
 
+## "I need a parked change back with plain git"
+
+A change parked by [`ff switch`](../reference/cli/switch.md) is the branch's open commit, an ordinary commit one above the branch at `refs/fufu/open/<branch>`. With fufu, `ff switch <branch>` resumes it. Without fufu, find it and take it back by hand:
+
+```console
+$ git log --all --oneline -3
+9f77e40 
+a011bfc (main) init
+76ddec6 operation log initialized from observed state; earlier operations not undoable
+
+$ git cherry-pick -n 9f77e40
+```
+
+The empty subject is the change's pending description, which it had none of. `git cherry-pick -n` lays the change back as uncommitted edits; `git checkout 9f77e40 -- .` takes the whole tree instead.
+
 ## What undo cannot reach
 
 Two things sit outside the net, and fufu tells you about both at the moment they matter.

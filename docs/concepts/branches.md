@@ -22,7 +22,7 @@ The ordering matches how work actually goes. You start a spike before you know w
 
 The rename carries everything fufu associates with the branch — the chain of [snapshots](snapshots-and-undo.md) taken before each action, any parked change, and the pending description.
 
-This is the part a bare `git branch -m` would orphan. git renames the ref, but the stash entry labeled with the old name, and fufu's records keyed to it, would be left pointing at a branch that no longer exists. Going through the fufu verb keeps the whole bundle attached. That is [the two regimes](two-regimes.md) in miniature.
+This is the part a bare `git branch -m` would orphan. git renames the ref, but the open commit's ref under the old name, and fufu's records keyed to it, would be left pointing at a branch that no longer exists. Going through the fufu verb keeps the whole bundle attached. That is [the two regimes](two-regimes.md) in miniature.
 
 Claiming a name is also the natural "this is real now" gesture. An anonymous branch is fine to work on indefinitely, but once work heads for a remote, a real name is what marks it as something the rest of the world will see.
 
@@ -48,7 +48,7 @@ Each row carries the branch's tip and the subject there, plus what is hanging of
 
 Below your own branches come the ones a remote holds and you do not. You cannot switch to those directly, because `ff switch` resolves local names only. `ff start origin/spike` is the verb that forks one of them into a branch here.
 
-`ff branch -d` removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its parked change is demoted to an ordinary stash entry, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
+`ff branch -d` removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its open change stays pinned as a commit that timeline names, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
 
 A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease: the removal goes through only if the remote copy still stands where you last saw it. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
 

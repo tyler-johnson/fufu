@@ -63,7 +63,7 @@ stripped of fufu is slower, not stranded.
 The corollary's strong form: fufu is **abandonable and returnable at any moment**,
 not merely removable once. A GUI session, a teammate's raw git, a weekend on a
 machine without fufu — all legitimate, all absorbable. This forces one deep design
-rule: fufu's state (the operation log, rewrite map, parked trees, held rewrites) is a *cache
+rule: fufu's state (the operation log, rewrite map, open commits, held rewrites) is a *cache
 over git, never an authority*. When fufu's records disagree with the repository,
 the repository wins and fufu rebuilds its picture from what it observes. Returning
 is reconciliation, not recovery — and reconciliation is loud about anything it
@@ -125,50 +125,37 @@ ground for fufu, not its ancestor — lessons carry over, compatibility is not o
 ### Floor 2 — Time
 
 **Tree memory.** The working copy stops being a global that belongs to no branch.
-Leaving a branch through fufu parks its dirty state — untracked files included —
-as an ordinary git stash entry labeled with the branch; arriving brings that
-branch's parked entry back. The mechanism is deliberately the one a user would
-reach for by hand: every GUI has a stash panel, so a user without fufu sees
-exactly what was parked (`fufu: wip on feature-x`) right next to the button that
-restores it. It is the stash *dance* that ceases to exist, not the stash — fufu
-drives the idiom, and never forgets which entry belongs to which branch, or the
-second half.
+Leaving a branch through fufu writes nothing for its dirty state: the open
+change is already a commit — the open commit at `refs/fufu/open/<branch>`,
+untracked files included, the change id as a header — and that commit is the
+park. One fact, not two: the `@` row's sha is the sha you leave behind, `git
+log --all` shows it one above the branch, and no stash panel has a row for it.
+Arriving lays that commit's tree back over the branch's tip, the pending
+description with it. The index is not carried: the open change is the
+worktree, a staged hunk comes back as an unstaged edit.
 
-fufu tracks its parked entries by identity, not position: a ref
-(`refs/fufu/parked/<branch>`) records the stash commit's own sha — stable where
-`stash@{n}` is not, content-addressed so validation is free, and incidentally
-pinning the entry against gc. On arrival fufu finds that exact sha in the stash
-reflog and applies only it. It never selects a stash dynamically — by message,
-position, or base commit — so a user's own stashes are never touched; the label
-is for humans and stash panels, not identification. If the recorded sha is gone
-from the stash reflog (popped by hand), the record is invalidated per
-cache-not-authority: the reflog is the truth, the ref is the cache.
+Arrival never applies blind. The open commit's parent is the tip it was made
+on; when the tip still stands there the tree is laid back and the same sha
+stays. When the tip moved while the change was parked — a pull, a commit made
+with git, a rewrite — the one commit is replayed onto the new tip by a
+three-way merge and written again with the same change id, so the change
+keeps its identity across the move. A replay that conflicts holds the branch:
+the switch still happens, the tree is clean, exit 3, and `ff resolve` lays the
+change into the working copy with markers, in place — there is no closed
+commit for a session to protect, and the working copy is where an open
+change's conflicts belong. `ff resolve --abandon` drops the hold and names the
+commit, which stays pinned by the operation that held it. A replay that is
+empty — the tip already holds the change — lands it, and its id goes with it.
 
-Invalidation demotes, never deletes. A stash dropped by hand is normally
-unreachable and eventually gc'd; here the parked ref simply becomes a timeline
-entry — dropped stash, kept by retention, restorable through `ff restore` —
-so hand-dropped work stays recoverable by name long after git would have
-swept it (jog's `@trash` pattern).
-
-Reconciliation never reconstructs what the user did; it compares states, which
-content-addressing makes reliable. At the next invocation: sha gone from the
-stash reflog → the user took over (popped or dropped); demote, capture the tree
-as it stands. Sha present but its application is a no-op → they applied it by
-hand; drop and demote, silently satisfied. Still applicable and clean → offer,
-don't inject — the arrival was git's, and completing fufu's arrival ritual
-uninvited would cross the regime boundary. Conflicting → the ordinary
-held-restore. The one state ambiguity (applied by hand, then edited, entry
-kept — indistinguishable from conflicting parked work) is resolved by asking,
-not guessing; the capture stream often disambiguates it anyway, since a
-snapshot between the apply and the edits shows the intermediate tree.
-
-Arrival never applies blind. fufu first checks the application in memory
-(`merge-tree`): clean → applied and dropped; conflicting (the branch moved while
-parked) → the entry stays parked and the restore becomes a held rewrite,
-announced like any other. A foreign switch gets git's exact semantics — dirty
-changes carry over or the switch is refused — and any parked entry simply waits,
-visible in `git stash list`. Conflict risk on foreign moves is expected (the two
-regimes); the capture floor holds the safety copy regardless.
+A park made before the open commit was the park — an ordinary `git stash push
+-u` entry tracked by identity in `refs/fufu/parked/<branch>` — folds into an
+open commit on the first arrival and is spent; a verb that only deletes or
+carries such a ref leaves the entry on the stash list, the behavior it had. An
+entry dropped by hand demotes the ref, never deletes: the reflog is the truth,
+the ref is the cache. A foreign switch gets git's exact semantics — dirty
+changes carry over or the switch is refused — and any parked change simply
+waits, visible under `refs/fufu/open/`. Conflict risk on foreign moves is
+expected (the two regimes); the capture floor holds the safety copy regardless.
 
 **The open change.** jj makes the working copy a literal commit, eagerly created
 empty and continuously amended. fufu keeps the object and drops the eagerness:
@@ -232,7 +219,7 @@ commits land, because that is git's own behavior once HEAD is attached
 name: every `ff start` mints an **anonymous branch** — a
 real branch with a generated name under a reserved prefix (`ff/quiet-lake`) —
 unless `-b` names it at birth; `ff describe -b <name>` names it later: a rename that carries the capture
-chain, the parked entry, and fufu's metadata along, which is the part a bare
+chain, the open commit, and fufu's metadata along, which is the part a bare
 `git branch -m` would orphan. A `-b <name>` flag rides the change verbs
 on the same axis as `-m`: on `ff describe` it names the branch you are on,
 which is why naming lives there and nowhere else — one verb says what work
@@ -294,7 +281,7 @@ The chain lives in the *shared* ref namespace rather than under `refs/worktree/`
 
 A worktree's chain is parentless rather than forked off another. Rooting it in the main worktree's would make a first-parent walk present another tree's operations as this one's past, and would entangle trim across trees.
 
-**A branch is open in at most one worktree, and fufu is what enforces it.** git refuses to check a branch out twice; gix's ref transactions do not, and fufu moves HEAD through one. So fufu carries the check itself, on every path that opens a branch rather than only on rename and delete, and it names the branch and the worktree the way git does. That is also what makes branch-keyed state safe to leave shared: `refs/fufu/snap/<branch>`, the parked entry, and the branch metadata are all keyed by a name only one tree can hold. What a worktree records in its ref table narrows to match — the refs it owns, plus the tags and the stash stack that are genuinely shared — so an undo moves what this tree is entitled to move and nothing else.
+**A branch is open in at most one worktree, and fufu is what enforces it.** git refuses to check a branch out twice; gix's ref transactions do not, and fufu moves HEAD through one. So fufu carries the check itself, on every path that opens a branch rather than only on rename and delete, and it names the branch and the worktree the way git does. That is also what makes branch-keyed state safe to leave shared: `refs/fufu/snap/<branch>`, the open commit, and the branch metadata are all keyed by a name only one tree can hold. What a worktree records in its ref table narrows to match — the refs it owns, plus the tags and the stash stack that are genuinely shared — so an undo moves what this tree is entitled to move and nothing else.
 
 The same rule is what keeps a rewrite honest: a branch carried by a cascade can be another worktree's HEAD, so the cascade skips it, names the worktree, and leaves everything stacked on it where it stands, for that worktree's own `ff restack` to pick up. `git rebase --update-refs` carries such a branch, and can, because git's rebase assumes exclusive control of the one worktree running it.
 
@@ -468,7 +455,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` names the branch you are on, petname or chosen alike, and is the only verb that does; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
 | `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
 | `ff switch <branch>` | branch switch with tree memory | `stash` dances |
-| `ff branch <list\|delete>` | the bookkeeping left over once naming lives on `ff describe -b`: what exists, and taking one away — recorded, undoable, parked-entry-aware. A published branch's copy on the remote is not the name's to take: the delete says it is still there, and `--shared` is how you say remove that too — leased, and the one half `ff undo` cannot reach | `git branch` bookkeeping |
+| `ff branch <list\|delete>` | the bookkeeping left over once naming lives on `ff describe -b`: what exists, and taking one away — recorded, undoable, and naming the open commit it leaves behind. A published branch's copy on the remote is not the name's to take: the delete says it is still there, and `--shared` is how you say remove that too — leased, and the one half `ff undo` cannot reach | `git branch` bookkeeping |
 | `ff worktree <add\|remove\|list>` | the worktrees this repository has, and the chains of the ones that are gone: the chain floor is laid as the worktree is made, so `ff undo` works there from the first command; the removal captures into the removed tree's own chain before the tree goes, which is why there is no `--force` and the work survives; the listing shows chains whose worktree is gone, which git cannot know about | `git worktree add`, and losing whatever was uncommitted when a tree went away |
 | `ff absorb [<paths>]` | fold working changes into a past commit — `HEAD`, or `--into <rev>` — and restack its descendants in memory | `commit --fixup` + `rebase -i --autosquash` |
 | `ff lift [<paths>]` | the counterpart: take changes back out of a past commit (`HEAD`, or `--from <rev>`) into the open change, restacking descendants. Only ownership moves; no file does | nothing |
@@ -743,7 +730,7 @@ fufu over time or waits for a machine that has git.
 3. **Cache, not authority.** fufu may be abandoned and re-adopted at any moment.
    All fufu state is a rebuildable cache over git; when records and repository
    disagree, the repository wins. Returning is reconciliation, not recovery.
-4. **Mechanisms are git idioms, automated.** Park with a stash, record with a
+4. **Mechanisms are git idioms, automated.** Park with a commit, record with a
    commit, remember with a ref — whatever a user would do by hand, done
    automatically, so anything fufu leaves behind is legible to every git user
    and GUI. If understanding the repo requires knowing fufu exists, it's the
@@ -829,7 +816,7 @@ over, its code not owed. From here on, nothing can be lost.
 
 **Phase 2 — Time.** The operation log and whole-repo `ff undo`; reconciliation as
 a first-class deliverable (cache-not-authority needs machinery, not vibes);
-tree memory via driven stash — `ff switch`, `ff start`, `ff branch`, anonymous
+tree memory via the open commit — `ff switch`, `ff start`, `ff branch`, anonymous
 branches and the naming rename — and `ff commit` closing the open change (fufu's
 first index write: a close must leave `.git/index` matching the new HEAD, or
 foreign `git status` shows phantom changes). The daily driver exists after this phase.
@@ -851,10 +838,11 @@ write-ahead (planned post-state before mutating); a crash between append and
 mutation is labeled "may not have completed" by the next reconcile. Foreign
 motion is absorbed as one `foreign` operation per pass, quoted with git's own
 reflog messages, undoable and labeled; the notice stays pinned in `ff status`
-while the log tip is foreign. Parks are byte-shaped `git stash push -u -m
-"fufu: wip on <branch>"` entries (differentially proven), tracked by identity
-in `refs/fufu/parked/<branch>`; drop is reflog surgery matching `git reflog
-delete --rewrite` byte-for-byte. Indexes fufu writes carry a synthesized TREE
+while the log tip is foreign. The park is the open commit, and an arrival is
+a resume, a replay of that one commit onto a moved tip, a hold, or a landing
+(`park.rs`); a legacy stash park folds on first arrival, and the drop that
+spends it is reflog surgery matching `git reflog delete --rewrite`
+byte-for-byte (`stash.rs`). Indexes fufu writes carry a synthesized TREE
 cache extension (gix can't attach one, but its serializer is public — the
 spike succeeded, so the staged-known-clean shortcut survives fufu's own
 writes); stat data carries over where (path, id, mode) survived. Documented
@@ -862,8 +850,8 @@ divergences from git: fufu-written indexes are V2/V3 with no
 UNTR/FSMN/REUC carry; branch renames replay the reflog but write no
 "Branch: renamed" line (its old and new values are equal, which the ref
 transaction machinery drops) and the first replayed line's previous-oid
-column is null; parks refuse intent-to-add entries exactly as `git stash`
-does; `ff commit` during a foreign merge/rebase refuses, pointing at git,
+column is null; a park carries the worktree and not the index, so staged
+state comes back unstaged; `ff commit` during a foreign merge/rebase refuses, pointing at git,
 until Phase 4 owns merges. Retention rides the same `fufu.keep`
 knob through `ff trim` — trash-first at the chain's own
 `refs/fufu/wt/<id>/trash/@ops`, pin
@@ -888,7 +876,7 @@ name the commit that breaks. The whole replay runs inside one
 `with_object_memory` clone — intermediate trees are written there and read back
 by the next step — so a probe writes nothing, which is asserted by counting
 loose objects around one. One merge per commit with plain options, the conflict
-list deciding; `stash.rs` probes and then re-merges only because it needs the
+list deciding; `park.rs` probes and then re-merges only because it needs the
 tree to persist, and futures never do. A branch answers to two things and they
 are measured on separate axes: the base beneath it and the remote copy of
 itself. Bases come from a ladder: an explicitly recorded parent branch, else
@@ -940,10 +928,10 @@ when a machine with only `ff` on it is a working development machine.
   prompt/command-shaped; land-if-clean automation may want cheaper, more frequent
   capture. In-process object access changes the calculus jog was built under;
   revisit ref layout and caching with gix in hand.
-- **Tree memory residuals** — parked entries orphaned by foreign branch
-  deletion; whether to set `status.showStash` so plain `git status` mentions
-  parked work. The same-branch-in-two-worktrees half of this is answered:
-  fufu enforces git's exclusivity itself now, so the state cannot be reached.
+- **Tree memory residuals** — open refs orphaned by foreign branch deletion
+  (the commit stays pinned by the branch's timeline; the ref does not). The
+  same-branch-in-two-worktrees half of this is answered: fufu enforces git's
+  exclusivity itself now, so the state cannot be reached.
 - **Anonymous-branch hygiene** — unnamed branches accumulate; `ff branch list`
   segregates them (Phase 2) and the name scheme and metadata
   home are settled (`ff/<adjective>-<noun>`; JSON under

@@ -44,7 +44,7 @@ The difference is folded into the operation log as a foreign operation — label
 
 Absorption is loud. The foreign operation is reported in `ff status`, and the notice stays pinned there while the log's tip is foreign, so motion fufu did not perform is never quietly blended into motion it did.
 
-Anything fufu remembered that reality no longer matches — a branch that moved, a parked entry dropped by hand — is said out loud, and then the records update to match the repository. The repository wins every disagreement. [The invariant](invariant.md) explains why fufu's records are a cache over git and never an authority.
+Anything fufu remembered that reality no longer matches — a branch that moved, a parked change whose tip moved under it — is said out loud, and then the records update to match the repository. The repository wins every disagreement. [The invariant](invariant.md) explains why fufu's records are a cache over git and never an authority.
 
 ## A weekend without fufu
 

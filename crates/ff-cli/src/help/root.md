@@ -6,7 +6,7 @@ Snapshots are ordinary git objects under refs/fufu/, beside your history rather 
 
 ### What the map draws
 
-Bare `ff` is the map: recent work across every branch, parked changes included — where you left things. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row. History that relates only itself, like a merged-and-deleted branch, earns no row.
+Bare `ff` is the map: recent work across every branch, parked changes included — where you left things, each an open commit `git log --all` shows. It draws the commits that relate the branches shown — their tips, the forks where they part, the merges that land one — and contracts the runs between them into one `~ N commits` row. History that relates only itself, like a merged-and-deleted branch, earns no row.
 
 ### Spelling a command
 

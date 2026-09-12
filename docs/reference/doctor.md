@@ -67,7 +67,7 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 - **last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
 - **drift** — `info`, only when present: refs moved outside fufu since the last operation, absorbed on the next one. Doctor reports the drift and deliberately does not absorb it — that would be the observer changing what it observes.
 - **legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
-- **parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding.
+- **parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding, by their open commits; a second row names legacy stash parks still awaiting their fold.
 - **settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
 - **trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
 - **auto-trim** — whether the automatic trim is on, its cadence, and when it last rode an ff command. Always `info`.

@@ -26,7 +26,7 @@ Those opinions stop at [the push boundary](concepts/push-boundary.md). Published
 
 ## Trying it and leaving
 
-fufu is abandonable and returnable at any moment, and deleting it loses convenience, never data. Everything fufu writes is ordinary git: snapshots are refs outside the visible graph, parked changes — the edits fufu sets aside when you switch away from a branch — are labeled stash entries, and the operation log is a cache over the repository, never an authority over it.
+fufu is abandonable and returnable at any moment, and deleting it loses convenience, never data. Everything fufu writes is ordinary git: snapshots are refs outside the visible graph, parked changes — the edits fufu sets aside when you switch away from a branch — are ordinary commits under `refs/fufu/open/`, and the operation log is a cache over the repository, never an authority over it.
 
 Uninstall the binary and the repository is complete and legible without it — the stash dance comes back, the manual rebase comes back, but no commit, no branch, and no file state is lost.
 
@@ -42,4 +42,4 @@ The first fufu operation back compares what it remembered against what it finds,
 
 **An in-progress rebase or merge** stays git's. fufu does not adopt, continue, or abort it — it belongs to the outside regime, so finish it or abort it with git as you would have anyway, and the resulting motion is absorbed as a [foreign operation](concepts/two-regimes.md#lazy-absorption) at your next fufu verb.
 
-**Existing stashes** are never touched. fufu only ever applies stash entries it created itself, identified by the exact commit sha it recorded — never selected by message, position, or base. Your own stashes stay in `git stash list` untouched, alongside any parked entries fufu adds later.
+**Existing stashes** are never touched. fufu writes nothing to the stash list and applies nothing from it; a park made by an earlier fufu — a labeled entry it recorded by exact sha — is folded into the branch's open commit the first time you switch there, and your own stashes stay in `git stash list` untouched.

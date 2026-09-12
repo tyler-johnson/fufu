@@ -9,6 +9,15 @@
 - `@^` is `HEAD` and `@~n` is `HEAD~(n-1)`: the open change's parent suffixes step onto the commit under it, and `@~3..@` is two commits plus the open change. `@@{n}` stays `usage/revset-open-suffix`, reworded — `@` has no reflog, and `@{n}` alone is HEAD's.
 - Every operation states the open commit it leaves as a `fufu-open` trailer and carries it as its last parent, so the log pins it. The first capture on a dirty tree after upgrading appends once to state one.
 - `ff hook <slug>`, `ff hook -u`, and `ff unhook <slug>` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`, and say so; a hand-written one is left alone.
+- The park is the open commit. `ff switch`, `ff start`, `ff edit`, and `ff resolve` leave a dirty tree's change where the capture put it, at `refs/fufu/open/<branch>`, where `git log --all` shows it one above the branch; the `parked the open change` line names that sha, the `@` row's.
+- `git stash list` and GUI stash panels no longer show `fufu: wip on <branch>` rows; nothing fufu does writes to `refs/stash`.
+- Staged state is not carried across a park: the open change is the worktree, so a staged hunk comes back as an unstaged edit and a staged-only mode change does not come back.
+- Arriving on a branch whose tip moved under its park replays the open commit onto the new tip with the same change id. A replay that conflicts holds the branch: the switch still happens, exit 3, `ff status` says `held: ff switch conflicts at your open change`, `ff resolve` lays the change into the working copy with markers in place, and `ff resolve --abandon` drops it and names the commit. A tip that already holds the change lands it.
+- `ff branch -d`, `ff fold`, and `ff done --abandon` name the open commit they leave behind, pinned by the operation, and write nothing to `refs/stash`.
+- A park made by an earlier fufu — a stash entry plus `refs/fufu/parked/<branch>` — folds into the branch's open commit on the first arrival there, with a `folded its stash entry` line; `ff doctor` lists such parks on a second `parked` row until then.
+- `ff undo` and `ff redo` resync the open commit of every branch an operation touched, the origin of a switch included.
+- A dirty tree with no `user.name` refuses to switch away, since no open commit could be written to stand as its park.
+- `--json` renames: `arrival.state` gains `held` and `landed` and loses `still_parked`; `restored`, `held`, and `landed` carry `open` (was `stash`) and `folded`; `ff restack` and `ff fold`'s `parked.open` (was `stash`); `ff branch -d` and `ff fold`'s `open_left` (was `parked_demoted`); `ff done --abandon`'s `left` (was `stashed`); `ff resolve --json` gains `laid` and `abandoned.left`.
 
 ### Removed
 

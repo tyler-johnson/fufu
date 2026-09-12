@@ -87,10 +87,12 @@ show "$FF" commit -m "lexer: skeleton"
 
 # --- what a parked change looks like from plain git ---
 printf '// tuning pass\n' >> main.rs
+"$FF" describe -m "tuning pass" > /dev/null
 show "$FF" switch main
-show git stash list
+show git log --all --oneline -3
 "$FF" switch parser > /dev/null 2>&1
 "$FF" restore main.rs > /dev/null
+"$FF" describe -m "" > /dev/null 2>&1 || true
 
 # --- a raw git write, absorbed at the next fufu verb ---
 printf 'A demo repo.\n' >> README.md

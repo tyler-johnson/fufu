@@ -10,7 +10,7 @@ fufu never creates a state plain git cannot represent. It only automates the mov
 
 ## Can I stop using fufu? Can I use it on one machine and not another?
 
-Both, freely. Everything fufu writes is ordinary git — snapshots are refs outside the visible graph, parked changes are labeled stash entries — so deleting fufu loses convenience and never data. The stash dance comes back and the manual rebase comes back, but no commit, branch, or file state is lost.
+Both, freely. Everything fufu writes is ordinary git — snapshots are refs outside the visible graph, parked changes are commits under `refs/fufu/open/` — so deleting fufu loses convenience and never data. The stash dance comes back and the manual rebase comes back, but no commit, branch, or file state is lost.
 
 Leaving does not have to be total or permanent either. A machine without fufu, a weekend of raw git, or a GUI session are all absorbed when you return: the first fufu operation back compares what it remembered against what it finds, and says out loud anything that changed.
 
@@ -48,7 +48,7 @@ Beyond that passthrough, submodule repositories are untested territory. The [sub
 
 ## Where does fufu keep its state, and how big does it get? What does `ff trim` do?
 
-Everything fufu writes lives in two places inside the repository. Refs under `refs/fufu/` hold the operation log, snapshot pointers, and parked-entry and published-tip records. Plain files under `<common-dir>/fufu/` hold caches and branch metadata. None of it is pushed, and all of it is a cache over git rather than an authority.
+Everything fufu writes lives in two places inside the repository. Refs under `refs/fufu/` hold the operation log, snapshot pointers, open commits, and published-tip records. Plain files under `<common-dir>/fufu/` hold caches and branch metadata. None of it is pushed, and all of it is a cache over git rather than an authority.
 
 Size is bounded by retention. `ff trim` drops operations past the `fufu.keep` window (90 days by default), rides an ordinary command at most once per `fufu.autoTrim` (daily by default), and nudges git's own gc when it dropped something. The last trim is itself recoverable from a trash ref.
 

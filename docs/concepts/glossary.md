@@ -44,7 +44,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; [`ff op log`](../reference/cli/op-log.md) lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
 
-**park** — Set the [open change](changes.md) aside with its branch on a switch: an ordinary stash entry labeled with the branch, which becomes the open change again — same files, same edits, same pending description — when you switch back. [Branches](branches.md) covers the mechanics.
+**park** — Set the [open change](changes.md) aside with its branch on a switch: the branch's open commit, at `refs/fufu/open/<branch>`, which becomes the open change again — same files, same edits, same pending description — when you switch back, replayed onto the tip if it moved. [Branches](branches.md) covers the mechanics.
 
 **pending description** — The description the open change carries before it closes, set with [`ff describe -m`](changes.md): the message of the open commit fufu keeps under `refs/fufu/open/<branch>`, and the commit message when `ff commit` moves the branch to it. It parks and resumes with the change.
 

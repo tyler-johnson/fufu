@@ -2,7 +2,7 @@
 
 The open change carries a description before it is ever a commit, so you can name work while you are doing it and let [`ff commit`](commit.md) pick the name up when it closes. -m sets it inline; the bare form opens $EDITOR seeded with the current text. `ff desc` is the short spelling, and jj's too.
 
--b names the branch you are on instead — the same act whether it is an anonymous petname earning a real name or a chosen name being replaced. The capture chain, any parked change, and the pending description all come along, which is the part a bare `git branch -m` would orphan.
+-b names the branch you are on instead — the same act whether it is an anonymous petname earning a real name or a chosen name being replaced. The capture chain, the open commit, and the pending description all come along, which is the part a bare `git branch -m` would orphan.
 
 Naming a revision rewords a commit that has already closed instead. Everything above it re-parents in the same operation, so any branches sitting inside that range come along with it.
 

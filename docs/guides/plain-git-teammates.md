@@ -13,7 +13,7 @@ open change on parser
 undo: ff undo
 
 $ ff commit -m "lexer: skeleton"
-closed da545535 on parser: lexer: skeleton (1 file(s))
+closed 471c9c0d on parser: lexer: skeleton (1 file(s))
 undo: ff undo
 ```
 
@@ -21,19 +21,21 @@ undo: ff undo
 
 A teammate who pulls your branch sees ordinary commits on an ordinary branch. A GUI sees branches where branches should be, HEAD attached, `git status` reading the way it always reads. CI checks out the commit it was asked to build. Nothing fufu stores reaches a remote: snapshots live in refs under `refs/fufu/`, beside the visible history rather than in it, and no push carries them.
 
-The one piece of fufu state a plain-git tool can even encounter is a parked change, and it is deliberately the most boring thing it could be: an ordinary stash entry, labeled with its branch, in the same stash panel every GUI already has. Park something by switching away, then look at it with plain git:
+The one piece of fufu state a plain-git tool can even encounter is a parked change, and it is deliberately the most boring thing it could be: one ordinary commit, the branch's open commit, sitting one above the branch in the graph. Park something by switching away, then look at it with plain git:
 
 ```console
 $ ff switch main
-parked the open change on parser (4bc6431a)
+parked the open change on parser (1d0de5ee)
 switched to main
 undo: ff undo
 
-$ git stash list
-stash@{0}: On parser: fufu: wip on parser
+$ git log --all --oneline -3
+1d0de5e tuning pass
+aece1a4 switch from parser to main
+829462b describe pending change on parser
 ```
 
-A teammate who opens this repository does not need fufu explained to them, and the entry is next to the button that would restore it. Switch back with [`ff switch parser`](../reference/cli/switch.md) and the change resumes with its branch; the entry leaves the panel. [Branches](../concepts/branches.md) covers parking itself.
+The first line is the park — the sha `ff switch` named, its pending description as the subject — and the two beneath it are fufu's own records of the switch, under `refs/fufu/`. A teammate who opens this repository does not need fufu explained to them, and `git cherry-pick -n` on that sha would take the change back by hand. Switch back with [`ff switch parser`](../reference/cli/switch.md) and the change resumes with its branch. [Branches](../concepts/branches.md) covers parking itself.
 
 ## Your own git tools: reads and writes
 
@@ -45,7 +47,7 @@ Writes are fine too, and this is the part worth seeing once. Commit from an IDE,
 
 ```console
 $ git commit -am "docs: say what this is"
-[parser c9178ac] docs: say what this is
+[parser a10a8a6] docs: say what this is
  1 file changed, 1 insertion(+)
 ```
 
@@ -56,9 +58,9 @@ $ ff status
 on parser · nothing to pull
 @  no changes
 │  (no description)
-●  plrnmtzx c9178ac1   0s ago
+●  tnqqlvqw a10a8a6d   0s ago
 │  docs: say what this is
-1 change made outside fufu: refs/heads/parser moved to c9178ac1 (absorbed; ff undo can roll it back)
+1 change made outside fufu: refs/heads/parser moved to a10a8a6d (absorbed; ff undo can roll it back)
 ```
 
 The notice stays pinned in [`ff status`](../reference/cli/status.md) while the log's tip is foreign, so motion fufu did not perform is never silently blended into motion it did. And because the commit is in the operation log now, [`ff undo`](../reference/cli/undo.md) can take it back like anything fufu did itself — here the commit was wanted, so it simply stays.
@@ -74,13 +76,13 @@ The demonstration is the most destructive habit in git's repertoire:
 ```console
 $ ff git reset --hard HEAD~1
 ff: tip: that's ff undo
-HEAD is now at da54553 lexer: skeleton
+HEAD is now at 471c9c0 lexer: skeleton
 
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser moved to da545535 (reset: moving to HEAD~1)
+ff: absorbed 1 change made outside fufu: refs/heads/parser moved to 471c9c0d (reset: moving to HEAD~1)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at 89d96419c2f9 (absorbed 1 foreign ref change(s))
-  refs/heads/parser → c9178ac1
+  now at 0b6748f58917 (absorbed 1 foreign ref change(s))
+  refs/heads/parser → a10a8a6d
   1 worktree file(s) restored
 back: ff redo
 ```
@@ -112,8 +114,8 @@ Nothing is ever silently run in the refused command's place, and reads pass unto
 
 ```console
 $ ff git log --oneline -n 2
-c9178ac docs: say what this is
-da54553 lexer: skeleton
+a10a8a6 docs: say what this is
+471c9c0 lexer: skeleton
 ```
 
 Strict is at its best keeping an agent on the fufu surface — [agents setup](../agents/setup.md) wires the same policy through tool hooks — but it works the same on your own fingers while the reflexes retrain.

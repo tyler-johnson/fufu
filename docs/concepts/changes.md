@@ -9,7 +9,7 @@ fufu saves them for you as you work: every command takes a [capture](snapshots-a
 A change is in exactly one of three states:
 
 - **Open** — the working copy, being edited right now. Every worktree has exactly one open change. When the tree matches the commit beneath it, the open change is empty, not absent.
-- **Parked** — set aside with a branch when you switched away. A parked change is the open change that branch had, held as you left it, and it becomes the open change again when you switch back.
+- **Parked** — set aside with a branch when you switched away. A parked change is the open change that branch had, held as you left it as the branch's open commit, and it becomes the open change again when you switch back.
 - **Closed** — a commit. Closing is how a change enters history, and [`ff commit`](../reference/cli/commit.md) is the verb that does it.
 
 The verbs move a change between these states and do nothing else. `ff commit` closes, [`ff switch`](../reference/cli/switch.md) parks one change and reopens another, [`ff start`](../reference/cli/start.md) opens a fresh one. The rest of this page walks each transition.
@@ -50,7 +50,7 @@ The open change carries a change id from the first capture or describe: sixteen 
 
 `ff switch` moves between branches without a stash dance. Whatever is open is parked with the branch you are leaving. Whatever was parked where you are going becomes the open change again — same files, same edits, same pending description.
 
-Both halves are reported, so you always know where your work went and what came back. Underneath, a parked change is an ordinary stash entry labeled with its branch, visible in any git GUI. That is [the invariant](invariant.md) at work; [branches](branches.md) covers the mechanics.
+Both halves are reported, so you always know where your work went and what came back. Underneath, a parked change is the branch's open commit — the sha the `@` row showed, at `refs/fufu/open/<branch>` — and `git log --all` shows it one above the branch. Nothing goes to the stash list. If the branch's tip moved while the change was parked, arrival replays the one commit onto the new tip with the same change id; a replay that conflicts holds the branch, and [`ff resolve`](../reference/cli/resolve.md) lays the change into the working copy with markers. The index is not carried: a staged hunk comes back as an unstaged edit. That is [the invariant](invariant.md) at work; [branches](branches.md) covers the mechanics.
 
 ### Forks open clean
 

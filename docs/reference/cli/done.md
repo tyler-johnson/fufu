@@ -6,7 +6,7 @@ A replay that would conflict stops with nothing changed rather than leaving you 
 
 Two flags:
 
-- `--abandon` drops the session instead of landing it, stashing whatever is uncommitted rather than discarding it. It runs no hook, since nothing is being committed.
+- `--abandon` drops the session instead of landing it, leaving whatever is uncommitted as the session's open commit — named on the way out, pinned by the operation, and back with `ff undo` — rather than discarding it. It runs no hook, since nothing is being committed.
 - `--no-verify` lands without running the hooks below.
 
 ## Branches stacked above
@@ -52,6 +52,6 @@ Options:
 
 ```
 ff done                        amend, replay what waited, land back
-ff done --abandon              drop the session, stash what is open
+ff done --abandon              drop the session; its open commit stays
 ff done --no-verify            land without running the hooks
 ```

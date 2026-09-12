@@ -140,13 +140,6 @@ show_err "$FF" switch "$minted"
 cd "$SCENE/bay"
 show "$FF" switch bay
 
-# Not pasted into the guide: this block soaks up the stash churn the bay's
-# parks made. Branch refs held elsewhere are carried quietly now, but the
-# stash is one stack for the whole repository, so demo's chain genuinely has
-# it to absorb — here, so the remove block below stays about removal.
-cd "$SCENE/demo"
-show "$FF" status
-
 # --- remove captures first, and the chain outlives the checkout ---
 cd "$SCENE/bay"
 printf 'a half-written test\n' > src/lexer_test.rs
