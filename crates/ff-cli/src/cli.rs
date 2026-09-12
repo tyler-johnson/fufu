@@ -61,6 +61,16 @@ pub struct Cli {
     /// Emit machine-readable JSON
     #[arg(long, global = true)]
     pub json: bool,
+    // The fetch lane's two overrides, global like `--json` so they ride any
+    // verb. clap's `conflicts_with` holds per parse level and the globals
+    // are propagated afterwards, so `ff --fetch status --no-fetch` reaches
+    // `settle` with both set — that is where the pair is refused.
+    /// Fetch from the remote first, whatever the cadence says
+    #[arg(long, global = true, conflicts_with = "no_fetch")]
+    pub fetch: bool,
+    /// Skip the fetch: read the tracking refs as they stand
+    #[arg(long, global = true)]
+    pub no_fetch: bool,
     // `-v`, not clap's default `-V`. fufu has no verbose flag to reserve the
     // lowercase letter for — verbosity here is `--json` or a different verb —
     // so the shifted spelling bought nothing and cost every person who typed
@@ -376,9 +386,6 @@ pub enum Command {
         /// Say what would move, hold, and be skipped, without writing it
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// Skip the fetch: reconcile with what you already have
-        #[arg(long)]
-        no_fetch: bool,
     },
     // agent notice quotes this: `ff push`
     /// Send this branch to its remote, under a lease
@@ -760,20 +767,40 @@ impl OpAction {
     /// The family holds both readers and mutators, so the action decides:
     /// the reads capture at the CLI, the writes let the core's mandatory
     /// capture stand alone.
+    ///
+    /// None of them reads anything under `refs/remotes/`, so none carries
+    /// the fetch.
     fn lanes(&self) -> Lanes {
         match self {
-            OpAction::Log { .. } | OpAction::Show { .. } | OpAction::Diff { .. } => Lanes::READ,
-            OpAction::Restore { .. } | OpAction::Revert { .. } => Lanes::MUTATOR,
+            OpAction::Log { .. } | OpAction::Show { .. } | OpAction::Diff { .. } => {
+                Lanes::READ.without_fetch()
+            }
+            OpAction::Restore { .. } | OpAction::Revert { .. } => Lanes::MUTATOR.without_fetch(),
         }
     }
 }
 
+/// Whether the fetch lane rides a verb, and on what clock. In the table
+/// rather than a special case in `main`, so doctor's every-run fetch is a
+/// value beside the others and not a `matches!` somebody has to remember.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fetch {
+    /// The verb reads nothing under `refs/remotes/`, or owns its own fetch.
+    Off,
+    /// A fetch rides the invocation when `fufu.autoFetch` says one is due.
+    Cadence,
+    /// A fetch rides every invocation — doctor, whose rows are the remote
+    /// floor as it stands right now. `fufu.autoFetch false` still turns it
+    /// off; only `--fetch` runs past that.
+    Every,
+}
+
 /// The ambient lanes: what rides an invocation besides the verb itself —
 /// the pre-command capture, the passive update lane (cache refresh,
-/// auto-install, the one-line notice), and the daily auto-trim. One table on
-/// `Command` decides them all, so a verb is in it by construction rather than
-/// by somebody remembering to call three functions at the bottom of its
-/// `run`.
+/// auto-install, the one-line notice), the daily auto-trim, and the fetch
+/// on `fufu.autoFetch`'s cadence. One table on `Command` decides them all,
+/// so a verb is in it by construction rather than by somebody remembering
+/// to call four functions at the bottom of its `run`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lanes {
     /// Take the pre-command snapshot at the CLI.
@@ -784,6 +811,8 @@ pub struct Lanes {
     pub notice: bool,
     /// Let the daily auto-trim ride this invocation.
     pub trim: bool,
+    /// Let a fetch ride this invocation, before the verb reads the tracking refs.
+    pub fetch: Fetch,
 }
 
 impl Lanes {
@@ -795,6 +824,7 @@ impl Lanes {
         update: false,
         notice: false,
         trim: false,
+        fetch: Fetch::Off,
     };
 
     /// A reader: the snapshot is the only pre-work it owes.
@@ -803,6 +833,7 @@ impl Lanes {
         update: true,
         notice: true,
         trim: true,
+        fetch: Fetch::Cadence,
     };
 
     /// A mutator: the core already captures, so a second one at the CLI
@@ -812,6 +843,7 @@ impl Lanes {
         update: true,
         notice: true,
         trim: true,
+        fetch: Fetch::Cadence,
     };
 
     /// `version`: the update lane with its voice removed — it prints its own
@@ -821,7 +853,16 @@ impl Lanes {
         update: true,
         notice: false,
         trim: false,
+        fetch: Fetch::Off,
     };
+
+    /// The same lanes with the fetch turned off.
+    pub const fn without_fetch(self) -> Lanes {
+        Lanes {
+            fetch: Fetch::Off,
+            ..self
+        }
+    }
 }
 
 impl Command {
@@ -1037,6 +1078,7 @@ impl Command {
                 update: true,
                 notice: true,
                 trim: false,
+                fetch: Fetch::Off,
             },
             // The core runs `ops::verb::begin_verb` for every one of these
             // (and for `restore`), whose capture is the mandatory pre-verb
@@ -1045,26 +1087,29 @@ impl Command {
             // regression against the bench gates.
             Command::Commit { .. }
             | Command::Switch { .. }
-            | Command::Undo
-            | Command::Redo
             | Command::Describe { .. }
             | Command::Absorb { .. }
             | Command::Lift { .. }
             | Command::Restack { .. }
             | Command::Fold { .. }
-            | Command::Pull { .. }
             | Command::Push { .. }
             | Command::Done { .. }
             | Command::Resolve { .. }
             | Command::Edit { .. }
             | Command::Restore { .. } => Lanes::MUTATOR,
+            // `pull` owns its fetch and stamps the cadence when it runs;
+            // `undo` and `redo` read nothing under `refs/remotes/`.
+            Command::Undo | Command::Redo | Command::Pull { .. } => Lanes::MUTATOR.without_fetch(),
             // `update_row()` already reports the available release in
             // doctor's own voice, so the generic notice would say it twice.
+            // The remote floor is what doctor checks, so its fetch is every
+            // run's, not the cadence's.
             Command::Doctor { .. } => Lanes {
                 capture: true,
                 update: true,
                 notice: false,
                 trim: true,
+                fetch: Fetch::Every,
             },
             // A dry run deliberately does not stamp; if the auto-trim rode
             // the same invocation it would find the stamp due and perform a
@@ -1074,6 +1119,7 @@ impl Command {
                 update: true,
                 notice: true,
                 trim: false,
+                fetch: Fetch::Cadence,
             },
             // The readers: they have a repository, and the snapshot is the
             // only pre-work they owe.
@@ -1084,9 +1130,10 @@ impl Command {
             | Command::History { .. }
             | Command::Diff { .. }
             | Command::Show { .. }
-            | Command::Evolog { .. }
-            | Command::Config { .. }
-            | Command::Remote => Lanes::READ,
+            | Command::Evolog { .. } => Lanes::READ,
+            // Readers with nothing of the remote's in their answer: `config`
+            // reads a file, `remote` lists names and URLs.
+            Command::Config { .. } | Command::Remote => Lanes::READ.without_fetch(),
             // The families that hold both readers and mutators.
             Command::Op { action } => action.lanes(),
             // The two families hold both readers and mutators, so the shape

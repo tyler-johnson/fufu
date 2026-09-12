@@ -78,8 +78,14 @@ impl Fixture {
     /// Pin repo-local config that must not float with the platform: the
     /// differential tests assert byte parity between fufu and git, so eol
     /// conversion has to be identical for both readers on every OS.
+    ///
+    /// The fetch lane is off here too, for every fixture: a verb run in a
+    /// fixture with a remote would otherwise fetch on its first invocation
+    /// and grow a dim line, and the suites that assert on output are not
+    /// about the lane. `tests/autofetch.rs` turns it back on by hand.
     fn pin_config(&self) {
         self.git(&["config", "core.autocrlf", "false"]);
+        self.git(&["config", "fufu.autoFetch", "false"]);
     }
 
     fn empty() -> Self {

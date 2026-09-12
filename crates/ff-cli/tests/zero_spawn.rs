@@ -31,7 +31,10 @@
 //! walk skips it. So fufu hands that fetch to `git fetch`, once. The healthy
 //! path stays proven by `a_fetch_speaks_the_protocol_itself`, and
 //! `the_fallback_fetch_fires_only_for_a_broken_worktree_dir` pins that the
-//! spawn happens only in the broken state, and is exactly one `fetch`.
+//! spawn happens only in the broken state, and is exactly one `fetch`. The
+//! fetch lane — the same fetch riding any reader on `fufu.autoFetch`'s
+//! cadence — is the same claim, and `the_fetch_lane_spawns_nothing` makes it
+//! for an https remote that refuses and a file remote that answers.
 //!
 //! `ff clone` is the one verb this trap cannot honestly speak for, so it is
 //! stated here instead of asserted. fufu does the clone's protocol, pack and
@@ -857,6 +860,79 @@ fn a_push_refused_before_the_wire_spawns_nothing() {
 ///
 /// And the real `git-upload-pack` is left reachable on PATH, because this
 /// fixture's remote is a filesystem path, and a local transport *is* a spawned
+/// The fetch lane on a due stamp is the same native fetch, so it spawns
+/// nothing: not against an https remote that refuses the connection, where
+/// the failure is native and the verb still answers, and not against a file
+/// remote that answers, where `git-upload-pack` is the transport's own
+/// helper and `git fetch` porcelain never runs.
+#[test]
+fn the_fetch_lane_spawns_nothing() {
+    let due = |dir: &Path| {
+        let fufu = dir.join(".git/fufu");
+        std::fs::create_dir_all(&fufu).ok();
+        std::fs::write(
+            fufu.join("autofetch.json"),
+            r#"{"fetched_at":0,"interval_secs":0}"#,
+        )
+        .expect("write due stamp");
+    };
+
+    // (a) An https remote nothing listens on: the connect is refused inside
+    // the process, and the verb's answer is its own.
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.set_config("fufu.autoFetch", "1m");
+    fx.set_config("remote.origin.url", "https://127.0.0.1:9/x.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.main.remote", "origin");
+    fx.set_config("branch.main.merge", "refs/heads/main");
+    due(&fx.path());
+    let trap = build_trap();
+    let out = ff_trapped(&trap, &fx.path(), &["status"]);
+    assert!(
+        out.status.success(),
+        "status under the lane: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stamp = std::fs::read_to_string(fx.path().join(".git/fufu/autofetch.json")).unwrap();
+    assert!(
+        stamp.contains("\"last_error\":\"fetching from origin failed"),
+        "the lane ran and recorded the refusal: {stamp}"
+    );
+    assert!(
+        !trap.log.exists(),
+        "the lane spawned a subprocess: {}",
+        std::fs::read_to_string(&trap.log).unwrap_or_default()
+    );
+
+    // (b) A file remote that answers: the fetch is spoken, and the trap log
+    // names no `fetch`.
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["config", "--unset", "fufu.autoFetch"]);
+    due(&fx.path());
+    let trap = build_trap();
+    let out = ff_trapped_keeping_path(&trap, &fx.path(), &["status"]);
+    assert!(
+        out.status.success(),
+        "status under the lane: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stamp = std::fs::read_to_string(fx.path().join(".git/fufu/autofetch.json")).unwrap();
+    assert!(
+        stamp.contains("\"last_error\":null"),
+        "the lane ran and fetched: {stamp}"
+    );
+    let log = std::fs::read_to_string(&trap.log).unwrap_or_default();
+    assert!(
+        !log.contains("fetch"),
+        "the lane's fetch was spawned rather than spoken: {log}"
+    );
+}
+
 /// upload-pack — in git as much as in gix. The in-process case is http(s),
 /// where gix's reqwest/rustls transport carries the whole conversation. So
 /// what this proves is the thing that changed: no `git fetch` porcelain runs,

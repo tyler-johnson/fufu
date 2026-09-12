@@ -37,6 +37,10 @@ pub struct Ctx {
     /// The past state this invocation reads against. Settled here so a verb
     /// never has to decide what its two flags mean together.
     pub at: Option<At>,
+    /// `--fetch`: run the fetch lane whatever the cadence says.
+    pub fetch: bool,
+    /// `--no-fetch`: skip the fetch lane, and pull's own fetch with it.
+    pub no_fetch: bool,
 }
 
 impl Ctx {
@@ -56,13 +60,16 @@ impl Ctx {
         } else {
             &args.command
         };
-        Self::resolve(
+        let mut ctx = Self::resolve(
             args.json,
             args.session.as_deref(),
             env.as_deref(),
             client.as_deref(),
             command,
-        )
+        )?;
+        ctx.fetch = args.fetch;
+        ctx.no_fetch = args.no_fetch;
+        Ok(ctx)
     }
 
     /// All of `new` except reading the process environment, so the
@@ -111,6 +118,8 @@ impl Ctx {
             session: crate::session::resolve(session, env, client)?,
             command: name,
             at,
+            fetch: false,
+            no_fetch: false,
         })
     }
 

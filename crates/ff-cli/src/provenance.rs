@@ -103,6 +103,8 @@ mod tests {
             session: None,
             command: "trigger",
             at: None,
+            fetch: false,
+            no_fetch: false,
         }
     }
 

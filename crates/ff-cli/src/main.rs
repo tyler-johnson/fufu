@@ -1,3 +1,4 @@
+mod autofetch;
 mod autotrim;
 mod cadence;
 mod capture;
@@ -85,6 +86,16 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
             "usage/bad-flags",
             "-v is the version verb spelled as a flag; it does not ride another verb",
             vec!["ff -v".into(), "ff version".into()],
+        ));
+    }
+    // `--fetch` and `--no-fetch` conflict on every level clap parses, but a
+    // global is propagated after each level is validated, so one on either
+    // side of the verb slips through with both set.
+    if args.fetch && args.no_fetch {
+        return Err(ff_core::Error::coded(
+            "usage/bad-flags",
+            "--fetch and --no-fetch say opposite things about the same fetch",
+            vec!["ff status --fetch".into(), "ff status --no-fetch".into()],
         ));
     }
     // `-n` and `--all` are the map's branch scope; beside a subcommand they
@@ -214,6 +225,25 @@ fn main() {
         None => cli::Lanes::READ,
         Some(cmd) => cmd.lanes(),
     };
+    // `--fetch` on a verb that carries no fetch lane is refused by name
+    // rather than left inert: a flag that silently does nothing teaches
+    // that it does something. `pull` is the one exception — it is the verb
+    // that fetches, so "nothing to refresh" would be a lie there, and the
+    // flag is accepted as what pull does anyway.
+    if args.fetch
+        && lane_set.fetch == cli::Fetch::Off
+        && !matches!(args.command, Some(cli::Command::Pull { .. }))
+    {
+        let err = ff_core::Error::coded(
+            "fetch/not-here",
+            format!(
+                "{} reads nothing from the remote, so there is nothing for --fetch to refresh",
+                ctx.command
+            ),
+            vec!["ff pull".into(), "ff status --fetch".into()],
+        );
+        report(ctx.json, ctx.command, &err);
+    }
     let repo = lanes::preflight(&ctx, &lane_set);
 
     let result = match args.command {
@@ -316,8 +346,7 @@ fn main() {
             branches,
             all,
             dry_run,
-            no_fetch,
-        }) => cmd::pull::run(&ctx, branches, all, dry_run, no_fetch),
+        }) => cmd::pull::run(&ctx, branches, all, dry_run),
         Some(cli::Command::Push {
             branches,
             dry_run,

@@ -1,5 +1,7 @@
 //! Doctor verifies the net — read-only by design (it must never absorb the
-//! foreign drift it reports), one consented write behind `--fix`.
+//! foreign drift it reports), one consented write behind `--fix`. The fetch
+//! that refreshes the remote floor it reports is the lane's, run in
+//! `lanes::preflight` before doctor starts, and not doctor's own.
 
 mod extensions;
 mod render;

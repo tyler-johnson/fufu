@@ -29,6 +29,9 @@ anstream = "1"
 tempfile = "3"
 getrandom = "0.4"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+# Already linked through gix's transport at this version; named here so the
+# fetch lane can put a per-request deadline on the request gix builds.
+reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 
 # Debug and test builds keep line tables but drop full DWARF: panics and
 # backtraces still name their file and line, while the per-binary debuginfo

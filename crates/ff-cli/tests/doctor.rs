@@ -105,6 +105,9 @@ fn fresh_repo_with_no_log_warns() {
 #[test]
 fn all_green_after_snapshot_and_wiring() {
     let fx = Fixture::new();
+    // The fixture pins the fetch lane off; this repository has no remote
+    // for it to reach anyway, and the settings row must read all defaults.
+    fx.git(&["config", "--unset", "fufu.autoFetch"]);
     fx.write("a.txt", "a\n");
     fx.commit("init");
 

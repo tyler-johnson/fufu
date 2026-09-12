@@ -1092,6 +1092,19 @@ pub static ENTRIES: &[Entry] = &[
         exits: &["ff git fetch <remote>", "ff pull --no-fetch"],
     },
     Entry {
+        id: "fetch/not-here",
+        summary: "--fetch on a verb that reads nothing from the remote",
+        detail: "Every verb that reads the remote's copies — status, the map, branch, \
+                 switch, push and the rest — fetches on fufu.autoFetch's cadence before it \
+                 runs, and --fetch runs that fetch now. The verb you gave it carries no such \
+                 lane: undo, redo and op read the operation log, config and remote read \
+                 files, and there is nothing a fetch would change in their answer. The flag \
+                 is refused rather than ignored, so it never teaches that it did something. \
+                 pull is the verb that fetches on its own, and takes --fetch as what it does \
+                 anyway.",
+        exits: &["ff pull", "ff status --fetch"],
+    },
+    Entry {
         id: "push/unreachable",
         summary: "the remote never answered",
         detail: "git exited 128, which is how it says it did not get as far as talking to the \

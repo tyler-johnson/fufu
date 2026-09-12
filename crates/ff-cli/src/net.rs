@@ -5,11 +5,20 @@
 //! inside this process, and clone's checkout with them. What they still reach
 //! outside for is git's *configuration and authentication* surface rather
 //! than its porcelain: one `git config -l` per process (without which
-//! `url.<base>.insteadOf`, `http.proxy` and `credential.helper` from the
-//! installation config would all be ignored — exactly the settings that make
-//! a fetch work behind a corporate proxy), a credential helper when a remote
-//! asks for auth, and `ssh` for an ssh URL. Inherit git's credential surface
-//! whole rather than reimplement it.
+//! `url.<base>.insteadOf` and `credential.helper` from the installation
+//! config would be ignored — the settings that make a fetch work at all
+//! behind a credential helper), a credential helper when a remote asks for
+//! auth, and `ssh` for an ssh URL. Inherit git's credential surface whole
+//! rather than reimplement it. What this backend does not honor is
+//! `http.proxy`: reqwest here is built without proxy support, and the
+//! connect probe below is faithful to that.
+//!
+//! `fetch` has two callers with two temperaments, and [`FetchOptions`] is
+//! the difference between them. `ff pull` fetches in the foreground, with
+//! no deadline and every prompt allowed. The fetch lane fetches behind `ff
+//! status`, where a hang is the verb's answer arriving late and a prompt is
+//! a question nobody asked: it runs under a deadline and with fufu's own
+//! prompt, ssh's, and git's terminal prompt all off. Both prune.
 //!
 //! `push` still spawns the git binary, one call at a time, and not because
 //! the ladder has not reached it: gix ships the fetch half of the protocol
@@ -39,9 +48,16 @@ use ff_core::{Error, Push, Result};
 /// are the only thing capturing costs: git draws none when stderr is not a
 /// terminal, and its summary lines come through either way.
 fn run(cwd: &std::path::Path, args: &[&str]) -> Result<Run> {
+    run_env(cwd, args, &[])
+}
+
+/// [`run`] with environment for the child: the fallback fetch's
+/// `GIT_TERMINAL_PROMPT=0` when the caller may not prompt.
+fn run_env(cwd: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> Result<Run> {
     let output = std::process::Command::new("git")
         .current_dir(cwd)
         .args(args)
+        .envs(env.iter().copied())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .output()
@@ -75,14 +91,23 @@ struct Run {
 /// `git_binary` off and so never reaches outside this process — that is what
 /// `tests/zero_spawn.rs` proves, and it must keep being true. The wire is the
 /// one place where ignoring git's installation config would be wrong rather
-/// than merely different: `url.<base>.insteadOf`, `http.proxy` and
-/// `credential.helper` live there, and a fetch that skipped them would fail
-/// exactly where a corporate proxy or a credential helper is the thing making
-/// it work. So this handle costs one `git config -l` per process, which is
-/// the trade `ff clone` already makes one function down.
-fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
+/// than merely different: `url.<base>.insteadOf` and `credential.helper`
+/// live there, and a fetch that skipped them would fail exactly where a
+/// credential helper is the thing making it work. So this handle costs one
+/// `git config -l` per process, which is the trade `ff clone` already makes
+/// one function down.
+///
+/// `overrides` are config lines laid over everything read, the way `git -c`
+/// lays them: the lane's `gitoxide.credentials.terminalPrompt=false`, which
+/// is `GIT_TERMINAL_PROMPT=0` spelled for gix. Empty for a caller that may
+/// prompt.
+fn wire_repo(cwd: &std::path::Path, overrides: &[&str]) -> Result<gix::Repository> {
     let mut options = gix::open::Options::default();
     options.permissions.config.git_binary = true;
+    if !overrides.is_empty() {
+        options =
+            options.config_overrides(overrides.iter().map(|line| gix::bstr::BString::from(*line)));
+    }
     gix::open_opts(cwd, options).map_err(|err| {
         Error::coded(
             "pull/fetch-failed",
@@ -92,10 +117,43 @@ fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
     })
 }
 
-/// Fetch from `remote` — every branch its configured refspecs name, no
-/// `--prune`. Pull's job is the branch underfoot, and quietly deleting every
-/// stale tracking ref in the repository is a repository-wide mutation nobody
-/// asked this verb for.
+/// How one fetch behaves: the difference between `ff pull`'s foreground
+/// fetch and the lane's fetch behind a reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FetchOptions {
+    /// Give up after this long. `None` is the foreground: a fetch the person
+    /// asked for waits as long as the remote takes.
+    ///
+    /// What the bound covers, by transport: an http connect, probed before
+    /// the transport is built; every http request, as reqwest's per-request
+    /// deadline (headers within it, and no single body read stalling longer
+    /// — a healthy long pack is not cut); and the negotiation and pack read
+    /// on every transport, through gix's interrupt flag. An ssh connect is
+    /// bounded by ssh's own `ConnectTimeout`. What it does not cover is a
+    /// handshake that stalls after connecting on ssh or a file remote, which
+    /// gix checks no flag during — the same hole git has without
+    /// `ServerAliveInterval`.
+    pub deadline: Option<std::time::Duration>,
+    /// May the fetch ask a person for anything? `false` turns off fufu's own
+    /// credential prompt, ssh's (`BatchMode=yes`), and git's terminal prompt
+    /// in the fallback. A configured credential helper still runs, and a GUI
+    /// helper may still ask on its own — that is the helper's, not the
+    /// terminal's.
+    pub interactive: bool,
+    /// Delete the tracking refs of copies the remote no longer holds.
+    pub prune: bool,
+    /// Fetch tags too. `ff pull` does, as git does; the lane does not — a
+    /// tag write lands under `TRACKED_PREFIXES`, and the next verb would
+    /// report it as motion made outside fufu.
+    pub tags: bool,
+}
+
+/// Fetch from `remote` — every branch its configured refspecs name, and
+/// under `opts.prune` every tracking ref the remote no longer holds is
+/// deleted. One fetch, one behavior: a tracking ref for a copy the remote
+/// no longer has is what makes `ff branch`'s remote section and
+/// `Upstream.gone` lie, and the lane and pull share the fetch that keeps
+/// them honest.
 ///
 /// Native since the rung was climbed: the negotiation and the pack happen in
 /// this process, over the same blocking transport `ff clone` uses. What is
@@ -107,9 +165,14 @@ fn wire_repo(cwd: &std::path::Path) -> Result<gix::Repository> {
 /// half-written worktree admin dir, which [`unopenable_worktree`] names and
 /// git walks straight past. There the fetch is handed to `git fetch` once,
 /// and only there.
-pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
-    let repo = wire_repo(cwd)?;
-    let err = match native_fetch(&repo, remote) {
+pub fn fetch(cwd: &std::path::Path, remote: &str, opts: &FetchOptions) -> Result<()> {
+    let overrides: &[&str] = if opts.interactive {
+        &[]
+    } else {
+        &["gitoxide.credentials.terminalPrompt=false"]
+    };
+    let repo = wire_repo(cwd, overrides)?;
+    let err = match native_fetch(&repo, remote, opts, true) {
         Ok(()) => return Ok(()),
         Err(err) => err,
     };
@@ -119,7 +182,20 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
     // git walks past that directory and fetches; the one spawn buys the
     // user their fetch, and whose process did it is not their problem in
     // the middle of a pull.
-    if let Ok(run) = run(cwd, &["fetch", remote])
+    let mut args = vec!["fetch"];
+    if opts.prune {
+        args.push("--prune");
+    }
+    if !opts.tags {
+        args.push("--no-tags");
+    }
+    args.push(remote);
+    let env: &[(&str, &str)] = if opts.interactive {
+        &[]
+    } else {
+        &[("GIT_TERMINAL_PROMPT", "0")]
+    };
+    if let Ok(run) = run_env(cwd, &args, env)
         && run.ok
     {
         return Ok(());
@@ -139,8 +215,35 @@ pub fn fetch(cwd: &std::path::Path, remote: &str) -> Result<()> {
     ))
 }
 
-/// The four native steps, and nothing about the failure lane.
-fn native_fetch(repo: &gix::Repository, remote: &str) -> Result<()> {
+/// The native steps — connect, handshake, negotiate, receive, prune — and
+/// nothing about the failure lane.
+///
+/// The transport is built by hand rather than through `Remote::connect`,
+/// because the lane's ssh options have nowhere else to go: gix reads
+/// `core.sshCommand` with the environment folded in as the last word, so a
+/// config override cannot outrank a `GIT_SSH_COMMAND` in the environment,
+/// and the options must be set on the transport itself. The connection is
+/// then `to_connection_with_transport`, which authenticates through the
+/// repository's configured credential helpers exactly as `connect` does.
+///
+/// `bound_requests` puts the deadline on every http request from the
+/// first — the handshake GET, the `ls-refs` POST inside `prepare_fetch`,
+/// the fetch POST — through a hook on each request reqwest builds. The
+/// hook has one cost: a worker with a request hook refuses to follow a
+/// redirect, and the handshake GET is the one request that may (git's
+/// `http.followRedirects=initial`). A repository whose URL redirects —
+/// `http://` upgraded, a `.git` the host adds — is a permanent fact about
+/// that repository, so the refusal is retried once without the hook:
+/// each request then rests on reqwest's own thirty-second bound, and the
+/// negotiation and pack on the flag as before.
+fn native_fetch(
+    repo: &gix::Repository,
+    remote: &str,
+    opts: &FetchOptions,
+    bound_requests: bool,
+) -> Result<()> {
+    use gix::protocol::transport::client::blocking_io::connect;
+
     let failed = |err: &dyn std::error::Error| {
         Error::coded(
             "pull/fetch-failed",
@@ -154,18 +257,221 @@ fn native_fetch(repo: &gix::Repository, remote: &str) -> Result<()> {
             ],
         )
     };
+    let started = std::time::Instant::now();
 
-    let remote_handle = repo.find_remote(remote).map_err(|err| failed(&err))?;
-    let connection = remote_handle
-        .connect(gix::remote::Direction::Fetch)
+    let mut remote_handle = repo.find_remote(remote).map_err(|err| failed(&err))?;
+    if !opts.tags {
+        remote_handle = remote_handle.with_fetch_tags(gix::remote::fetch::Tags::None);
+    }
+    let (url, version) = remote_handle
+        .sanitized_url_and_version(gix::remote::Direction::Fetch)
         .map_err(|err| failed(&err))?;
-    let prepared = connection
-        .prepare_fetch(gix::progress::Discard, Default::default())
-        .map_err(|err| failed(&err))?;
-    prepared
-        .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-        .map_err(|err| failed(&err))?;
+    let http = matches!(url.scheme, gix::url::Scheme::Http | gix::url::Scheme::Https);
+
+    // The connect half of the deadline, for http: reqwest's own connect
+    // timeout is a hard-coded twenty seconds, so a blackholed address is
+    // probed here first, under the bound the caller asked for.
+    if let Some(deadline) = opts.deadline
+        && http
+    {
+        probe_connect(&url, deadline).map_err(|err| failed(&err))?;
+    }
+
+    let mut ssh = if url.scheme == gix::url::Scheme::Ssh {
+        repo.ssh_connect_options().map_err(|err| failed(&err))?
+    } else {
+        Default::default()
+    };
+    if !opts.interactive && url.scheme == gix::url::Scheme::Ssh {
+        quiet_ssh(&mut ssh, opts.deadline);
+    }
+    let transport = connect::connect(
+        url.clone(),
+        connect::Options {
+            version,
+            ssh,
+            trace: false,
+        },
+    )
+    .map_err(|err| failed(&err))?;
+    let mut connection = remote_handle.to_connection_with_transport(transport);
+
+    // The transfer half of the deadline, for http: reqwest's per-request
+    // timeout on every request the worker builds — headers within it, and
+    // no single body read stalling longer, so a healthy long pack is not
+    // cut. It rides the transport's own options, read from git's config the
+    // way gix reads them, with the backend slot filled in.
+    if let Some(deadline) = opts.deadline
+        && http
+        && bound_requests
+    {
+        use gix::protocol::transport::client::blocking_io::http;
+        let url_text = url.to_bstring();
+        let mut http_opts = repo
+            .transport_options(
+                url_text.as_ref() as &gix::bstr::BStr,
+                Some(gix::bstr::BStr::new(remote)),
+            )
+            .map_err(|err| failed(&err))?
+            .and_then(|any| any.downcast::<http::Options>().ok())
+            .map(|boxed| *boxed)
+            .unwrap_or_default();
+        let backend = http::reqwest::Options {
+            configure_request: Some(Box::new(move |req| {
+                *req.timeout_mut() = Some(deadline);
+                Ok(())
+            })),
+        };
+        http_opts.backend = Some(std::sync::Arc::new(std::sync::Mutex::new(backend))
+            as std::sync::Arc<std::sync::Mutex<dyn std::any::Any + Send + Sync + 'static>>);
+        connection = connection.with_transport_options(Box::new(http_opts));
+    }
+
+    let prepared = match connection.prepare_fetch(gix::progress::Discard, Default::default()) {
+        Ok(prepared) => prepared,
+        Err(err) if bound_requests && chain(&err).contains(REDIRECT_REFUSED) => {
+            return native_fetch(repo, remote, opts, false);
+        }
+        Err(err) => return Err(failed(&err)),
+    };
+
+    // The negotiation and the pack, under the flag gix checks per round and
+    // per read. With a deadline the flag is a local one a timer sets — at
+    // the deadline, or when Ctrl-C set the process-wide one, so the signal
+    // still lands.
+    let received = match opts.deadline {
+        None => prepared.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED),
+        Some(deadline) => {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            let flag = std::sync::Arc::new(AtomicBool::new(false));
+            let done = std::sync::Arc::new(AtomicBool::new(false));
+            let timer = {
+                let flag = flag.clone();
+                let done = done.clone();
+                std::thread::spawn(move || {
+                    while !done.load(Ordering::Relaxed) {
+                        if started.elapsed() >= deadline || gix::interrupt::is_triggered() {
+                            flag.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                })
+            };
+            let received = prepared.receive(gix::progress::Discard, &flag);
+            done.store(true, Ordering::Relaxed);
+            let _ = timer.join();
+            received
+        }
+    };
+    let outcome = match received {
+        Ok(outcome) => outcome,
+        // A remote with refs and none the refspecs cover — a tags-only
+        // remote — has nothing to fetch, which is not a failure to fetch.
+        Err(gix::remote::fetch::Error::NoMapping { .. }) => return Ok(()),
+        Err(err) => return Err(failed(&err)),
+    };
+
+    if opts.prune {
+        // An advertisement of nothing is the shape a refspec with no literal
+        // prefix produces (ls-refs answers it with zero refs), and pruning
+        // against it would delete every tracking ref. A remote that holds
+        // nothing keeps its stale refs until it holds something.
+        let ref_map = &outcome.ref_map;
+        if !ref_map.remote_refs.is_empty() {
+            let present: std::collections::HashSet<gix::bstr::BString> = ref_map
+                .mappings
+                .iter()
+                .filter_map(|mapping| mapping.local.clone())
+                .collect();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            ff_core::remote::prune_tracking(repo, remote, &present, now)?;
+        }
+    }
     Ok(())
+}
+
+/// What gix's reqwest worker says when a redirect meets a request hook —
+/// the one failure [`native_fetch`] retries without the hook.
+const REDIRECT_REFUSED: &str = "refusing to follow redirect after request headers were configured";
+
+/// The lane's ssh: no prompt, and a connect that gives up. Only OpenSSH
+/// takes these spellings, so any other program — plink, a wrapper script
+/// nobody has named the kind of — is left exactly as configured. Naming
+/// the kind skips gix's `ssh -G` probe spawn.
+///
+/// The options ride the command as words, which gix runs through `sh -c`
+/// when it may use a shell. With nothing configured gix marks the shell
+/// off (its `commandWithoutShellFallback` reading, with no fallback set),
+/// so the bare default is given the shell back along with its options; a
+/// person who set `gitoxide.ssh.commandWithoutShellFallback` on purpose
+/// asked for no shell, and keeps the command they named.
+fn quiet_ssh(
+    ssh: &mut gix::protocol::transport::client::blocking_io::ssh::connect::Options,
+    deadline: Option<std::time::Duration>,
+) {
+    use gix::protocol::transport::client::blocking_io::ssh::ProgramKind;
+    if ssh.disallow_shell && ssh.command.is_some() {
+        return;
+    }
+    let command = ssh.ssh_command().to_os_string();
+    let openssh = match ssh.kind {
+        Some(kind) => kind == ProgramKind::Ssh,
+        None => std::path::Path::new(&command)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| stem.eq_ignore_ascii_case("ssh")),
+    };
+    if !openssh {
+        return;
+    }
+    let mut quiet = command;
+    quiet.push(" -o BatchMode=yes");
+    if let Some(deadline) = deadline {
+        quiet.push(format!(" -o ConnectTimeout={}", deadline.as_secs().max(1)));
+    }
+    ssh.command = Some(quiet);
+    ssh.kind = Some(ProgramKind::Ssh);
+    ssh.disallow_shell = false;
+}
+
+/// Can `url`'s host be reached inside `deadline`? A plain TCP connect, the
+/// same one reqwest will make next — this backend has no proxy, so the
+/// probe is faithful. Name resolution is not bounded; the connect is.
+fn probe_connect(url: &gix::Url, deadline: std::time::Duration) -> std::io::Result<()> {
+    use std::net::ToSocketAddrs;
+    let host = url
+        .host()
+        .ok_or_else(|| std::io::Error::other("the URL names no host"))?;
+    let port = url.port.unwrap_or(match url.scheme {
+        gix::url::Scheme::Https => 443,
+        _ => 80,
+    });
+    let addrs: Vec<_> = (host, port).to_socket_addrs()?.collect();
+    let mut last = std::io::Error::other(format!("{host} resolved to no address"));
+    let started = std::time::Instant::now();
+    for addr in addrs {
+        let left = deadline.saturating_sub(started.elapsed());
+        if left.is_zero() {
+            break;
+        }
+        match std::net::TcpStream::connect_timeout(&addr, left) {
+            Ok(_) => return Ok(()),
+            Err(err) => last = err,
+        }
+    }
+    let message = if last.kind() == std::io::ErrorKind::TimedOut {
+        format!(
+            "no answer from {host}:{port} within {}s",
+            deadline.as_secs()
+        )
+    } else {
+        format!("could not connect to {host}:{port}: {last}")
+    };
+    Err(std::io::Error::new(last.kind(), message))
 }
 
 /// The git dir of the first linked worktree gix cannot open as a repository,
@@ -510,6 +816,14 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
+    /// Pull's options: no deadline, prompts allowed, prune, tags.
+    const FOREGROUND: FetchOptions = FetchOptions {
+        deadline: None,
+        interactive: true,
+        prune: true,
+        tags: true,
+    };
+
     /// A bare remote plus a clone holding one commit on main, tracking it.
     /// The `TempDir` lives in the return so the paths outlive the calls.
     fn fixture() -> (TempDir, PathBuf, PathBuf) {
@@ -612,7 +926,7 @@ mod tests {
             },
         );
         assert_eq!(res.unwrap_err().id(), "push/unreachable");
-        let res = fetch(&clone, "origin");
+        let res = fetch(&clone, "origin", &FOREGROUND);
         assert_eq!(res.unwrap_err().id(), "pull/fetch-failed");
     }
 

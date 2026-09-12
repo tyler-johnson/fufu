@@ -19,7 +19,9 @@
 //! of it: the fetch still goes, because without it the report cannot say
 //! what the shared copy holds, and a fetch moves remote-tracking refs and
 //! nothing a person stands on. What it writes is the same thing
-//! `ff git fetch` writes. `--no-fetch` beside it reads what is already here.
+//! `ff git fetch` writes, and it prunes the tracking refs of copies the
+//! remote no longer has. `--no-fetch` beside it — the global flag, the same
+//! one that skips the fetch lane — reads what is already here.
 //! Every sentence about a move then switches to the conditional, and the
 //! tail says nothing was written rather than offering an undo.
 
@@ -30,13 +32,7 @@ use ff_core::{
 
 use crate::ctx::Ctx;
 
-pub fn run(
-    ctx: &Ctx,
-    branches: Vec<String>,
-    all: bool,
-    dry_run: bool,
-    no_fetch: bool,
-) -> Result<()> {
+pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
@@ -62,14 +58,30 @@ pub fn run(
         .to_path_buf();
 
     let mut fetched = false;
-    if !no_fetch && let Some(remote) = before.remote.clone() {
+    if !ctx.no_fetch
+        && let Some(remote) = before.remote.clone()
+    {
         if !ctx.json {
             println!(
                 "{}",
                 crate::render::paint_dim(&format!("fetching from {remote}"), colored)
             );
         }
-        crate::net::fetch(&cwd, &remote)?;
+        // The foreground fetch: no deadline, every prompt allowed. It
+        // stamps the lane's cadence either way, so the next reader does not
+        // fetch again behind a pull that just did — or just failed to.
+        let result = crate::net::fetch(
+            &cwd,
+            &remote,
+            &crate::net::FetchOptions {
+                deadline: None,
+                interactive: true,
+                prune: true,
+                tags: true,
+            },
+        );
+        crate::autofetch::stamp(&repo, &remote, result.as_ref().map(|_| ()));
+        result?;
         fetched = true;
     }
 

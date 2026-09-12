@@ -286,8 +286,9 @@ fn json_shapes() {
     // joined with the graduated raw-git correction (replacing the boolean
     // translate in place), and watchInterval with ff watch; ambient left
     // with the shell channel, and autoUpdate with silent self-installs;
-    // toolPolicy came and went with the args-array tool, so 11.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 11);
+    // toolPolicy came and went with the args-array tool; autoFetch joined
+    // with the fetch lane, so 12.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 12);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON

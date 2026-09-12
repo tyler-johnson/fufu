@@ -74,6 +74,18 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "autoFetch",
+            key: "fufu.autoFetch",
+            def: "10m",
+            kind: SettingKind::Cadence,
+            desc: &[
+                "How often the tracking refs are refreshed: a fetch rides an ff command",
+                "at most this often, per repo, before the verb runs. false leaves",
+                "fetching to `ff pull` and --fetch; durations work too (1h, 2d), floored",
+                "at one minute.",
+            ],
+        },
+        Setting {
             name: "pager",
             key: "fufu.pager",
             def: "less",
@@ -501,6 +513,14 @@ pub fn run(
             crate::autotrim::sync_interval(&repo, encoded);
         }
 
+        if setting.name == "autoFetch" {
+            let encoded = still_val
+                .as_deref()
+                .and_then(crate::cadence::parse)
+                .unwrap_or(0);
+            crate::autofetch::sync_interval(&repo, encoded);
+        }
+
         if ctx.json {
             let still_json = still_val.as_ref().map(|v| {
                 serde_json::json!({
@@ -606,6 +626,12 @@ pub fn run(
         && let Some(encoded) = crate::cadence::parse(&new_value)
     {
         crate::autotrim::sync_interval(&repo, encoded);
+    }
+
+    if setting.name == "autoFetch"
+        && let Some(encoded) = crate::cadence::parse(&new_value)
+    {
+        crate::autofetch::sync_interval(&repo, encoded);
     }
 
     if ctx.json {

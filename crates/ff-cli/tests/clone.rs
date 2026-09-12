@@ -55,6 +55,9 @@ fn env(cmd: &mut Command) -> &mut Command {
     cmd.env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        // A verb run in a fresh `ff clone` would carry the fetch lane on its
+        // first invocation; `CI` set is how the lane is told not to.
+        .env("CI", "1")
         .env("GIT_AUTHOR_NAME", "Clone Author")
         .env("GIT_AUTHOR_EMAIL", "author@clone.test")
         .env("GIT_COMMITTER_NAME", "Clone Committer")

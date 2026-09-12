@@ -14,7 +14,7 @@ Two questions of each branch. Have you changed this branch since you last saw it
 
 If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone, and `ff push` replaces them; fufu knows them because it recorded the rewrite, or the push you undid.
 
-Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch`, or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. A branch you are not standing on that only fast-forwards moves as a ref, and nothing above it follows; a replay carries what is stacked above it, as every replay does.
+Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch` — the global flag, the same one that keeps any verb from fetching — or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. A branch you are not standing on that only fast-forwards moves as a ref, and nothing above it follows; a replay carries what is stacked above it, as every replay does.
 
 ### The base
 
@@ -37,7 +37,7 @@ Four kinds of branch are named and left where they stand:
 
 `--dry-run` (`-n`) says what the run would do and writes none of it. Every branch in the run is planned the way a real run plans it, so the report says which would fast-forward, which would replay onto a moved base or a moved shared copy and how many commits, which would hold on a conflict and where, and which would be skipped and why, in the same shape with every sentence in the conditional. No branch moves, no file is written, no hold is recorded, and nothing goes on the operation log, so there is nothing to undo and the closing line says so.
 
-The fetch still runs. Without it the report could not say what the shared copy holds, and a fetch writes the remote-tracking refs under `refs/remotes/<remote>/` and the objects behind them, what `ff git fetch` writes, and touches no local branch, no file, and no operation. `--dry-run --no-fetch` reads what you already have and writes nothing at all. The exit is 3 when a branch would hold, the same as a real run, so a script can ask before it pulls.
+The fetch still runs. Without it the report could not say what the shared copy holds, and a fetch writes the remote-tracking refs under `refs/remotes/<remote>/` and the objects behind them, what `ff git fetch` writes, prunes the tracking refs of copies the remote no longer has, and touches no local branch, no file, and no operation. `--dry-run --no-fetch` reads what you already have and writes nothing at all. The exit is 3 when a branch would hold, the same as a real run, so a script can ask before it pulls.
 
 ### The report
 

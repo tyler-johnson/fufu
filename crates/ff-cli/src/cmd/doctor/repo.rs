@@ -519,6 +519,50 @@ pub(super) fn settings_checks(repo: &ff_core::gix::Repository, now: i64) -> Resu
         }
     }
 
+    // The fetch lane. Doctor's own lane is the every-run one, so this row
+    // reads the fetch that ran in `lanes::preflight` a moment ago — a
+    // remote that is down is a finding, not a fact about last week.
+    let encoded = crate::cadence::read_encoded(file, "fufu.autoFetch");
+    let af_state = crate::autofetch::load(repo);
+    let af_display = file
+        .string("fufu.autoFetch")
+        .and_then(|v| crate::cadence::parse(&v.to_string()).map(|_| v.to_string()))
+        .unwrap_or_else(|| "10m".to_string());
+    match crate::cadence::effective_with(encoded, crate::autofetch::DEFAULT_SECS) {
+        None => {
+            rows.push(Row::info(
+                "auto-fetch",
+                "off (the autoFetch setting) — ff pull and --fetch still fetch".into(),
+            ));
+        }
+        Some(_) if af_state.failed_since > 0 => {
+            rows.push(Row::warn(
+                "auto-fetch",
+                format!(
+                    "failing since {} ({}) — ff pull says more",
+                    crate::render::relative_age(now, af_state.failed_since),
+                    af_state.last_error.as_deref().unwrap_or("no message")
+                ),
+            ));
+        }
+        Some(_) if af_state.fetched_at == 0 || af_state.remote.is_empty() => {
+            rows.push(Row::info(
+                "auto-fetch",
+                format!("on — a fetch rides an ff command at most every {af_display}"),
+            ));
+        }
+        Some(_) => {
+            rows.push(Row::info(
+                "auto-fetch",
+                format!(
+                    "last fetched {} from {} (at most every {af_display})",
+                    crate::render::relative_age(now, af_state.fetched_at),
+                    af_state.remote
+                ),
+            ));
+        }
+    }
+
     Ok(rows)
 }
 

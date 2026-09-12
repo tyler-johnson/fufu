@@ -483,6 +483,7 @@ dependencies = [
  "ff-core",
  "ff-testsupport",
  "gix",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
