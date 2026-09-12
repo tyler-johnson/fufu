@@ -1,29 +1,182 @@
 //! `ff branch` — the branch family: bare is the list (named and anonymous
 //! segregated), `<name> [<rev>]` creates one where you are not, `-d` takes
-//! one away. Naming the branch you are on is not here; `ff describe -b` is
-//! the one verb that does it.
+//! one away, `--prune` takes away every one whose shared copy is gone.
+//! Naming the branch you are on is not here; `ff describe -b` is the one
+//! verb that does it.
 
-use ff_core::Result;
+use ff_core::{Kept, KeptBranch, PrunedBranch, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(
-    ctx: &Ctx,
-    name: Option<String>,
-    rev: Option<String>,
-    delete: Option<String>,
-    shared: bool,
-    all: bool,
-) -> Result<()> {
+/// The family's flags, as the parser hands them over.
+pub struct Args {
+    pub name: Option<String>,
+    pub rev: Option<String>,
+    pub delete: Option<String>,
+    pub shared: bool,
+    pub prune: bool,
+    pub dry_run: bool,
+    pub all: bool,
+}
+
+pub fn run(ctx: &Ctx, args: Args) -> Result<()> {
     // The parser has already refused every pairing that crosses shapes, so
     // the order here only says which field names the shape.
-    if let Some(target) = delete {
-        delete_branch(ctx, &target, shared)
-    } else if let Some(name) = name {
-        create(ctx, &name, rev.as_deref())
+    if args.prune {
+        prune(ctx, args.dry_run)
+    } else if let Some(target) = args.delete {
+        delete_branch(ctx, &target, args.shared)
+    } else if let Some(name) = args.name {
+        create(ctx, &name, args.rev.as_deref())
     } else {
-        list(ctx, all)
+        list(ctx, args.all)
     }
+}
+
+/// `ff branch --prune`: fetch, then one operation deleting every branch
+/// whose shared copy is gone. The fetch is pull's — foreground, pruning,
+/// stamping the lane's cadence — and `--no-fetch` prunes from the refs as
+/// they stand.
+fn prune(ctx: &Ctx, dry_run: bool) -> Result<()> {
+    let repo = ff_core::discover(".")?;
+    crate::render::init_palette(&repo);
+    let colored = crate::pager::color_enabled();
+
+    // The guards, and the remote: the same ground pull reads before its
+    // fetch.
+    let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Prune)?;
+    let cwd = repo
+        .workdir()
+        // Uncoded on purpose: preflight already refused a bare repository.
+        .ok_or_else(|| ff_core::Error::msg("no working directory: internal inconsistency"))?
+        .to_path_buf();
+    let mut fetched = false;
+    if !ctx.no_fetch
+        && let Some(remote) = pre.remote.clone()
+    {
+        if !ctx.json {
+            println!(
+                "{}",
+                crate::render::paint_dim(&format!("fetching from {remote}"), colored)
+            );
+        }
+        let result = crate::net::fetch(
+            &cwd,
+            &remote,
+            &crate::net::FetchOptions {
+                deadline: None,
+                interactive: true,
+                prune: true,
+                tags: true,
+            },
+        );
+        crate::autofetch::stamp(&repo, &remote, result.as_ref().map(|_| ()));
+        result?;
+        fetched = true;
+    }
+
+    let (report, verb_ctx) = ff_core::prune::prune(
+        &repo,
+        ff_core::prune::PruneOptions { dry_run, fetched },
+        &crate::provenance::pre_ff(ctx),
+        None,
+        std::env::args().collect(),
+    )?;
+    if let Some(verb_ctx) = &verb_ctx {
+        crate::render::reconcile_notice(&verb_ctx.reconcile);
+    }
+
+    if ctx.json {
+        let undo = if dry_run || report.pruned.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::from("ff undo")
+        };
+        let payload = serde_json::json!({
+            "prune": report,
+            "undo": undo,
+        });
+        crate::machine::emit("branch prune", &payload)?;
+        return Ok(());
+    }
+
+    for line in prune_lines(&report.pruned, &report.kept, dry_run, colored) {
+        println!("{line}");
+    }
+    if report.pruned.is_empty() && report.kept.is_empty() {
+        println!("{}", crate::render::paint_dim("nothing to prune", colored));
+    }
+    if !report.pruned.is_empty() {
+        let tail = if dry_run {
+            "nothing was written — drop --dry-run to prune"
+        } else {
+            "undo: ff undo"
+        };
+        println!("{}", crate::render::paint_dim(tail, colored));
+    }
+    Ok(())
+}
+
+/// The lines a prune says, the verb's and pull's alike: what was pruned,
+/// with each re-aim inline, then one line per kept branch and its way out.
+/// Under a dry run the pruned line reads in the conditional; a kept branch
+/// is as kept either way.
+pub(crate) fn prune_lines(
+    pruned: &[PrunedBranch],
+    kept: &[KeptBranch],
+    dry_run: bool,
+    colored: bool,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    if !pruned.is_empty() {
+        let names: Vec<String> = pruned
+            .iter()
+            .map(|p| {
+                let reaims: Vec<String> = p
+                    .reaimed
+                    .iter()
+                    .map(|r| match &r.onto {
+                        Some(onto) => format!("{} now sits on {onto}", r.branch),
+                        None => format!("{} now sits on nothing", r.branch),
+                    })
+                    .collect();
+                if reaims.is_empty() {
+                    p.name.clone()
+                } else {
+                    format!("{} ({})", p.name, reaims.join(", "))
+                }
+            })
+            .collect();
+        let verb = if dry_run { "would prune" } else { "pruned" };
+        let noun = if pruned.len() == 1 {
+            "branch"
+        } else {
+            "branches"
+        };
+        out.push(format!(
+            "{verb} {} {noun} whose shared copy is gone: {}",
+            pruned.len(),
+            names.join(", ")
+        ));
+    }
+    for k in kept {
+        let line = match &k.reason {
+            Kept::Current => format!("kept {}: the branch you are on", k.name),
+            Kept::Elsewhere { path } => format!("kept {}: checked out in {path}", k.name),
+            Kept::Held { verb } => format!(
+                "kept {}: a held {verb} stands on it — ff switch {}, then ff resolve",
+                k.name, k.name
+            ),
+            Kept::Ahead { count } => format!(
+                "kept {}: {count} commit{} its copy never held — ff branch -d {}",
+                k.name,
+                if *count == 1 { "" } else { "s" },
+                k.name
+            ),
+        };
+        out.push(crate::render::paint_warn(&line, colored));
+    }
+    out
 }
 
 fn create(ctx: &Ctx, name: &str, rev: Option<&str>) -> Result<()> {
@@ -238,7 +391,7 @@ fn list(ctx: &Ctx, all: bool) -> Result<()> {
     let label_width = local_width.max(remote_width).max(14);
     let mut gap = false;
     for (section, header) in [(&list.named, ""), (&list.anonymous, "anonymous:")] {
-        if section.is_empty() {
+        if section.is_empty() && !(header.is_empty() && list.gone > 0) {
             continue;
         }
         if !header.is_empty() {
@@ -260,6 +413,24 @@ fn list(ctx: &Ctx, all: bool) -> Result<()> {
             for line in lines {
                 println!("{line}");
             }
+        }
+        // The way out, on the screen that shows the state: one dim line
+        // after the named section when any branch's shared copy is gone.
+        if header.is_empty() && list.gone > 0 {
+            if gap {
+                println!();
+            }
+            println!(
+                "{}",
+                crate::render::paint_dim(
+                    &format!(
+                        "{} whose shared copy is gone — ff branch --prune",
+                        list.gone
+                    ),
+                    colored
+                )
+            );
+            gap = false;
         }
     }
     if !list.remote_only.is_empty() {

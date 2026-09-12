@@ -14,6 +14,8 @@ Two questions of each branch. Have you changed this branch since you last saw it
 
 If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone, and `ff push` replaces them; fufu knows them because it recorded the rewrite, or the push you undid.
 
+A branch whose shared copy is gone — the forge deleted it when the pull request merged — is reported and left standing. Under `fufu.pruneGone` the run deletes it first, the way `ff branch --prune` does: the same three-part test for gone, the same guard that keeps and names a branch holding commits the copy never held, the same re-aim of the branches stacked on it, all inside the run's one operation, so one `ff undo` takes the prune back with the rest. The report says what was pruned ahead of the axes, `--dry-run` says it in the conditional, and a kept branch keeps its gone line. The setting is off today and flips on in a later release.
+
 Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch` — the global flag, the same one that keeps any verb from fetching — or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. A branch you are not standing on that only fast-forwards moves as a ref, and nothing above it follows; a replay carries what is stacked above it, as every replay does.
 
 ### The base

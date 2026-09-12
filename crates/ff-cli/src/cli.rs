@@ -472,6 +472,12 @@ pub enum Command {
         /// Remove the copy on the remote too — that half `ff undo` cannot reach
         #[arg(long, requires = "delete")]
         shared: bool,
+        /// Delete every branch whose shared copy is gone, in one operation
+        #[arg(long, conflicts_with_all = ["name", "delete", "shared", "all", "at", "at_op"])]
+        prune: bool,
+        /// Say what --prune would delete and keep, and write nothing
+        #[arg(short = 'n', long, requires = "prune")]
+        dry_run: bool,
         /// Every remote-only branch, not just the newest few
         #[arg(long)]
         all: bool,
@@ -890,10 +896,16 @@ impl Command {
             // Bare `ff branch` is the list, so it names the shape it emits
             // rather than the family — two payloads under one name is what
             // the `ff op` family was built to avoid.
-            Command::Branch { name, delete, .. } => match (name, delete) {
-                (_, Some(_)) => "branch delete",
-                (Some(_), None) => "branch create",
-                (None, None) => "branch list",
+            Command::Branch {
+                name,
+                delete,
+                prune,
+                ..
+            } => match (name, delete, prune) {
+                (_, _, true) => "branch prune",
+                (_, Some(_), false) => "branch delete",
+                (Some(_), None, false) => "branch create",
+                (None, None, false) => "branch list",
             },
             // The same rule as bare `ff branch`: name the shape it emits,
             // not the family.
@@ -1141,6 +1153,9 @@ impl Command {
             // runs a core verb whose `begin_verb` capture is the mandatory
             // pre-verb one, and a second CLI capture would be a full extra
             // worktree diff.
+            // `--prune` owns its fetch the way `pull` does, and stamps the
+            // cadence when it runs.
+            Command::Branch { prune: true, .. } => Lanes::MUTATOR.without_fetch(),
             Command::Branch { name, delete, .. } => {
                 if name.is_some() || delete.is_some() {
                     Lanes::MUTATOR

@@ -1417,3 +1417,153 @@ fn the_dry_run_envelope_carries_the_rows_and_says_so() {
         "the real run moved it"
     );
 }
+
+// ── fufu.pruneGone ────────────────────────────────────────────────────────
+
+/// A clone with `main` pushed, and `alpha` published from it through
+/// `ff push` — which writes the seen record — then deleted on the remote,
+/// the state a merged pull request leaves. Standing on `main`.
+fn alpha_gone(fx: &Fixture) {
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["switch", "-q", "-c", "alpha", "main"]);
+    fx.write("alpha.txt", "alpha\n");
+    fx.commit("alpha");
+    let push = ff(fx, &["push"]);
+    assert!(push.status.success(), "{}", out(&push));
+    fx.git(&["switch", "-q", "main"]);
+    fx.remote_git(&["branch", "-D", "alpha"]);
+}
+
+fn branch_exists(fx: &Fixture, name: &str) -> bool {
+    fx.try_git(&["rev-parse", "--verify", "-q", &format!("refs/heads/{name}")])
+        .status
+        .success()
+}
+
+/// With the setting unset, a pull reports the gone copy and touches
+/// nothing, as it always has.
+#[test]
+fn prune_gone_unset_reports_and_leaves_the_branch() {
+    let fx = Fixture::new_cloned();
+    alpha_gone(&fx);
+
+    let output = ff(&fx, &["pull", "--all"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("the remote copy is gone — origin/alpha is configured but not there"),
+        "{text}"
+    );
+    assert!(!text.contains("pruned"), "{text}");
+    assert!(branch_exists(&fx, "alpha"));
+    let v = json(&ff(&fx, &["--json", "pull", "--all"]));
+    assert!(v["data"]["pull"].get("pruned").is_none(), "{v}");
+    assert!(v["data"]["pull"].get("kept").is_none(), "{v}");
+}
+
+/// Set true, a bare pull on `main` prunes `alpha` in its run: one `pull`
+/// operation, the pruned line ahead of the axes, and one undo restores it.
+#[test]
+fn prune_gone_prunes_inside_the_run_and_one_undo_restores() {
+    let fx = Fixture::new_cloned();
+    alpha_gone(&fx);
+    fx.set_config("fufu.pruneGone", "true");
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("pruned 1 branch whose shared copy is gone: alpha"),
+        "{text}"
+    );
+    assert!(text.trim_end().ends_with("undo: ff undo"), "{text}");
+    assert!(!branch_exists(&fx, "alpha"));
+    let log = stdout(&ff(&fx, &["op", "log"]));
+    assert!(log.contains("pull 0 branch(es), 1 pruned"), "{log}");
+
+    let v = json(&ff(&fx, &["--json", "pull"]));
+    assert!(
+        v["data"]["pull"].get("pruned").is_none(),
+        "nothing left: {v}"
+    );
+
+    let undo = ff(&fx, &["undo"]);
+    assert!(undo.status.success(), "{}", out(&undo));
+    // The second pull did nothing, so the first undo is the pull that
+    // pruned.
+    assert!(branch_exists(&fx, "alpha"), "{}", out(&undo));
+    assert_eq!(fx.git(&["config", "branch.alpha.remote"]).trim(), "origin");
+}
+
+#[test]
+fn prune_gone_json_carries_the_pruned_block() {
+    let fx = Fixture::new_cloned();
+    alpha_gone(&fx);
+    fx.set_config("fufu.pruneGone", "true");
+
+    let v = json(&ff(&fx, &["--json", "pull"]));
+    assert_eq!(v["data"]["pull"]["pruned"][0]["name"], "alpha", "{v}");
+    assert_eq!(
+        v["data"]["pull"]["pruned"][0]["trash_ref"], "refs/fufu/trash/alpha",
+        "{v}"
+    );
+    assert_eq!(v["data"]["undo"], "ff undo", "{v}");
+}
+
+#[test]
+fn prune_gone_dry_run_says_would_and_writes_nothing() {
+    let fx = Fixture::new_cloned();
+    alpha_gone(&fx);
+    fx.set_config("fufu.pruneGone", "true");
+
+    let output = ff(&fx, &["pull", "--dry-run"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("would prune 1 branch whose shared copy is gone: alpha"),
+        "{text}"
+    );
+    assert!(
+        text.contains("nothing was written — drop --dry-run to pull"),
+        "{text}"
+    );
+    assert!(branch_exists(&fx, "alpha"));
+    let v = json(&ff(&fx, &["--json", "pull", "--dry-run"]));
+    assert_eq!(v["data"]["pull"]["dry_run"], true, "{v}");
+    assert!(v["data"]["undo"].is_null(), "{v}");
+}
+
+/// A gone branch holding a commit its copy never held is kept, named with
+/// the count, and keeps its own gone line in the run.
+#[test]
+fn prune_gone_keeps_an_ahead_branch_with_its_gone_line() {
+    let fx = Fixture::new_cloned();
+    alpha_gone(&fx);
+    fx.git(&["switch", "-q", "alpha"]);
+    fx.write("more.txt", "more\n");
+    fx.commit("more");
+    fx.git(&["switch", "-q", "main"]);
+    fx.set_config("fufu.pruneGone", "true");
+
+    let output = ff(&fx, &["pull", "--all"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("kept alpha: 1 commit its copy never held — ff branch -d alpha"),
+        "{text}"
+    );
+    assert!(
+        text.contains("the remote copy is gone — origin/alpha is configured but not there"),
+        "{text}"
+    );
+    assert!(!text.contains("pruned"), "{text}");
+    assert!(branch_exists(&fx, "alpha"));
+    let v = json(&ff(&fx, &["--json", "pull", "--all"]));
+    assert_eq!(
+        v["data"]["pull"]["kept"][0]["reason"]["kind"], "ahead",
+        "{v}"
+    );
+    assert_eq!(v["data"]["pull"]["kept"][0]["reason"]["count"], 1, "{v}");
+}

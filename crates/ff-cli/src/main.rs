@@ -295,9 +295,22 @@ fn main() {
             rev,
             delete,
             shared,
+            prune,
+            dry_run,
             all,
             ..
-        }) => cmd::branch::run(&ctx, name, rev, delete, shared, all),
+        }) => cmd::branch::run(
+            &ctx,
+            cmd::branch::Args {
+                name,
+                rev,
+                delete,
+                shared,
+                prune,
+                dry_run,
+                all,
+            },
+        ),
         Some(cli::Command::Worktree {
             path,
             branch,

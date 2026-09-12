@@ -756,7 +756,7 @@ pub(super) fn branch_checks(repo: &ff_core::gix::Repository, fix: bool) -> Resul
             rows.push(Row::info(
                 "tracking",
                 format!(
-                    "{list}: upstream configured, tracking ref absent — the shared copy is gone"
+                    "{list}: upstream configured, tracking ref absent — the shared copy is gone; ff branch --prune deletes them"
                 ),
             ));
         }

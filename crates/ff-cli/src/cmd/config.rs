@@ -14,6 +14,8 @@ pub(crate) enum SettingKind {
     Cadence,
     Branch,
     Choice(&'static [&'static str]),
+    /// git's booleans: true/false, yes/no, on/off, 1/0.
+    Bool,
 }
 
 impl SettingKind {
@@ -26,6 +28,7 @@ impl SettingKind {
             SettingKind::Cadence => "cadence",
             SettingKind::Branch => "branch",
             SettingKind::Choice(_) => "choice",
+            SettingKind::Bool => "bool",
         }
     }
 }
@@ -71,6 +74,18 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "How often retention enforces itself: a trim rides an ff command at",
                 "most this often, per repo. false leaves trimming entirely to",
                 "`ff trim`; durations work too (12h, 2w), floored at one minute.",
+            ],
+        },
+        Setting {
+            name: "pruneGone",
+            key: "fufu.pruneGone",
+            def: "false",
+            kind: SettingKind::Bool,
+            desc: &[
+                "Whether ff pull deletes the local branches whose shared copy is gone,",
+                "as ff branch --prune does, inside its run: the same guard, so a branch",
+                "holding commits its copy never held is kept and named. false today;",
+                "the default flips to true in a later release.",
             ],
         },
         Setting {
@@ -280,6 +295,9 @@ pub(crate) fn value_is_valid(setting: &Setting, value: &str) -> bool {
                 && value.chars().all(|c| !c.is_whitespace() && c >= ' ')
         }
         SettingKind::Choice(valid) => valid.iter().any(|v| v.eq_ignore_ascii_case(value)),
+        SettingKind::Bool => ["true", "false", "yes", "no", "on", "off", "1", "0"]
+            .iter()
+            .any(|v| v.eq_ignore_ascii_case(value)),
     }
 }
 
@@ -308,6 +326,7 @@ fn validate_value(setting: &Setting, value: &str) -> Result<()> {
                 setting.name,
                 valid.join(", ")
             ),
+            SettingKind::Bool => format!("invalid value for {}: want true or false", setting.name),
         };
         return Err(Error::coded("usage/bad-value", msg, vec![]));
     }
@@ -589,8 +608,9 @@ pub fn run(
     let new_value = value.unwrap();
     validate_value(setting, &new_value)?;
 
-    // Normalize Choice values to lowercase so readers always see canonical form.
-    let new_value = if matches!(setting.kind, SettingKind::Choice(_)) {
+    // Normalize Choice and Bool values to lowercase so readers always see
+    // canonical form.
+    let new_value = if matches!(setting.kind, SettingKind::Choice(_) | SettingKind::Bool) {
         new_value.to_lowercase()
     } else {
         new_value

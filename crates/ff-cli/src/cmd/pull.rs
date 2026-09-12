@@ -24,6 +24,10 @@
 //! one that skips the fetch lane — reads what is already here.
 //! Every sentence about a move then switches to the conditional, and the
 //! tail says nothing was written rather than offering an undo.
+//!
+//! Under `fufu.pruneGone` the run prunes first: the branches whose shared
+//! copy is gone go the way `ff branch --prune` takes them, inside the one
+//! operation, and the report says so ahead of the axes.
 
 use ff_core::{
     BaseAxis, BranchPull, BranchRemote, PullReport, RemoteAxis, RestackOutcome, RestackReport,
@@ -92,6 +96,12 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
     let others_after = ff_core::pull::read_branches(&repo, &chosen.others)?;
     let others = ff_core::pull::after_fetch(others_before, &others_after);
 
+    // `fufu.pruneGone`: the prune rides the run. Off by default; the row
+    // in `ff config` says the default flips later.
+    let prune = repo
+        .config_snapshot()
+        .boolean("fufu.pruneGone")
+        .unwrap_or(false);
     let (report, verb_ctx) = ff_core::pull::pull(
         &repo,
         &before,
@@ -101,6 +111,7 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
             current: chosen.current,
             others,
             dry_run,
+            prune,
             now: None,
             argv: std::env::args().collect(),
         },
@@ -161,6 +172,12 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
     // out elsewhere — read the same either way, since they are as true.
     let mut said = false;
     let would = Would(dry_run);
+
+    // The prune, first, in the verb's own words: it ran ahead of the axes.
+    for line in super::branch::prune_lines(&report.pruned, &report.kept, dry_run, colored) {
+        println!("{line}");
+        said = true;
+    }
 
     match &report.remote {
         RemoteAxis::NotNamed | RemoteAxis::NoRemote => {}
@@ -248,7 +265,7 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
     // The tail under a run that moved anything: the way back, or under a
     // dry run the one line saying there is nothing to take back, because
     // nothing was written.
-    if !reports.is_empty() || moved_elsewhere {
+    if !reports.is_empty() || moved_elsewhere || !report.pruned.is_empty() {
         let tail = if dry_run {
             "nothing was written — drop --dry-run to pull"
         } else {
