@@ -54,6 +54,12 @@ How long operations live: ff trim drops everything past the cutoff, captures and
 
 How often retention enforces itself: a trim rides an ff command at most this often, per repo. false leaves trimming entirely to `ff trim`; durations work too (12h, 2w), floored at one minute.
 
+### autoFetch
+
+`fufu.autoFetch` — cadence; default `10m`
+
+How often the tracking refs are refreshed: a fetch rides an ff command at most this often, per repo, before the verb runs. false leaves fetching to `ff pull` and --fetch; durations work too (1h, 2d), floored at one minute.
+
 ### pager
 
 `fufu.pager` — command; default `less`

@@ -43,6 +43,12 @@ Options:
       --no-verify
           Skip pre-commit and commit-msg hooks
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
+
       --session <name>
           Session name for this invocation
 

@@ -31,7 +31,7 @@ Nothing pull does leaves the machine. The fetch, the replay, the whole run is on
 
 If somebody pushed since, nothing is sent and nothing is lost. `ff pull` takes their work in first, and the push goes afterward.
 
-The push does not fetch first, on purpose. The lease is worth something precisely because it means the tip you last read. Fetching just before pushing would refresh the lease to a tip you never looked at, and git would then be guarding you against a change you accepted sight unseen. What you last saw is fufu's own record, written by the verbs that show you the copy — `ff pull`, [`ff switch`](../reference/cli/switch.md) onto a remote's branch, [`ff clone`](../reference/cli/clone.md), and the push itself — so a fetch behind fufu's back (an editor's, `ff git fetch`, `ff pull --dry-run`) moves the tracking ref and not the lease, and a push after one is refused before the wire.
+The push does not fetch first, on purpose. The lease is worth something precisely because it means the tip you last read. Fetching just before pushing would refresh the lease to a tip you never looked at, and git would then be guarding you against a change you accepted sight unseen. What you last saw is fufu's own record, written by the verbs that show you the copy — `ff pull`, [`ff switch`](../reference/cli/switch.md) onto a remote's branch, [`ff clone`](../reference/cli/clone.md), and the push itself — so a fetch behind fufu's back (an editor's, `ff git fetch`, `ff pull --dry-run`, the fetch lane that rides any verb) moves the tracking ref and not the lease, and a push after one is refused before the wire.
 
 A [held rewrite](held-rewrites.md) blocks the exit. Nothing is sent while the branch's commits are still about to be rewritten out from under it.
 

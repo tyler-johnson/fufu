@@ -38,6 +38,12 @@ Options:
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
+
       --session <name>
           Session name for this invocation
 

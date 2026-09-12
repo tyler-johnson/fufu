@@ -1,10 +1,10 @@
 # ff doctor
 
-Reads fufu's whole safety net in one pass and reports what it finds. Read-only by design: it takes no snapshot, reconciles nothing, and reports the drift the log will absorb rather than absorbing it.
+Reads fufu's whole safety net in one pass and reports what it finds. Read-only by design: it takes no snapshot, reconciles nothing, and reports the drift the log will absorb rather than absorbing it. The one thing it refreshes is the tracking refs: the fetch lane runs before every doctor rather than on its cadence, so the remote floor it reports is the one standing now (`--no-fetch` reads the refs as they are).
 
 What it reads, in order:
 
-- The engine — the operation log and its age, the fufu identity on its tip, reflogs, the gc guard, log health and pending foreign drift, settings validated through the readers' own parsers, a trim preview and the auto-trim clock.
+- The engine — the operation log and its age, the fufu identity on its tip, reflogs, the gc guard, log health and pending foreign drift, settings validated through the readers' own parsers, a trim preview, the auto-trim clock, and the auto-fetch clock — when the tracking refs were last refreshed, or since when the remote has not answered.
 - The remote floor — whether every branch can name the remote it answers to, config left naming branches that are not here, and tracking refs that have gone.
 - The wiring — agent hooks, the shell alias, and a warning when nothing at all feeds capture.
 - Extensions — every `ff-<name>` found on PATH.
@@ -27,6 +27,12 @@ Options:
 
       --json
           Emit machine-readable JSON
+
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
       --session <name>
           Session name for this invocation

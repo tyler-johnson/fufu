@@ -43,8 +43,14 @@ Options:
   -u, --update
           Refresh what is wired: re-run the install for every slug already wired, adding none
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
       --skill
           Print fufu's skill and stop, for a client that reads none
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
       --session <name>
           Session name for this invocation

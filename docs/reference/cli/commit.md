@@ -45,8 +45,14 @@ Options:
   -S, --sign
           Sign the commit, whatever commit.gpgsign says; the key is user.signingkey
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
       --no-sign
           Do not sign the commit, whatever commit.gpgsign says
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
       --session <name>
           Session name for this invocation

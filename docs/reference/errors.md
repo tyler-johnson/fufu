@@ -49,6 +49,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `commit/empty` | 1 | there is nothing to close: the tree matches HEAD |
 | `edit/not-in-history` | 1 | that commit is not in the branch you are standing on |
 | `editor/failed` | 1 | the editor did not produce a description |
+| `fetch/not-here` | 1 | --fetch on a verb that reads nothing from the remote |
 | `fold/conflict` | 1 | the replay would conflict, so nothing was folded |
 | `fold/other-tree-conflict` | 1 | the target's open change in the other worktree would conflict with the fold |
 | `fold/remote-target` | 1 | the target lives on a remote, and fold lands into a local branch only |

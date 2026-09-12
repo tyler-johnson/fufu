@@ -6,6 +6,16 @@
 
 - The seen record, `refs/fufu/seen/<branch>`: the tip of the shared copy a foreground verb last showed you, written by `ff push`, `ff pull` (real runs, `--no-fetch` included), `ff switch` onto a remote's branch, and `ff clone`, and removed by `ff branch -d --shared`. `ff push` and `ff branch -d --shared` lease against it.
 - `push/unseen`, `branch/shared-moved`, and `branch/shared-unseen`: refusals before the wire when the tracking ref stands off the seen record, or there is none and the push is not a fast-forward. `ff push --dry-run` reports the local refusal as `would not push`.
+- The fetch lane and `fufu.autoFetch`: every verb that reads the tracking refs fetches first, at most once per cadence (`10m` by default), under a three-second deadline and with every prompt off, so `ff status`, `ff branch`, and `ff switch` read the remote's copies as they stand. `false` leaves fetching to `ff pull` and `--fetch`; `CI` set skips the lane.
+- `--fetch` and `--no-fetch` on every verb: run the lane's fetch now, or skip it.
+- `fetch/not-here`: `--fetch` on a verb that reads nothing from the remote.
+- `ff doctor`'s `auto-fetch` row: when the tracking refs were last refreshed, or since when the remote has not answered.
+
+### Changed
+
+- `ff pull --no-fetch` is the global flag, with the same meaning.
+- Every fetch prunes the tracking refs of copies the remote no longer has, `ff pull`'s included.
+- `ff doctor` fetches on every run rather than on the cadence, so the remote floor it reports is the one standing now.
 
 ### Fixed
 

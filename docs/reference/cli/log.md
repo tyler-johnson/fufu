@@ -56,11 +56,17 @@ Options:
       --json
           Emit machine-readable JSON
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
       --signatures
           Verify each commit's signature and show the status letter — one signer run per row
 
       --at-op <op>
           Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)

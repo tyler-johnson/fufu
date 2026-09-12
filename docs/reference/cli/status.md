@@ -8,6 +8,8 @@ The files are a diffstat — counts, not content. [`ff diff`](diff.md) is the sa
 
 Status is also where drift is loud. Work done behind fufu's back — a plain `git commit`, a rebase run by a tool that never heard of fufu — is absorbed into the operation log lazily, and status keeps reporting it until the next fufu operation, so foreign motion is never silent. Status reports the motion as one line, the count and the shape of what moved, and [`ff op show @`](op-show.md) lists every ref it moved.
 
+The tracking refs the counts are measured against are kept fresh on a cadence: at most once per `fufu.autoFetch` (ten minutes by default), a fetch rides an ff command before the verb runs, pruning the copies the remote no longer has. `--fetch` runs it now and `--no-fetch` skips it, and [`ff pull`](pull.md) is still the verb that moves your branches.
+
 ## Usage
 
 ```
@@ -22,6 +24,12 @@ Options:
 
       --json
           Emit machine-readable JSON
+
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
       --session <name>
           Session name for this invocation

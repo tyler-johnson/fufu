@@ -44,8 +44,14 @@ Options:
       --session <name>
           Only operations tagged with this session
 
+      --fetch
+          Fetch from the remote first, whatever the cadence says
+
   -n, --max-count <count>
           Stop after this many events, counting the opening one; 0 means never
+
+      --no-fetch
+          Skip the fetch: read the tracking refs as they stand
 
   -C, --cwd <dir>
           Run as if fufu had been started in <dir>

@@ -106,6 +106,8 @@ A branch answers to at most one remote, and its shared copy there is the only on
 
 Most repositories never face the question. With a single remote, or one named `origin`, the first [`ff push`](../reference/cli/push.md) creates the shared copy and sets up tracking in the same step.
 
+The tracking refs — what `ff status` counts against, what `ff branch` lists as the remote's, what `ff switch` minds from — are kept fresh on a cadence: at most once per `fufu.autoFetch` (ten minutes by default), a fetch rides an ff command before the verb runs, and it prunes the copies the remote no longer has. `--fetch` on any verb runs it now, `--no-fetch` skips it, and `ff pull` is still the verb that moves your branches.
+
 With several remotes, `ff push --to <remote>` names where this branch answers and records the answer, so every later `ff push`, `ff pull`, and `ff status` needs no flag. Asking `--to` for a branch that already answers somewhere else is refused: the answer is a fact about the branch, given once.
 
 What pushing actually promises, and the lease that guards it, is [the push boundary](push-boundary.md).
