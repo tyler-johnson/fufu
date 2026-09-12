@@ -342,9 +342,9 @@ fn published_branches() -> Fixture {
     fx
 }
 
-/// `--shared` deletes the copy on the remote and all three local traces —
-/// the tracking ref, the `[branch "shared"]` section, and the published
-/// note — and says both halves.
+/// `--shared` deletes the copy on the remote and all four local traces —
+/// the tracking ref, the `[branch "shared"]` section, the published note,
+/// and the seen record — and says both halves.
 #[test]
 fn shared_delete_removes_the_copy_and_the_traces() {
     let fx = published_branches();
@@ -371,6 +371,10 @@ fn shared_delete_removes_the_copy_and_the_traces() {
     assert!(
         !fufu.lines().any(|l| l.contains("published/shared")),
         "the published note is gone: {fufu}"
+    );
+    assert!(
+        !fufu.lines().any(|l| l.contains("seen/shared")),
+        "the seen record is gone: {fufu}"
     );
 
     assert!(
@@ -455,4 +459,88 @@ fn a_moved_copy_refuses_and_leaves_the_far_side_standing() {
         heads.lines().any(|l| l.contains("shared")),
         "the far side stands where it moved: {heads}"
     );
+}
+
+/// The move, behind fufu's back, and then a fetch behind its back too:
+/// the tracking ref stands on the mover's tip. The lease is fufu's record,
+/// not the tracking ref, so the delete is refused before the local half —
+/// the branch still here, the copy intact, the record untouched — and the
+/// exits are the pull and the delete again. With the record gone the
+/// refusal is `branch/shared-unseen`, same state, same exits.
+#[test]
+fn a_fetched_move_is_refused_before_the_local_delete() {
+    let fx = published_branches();
+    let mover = fx.root().join("mover");
+    fx.git_in(
+        fx.root(),
+        &["clone", "-q", &fx.remote_path().to_string_lossy(), "mover"],
+    );
+    fx.git_in(&mover, &["checkout", "-q", "shared"]);
+    std::fs::write(mover.join("c.txt"), "c\n").expect("write in the mover");
+    fx.git_in(&mover, &["add", "-A"]);
+    fx.git_in(&mover, &["commit", "-q", "-m", "move"]);
+    fx.git_in(&mover, &["push", "-q", "origin", "shared"]);
+    let theirs = fx.git_in(&mover, &["rev-parse", "HEAD"]).trim().to_string();
+    fx.git(&["fetch", "-q"]);
+    let seen = fx
+        .git(&["rev-parse", "refs/fufu/seen/shared"])
+        .trim()
+        .to_string();
+    assert_ne!(seen, theirs);
+
+    let out = ff(&fx, &["--json", "branch", "-d", "shared", "--shared"]);
+    assert!(!out.status.success(), "{}", both(&out));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "branch/shared-moved", "{v}");
+    assert_eq!(
+        v["error"]["message"],
+        "origin/shared moved since you last looked, so nothing was deleted here or there",
+        "{v}"
+    );
+    assert_eq!(
+        v["error"]["exits"],
+        serde_json::json!(["ff pull shared", "ff branch -d shared --shared"]),
+        "{v}"
+    );
+    assert!(
+        stdout(&ff(&fx, &["branch"])).contains("shared"),
+        "the branch is still here"
+    );
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "refs/heads/shared"]).trim(),
+        theirs,
+        "the copy is intact"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/seen/shared"]).trim(),
+        seen,
+        "the record is untouched"
+    );
+
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/shared"]);
+    let out = ff(&fx, &["--json", "branch", "-d", "shared", "--shared"]);
+    assert!(!out.status.success(), "{}", both(&out));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "branch/shared-unseen", "{v}");
+    assert_eq!(
+        v["error"]["exits"],
+        serde_json::json!(["ff pull shared", "ff branch -d shared --shared"]),
+        "{v}"
+    );
+    assert!(stdout(&ff(&fx, &["branch"])).contains("shared"));
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "refs/heads/shared"]).trim(),
+        theirs
+    );
+
+    // The pull takes the move in and records the tip; the delete then goes.
+    let out = ff(&fx, &["pull", "shared"]);
+    assert!(out.status.success(), "{}", both(&out));
+    let text = ok(&ff(&fx, &["branch", "-d", "shared", "--shared"]));
+    assert!(
+        text.contains("removed the shared copy origin/shared"),
+        "{text}"
+    );
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(!heads.lines().any(|l| l.contains("shared")), "{heads}");
 }

@@ -87,10 +87,24 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, dry_run: bool, to: Option<&str>) ->
         })
         .collect::<Result<Vec<_>>>()?;
 
+    // A refusal the plan made before the wire — the shared copy moved since
+    // you last looked, or fufu never saw you look — is filed the way the
+    // wire's refusal is: the run's error when the branch is the whole run,
+    // that branch's alone among several. A dry run reports it in the
+    // conditional instead, since it is knowable without the wire.
+    let alone = rows.len() == 1;
+    for row in rows.iter_mut() {
+        if let Some(err) = ff_core::push::refusal(&row.branch, &row.push) {
+            if alone && !dry_run {
+                return Err(err);
+            }
+            row.error = Some(err);
+        }
+    }
+
     // The push, before any report line about it: the report says what
     // happened and not what was planned. A dry run is the one case where
     // those differ, and it says "would" throughout rather than pretending.
-    let alone = rows.len() == 1;
     for (row, pre) in rows.iter_mut().zip(&pres) {
         if dry_run || !matches!(row.push, Push::Create { .. } | Push::Push { .. }) {
             continue;
@@ -214,7 +228,8 @@ fn exit(refused: bool, blocked: bool) {
 }
 
 /// What one branch's block says: the push it was, or why nothing went, or
-/// what the wire said when it refused.
+/// what the wire said when it refused, or what the plan refused before the
+/// wire.
 fn row_lines(row: &Row, dry_run: bool, colored: bool) -> Vec<String> {
     let branch = &row.branch;
     let would = if dry_run { "would " } else { "" };
@@ -222,7 +237,7 @@ fn row_lines(row: &Row, dry_run: bool, colored: bool) -> Vec<String> {
         // The failure the run of this branch alone would have exited with,
         // filed under the branch instead: the message, and the way out.
         let mut out = vec![crate::render::paint_warn(
-            &format!("not pushed: {err}"),
+            &format!("{would}not push{}: {err}", if dry_run { "" } else { "ed" }),
             colored,
         )];
         let exits = crate::explain::exits_for(err);
@@ -287,6 +302,8 @@ fn row_lines(row: &Row, dry_run: bool, colored: bool) -> Vec<String> {
             };
             vec![crate::render::paint_ok(&line, colored)]
         }
+        // Carried by `row.error` above; a refused row always has one.
+        Push::Refused { .. } => vec![],
     }
 }
 

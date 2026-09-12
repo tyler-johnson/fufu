@@ -362,3 +362,44 @@ fn json_draws_no_progress() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stderr(&out), "", "no progress under --json");
 }
+
+/// The clone shows you the shared copy at the tip it checked out, and
+/// `ff switch` onto a branch only the remote holds shows you that one at
+/// the tip it minted: both record the tip seen, so the first push of each
+/// has a lease to go out under. A remote with nothing in it has no tip to
+/// record.
+#[test]
+fn a_clone_and_a_tracking_mint_record_the_tip_they_showed() {
+    let remote = Remote::with_commits(2);
+    ok(&remote.root, &["clone", &remote.url(), "w"]);
+    let clone = remote.root.join("w");
+    assert_eq!(
+        git(&clone, &["rev-parse", "refs/fufu/seen/main"]),
+        git(&clone, &["rev-parse", "refs/remotes/origin/main"]),
+        "the clone recorded main's tip"
+    );
+    assert!(
+        !git(&clone, &["for-each-ref", "refs/fufu/seen"]).contains("release"),
+        "nothing looked at release yet"
+    );
+
+    ok(&clone, &["switch", "release"]);
+    assert_eq!(
+        git(&clone, &["rev-parse", "refs/fufu/seen/release"]),
+        git(&clone, &["rev-parse", "refs/remotes/origin/release"]),
+        "the mint recorded the tip it took"
+    );
+    std::fs::write(clone.join("r.txt"), "r\n").unwrap();
+    ok(&clone, &["commit", "-m", "on release"]);
+    let body = ok(&clone, &["push"]);
+    assert!(body.contains("pushed release to origin/release"), "{body}");
+    assert_eq!(
+        git(&remote.path, &["rev-parse", "refs/heads/release"]),
+        git(&clone, &["rev-parse", "release"])
+    );
+
+    let empty = Remote::with_commits(0);
+    ok(&empty.root, &["clone", &empty.url(), "w"]);
+    let clone = empty.root.join("w");
+    assert_eq!(git(&clone, &["for-each-ref", "refs/fufu/seen"]), "");
+}

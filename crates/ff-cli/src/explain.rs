@@ -76,11 +76,33 @@ pub static ENTRIES: &[Entry] = &[
         summary: "the shared copy moved since you last looked, so it was not deleted",
         detail: "Every push fufu makes is leased: it says what it last saw the remote standing \
                  at, and the remote refuses when that is no longer true. Somebody pushed to the \
-                 shared copy after your last fetch, so it is still there and holding commits you \
-                 have not seen — which is exactly the case where deleting it would lose work. \
-                 The local half of the delete did happen and is undoable, so ff undo brings the \
-                 branch back; look at what arrived before deciding the copy should go.",
+                 shared copy between fufu's own check and the wire, so it is still there and \
+                 holding commits you have not seen — which is exactly the case where deleting \
+                 it would lose work. The local half of the delete did happen and is undoable, \
+                 so ff undo brings the branch back; look at what arrived before deciding the \
+                 copy should go.",
         exits: &["ff undo", "ff branch"],
+    },
+    Entry {
+        id: "branch/shared-moved",
+        summary: "the shared copy is not where fufu last showed it, so nothing was deleted",
+        detail: "The lease a shared delete goes out under is fufu's record of the tip you last \
+                 looked at, not the tracking ref, which any fetch moves — an editor's, ff git \
+                 fetch, ff pull --dry-run. The tracking ref stands somewhere else, so the copy \
+                 holds commits nobody here has looked at, and deleting it would take them. \
+                 This is checked before the local delete, so the branch is still here and the \
+                 copy is intact. ff pull takes in what arrived; then ask again.",
+        exits: &["ff pull <branch>", "ff branch -d <branch> --shared"],
+    },
+    Entry {
+        id: "branch/shared-unseen",
+        summary: "fufu has no record of looking at the shared copy, so nothing was deleted",
+        detail: "A shared delete is leased against the tip fufu last showed you the copy \
+                 standing at, and there is no such record for this branch: it is from before \
+                 fufu kept one, or its upstream was set by git. Without one there is nothing \
+                 to vouch that the copy holds only what you have seen. Nothing was deleted, \
+                 here or there. ff pull reads the copy and records it; then ask again.",
+        exits: &["ff pull <branch>", "ff branch -d <branch> --shared"],
     },
     Entry {
         id: "repo/bare",
@@ -1082,12 +1104,27 @@ pub static ENTRIES: &[Entry] = &[
     Entry {
         id: "push/lease-refused",
         summary: "the remote moved since you last looked at it",
-        detail: "Every push carries a lease: the tracking ref as it stands, offered back to the \
-                 remote as what it expects to find there. Somebody pushed in between, so the \
-                 remote declined and nothing was overwritten — which is the lease working, not \
-                 failing. Your commits are still here. Run ff pull first: it fetches what \
-                 arrived and replays on top of it, and the push afterwards offers a lease \
-                 that is current.",
+        detail: "Every push carries a lease: the tip fufu last showed you the shared copy \
+                 standing at, offered to the remote as what it expects to find there. That is \
+                 fufu's own record, not the tracking ref, so a fetch behind fufu's back cannot \
+                 refresh it to a tip you never looked at. Either the tracking ref already \
+                 stands off the record and push refused before the wire, or somebody pushed \
+                 in between and the remote declined. Nothing was overwritten, which is the \
+                 lease working, not failing, and your commits are still here. Run ff pull \
+                 first: it takes in what arrived, replays on top of it, and records the tip \
+                 it read, and the push afterwards offers a lease that is current.",
+        exits: &["ff pull", "ff push", "ff status"],
+    },
+    Entry {
+        id: "push/unseen",
+        summary: "fufu has no record of looking at the shared copy, and it holds commits you lack",
+        detail: "The lease is the tip fufu last showed you the shared copy standing at, and \
+                 there is no such record for this branch: it is from before fufu kept one, or \
+                 its upstream was set by git. A push that only adds commits to the tracking \
+                 tip goes anyway and writes the record, since no lease value could take \
+                 anything off the copy. This one would replace commits the copy holds and \
+                 nobody here has looked at, so nothing was sent. ff pull takes them in and \
+                 records the tip; then push.",
         exits: &["ff pull", "ff push", "ff status"],
     },
     Entry {

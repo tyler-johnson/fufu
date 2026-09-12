@@ -197,7 +197,9 @@ fn unopenable_worktree(repo: &gix::Repository) -> Option<std::path::PathBuf> {
 
 /// `git push`, in the one of two shapes the plan calls for. A branch with no
 /// upstream is created and tracked; an existing one goes under a lease whose
-/// expected value is exactly the tip this run's fetch left behind.
+/// expected value is the tip fufu last showed you the shared copy standing
+/// at — its own record, not the tracking ref, which any fetch moves. A plan
+/// that refused before the wire never gets here.
 pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()> {
     let (remote, remote_branch, lease, spec) = match plan {
         Push::Create {
@@ -279,12 +281,13 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
 }
 
 /// The delete half of the same wire: `git push --force-with-lease=<branch>:<lease>
-/// <remote> :<branch>`. The lease value is the tip the tracking ref stood at
-/// last — what we last saw — and git honors it on a delete push. The
-/// stale-lease case gets its own id because `push/lease-refused` says
-/// "your commits are still here, and ff pull takes in what arrived," which
-/// is wrong here: the branch is already deleted locally, and the way back
-/// is `ff undo`, not a pull.
+/// <remote> :<branch>`. The lease value is the tip fufu last showed the
+/// copy standing at, checked against the tracking ref before the local
+/// delete, and git honors it on a delete push, so a move that lands between
+/// that check and this send is still caught. The stale-lease case gets its
+/// own id because `push/lease-refused` says "your commits are still here,
+/// and ff pull takes in what arrived," which is wrong here: the branch is
+/// already deleted locally, and the way back is `ff undo`, not a pull.
 pub fn push_delete(
     cwd: &std::path::Path,
     remote: &str,

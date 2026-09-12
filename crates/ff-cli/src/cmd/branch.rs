@@ -69,10 +69,15 @@ fn create(ctx: &Ctx, name: &str, rev: Option<&str>) -> Result<()> {
 fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
-    // The wire's cwd is resolved before the local delete; the copy `--shared`
-    // will remove is read from the report once the delete is done, and an
-    // upstream under another branch's name is not one — it is the base the
-    // branch was cut from, and the report leaves it unnamed.
+    // The wire's cwd and the lease are resolved before the local delete.
+    // The lease is the tip fufu last showed the copy standing at, checked
+    // against the tracking ref now: a copy that moved since, or one fufu
+    // never showed, is refused here with the branch still standing, since
+    // a refusal after the local delete would leave the branch gone with the
+    // refusal unspoken. The copy itself is read from the report once the
+    // delete is done, and an upstream under another branch's name is not
+    // one — it is the base the branch was cut from, and the report leaves
+    // it unnamed.
     let cwd = if shared {
         let cwd = repo
             .workdir()
@@ -82,6 +87,13 @@ fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
             .ok_or_else(|| ff_core::Error::msg("no working directory: internal inconsistency"))?
             .to_path_buf();
         Some(cwd)
+    } else {
+        None
+    };
+    let lease = if shared {
+        ff_core::branch::shared_copy(&repo, target)?
+            .map(|copy| ff_core::branch::shared_lease(target, &copy))
+            .transpose()?
     } else {
         None
     };
@@ -99,18 +111,18 @@ fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
 
     // The wire, and only then its local traces: local first, so a failed
     // push degrades to the plain-delete outcome — the delete done and
-    // undoable, the copy intact — and the tracking ref, the config section
-    // and the published note come off only after the wire agreed.
-    let shared_removed = if let (Some(cwd), Some(shared)) = (&cwd, &report.shared) {
-        if !shared.tip.is_empty() {
-            crate::net::push_delete(cwd, &shared.remote, &shared.remote_branch, &shared.tip)?;
+    // undoable, the copy intact — and the tracking ref, the config section,
+    // the published note, and the seen record come off only after the wire
+    // agreed. The lease was checked before the local delete, so a refusal
+    // there left the branch standing; the wire still holds the lease, and
+    // catches a move that landed in between.
+    let shared_removed = match (&cwd, &report.shared, lease.as_deref()) {
+        (Some(cwd), Some(shared), Some(lease)) if !lease.is_empty() => {
+            crate::net::push_delete(cwd, &shared.remote, &shared.remote_branch, lease)?;
             ff_core::branch::forget_shared(&repo, target, &shared.r#ref, verb_ctx.now)?;
             true
-        } else {
-            false
         }
-    } else {
-        false
+        _ => false,
     };
 
     if ctx.json {

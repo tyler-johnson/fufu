@@ -552,3 +552,222 @@ fn to_under_a_name_records_where_that_branch_answers() {
     );
     assert_eq!(fx.git(&["config", "branch.main.remote"]).trim(), "origin");
 }
+
+/// The tip `refs/fufu/seen/<branch>` holds, or `None` when there is no
+/// record.
+fn seen(fx: &Fixture, branch: &str) -> Option<String> {
+    let full = format!("refs/fufu/seen/{branch}");
+    let out = fx.try_git(&["rev-parse", "--verify", "-q", &full]);
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The lease is fufu's record and not the tracking ref: a teammate moves
+/// `beta`, a `git fetch` behind fufu's back moves the tracking ref onto
+/// their tip, and the push is refused before the wire — the far side
+/// untouched, nothing recorded, the record still where the last push left
+/// it. `ff pull` takes their commit in and records the tip it read, and the
+/// push afterwards goes, leaving the record at the tip sent.
+#[test]
+fn a_fetch_behind_fufus_back_does_not_refresh_the_lease() {
+    let fx = two_topics();
+    let theirs = beta_moved_under_alpha_and_beta(&fx);
+    let sent = seen(&fx, "beta").expect("the push recorded the tip it sent");
+    assert_ne!(sent, theirs);
+
+    fx.git(&["fetch", "-q"]);
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/beta"]).trim(),
+        theirs,
+        "the fetch moved the tracking ref"
+    );
+
+    let output = ff(&fx, &["--json", "push", "beta"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["error"]["id"], "push/lease-refused", "{v}");
+    assert_eq!(
+        v["error"]["message"],
+        "origin/beta moved since you last looked (1 commit(s) you have not taken in), so \
+         nothing was pushed — ff pull takes them in",
+        "{v}"
+    );
+    assert_eq!(
+        v["error"]["exits"],
+        serde_json::json!(["ff pull beta", "ff push beta"]),
+        "{v}"
+    );
+    assert_eq!(remote_tip(&fx, "beta").as_deref(), Some(theirs.as_str()));
+    assert_eq!(pushes_recorded(&fx, "beta"), 1);
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(sent.as_str()));
+
+    let output = ff(&fx, &["pull", "beta"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        seen(&fx, "beta").as_deref(),
+        Some(theirs.as_str()),
+        "the pull recorded the tip it read"
+    );
+
+    let text = ok(&ff(&fx, &["push", "beta"]));
+    assert_eq!(
+        text,
+        format!("beta\n    pushed beta to origin/beta\n{TAIL}")
+    );
+    let tip = fx.git(&["rev-parse", "beta"]).trim().to_string();
+    assert_eq!(remote_tip(&fx, "beta").as_deref(), Some(tip.as_str()));
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(tip.as_str()));
+    assert_eq!(pushes_recorded(&fx, "beta"), 2);
+}
+
+/// The same refusal under `--dry-run`, in the conditional: it is knowable
+/// without the wire, nothing is sent, and the exit is still 1. Among
+/// several the block is that branch's alone.
+#[test]
+fn a_dry_run_reports_the_local_refusal_in_the_conditional() {
+    let fx = two_topics();
+    let theirs = beta_moved_under_alpha_and_beta(&fx);
+    fx.git(&["fetch", "-q"]);
+
+    let output = ff(&fx, &["push", "-n", "beta"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    assert_eq!(
+        stdout(&output),
+        "beta\n    would not push: origin/beta moved since you last looked (1 commit(s) you \
+         have not taken in), so nothing was pushed — ff pull takes them in\n    try:\n      \
+         ff pull beta\n      ff push beta\n"
+    );
+    assert_eq!(remote_tip(&fx, "beta").as_deref(), Some(theirs.as_str()));
+    assert_eq!(pushes_recorded(&fx, "beta"), 1);
+
+    let output = ff(&fx, &["--json", "push", "-n", "alpha", "beta"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    let v = json(&output);
+    let rows = v["data"]["branches"].as_array().expect("rows");
+    assert_eq!(rows[0]["push"]["Create"]["remote_branch"], "alpha", "{v}");
+    assert!(rows[0]["error"].is_null(), "{v}");
+    assert_eq!(
+        rows[1]["push"]["Refused"]["why"]["moved"]["behind"], 1,
+        "{v}"
+    );
+    assert_eq!(rows[1]["error"]["id"], "push/lease-refused", "{v}");
+    assert_eq!(remote_tip(&fx, "alpha"), None);
+}
+
+/// No record — a branch from before fufu kept one — and the push only
+/// adds commits to the copy: it goes, and the record is written with it.
+#[test]
+fn a_fast_forward_with_no_record_goes_and_writes_one() {
+    let fx = two_topics();
+    ok(&ff(&fx, &["push", "alpha"]));
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/alpha"]);
+    fx.git(&["switch", "-q", "alpha"]);
+    fx.write("a.txt", "aa\n");
+    fx.commit("a2");
+    let tip = fx.git(&["rev-parse", "alpha"]).trim().to_string();
+
+    let text = ok(&ff(&fx, &["push"]));
+    assert_eq!(text, format!("pushed alpha to origin/alpha\n{TAIL}"));
+    assert_eq!(remote_tip(&fx, "alpha").as_deref(), Some(tip.as_str()));
+    assert_eq!(seen(&fx, "alpha").as_deref(), Some(tip.as_str()));
+}
+
+/// No record, and the copy holds a commit the branch does not: nothing
+/// vouches for it, so the push is `push/unseen` and sends nothing.
+#[test]
+fn a_moved_copy_with_no_record_is_unseen() {
+    let fx = two_topics();
+    let theirs = beta_moved_under_alpha_and_beta(&fx);
+    fx.git(&["fetch", "-q"]);
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/beta"]);
+
+    let output = ff(&fx, &["--json", "push", "beta"]);
+    assert_eq!(output.status.code(), Some(1), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["error"]["id"], "push/unseen", "{v}");
+    assert_eq!(
+        v["error"]["message"],
+        "fufu has no record of where you last looked at origin/beta, and it holds 1 \
+         commit(s) beta does not — nothing was pushed",
+        "{v}"
+    );
+    assert_eq!(
+        v["error"]["exits"],
+        serde_json::json!(["ff pull beta", "ff push beta"]),
+        "{v}"
+    );
+    assert_eq!(remote_tip(&fx, "beta").as_deref(), Some(theirs.as_str()));
+    assert_eq!(seen(&fx, "beta"), None);
+}
+
+/// `ff pull` writes the record for every branch whose shared copy it read,
+/// and only on a real run: a dry run fetches and leaves the record where
+/// it was; a real run moves it to the tip read, whether the axis replayed,
+/// found the divergence yours, or found nothing to do — and for the branch
+/// underfoot as much as for a named one.
+#[test]
+fn pull_records_the_tip_it_read_and_a_dry_run_does_not() {
+    let fx = two_topics();
+    let theirs = beta_moved_under_alpha_and_beta(&fx);
+    ok(&ff(&fx, &["push", "alpha"]));
+    let b1 = seen(&fx, "beta").expect("recorded by the push");
+    let a1 = seen(&fx, "alpha").expect("recorded by the push");
+
+    // Dry: the fetch moves the tracking ref, the record stays.
+    let output = ff(&fx, &["pull", "-n", "beta"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/remotes/origin/beta"]).trim(),
+        theirs
+    );
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(b1.as_str()));
+
+    // Real, named, replayed: the record moves to the tip read.
+    let output = ff(&fx, &["pull", "beta"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(theirs.as_str()));
+
+    // Named and up to date: read, so recorded, even from no record at all.
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/alpha"]);
+    let output = ff(&fx, &["pull", "alpha"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(seen(&fx, "alpha").as_deref(), Some(a1.as_str()));
+
+    // Named and undone, then yours: `alpha` rewords its commit, so the
+    // copy holds a commit the log accounts for — undone while the published
+    // pointer stands at the copy's tip, yours once it is gone, which is the
+    // shape a repository from before the pointer wears. Both read the tip,
+    // and both record it: it is exactly the lease the push that replaces
+    // the copy needs.
+    fx.git(&["switch", "-q", "alpha"]);
+    ok(&ff(&fx, &["describe", "HEAD", "-m", "a1, reworded"]));
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/alpha"]);
+    let output = ff(&fx, &["pull", "alpha"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(stdout(&output).contains("you undid"), "{}", out(&output));
+    assert_eq!(seen(&fx, "alpha").as_deref(), Some(a1.as_str()));
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/alpha"]);
+    fx.git(&["update-ref", "-d", "refs/fufu/published/alpha"]);
+    let output = ff(&fx, &["pull", "alpha"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(
+        stdout(&output).contains("stale copies of your own"),
+        "{}",
+        out(&output)
+    );
+    assert_eq!(seen(&fx, "alpha").as_deref(), Some(a1.as_str()));
+    let text = ok(&ff(&fx, &["push", "alpha"]));
+    assert_eq!(
+        text,
+        format!("alpha\n    pushed alpha to origin/alpha\n{TAIL}")
+    );
+
+    // Underfoot: the branch's own axis records the tip it read.
+    fx.git(&["switch", "-q", "beta"]);
+    fx.git(&["update-ref", "-d", "refs/fufu/seen/beta"]);
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(theirs.as_str()));
+}

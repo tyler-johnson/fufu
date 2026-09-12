@@ -55,6 +55,15 @@ pub fn run(
 
     crate::render::init_palette(&repo);
     let armed = crate::cmd::init::arm(&repo, &crate::provenance::pre_ff(ctx))?;
+    // The checked-out branch's shared copy was just put in front of the
+    // person at the tip the clone took: that is the tip they last looked
+    // at, and the first push leases against it. An empty remote has no
+    // tracking ref, and nothing is marked.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default();
+    ff_core::seen::mark_seen_from_tracking(&repo, &armed.branch, now)?;
     // Counted after the checkout, from what actually landed: an empty remote
     // clones to an unborn branch and zero commits, and saying so is better
     // than a number borrowed from the wire.

@@ -792,6 +792,58 @@ fn recording_the_push_adds_no_second_spawn() {
     assert!(lines[0].contains("push"), "{logged:?}");
 }
 
+/// A push refused before the wire spawns nothing: the tracking ref stands
+/// off fufu's record of the tip last looked at — moved by the fixture's
+/// git, the way any fetch behind fufu's back moves it — and the plan
+/// refuses it from refs alone. Both refusals, moved and unseen, and the
+/// dry run of each.
+#[test]
+fn a_push_refused_before_the_wire_spawns_nothing() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let root = fx.commit("base");
+    fx.write("a.txt", "b\n");
+    fx.commit("ours");
+    fx.git(&["switch", "-q", "-c", "theirs", &root]);
+    fx.write("t.txt", "t\n");
+    let theirs = fx.commit("theirs");
+    fx.git(&["switch", "-q", "main"]);
+    fx.set_config("user.name", "Zero Spawn");
+    fx.set_config("user.email", "zero@spawn.test");
+    fx.set_config("remote.origin.url", "/nonexistent/remote.git");
+    fx.set_config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    fx.set_config("branch.main.remote", "origin");
+    fx.set_config("branch.main.merge", "refs/heads/main");
+    fx.git(&["update-ref", "refs/remotes/origin/main", &theirs]);
+
+    let trap = build_trap();
+    for (seen, id) in [
+        (Some(root.as_str()), "push/lease-refused"),
+        (None, "push/unseen"),
+    ] {
+        match seen {
+            Some(sha) => fx.git(&["update-ref", "refs/fufu/seen/main", sha]),
+            None => fx.git(&["update-ref", "-d", "refs/fufu/seen/main"]),
+        };
+        for args in [&["--json", "push"][..], &["--json", "push", "-n"][..]] {
+            let out = ff_trapped(&trap, &fx.path(), args);
+            assert_eq!(
+                out.status.code(),
+                Some(1),
+                "ff {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let text = String::from_utf8_lossy(&out.stdout);
+            assert!(text.contains(id), "ff {args:?} names {id}: {text}");
+            assert!(
+                !trap.log.exists(),
+                "ff {args:?} spawned: {}",
+                std::fs::read_to_string(&trap.log).unwrap_or_default()
+            );
+        }
+    }
+}
+
 /// The fetch behind `ff pull` runs the protocol itself: a commit that has
 /// never existed in this repository arrives while every `git` invocation
 /// fails.

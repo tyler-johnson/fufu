@@ -26,7 +26,7 @@ The branch's operations themselves stay on the log either way; what goes is the 
 
 There is more than the name: a copy on the remote, and a tracking ref and upstream pointing at it. A plain delete leaves all three standing and says so.
 
-`--shared` deletes the copy too, under a lease — only if it still stands where you last saw it — and takes the tracking ref and upstream down with it. That half left the machine: the branch still comes back, and the copy does not.
+`--shared` deletes the copy too, under a lease — only if it still stands where you last saw it, which is fufu's own record and not the tracking ref, so a fetch behind fufu's back does not refresh it — and takes the tracking ref and upstream down with it. A copy that moved since is refused before anything is deleted. That half left the machine: the branch still comes back, and the copy does not.
 
 ## Examples
 
