@@ -46,7 +46,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **park** — Set the [open change](changes.md) aside with its branch on a switch: an ordinary stash entry labeled with the branch, which becomes the open change again — same files, same edits, same pending description — when you switch back. [Branches](branches.md) covers the mechanics.
 
-**pending description** — The description the open change carries before it is ever a commit, set with [`ff describe -m`](changes.md); when the change closes, `ff commit` picks it up as the commit message. It parks and resumes with the change.
+**pending description** — The description the open change carries before it closes, set with [`ff describe -m`](changes.md): the message of the open commit fufu keeps under `refs/fufu/open/<branch>`, and the commit message when `ff commit` moves the branch to it. It parks and resumes with the change.
 
 **petname** — The generated name of an anonymous branch, like `ff/hidden-wren`: a genuine ref under a reserved prefix that every GUI shows, every git command addresses, and no push refspec matches by accident. See [branches](branches.md).
 

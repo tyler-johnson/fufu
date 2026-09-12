@@ -76,11 +76,17 @@ pub struct DescriptionTransition {
 /// A change-id transition on a branch's open change (letters, `None` =
 /// absent): a describe minting one, a close consuming one and minting the
 /// remainder's, a switch dropping one with an invalidated parked change.
+/// The birth time travels with the id; an `op.json` written before it
+/// existed decodes with both births absent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeIdTransition {
     pub branch: String,
     pub old: Option<String>,
     pub new: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_born: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_born: Option<i64>,
 }
 
 /// A recorded-parent change (old/new branch names, `None` = absent).

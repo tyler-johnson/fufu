@@ -106,13 +106,9 @@ impl Base {
 /// single revision is raised here, which is what keeps a bad revset priced by
 /// its leaves rather than by the repository's history.
 pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
-    // `@` is fufu's, and it takes no suffixes — see `open_suffix`.
+    // `@` is fufu's. Its parent suffixes step onto HEAD — see `open_steps`.
     if token == "@" {
-        return Ok(Leaf {
-            rev: Rev::Open,
-            name: None,
-            full_ref: None,
-        });
+        return open_leaf(repo);
     }
     // `@{…}` is gitrevisions, not fufu's `@`: `@{` is not a legal ref name,
     // so the two can never be confused, and the whole token goes to gix
@@ -120,7 +116,7 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
     // navigates from is `HEAD`, which is one of the three shapes anyway.
     let verbatim = token.starts_with("@{");
     if !verbatim && let Some(rest) = token.strip_prefix('@') {
-        return Err(open_suffix(rest));
+        return open_steps(repo, rest, token);
     }
 
     let (base, suffix) = if verbatim {
@@ -138,15 +134,8 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
         match canonicalize(repo, base)? {
             Canonical::Base(base) => Some(base),
             // A prefix of the open change's id is `@`, and takes what `@`
-            // takes: no suffixes.
-            Canonical::Open if suffix.is_empty() => {
-                return Ok(Leaf {
-                    rev: Rev::Open,
-                    name: None,
-                    full_ref: None,
-                });
-            }
-            Canonical::Open => return Err(open_suffix(suffix)),
+            // takes.
+            Canonical::Open => return open_steps(repo, suffix, token),
         }
     };
     let spec = match &canonical {
@@ -173,6 +162,63 @@ pub fn leaf(repo: &gix::Repository, token: &str) -> Result<Leaf> {
         rev: Rev::Commit(ops::CommitId::new(id)),
         name,
         full_ref,
+    })
+}
+
+/// The open change itself, carrying its open commit's sha when one is shown.
+fn open_leaf(repo: &gix::Repository) -> Result<Leaf> {
+    Ok(Leaf {
+        rev: Rev::Open(crate::open::of_head(repo)?.map(ops::CommitId::new)),
+        name: None,
+        full_ref: None,
+    })
+}
+
+/// `@` wearing suffixes. The open change sits on HEAD's commit, so its
+/// parent suffixes are git's own, off by one: the first step lands on
+/// `HEAD` — `@^` is `HEAD`, `@~n` is `HEAD~(n-1)` — and whatever follows is
+/// git's from there. `~0` and `^0` are the thing itself and consume nothing.
+/// The open change has one parent, so `^2` and up name nothing; and it has
+/// no reflog, so `@@{…}` is refused by name rather than handed to gix, whose
+/// `@` means HEAD.
+fn open_steps(repo: &gix::Repository, suffix: &str, token: &str) -> Result<Leaf> {
+    if let Some(shorthand) = range_suffix(suffix) {
+        return Err(range_shorthand("@", shorthand));
+    }
+    let mut rest = suffix;
+    let spec = loop {
+        let Some(first) = rest.chars().next() else {
+            return open_leaf(repo);
+        };
+        if first == '@' {
+            return Err(open_reflog(rest));
+        }
+        let after = &rest[1..];
+        if after.starts_with('{') || after.starts_with('-') {
+            return Err(open_suffix(rest));
+        }
+        let digits: &str = &after[..after.bytes().take_while(u8::is_ascii_digit).count()];
+        let after = &after[digits.len()..];
+        let n: usize = if digits.is_empty() {
+            1
+        } else {
+            digits.parse().map_err(|_| unknown_revision(token))?
+        };
+        match (first, n) {
+            (_, 0) => rest = after,
+            ('^', 1) | ('~', 1) => break Base::Head.spec(after),
+            ('^', _) => return Err(unknown_revision(token)),
+            _ => break Base::Head.spec(&format!("~{}{after}", n - 1)),
+        }
+    };
+    let id = parse_single(repo, &spec, token)?;
+    if ops::is_op_commit(repo, id)? {
+        return Err(op_in_rev_position(token));
+    }
+    Ok(Leaf {
+        rev: Rev::Commit(ops::CommitId::new(id)),
+        name: None,
+        full_ref: None,
     })
 }
 
@@ -536,15 +582,25 @@ fn is_commit(repo: &gix::Repository, id: gix::ObjectId) -> bool {
 
 // --- refusals ---
 
-/// We own `@`'s suffix rule precisely because we deviated on the symbol. The
-/// translation is off by one — the open change sits *on* HEAD's commit — and
-/// shipping a layer that quietly performed it would be a bug factory.
+/// `@@{…}`: the open change is not a ref and has no reflog. Refused by name
+/// because gix's own `@` means HEAD, and handing the token over would answer
+/// a different question without saying so.
+fn open_reflog(rest: &str) -> Error {
+    Error::coded(
+        "usage/revset-open-suffix",
+        format!("no `@{rest}`: `@` is the open change and has no reflog; `{rest}` alone is HEAD's"),
+        vec![format!("ff log -r \"{rest}\""), "ff log -r HEAD".into()],
+    )
+}
+
+/// A suffix on `@` that is not a parent step: `^{{tree}}`, `^-1`. The open
+/// change takes `^` and `~n`, which step onto HEAD, and nothing else.
 fn open_suffix(rest: &str) -> Error {
     Error::coded(
         "usage/revset-open-suffix",
         format!(
-            "no `@{rest}`: `@` is the open change and takes no suffixes. The commit under \
-             it is `HEAD`, so `@^` is `HEAD` and `@~2` is `HEAD~`"
+            "no `@{rest}`: `@` is the open change, and the suffixes it takes are `^` and `~n`, \
+             which step onto HEAD — `@^` is `HEAD`, `@~2` is `HEAD~`"
         ),
         vec!["ff log -r HEAD".into(), "ff log -r \"HEAD~\"".into()],
     )
@@ -735,12 +791,16 @@ mod tests {
     }
 
     #[test]
-    fn the_open_change_takes_no_suffixes() {
-        for rest in ["^", "~2", "@{1}"] {
-            let err = open_suffix(rest);
-            assert_eq!(err.id(), "usage/revset-open-suffix");
-            assert!(err.to_string().contains("HEAD"), "must teach HEAD");
-        }
+    fn the_open_change_has_no_reflog() {
+        let err = open_reflog("@{1}");
+        assert_eq!(err.id(), "usage/revset-open-suffix");
+        assert!(err.to_string().contains("HEAD"), "must teach HEAD");
+        let err = open_suffix("^{tree}");
+        assert_eq!(err.id(), "usage/revset-open-suffix");
+        assert!(
+            err.to_string().contains("`@^` is `HEAD`"),
+            "must teach the step"
+        );
     }
 
     /// Rule one, made mechanical. `rev_parse` is the door between fufu's

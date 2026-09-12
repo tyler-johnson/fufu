@@ -151,6 +151,60 @@ fn parent_slots_are_prev_base_record_then_pins() {
     );
 }
 
+/// With an identity, every op gains one more slot at the end: the open
+/// commit of the branch it leaves you on. A capture's parents become
+/// `[prev, base, open]`; a verb's `[prev, base, record, pins…, open]`, and
+/// the slot is absent when the tree the op leaves is clean.
+#[test]
+fn the_open_commit_is_the_last_slot() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Slot User");
+    fx.set_config("user.email", "slot@test");
+    fx.write("a.txt", "a\n");
+    let base = fx.commit("init");
+    fx.write("a.txt", "one\n");
+
+    let repo = fx.repo();
+    let first = snap(&fx, &repo, NOW);
+    fx.write("a.txt", "two\n");
+    let second = snap(&fx, &repo, NOW + 1);
+    let open = crate::refs::ref_target(&repo, "refs/fufu/open/main")
+        .unwrap()
+        .expect("a dirty capture names its open commit");
+    assert_eq!(
+        parents(&repo, second),
+        vec![first.object_id(), oid(&base), open],
+        "a capture's parents are [prev, base, open]"
+    );
+    let log = OpLog::open(&repo).unwrap();
+    assert_eq!(
+        log.get(second)
+            .unwrap()
+            .open_commit()
+            .map(|id| id.object_id()),
+        Some(open),
+        "and the trailer states the same commit"
+    );
+
+    // A verb that leaves HEAD's tree behind leaves nothing open: no slot,
+    // and a stated `none`.
+    let op = verb(&repo, "commit: land it", NOW + 2);
+    let slots = parents(&repo, op);
+    assert_eq!(
+        slots.len(),
+        3,
+        "[prev, base, record] and nothing open: {slots:?}"
+    );
+    let op = log.get(op).unwrap();
+    assert!(op.states_open());
+    assert_eq!(op.open_commit(), None);
+    assert_eq!(
+        crate::refs::ref_target(&repo, "refs/fufu/open/main").unwrap(),
+        None,
+        "the op's plan is a clean tree, so the ref goes with it"
+    );
+}
+
 #[test]
 fn the_two_refs_move_together_and_neither_moves_alone() {
     let fx = Fixture::new();

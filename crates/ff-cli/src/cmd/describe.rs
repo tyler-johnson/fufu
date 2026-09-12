@@ -66,7 +66,7 @@ pub fn run(
     // closed commit to reword.
     let target = match &rev {
         Some(src) => match Revset::parse(src)?.point(&repo)?.rev {
-            Rev::Open => None,
+            Rev::Open(_) => None,
             Rev::Commit(id) => Some(id.object_id()),
         },
         None => None,

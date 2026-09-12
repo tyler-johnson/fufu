@@ -312,8 +312,8 @@ fn preceding(tokens: &[Token]) -> Option<&str> {
 /// guessing which half applied to them.
 fn open_change_parent(back: &str) -> Error {
     let message = if back.is_empty() {
-        "no `@-`: the commit under the open change is `HEAD`, and the operation \
-         before this one is `@^`"
+        "no `@-`: the commit under the open change is `HEAD`, which is `@^`, and the \
+         operation before this one is `@^` too"
             .to_string()
     } else {
         format!(

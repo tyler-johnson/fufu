@@ -603,11 +603,15 @@ fn commit_fold(
             new: plan.source_meta.pending_description.clone(),
         });
     }
-    if plan.source_meta.change_id != plan.target_meta.change_id {
+    if plan.source_meta.change_id != plan.target_meta.change_id
+        || plan.source_meta.change_born != plan.target_meta.change_born
+    {
         record.change_id = Some(ChangeIdTransition {
             branch: target.clone(),
             old: plan.target_meta.change_id.clone(),
             new: plan.source_meta.change_id.clone(),
+            old_born: plan.target_meta.change_born,
+            new_born: plan.source_meta.change_born,
         });
     }
 
@@ -695,6 +699,7 @@ fn commit_fold(
     let mut target_meta = plan.target_meta.clone();
     target_meta.pending_description = plan.source_meta.pending_description.clone();
     target_meta.change_id = plan.source_meta.change_id.clone();
+    target_meta.change_born = plan.source_meta.change_born;
     branchmeta::write(repo, &target, &target_meta)?;
     for reaim in &plan.reaims {
         let mut meta = branchmeta::read(repo, &reaim.branch)?;

@@ -88,6 +88,8 @@ pub fn set_pending(
         branch: branch.clone(),
         old: None,
         new: Some(id.clone()),
+        old_born: None,
+        new_born: Some(now),
     });
     verb::append_op(
         repo,
@@ -108,6 +110,7 @@ pub fn set_pending(
     meta.pending_description = text.clone();
     if minted.is_some() {
         meta.change_id = minted;
+        meta.change_born = Some(now);
     }
     branchmeta::write(repo, &branch, &meta)?;
 

@@ -14,7 +14,7 @@ pub fn run(ctx: &Ctx, into: Option<String>, paths: Vec<String>, no_verify: bool)
     // already are, so naming it is a contradiction, not a target.
     let target = match &into {
         Some(src) => match Revset::parse(src)?.point(&repo)?.rev {
-            Rev::Open => {
+            Rev::Open(_) => {
                 return Err(Error::coded(
                     "usage/absorb-into-open",
                     "the open change is already where your changes are: name a commit that has closed",

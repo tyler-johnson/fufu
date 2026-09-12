@@ -230,3 +230,82 @@ fn ops_above_the_floor_stay_undoable_after_a_trim() {
     let subject = fx.git(&["log", "-1", "--format=%s", "HEAD"]);
     assert_eq!(subject.trim(), "close 2");
 }
+
+/// A survivor keeps what it stated about the open commit: the rebuild
+/// rewrites the links and nothing else, so `fufu-open` and the parent slot
+/// that pins it come through, and the ref still names the same sha.
+#[test]
+fn a_survivor_keeps_its_open_commit() {
+    let fx = aged_fixture();
+    // A dirty capture above every close: the newest op on the log, and the
+    // one the trim keeps.
+    fx.write("a.txt", "open\n");
+    let repo = fx.repo();
+    let outcome = ff_core::capture_with(
+        &repo,
+        &ff_core::Provenance::new("manual", None),
+        &ff_core::TakeOptions {
+            now: Some(T0 + 20 * DAY + 60),
+            max_file_size: None,
+        },
+    )
+    .unwrap();
+    let ff_core::CaptureOutcome::Created { id, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    let open = fx
+        .git(&["rev-parse", "refs/fufu/open/main"])
+        .trim()
+        .to_string();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    assert_eq!(
+        log.get(id).unwrap().open_commit().map(|c| c.to_string()),
+        Some(open.clone())
+    );
+    drop(log);
+
+    ff_core::trim(
+        &repo,
+        &TrimOptions {
+            now: Some(T0 + 21 * DAY),
+            keep_secs: Some(2 * DAY),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    // The trim's own note sits on top; it left the tree alone, so it states
+    // the same open commit. The survivor is the op beneath it.
+    let note = log.get(log.tip().unwrap().expect("the trim note")).unwrap();
+    assert_eq!(note.kind(), ff_core::ops::OpKind::Note, "{note:?}");
+    assert_eq!(
+        note.open_commit().map(|c| c.to_string()),
+        Some(open.clone()),
+        "the note reuses the sha rather than minting one"
+    );
+    let tip = note.prev().expect("a survivor");
+    let survivor = log.get(tip).unwrap();
+    assert!(survivor.is_capture(), "{survivor:?}");
+    assert_eq!(
+        survivor.open_commit().map(|c| c.to_string()),
+        Some(open.clone()),
+        "the rebuilt op still states its open commit"
+    );
+    let parents = fx.git(&["rev-list", "--parents", "-n", "1", &tip.to_string()]);
+    assert_eq!(
+        parents.split_whitespace().last(),
+        Some(open.as_str()),
+        "and still pins it: {parents}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        open,
+        "the ref is not the trim's to move"
+    );
+    assert_eq!(
+        ff_core::open_change(&repo).unwrap().pending.as_deref(),
+        Some(open.as_str())
+    );
+}

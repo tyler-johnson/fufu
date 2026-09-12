@@ -159,6 +159,7 @@ fn pending_description_is_consumed_by_the_close() {
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("planned: the pending text".into()),
             change_id: None,
+            change_born: None,
             forked_from: None,
             parent: None,
             session: None,
@@ -193,6 +194,7 @@ fn dash_m_wins_over_pending_and_still_consumes_it() {
         &ff_core::branchmeta::BranchMeta {
             pending_description: Some("stale pending".into()),
             change_id: None,
+            change_born: None,
             forked_from: None,
             parent: None,
             session: None,
@@ -698,4 +700,228 @@ fn unborn_close_writes_the_initial_commit() {
     assert_eq!(parents.trim(), "", "initial commit has no parents");
     assert_eq!(fx.git(&["rev-parse", "HEAD"]).trim(), id);
     assert_eq!(fx.git(&["status", "--porcelain=v2"]), "");
+}
+
+// --- the close is a ref move -------------------------------------------------
+
+/// Capture at a fixed clock, so the birth is known.
+fn capture_at(fx: &Fixture, now: i64) {
+    let repo = fx.repo();
+    let outcome = ff_core::capture_with(
+        &repo,
+        &ff_core::Provenance::new("manual", None),
+        &ff_core::TakeOptions {
+            now: Some(now),
+            max_file_size: None,
+        },
+    )
+    .unwrap();
+    assert!(
+        matches!(outcome, ff_core::CaptureOutcome::Created { .. }),
+        "{outcome:?}"
+    );
+}
+
+fn open_ref(fx: &Fixture) -> Option<String> {
+    let out = fx.try_git_in(
+        &fx.path(),
+        &["rev-parse", "--verify", "-q", "refs/fufu/open/main"],
+    );
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// A plain close lands the open commit itself: the sha the `@` row showed
+/// is the sha on the branch, the commit is authored at the change's birth
+/// and committed at the capture that wrote it, and the ref is gone.
+#[test]
+fn a_plain_close_lands_the_open_commit() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "changed\n");
+    capture_at(&fx, NOW - 100);
+    ff_core::describe::set_pending(
+        &fx.repo(),
+        Some("close message".into()),
+        &ff_core::Provenance::new("pre", Some("ff describe".into())),
+        Some(NOW - 50),
+        Vec::new(),
+    )
+    .unwrap();
+    let shown = ff_core::open_change(&fx.repo())
+        .unwrap()
+        .pending
+        .expect("the @ row shows a sha");
+    assert_eq!(open_ref(&fx).as_deref(), Some(shown.as_str()));
+
+    let (outcome, _) = close_with(
+        &fx,
+        CloseOptions {
+            message: None,
+            ..default_opts()
+        },
+    );
+    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    assert_eq!(id, shown, "the branch moved onto the open commit");
+    assert_eq!(reminted, None);
+    assert_eq!(fx.git(&["rev-parse", "HEAD"]).trim(), id);
+    assert_eq!(open_ref(&fx), None, "nothing is open after the close");
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%at %ct", &id]).trim(),
+        format!("{} {}", NOW - 100, NOW - 50),
+        "authored at the birth, committed by the describe that wrote it"
+    );
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), "");
+}
+
+/// A `-m` that differs from the pending description is a different commit:
+/// the close mints one, authored at the birth, and names no re-mint reason
+/// because the message is the user's own choice.
+#[test]
+fn a_close_with_a_new_message_mints_at_the_birth() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "changed\n");
+    capture_at(&fx, NOW - 100);
+    let shown = ff_core::open_change(&fx.repo()).unwrap().pending.unwrap();
+
+    let (outcome, _) = close_with(&fx, default_opts());
+    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    assert_ne!(id, shown, "a different message is a different commit");
+    assert_eq!(reminted, None, "no hook ran: -m is the user's own choice");
+    assert_eq!(
+        fx.git(&["log", "-1", "--format=%at %ct", &id]).trim(),
+        format!("{} {NOW}", NOW - 100),
+        "authored at the birth, committed now"
+    );
+}
+
+#[test]
+fn a_hook_that_changes_the_tree_reminted() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(
+        &fx,
+        "pre-commit",
+        "#!/bin/sh\nprintf 'formatted\\n' > a.txt\n",
+    );
+    fx.write("a.txt", "unformatted\n");
+    capture_at(&fx, NOW - 100);
+    ff_core::describe::set_pending(
+        &fx.repo(),
+        Some("close message".into()),
+        &ff_core::Provenance::new("pre", Some("ff describe".into())),
+        Some(NOW - 50),
+        Vec::new(),
+    )
+    .unwrap();
+    let shown = ff_core::open_change(&fx.repo()).unwrap().pending.unwrap();
+
+    let (outcome, _) = close_with(
+        &fx,
+        CloseOptions {
+            message: None,
+            ..default_opts()
+        },
+    );
+    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    assert_eq!(reminted, Some(ff_core::Remint::HookTree));
+    assert_ne!(id, shown);
+    assert_eq!(fx.git(&["show", &format!("{id}:a.txt")]), "formatted\n");
+}
+
+#[test]
+fn a_hook_that_changes_the_message_reminted() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    install_hook(
+        &fx,
+        "commit-msg",
+        "#!/bin/sh\nprintf 'rewritten: ' > \"$1.tmp\"\ncat \"$1\" >> \"$1.tmp\"\nmv \"$1.tmp\" \"$1\"\n",
+    );
+    fx.write("a.txt", "changed\n");
+    capture_at(&fx, NOW - 100);
+    ff_core::describe::set_pending(
+        &fx.repo(),
+        Some("close message".into()),
+        &ff_core::Provenance::new("pre", Some("ff describe".into())),
+        Some(NOW - 50),
+        Vec::new(),
+    )
+    .unwrap();
+    let (outcome, _) = close_with(
+        &fx,
+        CloseOptions {
+            message: None,
+            ..default_opts()
+        },
+    );
+    let CommitOutcome::Closed {
+        subject, reminted, ..
+    } = outcome;
+    assert_eq!(reminted, Some(ff_core::Remint::HookMessage));
+    assert_eq!(subject, "rewritten: close message");
+}
+
+#[test]
+fn a_partial_close_reminted_and_the_remainder_is_born_now() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.write("b.txt", "b\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "a2\n");
+    fx.write("b.txt", "b2\n");
+    capture_at(&fx, NOW - 100);
+    ff_core::describe::set_pending(
+        &fx.repo(),
+        Some("close message".into()),
+        &ff_core::Provenance::new("pre", Some("ff describe".into())),
+        Some(NOW - 50),
+        Vec::new(),
+    )
+    .unwrap();
+    let shown = ff_core::open_change(&fx.repo()).unwrap().pending.unwrap();
+
+    let (outcome, _) = close_with(
+        &fx,
+        CloseOptions {
+            message: None,
+            paths: vec!["a.txt".into()],
+            ..default_opts()
+        },
+    );
+    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    assert_eq!(reminted, Some(ff_core::Remint::Partial));
+    assert_ne!(id, shown);
+
+    // The remainder is a change of its own, born at the close, and its open
+    // commit sits on the new HEAD.
+    let repo = fx.repo();
+    let meta = ff_core::branchmeta::read(&repo, "main").unwrap();
+    assert_eq!(meta.change_born, Some(NOW));
+    let remainder = open_ref(&fx).expect("the remainder is open");
+    assert_ne!(remainder, shown);
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{remainder}^")]).trim(),
+        id,
+        "the remainder's open commit sits on the close"
+    );
+    assert_eq!(
+        fx.git(&["show", &format!("{remainder}:b.txt")]),
+        "b2\n",
+        "and carries what the close left behind"
+    );
+    let change = ff_core::open_change(&repo).unwrap();
+    assert_eq!(change.pending.as_deref(), Some(remainder.as_str()));
+    assert_eq!(change.change_id, meta.change_id);
 }

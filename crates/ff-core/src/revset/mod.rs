@@ -52,9 +52,18 @@ use crate::ops::CommitId;
 /// One member of a revision set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Rev {
-    /// The open change: commit-shaped, id not yet minted.
-    Open,
+    /// The open change, carrying its open commit's sha when one is shown —
+    /// the sha on the `@` row, which the close lands. `None` when the tree
+    /// is clean, nothing is stated, or signing is on; the member is the open
+    /// change either way, and no verb reads the sha as a commit to act on.
+    Open(Option<CommitId>),
     Commit(CommitId),
+}
+
+impl Rev {
+    pub fn is_open(self) -> bool {
+        matches!(self, Rev::Open(_))
+    }
 }
 
 /// A parsed revision expression, ready to evaluate against any repository.

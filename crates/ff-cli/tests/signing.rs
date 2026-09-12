@@ -203,11 +203,12 @@ fn an_unknown_gpg_format_is_a_coded_refusal() {
     assert!(stdout(&explained).contains("gpg.format"));
 }
 
-/// The predicted sha is unknowable once signing is on — the signature is not
-/// a function of anything a render has — so the `@` row carries none. The
-/// column goes blank, the same one an unborn branch shows.
+/// The open commit is unsigned and the close signs, so once signing is on
+/// the sha the close lands is not the open commit's, and the `@` row shows
+/// none: the column goes blank, the same one a clean tree shows, though the
+/// object and its ref are still there.
 #[test]
-fn signing_removes_the_predicted_sha_from_the_open_change() {
+fn signing_removes_the_open_commits_sha_from_the_at_row() {
     let signer = good_signer();
     let fx = repo_with(&signer);
     fx.write("a.txt", "one\n");
@@ -215,7 +216,7 @@ fn signing_removes_the_predicted_sha_from_the_open_change() {
     let before = json(&ff(&fx, &["--json", "log"]));
     assert!(
         before["data"]["open"]["pending"].is_string(),
-        "an unsigned repository should still predict the close: {before}"
+        "an unsigned repository shows the open commit: {before}"
     );
 
     fx.set_config("commit.gpgsign", "true");
@@ -223,6 +224,20 @@ fn signing_removes_the_predicted_sha_from_the_open_change() {
     assert!(
         after["data"]["open"]["pending"].is_null(),
         "a signing repository must not claim to know the sha: {after}"
+    );
+    let open = fx.git(&["rev-parse", "refs/fufu/open/main"]);
+    assert_eq!(
+        open.trim(),
+        before["data"]["open"]["pending"].as_str().unwrap()
+    );
+
+    // The close signs a commit of its own, and says so.
+    let out = ff(&fx, &["commit", "-m", "signed close"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("re-minted: signing is on"),
+        "{}",
+        stdout(&out)
     );
 }
 

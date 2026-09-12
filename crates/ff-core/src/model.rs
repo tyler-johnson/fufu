@@ -255,10 +255,11 @@ pub struct OpenChange {
     pub time: Option<i64>,
     /// The tip tree equals the HEAD tree (or no chain exists yet).
     pub clean: bool,
-    /// The pending change's stable identity: the hash of the commit the close
-    /// would mint — not a prediction (the real close re-stamps time, and hooks
-    /// may rewrite tree or message). `None` when nothing is pending or no
-    /// user identity is configured.
+    /// The open commit's sha: the commit fufu keeps under
+    /// `refs/fufu/open/<branch>` for the open change, the one the close
+    /// moves the branch to. `None` when the tree is clean, no identity was
+    /// configured when it was captured, or signing is on — the close then
+    /// signs, and lands a different sha.
     pub pending: Option<String>,
 }
 
@@ -1209,7 +1210,27 @@ pub enum CommitOutcome {
         claimed_from: Option<String>,
         /// The mandatory pre-verb capture, spelled as an operation id.
         pre_op: Option<String>,
+        /// Why the close minted a commit of its own instead of moving the
+        /// branch onto the open commit. `None` when it reused the open
+        /// commit — the sha the `@` row showed — when there was none to
+        /// reuse, or when a `-m` differed from the description the open
+        /// commit carried, which is the user's own choice.
+        reminted: Option<Remint>,
     },
+}
+
+/// Why a close could not land the open commit as it stood.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Remint {
+    /// Signing is on: the open commit is unsigned, and the close signs.
+    Signed,
+    /// A partial close: the commit's tree is the slice, not the open change.
+    Partial,
+    /// A pre-commit hook changed the tree.
+    HookTree,
+    /// A message hook changed the message.
+    HookMessage,
 }
 
 /// One ref that moved outside fufu, absorbed by reconciliation.

@@ -686,9 +686,10 @@ fn log_default_is_change_centric() {
 }
 
 /// The @ row states: clean undescribed collapses to "no changes", dirty shows
-/// the change id + pending sha, describe changes the pending sha and not the
-/// id, close returns to "no changes" and the new ● row wears the id the @ row
-/// wore, clean+described shows a pending empty commit under a fresh id.
+/// the change id + the open commit's sha, describe changes the sha and not
+/// the id, close lands that exact sha and returns to "no changes" with the
+/// new ● row wearing the id the @ row wore, clean+described shows a fresh
+/// id and no sha — fufu writes no empty commit.
 #[test]
 fn log_at_row_states() {
     let fx = Fixture::new();
@@ -732,10 +733,13 @@ fn log_at_row_states() {
     assert_eq!(tokens[1], dirty_letters, "letters unchanged after describe");
     assert_ne!(tokens[2], dirty_sha, "pending sha changed after describe");
 
-    // Close: back to "no changes", and the commit wears the id the open
-    // change wore — the letters column is an identity, so it follows the
-    // change from the @ row into the ● row.
-    assert!(ff(&fx, &["commit", "-m", "landed"]).status.success());
+    let described_sha = tokens[2].to_string();
+
+    // Close: back to "no changes", and the commit is the open commit — the
+    // sha the @ row showed is the sha the ● row wears, and it wears the id
+    // the open change wore too: the letters column is an identity, so it
+    // follows the change from the @ row into the ● row.
+    assert!(ff(&fx, &["commit"]).status.success());
     let text = stdout(&ff(&fx, &["log"]));
     assert_eq!(text.lines().next().unwrap(), "@  no changes");
     let bullet_line = text
@@ -747,9 +751,13 @@ fn log_at_row_states() {
         bullet_tokens[1], dirty_letters,
         "the closed commit wears the open change's id: {text:?}"
     );
+    assert_eq!(
+        bullet_tokens[2], described_sha,
+        "the close moved the branch onto the open commit: {text:?}"
+    );
 
-    // Describe while clean: pending empty commit under a fresh id, since the
-    // last one left with the commit.
+    // Describe while clean: a fresh id, since the last one left with the
+    // commit, and no sha — there is no commit until there is a change.
     assert!(ff(&fx, &["describe", "-m", "next up"]).status.success());
     let text = stdout(&ff(&fx, &["log"]));
     let tokens: Vec<&str> = text.lines().next().unwrap().split_whitespace().collect();
@@ -758,8 +766,8 @@ fn log_at_row_states() {
         "clean+described letters: {text:?}"
     );
     assert!(
-        tokens[2].len() == 8 && tokens[2].chars().all(|c| c.is_ascii_hexdigit()),
-        "clean+described pending sha: {text:?}"
+        !(tokens[2].len() == 8 && tokens[2].chars().all(|c| c.is_ascii_hexdigit())),
+        "clean+described has no sha: {text:?}"
     );
     assert_ne!(
         tokens[1], dirty_letters,
@@ -1054,7 +1062,7 @@ fn log_revisions_surface_revset_errors() {
     let fx = three_commits();
     for (src, id) in [
         ("nosuchbranch", "usage/revset-unknown-revision"),
-        ("@^", "usage/revset-open-suffix"),
+        ("@@{1}", "usage/revset-open-suffix"),
         ("main...trunk", "usage/revset-no-symmetric-difference"),
     ] {
         let out = ff(&fx, &["log", "-r", src, "--json"]);
@@ -1387,9 +1395,12 @@ fn log_pending_hash_stability() {
         "pending hash differs after tree change"
     );
 
-    // Drop identity → pending and pending_short become null.
+    // Identity absent when the tree is captured → no open commit, and
+    // pending and pending_short are null. The commit is the capture's, so
+    // an identity dropped between captures changes nothing.
     fx.git(&["config", "--unset", "user.name"]);
     fx.git(&["config", "--unset", "user.email"]);
+    fx.write("a.txt", "unauthored\n");
     let out4 = ff(&fx, &["log", "--json"]);
     assert!(out4.status.success());
     let v4: serde_json::Value = serde_json::from_str(&stdout(&out4)).unwrap();

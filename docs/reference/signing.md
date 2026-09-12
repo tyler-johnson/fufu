@@ -102,11 +102,11 @@ git's `%G?` letters are still what the machine surface carries — `ff show --js
 
 `ff log --json` carries `signed` on every commit whether or not the flag was given, and adds a `signature` object only under `--signatures`: the key's absence is what says nothing was verified, which is not the same claim as null.
 
-## The predicted sha
+## The open commit's sha
 
-`ff log` and `ff status` normally show a sha in the `@` row — the id the close *would* mint, computed by building the commit object and hashing it without writing it. With signing on, that prediction is impossible: the signature is not knowable without running the signer, and running one on every status render is out of the question.
+`ff log` and `ff status` normally show a sha in the `@` row — the open commit's, the commit fufu keeps for the open change under `refs/fufu/open/<branch>` and the one the close moves the branch to. That commit is unsigned: it is rewritten by every capture, and running the signer on every status render is out of the question. The close signs, and a signature is part of the object, so the sha it lands is a different one.
 
-So with `commit.gpgsign` on, the `@` row's sha column is blank — the same empty column an unborn branch shows. This is a real, accepted regression for signing users, not an oversight.
+So with `commit.gpgsign` on, the `@` row's sha column is blank — the same empty column a clean tree shows — though the object and the ref exist. `ff commit` says `re-minted: signing is on` when it lands. This is a real, accepted gap for signing users, not an oversight.
 
 ## Failure modes
 

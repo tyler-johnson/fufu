@@ -94,6 +94,24 @@ impl<'r> Operation<'r> {
         self.skeleton.prev_verb
     }
 
+    /// The open commit this op leaves on its branch: the commit the close
+    /// would move the branch to. `None` when the op states there is none
+    /// *and* when it predates the trailer; [`Self::states_open`] tells the
+    /// two apart.
+    pub fn open_commit(&self) -> Option<CommitId> {
+        self.skeleton
+            .open
+            .and_then(message::OpenLink::commit)
+            .map(CommitId::new)
+    }
+
+    /// Whether the op says anything about the open commit at all. An op
+    /// written before the trailer existed says nothing, and a reader that
+    /// needs the claim rather than its absence has to ask.
+    pub fn states_open(&self) -> bool {
+        self.skeleton.open.is_some()
+    }
+
     /// The worktree this op carries. Free: it is the commit's own tree.
     ///
     /// It is a *plan*, not an observation — the state the world should be in

@@ -2,7 +2,7 @@
 
 **The working copy is the change.**
 
-There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working copy are the change, from the first keystroke.
+There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working copy are the change, from the first keystroke. fufu keeps that change as a commit for you, under `refs/fufu/open/<branch>`, rewritten as you work — the sha on the `@` row — and closing moves the branch to it.
 
 fufu saves them for you as you work: every command takes a [capture](snapshots-and-undo.md) — an automatic snapshot of the tree — before it acts. Every verb that talks about work in progress is talking about this one thing.
 
@@ -16,7 +16,7 @@ The verbs move a change between these states and do nothing else. `ff commit` cl
 
 ## Closing is the commit
 
-`ff commit` closes the open change into a commit. There is no `add` first, because there is nothing to add to — the tree is already the change. `-m` describes what is closing.
+`ff commit` closes the open change into a commit. There is no `add` first, because there is nothing to add to — the tree is already the change, and already a commit: the close moves the branch onto the open commit, so the sha `ff log` showed on the `@` row is the sha the `●` row wears afterward. `-m` describes what is closing; a message that differs from the pending description, a partial close, a hook that changes the tree or the message, or signing (the open commit is unsigned) each make the close mint a commit of its own, and it says so.
 
 A clean tree has nothing to close, so `ff commit` on one does nothing rather than making an empty commit. Every close is a recorded operation, and [`ff undo`](../reference/cli/undo.md) takes it back — tree and refs together.
 
@@ -34,7 +34,7 @@ fufu trades the hunk-level assembly away and gets back having nothing to maintai
 
 ## Pending descriptions
 
-The open change carries a description before it is ever a commit. [`ff describe -m`](../reference/cli/describe.md) sets it inline; bare `ff describe` opens `$EDITOR` seeded with the current text. When the change closes, `ff commit` picks that description up as the commit message, and `ff commit -m` wins over it.
+The open change carries a description before it closes. [`ff describe -m`](../reference/cli/describe.md) sets it inline; bare `ff describe` opens `$EDITOR` seeded with the current text. The description is the open commit's message from that moment, so describing moves the `@` row's sha and not its letters; when the change closes, `ff commit` lands it as the commit message, and `ff commit -m` wins over it.
 
 So you can name work while you are doing it, when the intent is freshest, instead of reconstructing it at the end.
 

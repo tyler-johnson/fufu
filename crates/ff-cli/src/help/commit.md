@@ -1,5 +1,7 @@
 There is no staging step: the working copy is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by `ff describe`. `ff ci` is the short spelling.
 
+The open change is already a commit — the one the `@` row's sha names, kept under `refs/fufu/open/<branch>` and rewritten as you work — and the close moves the branch onto it, so the sha `ff log` showed before is the sha the `●` row wears after. When that commit cannot be what lands, the close mints one of its own and says why on a `re-minted:` line: signing is on (the open commit is unsigned), a partial close, a hook that changed the tree, a hook that changed the message. A -m that differs from the description mints one too, without the line — that message is your own choice. Either way the commit is authored when the change began and committed when it closed.
+
 -b lands the close on a branch — it claims the anonymous branch you are standing on, or forks a fresh one from here, leaving the branch you were on where it was.
 
 A clean tree has nothing to close, and a description does not make one — it waits for the next close instead. Every close is recorded, so `ff undo` takes it back, tree and refs together.
@@ -14,7 +16,7 @@ Selection is by path and made once at the close; there is no hunk-level pick. Wh
 
 Signing follows git's configuration: `commit.gpgsign` and `gpg.format`, with the key from `user.signingkey`, in all three formats git signs in — openpgp, x509 and ssh. -S signs a repository that does not, --no-sign declines to sign one that does.
 
-Both are plain switches, and the key always comes from `user.signingkey`. With signing on, the `@` row shows no predicted sha.
+Both are plain switches, and the key always comes from `user.signingkey`. With signing on, the `@` row shows no sha: the open commit is unsigned, the close signs, and the sha it lands is a different one.
 
 ## Examples
 

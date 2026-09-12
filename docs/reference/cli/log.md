@@ -1,6 +1,6 @@
 # ff log
 
-The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears its change id — the identity it keeps through rewrites, the letters column [`ff evolog`](evolog.md) drills into. The @ row wears the id its commit will carry, so the letters do not move at the close.
+The changes view, jj-style: the open change (@) sits atop the commit walk (●), and each commit wears its change id — the identity it keeps through rewrites, the letters column [`ff evolog`](evolog.md) drills into. The @ row wears the id its commit will carry, so the letters do not move at the close, and its sha is the open commit's — the commit fufu keeps for the open change under `refs/fufu/open/<branch>`, the one [`ff commit`](commit.md) moves the branch to — so the sha does not move either. It is blank while the tree is clean, and under signing, where the close signs and lands a different sha.
 
 Every commit has one. A commit fufu closed carries its id as a `change-id` header, jj's own, and a reword, restack, or absorb keeps it; a commit made by git or cloned from elsewhere derives one from its sha, the same on every read and in every clone. The bold prefix is the shortest one unique on the page, and any prefix unique in the repository names the commit wherever a revision goes: `ff log -r <change id>`, [`ff show`](show.md), [`ff describe <rev>`](describe.md). A change that stands on two visible commits — a rewrite beside a ref still holding the old copy — is refused by name rather than guessed.
 
@@ -8,7 +8,7 @@ Every commit has one. A commit fufu closed carries its id as a `change-id` heade
 
 ## Choosing the rows
 
--r takes a revset and replaces where the rows come from: gitrevisions' whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @ row appears only when the open change is a member of the set, because `ff log -r main` is a question about main.
+-r takes a revset and replaces where the rows come from: gitrevisions' whole revision grammar, plus a set algebra spelled | & ~ .. and :: . The @ row appears only when the open change is a member of the set, because `ff log -r main` is a question about main. `@` sits on HEAD's commit, so its parent suffixes step onto it: `@^` is `HEAD`, `@~3` is `HEAD~2`, and `@~3..@` is two commits plus the open change. It has no reflog, so `@@{1}` is refused; `@{1}` alone is HEAD's.
 
 Paths narrow the log to the commits that touch them, by the rule [`ff restore`](restore.md) speaks: a file, or a directory prefix. No globs. The @ row appears when the open change touches them, the same rule -r has.
 
@@ -84,6 +84,7 @@ ff log --commits               history only, no change ids
 ff log --signatures            verify each row and show its status letter
 ff log -r main                 just main's tip — no @ row, it is not in it
 ff log -r 'trunk..@'           what this branch has that trunk does not
+ff log -r '@~3..@'             the last two commits and the open change
 ff log src/parser.rs           what happened to this file, renames and all
 ff log -r 'trunk..@' src/      filters that set by path — no rename follow
 ff op log                      the operation log, in its own address space

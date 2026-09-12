@@ -14,7 +14,7 @@ pub fn run(ctx: &Ctx, from: Option<String>, paths: Vec<String>) -> Result<()> {
     // lands in, so naming it as a source has nothing to lift out of.
     let target = match &from {
         Some(src) => match Revset::parse(src)?.point(&repo)?.rev {
-            Rev::Open => {
+            Rev::Open(_) => {
                 return Err(Error::coded(
                     "usage/lift-from-open",
                     "the open change has nothing committed to lift out of: name a commit that has closed",

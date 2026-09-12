@@ -12,12 +12,18 @@
 //! read before taking the reference's lock, so two appends can both pass the
 //! check and both apply. [`crate::ops::lock`] is what actually serializes
 //! them, and it is held across the read of the tip and the move.
+//!
+//! A third ref rides the same transaction: `refs/fufu/open/<branch>`, the
+//! open commit of the branch the op leaves you on. Every op plans it, states
+//! it in `fufu-open`, and carries it as its last parent — see
+//! [`crate::open`].
 
 use gix::refs::transaction::PreviousValue;
 
 use crate::error::{Error, Result};
+use crate::open;
 use crate::ops::id::OpId;
-use crate::ops::message::{self, Skeleton};
+use crate::ops::message::{self, OpenLink, Skeleton};
 use crate::ops::record::{OpRecord, RefsTable};
 use crate::ops::walk;
 use crate::ops::{BRANCH_PREFIX, OpKind, lock};
@@ -137,6 +143,40 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
             },
         };
 
+        // The open commit of the branch the op leaves you on, planned from
+        // the tree the op leaves and the HEAD it leaves it on: a capture's
+        // base, a verb's planned ref. Reuse reads the ref and the
+        // predecessor's claim, so a ref that went missing — a close that
+        // deleted it write-ahead and then lost its CAS — still holds the
+        // sha. The ref's expected value is what was read here, under the
+        // lock; a contended CAS leaves an orphan object, as it does for the
+        // op itself.
+        let open_ref = open::open_ref(&draft.branch);
+        let open_was = refs::ref_target(repo, open_ref.as_str())?;
+        let head_after = match &draft.refs {
+            None => draft.base,
+            Some(table) => table
+                .refs
+                .get(&format!("refs/heads/{}", draft.branch))
+                .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
+                .transpose()?,
+        };
+        let overlay = open::Overlay::of(draft.record.as_ref(), &draft.branch);
+        let open_commit =
+            match open::plan(repo, &draft.branch, draft.tree, head_after, &overlay, now)? {
+                None => None,
+                Some(plan) => {
+                    let stated = prev_on_branch
+                        .and_then(|id| walk::decode(repo, id).ok())
+                        .and_then(|op| op.open_commit())
+                        .map(|id| id.object_id());
+                    let candidates: Vec<gix::ObjectId> =
+                        open_was.into_iter().chain(stated).collect();
+                    Some(open::write(repo, &plan, &candidates, now)?)
+                }
+            };
+        skeleton.open = Some(open_commit.map_or(OpenLink::Closed, OpenLink::At));
+
         let record_id = match &draft.record {
             None => None,
             Some(record) => Some(write_record(repo, record, &skeleton, draft, now)?),
@@ -164,12 +204,20 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
                 parents.push(commit);
             }
         }
+        // The open commit last, so the log pins it for as long as the op
+        // lives — and a branch's trash pointer after `ff branch -d` keeps
+        // it reachable through the op it names.
+        if let Some(open_commit) = open_commit
+            && !parents.contains(&open_commit)
+        {
+            parents.push(open_commit);
+        }
 
         let msg = message::build(&draft.subject, &draft.skipped, &skeleton);
         let commit_id = write_commit(repo, draft.tree, parents, &msg, now)?;
 
         let reflog = message::clean_subject(&draft.subject, message::MAX_SUBJECT);
-        let edits = [
+        let mut edits = vec![
             refs::update_edit(ops_ref.as_str(), commit_id, expect(prev), &reflog)?,
             refs::update_edit(
                 branch_ref.as_str(),
@@ -178,6 +226,15 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
                 &reflog,
             )?,
         ];
+        match (open_was, open_commit) {
+            (was, Some(id)) if was != Some(id) => edits.push(refs::update_edit_unlogged(
+                open_ref.as_str(),
+                id,
+                expect(was),
+            )?),
+            (Some(was), None) => edits.push(refs::delete_edit(open_ref.as_str(), was)?),
+            _ => {}
+        }
         match refs::commit_edits(repo, edits, now)? {
             EditOutcome::Applied => {
                 // The id index rides the append, after the CAS, best effort
@@ -470,15 +527,19 @@ pub(crate) fn worktree_tree(
     crate::snapshot::tree::assemble(repo, head_tree, &scan, max)
 }
 
-/// Give a branch's open change an id when it has none and is not a session.
-/// Written only on the appending path — a capture that no-ops writes
-/// nothing, so an unchanged tree keeps a read verb read-only.
-fn mint_change_id(repo: &gix::Repository, branch: &str) -> Result<()> {
+/// Give a branch's open change an id and a birth when it has none and is
+/// not a session. Written only on the appending path — a capture that
+/// no-ops writes nothing, so an unchanged tree keeps a read verb read-only.
+/// An id minted before births were kept gets its birth here, once.
+fn mint_change_id(repo: &gix::Repository, branch: &str, now: i64) -> Result<()> {
     let mut meta = crate::branchmeta::read(repo, branch)?;
-    if meta.session.is_some() || meta.change_id.is_some() {
+    if meta.session.is_some() || (meta.change_id.is_some() && meta.change_born.is_some()) {
         return Ok(());
     }
-    meta.change_id = Some(crate::changeid::ChangeId::mint()?.letters());
+    if meta.change_id.is_none() {
+        meta.change_id = Some(crate::changeid::ChangeId::mint()?.letters());
+    }
+    meta.change_born = Some(now);
     crate::branchmeta::write(repo, branch, &meta)
 }
 
@@ -495,15 +556,15 @@ pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutco
 /// `pub(crate)` is [`commit_op`] — the ability to write an op that moves
 /// refs, which is the authorship the cache's safety argument depends on.
 ///
-/// Read-only until the two-ref CAS; the index is never written and HEAD is
+/// Read-only until the three-ref CAS; the index is never written and HEAD is
 /// never opened for writing. A crash leaves at worst orphan objects for gc.
 /// The one exception is the branch's metadata file under
 /// `<common>/fufu/branch/`: the first capture that appends on a branch whose
-/// open change has no id yet mints one there, after the CAS, so the `@` row
-/// wears the letters the close will write into the commit. Read verbs
-/// therefore write that one file. The mint is not journaled: an undo and
-/// redo of a close can leave the remainder with a different id than it had
-/// between them, and nobody saw the first one on a commit.
+/// open change has no id yet mints one there, before the append, so the open
+/// commit the append writes wears the letters the close will land. Read
+/// verbs therefore write that one file. The mint is not journaled: an undo
+/// and redo of a close can leave the remainder with a different id than it
+/// had between them, and nobody saw the first one on a commit.
 pub fn capture_with(
     repo: &gix::Repository,
     prov: &Provenance,
@@ -545,37 +606,44 @@ pub fn capture_with(
     // against its tree would make the first capture on arrival look like a
     // change to everything.
     let prev_on_branch = refs::ref_target(repo, &format!("{BRANCH_PREFIX}{branch}"))?;
-    let prev_tree = prev_on_branch
-        .map(|id| walk::decode(repo, id).map(|op| op.tree()))
+    let prev_op = prev_on_branch
+        .map(|id| walk::decode(repo, id))
         .transpose()?;
+    let prev_tree = prev_op.as_ref().map(|op| op.tree());
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
 
     let (tree_id, skipped) = worktree_tree(repo, opts.max_file_size)?;
     if tree_id == head_tree {
         // Tier-1: nothing beyond HEAD is on disk.
-        match (prev_on_branch, prev_tree) {
-            (None, _) => {
-                return Ok(CaptureOutcome::NoOp {
-                    tip: None,
-                    warnings,
-                });
-            }
-            (Some(p), Some(pt)) if pt == head_tree => {
-                return Ok(CaptureOutcome::NoOp {
-                    tip: Some(OpId::new(p)),
-                    warnings,
-                });
-            }
+        let tip = match (prev_on_branch, prev_tree) {
+            (None, _) => Some(None),
+            (Some(p), Some(pt)) if pt == head_tree => Some(Some(OpId::new(p))),
             // The user committed since the last op: record the post-commit
             // state so the timeline stays continuous.
-            _ => {}
+            _ => None,
+        };
+        if let Some(tip) = tip {
+            // A clean tree has no open commit. The ref can still name one
+            // when the user landed exactly the captured tree with git — the
+            // op that would have deleted it is the one this tier skips — so
+            // it goes here, the one write a no-op makes, and only when
+            // there is something to delete.
+            open::clear(repo, &branch, opts.now.unwrap_or_else(wall_clock))?;
+            return Ok(CaptureOutcome::NoOp { tip, warnings });
         }
     }
 
     // Tier-2: built the tree, but it equals the branch's previous op (or the
     // head's, when the branch has no ops). Orphan blobs above are gc-able.
+    //
+    // One more condition: the previous op has to state an open commit — the
+    // trailer present, whatever it says. An op written before the trailer
+    // existed states nothing, so the first capture on a dirty tree after
+    // upgrading appends once and states one; an op that states `none`
+    // (no identity at the time) holds, so a missing `user.name` never turns
+    // an unchanged tree into an append per capture.
     let noop_against = prev_tree.unwrap_or(head_tree);
-    if tree_id == noop_against {
+    if tree_id == noop_against && prev_op.as_ref().is_none_or(|op| op.states_open()) {
         return Ok(CaptureOutcome::NoOp {
             tip: prev_on_branch.map(OpId::new),
             warnings,
@@ -596,6 +664,16 @@ pub fn capture_with(
         warnings.extend(crate::ops::verb::reconcile(repo, now)?.warnings);
     }
 
+    // The open change's identity, minted by the capture that first records
+    // it — before the append, so the open commit that append writes wears
+    // it and no open commit ever lacks one. Only a branch has an open
+    // change, born or not; a session's content is an amendment of the
+    // commit under it, whose id it already wears; a detached tree closes
+    // nothing.
+    if !matches!(head, crate::model::HeadState::Detached { .. }) {
+        mint_change_id(repo, &branch, now)?;
+    }
+
     let draft = OpDraft {
         kind: OpKind::Capture,
         subject: prov.subject(),
@@ -613,14 +691,6 @@ pub fn capture_with(
         Append::Committed(id) => id,
         Append::Contended => return Ok(CaptureOutcome::Contended),
     };
-
-    // The open change's identity, minted by the capture that first records
-    // it. Only a branch has an open change, born or not; a session's content
-    // is an amendment of the commit under it, whose id it already wears; a
-    // detached tree closes nothing.
-    if !matches!(head, crate::model::HeadState::Detached { .. }) {
-        mint_change_id(repo, &draft.branch)?;
-    }
 
     if prev_on_branch.is_none()
         && let Err(err) = crate::snapshot::config::ensure_gc_config(repo)

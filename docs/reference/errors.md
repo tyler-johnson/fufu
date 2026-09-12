@@ -132,7 +132,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `usage/revset-no-symmetric-difference` | 2 | there is no `a...b`; the set language already says it |
 | `usage/revset-not-a-commit` | 2 | that names an object, but not a commit |
 | `usage/revset-not-a-point` | 2 | the expression matches more than one revision, and this takes exactly one |
-| `usage/revset-open-suffix` | 2 | `@` is the open change, and it takes no suffixes |
+| `usage/revset-open-suffix` | 2 | `@` is the open change, and has no reflog |
 | `usage/revset-parent-shorthand` | 2 | there is no `x-` suffix; git already spells it `x^` |
 | `usage/revset-range-suffix` | 2 | `x^!` and `x^@` are rev-list ranges, not revisions |
 | `usage/revset-unbalanced-parens` | 2 | the parentheses in that expression do not pair up |

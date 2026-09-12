@@ -16,7 +16,8 @@
 //!  ├─1─ op N-1              previous op        → first-parent walk = the op log
 //!  ├─2─ base                HEAD's commit then → real history stays in the ancestry
 //!  ├─3─ record N            tree = { op.json, refs, index/ }   (non-capture ops only)
-//!  └─4… pins                shas the op's ref transitions touch
+//!  ├─4… pins                shas the op's ref transitions touch
+//!  └─   open                the open commit the op leaves (dirty tree only; see `open`)
 //! ```
 //!
 //! Slot 1 is reserved for the chain and is never anything else. The journal
@@ -40,7 +41,11 @@
 //! against 64 verb ops in this repository alone — and it is why the decoder
 //! learns the kind from the message before deciding whether to fetch
 //! anything. It also exempts a capture from the write-ahead protocol: a
-//! capture records a fact that already happened.
+//! capture records a fact that already happened. The one object a dirty
+//! capture writes beyond its own is the open commit — the open change as the
+//! commit the close will land, see [`crate::open`] — and that is reuse rather
+//! than storage: the same plan is the same sha, and a close moves onto it
+//! instead of minting another.
 
 pub mod append;
 pub mod id;

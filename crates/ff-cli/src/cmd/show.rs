@@ -31,13 +31,14 @@ pub fn run(ctx: &Ctx, rev: Option<String>, paths: Vec<String>) -> Result<()> {
     let opts = DiffOptions { hunks: true, paths };
 
     match point.rev {
-        Rev::Open => open(ctx, &repo, &opts),
+        Rev::Open(_) => open(ctx, &repo, &opts),
         Rev::Commit(id) => commit(ctx, &repo, id.object_id(), &opts),
     }
 }
 
 /// The open change: the same body `ff diff` prints, under a header that says
-/// what it is. Nothing here is a commit yet, so there is no id to name.
+/// what it is. The sha it names is the open commit's — the one the close
+/// lands — when there is one; blank on a clean tree, or under signing.
 fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Result<()> {
     let change = ff_core::open_change(repo)?;
     let stat = ff_core::change_diff(repo, opts)?;
@@ -64,7 +65,14 @@ fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Resul
     let result = (|| -> std::io::Result<()> {
         writeln!(
             out,
-            "@  the open change on {}{}",
+            "@  {}the open change on {}{}",
+            match change.pending.as_deref() {
+                Some(sha) => format!(
+                    "{} ",
+                    crate::render::paint_sha(ff_core::sha::short(sha), colored)
+                ),
+                None => String::new(),
+            },
             change.branch,
             match change.time {
                 Some(time) => format!("  {}", crate::render::relative_age(now_secs(), time)),

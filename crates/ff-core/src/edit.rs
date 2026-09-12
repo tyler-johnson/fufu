@@ -89,7 +89,7 @@ pub fn edit(
     // `latest(@)` and `heads(@)` were never a different request, and a check
     // on the spelling would have let them through.
     let at = match point.rev {
-        Rev::Open => {
+        Rev::Open(_) => {
             return Err(Error::coded(
                 "target/unresolvable",
                 "@ is the open change, not a commit: it is already what you are editing",
@@ -333,6 +333,7 @@ pub(crate) fn mint_session(
         &branchmeta::BranchMeta {
             pending_description: None,
             change_id: None,
+            change_born: None,
             forked_from: Some(at_short.to_string()),
             parent: None,
             session: Some(session),

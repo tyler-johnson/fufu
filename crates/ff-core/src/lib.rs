@@ -25,6 +25,7 @@ pub mod linked;
 mod log;
 pub mod map;
 pub mod model;
+pub mod open;
 pub mod ops;
 mod overlay;
 pub mod patch;

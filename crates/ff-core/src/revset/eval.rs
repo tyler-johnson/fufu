@@ -52,19 +52,26 @@ pub(super) struct Member {
 
 impl Member {
     /// The open change is the newest thing there is, so it sorts first
-    /// wherever it appears.
-    fn open() -> Self {
+    /// wherever it appears. It carries the open commit's sha in from the
+    /// leaf that resolved it, so every set that yields it yields the same
+    /// member.
+    fn open(sha: Option<CommitId>) -> Self {
         Member {
-            rev: Rev::Open,
+            rev: Rev::Open(sha),
             time: i64::MAX,
         }
     }
 
     fn commit(&self) -> Option<gix::ObjectId> {
         match self.rev {
-            Rev::Open => None,
+            Rev::Open(_) => None,
             Rev::Commit(id) => Some(id.object_id()),
         }
+    }
+
+    /// The open member among `members`, when it is one of them.
+    fn open_among(members: &[Member]) -> Option<Member> {
+        members.iter().copied().find(|m| m.rev.is_open())
     }
 }
 
@@ -282,7 +289,7 @@ fn cost(plan: &Plan) -> u8 {
 /// later ordering decision is arithmetic.
 fn member_of(repo: &gix::Repository, rev: Rev) -> Result<Member> {
     Ok(match rev {
-        Rev::Open => Member::open(),
+        Rev::Open(sha) => Member::open(sha),
         Rev::Commit(id) => Member {
             rev,
             time: commit_time(repo, id.object_id())?,
@@ -327,15 +334,15 @@ pub(super) fn run<'r>(
             // at `@` is rooted at HEAD's commit, with the open change riding
             // in front of it.
             Ok(match open {
-                true => Box::new(std::iter::once(Ok(Member::open())).chain(walk)),
-                false => walk,
+                Some(open) => Box::new(std::iter::once(Ok(open)).chain(walk)),
+                None => walk,
             })
         }
         Plan::Descend { seeds, ceiling } => {
             let seeds = materialize(repo, *seeds)?;
             let seed_ids: HashSet<gix::ObjectId> =
                 seeds.iter().filter_map(Member::commit).collect();
-            let open = seeds.iter().any(|m| m.rev == Rev::Open);
+            let open = Member::open_among(&seeds);
             let ceiling = tip_ids_only(repo, ceiling)?;
             let graph = Graph::build(repo, ceiling, None)?;
 
@@ -351,8 +358,8 @@ pub(super) fn run<'r>(
                 .filter(|&i| reached[i])
                 .map(|i| graph.member(i))
                 .collect();
-            if open {
-                out.insert(0, Member::open());
+            if let Some(open) = open {
+                out.insert(0, open);
             }
             Ok(Box::new(out.into_iter().map(Ok)))
         }
@@ -423,17 +430,18 @@ fn materialize(repo: &gix::Repository, plan: Plan) -> Result<Vec<Member>> {
     run(repo, plan)?.collect()
 }
 
-/// Tip ids for a walk, plus whether the open change was among them. The open
-/// change has no id, so it contributes HEAD's commit — the commit it sits on,
+/// Tip ids for a walk, plus the open change when it was among them. The open
+/// change is not a tip gix can walk from — its commit is fufu's, off every
+/// visible ref — so it contributes HEAD's commit, the commit it sits on,
 /// which is what git already calls it.
-fn tip_ids(repo: &gix::Repository, tips: Tips) -> Result<(Vec<gix::ObjectId>, bool)> {
+fn tip_ids(repo: &gix::Repository, tips: Tips) -> Result<(Vec<gix::ObjectId>, Option<Member>)> {
     match tips {
-        Tips::Everything => Ok((resolve::universe_tips(repo)?, false)),
+        Tips::Everything => Ok((resolve::universe_tips(repo)?, None)),
         Tips::Of(plan) => {
             let members = materialize(repo, *plan)?;
-            let open = members.iter().any(|m| m.rev == Rev::Open);
+            let open = Member::open_among(&members);
             let mut ids: Vec<gix::ObjectId> = members.iter().filter_map(Member::commit).collect();
-            if open
+            if open.is_some()
                 && let Some(head) = resolve::open_commit(repo)?
                 && !ids.contains(&head)
             {
@@ -455,10 +463,10 @@ fn tip_ids_only(repo: &gix::Repository, tips: Tips) -> Result<Vec<gix::ObjectId>
 /// leaves the window either.
 fn extremes(repo: &gix::Repository, members: Vec<Member>, heads: bool) -> Result<Vec<Member>> {
     let ids: Vec<gix::ObjectId> = members.iter().filter_map(Member::commit).collect();
-    let open = members.iter().any(|m| m.rev == Rev::Open);
+    let open = Member::open_among(&members);
     let cutoff = members
         .iter()
-        .filter(|m| m.rev != Rev::Open)
+        .filter(|m| !m.rev.is_open())
         .map(|m| m.time)
         .min();
     let graph = Graph::build(repo, ids.clone(), cutoff)?;
@@ -487,7 +495,7 @@ fn extremes(repo: &gix::Repository, members: Vec<Member>, heads: bool) -> Result
         .filter(|&i| member[i] && !flagged[i])
         .map(|i| graph.member(i))
         .collect();
-    if open {
+    if let Some(open) = open {
         // Nothing descends from the open change, so it is always a head. It
         // is a root only when the commit it sits on brings no member with it.
         let dominated = !heads
@@ -499,7 +507,7 @@ fn extremes(repo: &gix::Repository, members: Vec<Member>, heads: bool) -> Result
                 None => false,
             };
         if !dominated {
-            out.insert(0, Member::open());
+            out.insert(0, open);
         }
     }
     Ok(out)
@@ -663,8 +671,8 @@ mod tests {
         let repo = fx.repo();
         for src in [
             "nosuchbranch",
-            "@^",
-            "@~2",
+            "@@{1}",
+            "@^2",
             "main^!",
             "nosuchbranch..main",
             "::nosuchbranch",

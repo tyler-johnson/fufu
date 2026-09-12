@@ -9,6 +9,10 @@
 //! change, and a describe operation would become the newest row if the filter
 //! were dropped.
 //!
+//! The `@` row's sha is the open commit's — the commit under
+//! `refs/fufu/open/<branch>` that the close moves the branch to, see
+//! [`crate::open`] — read from the ref, never predicted.
+//!
 //! The walk follows `fufu-prev-branch` — a stated link, never a parent slot.
 
 use std::collections::HashMap;
@@ -118,9 +122,6 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
             .map(|commit| crate::changeid::of_commit(&commit.data, &commit.id).letters()),
         None => meta.as_ref().and_then(|meta| meta.change_id.clone()),
     };
-    let pending_id = change_id
-        .as_deref()
-        .and_then(crate::changeid::ChangeId::parse);
 
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
     let log = OpLog::open(repo)?;
@@ -150,63 +151,23 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
         None => (None, None),
     };
 
-    // Compute pending hash — any failure → None, open_change must not gain
-    // new failure modes.
-    let pending = (|| {
-        repo.workdir()?;
-        if clean && subject.is_none() {
-            return None;
-        }
-        let msg = crate::close::normalize_message(subject.as_deref().unwrap_or(""));
-        if !clean {
-            // Dirty — an op exists. Tree = what it left behind; timestamp =
-            // the newest capture's, or the op's when there is no capture.
-            let when = time.or_else(|| {
-                log.branch_tip(&branch)
-                    .ok()
-                    .flatten()
-                    .and_then(|id| log.get(id).ok())
-                    .map(|op| op.time())
-            })?;
-            return pending_commit_hash(
-                repo,
-                pending_id.as_ref(),
-                tip_tree?,
-                base.as_deref()
-                    .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok()),
-                &msg,
-                when,
-            );
-        }
-        // Clean + subject.is_some() — pending empty commit.
-        if let Some(tip_time) = time {
-            Some(pending_commit_hash(
-                repo,
-                pending_id.as_ref(),
-                head_tree,
-                base.as_deref()
-                    .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok()),
-                &msg,
-                tip_time,
-            )?)
-        } else if let Some(base_hex) = &base {
-            // No capture yet, HEAD born — use HEAD's own commit time.
-            let head_commit_id = gix::ObjectId::from_hex(base_hex.as_bytes()).ok()?;
-            let head_commit = repo.find_commit(head_commit_id).ok()?;
-            let head_time = head_commit.time().ok()?.seconds;
-            Some(pending_commit_hash(
-                repo,
-                pending_id.as_ref(),
-                head_tree,
-                Some(head_commit_id),
-                &msg,
-                head_time,
-            )?)
-        } else {
-            // No capture, unborn — no timestamp source.
-            None
-        }
-    })();
+    // The open commit's sha, when the ref still describes the branch. Under
+    // signing the column stays blank: the object and the ref exist, but the
+    // close signs, and the sha it lands is not this one. Advisory, like the
+    // description: a read that cannot answer is a blank, never a failure.
+    let pending = if crate::sign::enabled(repo) {
+        None
+    } else {
+        tip_tree
+            .and_then(|tree| {
+                let head_commit = base
+                    .as_deref()
+                    .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok());
+                crate::open::current(repo, &branch, tree, head_commit).ok()
+            })
+            .flatten()
+            .map(|id| id.to_string())
+    };
 
     Ok(OpenChange {
         branch,
@@ -219,49 +180,6 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
         clean,
         pending,
     })
-}
-
-/// The hash the close would mint: build the commit object and hash it
-/// WITHOUT writing it. Any failure (no identity, serialization) → `None` —
-/// a log view must never fail over a pending id.
-///
-/// A repository that signs gets `None` too, and that is a real regression
-/// rather than an oversight: the signature is not knowable without spawning
-/// the signer, and signing on every status render is out of the question. The
-/// `@` row then shows the same empty sha column an unborn branch shows.
-///
-/// A change with no id yet gets `None` for the same reason: the close mints
-/// one as its last resort, and the hash of a commit whose header is not yet
-/// known is not knowable either. With one, the header is the close's, so
-/// the hash is.
-fn pending_commit_hash(
-    repo: &gix::Repository,
-    change_id: Option<&crate::changeid::ChangeId>,
-    tree: gix::ObjectId,
-    parent: Option<gix::ObjectId>,
-    message: &str,
-    when: i64,
-) -> Option<String> {
-    use gix::objs::WriteTo as _;
-    if crate::sign::enabled(repo) {
-        return None;
-    }
-    let change_id = change_id?;
-    let sig = crate::refs::user_signature(repo, when).ok()?;
-    let commit = gix::objs::Commit {
-        tree,
-        parents: parent.into_iter().collect::<Vec<_>>().into(),
-        author: sig.clone(),
-        committer: sig,
-        encoding: None,
-        message: message.into(),
-        extra_headers: vec![crate::changeid::header(change_id)],
-    };
-    let mut buf = Vec::new();
-    commit.write_to(&mut buf).ok()?;
-    gix::objs::compute_hash(repo.object_hash(), gix::objs::Kind::Commit, &buf)
-        .ok()
-        .map(|id| id.to_string())
 }
 
 /// A commit's history as a change: `ff evolog <rev>`.

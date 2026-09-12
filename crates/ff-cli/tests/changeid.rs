@@ -424,7 +424,14 @@ fn a_prefix_of_the_open_id_is_the_open_change() {
     assert_eq!(by_id, by_at, "the open prefix is @");
     assert!(by_id.contains("the open change on main"), "{by_id}");
 
-    let out = ff(&fx, &["--json", "show", &format!("{}^", &open[..8])]);
+    // Its suffixes are `@`'s: `^` steps onto HEAD, and it has no reflog.
+    let head = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let shown = json(&ok(ff(
+        &fx,
+        &["--json", "show", &format!("{}^", &open[..8])],
+    )));
+    assert_eq!(shown["data"]["id"], head, "{shown}");
+    let out = ff(&fx, &["--json", "show", &format!("{}@{{1}}", &open[..8])]);
     assert!(!out.status.success());
     assert_eq!(json(&out)["error"]["id"], "usage/revset-open-suffix");
 }

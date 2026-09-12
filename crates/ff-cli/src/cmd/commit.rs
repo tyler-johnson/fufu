@@ -2,7 +2,7 @@
 //! and owned by core; contention aborts before anything is written.
 
 use ff_core::sign::Choice;
-use ff_core::{CloseOptions, CommitOutcome, Result};
+use ff_core::{CloseOptions, CommitOutcome, Remint, Result};
 
 use crate::ctx::Ctx;
 
@@ -63,6 +63,7 @@ pub fn run(
             subject,
             files_changed,
             claimed_from,
+            reminted,
             ..
         } => {
             if let Some(old) = claimed_from {
@@ -80,6 +81,20 @@ pub fn run(
                 described,
                 files_changed
             );
+            // The sha the `@` row showed is the one that landed, unless it
+            // could not be — and then the line says why it moved.
+            if let Some(why) = reminted {
+                let why = match why {
+                    Remint::Signed => "signing is on",
+                    Remint::Partial => "partial close",
+                    Remint::HookTree => "a hook changed the tree",
+                    Remint::HookMessage => "a hook changed the message",
+                };
+                println!(
+                    "{}",
+                    crate::render::paint_dim(&format!("re-minted: {why}"), colored)
+                );
+            }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
     }

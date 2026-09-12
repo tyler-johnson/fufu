@@ -231,7 +231,7 @@ fn resolve(
                 // Refused rather than answered with a no-op: `@` is the open
                 // change, which is where the files already are, so a restore
                 // from it can only be a spelling somebody did not mean.
-                Rev::Open => Err(Error::coded(
+                Rev::Open(_) => Err(Error::coded(
                     "target/unresolvable",
                     "`@` is the open change: restoring from it would put the files back \
                      where they already are. The commit under it is `HEAD`",

@@ -75,7 +75,7 @@ on ff/snug-spruce · nothing to pull
   <noscript><img src="../assets/tutorial/name-it-then-close-it.gif" alt="ff describe naming the change, ff commit closing it, a second commit, and ff log"></noscript>
 </div>
 
-The open change can carry a description before it is ever a commit, so you can name work while you are doing it:
+The open change can carry a description before it closes, so you can name work while you are doing it:
 
 ```console
 $ ff describe -m "notes: parser skeleton and char stream"
@@ -87,14 +87,18 @@ Closing the change is the commit. [`ff commit`](reference/cli/commit.md) picks u
 ```console
 $ ff commit
 closed cf70946d on ff/snug-spruce: notes: parser skeleton and char stream (1 file(s))
+re-minted: signing is on
 undo: ff undo
 ```
+
+The `re-minted` line is the signing user's: the open change is already a commit, the one the `@` row's sha names, and a close usually moves the branch onto it. Ada signs her commits, so the close signs a fresh one instead and says so.
 
 Or say it at the close. Make a second edit, then:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
 closed d8f59f61 on ff/snug-spruce: notes: drop whitespace from the stream (1 file(s))
+re-minted: signing is on
 undo: ff undo
 ```
 

@@ -171,12 +171,20 @@ visible in `git stash list`. Conflict risk on foreign moves is expected (the two
 regimes); the capture floor holds the safety copy regardless.
 
 **The open change.** jj makes the working copy a literal commit, eagerly created
-empty and continuously amended. fufu keeps the guarantee and drops the object:
+empty and continuously amended. fufu keeps the object and drops the eagerness:
 the working copy *is* the open change, its history is the captures the log
-already holds, and no commit exists until the change closes. `ff commit` is the close — build the
-tree (`add -A` semantics), write the commit, the branch advances, status is
-clean. A clean tree has nothing to close and the close refuses rather than
-inventing something: **no empty commit is ever created** — jj's placeholder
+already holds, and whenever the tree differs from HEAD the capture that records
+it also writes it as a commit — the operation's tree over HEAD, the user as
+author at the change's birth, the pending description, the `change-id` header —
+named at `refs/fufu/open/<branch>`, stated on the operation as `fufu-open`, and
+carried as the operation's last parent so the log pins it. That is the sha the
+`@` row shows. `ff commit` is the close — the branch moves onto the open commit,
+the index is rewritten, status is clean; only when that commit cannot be what
+lands (signing, a partial close, a hook that changed the tree or the message, a
+`-m` that differs) does the close mint one of its own, and it says why. A clean
+tree has nothing to close and the close refuses rather than
+inventing something: **no empty commit is ever created**, in the open ref or in
+history — jj's placeholder
 commits are exactly the kind of state a boring repository shouldn't contain.
 A pending description does not change that; it survives the refusal and waits
 for the next close. Descriptions are two-phase: `ff commit -m`
@@ -294,7 +302,7 @@ The same rule is what keeps a rewrite honest: a branch carried by a cascade can 
 
 ### Floor 3 — Rewrite
 
-**Stable change identity.** Every commit fufu closes carries a `change-id` header, jj's own: sixteen random bytes minted for the open change at its first capture or describe, spelled in the letters alphabet, and kept by every rewrite because replay copies every header but the signature. A commit without the header derives an id from its sha by jj's derivation, so every clone agrees on it without a walk, and the column is never blank. The id is the identity a *change* keeps across amends and rebases; the rewrite map (old-sha → new-sha) on each operation record is the account of what happened to it. Git's own machinery has been converging on the needed primitives for years — `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an autopilot.
+**Stable change identity.** Every commit fufu closes carries a `change-id` header, jj's own: sixteen random bytes minted for the open change at its first capture or describe, spelled in the letters alphabet, and kept by every rewrite because replay copies every header but the signature. The birth is recorded beside the id — the author time of the open commit and of the commit the close lands, so a commit's date is when the work began — and the two move together through every transition, undo included. A commit without the header derives an id from its sha by jj's derivation, so every clone agrees on it without a walk, and the column is never blank. The id is the identity a *change* keeps across amends and rebases; the rewrite map (old-sha → new-sha) on each operation record is the account of what happened to it. Git's own machinery has been converging on the needed primitives for years — `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an autopilot.
 
 The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does. A rewrite made outside fufu drops the header, since git copies none it does not know, and the commit comes back with a derived id: the same limitation jj has, and one the docs state rather than repair.
 
@@ -831,7 +839,7 @@ commit chain per worktree at `refs/fufu/wt/<id>/ops`, captures and verbs
 together: parent 1 the
 previous operation — reserved for it, never a pin, so a first-parent walk *is*
 the log — parent 2 the base commit, parent 3 the record for the operations
-that change refs, pins after that. Reachability is the gc pin, and appends
+that change refs, pins after that, and the open commit last. Reachability is the gc pin, and appends
 serialize on a lock fufu takes itself: gix compares a ref's expected value
 against one it read *before* locking, so the CAS catches a stale plan and not
 a second writer. A capture changes no ref by invariant, so

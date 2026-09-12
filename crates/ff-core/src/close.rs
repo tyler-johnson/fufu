@@ -1,8 +1,12 @@
 //! `ff commit` — the close. The working tree IS the open change; closing it
-//! builds the `add -A` tree, writes an ordinary commit with the USER's
-//! identity, advances the branch, and rewrites the index to match — the
-//! next edit opens the next change. A clean tree closes nothing, whatever
-//! the message — fufu writes no empty commit.
+//! builds the `add -A` tree, moves the branch onto the open commit — the
+//! commit the captures have been writing under `refs/fufu/open/<branch>`,
+//! the sha the `@` row showed — and rewrites the index to match; the next
+//! edit opens the next change. When the open commit cannot be what lands
+//! (signing, a partial close, a hook that changed the tree or the message)
+//! the close mints an ordinary commit with the USER's identity and says why.
+//! A clean tree closes nothing, whatever the message — fufu writes no empty
+//! commit.
 //!
 //! Ordering is write-ahead: reconcile → capture → hooks → tree + message +
 //! plan → append the operation → mutate (branch axis, ref CAS, index, pending
@@ -14,7 +18,8 @@ use crate::branchmeta;
 use crate::changeid;
 use crate::error::{Error, Result};
 use crate::hooks;
-use crate::model::{CommitOutcome, HeadState};
+use crate::model::{CommitOutcome, HeadState, Remint};
+use crate::open;
 use crate::ops::record::observe_refs;
 use crate::ops::{
     ChangeIdTransition, DescriptionTransition, OpKind, OpRecord, RefTransition, verb,
@@ -342,24 +347,64 @@ pub fn close(
         }
     };
 
-    // The commit object, written up front — the plan needs its sha.
+    // The commit that lands: the open commit, when it is exactly what this
+    // close would write — the pre-verb capture wrote it over this tree with
+    // this message and this id, and the branch just moves onto it. Anything
+    // that makes the landing commit differ is named, and the close mints one
+    // of its own: the object is written up front because the plan needs its
+    // sha.
     let sig = refs::user_signature(repo, now)?;
-    let parents: Vec<gix::ObjectId> = head_commit.into_iter().collect();
-    let commit = gix::objs::Commit {
-        tree: commit_tree,
-        parents: parents.into(),
-        author: sig.clone(),
-        committer: sig.clone(),
-        encoding: None,
-        message: message.clone().into(),
-        // The identity header sits inside the signed payload: the signer
-        // pushes `gpgsig` after it.
-        extra_headers: vec![changeid::header(&change_id)],
+    let open_commit =
+        open::current(repo, &current_branch, ctx.pre_tree, head_commit)?.filter(|id| {
+            repo.find_commit(*id)
+                .ok()
+                .is_some_and(|c| changeid::header_of(&c.data) == Some(change_id))
+        });
+    // `reuse` is whether the open commit lands; `reminted` is why not, when
+    // the reason is fufu's to explain. A `-m` that differs from the
+    // description is the user's own choice and gets no line.
+    let hook_changed_message =
+        message != normalize_message(supplied.as_deref().unwrap_or_default());
+    let (reuse, reminted) = match open_commit {
+        None => (false, None),
+        Some(_) if signer.is_some() => (false, Some(Remint::Signed)),
+        Some(_) if !opts.paths.is_empty() => (false, Some(Remint::Partial)),
+        Some(id) => {
+            let commit = repo.find_commit(id).map_err(Error::repo)?;
+            let tree = commit.tree_id().map_err(Error::repo)?.detach();
+            if tree != commit_tree {
+                (false, Some(Remint::HookTree))
+            } else if commit.message_raw_sloppy() != message.as_bytes() {
+                (false, hook_changed_message.then_some(Remint::HookMessage))
+            } else {
+                (true, None)
+            }
+        }
     };
-    // A signing failure aborts here, with nothing but an unreferenced object
-    // written — before the op-journal append and before any ref moves, the
-    // same shape as every other pre-transaction refusal.
-    let commit_id = sign::write_user_commit(repo, signer.as_ref(), commit)?;
+    let commit_id = match (open_commit, reuse) {
+        (Some(id), true) => id,
+        _ => {
+            let parents: Vec<gix::ObjectId> = head_commit.into_iter().collect();
+            let commit = gix::objs::Commit {
+                tree: commit_tree,
+                parents: parents.into(),
+                // Authored at the change's birth, the way the open commit
+                // is, so the date a commit shows is when the work began.
+                author: refs::user_signature(repo, meta.change_born.unwrap_or(now))?,
+                committer: sig.clone(),
+                encoding: None,
+                message: message.clone().into(),
+                // The identity header sits inside the signed payload: the
+                // signer pushes `gpgsig` after it.
+                extra_headers: vec![changeid::header(&change_id)],
+            };
+            // A signing failure aborts here, with nothing but an unreferenced
+            // object written — before the op-journal append and before any
+            // ref moves, the same shape as every other pre-transaction
+            // refusal.
+            sign::write_user_commit(repo, signer.as_ref(), commit)?
+        }
+    };
 
     // Write-ahead: the planned table is the post-close world.
     let target_ref = format!("refs/heads/{target_branch}");
@@ -425,11 +470,16 @@ pub fn close(
     // Journaled on the branch the id was read from. Under `-b` the remainder
     // lands on the new branch instead, and that mint is not journaled, the
     // way a capture's is not: a redo leaves the remainder to mint afresh.
+    let remainder_born = remainder_id.as_ref().map(|_| now);
     record.change_id = Some(ChangeIdTransition {
         branch: current_branch.clone(),
         old: meta.change_id.clone(),
         new: (current_branch == target_branch)
             .then(|| remainder_id.clone())
+            .flatten(),
+        old_born: meta.change_born,
+        new_born: (current_branch == target_branch)
+            .then_some(remainder_born)
             .flatten(),
     });
     let mut pins = vec![commit_id];
@@ -468,7 +518,12 @@ pub fn close(
         now,
     )?;
 
-    // Mutate. Branch axis first, then the CAS advance, then the index.
+    // Mutate. Branch axis first, then the CAS advance, then the index. A
+    // close that leaves its branch — a claim or a fork — leaves nothing
+    // open on it: the open ref goes before the rename would carry it.
+    if current_branch != target_branch {
+        open::clear(repo, &current_branch, now)?;
+    }
     if let Some(old_name) = &claim_from {
         branch::rename(repo, old_name, &target_branch, now)?;
     } else if created_branch {
@@ -544,11 +599,13 @@ pub fn close(
     let mut target_meta = branchmeta::read(repo, &target_branch)?;
     target_meta.pending_description = None;
     target_meta.change_id = remainder_id.clone();
+    target_meta.change_born = remainder_born;
     branchmeta::write(repo, &target_branch, &target_meta)?;
     if current_branch != target_branch {
         let mut old_meta = branchmeta::read(repo, &current_branch)?;
         old_meta.pending_description = None;
         old_meta.change_id = None;
+        old_meta.change_born = None;
         branchmeta::write(repo, &current_branch, &old_meta)?;
     }
 
@@ -573,6 +630,7 @@ pub fn close(
             files_changed,
             claimed_from: claim_from,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
+            reminted,
         },
         ctx,
     ))

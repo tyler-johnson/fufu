@@ -93,9 +93,9 @@ pub(crate) fn resolve_fork_point(
             // "@": `latest(@)` and `heads(@)` were never a different request,
             // and a check on the spelling would have let them through.
             let at = match (point.rev, open) {
-                (Rev::Open, Open::Refused) => return Err(open_is_not_a_start_target()),
-                (Rev::Open, Open::Under(Some(id))) => id,
-                (Rev::Open, Open::Under(None)) => {
+                (Rev::Open(_), Open::Refused) => return Err(open_is_not_a_start_target()),
+                (Rev::Open(_), Open::Under(Some(id))) => id,
+                (Rev::Open(_), Open::Under(None)) => {
                     return Err(Error::coded(
                         "target/unresolvable",
                         "@ has no commit under it yet",
@@ -302,6 +302,7 @@ pub(crate) fn mint_branch(
         &branchmeta::BranchMeta {
             pending_description: None,
             change_id: None,
+            change_born: None,
             forked_from: Some(forked_from.to_string()),
             parent: parent.map(str::to_string),
             session: None,

@@ -162,14 +162,18 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         });
     }
 
-    // 5. Metadata file follows.
+    // 5. The open commit's ref follows: derived, so it moves without a
+    //    transition of its own.
+    crate::open::rename(repo, old, new, now)?;
+
+    // 6. Metadata file follows.
     crate::branchmeta::rename(repo, old, new)?;
 
-    // 6. The branch's upstream follows: git's own rename carries this
+    // 7. The branch's upstream follows: git's own rename carries this
     //    section, and fufu's used to drop it.
     crate::snapshot::config::rename_branch_section(repo, old, new)?;
 
-    // 7. Old branch ref goes last: a crash anywhere above leaves both
+    // 8. Old branch ref goes last: a crash anywhere above leaves both
     //    names resolvable.
     refs::delete_ref(repo, &old_ref, target, now)?;
     effects.transitions.push(RefTransition {
@@ -660,6 +664,9 @@ pub fn delete(
         refs::delete_ref(repo, &snap_ref, snap_tip, now)?;
         trash = Some(trash_ref);
     }
+    // The open ref goes with the pointer: the trash pointer's op carries the
+    // open commit as a parent, so it stays reachable without the ref.
+    crate::open::clear(repo, name, now)?;
     if let Some(parked) = parked {
         refs::delete_ref(repo, &crate::stash::parked_ref(name), parked, now)?;
     }

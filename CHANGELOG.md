@@ -4,6 +4,10 @@
 
 ### Changed
 
+- The open change is a commit. A capture of a dirty tree writes it — the tree over HEAD, the user as author at the change's birth, the pending description, the `change-id` header — at `refs/fufu/open/<branch>`, and the `@` row's sha on `ff log`, `ff status`, `ff show @`, and the map is that commit's rather than a prediction. The ref is deleted when the tree is clean, carried by a rename, and dropped by `ff branch -d`; `ff undo` and `ff redo` put it back. Under signing the column stays blank.
+- `ff commit` moves the branch onto the open commit, so the sha the `@` row showed is the sha the `●` row wears. When it cannot — signing is on, a partial close, a hook changed the tree or the message — it mints one and says why on a `re-minted:` line; `--json` carries it as `reminted` (`signed`, `partial`, `hook_tree`, `hook_message`, or null). A `-m` that differs from the description mints one without the line. A minted commit is authored at the change's birth.
+- `@^` is `HEAD` and `@~n` is `HEAD~(n-1)`: the open change's parent suffixes step onto the commit under it, and `@~3..@` is two commits plus the open change. `@@{n}` stays `usage/revset-open-suffix`, reworded — `@` has no reflog, and `@{n}` alone is HEAD's.
+- Every operation states the open commit it leaves as a `fufu-open` trailer and carries it as its last parent, so the log pins it. The first capture on a dirty tree after upgrading appends once to state one.
 - `ff hook <slug>`, `ff hook -u`, and `ff unhook <slug>` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`, and say so; a hand-written one is left alone.
 
 ### Removed

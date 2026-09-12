@@ -488,6 +488,7 @@ pub fn rewind(
             if let Some(c) = &op_record.change_id {
                 let mut meta = branchmeta::read(repo, &c.branch)?;
                 meta.change_id = if replay { c.new.clone() } else { c.old.clone() };
+                meta.change_born = if replay { c.new_born } else { c.old_born };
                 branchmeta::write(repo, &c.branch, &meta)?;
             }
             for p in op_record
@@ -554,6 +555,19 @@ pub fn rewind(
     //    landing, so a crash before this leaves the log naming a state the
     //    world is already in, and re-running converges.
     move_pointer(repo, tip, target_id, &back, &fwd, forward, now)?;
+
+    // 9. The open commit of the branch HEAD landed on, rebuilt from what the
+    //    landing recorded — the branch's pointer moved above, and the
+    //    metadata in step 7 — and reusing the sha the landing op stated when
+    //    it still says the same thing. Best effort: the ref is derived, and
+    //    the next capture rebuilds it too.
+    if let Some(landing_branch) = to_table.head.strip_prefix("ref:refs/heads/")
+        && let Err(err) = crate::open::sync(repo, landing_branch, now)
+    {
+        warnings.push(format!(
+            "could not resync the open commit of {landing_branch}: {err}"
+        ));
+    }
 
     let mut files = transition.written;
     files.extend(transition.deleted);

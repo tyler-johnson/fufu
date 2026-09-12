@@ -837,3 +837,75 @@ fn describe_undo_restores_the_pending_text() {
     let meta = ff_core::branchmeta::read(&fx.repo(), "main").unwrap();
     assert_eq!(meta.pending_description.as_deref(), Some("v2"));
 }
+
+/// Undo of a close puts the open commit back: the ref names the sha the `@`
+/// row showed before the close, because the landing operation stated it and
+/// the metadata step 7 restored — id, birth, description — plans the same
+/// commit. Redo takes it away again.
+#[test]
+fn undo_of_a_close_restores_the_open_commit() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    ident(&fx);
+    fx.write("a.txt", "the change\n");
+    let repo = fx.repo();
+    ff_core::describe::set_pending(
+        &repo,
+        Some("landed".into()),
+        &prov(),
+        Some(NOW - 10),
+        Vec::new(),
+    )
+    .unwrap();
+    let before = ff_core::open_change(&repo)
+        .unwrap()
+        .pending
+        .expect("the open commit");
+    let born = ff_core::branchmeta::read(&repo, "main")
+        .unwrap()
+        .change_born
+        .expect("born");
+
+    let (outcome, _) = ff_core::close(
+        &repo,
+        &CloseOptions {
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    assert_eq!(id, before, "the close landed the open commit");
+    assert_eq!(reminted, None);
+    let open_ref = || {
+        fx.try_git_in(
+            &fx.path(),
+            &["rev-parse", "--verify", "-q", "refs/fufu/open/main"],
+        )
+    };
+    assert!(!open_ref().status.success(), "nothing open after the close");
+
+    run_undo(&fx);
+    let out = open_ref();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        before,
+        "the open ref is back at the pre-close sha"
+    );
+    let meta = ff_core::branchmeta::read(&fx.repo(), "main").unwrap();
+    assert_eq!(
+        meta.change_born,
+        Some(born),
+        "the birth came back with the id"
+    );
+    assert_eq!(
+        ff_core::open_change(&fx.repo()).unwrap().pending.as_deref(),
+        Some(before.as_str())
+    );
+
+    run_redo(&fx, NOW + 101);
+    assert!(!open_ref().status.success(), "redo closes it again");
+    assert_eq!(fx.git(&["rev-parse", "HEAD"]).trim(), id);
+}

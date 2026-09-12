@@ -190,7 +190,10 @@ pub fn switch(
     // A parked change that vanished takes its identity with it: the branch
     // arrives with nothing open, so nothing wears the id.
     let dropped_id = match &arrive_plan {
-        ArrivePlan::Invalidate { .. } => branchmeta::read(repo, &target)?.change_id,
+        ArrivePlan::Invalidate { .. } => {
+            let meta = branchmeta::read(repo, &target)?;
+            meta.change_id.map(|id| (id, meta.change_born))
+        }
         _ => None,
     };
     match stash_lines.last() {
@@ -207,10 +210,12 @@ pub fn switch(
     record.head = Some((head_old, format!("ref:{target_ref}")));
     record.refs = transitions;
     record.stash = effects;
-    record.change_id = dropped_id.as_ref().map(|id| ChangeIdTransition {
+    record.change_id = dropped_id.as_ref().map(|(id, born)| ChangeIdTransition {
         branch: target.clone(),
         old: Some(id.clone()),
         new: None,
+        old_born: *born,
+        new_born: None,
     });
     let mut pins = vec![target_commit];
     if let Some(plan) = &park_plan {
@@ -261,6 +266,7 @@ pub fn switch(
     if dropped_id.is_some() {
         let mut meta = branchmeta::read(repo, &target)?;
         meta.change_id = None;
+        meta.change_born = None;
         branchmeta::write(repo, &target, &meta)?;
     }
     let arrival_report = match arrival {

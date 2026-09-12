@@ -47,6 +47,12 @@ const PREV_VERB_KEY: &str = "fufu-prev-verb";
 const REFS_KEY: &str = "fufu-refs";
 /// The session tag, when one was set.
 const SESSION_KEY: &str = "fufu-session";
+/// The open commit this op leaves on its branch — the commit the close
+/// would move the branch to — or `none` when the tree it leaves is clean or
+/// nothing can wear an id. Also the op's last parent slot, so the log pins
+/// it for as long as the op lives. Absent on an op written before the open
+/// commit existed, which is unknown rather than none.
+const OPEN_KEY: &str = "fufu-open";
 
 const NONE: &str = "none";
 
@@ -65,6 +71,29 @@ pub enum SegmentLink {
     At(gix::ObjectId),
 }
 
+/// What an op states about the open commit on the branch it leaves you on.
+///
+/// The same three-way distinction as [`SegmentLink`]: `Option<OpenLink>` is
+/// unknown (an op written before the trailer existed), a positive claim that
+/// nothing is open, or the commit itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenLink {
+    /// Nothing is open: the tree the op leaves is HEAD's, or nothing can
+    /// wear an id.
+    Closed,
+    /// The open commit.
+    At(gix::ObjectId),
+}
+
+impl OpenLink {
+    pub fn commit(self) -> Option<gix::ObjectId> {
+        match self {
+            OpenLink::Closed => None,
+            OpenLink::At(id) => Some(id),
+        }
+    }
+}
+
 /// Everything the decoder reads without touching a second object. Written
 /// from one set of variables, so [`build`] and [`parse`] are inverses.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +107,9 @@ pub struct Skeleton {
     pub prev_verb: Option<SegmentLink>,
     pub refs_blob: Option<gix::ObjectId>,
     pub session: Option<String>,
+    /// The open commit this op leaves. `None` only on an op that predates
+    /// the trailer; every op written now states one, `Closed` included.
+    pub open: Option<OpenLink>,
 }
 
 impl Skeleton {
@@ -92,6 +124,7 @@ impl Skeleton {
             prev_verb: None,
             refs_blob: None,
             session: None,
+            open: None,
         }
     }
 }
@@ -171,6 +204,11 @@ pub fn build(subject: &str, skipped: &[String], skeleton: &Skeleton) -> String {
     if let Some(session) = &skeleton.session {
         trailer(&mut msg, SESSION_KEY, session);
     }
+    // Written only when known, so a rebuild of an op that never stated one
+    // does not invent a claim — and reproduces the original bytes.
+    if let Some(open) = skeleton.open {
+        trailer(&mut msg, OPEN_KEY, &oid_value(open.commit()));
+    }
     msg
 }
 
@@ -228,6 +266,11 @@ pub fn parse(message: &str) -> Option<Skeleton> {
         prev_verb: hop_of(message, PREV_VERB_KEY),
         refs_blob: oid_of(message, REFS_KEY),
         session: value_of(message, SESSION_KEY).map(str::to_string),
+        open: value_of(message, OPEN_KEY).map(|v| {
+            gix::ObjectId::from_hex(v.as_bytes())
+                .ok()
+                .map_or(OpenLink::Closed, OpenLink::At)
+        }),
     })
 }
 
@@ -288,6 +331,7 @@ mod tests {
             prev_verb: Some(SegmentLink::At(oid(0x66))),
             refs_blob: Some(oid(0x55)),
             session: Some("agent-7".into()),
+            open: Some(OpenLink::At(oid(0x77))),
         }
     }
 
@@ -313,6 +357,23 @@ mod tests {
             Some(SegmentLink::ChainStart),
             "`none` is a positive claim that nothing precedes this segment"
         );
+        assert_eq!(
+            back.open, None,
+            "an unstated open commit is unknown, and stays unknown on parse"
+        );
+    }
+
+    #[test]
+    fn the_open_commit_is_stated_three_ways() {
+        let mut skeleton = Skeleton::new(OpKind::Capture);
+        skeleton.open = Some(OpenLink::Closed);
+        let msg = build("manual", &[], &skeleton);
+        assert!(msg.contains("fufu-open: none\n"), "{msg:?}");
+        assert_eq!(parse(&msg).unwrap().open, Some(OpenLink::Closed));
+        skeleton.open = Some(OpenLink::At(oid(0x77)));
+        let msg = build("manual", &[], &skeleton);
+        assert_eq!(parse(&msg).unwrap().open, Some(OpenLink::At(oid(0x77))));
+        assert_eq!(parse("manual\n\nfufu-kind: capture\n").unwrap().open, None);
     }
 
     #[test]

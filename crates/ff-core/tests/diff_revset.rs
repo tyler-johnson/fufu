@@ -68,7 +68,7 @@ fn point(fx: &Fixture, src: &str) -> String {
         .unwrap_or_else(|e| panic!("{src} resolves: {e}"));
     match p.rev {
         Rev::Commit(id) => id.to_string(),
-        Rev::Open => panic!("{src} resolved to the open change"),
+        Rev::Open(_) => panic!("{src} resolved to the open change"),
     }
 }
 
@@ -89,7 +89,7 @@ fn set(fx: &Fixture, src: &str) -> Vec<String> {
         .unwrap_or_else(|e| panic!("{src} binds: {e}"))
         .map(|rev| match rev.expect("member") {
             Rev::Commit(id) => id.to_string(),
-            Rev::Open => "@".to_string(),
+            Rev::Open(_) => "@".to_string(),
         })
         .collect()
 }
@@ -395,7 +395,7 @@ fn the_open_change_is_fufus_and_not_gits() {
             .point(&repo)
             .expect("point")
             .rev,
-        Rev::Open
+        Rev::Open(_)
     ));
 
     // A walk rooted at `@` is rooted at HEAD's commit, with the open change
@@ -410,14 +410,30 @@ fn the_open_change_is_fufus_and_not_gits() {
 
 // --- refusals ---
 
+/// The open change sits on HEAD's commit, so its parent suffixes are git's
+/// own off by one: the first step lands on HEAD, and the rest are git's from
+/// there. The reflog suffix is refused by name — `@` is not a ref.
 #[test]
-fn the_open_change_takes_no_suffixes() {
+fn the_open_change_steps_onto_head() {
     let w = world();
-    for src in ["@^", "@~2", "@@{1}"] {
-        assert_eq!(refusal(&w.fx, src), "usage/revset-open-suffix", "{src}");
-    }
-    // What the message teaches works.
-    assert_eq!(point(&w.fx, "HEAD"), git_point(&w.fx, "HEAD"));
+    assert_eq!(point(&w.fx, "@^"), git_point(&w.fx, "HEAD"));
+    assert_eq!(point(&w.fx, "@~"), git_point(&w.fx, "HEAD"));
+    assert_eq!(point(&w.fx, "@~1"), git_point(&w.fx, "HEAD"));
+    assert_eq!(point(&w.fx, "@~2"), git_point(&w.fx, "HEAD~"));
+    assert_eq!(point(&w.fx, "@^^"), git_point(&w.fx, "HEAD^"));
+    assert_eq!(point(&w.fx, "@^^2"), git_point(&w.fx, "HEAD^2"));
+    // `~0` is the thing itself.
+    assert_eq!(set(&w.fx, "@~0"), vec!["@".to_string()]);
+    assert_eq!(point(&w.fx, "@~0^"), git_point(&w.fx, "HEAD"));
+    // Two commits plus the open change.
+    let mut expected = vec!["@".to_string()];
+    expected.extend(git_set(&w.fx, &["HEAD", "^HEAD~2"]));
+    assert_eq!(set(&w.fx, "@~3..@"), expected);
+    // The open change has one parent, and no reflog.
+    assert_eq!(refusal(&w.fx, "@^2"), "usage/revset-unknown-revision");
+    assert_eq!(refusal(&w.fx, "@@{1}"), "usage/revset-open-suffix");
+    assert_eq!(refusal(&w.fx, "@^{tree}"), "usage/revset-open-suffix");
+    assert_eq!(refusal(&w.fx, "@^!"), "usage/revset-range-suffix");
 }
 
 #[test]
@@ -600,7 +616,7 @@ fn an_unborn_repository_answers_rather_than_failing() {
             .point(&repo)
             .expect("point")
             .rev,
-        Rev::Open
+        Rev::Open(_)
     ));
     assert_eq!(set(&fx, "::@"), vec!["@".to_string()]);
     assert_eq!(refusal(&fx, "main"), "usage/revset-unknown-revision");

@@ -266,13 +266,13 @@ fn rename_source(
 /// `i64::MAX` as its time, so every plan that can yield it yields it first.
 fn members<'r>(repo: &'r gix::Repository, revs: &Revset) -> Result<(bool, Ids<'r>)> {
     let mut members = revs.evaluate(repo)?.peekable();
-    let open = matches!(members.peek(), Some(Ok(Rev::Open)));
+    let open = matches!(members.peek(), Some(Ok(Rev::Open(_))));
     Ok((
         open,
         Box::new(members.filter_map(|rev| match rev {
             // The open change has no minted id, so it is never a commit row —
             // it is the `@` row the peek above turned it into.
-            Ok(Rev::Open) => None,
+            Ok(Rev::Open(_)) => None,
             Ok(Rev::Commit(id)) => Some(Ok(id.object_id())),
             Err(err) => Some(Err(err)),
         })),

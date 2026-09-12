@@ -25,6 +25,7 @@ fn populated() -> BranchMeta {
     BranchMeta {
         pending_description: Some("wip".into()),
         change_id: None,
+        change_born: None,
         forked_from: Some("abc1234".into()),
         parent: Some("main".into()),
         session: None,

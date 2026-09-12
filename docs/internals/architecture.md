@@ -94,6 +94,7 @@ The refs:
 | `refs/fufu/wt/<id>/ops` | One worktree's operation chain — the log itself. `<id>` is the gitdir basename git files the worktree under; the main worktree's is `main`. |
 | `refs/fufu/wt/<id>/trash/@ops` | That chain's pre-trim tip — the last trim's own undo. |
 | `refs/fufu/snap/<branch>` | A pointer to the newest operation on that branch, moved in the same transaction as the chain tip. |
+| `refs/fufu/open/<branch>` | The branch's open commit — the open change as a commit, the sha on the `@` row, the one `ff commit` moves the branch to. Moved in the same transaction as the two above, deleted when the tree is clean, and never a tracked ref: it is derived, so it can never read as foreign motion. |
 | `refs/fufu/parked/<branch>` | The sha of the branch's parked stash entry. The entry itself is an ordinary git stash, visible in every stash panel; the ref is how fufu finds the exact entry again. |
 | `refs/fufu/published/<branch>` | The tip this repository last left the shared copy standing at. Deliberately a ref rather than a log entry, because `ff undo` is a pointer move and must not rewind the one fact it cannot reverse — where the wire was left. |
 | `refs/fufu/trash/<branch>` | A deleted branch's tip, kept by retention. |

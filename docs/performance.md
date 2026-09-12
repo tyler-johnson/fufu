@@ -56,7 +56,7 @@ The milliseconds are this machine's and mean nothing on yours. Ratios are what p
 
 git is faster on a plain read, and that is the shape of the trade rather than a defect. [`ff status`](reference/cli/status.md) reads the operation log and the snapshot chain as well as the working copy, and `git status` reads the tree; the tables say the difference is a small constant that does not open up as a repository ages. Against jj, which snapshots the working copy on every command the way fufu does, the same operations run three to eight times slower on this box.
 
-A capture is not a commit. The `capture` row is fufu's snapshot of the working copy — the thing that happens before every operation and every agent tool call — and it is measured against `git add -A && git commit`, which is the closest git has.
+A capture is not a commit, though it writes one. The `capture` row is fufu's snapshot of the working copy — the thing that happens before every operation and every agent tool call — and on a dirty tree it writes one small commit object beyond the tree: the open commit, the one the close will move the branch to. It is measured against `git add -A && git commit`, which is the closest git has.
 
 ## What is not flat, and why
 

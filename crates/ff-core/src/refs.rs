@@ -38,6 +38,30 @@ pub(crate) fn update_edit(
     })
 }
 
+/// An update edit that writes no reflog line: for derived refs that are
+/// moved at machine rate and whose history is nobody's to walk. Under the
+/// `never`-expiry gc guard on `refs/fufu/*`, a reflog here would pin every
+/// value the ref ever held.
+pub(crate) fn update_edit_unlogged(
+    name: &str,
+    target: gix::ObjectId,
+    expected: PreviousValue,
+) -> Result<RefEdit> {
+    Ok(RefEdit {
+        change: Change::Update {
+            log: LogChange {
+                mode: RefLog::AndReference,
+                force_create_reflog: false,
+                message: "".into(),
+            },
+            expected,
+            new: gix::refs::Target::Object(target),
+        },
+        name: name.try_into().map_err(Error::repo)?,
+        deref: false,
+    })
+}
+
 /// Build a delete edit expecting an exact current value. The reflog file is
 /// removed with the ref.
 pub(crate) fn delete_edit(name: &str, expected: gix::ObjectId) -> Result<RefEdit> {

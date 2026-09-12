@@ -56,7 +56,7 @@ Size is bounded by retention. `ff trim` drops operations past the `fufu.keep` wi
 
 ## Why is there no staging area? I liked the staging area.
 
-Because the working copy is the change. There is no object to assemble before committing, and [`ff commit`](reference/cli/commit.md) closes the tree into a commit in one step.
+Because the working copy is the change. There is no object to assemble before committing: fufu keeps the open change as a commit under `refs/fufu/open/<branch>`, rewritten as you work, and [`ff commit`](reference/cli/commit.md) moves the branch to it in one step.
 
 What the index gave you survives as an argument instead of a state. `ff commit <paths>` closes a slice and leaves the rest open — selection made once at the moment of the close, with nothing to maintain between commits.
 
@@ -114,7 +114,7 @@ One rule decides the table: the tree hook runs where worktree content becomes co
 | [`ff done`](reference/cli/done.md) (edit session) | yes | only when the session carries a new description | same condition | no |
 | `ff done` (resolution landing) | yes | no | no | no |
 | [`ff describe <rev>`](reference/cli/describe.md) | no — no tree moves | yes | yes | no |
-| `ff describe` (open change) | no | no — a pending description is not a commit; the hooks fire when it closes | no | no |
+| `ff describe` (open change) | no | no — the description rewrites the open commit under `refs/fufu/open/`, and the hooks fire when it closes | no | no |
 | [`ff lift`](reference/cli/lift.md) | no — no worktree content enters a commit | no | no | no |
 | [`ff restack`](reference/cli/restack.md), `ff pull` | no — `git rebase` runs none either | no | no | no |
 | [`ff fold`](reference/cli/fold.md) | no — a replay, like restack | no | no | no |

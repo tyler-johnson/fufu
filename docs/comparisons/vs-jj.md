@@ -53,7 +53,7 @@ fufu is a daily interface layered on an ordinary git repository. It owns the eph
 
 A colocated jj repo keeps the git-visible picture close — commits land in the git object store as jj makes them, and bookmarks export to git branches — but a seam remains, with its own etiquette: a detached git HEAD as the normal state, anonymous working-copy commits a GUI shows without explanation, and the rule that motion made with raw git is only settled once jj has imported it.
 
-fufu has no seam to keep settled. There is one store, so collaborators, CI, IDEs, GUIs, and every plain-git tool see an attached HEAD and ordinary branches, always.
+fufu has no seam to keep settled. There is one store, so collaborators, CI, IDEs, GUIs, and every plain-git tool see an attached HEAD and ordinary branches, always. fufu's open commit — its working-copy commit — lives under `refs/fufu/`, and no GUI branch list shows it.
 
 ### Abandonability
 

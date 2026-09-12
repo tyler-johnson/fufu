@@ -422,13 +422,13 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/revset-open-suffix",
-        summary: "`@` is the open change, and it takes no suffixes",
-        detail: "git's `@` means HEAD; fufu's means the open change sitting on top of it. Since \
-                 the two differ by exactly one commit, a suffix on `@` would be off by one against \
-                 every reader's expectation, so fufu refuses it instead of quietly translating. \
-                 The commit under the open change is `HEAD`, and git's suffixes attach there: `@^` \
-                 is `HEAD`, and `@~2` is `HEAD~`.",
-        exits: &["ff log -r HEAD", "ff log -r 'HEAD~'"],
+        summary: "`@` is the open change, and has no reflog",
+        detail: "git's `@` means HEAD; fufu's means the open change sitting on top of it. Its \
+                 parent suffixes step onto HEAD — `@^` is `HEAD`, `@~2` is `HEAD~` — but it is \
+                 not a ref and has no reflog, so `@@{1}` names nothing; `@{1}` alone is HEAD's, \
+                 as it is in git. The other suffixes, `^{tree}` and the like, are refused the \
+                 same way rather than quietly translated.",
+        exits: &["ff log -r '@{1}'", "ff log -r HEAD"],
     },
     Entry {
         id: "usage/revset-range-suffix",
