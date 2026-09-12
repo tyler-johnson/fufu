@@ -1,11 +1,12 @@
-//! `ff start` — always mints a fresh branch, forking either at trunk (bare)
-//! or at a resolved revision, and carries the open change across the fork
-//! only under `@`, as a copy. Plus `ff describe` pending-description round
-//! trips, unrelated to start but hosted here alongside the rest of the
+//! `ff switch`'s mint arm — `ff start`'s spelling of it: a target that names
+//! no branch here mints a fresh one, forking at trunk (bare) or at a
+//! resolved revision, and carries the open change across the fork only
+//! under `@`, as a copy. Plus `ff describe` pending-description round trips,
+//! unrelated to the mint but hosted here alongside the rest of the
 //! composition tests.
 
+use ff_core::SwitchOptions;
 use ff_core::gix;
-use ff_core::{StartOptions, SwitchOptions};
 use ff_testsupport::Fixture;
 
 /// The newest operation's record, read through the public reader.
@@ -29,10 +30,23 @@ fn prov() -> ff_core::Provenance {
     ff_core::Provenance::new("pre", Some("ff start".into()))
 }
 
-fn run_start(fx: &Fixture, opts: StartOptions) -> ff_core::StartReport {
+fn run_start(fx: &Fixture, opts: SwitchOptions) -> ff_core::SwitchReport {
     let repo = fx.repo();
-    let (report, _ctx) = ff_core::start(&repo, &opts, &prov()).unwrap();
+    let (report, _ctx) = ff_core::switch(&repo, &opts, &prov()).unwrap();
     report
+}
+
+/// What a mint reports of itself; a continue reports none.
+fn minted(report: &ff_core::SwitchReport) -> &ff_core::Minted {
+    report.minted.as_ref().expect("the switch minted")
+}
+
+/// The fork source a mint reports: a branch name, or a short sha.
+fn forked_from(report: &ff_core::SwitchReport) -> &str {
+    minted(report)
+        .forked_from
+        .as_deref()
+        .expect("a fork names what it forked from")
 }
 
 fn commit_count(fx: &Fixture, rev: &str) -> String {
@@ -59,16 +73,16 @@ fn bare_forks_trunk_and_opens_clean() {
     fx.write("a.txt", "dirty on feature\n");
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
     );
 
-    assert!(report.minted.starts_with("ff/"), "{}", report.minted);
-    assert_eq!(report.forked_from, "main");
+    assert!(report.to.starts_with("ff/"), "{}", report.to);
+    assert_eq!(forked_from(&report), "main");
     assert_eq!(
-        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.to)])
             .trim(),
         main_tip,
         "forked at trunk's tip, not the branch it was standing on"
@@ -92,16 +106,16 @@ fn the_park_names_the_branch_the_change_was_on() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
     );
 
     assert!(report.parked.is_some(), "a dirty tree parks");
-    assert_eq!(report.forked_from, "main", "the fork came from trunk");
+    assert_eq!(forked_from(&report), "main", "the fork came from trunk");
     assert_eq!(
-        report.parked_from.as_deref(),
+        Some(report.from.as_str()),
         Some("feature"),
         "the park was of feature's work, whatever the fork source was"
     );
@@ -119,7 +133,7 @@ fn bare_parks_the_open_change_retrievably() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
@@ -130,9 +144,10 @@ fn bare_parks_the_open_change_retrievably() {
     let (switch_report, _ctx) = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: "feature".into(),
+            target: Some("feature".into()),
             now: Some(NOW + 10),
             argv: Vec::new(),
+            ..Default::default()
         },
         &prov(),
     )
@@ -171,14 +186,14 @@ fn bare_works_with_remote_only_trunk() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(report.forked_from, "main");
+    assert_eq!(forked_from(&report), "main");
     assert_eq!(
-        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.to)])
             .trim(),
         sha
     );
@@ -252,15 +267,15 @@ fn at_forks_under_the_open_change_and_carries_a_copy() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("@".into()),
-            branch: Some("spike".into()),
+            branch: Some(Some("spike".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
 
-    assert_eq!(report.minted, "spike");
+    assert_eq!(report.to, "spike");
     assert_eq!(
         fx.git(&["rev-parse", "spike"]).trim(),
         init,
@@ -277,11 +292,14 @@ fn at_forks_under_the_open_change_and_carries_a_copy() {
         "the copy is the working tree"
     );
     let parked = report.parked.clone().expect("main's change parked");
-    let carried = report.carried.clone().expect("the copy is reported");
+    let carried = minted(&report)
+        .carried
+        .clone()
+        .expect("the copy is reported");
     assert_eq!(carried, parked, "one sha on both branches");
     assert_eq!(open_ref(&fx, "main").as_deref(), Some(parked.as_str()));
     assert_eq!(open_ref(&fx, "spike").as_deref(), Some(carried.as_str()));
-    assert_eq!(report.parked_from.as_deref(), Some("main"));
+    assert_eq!(Some(report.from.as_str()), Some("main"));
     let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
     assert_eq!(meta.change_id, main_meta.change_id, "same change");
     assert_eq!(meta.change_born, main_meta.change_born, "same birth");
@@ -293,9 +311,9 @@ fn at_forks_under_the_open_change_and_carries_a_copy() {
     );
 
     // One operation, recorded on the new branch, carrying every transition.
-    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    assert_eq!(verb_ops_since(&repo, &before), vec!["switch".to_string()]);
     let record = tip_record(&repo);
-    assert_eq!(record.verb, "start");
+    assert_eq!(record.verb, "switch");
     assert!(record.head.is_some(), "the switch rides the op");
     assert_eq!(record.refs.len(), 1);
     assert_eq!(record.refs[0].name, "refs/heads/spike");
@@ -345,22 +363,22 @@ fn at_with_a_clean_tree_carries_nothing() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("@".into()),
             now: Some(NOW),
             ..Default::default()
         },
     );
     assert_eq!(
-        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.to)])
             .trim(),
         init
     );
     assert_eq!(report.parked, None);
-    assert_eq!(report.carried, None);
-    assert_eq!(open_ref(&fx, &report.minted), None);
+    assert_eq!(minted(&report).carried, None);
+    assert_eq!(open_ref(&fx, &report.to), None);
     assert_eq!(fx.git(&["status", "--porcelain=v2"]), "", "opens clean");
-    let meta = ff_core::branchmeta::read(&fx.repo(), &report.minted).unwrap();
+    let meta = ff_core::branchmeta::read(&fx.repo(), &report.to).unwrap();
     assert_eq!(meta.change_id, None);
     assert_eq!(meta.pending_description, None);
 }
@@ -372,9 +390,9 @@ fn at_on_an_unborn_branch_is_refused() {
     ident(&fx);
     fx.write("a.txt", "dirty\n");
     let repo = fx.repo();
-    let err = ff_core::start(
+    let err = ff_core::switch(
         &repo,
-        &StartOptions {
+        &SwitchOptions {
             target: Some("@".into()),
             now: Some(NOW),
             ..Default::default()
@@ -404,14 +422,14 @@ fn start_is_one_operation() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    assert_eq!(verb_ops_since(&repo, &before), vec!["switch".to_string()]);
     let record = tip_record(&repo);
-    assert_eq!(record.verb, "start");
+    assert_eq!(record.verb, "switch");
     assert!(record.head.is_some());
     assert_eq!(fx.git(&["status", "--porcelain=v2"]), "", "opens clean");
 
@@ -422,7 +440,7 @@ fn start_is_one_operation() {
         "dirty\n"
     );
     assert!(
-        fx.git(&["for-each-ref", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["for-each-ref", &format!("refs/heads/{}", report.to)])
             .trim()
             .is_empty(),
         "the mint is gone"
@@ -452,16 +470,16 @@ fn the_copy_wears_the_dash_m_message() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("@".into()),
             message: Some("the spike".into()),
-            branch: Some("spike".into()),
+            branch: Some(Some("spike".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
     let parked = report.parked.clone().expect("parked");
-    let carried = report.carried.clone().expect("carried");
+    let carried = minted(&report).carried.clone().expect("carried");
     assert_ne!(
         carried, parked,
         "a different description is a different sha"
@@ -510,14 +528,14 @@ fn closing_on_both_branches_lands_one_sha() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("@".into()),
-            branch: Some("spike".into()),
+            branch: Some(Some("spike".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
-    let carried = report.carried.expect("carried");
+    let carried = minted(&report).carried.clone().expect("carried");
 
     let close = |now: i64| {
         let (outcome, _) = ff_core::close(
@@ -538,9 +556,10 @@ fn closing_on_both_branches_lands_one_sha() {
     let (switch_report, _) = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: "main".into(),
+            target: Some("main".into()),
             now: Some(NOW + 20),
             argv: Vec::new(),
+            ..Default::default()
         },
         &prov(),
     )
@@ -573,16 +592,16 @@ fn rev_target_forks_and_parks() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some(first.clone()),
             now: Some(NOW),
             ..Default::default()
         },
     );
 
-    assert!(report.minted.starts_with("ff/"), "{}", report.minted);
+    assert!(report.to.starts_with("ff/"), "{}", report.to);
     assert_eq!(
-        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.to)])
             .trim(),
         first
     );
@@ -594,19 +613,51 @@ fn rev_target_forks_and_parks() {
         "worktree moved to the fork point"
     );
     assert!(
-        first.starts_with(&report.forked_from),
+        first.starts_with(forked_from(&report)),
         "forked_from ({}) should be a short sha of {first}",
-        report.forked_from
+        forked_from(&report)
     );
-    let meta = ff_core::branchmeta::read(&fx.repo(), &report.minted).unwrap();
+    let meta = ff_core::branchmeta::read(&fx.repo(), &report.to).unwrap();
+    assert_eq!(meta.forked_from.as_deref(), Some(forked_from(&report)));
+}
+
+/// A branch target with no `-b` is the branch itself: the switch continues
+/// it, and mints nothing.
+#[test]
+fn a_branch_target_continues() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["branch", "feature"]);
+    fx.git(&["checkout", "-q", "feature"]);
+    ident(&fx);
+    let main_tip = fx.git(&["rev-parse", "main"]).trim().to_string();
+
+    let report = run_start(
+        &fx,
+        SwitchOptions {
+            target: Some("main".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(report.to, "main");
+    assert_eq!(report.from, "feature");
+    assert_eq!(report.minted, None, "nothing minted");
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(fx.git(&["rev-parse", "main"]).trim(), main_tip);
     assert_eq!(
-        meta.forked_from.as_deref(),
-        Some(report.forked_from.as_str())
+        fx.git(&["for-each-ref", "refs/heads/"]).lines().count(),
+        2,
+        "no branch was added"
     );
 }
 
+/// `-b` on a branch target forks it: a new branch at the target's tip,
+/// with the target recorded as its parent, and the target untouched.
 #[test]
-fn branch_target_forks_instead_of_continuing() {
+fn a_branch_target_with_dash_b_forks() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -615,20 +666,21 @@ fn branch_target_forks_instead_of_continuing() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("main".into()),
+            branch: Some(None),
             now: Some(NOW),
             ..Default::default()
         },
     );
 
-    assert_ne!(
-        report.minted, "main",
-        "a new branch is minted, not main itself"
-    );
-    assert_eq!(report.forked_from, "main");
+    assert_ne!(report.to, "main", "a new branch is minted, not main itself");
+    assert!(report.to.starts_with("ff/"), "bare -b mints a petname");
+    assert_eq!(forked_from(&report), "main");
+    assert_eq!(minted(&report).parent.as_deref(), Some("main"));
+    assert_eq!(minted(&report).tracking, None);
     assert_eq!(
-        fx.git(&["rev-parse", &format!("refs/heads/{}", report.minted)])
+        fx.git(&["rev-parse", &format!("refs/heads/{}", report.to)])
             .trim(),
         main_tip
     );
@@ -639,8 +691,10 @@ fn branch_target_forks_instead_of_continuing() {
     );
     assert_eq!(
         fx.git(&["symbolic-ref", "HEAD"]).trim(),
-        format!("refs/heads/{}", report.minted)
+        format!("refs/heads/{}", report.to)
     );
+    let meta = ff_core::branchmeta::read(&fx.repo(), &report.to).unwrap();
+    assert_eq!(meta.parent.as_deref(), Some("main"));
 }
 
 #[test]
@@ -652,13 +706,13 @@ fn dash_b_names_the_mint() {
 
     let report = run_start(
         &fx,
-        StartOptions {
-            branch: Some("hotfix".into()),
+        SwitchOptions {
+            branch: Some(Some("hotfix".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(report.minted, "hotfix");
+    assert_eq!(report.to, "hotfix");
 }
 
 #[test]
@@ -670,10 +724,10 @@ fn dash_b_on_an_existing_name_errors() {
     ident(&fx);
 
     let repo = fx.repo();
-    let Err(err) = ff_core::start(
+    let Err(err) = ff_core::switch(
         &repo,
-        &StartOptions {
-            branch: Some("existing".into()),
+        &SwitchOptions {
+            branch: Some(Some("existing".into())),
             now: Some(NOW),
             ..Default::default()
         },
@@ -693,29 +747,29 @@ fn every_start_mints() {
 
     let one = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
     );
     let two = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW + 10),
             ..Default::default()
         },
     );
     let three = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW + 20),
             ..Default::default()
         },
     );
 
-    assert_ne!(one.minted, two.minted);
-    assert_ne!(two.minted, three.minted);
-    assert_ne!(one.minted, three.minted);
+    assert_ne!(one.to, two.to);
+    assert_ne!(two.to, three.to);
+    assert_ne!(one.to, three.to);
 }
 
 #[test]
@@ -734,7 +788,7 @@ fn start_never_commits() {
     fx.write("a.txt", "dirty1\n");
     run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             now: Some(NOW),
             ..Default::default()
         },
@@ -746,26 +800,27 @@ fn start_never_commits() {
     fx.write("some.txt", "dirty2\n");
     let rev_report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some(first.clone()),
             now: Some(NOW + 10),
             ..Default::default()
         },
     );
     assert_eq!(
-        commit_count(&fx, &rev_report.minted),
+        commit_count(&fx, &rev_report.to),
         "1",
         "the mint carries exactly the fork commit, nothing more"
     );
     assert_eq!(commit_count(&fx, "main"), main_before);
     assert_eq!(commit_count(&fx, "other"), other_before);
 
-    // Case 6: branch target.
+    // Case 6: branch target, forked.
     fx.write("more.txt", "dirty3\n");
     run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             target: Some("other".into()),
+            branch: Some(None),
             now: Some(NOW + 20),
             ..Default::default()
         },
@@ -787,21 +842,21 @@ fn message_describes_the_opened_change() {
 
     let report = run_start(
         &fx,
-        StartOptions {
+        SwitchOptions {
             message: Some("next: the plan".into()),
             now: Some(NOW),
             ..Default::default()
         },
     );
     let repo = fx.repo();
-    let meta = ff_core::branchmeta::read(&repo, &report.minted).unwrap();
+    let meta = ff_core::branchmeta::read(&repo, &report.to).unwrap();
     assert_eq!(meta.pending_description.as_deref(), Some("next: the plan"));
     assert_eq!(
         fx.git(&[
             "log",
             "-1",
             "--format=%s",
-            &format!("refs/heads/{}", report.minted)
+            &format!("refs/heads/{}", report.to)
         ])
         .trim(),
         "init",
@@ -809,17 +864,17 @@ fn message_describes_the_opened_change() {
     );
     // The description rides the start's one operation, and a described
     // change has an identity from the start.
-    assert_eq!(verb_ops_since(&repo, &before), vec!["start".to_string()]);
+    assert_eq!(verb_ops_since(&repo, &before), vec!["switch".to_string()]);
     let record = tip_record(&repo);
-    assert_eq!(record.verb, "start");
+    assert_eq!(record.verb, "switch");
     let transition = record
         .description
         .as_ref()
         .expect("a description transition");
-    assert_eq!(transition.branch, report.minted);
+    assert_eq!(transition.branch, report.to);
     assert_eq!(transition.new.as_deref(), Some("next: the plan"));
     let minted = record.change_id.as_ref().expect("a minted id");
-    assert_eq!(minted.branch, report.minted);
+    assert_eq!(minted.branch, report.to);
     assert_eq!(minted.new, meta.change_id);
     assert_eq!(meta.change_id.as_ref().map(String::len), Some(32));
     assert_eq!(meta.change_born, Some(NOW));

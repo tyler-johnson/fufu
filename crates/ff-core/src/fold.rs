@@ -205,7 +205,7 @@ fn plan_fold(
                 onto.name
             ),
             vec![
-                format!("ff start {}", onto.name),
+                format!("ff switch {}", onto.name),
                 "ff branch".into(),
                 "ff push".into(),
             ],

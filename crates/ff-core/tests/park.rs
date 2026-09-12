@@ -28,9 +28,10 @@ fn try_switch(fx: &Fixture, target: &str, now: i64) -> ff_core::Result<ff_core::
     ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: target.into(),
+            target: Some(target.into()),
             now: Some(now),
             argv: vec!["ff".into(), "switch".into(), target.into()],
+            ..Default::default()
         },
         &prov(),
     )

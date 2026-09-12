@@ -364,9 +364,10 @@ pub fn resolve(
     let (switch_report, ctx) = crate::switch::switch(
         repo,
         &crate::switch::SwitchOptions {
-            target: session_name.clone(),
+            target: Some(session_name.clone()),
             now: Some(now),
             argv,
+            ..Default::default()
         },
         prov,
     )?;

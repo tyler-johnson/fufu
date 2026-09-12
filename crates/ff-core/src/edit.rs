@@ -67,9 +67,10 @@ pub fn edit(
         let (report, ctx) = crate::switch::switch(
             repo,
             &crate::switch::SwitchOptions {
-                target: branch,
+                target: Some(branch),
                 now,
                 argv: argv.clone(),
+                ..Default::default()
             },
             prov,
         )?;
@@ -188,9 +189,10 @@ pub fn edit(
     let (switch_report, ctx) = crate::switch::switch(
         repo,
         &crate::switch::SwitchOptions {
-            target: name.clone(),
+            target: Some(name.clone()),
             now: Some(now),
             argv,
+            ..Default::default()
         },
         prov,
     )?;

@@ -467,11 +467,11 @@ pub fn rewind(
         crate::index::write_index_for_tree(repo, index_target)?;
     }
 
-    // 7. Pending descriptions, change ids, recorded parents, editing sessions, held
-    //    rewrites, and resolution sessions, in the same order and by the same
-    //    rule: what is left behind restores its `old`, what is entered
-    //    applies its `new`, and the last write is the one the landing
-    //    recorded.
+    // 7. Pending descriptions, change ids, recorded parents, upstreams,
+    //    editing sessions, held rewrites, and resolution sessions, in the
+    //    same order and by the same rule: what is left behind restores its
+    //    `old`, what is entered applies its `new`, and the last write is the
+    //    one the landing recorded.
     let mut companions: Vec<String> = Vec::new();
     for (op, replay) in replay_order(&back, &fwd) {
         if let Some(op_record) = op.record()? {
@@ -499,6 +499,15 @@ pub fn rewind(
                 let mut meta = branchmeta::read(repo, &p.branch)?;
                 meta.parent = if replay { p.new.clone() } else { p.old.clone() };
                 branchmeta::write(repo, &p.branch, &meta)?;
+            }
+            if let Some(u) = &op_record.upstream {
+                let value = if replay { &u.new } else { &u.old };
+                match value {
+                    Some(remote) => {
+                        crate::snapshot::config::set_branch_upstream(repo, &u.branch, remote)?;
+                    }
+                    None => crate::snapshot::config::remove_branch_section(repo, &u.branch)?,
+                }
             }
             for s in op_record
                 .edit_session

@@ -31,9 +31,10 @@ fn switch_to(fx: &Fixture, target: &str) -> ff_core::SwitchReport {
     let (report, _ctx) = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: target.into(),
+            target: Some(target.into()),
             now: Some(NOW),
             argv: vec!["ff".into(), "switch".into(), target.into()],
+            ..Default::default()
         },
         &ff_core::Provenance::new("pre", Some(format!("ff switch {target}"))),
     )
@@ -236,9 +237,10 @@ fn switch_refuses_mid_operation_and_unknown_targets() {
     let err = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: "other".into(),
+            target: Some("other".into()),
             now: Some(NOW),
             argv: Vec::new(),
+            ..Default::default()
         },
         &ff_core::Provenance::new("pre", None),
     );
@@ -311,4 +313,419 @@ fn conflicted_arrival_holds_the_branch_through_switch() {
     );
     assert!(fx.git(&["stash", "list"]).is_empty());
     assert!(ff_core::held::of(&fx.repo(), "main").unwrap().is_some());
+}
+
+// --- the remote rung, and the mint under every spelling ---
+
+fn rewind_opts(now: i64) -> ff_core::RewindOptions {
+    ff_core::RewindOptions {
+        force: false,
+        now: Some(now),
+        argv: Vec::new(),
+    }
+}
+
+/// `branch.<name>.remote` and `branch.<name>.merge` as git reads them, or
+/// `None` where the key is unset.
+fn upstream_config(fx: &Fixture, name: &str) -> (Option<String>, Option<String>) {
+    let read = |key: &str| {
+        let out = fx.try_git(&["config", "--get", key]);
+        out.status
+            .success()
+            .then(|| String::from_utf8(out.stdout).unwrap().trim().to_string())
+    };
+    (
+        read(&format!("branch.{name}.remote")),
+        read(&format!("branch.{name}.merge")),
+    )
+}
+
+/// A clone whose remote holds `spike` and nothing here tracks it: the shape
+/// `git fetch` leaves after a colleague pushes.
+fn clone_with_remote_spike() -> (Fixture, String) {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("init");
+    fx.git(&["push", "-q", "origin", "main"]);
+    fx.remote_git(&["update-ref", "refs/heads/spike", &sha]);
+    fx.git(&["fetch", "-q", "origin"]);
+    (fx, sha)
+}
+
+/// The differential contract for the tracking mint: `ff switch spike` with
+/// only `origin/spike` lands where `git switch spike` does — the branch at
+/// the tracking tip, the upstream section written, HEAD there.
+#[test]
+fn remote_branch_by_name_matches_git_switch() {
+    let (fx, sha) = clone_with_remote_spike();
+    let repo = fx.repo();
+    let before = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+
+    let report = switch_to(&fx, "spike");
+    assert_eq!(report.from, "main");
+    assert_eq!(report.to, "spike");
+    let minted = report.minted.as_ref().expect("minted");
+    assert_eq!(minted.tracking.as_deref(), Some("origin/spike"));
+    assert_eq!(
+        minted.forked_from, None,
+        "a tracking mint forked from nothing"
+    );
+    assert_eq!(minted.parent, None);
+    assert_eq!(minted.carried, None);
+    assert_eq!(fx.git(&["rev-parse", "refs/heads/spike"]).trim(), sha);
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/spike");
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("origin".into()), Some("refs/heads/spike".into()))
+    );
+    let meta = ff_core::branchmeta::read(&repo, "spike").unwrap();
+    assert_eq!(meta.parent, None);
+    assert_eq!(meta.forked_from, None);
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "switch");
+    let upstream = record.upstream.as_ref().expect("the upstream rides the op");
+    assert_eq!(upstream.branch, "spike");
+    assert_eq!(upstream.old, None);
+    assert_eq!(upstream.new.as_deref(), Some("origin"));
+    assert!(
+        record.summary.contains("tracking origin/spike"),
+        "{}",
+        record.summary
+    );
+    let ops = ff_core::ops::OpLog::open(&repo).unwrap();
+    let mut count = 0;
+    let mut cursor = ops.tip().unwrap();
+    while let Some(id) = cursor {
+        if Some(id) == before {
+            break;
+        }
+        if ops.get(id).unwrap().kind() == ff_core::ops::OpKind::Op {
+            count += 1;
+        }
+        cursor = ops.get(id).unwrap().prev();
+    }
+    assert_eq!(count, 1, "one operation");
+    let reflog = fx.git(&["reflog", "show", "--format=%gs", "refs/heads/spike"]);
+    assert_eq!(reflog.trim(), "branch: created from origin/spike");
+
+    // git's own answer to the same request, from the same starting state.
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["branch", "-D", "spike"]);
+    assert_eq!(upstream_config(&fx, "spike"), (None, None));
+    fx.git(&["switch", "-q", "spike"]);
+    assert_eq!(fx.git(&["rev-parse", "refs/heads/spike"]).trim(), sha);
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/spike");
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("origin".into()), Some("refs/heads/spike".into()))
+    );
+}
+
+/// The qualified spelling is the same target: `origin/spike` with a local
+/// `spike` continues the local branch and touches no upstream.
+#[test]
+fn qualified_name_means_the_local_branch() {
+    let (fx, sha) = clone_with_remote_spike();
+    fx.git(&["branch", "spike", &sha]);
+    fx.write("a.txt", "dirty\n");
+
+    let report = switch_to(&fx, "origin/spike");
+    assert_eq!(report.to, "spike");
+    assert_eq!(report.minted, None, "continued, not minted");
+    assert!(report.parked.is_some(), "the dirty tree parked");
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/spike");
+    assert_eq!(upstream_config(&fx, "spike"), (None, None));
+}
+
+/// A bare name two remotes hold names two branches, and picking one would
+/// be a guess: the refusal lists the qualified spellings.
+#[test]
+fn two_remotes_holding_the_name_is_ambiguous() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    let sha = fx.commit("init");
+    ident(&fx);
+    for remote in ["origin", "upstream"] {
+        fx.set_config(&format!("remote.{remote}.url"), "file:///nonexistent");
+        fx.set_config(
+            &format!("remote.{remote}.fetch"),
+            &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+        );
+        fx.git(&["update-ref", &format!("refs/remotes/{remote}/spike"), &sha]);
+    }
+    let repo = fx.repo();
+    let err = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: Some("spike".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", None),
+    )
+    .expect_err("must refuse");
+    assert_eq!(err.id(), "branch/ambiguous");
+    assert_eq!(
+        err.to_string(),
+        "ambiguous branch name spike: origin/spike, upstream/spike"
+    );
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/spike"])
+            .trim()
+            .is_empty(),
+        "nothing minted"
+    );
+
+    // Qualified, each is one branch.
+    let report = switch_to(&fx, "upstream/spike");
+    assert_eq!(report.to, "spike");
+    assert_eq!(
+        report.minted.unwrap().tracking.as_deref(),
+        Some("upstream/spike")
+    );
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("upstream".into()), Some("refs/heads/spike".into()))
+    );
+}
+
+/// `-b` on a remote's branch is a fork like any other branch target: a new
+/// branch at its tip with the remote's branch as parent, and no upstream.
+#[test]
+fn dash_b_on_a_remote_branch_forks_without_an_upstream() {
+    let (fx, sha) = clone_with_remote_spike();
+    let repo = fx.repo();
+    let (report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: Some("spike".into()),
+            branch: Some(Some("mine".into())),
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(report.to, "mine");
+    let minted = report.minted.as_ref().expect("minted");
+    assert_eq!(minted.tracking, None);
+    assert_eq!(minted.forked_from.as_deref(), Some("origin/spike"));
+    assert_eq!(minted.parent.as_deref(), Some("origin/spike"));
+    assert_eq!(fx.git(&["rev-parse", "refs/heads/mine"]).trim(), sha);
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/spike"])
+            .trim()
+            .is_empty(),
+        "no local spike"
+    );
+    assert_eq!(upstream_config(&fx, "mine"), (None, None));
+    let meta = ff_core::branchmeta::read(&repo, "mine").unwrap();
+    assert_eq!(meta.parent.as_deref(), Some("origin/spike"));
+    assert!(tip_record(&repo).upstream.is_none());
+    let reflog = fx.git(&["reflog", "show", "--format=%gs", "refs/heads/mine"]);
+    assert_eq!(reflog.trim(), "branch: forked from origin/spike");
+
+    // Bare `-b` is the same fork under a petname.
+    let (report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: Some("origin/spike".into()),
+            branch: Some(None),
+            now: Some(NOW + 10),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert!(report.to.starts_with("ff/"), "{}", report.to);
+    assert_eq!(
+        report.minted.unwrap().parent.as_deref(),
+        Some("origin/spike")
+    );
+}
+
+/// The upstream rides the operation: undo takes the section away with the
+/// branch, redo writes it back. A stale section a plain delete left is what
+/// the mint replaced, and undo puts that one back rather than none.
+#[test]
+fn undo_of_a_tracking_mint_removes_the_section() {
+    let (fx, sha) = clone_with_remote_spike();
+    let repo = fx.repo();
+
+    switch_to(&fx, "spike");
+    ff_core::undo(
+        &repo,
+        &rewind_opts(NOW + 10),
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert!(
+        fx.git(&["for-each-ref", "refs/heads/spike"])
+            .trim()
+            .is_empty(),
+        "the mint is gone"
+    );
+    assert_eq!(upstream_config(&fx, "spike"), (None, None));
+
+    ff_core::redo(
+        &repo,
+        &rewind_opts(NOW + 20),
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/spike");
+    assert_eq!(fx.git(&["rev-parse", "refs/heads/spike"]).trim(), sha);
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("origin".into()), Some("refs/heads/spike".into()))
+    );
+
+    // A stale section: what a plain `git branch -D` leaves behind.
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["branch", "-D", "spike"]);
+    fx.set_config("branch.spike.remote", "elsewhere");
+    fx.set_config("branch.spike.merge", "refs/heads/spike");
+    let (report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: Some("spike".into()),
+            now: Some(NOW + 30),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(
+        report.minted.unwrap().tracking.as_deref(),
+        Some("origin/spike")
+    );
+    let upstream = tip_record(&repo).upstream.unwrap();
+    assert_eq!(upstream.old.as_deref(), Some("elsewhere"));
+    assert_eq!(upstream.new.as_deref(), Some("origin"));
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("origin".into()), Some("refs/heads/spike".into()))
+    );
+    ff_core::undo(
+        &repo,
+        &rewind_opts(NOW + 40),
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(
+        upstream_config(&fx, "spike"),
+        (Some("elsewhere".into()), Some("refs/heads/spike".into())),
+        "the stale section is back"
+    );
+}
+
+/// `-m` describes the change a switch opens, and a continue opens nothing.
+#[test]
+fn dash_m_on_a_continue_is_refused() {
+    let fx = two_branch_fixture();
+    fx.write("shared.txt", "dirty\n");
+    let repo = fx.repo();
+    let before = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+    let err = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: Some("feature".into()),
+            message: Some("the plan".into()),
+            now: Some(NOW),
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", None),
+    )
+    .expect_err("must refuse");
+    assert_eq!(err.id(), "switch/nothing-opened");
+    assert_eq!(
+        err.to_string(),
+        "-m describes the change a switch opens, and switching to feature opens nothing: it \
+         resumes what is there"
+    );
+    assert_eq!(err.exits(), &["ff describe -m <msg>"]);
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(
+        ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap(),
+        before,
+        "refused before the preamble: nothing written"
+    );
+}
+
+/// A bare word that names nothing — no branch here, none on a remote, no
+/// revision — is the branch rung's refusal, and the revset's other refusals
+/// stay their own.
+#[test]
+fn an_unknown_name_is_branch_not_found() {
+    let fx = two_branch_fixture();
+    let repo = fx.repo();
+    let refuse = |target: &str| {
+        ff_core::switch(
+            &repo,
+            &SwitchOptions {
+                target: Some(target.into()),
+                now: Some(NOW),
+                ..Default::default()
+            },
+            &ff_core::Provenance::new("pre", None),
+        )
+        .expect_err("must refuse")
+    };
+    let err = refuse("nosuch");
+    assert_eq!(err.id(), "branch/not-found");
+    assert_eq!(err.to_string(), "no branch named nosuch");
+    assert_eq!(refuse("::feature").id(), "usage/revset-not-a-point");
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+}
+
+/// Whatever the spelling, a switch that mints is one operation: a mint at
+/// trunk from a dirty tree, and one undo lands back on the branch it left
+/// with its tree dirty.
+#[test]
+fn switch_is_one_operation_under_every_spelling() {
+    let fx = two_branch_fixture();
+    fx.write("shared.txt", "dirty\n");
+    let repo = fx.repo();
+    let before = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+    let (report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            now: Some(NOW),
+            argv: vec!["ff".into(), "start".into()],
+            ..Default::default()
+        },
+        &ff_core::Provenance::new("pre", Some("ff start".into())),
+    )
+    .unwrap();
+    assert!(report.to.starts_with("ff/"), "{}", report.to);
+    assert!(report.parked.is_some());
+    assert_eq!(
+        report.minted.as_ref().unwrap().forked_from.as_deref(),
+        Some("main")
+    );
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "switch", "the verb under every spelling");
+    assert_eq!(record.argv, vec!["ff".to_string(), "start".to_string()]);
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), "", "opens clean");
+
+    ff_core::undo(
+        &repo,
+        &rewind_opts(NOW + 10),
+        &ff_core::Provenance::new("pre", None),
+    )
+    .unwrap();
+    assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("shared.txt")).unwrap(),
+        "dirty\n"
+    );
+    assert!(
+        fx.git(&["for-each-ref", &format!("refs/heads/{}", report.to)])
+            .trim()
+            .is_empty(),
+        "the mint is gone"
+    );
+    let after = ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap();
+    assert_ne!(after, before, "the undo is its own operation");
 }

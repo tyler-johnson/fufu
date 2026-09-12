@@ -114,9 +114,10 @@ fn switch_to(fx: &Fixture, branch: &str, now: i64) -> ff_core::SwitchReport {
     ff_core::switch(
         &repo,
         &ff_core::SwitchOptions {
-            target: branch.to_string(),
+            target: Some(branch.to_string()),
             now: Some(now),
             argv: vec!["ff".into(), "switch".into(), branch.to_string()],
+            ..Default::default()
         },
         &prov(),
     )

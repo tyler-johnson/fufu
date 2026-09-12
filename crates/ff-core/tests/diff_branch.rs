@@ -14,9 +14,10 @@ fn park_by_switching(fx: &Fixture, away: &str, now: i64) -> String {
     let (report, _) = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: away.into(),
+            target: Some(away.into()),
             now: Some(now),
             argv: Vec::new(),
+            ..Default::default()
         },
         &prov(),
     )

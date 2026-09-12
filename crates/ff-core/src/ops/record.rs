@@ -97,6 +97,15 @@ pub struct ParentTransition {
     pub new: Option<String>,
 }
 
+/// A branch's upstream section set or removed: `[branch "<name>"] remote`,
+/// the merge always `refs/heads/<name>` (`None` = no section).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpstreamTransition {
+    pub branch: String,
+    pub old: Option<String>,
+    pub new: Option<String>,
+}
+
 /// An editing session opened or ended on a branch (`None` = absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTransition {
@@ -240,6 +249,11 @@ pub struct OpRecord {
     /// `RECORD_VERSION` bump.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inferred_parents: Vec<ParentTransition>,
+    /// A branch's upstream set, the way a switch that mints a branch
+    /// tracking a remote's sets one. Optional and skipped when absent, so
+    /// no `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<UpstreamTransition>,
     /// An editing session opened or ended. Spelled `edit_session` to stay
     /// clear of `VerbOp.session`, which is the provenance tag and an
     /// unrelated thing.
@@ -326,6 +340,7 @@ impl OpRecord {
             change_id: None,
             parent: None,
             inferred_parents: Vec::new(),
+            upstream: None,
             edit_session: None,
             resolve_session: None,
             held: None,

@@ -477,9 +477,10 @@ fn switch_then_undo_returns_with_the_parked_change_reopened() {
     let (report, _) = ff_core::switch(
         &repo,
         &SwitchOptions {
-            target: "feature".into(),
+            target: Some("feature".into()),
             now: Some(NOW),
             argv: Vec::new(),
+            ..Default::default()
         },
         &prov(),
     )
@@ -524,9 +525,10 @@ fn switching_back_then_undo_reparks_the_untracked_file() {
         ff_core::switch(
             &repo,
             &SwitchOptions {
-                target: target.into(),
+                target: Some(target.into()),
                 now: Some(now),
                 argv: Vec::new(),
+                ..Default::default()
             },
             &prov(),
         )

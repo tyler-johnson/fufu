@@ -20,9 +20,10 @@ fn switch_in(repo: &gix::Repository, target: &str) {
     ff_core::switch(
         repo,
         &SwitchOptions {
-            target: target.into(),
+            target: Some(target.into()),
             now: Some(NOW),
             argv: vec!["ff".into(), "switch".into(), target.into()],
+            ..Default::default()
         },
         &prov(),
     )

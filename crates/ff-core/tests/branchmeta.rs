@@ -1,5 +1,5 @@
 //! Branch metadata round trips through the durable `jsonfile` writer, the
-//! parent-carrying rename, and `ff start`'s parent recording.
+//! parent-carrying rename, and `ff start <branch> -b`'s parent recording.
 
 use ff_core::branchmeta::{self, BranchMeta, Session};
 use ff_testsupport::Fixture;
@@ -15,9 +15,9 @@ fn prov() -> ff_core::Provenance {
     ff_core::Provenance::new("pre", Some("ff start".into()))
 }
 
-fn run_start(fx: &Fixture, opts: ff_core::StartOptions) -> ff_core::StartReport {
+fn run_start(fx: &Fixture, opts: ff_core::SwitchOptions) -> ff_core::SwitchReport {
     let repo = fx.repo();
-    let (report, _ctx) = ff_core::start(&repo, &opts, &prov()).unwrap();
+    let (report, _ctx) = ff_core::switch(&repo, &opts, &prov()).unwrap();
     report
 }
 
@@ -186,14 +186,14 @@ fn bare_start_records_no_parent() {
 
     let report = run_start(
         &fx,
-        ff_core::StartOptions {
+        ff_core::SwitchOptions {
             target: None,
-            branch: Some("feature".into()),
+            branch: Some(Some("feature".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(report.minted, "feature");
+    assert_eq!(report.to, "feature");
 
     let meta = branchmeta::read(&fx.repo(), "feature").unwrap();
     assert_eq!(meta.parent, None);
@@ -210,14 +210,14 @@ fn start_from_a_named_branch_records_it_as_parent() {
 
     let report = run_start(
         &fx,
-        ff_core::StartOptions {
+        ff_core::SwitchOptions {
             target: Some("base".into()),
-            branch: Some("stacked".into()),
+            branch: Some(Some("stacked".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(report.minted, "stacked");
+    assert_eq!(report.to, "stacked");
 
     let meta = branchmeta::read(&fx.repo(), "stacked").unwrap();
     assert_eq!(meta.parent.as_deref(), Some("base"));
@@ -234,14 +234,14 @@ fn start_from_a_sha_records_no_parent() {
 
     let report = run_start(
         &fx,
-        ff_core::StartOptions {
+        ff_core::SwitchOptions {
             target: Some(sha.clone()),
-            branch: Some("stacked".into()),
+            branch: Some(Some("stacked".into())),
             now: Some(NOW),
             ..Default::default()
         },
     );
-    assert_eq!(report.minted, "stacked");
+    assert_eq!(report.to, "stacked");
 
     let meta = branchmeta::read(&fx.repo(), "stacked").unwrap();
     assert_eq!(meta.parent, None);

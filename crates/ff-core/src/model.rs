@@ -989,26 +989,6 @@ pub struct LiftReport {
     pub cascade: Cascade,
 }
 
-/// The result of `ff start` — always mints a fresh branch and parks
-/// whatever was open where it was.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct StartReport {
-    /// The branch that was minted. start always mints.
-    pub minted: String,
-    /// Short name of what it forked from, for the "(forked from X)" line.
-    pub forked_from: String,
-    /// The stash sha the open change parked under, when the tree was dirty.
-    pub parked: Option<String>,
-    /// The branch the parked change was open on — not the fork source, which
-    /// is a different branch whenever the target names one. `Some` exactly
-    /// when `parked` is: the two travel together.
-    pub parked_from: Option<String>,
-    /// The open commit the new branch holds a copy of: the parked one under
-    /// `@`, or its re-described twin when `-m` rode along. `None` when
-    /// nothing was open or the target was not `@`.
-    pub carried: Option<String>,
-}
-
 /// One branch row for `ff branch`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BranchInfo {
@@ -1042,7 +1022,7 @@ pub struct BranchInfo {
 /// is not local, and emitting them would imply states that cannot occur.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RemoteBranch {
-    /// `origin/feature-two` — the name `ff start` takes verbatim.
+    /// `origin/feature-two` — the name `ff switch` takes verbatim.
     pub name: String,
     /// The remote it lives on.
     pub remote: String,
@@ -1235,16 +1215,40 @@ pub enum ArrivalReport {
     Invalidated { stash: String },
 }
 
-/// The result of `ff switch`.
+/// The result of `ff switch`, under every spelling.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SwitchReport {
+    /// The branch left: where a parked change was open, which is not the
+    /// fork source when the switch minted.
     pub from: String,
+    /// The branch arrived on: found, or minted.
     pub to: String,
     /// The open commit the dirty tree left as its park: the `@` row's sha.
     pub parked: Option<String>,
+    /// The branch this switch minted, when it minted one; `to` is its name.
+    pub minted: Option<Minted>,
     pub arrival: ArrivalReport,
     /// The mandatory pre-verb capture, spelled as an operation id.
     pub pre_op: Option<String>,
+}
+
+/// The branch a switch minted, when it minted one. `SwitchReport.to` is its
+/// name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Minted {
+    /// Short name of what it forked from — a branch or a short sha. `None`
+    /// on a tracking mint.
+    pub forked_from: Option<String>,
+    /// The branch it forked from when the target named one (local, or
+    /// `origin/x`).
+    pub parent: Option<String>,
+    /// `origin/spike` when the mint continues a remote's branch under its
+    /// own name, upstream set.
+    pub tracking: Option<String>,
+    /// The open commit the new branch holds a copy of (target `@` on a
+    /// dirty tree): the parked one, or its re-described twin when `-m` rode
+    /// along.
+    pub carried: Option<String>,
 }
 
 /// The result of `ff commit` — the close.

@@ -520,9 +520,9 @@ pub fn forget_shared(
 
 /// `ff branch <name> [<rev>]` — create a branch at a revision, recorded, and
 /// stay where you are. Trunk's tip when `<rev>` is omitted; a branch name
-/// records that branch as the parent, the way `ff start <branch>` does; `@`
-/// puts the tip on the commit under the open change and parks a copy of the
-/// open change on the new branch — the same open commit, id, birth, and
+/// records that branch as the parent, the way `ff switch <branch> -b` does;
+/// `@` puts the tip on the commit under the open change and parks a copy of
+/// the open change on the new branch — the same open commit, id, birth, and
 /// description — so `ff switch <name>` resumes it there, while the branch
 /// underfoot keeps its own and nothing moves here. One operation, so `ff
 /// undo` takes the whole of it back. The verb that also moves there is `ff
@@ -551,7 +551,7 @@ pub fn create(
     let head = crate::head::head_state(repo)?;
     let current = crate::snapshot::chain::chain_name(&head);
     let head_commit = crate::snapshot::chain::base_commit(&head)?;
-    let fork = crate::start::resolve_fork_point(repo, target, head_commit)?;
+    let fork = crate::switch::resolve_fork_point(repo, target, head_commit)?;
     let parked = if fork.open {
         crate::switch::park_of(repo, &head, &current, ctx.pre_tree)?
     } else {
@@ -564,13 +564,13 @@ pub fn create(
     let opened = match carry {
         Some(_) => {
             let meta = crate::branchmeta::read(repo, &current)?;
-            crate::start::Opened {
+            crate::switch::Opened {
                 description: meta.pending_description,
                 change_id: meta.change_id,
                 born: meta.change_born,
             }
         }
-        None => crate::start::Opened::default(),
+        None => crate::switch::Opened::default(),
     };
 
     let short = crate::sha::short_oid(fork.at);
@@ -607,7 +607,7 @@ pub fn create(
         });
     let mut pins = vec![fork.at];
     pins.extend(parked);
-    crate::start::clear_stale_open(repo, name, now)?;
+    crate::switch::clear_stale_open(repo, name, now)?;
     verb::append_op_hinted(
         repo,
         OpKind::Op,
@@ -634,13 +634,14 @@ pub fn create(
         carry,
         now,
     )?;
-    crate::start::mint_branch(
+    crate::switch::mint_branch(
         repo,
-        &crate::start::Mint {
+        &crate::switch::Mint {
             name,
             at: fork.at,
-            forked_from: &fork.forked_from,
+            forked_from: Some(&fork.forked_from),
             parent: fork.parent.as_deref(),
+            tracking: None,
             opened,
         },
         now,

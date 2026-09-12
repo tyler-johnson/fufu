@@ -204,6 +204,20 @@ pub fn rename_branch_section(repo: &gix::Repository, old: &str, new: &str) -> Re
     write_config_file(&path, &file)
 }
 
+/// The `remote` a branch's own section names in the local config, or
+/// `None` when it has no section or the section names none. The local file
+/// only, since that is the file [`set_branch_upstream`] writes and
+/// [`remove_branch_section`] takes away: what a switch that mints a tracking
+/// branch replaces, and what its undo puts back.
+pub fn branch_remote(repo: &gix::Repository, name: &str) -> Result<Option<String>> {
+    let path = repo.common_dir().join("config");
+    let file = load_config_file(&path, gix::config::Source::Local)?;
+    Ok(file
+        .section("branch", Some(name.into()))
+        .ok()
+        .and_then(|section| section.value("remote").map(|value| value.to_string())))
+}
+
 /// The counterpart to [`rename_branch_section`]: the `[branch "<name>"]`
 /// section simply goes away. It runs only once the shared copy is gone, when
 /// the section names a branch that no longer exists on either side. A branch
