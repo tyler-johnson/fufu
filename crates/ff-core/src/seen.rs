@@ -5,7 +5,8 @@
 //! here, and if it does not, refuse*. That value is only worth something as
 //! the tip you last looked at. The tracking ref is not that. Any fetch moves
 //! it — an editor's background one, `ff git fetch`, `ff pull --dry-run`,
-//! whose fetch writes the tracking refs on purpose — and a lease read off
+//! whose fetch writes the tracking refs on purpose, the fetch lane that
+//! rides any verb on its cadence — and a lease read off
 //! it afterwards names a tip nobody looked at, which git then honors,
 //! and a teammate's push is gone. So the lease is fufu's own record: the
 //! tip of the shared copy a foreground verb last put in front of you, and

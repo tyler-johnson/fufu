@@ -95,3 +95,80 @@ pub fn for_branch(repo: &gix::Repository, branch: &str) -> RemoteChoice {
         }
     }
 }
+
+/// Delete every tracking ref of `remote` the fetch refspecs cover that the
+/// remote no longer holds — gix's fetch has no `--prune`, so this is that
+/// step, run after `receive` on the ref map the handshake produced.
+///
+/// `present` is the set of local destinations the ref map named, one per
+/// remote ref the refspecs matched. For each fetch refspec with a
+/// destination (a negative spec has none), the destination pattern is
+/// split at its `*` and the refs under the prefix are walked: a symbolic
+/// one (`<remote>/HEAD`) is left alone, a name that does not end in the
+/// suffix is not this spec's, and the rest are deleted unless `present`
+/// names them. Best-effort per ref, so one `ref/contended` does not stop
+/// the others; the names deleted come back.
+///
+/// Outside any operation, like the fetch's own ref writes: `refs/remotes/`
+/// is outside `TRACKED_PREFIXES`, so reconcile has nothing to say about it.
+pub fn prune_tracking(
+    repo: &gix::Repository,
+    remote: &str,
+    present: &std::collections::HashSet<gix::bstr::BString>,
+    now: i64,
+) -> Result<Vec<String>> {
+    use gix::bstr::ByteSlice;
+
+    let handle = repo
+        .find_remote(remote)
+        .map_err(crate::error::Error::repo)?;
+    let mut gone: Vec<(String, gix::ObjectId)> = Vec::new();
+    for spec in handle.refspecs(gix::remote::Direction::Fetch) {
+        let spec = spec.to_ref();
+        let Some(destination) = spec.destination() else {
+            continue;
+        };
+        let destination = destination.to_str_lossy().into_owned();
+        // `prefixed` is a path walk, so a destination with no `*` is walked
+        // by its own name and matched exactly — `origin/main` must not take
+        // `origin/main2` with it.
+        let (prefix, suffix) = match destination.split_once('*') {
+            Some((prefix, suffix)) => (prefix, Some(suffix)),
+            None => (destination.as_str(), None),
+        };
+        let covers = |name: &str| match suffix {
+            Some(suffix) => name.len() >= prefix.len() + suffix.len() && name.ends_with(suffix),
+            None => name == destination,
+        };
+        let platform = repo.references().map_err(crate::error::Error::repo)?;
+        let Ok(iter) = platform.prefixed(prefix) else {
+            continue;
+        };
+        for reference in iter.flatten() {
+            let name = reference.name().as_bstr().to_str_lossy().into_owned();
+            if !covers(&name) {
+                continue;
+            }
+            let target = reference.target();
+            if target.try_name().is_some() {
+                continue;
+            }
+            let Some(tip) = target.try_id() else {
+                continue;
+            };
+            if present.contains(name.as_bytes().as_bstr()) {
+                continue;
+            }
+            gone.push((name, tip.to_owned()));
+        }
+    }
+    gone.sort();
+    gone.dedup();
+    let mut deleted = Vec::new();
+    for (name, tip) in gone {
+        if crate::refs::delete_ref(repo, &name, tip, now).is_ok() {
+            deleted.push(name);
+        }
+    }
+    Ok(deleted)
+}

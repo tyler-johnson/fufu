@@ -11,8 +11,9 @@
 //! shared copy *as you last saw it*, and the lease is fufu's own record of
 //! that, `refs/fufu/seen/<branch>` ([`crate::seen`]), not the tracking
 //! ref. No fetch moves the record, fufu's or anyone's: an editor's
-//! background fetch, `ff git fetch`, and `ff pull --dry-run` all move the
-//! tracking ref and leave the record where the last report put it. A
+//! background fetch, `ff git fetch`, `ff pull --dry-run`, and the fetch
+//! lane that rides any verb all move the tracking ref and leave the record
+//! where the last report put it. A
 //! tracking ref standing off the record is a copy that moved since you
 //! looked, and [`plan`] refuses it here, before the wire, the way git would
 //! have refused it at the wire. Going to the network first would ask git to
