@@ -173,12 +173,55 @@ fn create_at_the_open_change() {
         fx.git(&["rev-parse", "here"]).trim(),
         fx.git(&["rev-parse", "HEAD"]).trim()
     );
+    assert!(
+        stdout(&out).contains("carried the open change onto here"),
+        "{}",
+        stdout(&out)
+    );
     assert_eq!(
         std::fs::read_to_string(fx.path().join("a.txt")).expect("a.txt"),
         "dirty\n",
         "the working copy is untouched"
     );
     assert_eq!(current(&fx), "main");
+
+    // The copy resumes there; the original resumes here.
+    let out = ff(&fx, &["switch", "here"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(current(&fx), "here");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).expect("a.txt"),
+        "dirty\n",
+        "the copy is the open change on the new branch"
+    );
+    let out = ff(&fx, &["switch", "main"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).expect("a.txt"),
+        "dirty\n",
+        "main keeps its own"
+    );
+}
+
+/// The JSON names the copy.
+#[test]
+fn create_at_the_open_change_reports_the_copy() {
+    let fx = repo();
+    fx.write("a.txt", "dirty\n");
+    let v = json(&ff(&fx, &["branch", "there", "@", "--json"]));
+    let carried = v["data"]["create"]["carried"]
+        .as_str()
+        .expect("carried is a sha");
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/there"]).trim(),
+        carried,
+        "{v}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        carried,
+        "one sha on both branches"
+    );
 }
 
 /// A taken name is refused by the same id `ff start -b` refuses it with.

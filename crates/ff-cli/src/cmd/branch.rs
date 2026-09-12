@@ -55,6 +55,13 @@ fn create(ctx: &Ctx, name: &str, rev: Option<&str>) -> Result<()> {
         crate::render::paint_sha(ff_core::sha::short(report.at.as_str()), colored),
         report.forked_from
     );
+    if let Some(sha) = &report.carried {
+        println!(
+            "carried the open change onto {} ({})",
+            report.name,
+            crate::render::paint_sha(ff_core::sha::short(sha.as_str()), colored)
+        );
+    }
     println!("{}", crate::render::paint_dim("undo: ff undo", colored));
     Ok(())
 }

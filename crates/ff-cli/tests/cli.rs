@@ -457,7 +457,7 @@ fn errors_carry_exactly_one_ff_prefix() {
     fx.write("a.txt", "a\n");
     fx.commit("init");
 
-    let out = ff(&fx, &["start", "@"]);
+    let out = ff(&fx, &["switch", "nosuch"]);
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.starts_with("ff: "), "error convention: {stderr:?}");

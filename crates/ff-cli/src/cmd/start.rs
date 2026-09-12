@@ -51,7 +51,14 @@ pub fn run(
         "minted {} (forked from {})",
         report.minted, report.forked_from
     );
-    println!("open change on {}", report.minted);
+    match &report.carried {
+        Some(sha) => println!(
+            "carried the open change onto {} ({})",
+            report.minted,
+            crate::render::paint_sha(ff_core::sha::short(sha.as_str()), colored)
+        ),
+        None => println!("open change on {}", report.minted),
+    }
     println!("{}", crate::render::paint_dim("undo: ff undo", colored));
     Ok(())
 }

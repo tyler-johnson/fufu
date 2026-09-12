@@ -334,11 +334,10 @@ pub static ENTRIES: &[Entry] = &[
         summary: "that target resolves, but not to something this verb can use",
         detail: "The spelling was understood — a target that denotes nothing raises a \
                  usage/revset- refusal naming the spelling instead. What it resolved to is the \
-                 problem. On ff start that is the open change: start always opens a clean \
-                 branch, so @ is the one revision it cannot fork at, however it is spelled. To \
-                 move the open change onto a branch of its own, close it there with \
-                 ff commit -b <name>.",
-        exits: &["ff commit -b <name>", "ff log"],
+                 problem. On ff start and ff branch that is @ on an unborn branch: the fork \
+                 lands at the commit under the open change, and an unborn branch has none yet. \
+                 Close the change first, and the branch has a commit to fork at.",
+        exits: &["ff commit", "ff log"],
     },
     Entry {
         id: "usage/revset-adjacent-operands",
