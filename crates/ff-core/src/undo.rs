@@ -556,17 +556,44 @@ pub fn rewind(
     //    world is already in, and re-running converges.
     move_pointer(repo, tip, target_id, &back, &fwd, forward, now)?;
 
-    // 9. The open commit of the branch HEAD landed on, rebuilt from what the
-    //    landing recorded — the branch's pointer moved above, and the
-    //    metadata in step 7 — and reusing the sha the landing op stated when
-    //    it still says the same thing. Best effort: the ref is derived, and
-    //    the next capture rebuilds it too.
-    if let Some(landing_branch) = to_table.head.strip_prefix("ref:refs/heads/")
-        && let Err(err) = crate::open::sync(repo, landing_branch, now)
-    {
-        warnings.push(format!(
-            "could not resync the open commit of {landing_branch}: {err}"
-        ));
+    // 9. The open commits, rebuilt from what the landing recorded — the
+    //    branch pointers moved above, and the metadata in step 7 — reusing
+    //    the sha the branch's newest op stated when it still says the same
+    //    thing: the branch HEAD landed on, and every branch the stepped
+    //    operations were recorded on or moved HEAD off. A switch is recorded
+    //    on its destination and names its origin in its HEAD transition, and
+    //    both branches' parks follow the move. Best effort: the ref is
+    //    derived, and the next capture rebuilds it too.
+    let landing_branch = to_table.head.strip_prefix("ref:refs/heads/");
+    let mut touched: std::collections::BTreeSet<String> =
+        landing_branch.map(str::to_string).into_iter().collect();
+    for op in back.iter().chain(fwd.iter()) {
+        if let Some(branch) = op.branch() {
+            touched.insert(branch.to_string());
+        }
+        if let Ok(Some(op_record)) = op.record()
+            && let Some((old, new)) = &op_record.head
+        {
+            for side in [old, new] {
+                if let Some(branch) = side.strip_prefix("ref:refs/heads/") {
+                    touched.insert(branch.to_string());
+                }
+            }
+        }
+    }
+    touched.remove(crate::snapshot::chain::DETACHED);
+    for branch in touched {
+        // A branch the landing does not have has no park to rebuild.
+        if Some(branch.as_str()) != landing_branch
+            && refs::ref_target(repo, &format!("refs/heads/{branch}"))?.is_none()
+        {
+            continue;
+        }
+        if let Err(err) = crate::open::sync(repo, &branch, now) {
+            warnings.push(format!(
+                "could not resync the open commit of {branch}: {err}"
+            ));
+        }
     }
 
     let mut files = transition.written;

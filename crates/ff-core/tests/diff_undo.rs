@@ -500,15 +500,12 @@ fn switch_then_undo_returns_with_the_parked_change_reopened() {
         "wip on main\n",
         "the parked change is open again"
     );
-    // The park's stash entry was dropped by the rollback.
-    assert!(
-        fx.git(&["stash", "list"]).is_empty(),
-        "stash effect inverted"
-    );
-    assert!(
-        ff_core::stash::parked_entry(&fx.repo(), "main")
-            .unwrap()
-            .is_none()
+    // Nothing ever went to refs/stash; the open ref is main's again.
+    assert!(fx.git(&["stash", "list"]).is_empty());
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        report.parked.as_deref().unwrap(),
+        "the open commit is the same sha the switch parked"
     );
 }
 
@@ -570,11 +567,10 @@ fn switching_back_then_undo_reparks_the_untracked_file() {
         !fx.path().join("loose.txt").exists(),
         "the untracked file is parked again, not on disk"
     );
-    assert!(
-        ff_core::stash::parked_entry(&fx.repo(), "main")
-            .unwrap()
-            .is_some(),
-        "main's park is back"
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        away.parked.as_deref().unwrap(),
+        "main's park is back: the open ref names the parked commit"
     );
 
     // A second undo takes back the first switch and reopens it on main.
@@ -588,10 +584,10 @@ fn switching_back_then_undo_reparks_the_untracked_file() {
         "untracked\n",
         "the untracked file is open on main again"
     );
-    assert!(
-        ff_core::stash::parked_entry(&fx.repo(), "main")
-            .unwrap()
-            .is_none()
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        away.parked.as_deref().unwrap(),
+        "and its open commit is the one sha throughout"
     );
 }
 

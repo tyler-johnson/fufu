@@ -18,11 +18,12 @@ use crate::hooks;
 use crate::model::{AbsorbOutcome, AbsorbReport, HeadState, HeldReport, LiftOutcome, LiftReport};
 use crate::ops::record::observe_refs;
 use crate::ops::{OpKind, OpRecord, verb};
+use crate::park::ArrivePlan;
 use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
 use crate::snapshot::tree as snaptree;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 
 /// The branch the rewrite runs on and its tip: `on` when named — a
 /// resolution landing names the held branch, since HEAD stands on the
@@ -657,16 +658,13 @@ pub fn absorb_with(
     // fold already carries, which an arrival would apply a second time.
     let new_tip_tree = tree_of(repo, plan.new_tip)?;
     if let Some(ret) = return_trip {
-        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
-            .iter()
-            .map(|l| l.new)
-            .collect();
+        let mut stash_lines = stash::lines(repo)?;
         ret.fold_into(
             &mut planned,
             &mut record,
             &mut pins,
             &mut stash_lines,
-            &ArrivePlan::None,
+            &ArrivePlan::none(),
         );
     }
     // The cascade rides this record: its ref moves, rewrites, drops, and
@@ -759,7 +757,7 @@ pub fn absorb_with(
     // whole resolution back.
     match return_trip {
         Some(ret) => {
-            ret.land(repo, new_tip_tree, &ArrivePlan::None, now)?;
+            ret.land(repo, new_tip_tree, &ArrivePlan::none(), now)?;
         }
         None => crate::index::write_index_for_tree(repo, new_tip_tree)?,
     }
@@ -1006,16 +1004,13 @@ pub fn lift_with(
     // lift's chain already carries, which an arrival would apply twice.
     let new_tip_tree = tree_of(repo, plan.new_tip)?;
     if let Some(ret) = return_trip {
-        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
-            .iter()
-            .map(|l| l.new)
-            .collect();
+        let mut stash_lines = stash::lines(repo)?;
         ret.fold_into(
             &mut planned,
             &mut record,
             &mut pins,
             &mut stash_lines,
-            &ArrivePlan::None,
+            &ArrivePlan::none(),
         );
     }
     // The cascade rides this record: its ref moves, rewrites, drops, and
@@ -1098,7 +1093,7 @@ pub fn lift_with(
     // open afterwards.
     match return_trip {
         Some(ret) => {
-            ret.land(repo, new_tip_tree, &ArrivePlan::None, now)?;
+            ret.land(repo, new_tip_tree, &ArrivePlan::none(), now)?;
         }
         None => crate::index::write_index_for_tree(repo, new_tip_tree)?,
     }

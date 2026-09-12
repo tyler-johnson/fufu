@@ -494,9 +494,14 @@ fn a_dirty_tree_is_parked_before_the_markers_go_in() {
         other => panic!("a conflicting resolve must open, got {other:?}"),
     };
 
-    assert!(
-        report.parked.is_some(),
-        "the dirty change must be parked to make room"
+    let parked = report
+        .parked
+        .clone()
+        .expect("the dirty change must be parked to make room");
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/feature"]).trim(),
+        parked,
+        "the park is feature's open commit"
     );
     let restored = std::fs::read_to_string(fx.path().join("other.txt")).unwrap();
     assert_eq!(

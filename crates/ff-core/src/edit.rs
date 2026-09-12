@@ -27,15 +27,6 @@ fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
     Ok(commit.message().map_err(Error::repo)?.summary().to_string())
 }
 
-fn resolve_now(now: Option<i64>) -> i64 {
-    now.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    })
-}
-
 /// Open an editing session on the named commit. See the module docs.
 pub fn edit(
     repo: &gix::Repository,
@@ -173,6 +164,10 @@ pub fn edit(
     let name = crate::petname::mint(repo)?;
     let at_string = at.to_string();
 
+    // The preamble before the mint: a dirty tree's park is its open commit,
+    // and the capture is what writes one — the switch below finds it there.
+    let pre = verb::begin_verb(repo, prov, now)?;
+    let now = pre.now;
     mint_session(
         repo,
         Mint {
@@ -183,7 +178,7 @@ pub fn edit(
             summary: format!("edit {at_short}: session {name} on {current}"),
             resolving: None,
         },
-        resolve_now(now),
+        now,
         &argv,
         prov,
     )?;
@@ -194,7 +189,7 @@ pub fn edit(
         repo,
         &crate::switch::SwitchOptions {
             target: name.clone(),
-            now,
+            now: Some(now),
             argv,
         },
         prov,

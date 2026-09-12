@@ -133,6 +133,19 @@ pub(crate) fn append_op(
     op: VerbOp<'_>,
     now: i64,
 ) -> Result<OpId> {
+    append_op_hinted(repo, kind, op, None, now)
+}
+
+/// [`append_op`], naming an open commit the verb already wrote for the
+/// branch it lands on — a parked change replayed onto a moved tip — so the
+/// append lands that commit rather than minting a twin of it.
+pub(crate) fn append_op_hinted(
+    repo: &gix::Repository,
+    kind: OpKind,
+    op: VerbOp<'_>,
+    open_hint: Option<gix::ObjectId>,
+    now: i64,
+) -> Result<OpId> {
     let draft = OpDraft {
         kind,
         subject: op.record.summary.clone(),
@@ -145,6 +158,7 @@ pub(crate) fn append_op(
         index_tree: Some(op.index_tree),
         record: Some(op.record),
         pins: op.pins.to_vec(),
+        open_hint,
     };
     match OpLog::open(repo)?.append(&draft, now)? {
         Append::Committed(id) => Ok(id),

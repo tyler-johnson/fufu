@@ -580,8 +580,9 @@ pub struct FoldReport {
     /// Where the source's pointer into the log went. `None` under
     /// `--stay`, and when the branch had no operations of its own.
     pub trash_ref: Option<String>,
-    /// The source's parked change, dropped with the branch.
-    pub parked_demoted: Option<String>,
+    /// A legacy park the source carried, left on the stash list with the
+    /// branch. `None` under `--stay` and for a branch that carried none.
+    pub open_left: Option<String>,
     /// The target has a parked change, and whether it would still apply.
     /// Disclosed, never applied over the change that rode the fold.
     pub parked: Option<Parked>,
@@ -608,8 +609,9 @@ pub struct MovedTree {
 /// A parked change the restack leaves untouched, disclosed not resolved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Parked {
-    /// The stash commit fufu recorded for that branch.
-    pub stash: String,
+    /// The branch's open commit — or, for a park made before the open
+    /// commit was the park, its stash commit.
+    pub open: String,
     /// It still merges onto the branch's new tip.
     pub applies: bool,
 }
@@ -726,7 +728,7 @@ pub struct EditReport {
     pub onto: String,
     /// How many of its commits wait ahead.
     pub ahead: usize,
-    /// The stash sha the open change parked under, when the tree was dirty.
+    /// The open commit the dirty tree left as its park.
     pub parked: Option<String>,
 }
 
@@ -740,6 +742,27 @@ pub enum ResolveOutcome {
     Released(ReleasedReport),
     /// The hold was dropped.
     Abandoned(AbandonedHold),
+    /// A held arrival's conflicts are in the working copy, laid into the
+    /// open change with markers — or the change applied cleanly now and is
+    /// simply open again.
+    Laid(LaidReport),
+}
+
+/// A held arrival laid into the open change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LaidReport {
+    pub branch: String,
+    /// The open commit the hold carried.
+    pub held: String,
+    /// The change back in the working copy: `open` is the open commit the
+    /// operation landed, markers and all.
+    pub arrival: ArrivalReport,
+    /// Files carrying conflict markers, sorted; empty when the change
+    /// applied cleanly.
+    pub paths: Vec<String>,
+    /// Conflict regions standing in the working copy; zero when the change
+    /// applied cleanly.
+    pub regions: usize,
 }
 
 /// A resolution session that opened.
@@ -763,7 +786,7 @@ pub struct ResolveReport {
     /// The commit the chain stopped before, when two conflicts landed on one
     /// region and the markers would have interleaved rather than nested.
     pub tangled: Option<String>,
-    /// The change parked to make room, when the tree was dirty.
+    /// The open commit the dirty tree left as its park, to make room.
     pub parked: Option<String>,
 }
 
@@ -789,6 +812,9 @@ pub struct AbandonedHold {
     pub returned: bool,
     /// What became of `branch`'s parked change when HEAD came back to it.
     pub arrival: ArrivalReport,
+    /// The open commit a dropped arrival hold carried: it stays pinned by
+    /// the operation that held it.
+    pub left: Option<String>,
 }
 
 /// The result of `ff done`: an editing session ended, landed or abandoned.
@@ -887,8 +913,9 @@ pub struct AbandonReport {
     pub editing: String,
     pub subject: String,
     pub onto: String,
-    /// The stash sha the session's uncommitted edits went to, if any.
-    pub stashed: Option<String>,
+    /// The session's open commit — its uncommitted edits — left behind and
+    /// pinned by this operation, if the tree was dirty.
+    pub left: Option<String>,
     pub arrival: ArrivalReport,
     pub files: usize,
 }
@@ -1132,8 +1159,9 @@ pub struct BranchDeleteReport {
     pub tip: String,
     /// Where the branch's pointer into the log was parked.
     pub trash_ref: Option<String>,
-    /// The parked stash entry left behind in the stash stack, if any.
-    pub parked_demoted: Option<String>,
+    /// The branch's open commit, left behind and pinned by its timeline in
+    /// trash, if it had one.
+    pub open_left: Option<String>,
     /// The shared copy this branch answered to, left standing. `None` when
     /// the branch answered to nothing.
     pub shared: Option<SharedCopy>,
@@ -1168,17 +1196,35 @@ pub struct WorktreeRemoveReport {
     pub chain: String,
 }
 
-/// How an arrival (resuming a parked change) went.
+/// How an arrival (resuming a parked change) went. Each arm's `folded` is
+/// the legacy stash entry the arrival folded into the open commit, when it
+/// met one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ArrivalReport {
     /// Nothing was parked on the target.
     None,
-    /// The parked change is back in the working tree.
-    Restored { stash: String, files: Vec<String> },
-    /// The parked change no longer applies cleanly: it stays parked.
-    StillParked { stash: String, paths: Vec<String> },
-    /// The stash entry vanished outside fufu; the parked ref was demoted.
+    /// The parked change is back in the working tree: `open` is its open
+    /// commit, replayed onto the tip when the tip had moved.
+    Restored {
+        open: String,
+        files: Vec<String>,
+        folded: Option<String>,
+    },
+    /// The parked change conflicts with the branch's new tip: the branch is
+    /// held for `ff resolve`, and `open` stays pinned by the operation.
+    Held {
+        open: String,
+        paths: Vec<String>,
+        folded: Option<String>,
+    },
+    /// The branch's tip already holds the parked change; nothing to resume.
+    Landed {
+        open: String,
+        folded: Option<String>,
+    },
+    /// A legacy stash entry vanished outside fufu; the parked ref was
+    /// demoted.
     Invalidated { stash: String },
 }
 
@@ -1187,7 +1233,7 @@ pub enum ArrivalReport {
 pub struct SwitchReport {
     pub from: String,
     pub to: String,
-    /// The stash sha the open change was parked under, if the tree was dirty.
+    /// The open commit the dirty tree left as its park: the `@` row's sha.
     pub parked: Option<String>,
     pub arrival: ArrivalReport,
     /// The mandatory pre-verb capture, spelled as an operation id.

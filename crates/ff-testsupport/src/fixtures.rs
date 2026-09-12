@@ -349,6 +349,19 @@ fn backdate_dir(dir: &Path, old: SystemTime) {
     }
 }
 
+/// A park in the shape fufu wrote before the open commit was the park: a
+/// `git stash push -u -m "fufu: wip on <branch>"` entry plus
+/// `refs/fufu/parked/<branch>` naming it. The exact old shape, made with
+/// git, so the fold has a real entry to meet. The worktree is left clean, as
+/// the old park left it. Returns the stash commit's sha.
+pub fn legacy_park(fx: &Fixture, branch: &str) -> String {
+    let label = format!("fufu: wip on {branch}");
+    fx.git(&["stash", "push", "-q", "-u", "-m", &label]);
+    let sha = fx.git(&["rev-parse", "refs/stash"]).trim().to_string();
+    fx.git(&["update-ref", &format!("refs/fufu/parked/{branch}"), &sha]);
+    sha
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -124,6 +124,13 @@ fn switch_to(fx: &Fixture, branch: &str, now: i64) -> ff_core::SwitchReport {
     .unwrap()
 }
 
+/// The newest operation's commit, full sha.
+fn log_tip(fx: &Fixture) -> String {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    log.tip().unwrap().unwrap().object_id().to_string()
+}
+
 /// The newest operation's record, read through the public reader.
 fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
     let log = ff_core::ops::OpLog::open(repo).unwrap();
@@ -1383,12 +1390,18 @@ fn the_landing_record_carries_the_return_trip_and_one_undo_restores_it() {
         record.refs
     );
     assert!(
-        record.stash.iter().any(|e| matches!(
-            e,
-            ff_core::ops::StashEffect::Drop { branch, stash } if branch == "feature" && *stash == parked
-        )),
-        "and the park brought home: {:?}",
+        record.stash.is_empty(),
+        "the park is the open commit; nothing rides refs/stash: {:?}",
         record.stash
+    );
+    let op_parents: Vec<String> = fx
+        .git(&["log", "-1", "--format=%P", &log_tip(&fx)])
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    assert!(
+        op_parents.contains(&parked),
+        "and the park brought home is pinned by the op: {op_parents:?}"
     );
     let ended = record
         .resolve_session
@@ -1405,10 +1418,8 @@ fn the_landing_record_carries_the_return_trip_and_one_undo_restores_it() {
     assert_eq!(tip(&fx, &session), marker_commit);
     assert_ne!(tip(&fx, "feature"), report.new_tip);
     assert_eq!(
-        ff_core::stash::parked_entry(&fx.repo(), "feature")
-            .unwrap()
-            .map(|id| id.to_string()),
-        Some(parked),
+        fx.git(&["rev-parse", "refs/fufu/open/feature"]).trim(),
+        parked,
         "the park is parked again"
     );
     assert_eq!(
@@ -1472,10 +1483,8 @@ fn one_undo_reparks_the_landings_untracked_file() {
         "the untracked file is parked again, not on disk"
     );
     assert_eq!(
-        ff_core::stash::parked_entry(&fx.repo(), "feature")
-            .unwrap()
-            .map(|id| id.to_string()),
-        Some(parked),
+        fx.git(&["rev-parse", "refs/fufu/open/feature"]).trim(),
+        parked,
         "the park is parked again"
     );
 }
@@ -1490,7 +1499,11 @@ fn abandoning_from_the_held_branch_deletes_the_session_elsewhere() {
     let session = opened.session.clone();
     fix(&fx, "f.txt", "PARTIAL\n");
     switch_to(&fx, "feature", NOW + 200);
-    assert_ne!(stash_list(&fx), "", "the fixes in progress are parked");
+    fx.git(&[
+        "rev-parse",
+        "--verify",
+        &format!("refs/fufu/open/{session}"),
+    ]);
     let before_tip = tip(&fx, "feature");
 
     let report = match resolve_call(&fx, true, NOW + 300).unwrap() {
@@ -1508,7 +1521,16 @@ fn abandoning_from_the_held_branch_deletes_the_session_elsewhere() {
         !heads.iter().any(|(name, _)| name.ends_with(&session)),
         "the session branch is gone: {heads:?}"
     );
-    assert_eq!(stash_list(&fx), "", "and its parked fixes with it");
+    assert!(
+        !fx.try_git(&[
+            "rev-parse",
+            "--verify",
+            &format!("refs/fufu/open/{session}")
+        ])
+        .status
+        .success(),
+        "and its parked fixes' ref with it"
+    );
     let repo = fx.repo();
     assert!(
         ff_core::held::of(&repo, "feature").unwrap().is_none()

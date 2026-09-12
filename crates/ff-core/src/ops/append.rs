@@ -59,6 +59,10 @@ pub(crate) struct OpDraft {
     pub record: Option<OpRecord>,
     /// Commits the op's ref transitions touch — reachability IS the gc pin.
     pub pins: Vec<gix::ObjectId>,
+    /// An open commit the verb already wrote for `branch` — a parked change
+    /// replayed onto a moved tip — tried first for reuse, so the op lands it
+    /// rather than a twin that only the clock tells apart.
+    pub open_hint: Option<gix::ObjectId>,
 }
 
 /// What one append attempt did.
@@ -153,15 +157,30 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
         // op itself.
         let open_ref = open::open_ref(&draft.branch);
         let open_was = refs::ref_target(repo, open_ref.as_str())?;
+        // A planned table without the branch's ref is a rename recording
+        // itself on the name it takes away: the commit under the open change
+        // is the op's base, whichever name the branch wears next. An unborn
+        // branch has no ref and no base, and answers `None` either way.
         let head_after = match &draft.refs {
             None => draft.base,
-            Some(table) => table
-                .refs
-                .get(&format!("refs/heads/{}", draft.branch))
-                .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
-                .transpose()?,
+            Some(table) => match table.refs.get(&format!("refs/heads/{}", draft.branch)) {
+                Some(hex) => Some(gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo)?),
+                None => draft.base,
+            },
         };
         let overlay = open::Overlay::of(draft.record.as_ref(), &draft.branch);
+        // A verb that leaves a dirty tree on a branch with no id yet mints
+        // one, as a capture does before its append: the open commit is the
+        // park, and an op that stated `none` for want of an id would leave
+        // the branch unable to be left. A record that sets the id itself is
+        // the authority and is left alone.
+        if draft.kind != OpKind::Capture
+            && overlay.change_id.is_none()
+            && draft.branch != crate::snapshot::chain::DETACHED
+            && Some(draft.tree) != head_tree_of(repo, head_after)
+        {
+            mint_change_id(repo, &draft.branch, now)?;
+        }
         let open_commit =
             match open::plan(repo, &draft.branch, draft.tree, head_after, &overlay, now)? {
                 None => None,
@@ -170,8 +189,12 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
                         .and_then(|id| walk::decode(repo, id).ok())
                         .and_then(|op| op.open_commit())
                         .map(|id| id.object_id());
-                    let candidates: Vec<gix::ObjectId> =
-                        open_was.into_iter().chain(stated).collect();
+                    let candidates: Vec<gix::ObjectId> = draft
+                        .open_hint
+                        .into_iter()
+                        .chain(open_was)
+                        .chain(stated)
+                        .collect();
                     Some(open::write(repo, &plan, &candidates, now)?)
                 }
             };
@@ -469,6 +492,19 @@ pub(crate) fn wall_clock() -> i64 {
         .unwrap_or(0)
 }
 
+/// The tree a commit carries, or the empty tree for no commit.
+fn head_tree_of(repo: &gix::Repository, commit: Option<gix::ObjectId>) -> Option<gix::ObjectId> {
+    match commit {
+        Some(id) => repo
+            .find_commit(id)
+            .ok()?
+            .tree_id()
+            .ok()
+            .map(|t| t.detach()),
+        None => Some(gix::ObjectId::empty_tree(repo.object_hash())),
+    }
+}
+
 /// Pin candidates must be commits: tags peel, everything else drops.
 fn peel_to_commit(repo: &gix::Repository, id: gix::ObjectId) -> Option<gix::ObjectId> {
     let obj = repo.find_object(id).ok()?;
@@ -639,11 +675,25 @@ pub fn capture_with(
     // One more condition: the previous op has to state an open commit — the
     // trailer present, whatever it says. An op written before the trailer
     // existed states nothing, so the first capture on a dirty tree after
-    // upgrading appends once and states one; an op that states `none`
-    // (no identity at the time) holds, so a missing `user.name` never turns
-    // an unchanged tree into an append per capture.
+    // upgrading appends once and states one. An op that states `none` holds
+    // when nothing could be written now either, so a missing `user.name`
+    // never turns an unchanged tree into an append per capture; when one
+    // could be — the identity is there, and the op that stated `none` was a
+    // foreign absorption or a verb that ran before the id was minted — this
+    // capture appends once, mints the id, and states the commit, since the
+    // open commit is the park and a dirty tree with none cannot leave.
     let noop_against = prev_tree.unwrap_or(head_tree);
-    if tree_id == noop_against && prev_op.as_ref().is_none_or(|op| op.states_open()) {
+    let stated_none = prev_op
+        .as_ref()
+        .is_some_and(|op| op.states_open() && op.open_commit().is_none());
+    let could_write_one = stated_none
+        && tree_id != head_tree
+        && !matches!(head, crate::model::HeadState::Detached { .. })
+        && refs::user_signature(repo, opts.now.unwrap_or_else(wall_clock)).is_ok();
+    if tree_id == noop_against
+        && prev_op.as_ref().is_none_or(|op| op.states_open())
+        && !could_write_one
+    {
         return Ok(CaptureOutcome::NoOp {
             tip: prev_on_branch.map(OpId::new),
             warnings,
@@ -686,6 +736,7 @@ pub fn capture_with(
         index_tree: None,
         record: None,
         pins: Vec::new(),
+        open_hint: None,
     };
     let id = match crate::ops::OpLog::open(repo)?.append(&draft, now)? {
         Append::Committed(id) => id,

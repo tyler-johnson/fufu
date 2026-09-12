@@ -1,8 +1,10 @@
 //! Differential contract for the switch: on a clean tree, `ff switch` must
 //! land the worktree, index, and HEAD exactly where `git switch` does
 //! (index compared semantically, worktree byte-for-byte via status). On a
-//! dirty tree it must equal git's stash dance: stash push -u, switch,
-//! and — when returning — stash pop --index.
+//! dirty tree it must equal git's stash dance on the worktree: stash push
+//! -u, switch, and — when returning — stash pop. The index is not carried:
+//! the park is the open commit, a tree over the tip, so a staged hunk comes
+//! back as an unstaged edit.
 
 use ff_core::{ArrivalReport, SwitchOptions};
 use ff_testsupport::{Fixture, scenarios};
@@ -119,25 +121,38 @@ fn dirty_switch_equals_git_stash_dance_round_trip() {
         back.arrival
     );
 
-    // git: the equivalent dance.
+    // git: the equivalent dance, without `--index`: the park carries the
+    // tree, not the index.
     fx_git.git(&["stash", "push", "-q", "-u", "-m", "fufu: wip on main"]);
     fx_git.git(&["switch", "-q", "feature"]);
     fx_git.git(&["switch", "-q", "main"]);
-    fx_git.git(&["stash", "pop", "-q", "--index"]);
+    fx_git.git(&["stash", "pop", "-q"]);
 
+    let paths = |status: String| -> Vec<String> {
+        status
+            .lines()
+            .map(|l| l.rsplit(' ').next().unwrap().to_string())
+            .collect()
+    };
     assert_eq!(
-        fx_ff.git(&["status", "--porcelain=v2"]),
-        fx_git.git(&["status", "--porcelain=v2"]),
-        "round-trip status equals git's stash dance"
+        paths(fx_ff.git(&["status", "--porcelain=v2"])),
+        paths(fx_git.git(&["status", "--porcelain=v2"])),
+        "round-trip touches the same paths as git's stash dance"
     );
-    assert_eq!(
-        fx_ff.git(&["ls-files", "--stage"]),
-        fx_git.git(&["ls-files", "--stage"]),
-        "round-trip index equals git's stash dance"
-    );
+    for path in ["shared.txt", "untracked.txt"] {
+        assert_eq!(
+            std::fs::read(fx_ff.path().join(path)).unwrap(),
+            std::fs::read(fx_git.path().join(path)).unwrap(),
+            "{path} is byte-identical to git's"
+        );
+    }
     assert_eq!(
         std::fs::read_to_string(fx_ff.path().join("shared.txt")).unwrap(),
         "staged then more\n"
+    );
+    assert!(
+        fx_ff.git(&["stash", "list"]).is_empty(),
+        "nothing on refs/stash"
     );
 }
 
@@ -160,15 +175,15 @@ fn matrix_dirty_switch_round_trip_from_scenarios() {
             ff_core::HeadState::Branch { name, .. } => name.clone(),
             _ => unreachable!(),
         };
-        // Park refusals (intent-to-add) surface as switch errors — skip.
-        if ff_core::stash::plan_park(&repo, &head, NOW).is_err() {
-            continue;
-        }
         fx.git(&["branch", "elsewhere"]);
-        let before = (
-            fx.git(&["status", "--porcelain=v2"]),
-            fx.git(&["ls-files", "--stage"]),
-        );
+        // The worktree as a tree — `add -A`'s selection — is what the park
+        // carries; the index is not. So the round trip is identity on that
+        // tree, and afterwards status names exactly the paths that tree
+        // changes against HEAD: a staged hunk comes back unstaged, a staged
+        // rename as a deletion beside an untracked file, and a staged-only
+        // mode change, which no worktree tree can carry, is gone.
+        let before = ff_testsupport::capture::git_capture_tree(&fx, &fx.path(), &[]);
+        let head_tree = fx.git(&["rev-parse", "HEAD^{tree}"]).trim().to_string();
 
         switch_to(&fx, "elsewhere");
         assert_eq!(
@@ -177,13 +192,27 @@ fn matrix_dirty_switch_round_trip_from_scenarios() {
             "scenario {name}: clean after switching away"
         );
         switch_to(&fx, &current);
+        let after = ff_testsupport::capture::git_capture_tree(&fx, &fx.path(), &[]);
         assert_eq!(
-            (
-                fx.git(&["status", "--porcelain=v2"]),
-                fx.git(&["ls-files", "--stage"]),
-            ),
-            before,
-            "scenario {name}: switch round trip is identity"
+            after, before,
+            "scenario {name}: switch round trip is identity on the worktree tree"
+        );
+        let mut status_paths: Vec<String> = fx
+            .git(&["status", "--porcelain=v2", "--untracked-files=all"])
+            .lines()
+            .map(|l| l.rsplit(' ').next().unwrap().to_string())
+            .collect();
+        status_paths.sort();
+        let mut tree_paths: Vec<String> = fx
+            .git(&["diff-tree", "--name-only", "-r", &head_tree, &after])
+            .lines()
+            .map(str::to_string)
+            .collect();
+        tree_paths.sort();
+        tree_paths.dedup();
+        assert_eq!(
+            status_paths, tree_paths,
+            "scenario {name}: status names what the worktree tree changes, nothing staged"
         );
     }
 }
@@ -245,7 +274,10 @@ fn switch_journals_one_entry_and_reconciles_clean() {
     let repo = fx.repo();
     let record = tip_record(&repo);
     assert_eq!(record.verb, "switch");
-    assert!(!record.stash.is_empty(), "park journaled as stash effect");
+    assert!(
+        record.stash.is_empty(),
+        "the park writes nothing to refs/stash"
+    );
     assert_eq!(record.head.as_ref().unwrap().1, "ref:refs/heads/feature");
 
     let after = ff_core::ops::reconcile(&repo, NOW + 5).unwrap();
@@ -253,7 +285,7 @@ fn switch_journals_one_entry_and_reconciles_clean() {
 }
 
 #[test]
-fn conflicted_arrival_reports_and_stays_parked_through_switch() {
+fn conflicted_arrival_holds_the_branch_through_switch() {
     let fx = two_branch_fixture();
     // Park a change on main that will conflict after main advances.
     fx.write("shared.txt", "parked edit\n");
@@ -267,15 +299,16 @@ fn conflicted_arrival_reports_and_stays_parked_through_switch() {
 
     let report = switch_to(&fx, "main");
     match &report.arrival {
-        ArrivalReport::StillParked { paths, .. } => {
+        ArrivalReport::Held { paths, .. } => {
             assert_eq!(paths, &vec!["shared.txt".to_string()]);
         }
-        other => panic!("expected StillParked, got {other:?}"),
+        other => panic!("expected Held, got {other:?}"),
     }
-    // The tree is the clean advanced main; the change is still in the stash.
+    // The tree is the clean advanced main; the change is held, not stashed.
     assert_eq!(
         std::fs::read_to_string(fx.path().join("shared.txt")).unwrap(),
         "advanced\n"
     );
-    assert_eq!(fx.git(&["stash", "list"]).lines().count(), 1);
+    assert!(fx.git(&["stash", "list"]).is_empty());
+    assert!(ff_core::held::of(&fx.repo(), "main").unwrap().is_some());
 }

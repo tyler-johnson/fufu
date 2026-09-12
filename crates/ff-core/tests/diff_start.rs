@@ -229,10 +229,8 @@ fn at_is_rejected() {
         "no branch minted"
     );
     assert!(
-        ff_core::stash::parked_entry(&repo, "main")
-            .unwrap()
-            .is_none(),
-        "no parked entry created"
+        fx.git(&["stash", "list"]).is_empty(),
+        "nothing went to refs/stash"
     );
 }
 

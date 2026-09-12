@@ -26,7 +26,7 @@ use crate::error::{Error, Result};
 use crate::futures::{self, At};
 use crate::held::{self, Intent};
 use crate::linked::{self, Holder};
-use crate::model::{FoldReport, HeadState, MovedTree, Parked, ReconcileReport};
+use crate::model::{FoldReport, HeadState, MovedTree, ReconcileReport};
 use crate::ops::record::{
     ChangeIdTransition, Companion, DescriptionTransition, ParentTransition, PointerTransition,
     RefTransition, observe_refs,
@@ -483,19 +483,7 @@ impl FoldPlan {
         let new_tip_tree = futures::tree_of(repo, self.new_tip)?;
         // The target's parked change: disclosed, never applied over the
         // change that rode the fold.
-        let parked = match stash::parked_entry(repo, &self.onto.name)? {
-            Some(id) => {
-                let sc = stash::read_stash_commit(repo, id)?;
-                let applies =
-                    futures::conflict_paths(repo, sc.base_tree, new_tip_tree, sc.wip_tree)?
-                        .is_empty();
-                Some(Parked {
-                    stash: id.to_string(),
-                    applies,
-                })
-            }
-            None => None,
-        };
+        let parked = crate::park::disclose(repo, &self.onto.name, new_tip_tree)?;
         // What is still open is what the worktree holds once this lands,
         // against the commit it then sits on. Unmoved, the tree the preamble
         // captured stands on the same commit it stood on.
@@ -519,7 +507,7 @@ impl FoldPlan {
             files,
             still_open,
             trash_ref,
-            parked_demoted: if self.stay {
+            open_left: if self.stay {
                 None
             } else {
                 self.parked_source.map(|id| id.to_string())
@@ -692,6 +680,11 @@ fn commit_fold(
             ));
         }
     }
+
+    // The source's open ref goes with the branch: its open change rode to
+    // the target, whose ref the operation wrote, and the commit stays
+    // pinned by the source's timeline in trash.
+    crate::open::clear(repo, &source, now)?;
 
     // 12.4 Metadata: the target takes the open change's description and
     // id, each branch above records the target, the source's file goes,

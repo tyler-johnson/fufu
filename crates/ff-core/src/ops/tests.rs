@@ -47,6 +47,7 @@ fn verb(repo: &gix::Repository, summary: &str, now: i64) -> OpId {
         index_tree: Some(crate::index::tree_from_index(repo).expect("index tree")),
         record: Some(OpRecord::new("commit", summary, now)),
         pins: base.into_iter().collect(),
+        open_hint: None,
     };
     match commit_op(repo, &draft, now).expect("commit_op") {
         Append::Committed(id) => id,

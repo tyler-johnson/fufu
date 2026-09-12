@@ -16,8 +16,9 @@
 //! being amended: aiming restack here would replay the edited commit a
 //! second time.
 //!
-//! `--abandon` is the escape hatch: it drops the session's uncommitted edits
-//! (parked, never discarded) rather than landing them, and it works in
+//! `--abandon` is the escape hatch: it leaves the session's uncommitted edits
+//! as the session's open commit, pinned by the operation, rather than landing
+//! them — never discarded — and it works in
 //! exactly the states where `ff done` refuses — a session that gained
 //! commits of its own, or one whose anchor fell out of the landing branch's
 //! history, both fold away without complaint under `--abandon`.
@@ -34,12 +35,13 @@ use crate::model::{
     AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport,
 };
 use crate::ops::record::{SessionTransition, observe_refs};
-use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
+use crate::ops::{OpKind, OpRecord, RefTransition, verb};
+use crate::park;
 use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
 use crate::snapshot::tree as snaptree;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 
 /// The subject of a commit, through the object handle — the raw `CommitRef`
 /// message has no summary.
@@ -130,6 +132,7 @@ fn verb_of(held: &Held) -> &'static str {
         Intent::Done { .. } => "done",
         Intent::Absorb { .. } => "absorb",
         Intent::Lift { .. } => "lift",
+        Intent::Arrive { .. } => "switch",
     }
 }
 
@@ -145,7 +148,7 @@ fn abandoned_as_done(outcome: crate::model::ResolveOutcome) -> Result<DoneOutcom
             editing: String::new(),
             subject: String::new(),
             onto: r.branch,
-            stashed: None,
+            left: None,
             arrival: r.arrival,
             files: 0,
         })),
@@ -492,6 +495,13 @@ fn finish_resolution(
                     )));
                 }
             }
+        }
+        // An arrival hold is resolved in place by `ff resolve`; it never has
+        // a session to land.
+        Intent::Arrive { .. } => {
+            return Err(Error::msg(
+                "internal: a held arrival has no resolution session to land",
+            ));
         }
     };
 
@@ -965,9 +975,14 @@ pub fn done_with(
         });
     }
 
-    // 6. The abandon path: park what is uncommitted. Planning only.
-    let park_plan = if abandon {
-        stash::plan_park(repo, &head, now)?
+    // 6. The abandon path: what is uncommitted is the session's open commit,
+    // left where the capture put it and pinned by this operation. A dirty
+    // session with no commit to stand as it refuses, as leaving does.
+    let left = if abandon && ctx.pre_tree != session_tip_tree {
+        Some(
+            crate::open::current(repo, &session_branch, ctx.pre_tree, Some(session_tip))?
+                .ok_or_else(|| park::no_park(&head, &session_branch))?,
+        )
     } else {
         None
     };
@@ -1039,8 +1054,8 @@ pub fn done_with(
     // it is the resolution's own, back from the session the fixes were made
     // on, with the editing session's park spent rather than restored.
     let arrive_plan = match return_trip {
-        Some(ret) => ret.arrival(repo, new_onto_tip, new_onto_tree)?,
-        None => stash::plan_arrival(repo, &onto, new_onto_tip, new_onto_tree)?,
+        Some(ret) => ret.arrival(repo, new_onto_tip, new_onto_tree, now)?,
+        None => park::plan_arrival(repo, &onto, new_onto_tip, new_onto_tree, now)?,
     };
 
     let mut planned = observe_refs(repo)?;
@@ -1060,64 +1075,9 @@ pub fn done_with(
         new: None,
     });
 
-    let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
-        .iter()
-        .map(|l| l.new)
-        .collect();
-    let mut effects: Vec<StashEffect> = Vec::new();
-    if let Some(plan) = &park_plan {
-        stash_lines.push(plan.wip_commit);
-        effects.push(StashEffect::Push {
-            branch: session_branch.clone(),
-            stash: plan.wip_commit.to_string(),
-        });
-        // The parked ref this park writes is demoted within the same
-        // operation — the branch it names is about to be deleted — so it
-        // leaves no net transition on the recorded table; only the stash
-        // push above is a real, persisting change.
-    }
-    // The return trip folds its own arrival below, beside the session
-    // branch's deletion and the spent park.
-    if return_trip.is_none() {
-        match &arrive_plan {
-            ArrivePlan::Restore { stash: sha, .. } => {
-                if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                    stash_lines.remove(pos);
-                }
-                planned.refs.remove(&stash::parked_ref(&onto));
-                refs_transitions.push(RefTransition {
-                    name: stash::parked_ref(&onto),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-                effects.push(StashEffect::Drop {
-                    branch: onto.clone(),
-                    stash: sha.to_string(),
-                });
-            }
-            ArrivePlan::Invalidate { stash: sha } => {
-                planned.refs.remove(&stash::parked_ref(&onto));
-                refs_transitions.push(RefTransition {
-                    name: stash::parked_ref(&onto),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-            }
-            ArrivePlan::None | ArrivePlan::Conflict { .. } => {}
-        }
-    }
-    match stash_lines.last() {
-        Some(tip) => {
-            planned
-                .refs
-                .insert(stash::STASH_REF.to_string(), tip.to_string());
-        }
-        None => {
-            planned.refs.remove(stash::STASH_REF);
-        }
-    }
+    let mut stash_lines = stash::lines(repo)?;
 
-    let (end_tree, end_index) = stash::end_trees(repo, &arrive_plan, new_onto_tree)?;
+    let (end_tree, end_index) = arrive_plan.end_trees(new_onto_tree);
 
     let summary = if abandon {
         format!("done --abandon: {anchor_short} on {onto}")
@@ -1131,7 +1091,6 @@ pub fn done_with(
     record.argv = argv;
     record.head = Some((head_old, format!("ref:{onto_ref}")));
     record.refs = refs_transitions;
-    record.stash = effects;
     if let Some(plan) = &rewrite_plan {
         record.rewrites = plan.rewrites.clone();
         record.dropped = plan.dropped.clone();
@@ -1155,33 +1114,27 @@ pub fn done_with(
     }
     pins.push(session_tip);
     pins.push(onto_tip);
-    match &arrive_plan {
-        ArrivePlan::Restore { stash, .. }
-        | ArrivePlan::Conflict { stash, .. }
-        | ArrivePlan::Invalidate { stash } => pins.push(*stash),
-        ArrivePlan::None => {}
-    }
-    if let Some(plan) = &park_plan {
-        pins.push(plan.wip_commit);
-    }
-    // The return trip rides it too: the HEAD move from the resolution
-    // session, that branch's deletion and its session's end, the arrival on
-    // `onto`, and the editing session's spent park.
-    if let Some(ret) = return_trip {
-        ret.fold_into(
+    pins.extend(left);
+    // The arrival on `onto` rides the record. Under a resolution the return
+    // trip folds it in beside the HEAD move from the resolution session,
+    // that branch's deletion and its session's end, and the editing
+    // session's spent park.
+    match return_trip {
+        Some(ret) => ret.fold_into(
             &mut planned,
             &mut record,
             &mut pins,
             &mut stash_lines,
             &arrive_plan,
-        );
+        ),
+        None => arrive_plan.fold_into(&mut planned, &mut record, &mut pins, &mut stash_lines),
     }
     // The cascade rides this record: its ref moves, rewrites, drops, and
     // holds, and its pins, so one undo takes the landing and the branches
     // above it back together.
     cascade.fold_into(&mut record, &mut planned, &mut pins);
 
-    verb::append_op(
+    verb::append_op_hinted(
         repo,
         OpKind::Op,
         verb::VerbOp {
@@ -1194,19 +1147,12 @@ pub fn done_with(
             session: prov.session.clone(),
             pins: &pins,
         },
+        arrive_plan.open_hint(),
         now,
     )?;
 
-    // 8. Mutate, in order: park (abandon, if dirty), HEAD, refs, index,
-    // worktree, arrive, metadata, futures caches.
-    let stashed = match &park_plan {
-        Some(plan) => {
-            stash::execute_park(repo, plan)?;
-            Some(plan.wip_commit.to_string())
-        }
-        None => None,
-    };
-
+    // 8. Mutate, in order: HEAD, refs, index, worktree, arrive, metadata,
+    // futures caches.
     branch::retarget_head(repo, &onto_ref, now)?;
 
     let reflog_msg = format!("done: onto {onto}");
@@ -1233,12 +1179,6 @@ pub fn done_with(
     if let Some(ret) = return_trip {
         edits.extend(ret.edits()?);
     }
-    if let Some(plan) = &park_plan {
-        edits.push(refs::delete_edit(
-            &stash::parked_ref(&session_branch),
-            plan.wip_commit,
-        )?);
-    }
     match refs::commit_edits(repo, edits, now)? {
         refs::EditOutcome::Applied => {}
         refs::EditOutcome::Contended => {
@@ -1254,6 +1194,11 @@ pub fn done_with(
     // The cascade's holds onto their branches, now that the refs have
     // moved, and the futures caches of every branch it carried.
     cascade.land(repo)?;
+
+    // The session branch is gone, and its open ref with it: the open commit
+    // stays pinned — by this operation when it was left, by the session's
+    // own captures otherwise.
+    crate::open::clear(repo, &session_branch, now)?;
 
     // The session has landed: the staged index is no longer provisional, and
     // putting the old one back would contradict the refs that just moved.
@@ -1274,18 +1219,15 @@ pub fn done_with(
     // session's park, and clears the hold and the resolution it resolved, so
     // one `ff undo` of this op takes the whole resolution back.
     let (arrival_report, files) = match return_trip {
-        Some(ret) => {
-            let (arrival, files) = ret.land(repo, new_onto_tree, &arrive_plan, now)?;
-            (ArrivalReport::from(arrival), files)
-        }
+        Some(ret) => ret.land(repo, new_onto_tree, &arrive_plan, now)?,
         None => {
             crate::index::write_index_for_tree(repo, new_onto_tree)?;
             // `from_tree` is what the worktree holds right now: the amended
-            // tree on the landing path, the session tip's tree on the
-            // abandon path (park already reset it there, and a clean abandon
-            // never dirtied it).
+            // tree on the landing path, the preamble's capture on the
+            // abandon path — the edits left as the open commit, or the tip's
+            // tree when nothing was open.
             let from_tree = if abandon {
-                session_tip_tree
+                ctx.pre_tree
             } else {
                 worktree_tree.expect("computed on the landing path above")
             };
@@ -1296,11 +1238,8 @@ pub fn done_with(
                 new_onto_tree,
                 &everything,
             )?;
-            let arrival = stash::execute_arrival(repo, &onto, &arrive_plan, new_onto_tree, now)?;
-            (
-                ArrivalReport::from(arrival),
-                transition.written.len() + transition.deleted.len(),
-            )
+            let arrival = park::execute_arrival(repo, &onto, &arrive_plan, new_onto_tree, now)?;
+            (arrival, transition.written.len() + transition.deleted.len())
         }
     };
 
@@ -1325,7 +1264,7 @@ pub fn done_with(
                 editing: anchor.to_string(),
                 subject: anchor_subject,
                 onto,
-                stashed,
+                left: left.map(|id| id.to_string()),
                 arrival: arrival_report,
                 files,
             }),

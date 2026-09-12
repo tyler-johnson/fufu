@@ -20,10 +20,11 @@ use crate::futures::At;
 use crate::ops::record::{
     HeldTransition, RefsTable, ResolveTransition, SessionTransition, observe_refs,
 };
-use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
+use crate::ops::{OpKind, OpRecord, RefTransition, verb};
+use crate::park::ArrivePlan;
 use crate::refs;
 use crate::snapshot::Provenance;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 
 /// What a held rewrite was asked to do, in terms that can be asked again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,10 @@ pub enum Intent {
     Absorb { into: String, paths: Vec<String> },
     /// `ff lift`: take `paths` out of `from` and back into the open change.
     Lift { from: String, paths: Vec<String> },
+    /// `ff switch`: the change parked on `branch` — its open commit, `open`
+    /// — conflicts with the tip it arrived on. The replay is that one commit
+    /// onto the branch's tip, and `ff resolve` lays it into the open change.
+    Arrive { branch: String, open: String },
 }
 
 /// A rewrite that conflicted and is waiting, recorded as one field of the
@@ -130,6 +135,7 @@ pub fn verb_of(held: &Held) -> String {
         Intent::Done { .. } => "done",
         Intent::Absorb { .. } => "absorb",
         Intent::Lift { .. } => "lift",
+        Intent::Arrive { .. } => "switch",
     }
     .to_string()
 }
@@ -221,6 +227,28 @@ pub fn replan_at(
                 .map_err(|e| expired("lift", Error::msg(e.to_string())))?;
             crate::absorb::replan_lift(repo, on, Some(from_id), paths)
                 .map_err(|e| expired("lift", e))
+        }
+        // The open commit alone, onto the branch's tip as it stands now.
+        Intent::Arrive { branch, open } => {
+            let open_id = gix::ObjectId::from_hex(open.as_bytes())
+                .map_err(|e| expired("switch", Error::msg(e.to_string())))?;
+            if repo.try_find_object(open_id).ok().flatten().is_none() {
+                return Err(expired(
+                    "switch",
+                    Error::msg(format!("the parked change {open} is gone")),
+                ));
+            }
+            let tip = refs::ref_target(repo, &format!("refs/heads/{branch}"))
+                .ok()
+                .flatten()
+                .ok_or_else(|| {
+                    expired("switch", Error::msg(format!("{branch} no longer exists")))
+                })?;
+            Ok(Replan {
+                target: open_id,
+                tip: open_id,
+                change: crate::rewrite::Change::Onto(tip),
+            })
         }
     }
 }
@@ -335,6 +363,34 @@ pub(crate) fn predates_sessions(branch: &str) -> Error {
     )
 }
 
+/// A park a landing spends rather than brings back: the change was folded
+/// into the chain through the record's `open`, so bringing it back would
+/// apply it twice. An open commit is cleared off its branch and pinned; a
+/// legacy entry is dropped from the stash list the way it always was.
+#[derive(Debug, Clone)]
+pub struct Spent {
+    pub branch: String,
+    pub sha: gix::ObjectId,
+    pub legacy: bool,
+}
+
+impl Spent {
+    pub(crate) fn of(repo: &gix::Repository, branch: &str) -> Result<Option<Self>> {
+        if let Some(sha) = refs::ref_target(repo, &crate::open::open_ref(branch))? {
+            return Ok(Some(Spent {
+                branch: branch.to_string(),
+                sha,
+                legacy: false,
+            }));
+        }
+        Ok(stash::parked_entry(repo, branch)?.map(|sha| Spent {
+            branch: branch.to_string(),
+            sha,
+            legacy: true,
+        }))
+    }
+}
+
 /// The return trip a resolution landing makes: the session branch is
 /// deleted, HEAD goes back to the branch the landing leaves you on, the
 /// working copy moves from the fixes to the landed tip, and the parked
@@ -349,6 +405,9 @@ pub struct Return {
     /// S's tip: the marker commit, unless something committed on S.
     pub session_tip: gix::ObjectId,
     pub session_meta: branchmeta::Session,
+    /// S's own open commit — the fixes as the last capture wrote them —
+    /// cleared with the branch and pinned by the landing.
+    pub session_open: Option<gix::ObjectId>,
     /// S's working copy as a tree, the fixes: the from-tree of the landing's
     /// worktree transition.
     pub worktree: gix::ObjectId,
@@ -362,11 +421,9 @@ pub struct Return {
     /// for a restack, the landing branch for a done, none for an absorb or
     /// lift.
     pub arrive_on: Option<String>,
-    /// The parked change the landing spends, as `(branch, stash sha)`: the
-    /// change was folded into the chain through the record's `open`, so
-    /// bringing it back would apply it twice. The held branch's for an absorb
+    /// The parked change the landing spends: the held branch's for an absorb
     /// or lift, the editing session's for a done, none for a restack.
-    pub drop: Option<(String, gix::ObjectId)>,
+    pub drop: Option<Spent>,
 }
 
 impl Return {
@@ -384,11 +441,12 @@ impl Return {
         let session_meta = branchmeta::read(repo, session)?
             .session
             .ok_or_else(|| Error::msg(format!("internal: {session} carries no session")))?;
+        let session_open = refs::ref_target(repo, &crate::open::open_ref(session))?;
         let (to, arrive_on, drop) = match intent {
             Intent::Restack { branch, .. } => (branch.clone(), Some(branch.clone()), None),
             Intent::Absorb { .. } | Intent::Lift { .. } => {
                 let onto = session_meta.onto.clone();
-                let drop = stash::parked_entry(repo, &onto)?.map(|sha| (onto.clone(), sha));
+                let drop = Spent::of(repo, &onto)?;
                 (onto, None, drop)
             }
             Intent::Done { session: edit } => {
@@ -396,14 +454,21 @@ impl Return {
                     .session
                     .ok_or_else(|| Error::msg(format!("internal: {edit} carries no session")))?
                     .onto;
-                let drop = stash::parked_entry(repo, edit)?.map(|sha| (edit.clone(), sha));
+                let drop = Spent::of(repo, edit)?;
                 (landing.clone(), Some(landing), drop)
+            }
+            // An arrival is resolved in place, never on a session.
+            Intent::Arrive { .. } => {
+                return Err(Error::msg(
+                    "internal: a held arrival has no resolution session to return from",
+                ));
             }
         };
         Ok(Self {
             session: session.to_string(),
             session_tip,
             session_meta,
+            session_open,
             worktree,
             hold_on: hold_on.to_string(),
             to,
@@ -418,17 +483,18 @@ impl Return {
         repo: &gix::Repository,
         new_tip: gix::ObjectId,
         new_tip_tree: gix::ObjectId,
+        now: i64,
     ) -> Result<ArrivePlan> {
         match &self.arrive_on {
-            Some(branch) => stash::plan_arrival(repo, branch, new_tip, new_tip_tree),
-            None => Ok(ArrivePlan::None),
+            Some(branch) => crate::park::plan_arrival(repo, branch, new_tip, new_tip_tree, now),
+            None => Ok(ArrivePlan::none()),
         }
     }
 
     /// Fold the trip into the verb's write-ahead: the HEAD move, the session
-    /// branch's deletion and its session's end, the arrival's and the drop's
-    /// stash effects, and the pins. `stash_lines` is the stash reflog as the
-    /// verb read it, and `planned`'s `refs/stash` is set from what is left.
+    /// branch's deletion and its session's end, the arrival, the spent park,
+    /// and the pins. `stash_lines` is the stash reflog as the verb read it,
+    /// for the legacy entries.
     pub(crate) fn fold_into(
         &self,
         planned: &mut RefsTable,
@@ -453,62 +519,14 @@ impl Return {
             new: None,
         });
         pins.push(self.session_tip);
+        pins.extend(self.session_open);
 
-        if let Some(branch) = &self.arrive_on {
-            match arrive {
-                ArrivePlan::Restore { stash: sha, .. } => {
-                    if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                        stash_lines.remove(pos);
-                    }
-                    planned.refs.remove(&stash::parked_ref(branch));
-                    record.refs.push(RefTransition {
-                        name: stash::parked_ref(branch),
-                        old: Some(sha.to_string()),
-                        new: None,
-                    });
-                    record.stash.push(StashEffect::Drop {
-                        branch: branch.clone(),
-                        stash: sha.to_string(),
-                    });
-                    pins.push(*sha);
-                }
-                ArrivePlan::Invalidate { stash: sha } => {
-                    planned.refs.remove(&stash::parked_ref(branch));
-                    record.refs.push(RefTransition {
-                        name: stash::parked_ref(branch),
-                        old: Some(sha.to_string()),
-                        new: None,
-                    });
-                    pins.push(*sha);
-                }
-                ArrivePlan::Conflict { stash, .. } => pins.push(*stash),
-                ArrivePlan::None => {}
-            }
-        }
-        if let Some((branch, sha)) = &self.drop {
-            if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                stash_lines.remove(pos);
-            }
-            planned.refs.remove(&stash::parked_ref(branch));
-            record.refs.push(RefTransition {
-                name: stash::parked_ref(branch),
-                old: Some(sha.to_string()),
-                new: None,
-            });
-            record.stash.push(StashEffect::Drop {
-                branch: branch.clone(),
-                stash: sha.to_string(),
-            });
-            pins.push(*sha);
-        }
-        match stash_lines.last() {
-            Some(tip) => {
-                planned
-                    .refs
-                    .insert(stash::STASH_REF.to_string(), tip.to_string());
-            }
-            None => {
-                planned.refs.remove(stash::STASH_REF);
+        arrive.fold_into(planned, record, pins, stash_lines);
+        if let Some(spent) = &self.drop {
+            if spent.legacy {
+                stash::spend(stash_lines, planned, record, pins, &spent.branch, spent.sha);
+            } else {
+                pins.push(spent.sha);
             }
         }
     }
@@ -520,43 +538,55 @@ impl Return {
     }
 
     /// The ref edits the trip adds to the verb's transaction: the session
-    /// branch's deletion, and the spent park's ref, so the landing and the
-    /// return are all-or-nothing.
+    /// branch's deletion, and a spent legacy park's ref, so the landing and
+    /// the return are all-or-nothing.
     pub(crate) fn edits(&self) -> Result<Vec<gix::refs::transaction::RefEdit>> {
         let mut edits = vec![refs::delete_edit(
             &format!("refs/heads/{}", self.session),
             self.session_tip,
         )?];
-        if let Some((branch, sha)) = &self.drop {
-            edits.push(refs::delete_edit(&stash::parked_ref(branch), *sha)?);
+        if let Some(spent) = &self.drop
+            && spent.legacy
+        {
+            edits.push(refs::delete_edit(
+                &stash::parked_ref(&spent.branch),
+                spent.sha,
+            )?);
         }
         Ok(edits)
     }
 
     /// The mutating half, after the refs moved: index and working copy to
-    /// the landed tip, the arrival, the spent park's stash entry, and the
-    /// three metadata records — the session branch's session, and the hold
-    /// and the resolution on the branch it stood on. Returns the arrival and
-    /// how many files the worktree write touched.
+    /// the landed tip, the arrival, the spent park, the session's open ref,
+    /// and the three metadata records — the session branch's session, and
+    /// the hold and the resolution on the branch it stood on. Returns the
+    /// arrival and how many files the worktree write touched.
     pub(crate) fn land(
         &self,
         repo: &gix::Repository,
         new_tip_tree: gix::ObjectId,
         arrive: &ArrivePlan,
         now: i64,
-    ) -> Result<(stash::Arrival, usize)> {
+    ) -> Result<(crate::model::ArrivalReport, usize)> {
         crate::index::write_index_for_tree(repo, new_tip_tree)?;
         let everything = |_: &str| true;
         let transition =
             crate::worktree::apply_tree_transition(repo, self.worktree, new_tip_tree, &everything)?;
         let files = transition.written.len() + transition.deleted.len();
         let arrival = match &self.arrive_on {
-            Some(branch) => stash::execute_arrival(repo, branch, arrive, new_tip_tree, now)?,
-            None => stash::Arrival::None,
+            Some(branch) => crate::park::execute_arrival(repo, branch, arrive, new_tip_tree, now)?,
+            None => crate::model::ArrivalReport::None,
         };
-        if let Some((_, sha)) = &self.drop {
-            stash::drop_stash_entry(repo, *sha)?;
+        if let Some(spent) = &self.drop {
+            if spent.legacy {
+                stash::drop_stash_entry(repo, spent.sha)?;
+            } else {
+                crate::open::clear(repo, &spent.branch, now)?;
+            }
         }
+        // The session branch is gone with its open ref: the object stays
+        // pinned by this operation.
+        crate::open::clear(repo, &self.session, now)?;
         // The session branch's file stays, `forked_from` and all: undo puts
         // `session` back from the recorded transition, not from the file.
         let mut meta = branchmeta::read(repo, &self.session)?;

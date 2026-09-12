@@ -231,6 +231,7 @@ pub fn list(
         names.push(current.clone());
     }
     names.sort();
+    let held_elsewhere = crate::linked::held_branches(repo)?;
     for name in names {
         let full = heads_ref(&name);
         let tip = refs::ref_target(repo, &full)?;
@@ -273,7 +274,11 @@ pub fn list(
             anonymous: is_anonymous(&name),
             tip: tip.map(|id| id.to_string()),
             subject,
-            parked: crate::stash::parked_entry(repo, &name)?.is_some(),
+            // A branch underfoot, or one another worktree holds, has an open
+            // change rather than a parked one.
+            parked: name != current
+                && !held_elsewhere.contains(&name)
+                && crate::park::parked(repo, &name)?.is_some(),
             pending_description: meta.pending_description,
             session: meta.session.as_ref().map(|s| s.onto.clone()),
             held: meta.held.is_some(),
@@ -610,6 +615,7 @@ pub fn delete(
     let shared = shared_copy(repo, name)?;
 
     let parked = crate::stash::parked_entry(repo, name)?;
+    let open_left = refs::ref_target(repo, &crate::open::open_ref(name))?;
     let mut planned = observe_refs(repo)?;
     planned.refs.remove(&full);
     let mut transitions = vec![RefTransition {
@@ -631,6 +637,7 @@ pub fn delete(
     record.refs = transitions;
     let mut pins = vec![tip];
     pins.extend(parked);
+    pins.extend(open_left);
     verb::append_op(
         repo,
         OpKind::Op,
@@ -681,7 +688,7 @@ pub fn delete(
             name: name.to_string(),
             tip: tip.to_string(),
             trash_ref: trash,
-            parked_demoted: parked.map(|p| p.to_string()),
+            open_left: open_left.map(|id| id.to_string()),
             shared,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
         },

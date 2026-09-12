@@ -164,7 +164,11 @@ pub fn start(
         None => crate::petname::mint(repo)?,
     };
 
-    let now = resolve_now(opts.now);
+    // The preamble before the mint: a dirty tree's park is its open commit,
+    // and the capture is what writes one — the switch below finds it there
+    // and its own capture no-ops.
+    let pre = verb::begin_verb(repo, prov, opts.now)?;
+    let now = pre.now;
     mint_branch(
         repo,
         &Mint {
@@ -174,7 +178,7 @@ pub fn start(
             parent: fork.parent.as_deref(),
             verb: "start",
             summary: &format!("mint branch {name} at {}", crate::sha::short_oid(fork.at)),
-            tree: crate::ops::verb::worktree_or_head(repo)?,
+            tree: pre.pre_tree,
         },
         now,
         &opts.argv,
@@ -187,7 +191,7 @@ pub fn start(
         repo,
         &crate::switch::SwitchOptions {
             target: name.clone(),
-            now: opts.now,
+            now: Some(now),
             argv: opts.argv.clone(),
         },
         prov,
@@ -233,13 +237,12 @@ pub(crate) struct Mint<'a> {
 
 /// Mint a branch at a commit, recorded, with its fork base written once.
 ///
-/// Under `start` this runs BEFORE the switch that follows it, and therefore
-/// before any preamble — so it reconciles nothing and captures nothing
-/// itself. That is safe precisely because it is write-ahead: the planned
-/// table it records already contains the branch it is about to create, so
-/// the switch's own reconcile finds the world exactly where this operation
-/// said it would be. `ff branch <name>` has no switch after it, so it runs
-/// `begin_verb` first and hands the captured tree in.
+/// It reconciles nothing and captures nothing itself: the caller runs
+/// `begin_verb` first and hands the captured tree in, so a dirty tree's open
+/// commit — the park the switch after a `start` leaves — is already written
+/// when this records it. Write-ahead, so the planned table already contains
+/// the branch it is about to create, and the switch's own reconcile finds
+/// the world exactly where this operation said it would be.
 pub(crate) fn mint_branch(
     repo: &gix::Repository,
     mint: &Mint<'_>,
@@ -327,15 +330,6 @@ fn finish_with_description(
         crate::describe::set_pending(repo, Some(text.clone()), prov, opts.now, opts.argv.to_vec())?;
     }
     Ok(())
-}
-
-fn resolve_now(now: Option<i64>) -> i64 {
-    now.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-    })
 }
 
 #[cfg(test)]

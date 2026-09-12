@@ -1,10 +1,28 @@
 //! Branch verbs: the naming rename must preserve the timeline byte-for-byte
 //! (modulo the name), match `git branch -m`'s observable reflog semantics,
-//! carry the parked entry and metadata, and guard worktrees. Delete trashes
-//! the chain and demotes the parked entry — never loses work.
+//! carry the open commit and metadata, and guard worktrees. Delete trashes
+//! the chain and leaves the open commit pinned — never loses work.
 
+use ff_core::SwitchOptions;
 use ff_core::gix;
 use ff_testsupport::Fixture;
+
+/// Park `branch`'s dirty tree by switching to `away` and back to nowhere:
+/// the open commit is the park. HEAD ends on `away`.
+fn park_by_switching(fx: &Fixture, away: &str, now: i64) -> String {
+    let repo = fx.repo();
+    let (report, _) = ff_core::switch(
+        &repo,
+        &SwitchOptions {
+            target: away.into(),
+            now: Some(now),
+            argv: Vec::new(),
+        },
+        &prov(),
+    )
+    .unwrap();
+    report.parked.expect("a dirty tree parks")
+}
 
 /// The newest operation's record, read through the public reader.
 fn tip_record(repo: &gix::Repository) -> ff_core::ops::OpRecord {
@@ -73,45 +91,32 @@ fn rename_matches_git_branch_m_reflog_and_target() {
 }
 
 #[test]
-fn claim_carries_chain_parked_entry_and_metadata() {
+fn claim_carries_chain_open_commit_and_metadata() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
     ident(&fx);
     fx.git(&["checkout", "-q", "-b", "ff/misty-owl"]);
 
-    // A snap chain, a parked change, and a pending description.
+    // A snap chain, an open change, and a pending description.
     fx.write("a.txt", "wip\n");
     let repo = fx.repo();
+    // The description first, so the capture's open commit carries it and
+    // the claim has nothing to rewrite.
+    let mut meta = ff_core::branchmeta::read(&repo, "ff/misty-owl").unwrap();
+    meta.pending_description = Some("the plan".into());
+    ff_core::branchmeta::write(&repo, "ff/misty-owl", &meta).unwrap();
     ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
-    let head = ff_core::head_state(&repo).unwrap();
-    ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
-    ff_core::branchmeta::write(
-        &repo,
-        "ff/misty-owl",
-        &ff_core::branchmeta::BranchMeta {
-            pending_description: Some("the plan".into()),
-            change_id: None,
-            change_born: None,
-            forked_from: None,
-            parent: None,
-            session: None,
-            held: None,
-            resolving: None,
-        },
-    )
-    .unwrap();
     // First-parent only: that walk IS the timeline. A full `git log` also
-    // surfaces every commit the log pins (the stash entries this test just
-    // made, among others), which says nothing about whether the rename
-    // carried the pointer.
+    // surfaces every commit the log pins (the open commit, among others),
+    // which says nothing about whether the rename carried the pointer.
     let timeline_before = fx.git(&[
         "log",
         "--first-parent",
         "--format=%H %s",
         "refs/fufu/snap/ff/misty-owl",
     ]);
-    let parked_before = fx.git(&["rev-parse", "refs/fufu/parked/ff/misty-owl"]);
+    let open_before = fx.git(&["rev-parse", "refs/fufu/open/ff/misty-owl"]);
 
     let repo = fx.repo();
     let (report, _ctx) = ff_core::branch::rename_current(
@@ -144,8 +149,11 @@ fn claim_carries_chain_parked_entry_and_metadata() {
         "timeline preserved:\nbefore:\n{timeline_before}\nafter:\n{timeline_after}"
     );
     assert_eq!(
-        fx.git(&["rev-parse", "refs/fufu/parked/real-work"]),
-        parked_before
+        fx.git(&["rev-parse", "refs/fufu/open/real-work"]),
+        open_before,
+        "before:\n{}\nafter:\n{}",
+        fx.git(&["cat-file", "commit", open_before.trim()]),
+        fx.git(&["cat-file", "commit", "refs/fufu/open/real-work"])
     );
     let meta = ff_core::branchmeta::read(&fx.repo(), "real-work").unwrap();
     assert_eq!(meta.pending_description.as_deref(), Some("the plan"));
@@ -207,18 +215,14 @@ fn rename_guards_branches_checked_out_in_other_worktrees() {
 }
 
 #[test]
-fn delete_trashes_chain_demotes_parked_and_journals() {
+fn delete_trashes_chain_leaves_the_open_commit_and_journals() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
     ident(&fx);
     fx.git(&["checkout", "-q", "-b", "doomed"]);
     fx.write("a.txt", "doomed wip\n");
-    let repo = fx.repo();
-    ff_core::capture(&repo, &ff_core::Provenance::new("manual", None)).unwrap();
-    let head = ff_core::head_state(&repo).unwrap();
-    let parked = ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
-    fx.git(&["checkout", "-q", "main"]);
+    let parked = park_by_switching(&fx, "main", NOW);
 
     let repo = fx.repo();
     let (report, _ctx) = ff_core::branch::delete(
@@ -231,10 +235,7 @@ fn delete_trashes_chain_demotes_parked_and_journals() {
     .unwrap();
     assert_eq!(report.name, "doomed");
     assert_eq!(report.trash_ref.as_deref(), Some("refs/fufu/trash/doomed"));
-    assert_eq!(
-        report.parked_demoted.as_deref(),
-        Some(parked.stash.to_string().as_str())
-    );
+    assert_eq!(report.open_left.as_deref(), Some(parked.as_str()));
 
     assert!(
         !fx.try_git(&["rev-parse", "--verify", "refs/heads/doomed"])
@@ -247,13 +248,15 @@ fn delete_trashes_chain_demotes_parked_and_journals() {
             .success()
     );
     assert!(
-        !fx.try_git(&["rev-parse", "--verify", "refs/fufu/parked/doomed"])
+        !fx.try_git(&["rev-parse", "--verify", "refs/fufu/open/doomed"])
             .status
-            .success()
+            .success(),
+        "the open ref goes with the branch"
     );
     fx.git(&["rev-parse", "refs/fufu/trash/doomed"]);
-    // The WIP survives in the stash stack (demoted, not deleted).
-    assert_eq!(fx.git(&["stash", "list"]).lines().count(), 1);
+    // The open commit survives, pinned; nothing is on the stash list.
+    assert!(fx.git(&["stash", "list"]).is_empty());
+    fx.git(&["cat-file", "-e", &parked]);
 
     // The deleted tip stays pinned through gc via the journal.
     fx.git(&["reflog", "expire", "--expire=all", "--all"]);
@@ -375,10 +378,9 @@ fn list_segregates_and_annotates() {
         },
     )
     .unwrap();
-    // Park something on main so the row is annotated.
+    // Park something on main so the row is annotated: a switch away.
     fx.write("a.txt", "wip\n");
-    let head = ff_core::head_state(&repo).unwrap();
-    ff_core::stash::park(&repo, &head, NOW).unwrap().unwrap();
+    park_by_switching(&fx, "named", NOW);
 
     let list = ff_core::branch::list(&fx.repo(), &ff_core::BranchListOptions::default()).unwrap();
     let names: Vec<&str> = list.named.iter().map(|b| b.name.as_str()).collect();
@@ -386,7 +388,7 @@ fn list_segregates_and_annotates() {
     let anon: Vec<&str> = list.anonymous.iter().map(|b| b.name.as_str()).collect();
     assert_eq!(anon, vec!["ff/hidden-brook"]);
     let main = &list.named[0];
-    assert!(main.current);
+    assert!(!main.current);
     assert!(main.parked, "parked annotation");
     let named = &list.named[1];
     assert_eq!(named.pending_description.as_deref(), Some("todo"));

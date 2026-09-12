@@ -258,46 +258,79 @@ pub fn of_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {
 }
 
 /// Rebuild `branch`'s open commit from the state on disk — its newest
-/// operation's tree, HEAD, its metadata — and move the ref to it. Undo and
-/// redo's resync, after the pointer move: the landing operation's stated
-/// open commit is reused when it still exists and still matches, so a step
-/// back over a close puts the pre-close sha back.
+/// operation's tree, its own tip, its metadata — and move the ref to it.
+/// Undo and redo's resync, after the pointer move, for the branch HEAD
+/// landed on and for every branch the move touched: the branch's newest
+/// operation's stated open commit is reused when it still exists and still
+/// matches, so a step back over a close puts the pre-close sha back.
+///
+/// A stated commit whose tree and id are the plan's but whose parent is not
+/// the branch's tip is a park the tip moved under — the move stepped past
+/// the arrival that replayed it — and it is kept as it stands for the next
+/// arrival to replay, since re-minting it over the new tip would state a
+/// change nobody made against that tip.
 pub(crate) fn sync(
     repo: &gix::Repository,
     branch: &str,
     now: i64,
 ) -> Result<Option<gix::ObjectId>> {
-    let head = crate::head::head_state(repo)?;
-    let head_commit = crate::snapshot::chain::base_commit(&head)?;
+    let tip_commit = refs::ref_target(repo, &format!("refs/heads/{branch}"))?;
     let log = OpLog::open(repo)?;
     let tip = match log.branch_tip(branch)? {
         Some(id) => Some(walk::decode(repo, id.object_id())?),
         None => None,
     };
-    let tree = match &tip {
-        Some(op) => op.tree(),
-        None => repo.head_tree_id_or_empty().map_err(Error::repo)?.detach(),
+    let tree = match (&tip, tip_commit) {
+        (Some(op), _) => op.tree(),
+        (None, Some(commit)) => repo
+            .find_commit(commit)
+            .map_err(Error::repo)?
+            .tree_id()
+            .map_err(Error::repo)?
+            .detach(),
+        (None, None) => gix::ObjectId::empty_tree(repo.object_hash()),
     };
     let name = open_ref(branch);
     let existing = refs::ref_target(repo, &name)?;
-    let Some(plan) = plan(repo, branch, tree, head_commit, &Overlay::default(), now)? else {
+    let Some(plan) = plan(repo, branch, tree, tip_commit, &Overlay::default(), now)? else {
         if let Some(existing) = existing {
             refs::delete_ref(repo, &name, existing, now)?;
         }
         return Ok(None);
     };
-    let candidates: Vec<gix::ObjectId> = tip
+    let stated = tip
         .as_ref()
         .and_then(|op| op.open_commit())
-        .map(|id| id.object_id())
-        .into_iter()
-        .chain(existing)
-        .collect();
+        .map(|id| id.object_id());
+    if let Some(stated) = stated
+        && lags(repo, stated, &plan)
+    {
+        if existing != Some(stated) {
+            move_ref(repo, &name, stated, now)?;
+        }
+        return Ok(Some(stated));
+    }
+    let candidates: Vec<gix::ObjectId> = stated.into_iter().chain(existing).collect();
     let id = write(repo, &plan, &candidates, now)?;
     if existing != Some(id) {
         move_ref(repo, &name, id, now)?;
     }
     Ok(Some(id))
+}
+
+/// Whether `id` is a commit carrying the plan's tree and id over some other
+/// parent: a park whose tip moved under it.
+fn lags(repo: &gix::Repository, id: gix::ObjectId, plan: &OpenPlan) -> bool {
+    let Ok(commit) = repo.find_commit(id) else {
+        return false;
+    };
+    let Ok(tree) = commit.tree_id() else {
+        return false;
+    };
+    let parent = commit.parent_ids().next().map(|p| p.detach());
+    tree.detach() == plan.tree
+        && changeid::header_of(&commit.data) == Some(plan.change_id)
+        && parent != plan.parent
 }
 
 /// Point an open ref at `id`, whatever it held. No reflog: the ref is derived

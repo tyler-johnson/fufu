@@ -16,11 +16,17 @@
 
 use crate::error::{Error, Result};
 use crate::held::{self, verb_of};
-use crate::model::{AbandonedHold, HeadState, ReleasedReport, ResolveOutcome, ResolveReport};
-use crate::ops::record::{HeldTransition, ResolveTransition, SessionTransition, observe_refs};
-use crate::ops::{OpKind, OpRecord, RefTransition, StashEffect, verb};
+use crate::model::{
+    AbandonedHold, HeadState, LaidReport, ReleasedReport, ResolveOutcome, ResolveReport,
+};
+use crate::ops::record::{
+    ChangeIdTransition, DescriptionTransition, HeldTransition, ResolveTransition,
+    SessionTransition, observe_refs,
+};
+use crate::ops::{OpKind, OpRecord, RefTransition, verb};
+use crate::park;
 use crate::snapshot::Provenance;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 use crate::worktree;
 
 /// The tree HEAD's commit carries, the same way `switch` asks it.
@@ -202,6 +208,23 @@ pub fn resolve(
         )
     })?;
 
+    // A held arrival is laid into the open change in place: the working copy
+    // is where its conflicts belong, and there is no closed commit for a
+    // session to protect.
+    if let held::Intent::Arrive { open, .. } = &held.intent {
+        let open = gix::ObjectId::from_hex(open.as_bytes()).map_err(Error::repo)?;
+        return lay_arrival(
+            repo,
+            ctx,
+            (prov, argv, now),
+            &head,
+            branch,
+            tip,
+            held.clone(),
+            open,
+        );
+    }
+
     // Ask again against the repository as it stands. A `held/expired` passes
     // straight through — the hold has outlived its meaning, and saying so is
     // the answer.
@@ -368,6 +391,176 @@ pub fn resolve(
     ))
 }
 
+/// Lay a held arrival into the open change on `branch`: the parked commit
+/// `open` replayed onto the branch's tip as one step, conflicts carried as
+/// markers, the tree written over the working copy and the branch's
+/// identity restored from the commit. When the tip moved out of the
+/// conflict since the hold, the change is simply resumed clean.
+#[allow(clippy::too_many_arguments)]
+fn lay_arrival(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    head: &HeadState,
+    branch: String,
+    tip: gix::ObjectId,
+    held: held::Held,
+    open: gix::ObjectId,
+) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    let (prov, argv, now) = invocation;
+    let tip_tree = tree_of(repo, tip)?;
+    if ctx.pre_tree != tip_tree {
+        return Err(Error::coded(
+            "held/unsupported",
+            format!(
+                "{branch} has an open change; ff commit it or ff switch away before resolving \
+                 the held arrival"
+            ),
+            vec![
+                "ff commit -m <msg>".into(),
+                "ff switch <branch>".into(),
+                "ff resolve --abandon".into(),
+            ],
+        ));
+    }
+    let commit = repo.find_object(open).map_err(Error::repo)?.into_commit();
+    let meta = crate::branchmeta::read(repo, &branch)?;
+
+    // The identity the held commit carries: its header, its author time,
+    // its message. The hold took them off the branch; they come back with
+    // the change.
+    let change_id = crate::changeid::header_of(&commit.data).map(|id| id.letters());
+    let born = commit
+        .author()
+        .map_err(Error::repo)?
+        .time()
+        .map_err(Error::repo)?
+        .seconds;
+    let message = commit.message_raw_sloppy().to_string();
+    let description = if message.trim().is_empty() {
+        None
+    } else {
+        Some(message.trim_end().to_string())
+    };
+
+    // The replay, one commit onto the tip. Clean now: the arrival resumes
+    // and nothing needs markers.
+    let replan = held::replan(repo, &held)?;
+    let conflict = crate::rewrite::conflict(repo, replan.target, replan.tip, &replan.change)?;
+    let (tree, regions) = match conflict {
+        None => {
+            let arrive = park::plan_replay(repo, &branch, open, tip, tip_tree, now)?;
+            let (end_tree, _) = arrive.end_trees(tip_tree);
+            (end_tree, 0usize)
+        }
+        Some(_) => {
+            let chain =
+                crate::rewrite::chain(repo, replan.target, replan.tip, &replan.change, &[])?;
+            let regions = crate::rewrite::regions(repo, &chain)?;
+            (chain.tree, regions.len())
+        }
+    };
+    let clean = regions == 0;
+
+    // The open commit the operation lands: the marker tree (or the merged
+    // one) over the tip, wearing the restored identity.
+    let overlay = crate::open::Overlay {
+        description: Some(description.clone()),
+        change_id: Some((change_id.clone(), Some(born))),
+    };
+    let laid = crate::open::plan(repo, &branch, tree, Some(tip), &overlay, now)?
+        .map(|plan| crate::open::write(repo, &plan, &[open], now))
+        .transpose()?;
+
+    let mut planned = observe_refs(repo)?;
+    let mut record = OpRecord::new(
+        "resolve",
+        if clean {
+            format!("resume the held arrival on {branch}")
+        } else {
+            format!("resolve the held arrival on {branch}")
+        },
+        now,
+    );
+    record.argv = argv;
+    record.held = Some(HeldTransition {
+        branch: branch.clone(),
+        old: Some(held.clone()),
+        new: None,
+    });
+    if change_id.is_some() || meta.change_id.is_some() {
+        record.change_id = Some(ChangeIdTransition {
+            branch: branch.clone(),
+            old: meta.change_id.clone(),
+            new: change_id.clone(),
+            old_born: meta.change_born,
+            new_born: Some(born),
+        });
+    }
+    if description.is_some() || meta.pending_description.is_some() {
+        record.description = Some(DescriptionTransition {
+            branch: branch.clone(),
+            old: meta.pending_description.clone(),
+            new: description.clone(),
+        });
+    }
+    let mut pins = vec![open, tip];
+    pins.extend(laid);
+    // A tree with markers is not the parked commit's tree; the planned
+    // `refs/stash` is untouched either way.
+    let _ = &mut planned;
+    verb::append_op_hinted(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            tree,
+            index_tree: tip_tree,
+            branch: branch.clone(),
+            base: crate::snapshot::chain::base_commit(head)?,
+            session: prov.session.clone(),
+            pins: &pins,
+        },
+        laid,
+        now,
+    )?;
+
+    // Mutate: the working copy, then the metadata.
+    let everything = |_: &str| true;
+    let transition = worktree::apply_tree_transition(repo, tip_tree, tree, &everything)?;
+    let mut files = transition.written;
+    files.extend(transition.deleted);
+    files.sort();
+    files.dedup();
+    let mut meta = crate::branchmeta::read(repo, &branch)?;
+    meta.held = None;
+    meta.change_id = change_id;
+    meta.change_born = Some(born);
+    meta.pending_description = description;
+    crate::branchmeta::write(repo, &branch, &meta)?;
+
+    let paths: Vec<String> = if clean {
+        Vec::new()
+    } else {
+        held.paths.clone()
+    };
+    Ok((
+        ResolveOutcome::Laid(LaidReport {
+            branch,
+            held: open.to_string(),
+            arrival: crate::model::ArrivalReport::Restored {
+                open: laid.map(|id| id.to_string()).unwrap_or_default(),
+                files,
+                folded: None,
+            },
+            paths,
+            regions,
+        }),
+        ctx,
+    ))
+}
+
 /// Where `--abandon` was typed, and what it found there.
 enum Standing {
     /// HEAD on the session branch of an open resolution of `onto`.
@@ -421,6 +614,7 @@ fn abandon_hold(
         ));
     }
     let was_resolving = open.is_some();
+    let held_intent = held.as_ref().map(|h| h.intent.clone());
 
     // The session carries a copy of the hold it was opened on, so a hold
     // cleared underneath it can still name its verb.
@@ -448,8 +642,11 @@ fn abandon_hold(
         Some((name, _)) => crate::branchmeta::read(repo, name)?.session,
         None => None,
     };
+    // The session's own park — its open commit when HEAD is elsewhere, or a
+    // legacy entry — goes with the branch: the fixes are discarded, and the
+    // pre-verb capture is what keeps them.
     let session_park = match &session {
-        Some((name, _)) => stash::parked_entry(repo, name)?,
+        Some((name, _)) => held::Spent::of(repo, name)?,
         None => None,
     };
 
@@ -468,22 +665,18 @@ fn abandon_hold(
                 },
             )?;
             let tree = tree_of(repo, tip)?;
-            let arrive = stash::plan_arrival(repo, &branch, tip, tree)?;
+            let arrive = park::plan_arrival(repo, &branch, tip, tree, now)?;
             Some((tip, tree, arrive))
         }
         None => None,
     };
 
-    // Write the op ahead: both clears, the session's deletion, and the
-    // stash effects in one record.
+    // Write the op ahead: both clears, the session's deletion, the spent
+    // park, and the arrival in one record.
     let mut planned = observe_refs(repo)?;
     let mut transitions: Vec<RefTransition> = Vec::new();
-    let mut effects: Vec<StashEffect> = Vec::new();
     let mut pins: Vec<gix::ObjectId> = Vec::new();
-    let mut stash_lines: Vec<gix::ObjectId> = crate::refs::read_ref_log(repo, stash::STASH_REF)?
-        .iter()
-        .map(|l| l.new)
-        .collect();
+    let mut stash_lines = stash::lines(repo)?;
     let head_old = planned.head.clone();
     if let Some((name, tip)) = &session {
         let session_ref = format!("refs/heads/{name}");
@@ -494,65 +687,10 @@ fn abandon_hold(
             new: None,
         });
         pins.push(*tip);
-        if let Some(sha) = session_park {
-            if let Some(pos) = stash_lines.iter().rposition(|s| *s == sha) {
-                stash_lines.remove(pos);
-            }
-            planned.refs.remove(&stash::parked_ref(name));
-            transitions.push(RefTransition {
-                name: stash::parked_ref(name),
-                old: Some(sha.to_string()),
-                new: None,
-            });
-            effects.push(StashEffect::Drop {
-                branch: name.clone(),
-                stash: sha.to_string(),
-            });
-            pins.push(sha);
-        }
     }
-    if let Some((tip, _, arrive)) = &landing {
+    if let Some((tip, _, _)) = &landing {
         planned.head = format!("ref:refs/heads/{branch}");
         pins.push(*tip);
-        match arrive {
-            ArrivePlan::Restore { stash: sha, .. } => {
-                if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                    stash_lines.remove(pos);
-                }
-                planned.refs.remove(&stash::parked_ref(&branch));
-                transitions.push(RefTransition {
-                    name: stash::parked_ref(&branch),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-                effects.push(StashEffect::Drop {
-                    branch: branch.clone(),
-                    stash: sha.to_string(),
-                });
-                pins.push(*sha);
-            }
-            ArrivePlan::Invalidate { stash: sha } => {
-                planned.refs.remove(&stash::parked_ref(&branch));
-                transitions.push(RefTransition {
-                    name: stash::parked_ref(&branch),
-                    old: Some(sha.to_string()),
-                    new: None,
-                });
-                pins.push(*sha);
-            }
-            ArrivePlan::Conflict { stash, .. } => pins.push(*stash),
-            ArrivePlan::None => {}
-        }
-    }
-    match stash_lines.last() {
-        Some(t) => {
-            planned
-                .refs
-                .insert(stash::STASH_REF.to_string(), t.to_string());
-        }
-        None => {
-            planned.refs.remove(stash::STASH_REF);
-        }
     }
 
     // The state the op leaves the worktree in: the branch's tip, or the
@@ -560,7 +698,7 @@ fn abandon_hold(
     // stands when it does not — the tip's tree would claim a clean state a
     // dirty tree is not.
     let (end_tree, end_index) = match &landing {
-        Some((_, tree, arrive)) => stash::end_trees(repo, arrive, *tree)?,
+        Some((_, tree, arrive)) => arrive.end_trees(*tree),
         None => (ctx.pre_tree, crate::index::tree_from_index(repo)?),
     };
 
@@ -578,7 +716,6 @@ fn abandon_hold(
         record.head = Some((head_old, format!("ref:refs/heads/{branch}")));
     }
     record.refs = transitions;
-    record.stash = effects;
     if let (Some((name, _)), Some(meta)) = (&session, &session_meta) {
         record.resolve_session = Some(SessionTransition {
             branch: name.clone(),
@@ -596,8 +733,28 @@ fn abandon_hold(
         old: open,
         new: None,
     });
+    // The hold being dropped goes after the clearing transition above, so an
+    // arrival that holds again lands on the same transition: old, the hold
+    // dropped; new, the one the arrival records.
+    if let Some((_, _, arrive)) = &landing {
+        arrive.fold_into(&mut planned, &mut record, &mut pins, &mut stash_lines);
+    }
+    if let Some(spent) = &session_park {
+        if spent.legacy {
+            stash::spend(
+                &mut stash_lines,
+                &mut planned,
+                &mut record,
+                &mut pins,
+                &spent.branch,
+                spent.sha,
+            );
+        } else {
+            pins.push(spent.sha);
+        }
+    }
     pins.push(end_tree);
-    verb::append_op(
+    verb::append_op_hinted(
         repo,
         OpKind::Op,
         verb::VerbOp {
@@ -610,6 +767,9 @@ fn abandon_hold(
             session: prov.session.clone(),
             pins: &pins,
         },
+        landing
+            .as_ref()
+            .and_then(|(_, _, arrive)| arrive.open_hint()),
         now,
     )?;
 
@@ -625,8 +785,13 @@ fn abandon_hold(
             &format!("refs/heads/{name}"),
             *tip,
         )?);
-        if let Some(sha) = session_park {
-            edits.push(crate::refs::delete_edit(&stash::parked_ref(name), sha)?);
+        if let Some(spent) = &session_park
+            && spent.legacy
+        {
+            edits.push(crate::refs::delete_edit(
+                &stash::parked_ref(name),
+                spent.sha,
+            )?);
         }
     }
     if !edits.is_empty() {
@@ -642,18 +807,13 @@ fn abandon_hold(
             }
         }
     }
-    if let Some(sha) = session_park {
-        stash::drop_stash_entry(repo, sha)?;
-    }
-    let arrival = match &landing {
-        Some((_, tree, arrive)) => {
-            crate::index::write_index_for_tree(repo, *tree)?;
-            let everything = |_: &str| true;
-            worktree::apply_tree_transition(repo, ctx.pre_tree, *tree, &everything)?;
-            stash::execute_arrival(repo, &branch, arrive, *tree, now)?.into()
+    if let Some(spent) = &session_park {
+        if spent.legacy {
+            stash::drop_stash_entry(repo, spent.sha)?;
+        } else {
+            crate::open::clear(repo, &spent.branch, now)?;
         }
-        None => crate::model::ArrivalReport::None,
-    };
+    }
     if let Some((name, _)) = &session {
         // The file stays, `forked_from` and all: undo puts `session` back
         // from the recorded transition, not from the file.
@@ -662,8 +822,18 @@ fn abandon_hold(
         crate::branchmeta::write(repo, name, &meta)?;
         let _ = crate::futures::cache::remove(repo, name);
     }
+    // The clears before the arrival, which may record a hold of its own.
     held::set(repo, &branch, None)?;
     held::set_resolving(repo, &branch, None)?;
+    let arrival = match &landing {
+        Some((_, tree, arrive)) => {
+            crate::index::write_index_for_tree(repo, *tree)?;
+            let everything = |_: &str| true;
+            worktree::apply_tree_transition(repo, ctx.pre_tree, *tree, &everything)?;
+            park::execute_arrival(repo, &branch, arrive, *tree, now)?
+        }
+        None => crate::model::ArrivalReport::None,
+    };
 
     Ok((
         ResolveOutcome::Abandoned(AbandonedHold {
@@ -673,6 +843,10 @@ fn abandon_hold(
             session: session.map(|(name, _)| name),
             returned: landing.is_some(),
             arrival,
+            left: match &held_intent {
+                Some(held::Intent::Arrive { open, .. }) => Some(open.clone()),
+                _ => None,
+            },
         }),
         ctx,
     ))

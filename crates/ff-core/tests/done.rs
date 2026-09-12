@@ -444,7 +444,7 @@ fn a_moved_session_refuses_but_abandons() {
 }
 
 #[test]
-fn abandon_stashes_the_edits() {
+fn abandon_leaves_the_edits_as_the_open_commit() {
     let fx = Fixture::new();
     ident(&fx);
     let (_c0, c1, _c2, c3) = base(&fx);
@@ -462,12 +462,37 @@ fn abandon_stashes_the_edits() {
     );
     assert_eq!(fx.git(&["rev-parse", "main"]).trim(), c3);
     assert_eq!(anon_count(&fx), 0, "the session branch must be gone");
-    let stashed = report.stashed.expect("the dirty edit must stash");
-    let sha = gix::ObjectId::from_hex(stashed.as_bytes()).unwrap();
-    assert!(
-        ff_core::stash::stash_contains(&fx.repo(), sha).unwrap(),
-        "the stashed sha must be reachable from refs/stash"
+    let left = report
+        .left
+        .expect("the dirty edit is left as the open commit");
+    let sha = gix::ObjectId::from_hex(left.as_bytes()).unwrap();
+    let repo = fx.repo();
+    let tree = repo.find_commit(sha).unwrap().tree_id().unwrap().detach();
+    let tree = repo.find_tree(tree).unwrap();
+    let blob = tree
+        .lookup_entry_by_path("c1.txt")
+        .unwrap()
+        .expect("c1.txt in the left commit's tree")
+        .object_id();
+    assert_eq!(
+        repo.find_blob(blob).unwrap().data,
+        b"c1 edited\n",
+        "the left commit's tree holds the edit"
     );
+    assert!(
+        fx.git(&["stash", "list"]).is_empty(),
+        "nothing on refs/stash"
+    );
+    // Pinned by the done op: the op's parents name it.
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+    let parents: Vec<gix::ObjectId> = repo
+        .find_commit(op.id().object_id())
+        .unwrap()
+        .parent_ids()
+        .map(|p| p.detach())
+        .collect();
+    assert!(parents.contains(&sha), "the done op pins the left commit");
 }
 
 #[test]
@@ -566,10 +591,9 @@ fn undo_after_done_reparks_the_untracked_file() {
         !fx.path().join("wip.txt").exists(),
         "the untracked file is parked again, not on disk"
     );
-    assert!(
-        ff_core::stash::parked_entry(&fx.repo(), "main")
-            .unwrap()
-            .is_some(),
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        edit_report.parked.as_deref().unwrap(),
         "main's park is back"
     );
 }

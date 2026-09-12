@@ -227,9 +227,12 @@ fn a_dirty_tree_parks() {
     let (outcome, _ctx) = edit_call(&fx, &c1, NOW);
     let report = opened(outcome);
 
-    assert!(report.parked.is_some(), "the open change must park");
-    // `fx.git` panics on failure, so this line only runs when the ref exists.
-    fx.git(&["rev-parse", "--verify", "refs/fufu/parked/main"]);
+    let parked = report.parked.expect("the open change must park");
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/open/main"]).trim(),
+        parked,
+        "the park is main's open commit"
+    );
     assert!(
         !fx.path().join("wip.txt").exists(),
         "the parked change must not sit in the session's worktree"

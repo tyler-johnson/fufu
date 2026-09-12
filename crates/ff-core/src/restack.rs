@@ -15,14 +15,15 @@ use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::{self, At, Verdict};
 use crate::held::{self, Held, Intent};
-use crate::model::{ArrivalReport, HeadState, HeldReport, Parked, RestackOutcome, RestackReport};
+use crate::model::{ArrivalReport, HeadState, HeldReport, RestackOutcome, RestackReport};
 use crate::ops::record::{ParentTransition, RefTransition, observe_refs};
-use crate::ops::{OpKind, OpRecord, StashEffect, verb};
+use crate::ops::{OpKind, OpRecord, verb};
 use crate::overlay::Overlay;
+use crate::park::ArrivePlan;
 use crate::refs;
 use crate::rewrite;
 use crate::snapshot::Provenance;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 use crate::switch;
 use serde::Serialize;
 
@@ -435,11 +436,7 @@ pub(crate) fn restack_landing(
         )),
         RestackPlan::Replay(plan) => {
             let (report, arrival) = commit_restack(repo, &ctx, prov, argv, decided, *plan)?;
-            Ok((
-                RestackOutcome::Restacked(Box::new(report)),
-                ctx,
-                arrival.into(),
-            ))
+            Ok((RestackOutcome::Restacked(Box::new(report)), ctx, arrival))
         }
     }
 }
@@ -521,12 +518,6 @@ impl ReplayPlan {
         {
             pins.push(head_tip);
         }
-        match &self.arrive_plan {
-            ArrivePlan::Restore { stash, .. }
-            | ArrivePlan::Conflict { stash, .. }
-            | ArrivePlan::Invalidate { stash } => pins.push(*stash),
-            ArrivePlan::None => {}
-        }
         Ok(pins)
     }
 
@@ -543,20 +534,7 @@ impl ReplayPlan {
         let parked = if self.head_carried && self.head_branch.as_deref() == Some(branch.as_str()) {
             None
         } else {
-            match crate::stash::parked_entry(repo, branch)? {
-                Some(id) => {
-                    let sc = crate::stash::read_stash_commit(repo, id)?;
-                    let new_tip_tree = tree_of(repo, self.new_tip)?;
-                    let applies =
-                        futures::conflict_paths(repo, sc.base_tree, new_tip_tree, sc.wip_tree)?
-                            .is_empty();
-                    Some(Parked {
-                        stash: id.to_string(),
-                        applies,
-                    })
-                }
-                None => None,
-            }
+            crate::park::disclose(repo, branch, tree_of(repo, self.new_tip)?)?
         };
 
         // 14. The report.
@@ -1081,8 +1059,8 @@ pub(crate) fn plan_restack(
         .as_ref()
         .and_then(|c| c.return_trip.as_ref())
     {
-        Some(ret) => ret.arrival(repo, new_tip, tree_of(repo, new_tip)?)?,
-        None => ArrivePlan::None,
+        Some(ret) => ret.arrival(repo, new_tip, tree_of(repo, new_tip)?, now)?,
+        None => ArrivePlan::none(),
     };
 
     Ok(RestackPlan::Replay(Box::new(ReplayPlan {
@@ -1122,7 +1100,7 @@ fn commit_restack(
     argv: Vec<String>,
     decided: &rewrite::Decided,
     plan: ReplayPlan,
-) -> Result<(RestackReport, stash::Arrival)> {
+) -> Result<(RestackReport, crate::model::ArrivalReport)> {
     let now = ctx.now;
     let branch = plan.branch.clone();
     let base_name = plan.base.name.clone();
@@ -1140,7 +1118,6 @@ fn commit_restack(
     }
 
     let refs_transitions: Vec<RefTransition> = plan.carried.clone();
-    let stash_effects: Vec<StashEffect> = Vec::new();
 
     let summary = match plan.cascade.report.moved.len() {
         0 => format!("restack {branch} onto {base_name}"),
@@ -1149,7 +1126,6 @@ fn commit_restack(
     let mut record = OpRecord::new("restack", summary, now);
     record.argv = argv;
     record.refs = refs_transitions;
-    record.stash = stash_effects;
     record.rewrites = plan.rewrites.clone();
     record.dropped = plan.dropped.clone();
     if plan.parent_changes {
@@ -1171,10 +1147,7 @@ fn commit_restack(
     // session, that branch's deletion, and the park that comes home.
     let new_tip_tree = tree_of(repo, plan.new_tip)?;
     if let Some(ret) = return_trip {
-        let mut stash_lines: Vec<gix::ObjectId> = refs::read_ref_log(repo, stash::STASH_REF)?
-            .iter()
-            .map(|l| l.new)
-            .collect();
+        let mut stash_lines = stash::lines(repo)?;
         ret.fold_into(
             &mut planned,
             &mut record,
@@ -1195,7 +1168,7 @@ fn commit_restack(
     // does. The index is the new tip's tree, so the next foreign
     // `git status` sees the open change against the commit it now sits on.
     let (end_tree, end_index) = match return_trip {
-        Some(_) => stash::end_trees(repo, &plan.arrive_plan, new_tip_tree)?,
+        Some(_) => plan.arrive_plan.end_trees(new_tip_tree),
         None => (
             plan.new_worktree.unwrap_or(ctx.pre_tree),
             plan.new_head_tip
@@ -1204,7 +1177,7 @@ fn commit_restack(
                 .unwrap_or(ctx.pre_tree),
         ),
     };
-    verb::append_op(
+    verb::append_op_hinted(
         repo,
         OpKind::Op,
         verb::VerbOp {
@@ -1224,6 +1197,7 @@ fn commit_restack(
             session: prov.session.clone(),
             pins: &pins,
         },
+        plan.arrive_plan.open_hint(),
         now,
     )?;
 
@@ -1285,7 +1259,7 @@ fn commit_restack(
     // the landed tip, the park brought home, and the hold and the session
     // cleared, so one `ff undo` of this op takes the whole resolution back.
     let mut files = 0usize;
-    let mut arrival = stash::Arrival::None;
+    let mut arrival = crate::model::ArrivalReport::None;
     match return_trip {
         Some(ret) => {
             let (landed, touched) = ret.land(repo, new_tip_tree, &plan.arrive_plan, now)?;

@@ -329,6 +329,7 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
     // current branch's name is omitted: it lives on the @ row, and the tip
     // below must not repeat it.
     let mut refs_by_tip: HashMap<gix::ObjectId, Vec<MapRef>> = HashMap::new();
+    let held_elsewhere = crate::linked::held_branches(repo)?;
     for name in &picked {
         if name == &current {
             continue;
@@ -337,11 +338,19 @@ pub fn map(repo: &gix::Repository, opts: &MapOptions) -> Result<Map> {
             continue;
         };
         // A parked change is a decoration, not structure: one branch's
-        // unreadable stash must never fail the whole map.
-        let parked = crate::stash::parked_entry(repo, name)
-            .ok()
-            .flatten()
-            .and_then(|stash_id| crate::stash::parked_file_count(repo, stash_id).ok());
+        // unreadable park must never fail the whole map. A branch another
+        // worktree holds has an open change there, not a parked one.
+        let parked = if held_elsewhere.contains(name) {
+            None
+        } else {
+            match crate::stash::parked_entry(repo, name).ok().flatten() {
+                Some(stash_id) => crate::stash::parked_file_count(repo, stash_id).ok(),
+                None => crate::park::parked(repo, name)
+                    .ok()
+                    .flatten()
+                    .and_then(|open| crate::park::file_count(repo, open).ok()),
+            }
+        };
         let pending_description = crate::branchmeta::read(repo, name)?.pending_description;
         refs_by_tip.entry(*id).or_default().push(MapRef {
             name: name.clone(),

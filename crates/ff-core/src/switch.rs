@@ -1,18 +1,21 @@
-//! `ff switch` — move between branches without ceremony. Dirty tree? The
-//! open change is parked (tree memory). Arriving somewhere with a parked
-//! change? It is resumed if it applies cleanly, else it stays parked and
-//! the switch says so. The transition itself is always clean-tree→target
-//! -tree by construction, so the two-step (clear, then transition) each
-//! stay differentially tested.
+//! `ff switch` — move between branches without ceremony. A dirty tree's open
+//! change stays where the capture already put it, the open commit at
+//! `refs/fufu/open/<branch>`, and that commit is the park: leaving writes
+//! nothing. Arriving somewhere with a parked change lays it back over the
+//! tip, replays it when the tip moved, and holds the branch when the replay
+//! conflicts — see [`crate::park`]. The transition itself is always
+//! worktree→target-tree by construction, so the two halves (the move, then
+//! the arrival) each stay differentially tested.
 
 use crate::branch;
-use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::{ArrivalReport, HeadState, SwitchReport};
+use crate::open;
 use crate::ops::record::observe_refs;
-use crate::ops::{ChangeIdTransition, OpKind, OpRecord, RefTransition, StashEffect, verb};
+use crate::ops::{OpKind, OpRecord, verb};
+use crate::park;
 use crate::snapshot::Provenance;
-use crate::stash::{self, ArrivePlan};
+use crate::stash;
 use crate::worktree;
 
 #[derive(Debug, Clone, Default)]
@@ -72,8 +75,9 @@ pub fn branch_names(repo: &gix::Repository) -> Result<Vec<String>> {
     Ok(out)
 }
 
-/// Switch to another branch. Park if dirty, retarget HEAD, rewrite index
-/// and worktree, then arrive (resume the target's parked change if any).
+/// Switch to another branch. A dirty tree's open commit is the park;
+/// retarget HEAD, rewrite index and worktree, then arrive (resume the
+/// target's parked change if any).
 pub fn switch(
     repo: &gix::Repository,
     opts: &SwitchOptions,
@@ -130,104 +134,44 @@ pub fn switch(
         .map_err(Error::repo)?
         .detach();
 
-    // Plan phase: park (object writes only) and arrival, before anything
-    // moves — the operation describes the whole switch up front.
-    let park_plan = stash::plan_park(repo, &head, now)?;
-    let arrive_plan = stash::plan_arrival(repo, &target, target_commit, target_tree)?;
+    // The park: the open commit the preamble's capture wrote for the tree
+    // it is leaving, when the tree is dirty. Nothing is written for it; a
+    // dirty tree with no commit to stand as its park refuses before anything
+    // moves.
+    let head_commit = crate::snapshot::chain::base_commit(&head)?;
+    let head_tree = head_tree_of(repo, &head).unwrap_or(target_tree);
+    let parked = if ctx.pre_tree == head_tree {
+        None
+    } else {
+        Some(
+            open::current(repo, &current, ctx.pre_tree, head_commit)?
+                .ok_or_else(|| park::no_park(&head, &current))?,
+        )
+    };
+
+    // Plan phase: the arrival, before anything moves — the operation
+    // describes the whole switch up front.
+    let arrive = park::plan_arrival(repo, &target, target_commit, target_tree, now)?;
 
     // The planned post-switch world.
     let mut planned = observe_refs(repo)?;
-    let mut transitions: Vec<RefTransition> = Vec::new();
-    let mut effects: Vec<StashEffect> = Vec::new();
     let head_old = planned.head.clone();
     planned.head = format!("ref:{target_ref}");
-
-    let mut stash_lines: Vec<gix::ObjectId> = crate::refs::read_ref_log(repo, stash::STASH_REF)?
-        .iter()
-        .map(|l| l.new)
-        .collect();
-    if let Some(plan) = &park_plan {
-        stash_lines.push(plan.wip_commit);
-        planned
-            .refs
-            .insert(stash::parked_ref(&current), plan.wip_commit.to_string());
-        transitions.push(RefTransition {
-            name: stash::parked_ref(&current),
-            old: None,
-            new: Some(plan.wip_commit.to_string()),
-        });
-        effects.push(StashEffect::Push {
-            branch: current.clone(),
-            stash: plan.wip_commit.to_string(),
-        });
-    }
-    match &arrive_plan {
-        ArrivePlan::Restore { stash: sha, .. } => {
-            if let Some(pos) = stash_lines.iter().rposition(|s| s == sha) {
-                stash_lines.remove(pos);
-            }
-            planned.refs.remove(&stash::parked_ref(&target));
-            transitions.push(RefTransition {
-                name: stash::parked_ref(&target),
-                old: Some(sha.to_string()),
-                new: None,
-            });
-            effects.push(StashEffect::Drop {
-                branch: target.clone(),
-                stash: sha.to_string(),
-            });
-        }
-        ArrivePlan::Invalidate { stash: sha } => {
-            planned.refs.remove(&stash::parked_ref(&target));
-            transitions.push(RefTransition {
-                name: stash::parked_ref(&target),
-                old: Some(sha.to_string()),
-                new: None,
-            });
-        }
-        ArrivePlan::None | ArrivePlan::Conflict { .. } => {}
-    }
-    // A parked change that vanished takes its identity with it: the branch
-    // arrives with nothing open, so nothing wears the id.
-    let dropped_id = match &arrive_plan {
-        ArrivePlan::Invalidate { .. } => {
-            let meta = branchmeta::read(repo, &target)?;
-            meta.change_id.map(|id| (id, meta.change_born))
-        }
-        _ => None,
-    };
-    match stash_lines.last() {
-        Some(tip) => {
-            planned.refs.insert("refs/stash".into(), tip.to_string());
-        }
-        None => {
-            planned.refs.remove("refs/stash");
-        }
-    }
 
     let mut record = OpRecord::new("switch", format!("switch from {current} to {target}"), now);
     record.argv = opts.argv.clone();
     record.head = Some((head_old, format!("ref:{target_ref}")));
-    record.refs = transitions;
-    record.stash = effects;
-    record.change_id = dropped_id.as_ref().map(|(id, born)| ChangeIdTransition {
-        branch: target.clone(),
-        old: Some(id.clone()),
-        new: None,
-        old_born: *born,
-        new_born: None,
-    });
     let mut pins = vec![target_commit];
-    if let Some(plan) = &park_plan {
-        pins.push(plan.wip_commit);
-    }
+    pins.extend(parked);
     pins.extend(ctx.pre_op.map(|id| id.object_id()));
+    let mut stash_lines = stash::lines(repo)?;
+    arrive.fold_into(&mut planned, &mut record, &mut pins, &mut stash_lines);
     // The planned end state: the destination's tree, unless a parked change is
     // about to be laid back over it — in which case that is what the working
-    // tree will hold, untracked files included, and saying "target tree"
-    // would make an undo of the next operation throw the resumed change away.
-    let (end_tree, end_index) = stash::end_trees(repo, &arrive_plan, target_tree)?;
-    verb::append_op(
+    // tree will hold, and saying "target tree" would make an undo of the next
+    // operation throw the resumed change away.
+    let (end_tree, end_index) = arrive.end_trees(target_tree);
+    verb::append_op_hinted(
         repo,
         OpKind::Op,
         verb::VerbOp {
@@ -238,50 +182,29 @@ pub fn switch(
             // The destination, not the origin: the pointer that moves is the
             // one the next capture on this worktree will read.
             branch: target.clone(),
-            base: crate::snapshot::chain::base_commit(&head)?,
+            base: head_commit,
             session: prov.session.clone(),
             pins: &pins,
         },
+        arrive.open_hint(),
         now,
     )?;
 
-    // Mutate: park, retarget, index, worktree, arrive — in that order.
-    let parked_sha = match &park_plan {
-        Some(plan) => {
-            stash::execute_park(repo, plan)?;
-            Some(plan.wip_commit.to_string())
-        }
-        None => None,
-    };
+    // Mutate: retarget, index, worktree, arrive — in that order. The
+    // worktree holds the pre-verb capture's tree, untracked files included,
+    // so one transition clears the slate.
     branch::retarget_head(repo, &target_ref, now)?;
     crate::index::write_index_for_tree(repo, target_tree)?;
-    let from_tree = park_plan.as_ref().map(|p| p.head_tree).unwrap_or_else(|| {
-        // Clean switch: the worktree matches the old HEAD tree.
-        head_tree_of(repo, &head).unwrap_or(target_tree)
-    });
     let everything = |_: &str| true;
-    worktree::apply_tree_transition(repo, from_tree, target_tree, &everything)?;
-
-    let arrival = stash::execute_arrival(repo, &target, &arrive_plan, target_tree, now)?;
-    if dropped_id.is_some() {
-        let mut meta = branchmeta::read(repo, &target)?;
-        meta.change_id = None;
-        meta.change_born = None;
-        branchmeta::write(repo, &target, &meta)?;
-    }
-    let arrival_report = match arrival {
-        stash::Arrival::None => ArrivalReport::None,
-        stash::Arrival::Restored { stash, files } => ArrivalReport::Restored { stash, files },
-        stash::Arrival::Conflicted { stash, paths } => ArrivalReport::StillParked { stash, paths },
-        stash::Arrival::Invalidated { stash } => ArrivalReport::Invalidated { stash },
-    };
+    worktree::apply_tree_transition(repo, ctx.pre_tree, target_tree, &everything)?;
+    let arrival = park::execute_arrival(repo, &target, &arrive, target_tree, now)?;
 
     Ok((
         SwitchReport {
             from: current,
             to: target,
-            parked: parked_sha,
-            arrival: arrival_report,
+            parked: parked.map(|id| id.to_string()),
+            arrival,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
         },
         ctx,
