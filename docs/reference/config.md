@@ -46,13 +46,13 @@ Largest new file a snapshot will include, in bytes (52428800 = 50 MiB). Suffixes
 
 `fufu.keep` — duration; default `90d`
 
-How long operations live: ff trim drops everything past the cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w, 45s); a bare number means days.
+How long operations live: ff op trim drops everything past the cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w, 45s); a bare number means days.
 
 ### autoTrim
 
 `fufu.autoTrim` — cadence; default `1d`
 
-How often retention enforces itself: a trim rides an ff command at most this often, per repo. false leaves trimming entirely to `ff trim`; durations work too (12h, 2w), floored at one minute.
+How often retention enforces itself: a trim rides an ff command at most this often, per repo. false leaves trimming entirely to `ff op trim`; durations work too (12h, 2w), floored at one minute.
 
 ### pruneGone
 

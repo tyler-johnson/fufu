@@ -76,7 +76,7 @@ The floor's theme is land-if-clean: operations attempt themselves speculatively 
 
 One rewrite engine (`rewrite.rs`) serves every rewrite verb, rather than each forking its own commit-writing logic. A rewrite that moves no tree — a reword — re-parents commits without replaying them. A rewrite that moves a tree replays by three-way merge, the writing half of exactly what the probe simulates.
 
-- Every rewrite records its old→new map as a field on the operation, so the log's pins and [`ff trim`](../reference/cli/trim.md)'s retention cover the map for free.
+- Every rewrite records its old→new map as a field on the operation, so the log's pins and [`ff op trim`](../reference/cli/op-trim.md)'s retention cover the map for free.
 - No empty commit survives a replay. A commit whose replayed tree matches its new first parent introduces nothing, is not written, and is announced rather than silently dropped.
 
 [`ff restack`](../reference/cli/restack.md) is the primitive under the floor: replay these commits onto that base, hold on conflict. The other verbs are aims for it. [`ff pull`](../reference/cli/pull.md) runs it against both of a branch's axes with the network in front, and [`ff done`](../reference/cli/done.md) is restack pointed at an edit session's parent.

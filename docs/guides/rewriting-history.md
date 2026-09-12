@@ -387,10 +387,10 @@ A collision is a finding rather than a failure: the exit is 0 whichever way the 
 
 ## Trim the operation log
 
-Every rewrite above landed as an operation, and [operations are what make it all undoable](../concepts/snapshots-and-undo.md). [`ff trim`](../reference/cli/trim.md) is the retention pass that keeps that log from growing forever: operations older than the `fufu.keep` window (90 days by default) are dropped, and a trim rides an ordinary ff command at most once per day, so you rarely run it by hand. With everything inside the window there is nothing to do:
+Every rewrite above landed as an operation, and [operations are what make it all undoable](../concepts/snapshots-and-undo.md). [`ff op trim`](../reference/cli/op-trim.md) is the retention pass that keeps that log from growing forever: operations older than the `fufu.keep` window (90 days by default) are dropped, and a trim rides an ordinary ff command at most once per day, so you rarely run it by hand. With everything inside the window there is nothing to do:
 
 ```console
-$ ff trim -n
+$ ff op trim -n
 nothing to drop (38 operations kept)
 ```
 
@@ -400,12 +400,12 @@ To make retention visible inside one transcript, this scene shrinks the window t
 $ ff config keep 2s
 keep = 2s (this repo)
 
-$ ff trim -n
+$ ff op trim -n
 would drop 38 of 41 operations
   ff/sunny-cliff: branch is gone — pointer removed
   ff/warm-quail: branch is gone — pointer removed
 
-$ ff trim
+$ ff op trim
 dropped 38 of 41 operations — previous tip saved at refs/fufu/wt/main/trash/@ops until the next trim
   ff/sunny-cliff: branch is gone — pointer removed
   ff/warm-quail: branch is gone — pointer removed

@@ -20,6 +20,7 @@
 - Every fetch prunes the tracking refs of copies the remote no longer has, `ff pull`'s included.
 - `ff doctor` fetches on every run rather than on the cadence, so the remote floor it reports is the one standing now.
 - `ff branch -d` records the branch's pointer move to trash on the operation, so `ff undo` restores the branch's timeline pointer through the record, the way it does after `ff fold`.
+- `ff trim` is `ff op trim`, the family's delete. The old spelling still works and is not listed, and its envelope reads `op trim`.
 
 ### Fixed
 

@@ -59,7 +59,7 @@ The log records work and never navigation, so undoing an undo is not something a
 
 Nothing is discarded. What an undo steps off stays reachable as a branch of the log, with the capture taken just before the undo at its head. [`ff redo`](../reference/cli/redo.md) walks forward along it, so the work you were holding when you undid is the first thing redo hands back.
 
-Landing new work after an undo forks the log rather than truncating it. Redo stops offering a path it can no longer take, and says so, but the forked-off branch keeps its ids. `ff op restore` still lands on any of them until [`ff trim`](../reference/cli/trim.md) ages them out.
+Landing new work after an undo forks the log rather than truncating it. Redo stops offering a path it can no longer take, and says so, but the forked-off branch keeps its ids. `ff op restore` still lands on any of them until [`ff op trim`](../reference/cli/op-trim.md) ages them out.
 
 ## `ff history` is the keystroke map
 

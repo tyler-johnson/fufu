@@ -226,7 +226,7 @@ on main · 1 to push
 The removal is one operation on the chain of the tree that ran it, so `ff undo` right after it puts the whole checkout back, uncommitted work included. Two limits to know:
 
 - Ignored files — build outputs, `node_modules`, virtualenvs — are not captured and do not come back, the same trade any worktree removal makes.
-- Gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff trim`](../reference/cli/trim.md) gets there.
+- Gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff op trim`](../reference/cli/op-trim.md) gets there.
 
 ## From here
 

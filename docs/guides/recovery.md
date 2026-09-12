@@ -153,7 +153,7 @@ ff: nothing to redo: work has landed since the last undo, so the log forked rath
 -- two writers on one chain --
 ```
 
-Redo stops offering a way forward it can no longer take, and says so. Nothing was destroyed: the forked-off branch of the log keeps its ids, `ff op log` still lists them, and `ff op restore` still lands on any of them until [`ff trim`](../reference/cli/trim.md) ages them out.
+Redo stops offering a way forward it can no longer take, and says so. Nothing was destroyed: the forked-off branch of the log keeps its ids, `ff op log` still lists them, and `ff op restore` still lands on any of them until [`ff op trim`](../reference/cli/op-trim.md) ages them out.
 
 ## "Two writers on one chain, and only one was wrong"
 

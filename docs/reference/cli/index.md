@@ -53,7 +53,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
     - [`ff op diff`](op-diff.md) — Compare the worktrees two operations carry
     - [`ff op restore`](op-restore.md) — Rewind the whole repository to an operation
     - [`ff op revert`](op-revert.md) — Invert one operation, leaving later work standing
-- [`ff trim`](trim.md) — Drop operations past the retention cutoff (fufu.keep, 90d)
+    - [`ff op trim`](op-trim.md) — Drop operations past the retention cutoff (fufu.keep, 90d)
 
 ## wire it in, and check on it
 

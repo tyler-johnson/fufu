@@ -46,13 +46,13 @@ fufu has no verbs for submodules. They stay git's, reached through `ff git submo
 
 Beyond that passthrough, submodule repositories are untested territory. The [substrate](internals/substrate.md) page places them in the same not-yet long tail as LFS. See [what stays git](comparisons/vs-git.md#what-stays-git).
 
-## Where does fufu keep its state, and how big does it get? What does `ff trim` do?
+## Where does fufu keep its state, and how big does it get? What does `ff op trim` do?
 
 Everything fufu writes lives in two places inside the repository. Refs under `refs/fufu/` hold the operation log, snapshot pointers, open commits, and published-tip records. Plain files under `<common-dir>/fufu/` hold caches and branch metadata. None of it is pushed, and all of it is a cache over git rather than an authority.
 
-Size is bounded by retention. `ff trim` drops operations past the `fufu.keep` window (90 days by default), rides an ordinary command at most once per `fufu.autoTrim` (daily by default), and nudges git's own gc when it dropped something. The last trim is itself recoverable from a trash ref.
+Size is bounded by retention. `ff op trim` drops operations past the `fufu.keep` window (90 days by default), rides an ordinary command at most once per `fufu.autoTrim` (daily by default), and nudges git's own gc when it dropped something. The last trim is itself recoverable from a trash ref.
 
-[Architecture](internals/architecture.md#where-fufus-state-lives) maps the layout; [`ff trim`](reference/cli/trim.md) and [configuration](reference/config.md) cover the knobs.
+[Architecture](internals/architecture.md#where-fufus-state-lives) maps the layout; [`ff op trim`](reference/cli/op-trim.md) and [configuration](reference/config.md) cover the knobs.
 
 ## Why is there no staging area? I liked the staging area.
 

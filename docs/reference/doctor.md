@@ -62,14 +62,14 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 - **reflogs** — whether the log ref has a reflog. It is load-bearing: [`ff undo`](../reference/cli/undo.md) steps the ref back rather than appending, so where the pointer has stood is recorded only here — it is what [`ff redo`](../reference/cli/redo.md) walks forward along and what keeps an abandoned branch of the log addressable. No reflog is a `WARN`.
 - **gc config** — whether reflog expiry is disabled for `refs/fufu/*` in local config. Without those keys, a manual `git gc` could expire fufu reflog entries. Missing keys are a `WARN`, and the one `--fix` writes.
 - **trash** — `info`, only when present: pre-trim tips held until the next trim.
-- **objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff trim`](../reference/cli/trim.md), which nudges git to pack them.
+- **objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff op trim`](../reference/cli/op-trim.md), which nudges git to pack them.
 - **id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
 - **last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
 - **drift** — `info`, only when present: refs moved outside fufu since the last operation, absorbed on the next one. Doctor reports the drift and deliberately does not absorb it — that would be the observer changing what it observes.
 - **legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
 - **parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding, by their open commits; a second row names legacy stash parks still awaiting their fold.
 - **settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
-- **trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
+- **trim** — a dry-run preview: how many operations have aged past the keep window, and that `ff op trim` would drop them. Always `info` — old operations are the trim schedule's business, never a finding.
 - **auto-trim** — whether the automatic trim is on, its cadence, and when it last rode an ff command. Always `info`.
 
 ### The remote floor

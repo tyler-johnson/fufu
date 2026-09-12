@@ -309,7 +309,7 @@ The same rule is what keeps a rewrite honest: a branch carried by a cascade can 
 
 **Stable change identity.** Every commit fufu closes carries a `change-id` header, jj's own: sixteen random bytes minted for the open change at its first capture or describe, spelled in the letters alphabet, and kept by every rewrite because replay copies every header but the signature. The birth is recorded beside the id — the author time of the open commit and of the commit the close lands, so a commit's date is when the work began — and the two move together through every transition, undo included. A commit without the header derives an id from its sha by jj's derivation, so every clone agrees on it without a walk, and the column is never blank. The id is the identity a *change* keeps across amends and rebases; the rewrite map (old-sha → new-sha) on each operation record is the account of what happened to it. Git's own machinery has been converging on the needed primitives for years — `merge-tree`, `rebase --update-refs`, `rerere`, autosquash. fufu wires them into an autopilot.
 
-The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does. A rewrite made outside fufu drops the header, since git copies none it does not know, and the commit comes back with a derived id: the same limitation jj has, and one the docs state rather than repair.
+The map lives in the operation record, as a field on the op rather than in refs of its own. The log is already the authority for what happened and already pins the old commits, so undo and `ff op trim` cover the map for free and nothing else has to learn it exists. A lookup index over it waits for a reader — the first is revalidating a held rewrite — and when one arrives it materializes the way the op-id index already does. A rewrite made outside fufu drops the header, since git copies none it does not know, and the commit comes back with a derived id: the same limitation jj has, and one the docs state rather than repair.
 
 Re-parenting a merge and replaying one are not the same act. A rewrite that moves no tree — a reword — re-parents merges along with everything else, since parents are precisely what re-parenting knows how to fix. A rewrite that moves a tree has to replay, and what a replay means for a merge is the ambiguity the futures probe already declines to answer, so the rewrite declines it too rather than picking a side nobody asked for.
 
@@ -487,12 +487,11 @@ and `describe` are deliberate imports, and jj's `new` survives as a spelling of
 | `ff remote` | what the remotes here are called, and where each points. A read, and the reason it exists is that fufu's own verbs name a remote — `ff publish --to` checks the name, `ff sync` refuses to guess between several — so the list they check against should not have to be borrowed from another tool. Adding one is still `ff git remote add`: a name and a URL are two facts, and fufu has no verb that takes them | `git remote -v`, which is where fufu's own refusals used to send you |
 | `ff undo` | step the whole repository back one run — refs and tree together, and a run of captures is one step. Takes no argument, and repeats: each one goes further back | reflog archaeology, `reset --hard` fear |
 | `ff redo` | the complement, moving forward again after one or more undos | nothing |
-| `ff op <log\|show\|diff\|restore\|revert>` | the operation log as objects: read every operation on it (the argument is the set language, and narrowing is its job — there is no flag), show what one changed, compare two, rewind the repository to one (`restore`), or invert a single one and leave later work standing (`revert`). Deleting operations is `ff trim`'s job alone | nothing — git has no operation log |
+| `ff op <log\|show\|diff\|restore\|revert\|trim>` | the operation log as objects: read every operation on it (the argument is the set language, and narrowing is its job — there is no flag), show what one changed, compare two, rewind the repository to one (`restore`), invert a single one and leave later work standing (`revert`), or drop what lies past the keep window (`trim`) — trash-first, so the last trim is itself undoable; a trim rides an ff command daily, so retention enforces itself | nothing — git has no operation log |
 | `ff log [-r <revset>] [<paths>]` | changes as the spine, jj-style: the open change (`@`) atop the commit walk (`●`), each commit wearing its newest operation's id; `-r` takes the set language and the positional takes paths, so nothing needs a `--` to tell them apart. A path follows its renames — `-r` filters without following, because a set has no line of descent to carry a name along | `reflog` + `log` |
 | `ff evolog` | commits and the operations between them, newest first, runs collapsed the way `ff undo` moves — the combined view, and the drill-in behind `ff log`'s letters column | `reflog` spelunking |
 | `ff history` | where you can go back to: one row per `ff undo` step, the redo path above `@`, and a run of captures collapsed into the single row it undoes as, saying how many | counting reflog entries and hoping |
 | `ff restore <path> [--from <rev>]` | pull paths back: bare, from the commit under the open change; `--from` names another revision; `--at-op` reaches a past operation, `--at` the operation that was current at a given time | hoping |
-| `ff trim` | drop operations past the keep window — trash-first, so the last trim is itself undoable; rides an ff command daily, so retention enforces itself | remembering to prune, or quietly never pruning |
 | `ff resolve` | all of a held rewrite's conflicts, one editing session, on your schedule | sequential stop-fix-continue rebasing |
 | `ff git <args>` | capture-first passthrough, verbatim always; `fufu.gitPolicy` graduates what fufu *says* about a git word it has a verb for — observe, coach, strict | raw git without a net |
 | `ff config` | every setting in one place: typed registry, defaults on display, values validated before they land | `git config` guesswork and doc-spelunking |
@@ -594,11 +593,11 @@ cuts exactly what it always did, because a boring repo tolerates both. fufu just
 never reads it: partial staging is invisible to `ff status` and subsumed by
 `ff commit`, which takes the tree.
 
-### `ff trim`
+### `ff op trim`
 
-Retention with an undo. `ff trim` drops the oldest suffix of the operation log past `fufu.keep` (90 days by default). The pre-trim tip is written to trash before a single ref moves, so the last trim is itself recoverable; survivors keep their trees, messages, and dates byte-for-byte, only parent slots relink, and the reflog is replayed with the original times so `@{n}` and `@{time}` stay truthful. A crash mid-trim leaves a shorter-but-valid chain and the full pre-trim state in trash.
+Retention with an undo. `ff op trim` drops the oldest suffix of the operation log past `fufu.keep` (90 days by default). The pre-trim tip is written to trash before a single ref moves, so the last trim is itself recoverable; survivors keep their trees, messages, and dates byte-for-byte, only parent slots relink, and the reflog is replayed with the original times so `@{n}` and `@{time}` stay truthful. A crash mid-trim leaves a shorter-but-valid chain and the full pre-trim state in trash.
 
-The earned existence is the automatic half: a safety net whose upkeep is a chore is a net that quietly rots. A trim rides an ff command at most once per `fufu.autoTrim` (daily by default), per repository, and it runs **inline** — the engine is native, so there is no child to spawn and nothing to wait on. The hot path is one read of a per-repo stamp beside the common git dir; config is consulted only when the stamp says a trim might be due, and the stamp is written *before* the trim runs, so a failure retries on the cadence rather than on every command. The one thing the automatic lane deliberately skips is manual trim's `git gc --auto` nudge: that would put a spawn on the commands that carry the lane, and bare `ff`, `ff git`, and `ff trigger` stay provably spawn-free. A hand-run `ff trim` nudges whether or not it dropped anything: native writes never trigger auto-gc, so without that nudge nothing ever packs the store, and an unpacked store taxes every chain walk long before retention is due. `gc --auto` is self-limiting, so the nudge costs nothing until git itself thinks packing is worthwhile. `fufu.autoTrim false` leaves trimming entirely by hand.
+The earned existence is the automatic half: a safety net whose upkeep is a chore is a net that quietly rots. A trim rides an ff command at most once per `fufu.autoTrim` (daily by default), per repository, and it runs **inline** — the engine is native, so there is no child to spawn and nothing to wait on. The hot path is one read of a per-repo stamp beside the common git dir; config is consulted only when the stamp says a trim might be due, and the stamp is written *before* the trim runs, so a failure retries on the cadence rather than on every command. The one thing the automatic lane deliberately skips is manual trim's `git gc --auto` nudge: that would put a spawn on the commands that carry the lane, and bare `ff`, `ff git`, and `ff trigger` stay provably spawn-free. A hand-run `ff op trim` nudges whether or not it dropped anything: native writes never trigger auto-gc, so without that nudge nothing ever packs the store, and an unpacked store taxes every chain walk long before retention is due. `gc --auto` is self-limiting, so the nudge costs nothing until git itself thinks packing is worthwhile. `fufu.autoTrim false` leaves trimming entirely by hand.
 
 ### `ff config`
 
@@ -821,7 +820,7 @@ the substrate and the zero-spawn budget before anything depends on them.
 
 **Phase 1 — Capture.** Floor 1 rebuilt native: the snapshot engine, with every
 ff command capturing first; the per-branch timeline
-interleaved into `ff log`; `ff restore`; manual retention (`ff trim`). (Phase 1
+interleaved into `ff log`; `ff restore`; manual retention (`ff op trim`). (Phase 1
 shipped a manual snapshot verb on bare `ff`; it retired when bare `ff` became
 the map, and came back as `ff trigger` — capture is automatic *by default*,
 with one verb that forces it and `-m` to say why.) The
@@ -870,7 +869,7 @@ transaction machinery drops) and the first replayed line's previous-oid
 column is null; a park carries the worktree and not the index, so staged
 state comes back unstaged; `ff commit` during a foreign merge/rebase refuses, pointing at git,
 until Phase 4 owns merges. Retention rides the same `fufu.keep`
-knob through `ff trim` — trash-first at the chain's own
+knob through `ff op trim` — trash-first at the chain's own
 `refs/fufu/wt/<id>/trash/@ops`, pin
 parents preserved verbatim, prev links rewritten — and the oldest survivor
 becomes the undo floor. Petnames are `ff/<adjective>-<noun>` from embedded
@@ -954,7 +953,7 @@ when a machine with only `ff` on it is a working development machine.
   home are settled (`ff/<adjective>-<noun>`; JSON under
   `<common-dir>/fufu/branch/`), but a tidy of merged or abandoned anonymous
   branches remains open.
-- **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an entry rewritten outside fufu is invalidated, loudly), and the map's home is the operation record, which makes pruning `ff trim`'s job. What is left is the lookup index, still deferred: the first reader outside the tests — sync asking whether a divergence is its own — answers a handful of shas once per invocation against a walk the queried commits' own timestamps bound, and did not need one.
+- **Rewrite-map hygiene** — divergence is settled by cache-not-authority (an entry rewritten outside fufu is invalidated, loudly), and the map's home is the operation record, which makes pruning `ff op trim`'s job. What is left is the lookup index, still deferred: the first reader outside the tests — sync asking whether a divergence is its own — answers a handful of shas once per invocation against a walk the queried commits' own timestamps bound, and did not need one.
 - **Reconciliation triggers** — lazy (rebuild at the next fufu invocation,
   jog-style) versus live (post-commit / reference-transaction hooks). jog's
   no-git-hooks stance costs freshness, and nothing reads fufu state on its own

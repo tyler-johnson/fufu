@@ -37,7 +37,7 @@ The remaining sanctioned spawns are deliberate and enumerated:
 
 - The user's own commit hooks, covered below.
 - The commit signer when the repository asks for one — `gpg`, `gpgsm` or `ssh-keygen`, whichever `gpg.format` names — since gix implements no signing at all (`crates/ff-core/src/sign/`).
-- A best-effort `git gc --auto` at the end of [`ff trim`](../reference/cli/trim.md), skipped silently on a machine without git.
+- A best-effort `git gc --auto` at the end of [`ff op trim`](../reference/cli/op-trim.md), skipped silently on a machine without git.
 - The user's editor and pager.
 - The [`ff git`](../reference/cli/git.md) escape hatch, which runs git verbatim by design.
 
