@@ -2,15 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- A branch a remote holds is a target for `ff switch`, bare or qualified: `ff switch spike` with only `origin/spike` mints the local branch under that name, tracking it, the way `git switch spike` does; a bare name two remotes hold is `branch/ambiguous`, listing both. `--json` carries `switch.minted` — `forked_from`, `parent`, `tracking`, `carried` — and the operation records the upstream it set as `upstream` on `op.json`, so `ff undo` takes the section back.
+- Bare `-b` on `ff switch`: `ff switch main -b` forks main onto an anonymous branch. It goes after the target; `ff switch -b main` asks for a branch named main.
+
 ### Changed
 
+- `ff start` and `ff new` are spellings of `ff switch`, and the rule under every spelling is one sentence: find the branch, else mint it. `ff start <branch>` continues the branch (it forked; `ff start <branch> -b` forks). `-m` on a switch that opens nothing is `switch/nothing-opened`. Every spelling is one operation, recorded as `switch`, and one `ff undo` takes back the mint, the copy, and the move.
+- `ff branch`'s remote-only rows wear the brackets, since `ff switch <name>` takes the name.
 - The open change is a commit. A capture of a dirty tree writes it — the tree over HEAD, the user as author at the change's birth, the pending description, the `change-id` header — at `refs/fufu/open/<branch>`, and the `@` row's sha on `ff log`, `ff status`, `ff show @`, and the map is that commit's rather than a prediction. The ref is deleted when the tree is clean, carried by a rename, and dropped by `ff branch -d`; `ff undo` and `ff redo` put it back. Under signing the column stays blank.
 - `ff commit` moves the branch onto the open commit, so the sha the `@` row showed is the sha the `●` row wears. When it cannot — signing is on, a partial close, a hook changed the tree or the message — it mints one and says why on a `re-minted:` line; `--json` carries it as `reminted` (`signed`, `partial`, `hook_tree`, `hook_message`, or null). A `-m` that differs from the description mints one without the line. A minted commit is authored at the change's birth.
 - `@^` is `HEAD` and `@~n` is `HEAD~(n-1)`: the open change's parent suffixes step onto the commit under it, and `@~3..@` is two commits plus the open change. `@@{n}` stays `usage/revset-open-suffix`, reworded — `@` has no reflog, and `@{n}` alone is HEAD's.
 - Every operation states the open commit it leaves as a `fufu-open` trailer and carries it as its last parent, so the log pins it. The first capture on a dirty tree after upgrading appends once to state one.
 - `ff start @` forks at the commit under the open change and carries a copy of it onto the new branch — the same open commit, change id, birth, and description — while the branch left behind keeps its own, parked; it was refused with `target/unresolvable`. `-m` describes the copy. The report and `--json` carry the copy's sha as `carried`.
 - `ff branch <name> @` parks a copy of the open change on the new branch, so `ff switch <name>` resumes it there; the open change underfoot stays. `--json` carries `carried`.
-- `ff start` is one operation: one `ff undo` takes back the mint, the copy, and the switch, and `-m` rides it rather than appending a `describe` operation. `ff undo` drops the open ref of a branch the landing does not have, and `ff redo` reopens the log pointer of a branch whose first operation it re-enters.
+- `-m` on a mint rides the switch's one operation rather than appending a `describe` operation. `ff undo` drops the open ref of a branch the landing does not have, and `ff redo` reopens the log pointer of a branch whose first operation it re-enters.
 - `ff hook <slug>`, `ff hook -u`, and `ff unhook <slug>` remove the MCP server registration an earlier fufu wrote for `claude`, `codex`, `cursor`, and `gemini`, and say so; a hand-written one is left alone.
 - The park is the open commit. `ff switch`, `ff start`, `ff edit`, and `ff resolve` leave a dirty tree's change where the capture put it, at `refs/fufu/open/<branch>`, where `git log --all` shows it one above the branch; the `parked the open change` line names that sha, the `@` row's.
 - `git stash list` and GUI stash panels no longer show `fufu: wip on <branch>` rows; nothing fufu does writes to `refs/stash`.
@@ -24,6 +31,7 @@
 
 ### Removed
 
+- `ff start`'s own page and the `start` envelope and payload: `ff help start` is switch's page, and `--json` under every spelling is `switch` carrying `switch`. `ff switch <rev>`'s `is a revision, not a branch` redirect line; the revision is the verb's own rung, and the `minted` line says where it forked.
 - `ff mcp` and its registration in the four agent clients: Claude's plugin `.mcp.json`, Codex's marked block in `config.toml`, and `mcpServers.fufu` in Cursor's `mcp.json` and Gemini's `settings.json`. `ff hook -l` and `ff hook --json` no longer report `mcp`.
 - The briefing's tools line.
 - `ff doctor`'s `mcp` row.

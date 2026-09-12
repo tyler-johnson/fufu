@@ -182,24 +182,32 @@ close is legal ("(no description)", jj-style); hygiene enforces at the exit,
 where `ff sync` flags undescribed commits rather than letting them past the
 boundary.
 
-`ff start` (alias `ff new`) always begins a new line of work — a fresh
-branch, every time. The verbs carve cleanly: `ff commit` records, `ff
-switch` resumes, `ff start` begins. A tree belongs to its branch and every
-arrival materializes the destination's own, so starting is always travel:
-the open change parks where it was and the new branch opens clean, exactly
-as a switch would leave things. Bare, it forks trunk; a `<rev>` forks there
-instead. `-m` describes the change being opened, `-b` names the minted
-branch. The whole of it is one operation — the mint, the switch, and the
-description — so one `ff undo` takes it back. The one target that carries
-anything is `@`: the fork lands at the commit under the open change and the
-new branch receives a *copy* of it, the same open commit under both names,
-while the branch left behind keeps its own. A copy, so `ff branch <name>
-@` parks one on the new branch without moving, and work already begun still
-moves onto its own branch through `ff commit -b <name>`, which closes it
-onto a fresh branch and leaves the current one standing. That copy is the
-only thing any verb carries across a fork. `ff edit` sits adjacent: it
-targets *commits* (a session), `ff switch` targets *branches*, and `ff edit
-<branch>` simply behaves as `ff switch`.
+`ff switch` is the verb for moving between lines of work, and `ff start`
+and `ff new` are spellings of it: `ff commit` records, `ff switch`
+continues or begins. The rule under every spelling is one sentence — find
+the branch, else mint it — and the target climbs one ladder: an exact local
+branch, a unique local prefix, a branch a remote holds (bare `spike` or
+qualified `origin/spike`), a revision; no target is trunk's tip. A branch
+here is continued. A remote's branch is minted here under its own name,
+tracking it, so the next push sends it back where it came from. A revision
+mints an anonymous branch at it. `-b` turns a branch target into a fork — a
+new branch at its tip recording the branch as its base — or names the mint
+a bare target would leave anonymous; `-m` describes the change being
+opened, and is refused on a switch that opens nothing. A tree belongs to its
+branch and every arrival materializes the destination's own, so beginning
+is travel: the open change parks where it was and the new branch opens
+clean, exactly as a switch would leave things. The whole of it is one
+operation whatever the spelling — the mint, the move, and the description —
+so one `ff undo` takes it back. The one target that carries anything is
+`@`: the fork lands at the commit under the open change and the new branch
+receives a *copy* of it, the same open commit under both names, while the
+branch left behind keeps its own. A copy, so `ff branch <name> @` parks one
+on the new branch without moving, and work already begun still moves onto
+its own branch through `ff commit -b <name>`, which closes it onto a fresh
+branch and leaves the current one standing. That copy is the only thing any
+verb carries across a fork. `ff edit` sits adjacent: it targets *commits*
+(a session), `ff switch` targets *branches*, and `ff edit <branch>` simply
+behaves as `ff switch`.
 
 **Trunk is known.** Several verbs need to know what "main" is: `ff sync`
 rebases onto it, futures in `ff status` measure against it, and bare `ff
@@ -212,10 +220,12 @@ remote: with no local `main`, bare `ff start` forks straight from the
 fetched tip — no local trunk branch is required or created.
 
 **Someone else's branch.** Reviewing work that isn't yours is arriving at a
-branch that already exists — `ff switch`'s job, not `ff start`'s, which
-forks a branch of your own beginning at their tip and records them as its
-base. Their branch is addressed the way git spells it, `origin/feature`: a
-tracking ref is what the last fetch left there, and fetching is `ff sync`'s
+branch that already exists, and `ff switch origin/feature` — or bare `ff
+switch feature` — continues it here: a local branch under their name,
+tracking theirs, which is what `git switch feature` has always meant. `-b`
+forks instead: a branch of your own beginning at their tip, recording them
+as its base. Their branch is addressed the way git spells it, `origin/feature`:
+a tracking ref is what the last fetch left there, and fetching is `ff sync`'s
 job and `ff clone`'s, never an address's.
 
 **Branches without ceremony.** Every head is a real ref under `refs/heads/`
@@ -230,9 +240,9 @@ chain, the open commit, and fufu's metadata along, which is the part a bare
 on the same axis as `-m`: on `ff describe` it names the branch you are on,
 which is why naming lives there and nowhere else — one verb says what work
 *is*, whether the subject is the change's description or the branch's name,
-and claiming a petname is not a different act from replacing a chosen one. On `ff start`
-it names the branch being minted — every `start` creates one, so there is
-nothing to decide. On `ff commit` it names the branch the closing change lands on,
+and claiming a petname is not a different act from replacing a chosen one. On `ff switch`
+it names the branch being minted, and turns a branch target into a fork of
+that branch — the one place `-b` means "a new branch, not this one". On `ff commit` it names the branch the closing change lands on,
 and the reserved prefix makes the meaning decidable rather than guessed: a
 placeholder — fufu-named — is claimed in place, while a branch the user
 deliberately named is never renamed implicitly, so a fresh branch is created
@@ -246,12 +256,14 @@ reuse. To every foreign tool an anonymous branch is
 ordinary; no push refspec matches it by accident, and naming one is the
 natural "this is real now" gesture at the publish boundary.
 
-Target resolution is uniform: every `ff start` target forks — continuing an
-existing branch is `ff switch`'s job, never `start`'s, so there is nothing
-to guess. Git permits no divergence inside one ref and no
-`foo/2` beside `foo` (a ref is a file, and can't also be a directory), so
-every fork is its own ref; "forked from main" is metadata recorded at fork
-time and shown at display time, never encoded in the name.
+Target resolution is one ladder under every spelling: a branch here is
+continued, a branch a remote holds is minted here tracking it, a revision
+mints an anonymous branch, and nothing is trunk — so there is nothing to
+guess, and `-b` is the only thing that makes a branch target fork. Git
+permits no divergence inside one ref and no `foo/2` beside `foo` (a ref is
+a file, and can't also be a directory), so every fork is its own ref;
+"forked from main" is metadata recorded at fork time and shown at display
+time, never encoded in the name.
 
 **Whole-repo undo.** Git has per-ref reflogs but no operation log. fufu has one, and it is the *only* timeline: **every capture is an operation.** A snapshot is not a second concept with its own log and its own ids — it is what an operation carries. An operation records all refs plus the tree state, so `ff undo` restores both together, and there is one address space to learn rather than two. That is the whole reason to merge them: someone asking how to go back should meet one answer, and `ff op` is where it lives. Because fufu is the primary interface the log is near-complete; raw git mutations are tolerated foreign events the capture layer absorbs (reconcile, don't own).
 
@@ -446,8 +458,8 @@ moment fufu verbs are just spellings, the tool collapses into shell aliases with
 extra steps.
 
 The daily surface. Where the workflow is jj's, the vocabulary is too: `edit`
-and `describe` are deliberate imports, and jj's `new` survives as the alias for
-`ff start`, with `switch` staying underneath them as the general movement verb.
+and `describe` are deliberate imports, and jj's `new` survives as a spelling of
+`ff switch` beside `ff start`, one verb for every movement between lines of work.
 
 | verb | what it does | what it replaces |
 |---|---|---|
@@ -459,8 +471,7 @@ and `describe` are deliberate imports, and jj's `new` survives as the alias for
 | `ff show [<rev>] [<paths>]` | one revision with its patch: the commit's furniture, then what it did against its first parent. Bare it is `@`, the open change, printing exactly `ff diff`'s body — one renderer for the thing you are about to commit and the thing you committed last. A merge names the ambiguity rather than picking a parent for you | `git show`, which has no `@` to point at |
 | `ff commit [<paths>]` | close the open change: commit the working copy (`-m` describes what's closing, `-b` names where it lands — claims a placeholder, else a new branch); `<paths>` closes a slice and leaves the rest open, and the interactive form picks hunks — a slice cut from the stream, chosen at the close rather than kept between closes | the `add`/index two-phase ritual (which still works, for those who want it) |
 | `ff describe [<rev>] [-m <msg>] [-b <name>]` | reword any commit's message (`-m` inline, else the editor) — bare form edits the open change's pending description; `-b` names the branch you are on, petname or chosen alike, and is the only verb that does; descendants restack in memory | `commit --amend` at the tip, `rebase -i` reword dances anywhere deeper |
-| `ff start [<rev>] [-m <msg>] [-b <name>]` (alias `ff new`) | begin new work on a fresh branch, always: bare forks trunk, a `<rev>` forks there; the open change parks and the new branch opens clean; `-m` describes the change being *opened*, `-b` names the minted branch (else anonymous); never an empty commit | `git switch -c` + the stash dance |
-| `ff switch <branch>` | branch switch with tree memory | `stash` dances |
+| `ff switch [<target>] [-m <msg>] [-b [<name>]]` (aliases `ff start`, `ff new`) | find the branch, else mint it: a branch here is continued with tree memory, a remote's branch is minted here tracking it, a revision mints an anonymous branch there, and no target mints one at trunk; `-b` forks a branch target or names the mint, `-m` describes the change being *opened*; never an empty commit, and one operation whatever the spelling | `git switch`, `git switch -c`, and the stash dance |
 | `ff branch <list\|delete>` | the bookkeeping left over once naming lives on `ff describe -b`: what exists, and taking one away — recorded, undoable, and naming the open commit it leaves behind. A published branch's copy on the remote is not the name's to take: the delete says it is still there, and `--shared` is how you say remove that too — leased, and the one half `ff undo` cannot reach | `git branch` bookkeeping |
 | `ff worktree <add\|remove\|list>` | the worktrees this repository has, and the chains of the ones that are gone: the chain floor is laid as the worktree is made, so `ff undo` works there from the first command; the removal captures into the removed tree's own chain before the tree goes, which is why there is no `--force` and the work survives; the listing shows chains whose worktree is gone, which git cannot know about | `git worktree add`, and losing whatever was uncommitted when a tree went away |
 | `ff absorb [<paths>]` | fold working changes into a past commit — `HEAD`, or `--into <rev>` — and restack its descendants in memory | `commit --fixup` + `rebase -i --autosquash` |
@@ -498,7 +509,7 @@ Two flag conventions keep the surface from turning into a scramble for letters. 
 
 Both ride every verb that reads repository state, and no others. The line is not read-versus-write — `ff restore` writes files and takes them happily, since what it reads is its source — but whether the verb has an input state to place at all: `ff commit` and `ff start` only add to now, so a past operation has nothing to say to them. `--at-op` is also the *only* way an operation id enters a command outside the `ff op` family, which is what keeps the two address spaces from bleeding (see One target grammar).
 
-Two spellings are not two verbs. Seven verbs take a short one as well — `st`, `ci`, `sw`, `br`, `ev`, `desc`, `cfg` — and the set is curated and closed rather than derived: prefix inference would make the accepted spellings a function of the verb list, so `ff sta` would work until the day a verb starting with the same three letters shipped, and a spelling that stops working is worse than one that never worked. jj's names are aliases on the same terms, wherever a fufu verb is what jj's means: `new` is `ff start`, `bookmark` is `ff branch`, `workspace` is `ff worktree`, `squash` is `ff absorb`, and `rebase` is `ff restack` — jj's word and the git habit landing on the verb that replays. Every alias is visible on its verb's row in the command list, as an `[alias: …]` suffix rather than a row of its own, so the list stays a list of what fufu *does* and still says how each verb is typed; the verb's own page names its spellings too. Bare `ff` also answers to `ff map`, so the word every page uses for it is a word you can type, and the map gets a help page of its own address.
+Two spellings are not two verbs. Seven verbs take a short one as well — `st`, `ci`, `sw`, `br`, `ev`, `desc`, `cfg` — and the set is curated and closed rather than derived: prefix inference would make the accepted spellings a function of the verb list, so `ff sta` would work until the day a verb starting with the same three letters shipped, and a spelling that stops working is worse than one that never worked. jj's names are aliases on the same terms, wherever a fufu verb is what jj's means: `new` is `ff switch`, `bookmark` is `ff branch`, `workspace` is `ff worktree`, `squash` is `ff absorb`, and `rebase` is `ff restack` — jj's word and the git habit landing on the verb that replays. Every alias is visible on its verb's row in the command list, as an `[alias: …]` suffix rather than a row of its own, so the list stays a list of what fufu *does* and still says how each verb is typed; the verb's own page names its spellings too. Bare `ff` also answers to `ff map`, so the word every page uses for it is a word you can type, and the map gets a help page of its own address.
 
 A handful of git's and jj's words are answered rather than parsed: `checkout`, `stash`, `pull`, `push`, `merge`, `blame`, `tag`, and jj's `abandon` and `split`. Typing one is a question — how do I do the git thing here, or the jj thing? — and "unrecognized subcommand" answers a different one, so each raises a coded refusal naming the verbs that replaced it, with what was typed folded into the exits the way `ff branch <name>` folds it. This is the retired `-m` and `ff log --ops` again: a word fufu chose not to have is worth more than a word it never heard of. `merge` is a verb fufu declined to have — principle 12 takes rebase over merge, so replaying is the answer and not a placeholder. `blame` and `tag` earn the entry on the half git does not answer: `blame` reads history, and the work fufu is holding is the part that is not history yet; a tag is git's to make, but `refs/tags/` rides every operation's ref table, so putting back one that was deleted is `ff undo`. jj's two name acts fufu spreads over verbs it already has: what `abandon` drops is a different thing at each stage — the open change is `ff restore --all`, a session or a held rewrite is `ff done --abandon`, a closed commit is `ff lift --from` — and `split` is closing in slices, `ff commit <paths>` for the open change and `ff lift --from <rev> <paths>` for one that has closed. They are refusals and nothing else, so they capture nothing — a snapshot taken for a command that does not exist would be a row on the log for something that never ran. `co` is not among them: it is a `.gitconfig` alias rather than a word git spells, and a second spelling for one refusal is surface with no reader.
 
@@ -524,11 +535,11 @@ What the line reports is what `ff sync` would do, which is also what decides whe
 
 Bare `ff` spreads that same row grammar over the whole repository. The map is a **skeleton**, not a budget, and the skeleton is *relational*: only the commits that relate the shown branches are drawn — their tips, the joins where one branch's history parts from another's, the merges that land a shown branch — and every run between them contracts to one `~ N commits` row. Structure that relates only vanished history earns no row: a merged-and-deleted branch's merge commit and fork point are the trunk's own past, not a relation between anything on the map, and on a merge-heavy trunk they are nearly every commit, which is what makes graph tools that draw them unreadable there. The walk already knows the difference for free — it tracks which shown tips reach each commit, so a join is where two reach-sets meet, and a fork with two children but one reach-set is no join at all. Elision counts read along the first-parent line, straight through the invisible merges, so `~ N` means N commits along *this* line; what a vanished merge brought in is gone, not counted. jj's `~` says only that there is more; fufu's says how much, and a bare `~` means the walk stopped with history still below it. A run of exactly one commit is drawn rather than elided: an elision row that saves no lines and tells you less is a bad trade. The glyph set and the curved rails are jj's, and so is the two-line row — the node line carries the payload, the edge line carries the subject *and* the lane transitions. Branch names are what the map exists to help you find, so they are called out four ways at once — `▸ [name]`, underlined, bold — and not one of them is a color. There is none left to spend: magenta, blue, cyan and green are all already on a map row, and the only unused roles mean *trouble*, so a branch name wearing one would read as a problem. Emphasis is therefore shape and modifiers. Bold says what it already says on an op id's shortest unique prefix — this is what you can type — and a branch name is the other typeable token on a row, since `ff switch` takes it; the underline says jump target, which is the same thing in the register every other tool uses it in; the sigil and the brackets are pure shape, which is the point, because they survive a pipe, `NO_COLOR`, a monochrome terminal and a screen reader, and emphasis carried by color alone would not. The current branch adds the `@` green over all of it: the rest reads "you could go here", the green reads "you are here". An op id column with nothing in it is one dim em dash rather than blank, so the sha beside it reads as the second column instead of as indentation. Branches are ranked by tip time and bounded, with trunk and the current branch always present so the picture has a floor and a you-are-here; the walk itself is bounded by `fufu.mapDepth`. What the map does not carry is verdicts: `ff status` owns "rebases cleanly", and the most-typed command in the tool must not pay a merge simulation per branch.
 
-`ff branch list` is that same row grammar laid out as a table: the map's label character for character, and `@` for where you are standing rather than git's `*`, since a listing that spelled you-are-here differently from every other surface would be teaching two things at once. What a row has to say hangs on a second indented line in `ff status`'s two nouns — through the same renderer, not a second wording kept in step by hand — so a verdict can never trail off the right edge behind a long subject, which is exactly what the old `[main: conflicts]` did. The remote half is the cheap local counts rather than a probe, because the rule that keeps verdicts off the map keeps a merge simulation off every row here too; the price is an aliased remote losing the name it carries on the status line, which is the rare case rather than the daily one. Below the local branches sits a third section, the branches a remote holds that no local branch tracks — subtracted by tracking ref rather than by name, so a branch tracking somebody else's is not counted twice. This is the listing's job and not the map's: the map is a relational skeleton of *your* work and the most-typed command must not pay a per-branch cost, while a verb whose stated question is "what exists" that answers only "what is local" is answering a smaller question than it was asked. Those rows spell the name `ff start` takes and wear the sigil without the brackets — the one place this listing departs from the map's label, because the brackets say *this is a name you can type at `ff switch`* and `ff switch` resolves local names only. Withholding two characters is cheaper than promising the wrong verb. The section is ranked by tip time and bounded like the map's branches, with the remainder standing as one dim `~ N more` — the map's own elision grammar — and `--all` unbounds it; the count is on the model rather than in the rendering, so a machine reader is told what it did not get.
+`ff branch list` is that same row grammar laid out as a table: the map's label character for character, and `@` for where you are standing rather than git's `*`, since a listing that spelled you-are-here differently from every other surface would be teaching two things at once. What a row has to say hangs on a second indented line in `ff status`'s two nouns — through the same renderer, not a second wording kept in step by hand — so a verdict can never trail off the right edge behind a long subject, which is exactly what the old `[main: conflicts]` did. The remote half is the cheap local counts rather than a probe, because the rule that keeps verdicts off the map keeps a merge simulation off every row here too; the price is an aliased remote losing the name it carries on the status line, which is the rare case rather than the daily one. Below the local branches sits a third section, the branches a remote holds that no local branch tracks — subtracted by tracking ref rather than by name, so a branch tracking somebody else's is not counted twice. This is the listing's job and not the map's: the map is a relational skeleton of *your* work and the most-typed command must not pay a per-branch cost, while a verb whose stated question is "what exists" that answers only "what is local" is answering a smaller question than it was asked. Those rows wear the map's label, brackets and all, because the brackets say *this is a name you can type at `ff switch`* and these are: `ff switch origin/spike`, or bare `spike`, mints the local branch tracking it. The section is ranked by tip time and bounded like the map's branches, with the remainder standing as one dim `~ N more` — the map's own elision grammar — and `--all` unbounds it; the count is on the model rather than in the rendering, so a machine reader is told what it did not get.
 
 The log family (`ff log`, `ff evolog`, `ff op log`) pages on a TTY, git-style: `fufu.pager` config, then `FF_PAGER`, then `PAGER`, then `less`, whitespace-split with no shell quoting. `LESS=FR` and `LESSCHARSET=utf-8` are provided when unset (quit if one screen, keep ANSI colors). git's default adds `X`, which suppresses the terminal init string so less never enters the alternate screen; a terminal only routes wheel events to a program that is on it, so `-X` costs mouse scrolling, and what it worked around was fixed in less 530. Piped output and `--json` never page; a pager that fails to spawn falls back to direct printing, silently. Color follows anstream's auto-detection — `NO_COLOR`, `TERM=dumb`, and non-TTY stdout all disable it, and the decision is made against the real terminal before the pager pipe wraps it. No `--color` flag yet; the knobs that exist are the ambient ones.
 
-The root page's command list is grouped under lowercase headings rather than printed flat, and the headings are `git help`'s own words wherever they fit — start a working area, work on the current change, examine the history and state, grow, mark and tweak your common history, collaborate — with the fufu-only groups (go back; wire it in, and check on it; fufu itself) written in the same register. A reader who knows git's page should not have to learn a second one, and forty commands in one alphabetically-arbitrary block is a page people scan instead of read. `ff -h` shows fourteen common verbs under six headings and closes with a dim line naming `ff --help`, which shows all forty under eight — git's `git help` / `git help -a` split, spelled in the flags clap already owns. Three placements depart from git: `commit` sits with the current change rather than under grow-mark-and-tweak, because here the working copy *is* the change; `restore` sits there too, where git has it; and `map` heads examine rather than taking a line of its own, since bare `ff` is taught in the prose above the list. clap cannot group subcommands, so fufu renders the block itself and hands it to clap as a `help_template` whose `{options}` — in place of `{all-args}` — is what keeps clap's flat list from rendering at all. Nothing is hidden to achieve it, so suggestions, `ff help <command>` and dispatch are untouched, and every command's own page stays clap's.
+The root page's command list is grouped under lowercase headings rather than printed flat, and the headings are `git help`'s own words wherever they fit — start a working area, work on the current change, examine the history and state, grow, mark and tweak your common history, collaborate — with the fufu-only groups (go back; wire it in, and check on it; fufu itself) written in the same register. A reader who knows git's page should not have to learn a second one, and forty commands in one alphabetically-arbitrary block is a page people scan instead of read. `ff -h` shows thirteen common verbs under six headings and closes with a dim line naming `ff --help`, which shows all forty under eight — git's `git help` / `git help -a` split, spelled in the flags clap already owns. Three placements depart from git: `commit` sits with the current change rather than under grow-mark-and-tweak, because here the working copy *is* the change; `restore` sits there too, where git has it; and `map` heads examine rather than taking a line of its own, since bare `ff` is taught in the prose above the list. clap cannot group subcommands, so fufu renders the block itself and hands it to clap as a `help_template` whose `{options}` — in place of `{all-args}` — is what keeps clap's flat list from rendering at all. Nothing is hidden to achieve it, so suggestions, `ff help <command>` and dispatch are untouched, and every command's own page stays clap's.
 
 ### `ff git` and the alias
 
@@ -659,7 +670,7 @@ The same discipline governs arguments generally: **a positional argument has exa
 
 That is also what keeps `ff restore` and `ff op restore` from being two spellings of one idea — jj's arrangement exactly, and it works there for the same reason: the two share no argument. `ff restore` takes paths, and moves file content. `ff op restore` takes an operation, and moves the whole repository. The `op` prefix is not decoration; it announces which address space you are in, so there is no way to half-write one and land in the other. `ff undo` is the everyday shortcut for the second, argument-free and repeatable, and most users will never type either long form.
 
-Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `ff switch <sha>` has exactly one sensible reading, so fufu mints an anonymous branch there and says so, naming `ff describe -b <name>` to name it and `ff start` as the verb that meant it; `ff edit <branch>` already redirects the other way. Acting is not guessing: one available reading is taken and announced, while more than one is an error naming the candidates — which is why trunk resolution still refuses to pick.
+Verbs still mean a *kind*, and a kind mismatch redirects rather than refuses. `ff switch <sha>` has exactly one sensible reading, and it is the verb's own last rung rather than a redirect: fufu mints an anonymous branch there and says so; `ff edit <branch>` redirects the other way. Acting is not guessing: one available reading is taken and announced, while more than one is an error naming the candidates — which is why trunk resolution still refuses to pick.
 
 **Extension.** Three mechanisms, all of them git idioms:
 

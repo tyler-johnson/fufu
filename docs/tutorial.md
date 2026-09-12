@@ -45,7 +45,7 @@ The letters column next to each commit is its change id: the identity a commit k
   <noscript><img src="../assets/tutorial/start-work.gif" alt="ff start minting a branch, an edit to notes/parser.md, and ff status showing the open change"></noscript>
 </div>
 
-[`ff start`](reference/cli/start.md) begins a new line of work, always on a fresh branch forked from trunk. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
+[`ff start`](reference/cli/switch.md) begins a new line of work on a fresh branch forked from trunk — it is `ff switch` with no branch to find, so one is minted. There is nothing to name up front — fufu mints a name, and you claim a real one once the work has earned it.
 
 ```console
 $ ff start

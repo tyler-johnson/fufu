@@ -4,7 +4,7 @@ A stack is a branch whose base — the branch it forked from and rebases onto �
 
 This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the stack, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
 
-The verbs already know the shape. [`ff start`](../reference/cli/start.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on, or every branch you name. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
+The verbs already know the shape. [`ff start`](../reference/cli/switch.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on, or every branch you name. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
 
 ## Start a stack
 
@@ -33,7 +33,7 @@ closed dbf80757 on parser-core: parser: buffered char stream (1 file(s))
 undo: ff undo
 ```
 
-The next piece — a CLI flag that exposes the parser — depends on all of that, and it should not wait for parser-core's review. Fork the second branch at parser-core's tip by naming it: a branch name given to `ff start` forks there rather than continuing it — continuing is [`ff switch`](../reference/cli/switch.md)'s job.
+The next piece — a CLI flag that exposes the parser — depends on all of that, and it should not wait for parser-core's review. Fork the second branch at parser-core's tip by naming it with `-b`: a branch name alone continues that branch, and `-b` is what makes it a fork.
 
 ```console
 $ ff start parser-core -b parser-cli

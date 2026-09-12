@@ -12,7 +12,7 @@ A change is in exactly one of three states:
 - **Parked** — set aside with a branch when you switched away. A parked change is the open change that branch had, held as you left it as the branch's open commit, and it becomes the open change again when you switch back.
 - **Closed** — a commit. Closing is how a change enters history, and [`ff commit`](../reference/cli/commit.md) is the verb that does it.
 
-The verbs move a change between these states and do nothing else. `ff commit` closes, [`ff switch`](../reference/cli/switch.md) parks one change and reopens another, [`ff start`](../reference/cli/start.md) opens a fresh one. The rest of this page walks each transition.
+The verbs move a change between these states and do nothing else. `ff commit` closes, [`ff switch`](../reference/cli/switch.md) parks one change and reopens another, [`ff start`](../reference/cli/switch.md) opens a fresh one. The rest of this page walks each transition.
 
 ## Closing is the commit
 
@@ -54,11 +54,11 @@ Both halves are reported, so you always know where your work went and what came 
 
 ### Forks open clean
 
-`ff start` is the other verb that leaves the open change behind. It forks a fresh branch — from trunk, your main line of development, unless you name a revision — and the change it opens there is clean and empty.
+`ff start` is `ff switch` with no branch to find: it mints a fresh one — from trunk, your main line of development, unless you name a revision — and the change it opens there is clean and empty.
 
 Nothing crosses a fork but one thing: `ff start @` forks at the commit under the open change and carries a copy of it, the same sha on both branches, while the branch you left keeps its own. Every other target parks the open change where it was, on the branch it belongs to, and the new line of work begins from a commit alone. If the fork itself is the idea, and you thought of the next task mid-edit, `ff start -m "the next thing"` opens the new change already described. `ff start` never creates a commit.
 
-The three verbs divide the ground cleanly: `ff commit` records, `ff switch` resumes, `ff start` begins.
+The verbs divide the ground cleanly: `ff commit` records, `ff switch` continues or begins, and `ff start` is its spelling for beginning.
 
 ## The `@` row
 

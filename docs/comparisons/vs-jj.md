@@ -98,7 +98,7 @@ Where a fufu verb is what jj's means under another name, jj's name is an alias, 
 
 | jj | fufu |
 | --- | --- |
-| `jj new` | [`ff start`](../reference/cli/start.md), or `ff new` |
+| `jj new` | [`ff start`](../reference/cli/switch.md), or `ff new` |
 | `jj bookmark` | [`ff branch`](../reference/cli/branch.md), or `ff bookmark` |
 | `jj workspace` | [`ff worktree`](../reference/cli/worktree.md), or `ff workspace` |
 | `jj squash` | [`ff absorb`](../reference/cli/absorb.md), or `ff squash` |

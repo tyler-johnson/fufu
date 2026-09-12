@@ -31,12 +31,12 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 
 | id | exit | meaning |
 | --- | --- | --- |
-| `branch/ambiguous` | 1 | that branch prefix matches more than one branch |
+| `branch/ambiguous` | 1 | that name matches more than one branch |
 | `branch/checked-out-elsewhere` | 1 | another worktree has that branch checked out |
 | `branch/exists` | 1 | a branch of that name already exists |
 | `branch/invalid-name` | 1 | git would not accept that branch name |
 | `branch/is-current` | 1 | that is the branch you are on |
-| `branch/not-found` | 1 | no branch here goes by that name |
+| `branch/not-found` | 1 | no branch of that name, here or on a remote |
 | `branch/shared-lease-refused` | 1 | the shared copy moved since you last looked, so it was not deleted |
 | `clone/bad-url` | 1 | that is not a URL fufu can address |
 | `clone/failed` | 1 | the pack arrived and the working copy could not be written |
@@ -101,6 +101,7 @@ Every id in the registry behind `ff explain`, one row each, with the code it exi
 | `sign/no-key` | 1 | ssh signing needs a key and user.signingkey is empty |
 | `sign/no-program` | 1 | the signing program is not on PATH |
 | `sign/unknown-format` | 1 | gpg.format names a signing format fufu does not know |
+| `switch/nothing-opened` | 1 | -m describes a change the switch opens, and this switch opens none |
 | `target/unresolvable` | 1 | that target resolves, but not to something this verb can use |
 | `undo/not-undoable` | 1 | that operation has nothing in it to invert |
 | `undo/nothing` | 1 | the operation log has nothing left to undo |

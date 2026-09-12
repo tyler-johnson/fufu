@@ -27,8 +27,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 ## grow, mark and tweak your common history
 
-- [`ff start`](start.md) — Begin new work on a fresh branch
-- [`ff switch`](switch.md) — Switch branches; a dirty tree is parked, a parked change resumes
+- [`ff switch`](switch.md) — Switch branches, or begin new work on a fresh one; a dirty tree is parked, a parked change resumes
 - [`ff branch`](branch.md) — Lines of work: what exists, making one, and removing one
 - [`ff absorb`](absorb.md) — Fold working changes into a commit that has already closed
 - [`ff lift`](lift.md) — Take changes back out of a closed commit, into the open change

@@ -8,13 +8,13 @@ Naming is not here. [`ff describe -b <name>`](describe.md) names the branch you 
 
 Named branches first, then the anonymous ones — the petnames fufu mints when work starts without a name — kept apart so a petname never reads as something you chose. Each row carries its tip, the subject there, and what is hanging off it: a parked change, a pending description, and how it stands against its upstream.
 
-Then what a remote is holding that is not here: the branches a clone or a fetch left a tracking ref for and no local branch of yours tracks. Those rows wear the sigil without the brackets, because the brackets mean a name you can type at ff switch, and switch resolves local names only.
+Then what a remote is holding that is not here: the branches a clone or a fetch left a tracking ref for and no local branch of yours tracks. Those rows wear the brackets too, because the brackets mean a name you can type at [`ff switch`](switch.md), and these are: `ff switch origin/<branch>`, or bare `ff switch <branch>`, is what makes the local branch, tracking the remote's.
 
-[`ff start origin/<branch>`](start.md) is the verb that forks one of these into a branch here. The section is bounded the way the map is, with a dim count standing for the rest; --all is that bound spelled off.
+The section is bounded the way the map is, with a dim count standing for the rest; --all is that bound spelled off.
 
 ## Creating
 
-`ff branch <name>` mints a branch at trunk's tip and leaves you where you stand. `<rev>` forks it elsewhere: a revision puts the tip on that commit, and a branch name puts it on that branch's tip and records the branch as the parent, so the new one has a base to be measured against. `@` puts the tip on the commit under the open change and parks a copy of the open change on the new branch, so [`ff switch <name>`](switch.md) resumes it there; nothing moves and nothing parks here.
+`ff branch <name>` mints a branch at trunk's tip and leaves you where you stand. `<rev>` forks it elsewhere: a revision puts the tip on that commit, and a branch name puts it on that branch's tip and records the branch as the parent, so the new one has a base to be measured against. `@` puts the tip on the commit under the open change and parks a copy of the open change on the new branch, so `ff switch <name>` resumes it there; nothing moves and nothing parks here.
 
 `ff start` is the verb that also moves there. Creating is one operation, so [`ff undo`](undo.md) takes the whole of it back.
 

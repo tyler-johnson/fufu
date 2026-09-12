@@ -2,7 +2,7 @@
 
 **Every line of work is an ordinary git branch, and no work waits for a name.**
 
-[`ff start`](../reference/cli/start.md) begins every new line of work on a fresh branch. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead.
+[`ff start`](../reference/cli/switch.md) begins every new line of work on a fresh branch. It is a spelling of `ff switch`, and the rule under both is one sentence: find the branch, else mint it. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead; give it a branch and it continues that branch, unless `-b` says to fork it.
 
 The [open change](changes.md) — the edits sitting in your working copy — parks with the branch you are leaving, and the new branch opens clean; only `ff start @` carries a copy of it across, and the branch you left keeps its own. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
 
@@ -46,7 +46,7 @@ Each row carries the branch's tip and the subject there, plus what is hanging of
 - a pending description
 - how the branch stands against its shared copy on the remote
 
-Below your own branches come the ones a remote holds and you do not. You cannot switch to those directly, because `ff switch` resolves local names only. `ff start origin/spike` is the verb that forks one of them into a branch here.
+Below your own branches come the ones a remote holds and you do not. You can switch to those directly: `ff switch spike`, or `ff switch origin/spike`, mints the local branch under that name, tracking the remote's, which is what `git switch spike` has always meant. `-b` forks one into a branch of your own instead.
 
 `ff branch -d` removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its open change stays pinned as a commit that timeline names, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
 
