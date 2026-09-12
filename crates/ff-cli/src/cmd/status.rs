@@ -457,6 +457,7 @@ fn verb_of(intent: &ff_core::held::Intent) -> &'static str {
         ff_core::held::Intent::Done { .. } => "done",
         ff_core::held::Intent::Absorb { .. } => "absorb",
         ff_core::held::Intent::Lift { .. } => "lift",
+        ff_core::held::Intent::Arrive { .. } => "switch",
     }
 }
 

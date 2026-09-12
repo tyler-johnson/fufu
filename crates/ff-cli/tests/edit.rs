@@ -196,8 +196,12 @@ fn edit_parks_a_dirty_tree() {
         !fx.path().join("loose.txt").exists(),
         "the parked file must not follow into the session"
     );
-    // Panics if the ref is missing.
-    fx.git(&["rev-parse", "--verify", "refs/fufu/parked/main"]);
+    // Panics if the ref is missing: the park is main's open commit.
+    fx.git(&["rev-parse", "--verify", "refs/fufu/open/main"]);
+    assert!(
+        fx.git(&["stash", "list"]).is_empty(),
+        "nothing on refs/stash"
+    );
 }
 
 #[test]
@@ -355,7 +359,11 @@ fn done_abandon_says_where_the_edits_went() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(text.contains("abandoned"), "{text}");
-    assert!(text.contains("stashed"), "{text}");
+    assert!(
+        text.contains("the session's edits stay at"),
+        "the abandon names the open commit it left: {text}"
+    );
+    assert!(text.contains("ff undo brings the session back"), "{text}");
 
     assert_eq!(branch_of(&fx), "main");
     assert_eq!(
@@ -364,10 +372,32 @@ fn done_abandon_says_where_the_edits_went() {
         "abandoning must leave main exactly where it stood"
     );
     assert!(ff_branches(&fx).is_empty(), "no session branch may survive");
-    let stash = fx.git(&["stash", "list"]);
     assert!(
-        !stash.trim().is_empty(),
-        "the edits must be in the stash, not thrown away: {stash}"
+        fx.git(&["stash", "list"]).trim().is_empty(),
+        "nothing goes to refs/stash"
+    );
+    // The edits are a commit the done op pins, and the line names it.
+    let line = text
+        .lines()
+        .find(|l| l.contains("the session's edits stay at"))
+        .unwrap();
+    let short = line
+        .split("stay at ")
+        .nth(1)
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .trim();
+    let sha = fx.git(&["rev-parse", "--verify", short]).trim().to_string();
+    assert_eq!(
+        fx.git(&["show", &format!("{sha}:c1.txt")]),
+        "c1, edited\n",
+        "the left commit's tree holds the edit"
+    );
+    assert!(
+        fx.git(&["log", "--all", "--format=%H"]).contains(&sha),
+        "git log --all shows it"
     );
 }
 

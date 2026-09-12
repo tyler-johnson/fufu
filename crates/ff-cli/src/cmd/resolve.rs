@@ -1,8 +1,9 @@
 //! `ff resolve` — deal with a held rewrite. It materializes the conflicts
 //! all at once on a session branch, the way `ff edit` opens one, and
-//! switches you there; `--abandon` drops the hold instead. Unlike a hold,
-//! none of its outcomes is a refusal: a resolution that opened is a
-//! success, so nothing here sets an exit code.
+//! switches you there; a held arrival is laid into the open change in
+//! place; `--abandon` drops the hold instead. Unlike a hold, none of its
+//! outcomes is a refusal: a resolution that opened is a success, so nothing
+//! here sets an exit code.
 
 use ff_core::{ResolveOutcome, Result};
 
@@ -75,6 +76,44 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 report.verb
             );
         }
+        ResolveOutcome::Laid(report) => {
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "resolve": serde_json::Value::Null,
+                    "laid": report,
+                    "undo": "ff undo",
+                });
+                crate::machine::emit("resolve", &payload)?;
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            if report.regions == 0 {
+                println!(
+                    "the parked change applies cleanly now: resumed it on {}",
+                    report.branch
+                );
+            } else {
+                println!(
+                    "laid the parked change over {} with conflict markers in {} file(s):",
+                    report.branch,
+                    report.paths.len()
+                );
+                for path in &report.paths {
+                    println!(
+                        "{}",
+                        crate::render::paint_warn(&format!("  {path}"), colored)
+                    );
+                }
+                println!(
+                    "    {}",
+                    crate::render::paint_dim(
+                        "fix the markers; the open change is the resolution",
+                        colored
+                    )
+                );
+            }
+            println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+        }
         ResolveOutcome::Abandoned(report) => {
             if ctx.json {
                 let payload = serde_json::json!({
@@ -85,6 +124,15 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
+            if let Some(open) = &report.left {
+                println!(
+                    "dropped the held arrival on {}; the parked change stays at {}",
+                    report.branch,
+                    crate::render::paint_sha(ff_core::sha::short(open.as_str()), colored)
+                );
+                println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+                return Ok(());
+            }
             match &report.session {
                 Some(session) => println!(
                     "dropped the held {} on {} and the session {} with it",
@@ -100,7 +148,7 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
             // session deleted from the held branch leaves HEAD where it stood.
             if report.returned {
                 println!("back on {}", report.branch);
-                crate::cmd::switch::render_arrival(&report.arrival, colored);
+                crate::cmd::switch::render_arrival(&report.arrival, &report.branch, colored);
             }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }

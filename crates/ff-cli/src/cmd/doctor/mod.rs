@@ -110,7 +110,7 @@ pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
         rows.push(repo::id_index_row(repo)?);
         rows.extend(repo::last_op_rows(repo, now)?);
         rows.extend(repo::legacy_row(repo)?);
-        rows.extend(repo::parked_row(repo)?);
+        rows.extend(repo::parked_rows(repo)?);
         rows.extend(repo::settings_checks(repo, now)?);
         rows.push(repo::signing_row(repo));
         rows.extend(repo::branch_checks(repo, fix)?);

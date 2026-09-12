@@ -1,6 +1,7 @@
 //! `ff switch` — branches without ceremony. Parking and arrival reports are
 //! part of the verb's voice: the user should always know where their work
-//! went and where it came back from.
+//! went and where it came back from. The park is the open commit, so the
+//! sha the park line names is the `@` row's.
 
 use ff_core::{ArrivalReport, Result, SwitchOptions, SwitchReport};
 
@@ -41,12 +42,21 @@ pub fn run(ctx: &Ctx, target: String) -> Result<()> {
             "undo": "ff undo",
         });
         crate::machine::emit("switch", &payload)?;
+        exit_if_held(&report.arrival);
         return Ok(());
     }
 
     let colored = crate::pager::color_enabled();
     render_switch(&report, colored);
     Ok(())
+}
+
+/// Whether the switch's JSON should exit 3: the switch happened, and the
+/// arrival held.
+fn exit_if_held(arrival: &ArrivalReport) {
+    if matches!(arrival, ArrivalReport::Held { .. }) {
+        crate::exit::held();
+    }
 }
 
 /// The switch's own rendering, shared with `ff edit`'s branch redirect so a
@@ -64,28 +74,46 @@ pub(crate) fn render_switch(report: &SwitchReport, colored: bool) {
         );
     }
     println!("switched to {}", report.to);
-    render_arrival(&report.arrival, colored);
+    render_arrival(&report.arrival, &report.to, colored);
     println!("{}", crate::render::paint_dim("undo: ff undo", colored));
 }
 
 /// The arrival block: what became of the change parked on the target. One
-/// place for the four arms, so a switch and a session landing never drift
-/// apart.
-pub(crate) fn render_arrival(arrival: &ArrivalReport, colored: bool) {
+/// place for the five arms, so a switch and a session landing never drift
+/// apart. A held arrival sets the exit code: the switch happened, and a
+/// human decision is required before the change moves.
+pub(crate) fn render_arrival(arrival: &ArrivalReport, to: &str, colored: bool) {
+    let folded = match arrival {
+        ArrivalReport::Restored { folded, .. }
+        | ArrivalReport::Held { folded, .. }
+        | ArrivalReport::Landed { folded, .. } => folded.as_deref(),
+        ArrivalReport::None | ArrivalReport::Invalidated { .. } => None,
+    };
     match arrival {
         ArrivalReport::None => {}
         ArrivalReport::Restored { files, .. } => {
             println!("resumed the parked change ({} file(s))", files.len());
         }
-        ArrivalReport::StillParked { paths, .. } => {
-            println!("a parked change is waiting here but no longer applies cleanly:");
+        ArrivalReport::Held { paths, .. } => {
+            println!("the parked change does not apply on {to}'s new tip:");
             for path in paths {
                 println!(
                     "{}",
                     crate::render::paint_warn(&format!("  conflicts: {path}"), colored)
                 );
             }
-            println!("it stays parked; resolve by hand with git stash, or continue working");
+            println!(
+                "{}",
+                crate::render::paint_dim(
+                    "held: ff resolve lays it into the open change with markers · ff resolve \
+                     --abandon drops it",
+                    colored
+                )
+            );
+            crate::exit::held();
+        }
+        ArrivalReport::Landed { .. } => {
+            println!("the parked change is already in {to}; nothing to resume");
         }
         ArrivalReport::Invalidated { stash } => {
             println!(
@@ -93,6 +121,18 @@ pub(crate) fn render_arrival(arrival: &ArrivalReport, colored: bool) {
                 crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
             );
         }
+    }
+    if let Some(stash) = folded {
+        println!(
+            "{}",
+            crate::render::paint_dim(
+                &format!(
+                    "folded its stash entry ({}) into the open commit",
+                    ff_core::sha::short(stash)
+                ),
+                colored
+            )
+        );
     }
 }
 

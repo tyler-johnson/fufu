@@ -353,13 +353,11 @@ pub(super) fn legacy_row(repo: &ff_core::gix::Repository) -> Result<Option<Row>>
     }))
 }
 
-/// Parked tree memory, per branch.
-pub(super) fn parked_row(repo: &ff_core::gix::Repository) -> Result<Option<Row>> {
-    let mut parked_parts: Vec<String> = Vec::new();
+/// The branches under `prefix`, short names, in ref order.
+fn branches_under(repo: &ff_core::gix::Repository, prefix: &str) -> Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
     let platform = repo.references().map_err(Error::repo)?;
-    let iter = platform
-        .prefixed(ff_core::stash::PARKED_PREFIX)
-        .map_err(Error::repo)?;
+    let iter = platform.prefixed(prefix).map_err(Error::repo)?;
     for reference in iter {
         let reference = reference.map_err(|err| {
             Error::coded(
@@ -369,17 +367,47 @@ pub(super) fn parked_row(repo: &ff_core::gix::Repository) -> Result<Option<Row>>
             )
         })?;
         let name = reference.name().as_bstr().to_string();
-        let short = name
-            .strip_prefix(ff_core::stash::PARKED_PREFIX)
-            .unwrap_or(&name);
-        parked_parts.push(short.to_string());
+        out.push(name.strip_prefix(prefix).unwrap_or(&name).to_string());
     }
-    Ok((!parked_parts.is_empty()).then(|| {
-        Row::info(
+    Ok(out)
+}
+
+/// Parked tree memory, per branch: every open commit but the branch
+/// underfoot's and those of branches other worktrees hold, whose open
+/// change is open rather than parked. A second row names legacy parks —
+/// stash entries from before the open commit was the park — still awaiting
+/// their fold.
+pub(super) fn parked_rows(repo: &ff_core::gix::Repository) -> Result<Vec<Row>> {
+    let mut rows = Vec::new();
+    let current = match ff_core::head_state(repo) {
+        Ok(ff_core::HeadState::Branch { name, .. }) => Some(name),
+        Ok(ff_core::HeadState::Unborn { r#ref }) => {
+            r#ref.strip_prefix("refs/heads/").map(str::to_string)
+        }
+        _ => None,
+    };
+    let held = ff_core::linked::held_branches(repo)?;
+    let parked: Vec<String> = branches_under(repo, ff_core::open::OPEN_PREFIX)?
+        .into_iter()
+        .filter(|b| Some(b) != current.as_ref() && !held.contains(b))
+        .collect();
+    if !parked.is_empty() {
+        rows.push(Row::info(
             "parked",
-            format!("tree memory held for: {}", parked_parts.join(", ")),
-        )
-    }))
+            format!("tree memory held for: {}", parked.join(", ")),
+        ));
+    }
+    let legacy = branches_under(repo, ff_core::stash::PARKED_PREFIX)?;
+    if !legacy.is_empty() {
+        rows.push(Row::info(
+            "parked",
+            format!(
+                "legacy parks awaiting fold: {} — ff switch <branch> folds each",
+                legacy.join(", ")
+            ),
+        ));
+    }
+    Ok(rows)
 }
 
 /// Settings, the trim preview, and the auto-trim lane. One function on

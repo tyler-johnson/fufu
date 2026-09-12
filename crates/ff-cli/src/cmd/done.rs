@@ -77,7 +77,7 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 println!("{line}");
             }
             println!("back on {}", report.onto);
-            crate::cmd::switch::render_arrival(&report.arrival, colored);
+            crate::cmd::switch::render_arrival(&report.arrival, &report.onto, colored);
             if report.published > 0 {
                 // Disclosure, not a warning, on the same rule as restack — and
                 // read off the report rather than asked of HEAD, because HEAD
@@ -120,22 +120,22 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 // an empty subject is worse than saying what happened.
                 println!("abandoned the resolution on {}", report.onto);
                 println!("back on {}", report.onto);
-                crate::cmd::switch::render_arrival(&report.arrival, colored);
+                crate::cmd::switch::render_arrival(&report.arrival, &report.onto, colored);
             } else {
                 println!(
                     "abandoned the session on {} \"{}\"",
                     crate::render::paint_sha(ff_core::sha::short(report.editing.as_str()), colored),
                     report.subject
                 );
-                if let Some(stash) = &report.stashed {
+                if let Some(open) = &report.left {
                     // Nothing was lost: say where it went.
                     println!(
-                        "stashed the session's edits ({})",
-                        crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
+                        "the session's edits stay at {}; ff undo brings the session back",
+                        crate::render::paint_sha(ff_core::sha::short(open.as_str()), colored)
                     );
                 }
                 println!("back on {}", report.onto);
-                crate::cmd::switch::render_arrival(&report.arrival, colored);
+                crate::cmd::switch::render_arrival(&report.arrival, &report.onto, colored);
             }
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
@@ -169,7 +169,7 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 crate::render::paint_sha(ff_core::sha::short(report.new_tip.as_str()), colored)
             );
             println!("back on {}", report.branch);
-            crate::cmd::switch::render_arrival(&report.arrival, colored);
+            crate::cmd::switch::render_arrival(&report.arrival, &report.branch, colored);
             // The subtree the hold stopped, resumed from the landed tip. A
             // hold up there is that branch's own, recorded on its metadata,
             // and the landing stands, so the exit stays 0 and the line names

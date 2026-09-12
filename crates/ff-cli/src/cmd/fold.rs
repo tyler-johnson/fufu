@@ -112,10 +112,10 @@ pub fn run(ctx: &Ctx, target: Option<String>, stay: bool) -> Result<()> {
         if let Some(trash) = &report.trash_ref {
             println!("  its timeline moved to {trash}");
         }
-        if let Some(parked) = &report.parked_demoted {
+        if let Some(open) = &report.open_left {
             println!(
-                "  its parked change ({}) is off the branch; it stays on git's stash list",
-                short(parked)
+                "  its open change ({}) is off the branch, pinned by its timeline in trash",
+                short(open)
             );
         }
     }

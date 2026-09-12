@@ -123,8 +123,11 @@ fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     if let Some(trash) = &report.trash_ref {
         println!("  its timeline moved to {trash}");
     }
-    if report.parked_demoted.is_some() {
-        println!("  its parked change stays in the stash (git stash list)");
+    if let Some(open) = &report.open_left {
+        println!(
+            "  its open change ({}) stays pinned by its timeline in trash",
+            crate::render::paint_sha(ff_core::sha::short(open.as_str()), colored)
+        );
     }
     match (&report.shared, shared) {
         (Some(shared), true) => {
