@@ -17,7 +17,6 @@ pub mod git;
 pub mod git_exec;
 pub mod history;
 pub mod init;
-pub mod lift;
 pub mod log;
 pub mod map;
 pub mod op;

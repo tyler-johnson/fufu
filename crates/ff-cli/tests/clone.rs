@@ -233,7 +233,10 @@ fn a_shallow_clone_absorbs_across_its_boundary() {
 
     std::fs::write(w.join("b.txt"), "b, again\n").unwrap();
     let body = ok(&w, &["absorb", "--into", &first]);
-    assert!(body.contains("absorbed into"), "{body}");
+    assert!(
+        body.contains("moved 1 file(s) from the open change into"),
+        "{body}"
+    );
     assert!(body.contains("restacked 1 commit"), "{body}");
     assert_eq!(git(&w, &["show", "HEAD~1:b.txt"]), "b, again");
     assert_eq!(git(&w, &["show", "HEAD:c.txt"]), "c");

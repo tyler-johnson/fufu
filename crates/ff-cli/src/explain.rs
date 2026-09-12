@@ -122,11 +122,59 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/absorb-into-open",
-        summary: "absorb was named the open change as its target",
-        detail: "The open change is already where your changes are, so there is nothing to fold \
-                 it into. Name a commit that has closed — ff log says which ones sit under you — \
-                 or close the change first with ff commit and absorb into the commit that lands.",
-        exits: &["ff absorb", "ff commit -m <msg>"],
+        summary: "absorb was aimed at the open change with nothing else to move",
+        detail: "Absorb's default sources are the open change, so --into @ with no --from asks \
+                 to move the open change into itself: it is already where your changes are. \
+                 Name a commit that has closed — ff log says which ones sit under you — name \
+                 the sources with --from, or close the change first with ff commit and absorb \
+                 into the commit that lands.",
+        exits: &[
+            "ff absorb",
+            "ff absorb --from <revset> --into @",
+            "ff commit -m <msg>",
+        ],
+    },
+    Entry {
+        id: "usage/move-into-self",
+        summary: "the move's only source is its target",
+        detail: "absorb and lift move content out of a run of commits and into one commit, and \
+                 the target is dropped from the sources — a target inside the run takes both \
+                 sides. When that leaves no source at all, the move is a commit into itself, \
+                 which changes nothing. Name a different target with --into, or more sources \
+                 with --from.",
+        exits: &[
+            "ff absorb --from <revset> --into <rev>",
+            "ff lift --from <revset> --into <rev>",
+            "ff log",
+        ],
+    },
+    Entry {
+        id: "usage/move-gap",
+        summary: "the sources are not one run of commits",
+        detail: "A move takes its sources as one contiguous run on the branch's line, the open \
+                 change allowed on top, and everything between and above replays without what \
+                 moved. The set named has commits between two of its members that were not \
+                 named, and the move will not guess whether they were meant. The exit spells \
+                 the whole run from the lowest source to the highest; drop what does not \
+                 belong, or move in two steps.",
+        exits: &[
+            "ff absorb --from <lo>~..<hi>",
+            "ff lift --from <lo>~..<hi>",
+            "ff log",
+        ],
+    },
+    Entry {
+        id: "absorb/into-trunk",
+        summary: "the default target sits on trunk",
+        detail: "Without --into, absorb moves into the commit under the lowest source. The \
+                 sources named reach the bottom of the branch, so that commit is trunk's, and a \
+                 bare word does not rewrite trunk. The exit folds the run into its own lowest \
+                 commit instead; name any other commit on the branch with --into.",
+        exits: &[
+            "ff absorb --from <lo>..<hi> --into <lo>",
+            "ff absorb --into <rev>",
+            "ff log",
+        ],
     },
     Entry {
         id: "usage/bad-restore-target",
@@ -690,11 +738,12 @@ pub static ENTRIES: &[Entry] = &[
     },
     Entry {
         id: "usage/lift-from-open",
-        summary: "lift was named the open change as its source",
-        detail: "The open change is what a lift lands in, so naming it as a source has nothing \
-                 committed to take back out. Name a commit that has closed — ff log says which \
-                 ones sit under you — and lift takes its files back into the open change.",
-        exits: &["ff lift", "ff log"],
+        summary: "lift was told to take from the open change with nowhere else to land",
+        detail: "Lift's default target is the open change, so --from @ with no --into asks to \
+                 move the open change into itself, and it has nothing committed to take back \
+                 out. Name a commit that has closed — ff log says which ones sit under you — \
+                 or name where it lands with --into, which is an absorb spelled the other way.",
+        exits: &["ff lift", "ff lift --from @ --into <rev>", "ff log"],
     },
     Entry {
         id: "usage/needs-message",

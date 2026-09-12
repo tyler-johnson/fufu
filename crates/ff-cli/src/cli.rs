@@ -308,10 +308,16 @@ pub enum Command {
     /// Fold working changes into a commit that has already closed
     #[command(visible_alias = "squash", long_about = help::term(help::ABSORB), after_long_help = help::term_examples(help::ABSORB_EXAMPLES))]
     Absorb {
-        /// Commit to absorb into; without it, the commit under the change
+        /// Commits to move; without it, the open change
+        #[arg(long, value_name = "revset")]
+        from: Option<String>,
+        /// Commit to move into; without it, the commit under the sources
         #[arg(long, value_name = "rev")]
         into: Option<String>,
-        /// Limit the absorb to these paths (files or directory prefixes)
+        /// The target's message: a reword for a closed commit, the pending description for the open change
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Limit the move to these paths (files or directory prefixes)
         #[arg(value_name = "path")]
         paths: Vec<String>,
         /// Skip pre-commit and commit-msg hooks
@@ -321,12 +327,21 @@ pub enum Command {
     /// Take changes back out of a closed commit, into the open change
     #[command(long_about = help::term(help::LIFT), after_long_help = help::term_examples(help::LIFT_EXAMPLES))]
     Lift {
-        /// Commit to lift out of; without it, the commit under the change
-        #[arg(long, value_name = "rev")]
+        /// Commits to move out of; without it, the commit under the open change
+        #[arg(long, value_name = "revset")]
         from: Option<String>,
-        /// Limit the lift to these paths (files or directory prefixes)
+        /// Where it lands; without it, the open change
+        #[arg(long, value_name = "rev")]
+        into: Option<String>,
+        /// The target's message: a reword for a closed commit, the pending description for the open change
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+        /// Limit the move to these paths (files or directory prefixes)
         #[arg(value_name = "path")]
         paths: Vec<String>,
+        /// Skip pre-commit and commit-msg hooks
+        #[arg(long)]
+        no_verify: bool,
     },
     /// Replay a branch's commits onto the base it sits on
     #[command(visible_alias = "rebase", long_about = help::term(help::RESTACK), after_long_help = help::term_examples(help::RESTACK_EXAMPLES))]

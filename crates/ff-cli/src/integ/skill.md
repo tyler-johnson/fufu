@@ -49,10 +49,11 @@ Mechanics only. Message style belongs to the project, not to fufu — follow wha
 
 A clean tree has nothing to close. Every close is recorded, so `ff undo` takes it back — tree and refs together.
 
-Moving content between the open change and a commit that has already closed:
+Moving content between commits, the open change being one of them. `ff absorb` and `ff lift` are one move: `--from <revset>` names a contiguous run of source commits, `--into <rev>` the target, and each verb's word is its defaults. Everything between and above replays in the same operation, and a source the move empties is dropped and named.
 
-- `ff absorb --into <rev>` folds the open change into that commit. Everything above re-parents in the same operation.
-- `ff lift --from <rev>` is the other direction: takes files back out of a closed commit and into the open change. If the lift empties the commit, the commit is dropped.
+- `ff absorb` moves from the open change into the commit under it; `--into <rev>` aims further back, and `--from HEAD~2..` folds a run of commits into the one under them.
+- `ff lift` moves from the commit under the open change into the open change; `--from <rev>` takes from further back, and `--into <rev>` lands it in a closed commit instead.
+- `-m "…"` on either gives the target a message: a reword for a closed commit, the pending description for the open change.
 
 Neither attributes hunks. Whole files are the unit, and a path argument only chooses which files.
 
