@@ -234,8 +234,10 @@ pub enum Command {
         #[command(flatten)]
         past: Past,
     },
+    // The older spelling of `ff op trim`, answered and not listed: one verb
+    // under two names, so the envelope reads `op trim` under both.
     /// Drop operations past the retention cutoff (fufu.keep, 90d)
-    #[command(long_about = help::term(help::TRIM), after_long_help = help::term_examples(help::TRIM_EXAMPLES))]
+    #[command(hide = true, long_about = help::term(help::OP_TRIM), after_long_help = help::term_examples(help::OP_TRIM_EXAMPLES))]
     Trim {
         /// Report what would be dropped without writing anything
         #[arg(short = 'n', long)]
@@ -747,6 +749,16 @@ pub enum OpAction {
         #[arg(value_name = "op")]
         op: String,
     },
+    /// Drop operations past the retention cutoff (fufu.keep, 90d)
+    #[command(long_about = help::term(help::OP_TRIM), after_long_help = help::term_examples(help::OP_TRIM_EXAMPLES))]
+    Trim {
+        /// Report what would be dropped without writing anything
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Also drop the pointers of branches that no longer exist
+        #[arg(long)]
+        gone: bool,
+    },
 }
 
 impl OpAction {
@@ -758,6 +770,7 @@ impl OpAction {
             OpAction::Diff { .. } => "op diff",
             OpAction::Restore { .. } => "op restore",
             OpAction::Revert { .. } => "op revert",
+            OpAction::Trim { .. } => "op trim",
         }
     }
 
@@ -766,7 +779,7 @@ impl OpAction {
             OpAction::Log { past, .. }
             | OpAction::Show { past, .. }
             | OpAction::Diff { past, .. } => Some(past),
-            OpAction::Restore { .. } | OpAction::Revert { .. } => None,
+            OpAction::Restore { .. } | OpAction::Revert { .. } | OpAction::Trim { .. } => None,
         }
     }
 
@@ -782,6 +795,16 @@ impl OpAction {
                 Lanes::READ.without_fetch()
             }
             OpAction::Restore { .. } | OpAction::Revert { .. } => Lanes::MUTATOR.without_fetch(),
+            // A dry run deliberately does not stamp; if the auto-trim rode
+            // the same invocation it would find the stamp due and perform a
+            // real trim — the precise surprise a dry run exists to prevent.
+            OpAction::Trim { .. } => Lanes {
+                capture: true,
+                update: true,
+                notice: true,
+                trim: false,
+                fetch: Fetch::Off,
+            },
         }
     }
 }
@@ -887,7 +910,7 @@ impl Command {
             Command::Evolog { .. } => "evolog",
             Command::Git { .. } => "git",
             Command::Restore { .. } => "restore",
-            Command::Trim { .. } => "trim",
+            Command::Trim { .. } => "op trim",
             Command::Commit { .. } => "commit",
             Command::Switch { .. } => "switch",
             Command::Undo => "undo",
@@ -1123,15 +1146,14 @@ impl Command {
                 trim: true,
                 fetch: Fetch::Every,
             },
-            // A dry run deliberately does not stamp; if the auto-trim rode
-            // the same invocation it would find the stamp due and perform a
-            // real trim — the precise surprise a dry run exists to prevent.
+            // The hidden spelling of `ff op trim`, so the same lanes as
+            // that arm, dry-run reasoning included.
             Command::Trim { .. } => Lanes {
                 capture: true,
                 update: true,
                 notice: true,
                 trim: false,
-                fetch: Fetch::Cadence,
+                fetch: Fetch::Off,
             },
             // The readers: they have a repository, and the snapshot is the
             // only pre-work they owe.

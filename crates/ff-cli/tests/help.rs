@@ -75,15 +75,58 @@ fn help_resolves_nested_subcommands() {
         body.contains("Usage: ff op log"),
         "missing nested usage line"
     );
+
+    let out = ff(&["help", "op", "trim"]);
+    assert!(out.status.success(), "exit 0: {:?}", out.status);
+    let body = stdout(&out);
+    assert!(
+        body.contains("Usage: ff op trim"),
+        "missing nested usage line"
+    );
+    assert!(
+        body.contains("Examples:"),
+        "ff help op trim missing Examples:"
+    );
+}
+
+/// `ff trim` is the older spelling of `ff op trim`: still answered, with the
+/// same page, and absent from the command list.
+#[test]
+fn trim_answers_under_its_old_spelling_and_is_not_listed() {
+    let out = ff(&["trim", "--help"]);
+    assert!(out.status.success(), "exit 0: {:?}", out.status);
+    let body = stdout(&out);
+    assert!(
+        body.contains("Usage: ff trim"),
+        "missing usage line: {body}"
+    );
+    assert!(
+        body.contains("Examples:"),
+        "ff trim --help missing Examples:"
+    );
+    assert!(
+        body.contains("ff op trim -n"),
+        "the old spelling shows the family's page: {body}"
+    );
+
+    let out = ff(&["--help"]);
+    assert!(out.status.success(), "exit 0: {:?}", out.status);
+    let body = stdout(&out);
+    assert!(
+        !body
+            .lines()
+            .any(|line| line.trim_start().starts_with("trim ")),
+        "ff --help lists trim: {body}"
+    );
 }
 
 #[test]
 fn every_command_has_a_page() {
     let commands = [
         "map", "status", "collide", "diff", "show", "log", "history", "evolog", "git", "restore",
-        "trim", "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook",
-        "unhook", "trigger", "config", "doctor", "update", "resolve", "init", "clone", "remote",
-        "version", "worktree", "fold",
+        "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook", "unhook",
+        "trigger", "config", "doctor", "update", "resolve", "init", "clone", "remote", "version",
+        "worktree", "fold",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);

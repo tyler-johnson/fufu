@@ -88,7 +88,6 @@ pages! {
     EVOLOG           EVOLOG_EXAMPLES           "help/evolog.md"
     GIT              GIT_EXAMPLES              "help/git.md"
     RESTORE          RESTORE_EXAMPLES          "help/restore.md"
-    TRIM             TRIM_EXAMPLES             "help/trim.md"
     COMMIT           COMMIT_EXAMPLES           "help/commit.md"
     SWITCH           SWITCH_EXAMPLES           "help/switch.md"
     UNDO             UNDO_EXAMPLES             "help/undo.md"
@@ -122,6 +121,7 @@ pages! {
     OP_DIFF          OP_DIFF_EXAMPLES          "help/op-diff.md"
     OP_RESTORE       OP_RESTORE_EXAMPLES       "help/op-restore.md"
     OP_REVERT        OP_REVERT_EXAMPLES        "help/op-revert.md"
+    OP_TRIM          OP_TRIM_EXAMPLES          "help/op-trim.md"
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         heading: "go back",
-        commands: &[c("undo"), r("redo"), r("op"), r("trim")],
+        commands: &[c("undo"), r("redo"), r("op")],
     },
     Group {
         heading: "wire it in, and check on it",

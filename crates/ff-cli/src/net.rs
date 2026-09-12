@@ -24,7 +24,7 @@
 //! the ladder has not reached it: gix ships the fetch half of the protocol
 //! and nothing that sends a pack, so there is no native push to climb to.
 //! That is a fact about the dependency, worth writing down so nobody
-//! rediscovers it. The spawn is the counterpart to `ff trim`'s `gc --auto`,
+//! rediscovers it. The spawn is the counterpart to `ff op trim`'s `gc --auto`,
 //! the other sanctioned one, and differs in a way that matters: a push that
 //! fails is not best-effort. It is reported, with a coded error.
 //!

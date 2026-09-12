@@ -306,7 +306,7 @@ fn the_hook_carries_the_lane() {
     );
 }
 
-/// A manual `ff trim` resets the clock; a dry run does not.
+/// A manual `ff op trim` resets the clock; a dry run does not.
 #[test]
 fn a_manual_trim_resets_the_clock() {
     let fx = Fixture::new();
@@ -321,11 +321,11 @@ fn a_manual_trim_resets_the_clock() {
     // Write the stamp as due.
     write_due_stamp(&fx);
 
-    // Run `ff trim` — a real trim.
-    let out = ff(&fx, &["trim"]);
+    // Run `ff op trim` — a real trim.
+    let out = ff(&fx, &["op", "trim"]);
     assert!(
         out.status.success(),
-        "ff trim succeeded: {}",
+        "ff op trim succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
 
@@ -338,9 +338,9 @@ fn a_manual_trim_resets_the_clock() {
     // Write the stamp as due again.
     write_due_stamp(&fx);
 
-    // Run `ff trim --dry-run` — a preview is not a run.
-    let out = ff(&fx, &["trim", "--dry-run"]);
-    assert!(out.status.success(), "ff trim --dry-run succeeded");
+    // Run `ff op trim --dry-run` — a preview is not a run.
+    let out = ff(&fx, &["op", "trim", "--dry-run"]);
+    assert!(out.status.success(), "ff op trim --dry-run succeeded");
 
     let stamp = load_stamp(&fx);
     assert!(

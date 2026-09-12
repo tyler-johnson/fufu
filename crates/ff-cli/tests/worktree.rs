@@ -375,7 +375,7 @@ fn a_removed_bay_keeps_its_work_reachable() {
 }
 
 /// Retention must reach a chain nobody is standing in, or a removed bay's log
-/// lives forever: `ff trim` from the main worktree ages the orphan out and
+/// lives forever: `ff op trim` from the main worktree ages the orphan out and
 /// names it, rather than the sweep skipping what no worktree holds.
 #[test]
 fn an_orphan_chain_ages_out_on_the_keep_window() {
@@ -404,7 +404,7 @@ fn an_orphan_chain_ages_out_on_the_keep_window() {
     // cross a boundary so the bay's operations are strictly past it.
     std::thread::sleep(Duration::from_millis(1200));
 
-    let output = ff(&fx, &["trim"]);
+    let output = ff(&fx, &["op", "trim"]);
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(

@@ -243,7 +243,7 @@ pub(super) fn trash_row(repo: &ff_core::gix::Repository, now: i64) -> Result<Opt
 pub(super) fn objects_row(repo: &ff_core::gix::Repository) -> Row {
     let (loose, packs) = count_objects(&repo.common_dir().join("objects"));
     // fufu writes objects natively, so nothing here ever triggers
-    // git's auto-gc on its own; `ff trim` is what nudges it.
+    // git's auto-gc on its own; `ff op trim` is what nudges it.
     let auto = repo
         .config_snapshot()
         .integer("gc.auto")
@@ -256,7 +256,7 @@ pub(super) fn objects_row(repo: &ff_core::gix::Repository) -> Row {
     if auto > 0 && loose >= auto {
         Row::info(
             "objects",
-            format!("{summary} — past gc.auto ({auto}); `ff trim` nudges git to pack them"),
+            format!("{summary} — past gc.auto ({auto}); `ff op trim` nudges git to pack them"),
         )
     } else {
         Row::ok("objects", summary)
@@ -476,7 +476,7 @@ pub(super) fn settings_checks(repo: &ff_core::gix::Repository, now: i64) -> Resu
             rows.push(Row::info(
                 "trim",
                 format!(
-                    "{} operation(s) older than {} — `ff trim` drops them (--dry-run previews)",
+                    "{} operation(s) older than {} — `ff op trim` drops them (--dry-run previews)",
                     total_dropped, keep_display
                 ),
             ));

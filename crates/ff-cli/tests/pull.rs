@@ -246,7 +246,7 @@ fn push_dry_run_says_would_and_sends_nothing() {
         "a dry run must not claim the irreversible act: {text}"
     );
 
-    // -n is the same flag, matching ff trim.
+    // -n is the same flag, matching ff op trim.
     let short = ff(&fx, &["push", "-n"]);
     assert_eq!(stdout(&short), text, "-n and --dry-run are one flag");
 }

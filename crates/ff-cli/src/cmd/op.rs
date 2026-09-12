@@ -1,6 +1,6 @@
 //! `ff op` — the operation log as objects.
 //!
-//! Six verbs under one name, and every envelope carries the full path
+//! Seven verbs under one name, and every envelope carries the full path
 //! (`"op log"`, `"op show"`) rather than the bare family. `ff session` is the
 //! anti-precedent: a listing and a diffstat both went out stamped `session`,
 //! so a consumer had to read the payload to learn which shape it had.
@@ -10,7 +10,9 @@
 //! already written down": without it `ff op diff <a>` documented itself as
 //! reading from there to now and then left uncaptured edits out of the
 //! answer. `op restore` and `op revert` take none, because `ff_core::rewind`
-//! takes its own pre-move capture and a second would double it.
+//! takes its own pre-move capture and a second would double it. `op trim` is
+//! the family's delete, and lives in `cmd::trim` because `ff trim` — the
+//! older spelling, hidden — reaches the same function.
 
 use std::io::Write as _;
 
@@ -32,6 +34,7 @@ pub fn run(ctx: &Ctx, action: OpAction) -> Result<()> {
         OpAction::Diff { a, b, patch, .. } => diff(ctx, a, b, patch),
         OpAction::Restore { op, force } => restore(ctx, op, force),
         OpAction::Revert { op } => revert(ctx, op),
+        OpAction::Trim { dry_run, gone } => super::trim::run(ctx, dry_run, gone),
     }
 }
 

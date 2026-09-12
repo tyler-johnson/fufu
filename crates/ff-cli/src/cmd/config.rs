@@ -60,7 +60,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "90d",
             kind: SettingKind::Duration,
             desc: &[
-                "How long operations live: ff trim drops everything past the",
+                "How long operations live: ff op trim drops everything past the",
                 "cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w,",
                 "45s); a bare number means days.",
             ],
@@ -73,7 +73,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             desc: &[
                 "How often retention enforces itself: a trim rides an ff command at",
                 "most this often, per repo. false leaves trimming entirely to",
-                "`ff trim`; durations work too (12h, 2w), floored at one minute.",
+                "`ff op trim`; durations work too (12h, 2w), floored at one minute.",
             ],
         },
         Setting {

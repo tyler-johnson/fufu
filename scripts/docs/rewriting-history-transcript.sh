@@ -177,7 +177,7 @@ show "$FF" collide lexer
 show "$FF"
 
 # --- trim: retention of the operation log ---
-show "$FF" trim -n
+show "$FF" op trim -n
 show "$FF" config keep 2s
 # Age every operation past the two-second window, then touch each branch so
 # its newest operations survive and the per-branch pointers stay put.
@@ -185,8 +185,8 @@ sleep 3
 "$FF" switch lexer > /dev/null 2>&1
 "$FF" switch main > /dev/null 2>&1
 "$FF" switch renamer > /dev/null 2>&1
-show "$FF" trim -n
-show "$FF" trim
+show "$FF" op trim -n
+show "$FF" op trim
 show "$FF"
 show "$FF" history
 "$FF" config keep 90d > /dev/null 2>&1

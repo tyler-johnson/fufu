@@ -1,4 +1,4 @@
-The operation log as objects. Every capture and every fufu mutation lands on one log at refs/fufu/ops, and this is the family that reads and moves it: `log` lists, `show` and `diff` read, `restore` rewinds the whole repository to one, and `revert` inverts a single one leaving later work standing. Deleting operations is `ff trim`'s job and nobody else's.
+The operation log as objects. Every capture and every fufu mutation lands on one log at refs/fufu/ops, and this is the family that reads and moves it: `log` lists, `show` and `diff` read, `restore` rewinds the whole repository to one, `revert` inverts a single one leaving later work standing, and `trim` is the family's delete, dropping what lies past the keep window.
 
 Operation ids are hex, the same as commits, and the slot decides which space a prefix is read in: these verbs and `--at-op` read operations, `-r` and `--from` read revisions. Letters are always a change id. `@` is the newest operation, and git's own first-parent suffixes work on it — `@^` is the one before, `@~3` three back — because an operation's first parent *is* the operation before it.
 
@@ -12,4 +12,5 @@ ff op show @                   what the newest operation did
 ff op diff @^ @                what changed across it
 ff op restore 9dfd5e5d         rewind the whole repository there
 ff undo                        the same move, one run at a time
+ff op trim -n                  what retention would drop, nothing written
 ```

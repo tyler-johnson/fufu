@@ -1,6 +1,7 @@
-//! `ff trim` — manual retention. Reports the one log first, because that is
-//! what retention acts on; a branch pointer is a *place in* the log, and the
-//! only per-branch fact worth a line is a pointer that went away.
+//! `ff op trim` — manual retention, the `ff op` family's delete. Reports the
+//! one log first, because that is what retention acts on; a branch pointer
+//! is a *place in* the log, and the only per-branch fact worth a line is a
+//! pointer that went away.
 //! After any real run it nudges git's own gc (the one pragmatic spawn
 //! in fufu: native writes never trigger auto-gc, so without this nothing ever
 //! packs the object store — not just the objects a trim orphaned). `gc
@@ -29,7 +30,7 @@ pub fn run(ctx: &Ctx, dry_run: bool, gone: bool) -> Result<()> {
     let anything_dropped = report.log.as_ref().is_some_and(|log| log.dropped > 0);
 
     if ctx.json {
-        crate::machine::emit("trim", &report)?;
+        crate::machine::emit("op trim", &report)?;
     } else {
         match &report.log {
             None => println!("no operations yet"),

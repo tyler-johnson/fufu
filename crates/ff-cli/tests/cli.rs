@@ -1304,7 +1304,7 @@ fn trim_reports_and_dry_runs() {
     fx.write("a.txt", "fresh\n");
     assert!(ff(&fx, &[]).status.success());
 
-    let out = ff(&fx, &["trim"]);
+    let out = ff(&fx, &["op", "trim"]);
     assert!(out.status.success());
     let text = stdout(&out);
     // One log, so one line: retention acts on the log, and a branch pointer
@@ -1318,7 +1318,7 @@ fn trim_reports_and_dry_runs() {
         "no per-branch retention row: {text:?}"
     );
 
-    let out = ff(&fx, &["trim", "--dry-run", "--json"]);
+    let out = ff(&fx, &["op", "trim", "--dry-run", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
     let d = &v["data"];
     assert_eq!(d["dry_run"], true);
@@ -2022,6 +2022,9 @@ fn each_shape_carries_its_own_envelope_name() {
         (vec!["log", "--commits", "--json"], "log"),
         (vec!["op", "log", "--json"], "op log"),
         (vec!["op", "show", "--json"], "op show"),
+        (vec!["op", "trim", "--dry-run", "--json"], "op trim"),
+        // The older spelling is the same verb, so the envelope says so.
+        (vec!["trim", "--dry-run", "--json"], "op trim"),
     ] {
         let out = ff(&fx, &args);
         assert!(

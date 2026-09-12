@@ -1,5 +1,5 @@
 //! The automatic trim. Snapshots age out of the `fufu.keep` window whether or
-//! not anyone remembers `ff trim`, so retention rides the commands that
+//! not anyone remembers `ff op trim`, so retention rides the commands that
 //! already run: at most once per `fufu.autoTrim` (daily by default), per
 //! worktree, a trim runs inline — no child process, because the engine is
 //! native and fufu does not spawn. The hot path pays one file read to decide

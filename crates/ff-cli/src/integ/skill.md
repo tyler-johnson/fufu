@@ -19,7 +19,7 @@ The once-per-session briefing already gave the agent four verbs and the git rule
 
 **Undo is repo-wide; restore is per-path.** `ff undo` moves refs, HEAD, the index, and the working copy together, one *run* of work at a time. `ff restore <path>` writes only worktree files and leaves refs, HEAD, and the index exactly as they are. Reaching for the wrong one is the most common mistake — see the recovery table below.
 
-**Undo navigates rather than appends.** `ff undo` and `ff op restore <id>` move the log's pointer; nothing is discarded and no entry records that you navigated. `ff redo` walks forward along the branch an undo stepped off. Landing new work after an undo forks the log instead of truncating it, so redo stops offering a path it can no longer take, while the forked-off ids stay resolvable until `ff trim` ages them out.
+**Undo navigates rather than appends.** `ff undo` and `ff op restore <id>` move the log's pointer; nothing is discarded and no entry records that you navigated. `ff redo` walks forward along the branch an undo stepped off. Landing new work after an undo forks the log instead of truncating it, so redo stops offering a path it can no longer take, while the forked-off ids stay resolvable until `ff op trim` ages them out.
 
 ## Reading
 

@@ -145,7 +145,7 @@ fn recovery_output_bytes_unchanged() {
     let fx2 = Fixture::new();
     fx2.write("a.txt", "a\n");
     fx2.commit("init");
-    let out = ff(&fx2, &["trim"]);
+    let out = ff(&fx2, &["op", "trim"]);
     assert!(out.status.success());
     let text = stdout(&out);
     assert!(

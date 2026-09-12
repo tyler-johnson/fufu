@@ -211,7 +211,7 @@ fn a_held_rewrite_blocks_the_exit() {
 }
 
 /// A dry run decides the same plan and writes nothing to get there — no
-/// capture, no operation. Same rule as `ff trim -n`.
+/// capture, no operation. Same rule as `ff op trim -n`.
 #[test]
 fn a_dry_run_plans_the_same_push_and_writes_nothing() {
     let fx = Fixture::new();

@@ -545,7 +545,7 @@ fn trap_catches_spawns() {
 }
 
 /// The auto lane deliberately skips the `git gc --auto` nudge that manual
-/// `ff trim` does, so the commands that carry the lane stay spawn-free.
+/// `ff op trim` does, so the commands that carry the lane stay spawn-free.
 #[test]
 fn auto_trim_never_spawns() {
     let fx = Fixture::new();
@@ -601,7 +601,7 @@ fn auto_trim_never_spawns() {
     );
 }
 
-/// The other side of that contract: manual `ff trim` nudges gc on any real
+/// The other side of that contract: manual `ff op trim` nudges gc on any real
 /// run, not only one that dropped something. Native writes never trigger
 /// auto-gc, so a repo younger than its retention window would otherwise never
 /// pack — and an unpacked store makes every chain walk pay for it.
@@ -618,10 +618,10 @@ fn manual_trim_nudges_gc_even_when_nothing_dropped() {
 
     // Retention leaves everything in place: this run drops nothing.
     let trap = build_trap();
-    let out = ff_trapped(&trap, &fx.path(), &["trim"]);
+    let out = ff_trapped(&trap, &fx.path(), &["op", "trim"]);
     assert!(
         out.status.success(),
-        "ff trim succeeded: {}",
+        "ff op trim succeeded: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
@@ -638,7 +638,7 @@ fn manual_trim_nudges_gc_even_when_nothing_dropped() {
     // --dry-run stays inert.
     let trap = build_trap();
     assert!(
-        ff_trapped(&trap, &fx.path(), &["trim", "--dry-run"])
+        ff_trapped(&trap, &fx.path(), &["op", "trim", "--dry-run"])
             .status
             .success()
     );

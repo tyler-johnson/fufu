@@ -284,7 +284,7 @@ pub struct OpRecord {
     pub resolving: Option<ResolveTransition>,
     /// The rewrite map: old→new for every commit this op rewrote. The log is
     /// already the authority and already pins the old commits, so undo and
-    /// `ff trim` cover the map for free.
+    /// `ff op trim` cover the map for free.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rewrites: Vec<crate::rewrite::Rewrite>,
     /// Commits a replay removed rather than rewrote — their tree matched

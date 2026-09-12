@@ -383,7 +383,7 @@ pub(crate) struct Recording<'a> {
 /// Record a hold as an operation. Nothing moves — the planned end state is
 /// the present on every axis but the branch's metadata — which is the same
 /// slim shape `ff describe` writes for a pending description. The operation
-/// is what makes a hold undoable and what `ff trim` eventually ages out.
+/// is what makes a hold undoable and what `ff op trim` eventually ages out.
 pub(crate) fn record(
     repo: &gix::Repository,
     rec: Recording<'_>,
