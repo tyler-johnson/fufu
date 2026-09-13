@@ -71,7 +71,7 @@ nav:
   - For agents:
       - Why agents want fufu: agents/why.md
       - Setup: agents/setup.md
-      - The machine surface: agents/machine-surface.md
+      - JSON output and scripting: agents/machine-surface.md
   - Reference:
       - CLI: reference/cli/index.md
       - Revisions and IDs: reference/revisions.md

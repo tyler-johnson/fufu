@@ -1,95 +1,62 @@
 # Why agents want fufu
 
-fufu's pitch is version control for humans and agents. This page argues the second half: what goes wrong when an agent drives plain git, and what fufu changes about it.
+An agent can overwrite a useful experiment before anyone commits it. fufu records working-copy snapshots through repository commands and active hooks, so you can inspect and recover intermediate file states as well as branch history. [Install the agent hook](setup.md) to start recording the client's supported tool events.
 
 ## The failure mode
 
-An agent with shell access and `git` on PATH is one confident `git reset --hard` from destroying an afternoon.
+Suppose an agent replaces a parser, runs tests, then discards the replacement after misreading a failure. The last commit still exists, but the useful uncommitted version may not. Git's reflog records ref movement; it does not preserve each intermediate working-copy tree. A commit, stash, editor history, or another backup may help if one contains the missing content.
 
-Git's destructive commands — `reset --hard`, `checkout .`, `clean -fd`, `restore <file>` — assume the person typing them has already weighed what they discard. An agent supplies the conviction without the weighing. When its model of the tree diverges from the tree, discarding the tree is the fix it reaches for, and it reaches without hesitating.
+Agents can checkpoint deliberately, but those checkpoints depend on when they choose to save. Automatic snapshots reduce that dependency, especially during rapid edit-and-test cycles.
 
-The exposure is wider than the dramatic commands:
+<a id="the-net"></a>
+## Recover the useful version
 
-- **The valuable state is uncommitted.** An agent edits at machine rate and may commit nothing for an hour, so at any given moment the work that matters is uncommitted — precisely the state git protects least.
-- **The reflog records refs, not trees.** It says where branch pointers moved and nothing about what the working copy held. An uncommitted tree that gets clobbered — by a reset, by a bad merge, by the agent overwriting a file it misread — is simply gone.
-- **There is no `git undo`.** The recovery rituals that do exist — `reflog`, `fsck --lost-found`, stash archaeology — assume a human who checkpointed along the way. Agents do not checkpoint.
+With an active hook, a snapshot before the discard can retain the replacement. [`ff evolog`](../reference/cli/evolog.md) shows captures of the open change. [`ff op show`](../reference/cli/op-show.md) inspects one record, and [`ff restore <path> --at-op <id>`](../reference/cli/restore.md) brings back the file without moving branch refs or changing the index.
 
-## The net
+For a broader mistake, [`ff history`](../reference/cli/history.md) shows undo steps and [`ff undo`](../reference/cli/undo.md) restores recorded local refs, HEAD, index, and files together. Consecutive captures can collapse into one step; a session can span several steps. Inspect the map before deciding how far to go. The [recovery guide](../guides/recovery.md) gives independent recipes for both scopes.
 
-fufu takes [snapshots through repository commands and active hooks](../concepts/snapshots-and-undo.md). [`ff trigger -m "checkpoint"`](../reference/cli/trigger.md) also takes a manual snapshot. [Setup](setup.md) shows how to install hooks that attempt capture on the client's tool and turn events.
+Recovery needs a successful, retained capture. Hooks cover the events they receive, and ignored untracked files, oversized content, and unsaved editor buffers can be absent. See [snapshot timing and limits](../concepts/snapshots-and-undo.md#coverage-and-limits). [`ff trigger -m "checkpoint"`](../reference/cli/trigger.md) also lets an agent label a manual snapshot.
 
-Each snapshot records the tree and all refs together on one operation log. So fufu holds a running record of the agent's work that no other tool has, taken the moment before each action rather than whenever someone remembered to save.
+<a id="the-net-covers-git-itself"></a>
+## Capture around Git commands
 
-### The net covers git itself
+[`ff git <args…>`](../reference/cli/git.md) attempts a snapshot before running a permitted Git command verbatim. The [shell alias](../concepts/two-regimes.md#which-program-ran) routes shell invocations through that passthrough when active; agent hooks independently capture supported tool calls.
 
-[`ff git <args…>`](../reference/cli/git.md) snapshots first and then runs git verbatim, and the recommended alias plus the agent hooks route the agent's git invocations through it.
+A permitted `reset --hard` still resets. If the preceding capture retained the discarded edits, fufu can restore them. Outside ref changes are reconciled into foreign-operation records on the next capture, but reconciliation cannot recreate file bytes that were never captured.
 
-A permitted `reset --hard` still resets; strict policy can refuse it. Recovery of discarded edits depends on a successful capture before the reset and on [coverage and retention](../concepts/snapshots-and-undo.md#coverage-and-limits).
+<a id="the-human-keeps-the-last-word"></a>
+## Review an agent's work
 
-Ref changes made by Git outside fufu are reconciled at the next capture and recorded as foreign operations. That record cannot reconstruct uncaptured file content.
+Use the same history to accept useful work and recover from mistakes:
 
-A raw file edit that moves no ref is invisible until a capture observes it. Active hooks narrow that gap; skipped events, failed captures, ignored or oversized files, and unsaved buffers remain outside their coverage.
+- `ff history` gives the coarse view: one row per undo step.
+- [`ff op diff`](../reference/cli/op-diff.md) compares files in two operation trees; `ff op show` includes ref transitions.
+- [`ff op log 'session(<id>)'`](../reference/cli/op-log.md) selects records tagged with one agent's session. Tags identify work while the records are retained; they do not create separate undo histories in a shared worktree.
 
-### The human keeps the last word
-
-[`ff undo`](../reference/cli/undo.md) takes back the last operation, refs and working copy together, whether the agent did it through fufu or behind its back. A run of machine-rate captures collapses into one undo step, so unwinding an agent's session is a few keystrokes rather than an archaeology project.
+[`ff commit`](../reference/cli/commit.md) records eligible work in branch history. File recovery leaves other work in place; whole-state undo has a wider effect. A push changes the remote separately and cannot be undone locally.
 
 ## A surface with fewer ways to go wrong
 
-Part of the argument is what fufu removes.
+An agent using fufu does not need to maintain a staging area or remember a stash before switching branches:
 
-- **No staging area**, so there is no half-staged index for an agent to mangle, and no class of bug where the commit contains something other than the tree. The working copy is the change, and [`ff commit -m`](../reference/cli/commit.md) closes it.
-- **No stash**, so there is nothing for an agent to stash and forget. Switching branches parks whatever is uncommitted with the branch you leave, and switching back resumes it.
+- `ff commit -m "…"` records eligible working-copy changes. Paths select a partial commit at commit time; review the patch and capture warnings first.
+- [`ff switch <branch>`](../reference/cli/switch.md) parks open work with the branch being left and resumes work saved at the destination.
+- A conflicting rewrite is recorded as a hold on the affected branch. [`ff resolve`](../reference/cli/resolve.md) opens the conflicts for editing. Earlier successful updates in the same run can still stand.
 
-Each ritual git demands is a place an agent can leave the repository in a state neither it nor you expected. fufu deletes the rituals rather than documenting them.
+For automation, [JSON output and scripting](machine-surface.md) explains structured reports, exit codes, noninteractive flags, and command-specific stream contracts. A script checks both the report and the exit code, using a tested binary version.
 
-What remains is legible to a machine. Every verb reports what it did in one line, with `undo:` on the next naming the way back:
+<a id="the-supervisor-pattern"></a>
+## Supervise separate writers
 
-```console
-$ ff start
-minted ff/hidden-wren (forked from main)
-open change on ff/hidden-wren
-undo: ff undo
-```
+Separate [worktrees](../guides/worktrees.md#two-writers-one-repository) give agents independent files and undo chains while sharing repository history. In one shared worktree, an undo can include another writer's later work. Review the records and use [scoped recovery](../guides/recovery.md#two-writers-on-one-chain-and-only-one-was-wrong) where applicable.
 
-The agent reads its own escape hatch after every action, instead of inferring repository state from a status block built for eyes.
+<a id="strict-mode-as-a-leash"></a>
+## Guide Git usage with policy
 
-When it needs structure, `--json` carries each verb's full data model, errors carry stable ids, and every prompt has a non-interactive answer. The [machine surface](machine-surface.md) covers that contract in full.
+The default `fufu.gitPolicy=coach` suggests fufu equivalents for recognized Git writes. `strict` refuses mapped writes through `ff git` and requests denial through the Claude Code hook. The current Codex, Cursor, and Gemini adapters emit no pre-tool policy reply. [Agent setup](setup.md#pick-a-git-policy) explains the client differences and refusal timing.
 
-## The supervisor pattern
-
-Here is the setup this enables. The agent works — through `ff`, or even through raw git under the alias — and you review afterward, with real leverage.
-
-- [`ff history`](../reference/cli/history.md) is the review at the coarse grain: one row per undo step, with the agent's capture noise collapsed into the rows it would undo as, so the session reads as a short list of decisions rather than hundreds of operations.
-- [`ff op diff`](../reference/cli/op-diff.md) compares files in two operation trees. [`ff op show`](../reference/cli/op-show.md) shows an operation's ref transitions too.
-- [`ff op log 'session(<id>)'`](../reference/cli/op-log.md) isolates one agent's work even when two were interleaving, because sessions tag every operation an agent records.
-
-Work that holds up gets committed as usual. To take work back, inspect the undo map and restore the retained state you want; a session may span several undo steps.
-
-That changes what you are willing to let an agent attempt, because the downside of a wrong turn is no longer the afternoon.
-
-## Strict mode as a leash
-
-Review-after is not always enough leash, so `fufu.gitPolicy` graduates what fufu does about the agent typing git at all.
-
-The default, `coach`, injects a one-line correction into the agent's context the first time each git word comes up — `tip: that's ff commit`. That is usually sufficient, since the agent reads it as an instruction.
-
-`strict` refuses instead. An unambiguous git write that has a fufu verb is denied through the hook, naming the verb to run.
-
-The limits of the leash are deliberate, and worth knowing before you rely on it:
-
-- fufu only refuses what it can answer, so git words with no fufu equivalent — `apply`, `am`, `bisect`, `submodule` — pass untouched.
-- `ff git <args…>` stays an open escape hatch even under strict for those words. A word fufu does have a verb for is refused there too, `commit -p` included.
-- Ambiguous shell strings fail open, because guessing at someone else's compound command is the wrong risk to take.
-
-Strict policy is not a sandbox. The passthrough refuses before capture; agent hooks attempt capture before evaluating policy. Recovery still depends on successful captures, their coverage, and retention.
+Unmapped commands and ambiguous shell strings remain allowed. Policy guides version-control commands; it does not isolate an agent's process or replace snapshot verification.
 
 ## What this rests on
 
-None of the above is special agent machinery bolted onto the side.
-
-- The snapshot-before-every-action rule is [fufu's foundation](../concepts/snapshots-and-undo.md) for humans too. An agent is simply a writer that exercises it harder.
-- The repository stays [a boring git repository](../concepts/invariant.md) throughout, so nothing the agent does through fufu can put it in a state your other tools cannot read.
-- [The two regimes](../concepts/two-regimes.md) mean an agent that calls `ff` gets everything the surface promises — automation is inside the surface with everyone else.
-
-[Setup](setup.md) is the wiring, and it takes a few minutes.
+Snapshots are ordinary Git objects under fufu's refs, separate from commits recorded in branch history. The [Git storage model](../concepts/invariant.md) explains the representation; [Using fufu alongside Git](../concepts/two-regimes.md) covers practical compatibility. Start with [setup and a recovery check](setup.md#verify) to see what your client actually records.

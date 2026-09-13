@@ -33,14 +33,14 @@ pub const NOTICE: &str = "\
 fufu (`ff`) takes snapshots through repository commands and active hooks. Recovery \
 requires a successful, retained capture; ignored and oversized files may be excluded.
 
-Use `ff`, not `git`, for anything that writes. `ff commit -m \"…\"` closes the open \
-change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. \
+Use `ff`, not `git`, for version-control writes. `ff commit -m \"…\"` records eligible \
+working-copy changes in branch history without staging. `ff switch <branch>` parks \
+current work and resumes the destination's work. \
 `ff undo` takes back the last undo step in this worktree. `ff restore <path>` discards \
 a file's edits. Anything else git does: `ff git <args…>`, which attempts a snapshot \
 before running permitted git commands verbatim.
 
-Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
-counterparts.
+Reading with Git is fine. Inspect work with `ff status`, `ff log`, and `ff diff`.
 
 Every verb's own `--help` is the authority on it.
 ";

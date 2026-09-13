@@ -6,8 +6,9 @@ set -euo pipefail
 FF="${FF:-ff}"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false CI=1
-unset FF_SESSION CLAUDE_CODE_SESSION_ID
-SCENE=$(mktemp -d)
+unset FF_SESSION CLAUDE_CODE_SESSION_ID GIT_AUTHOR_DATE GIT_COMMITTER_DATE
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL EMAIL
+SCENE=$(mktemp -d "${TMPDIR:-/tmp}/fufu-machine-XXXXXX")
 trap 'rm -rf "$SCENE"' EXIT
 cd "$SCENE"
 git init -q -b main .
@@ -15,29 +16,33 @@ git config user.name "Ada Lovelace"
 git config user.email ada@example.com
 git config fufu.autoTrim false
 git config fufu.updateCheck false
+git config fufu.autoFetch false
 printf 'fn main() {}\n' > main.rs
 "$FF" commit -m "parser: skeleton" > /dev/null
 printf 'fn main() { parse(); }\n' > main.rs
 
 show() {
-  printf '$ ff %s --json | jq .\n' "$*"
-  "$FF" "$@" --json | jq .
-  echo
+  local key=$1 filter=$2
+  shift 2
+  printf '<!-- transcript:%s -->\n```console\n' "$key"
+  printf '$ ff %s --json | jq '\''%s'\''\n' "$*" "$filter"
+  "$FF" "$@" --json | jq "$filter"
+  printf '```\n<!-- /transcript -->\n\n'
 }
 
-show status
-show log -n 1
-show evolog -n 1
-show evolog HEAD
+show status '.data | {head, changes, held, resolving}' status
+show log '.data | {commits, open: (.open | {id, change_id, pending})}' log -n 1
+show evolog '.data' evolog -n 1
+show closed-evolog '.data | {change_id, commit, operations}' evolog HEAD
 printf '// first pass\n' >> main.rs
 "$FF" --session flight-3 trigger > /dev/null
 printf '// second pass\n' >> main.rs
 "$FF" --session flight-3 trigger > /dev/null
-printf '$ ff history --json | jq -c '\''.data.steps[]'\''\n'
-"$FF" history --json | jq -c '.data.steps[]'
-printf '\n$ ff op log --json | jq -c '\''.data.ops[]'\''\n'
-"$FF" op log --json | jq -c '.data.ops[]'
+show history '.data | {floor, steps: .steps[:2]}' history
+show op-log '.data.ops[:2]' op log
 op=$("$FF" op log --json | jq -r '.data.ops[] | select(.verb == "commit") | .id')
-show op show "$op"
-printf '$ ff op log '\''session(flight-3)'\'' --json | jq -c '\''.data.ops[]'\''\n'
-"$FF" op log 'session(flight-3)' --json | jq -c '.data.ops[]'
+show op-show '.data | {id, kind, summary, tree, refs}' op show "$op"
+"$FF" op log 'session(flight-3)' --json | jq -e '.data.ops | length == 2 and all(.session == "flight-3" and .kind == "capture")' > /dev/null
+printf '<!-- transcript:watch -->\n```console\n$ ff watch -n 1\n'
+"$FF" watch -n 1
+printf '```\n<!-- /transcript -->\n'
