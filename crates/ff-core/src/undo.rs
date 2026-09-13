@@ -218,39 +218,9 @@ pub fn rewind(
         None => head_tree_of_table(repo, &to_table)?,
     };
 
-    // Trimmed state refusal: every object we are about to write must exist.
-    let mut missing: Vec<String> = Vec::new();
-    let mut check = |id: gix::ObjectId, what: &str| {
-        if !matches!(repo.try_find_object(id), Ok(Some(_))) {
-            missing.push(format!("{what}: {id}"));
-        }
-    };
-    for t in &transitions {
-        if let Some(new) = &t.new
-            && let Ok(id) = gix::ObjectId::from_hex(new.as_bytes())
-        {
-            check(id, &t.name);
-        }
-    }
-    check(target_wt_tree, "recorded worktree");
-    check(index_target, "recorded index");
-    if !missing.is_empty() {
-        if !opts.force {
-            return Err(Error::coded(
-                "undo/trimmed",
-                format!(
-                    "the recorded state has been trimmed; cannot restore: {}",
-                    missing.join(", ")
-                ),
-                vec![
-                    "ff op restore <op> --force".into(),
-                    "ff config keep <duration>".into(),
-                ],
-            ));
-        }
-        for m in &missing {
-            warnings.push(format!("trimmed, skipped: {m}"));
-        }
+    let missing = trimmed_objects(repo, &transitions, target_wt_tree, index_target, opts.force)?;
+    for m in &missing {
+        warnings.push(format!("trimmed, skipped: {m}"));
     }
 
     // Where the worktree starts: the state this verb's own preamble recorded a
@@ -265,7 +235,152 @@ pub fn rewind(
     //    captured, and a move that cannot capture must not destroy.
     //    Everything after this point is refs and files, none of which can
     //    refuse.
-    for (op, replay) in replay_order(&back, &fwd) {
+    apply_worktree_effects(repo, &back, &fwd, now, &mut warnings)?;
+
+    // Reviving a worktree hands a branch back to it, and retiring one hands
+    // a branch back to us — so which refs this worktree may move is a
+    // different answer after step 1 than it was before. Re-derive it and drop
+    // the transitions that are no longer ours. Without this, undoing a
+    // removal would put the bay back and then delete the branch it is
+    // standing on, because the diff was computed while nobody held it.
+    let held_after = crate::linked::held_branches(repo)?;
+    transitions.retain(|t| !crate::linked::owned_elsewhere(&t.name, &held_after));
+
+    // 2. Stash effects, in the order the move makes them true.
+    apply_stash_effects(repo, &back, &fwd, now, &mut warnings)?;
+
+    // 3. Everything else, one atomic transaction. refs/stash was handled
+    //    above; CAS expectations come from the observed present, so a crash
+    //    and re-run sees the remainder as the new diff.
+    move_refs(repo, &transitions, target_id, now)?;
+
+    // 4. HEAD.
+    if head_moves {
+        match to_table.head.strip_prefix("ref:") {
+            Some(target_ref) => crate::branch::retarget_head(repo, target_ref, now)?,
+            None => {
+                let id = gix::ObjectId::from_hex(to_table.head.as_bytes()).map_err(Error::repo)?;
+                detach_head(repo, id, now)?;
+            }
+        }
+    }
+
+    // 5. Worktree, from the state the preamble recorded to the recorded one.
+    let everything = |_: &str| true;
+    let transition = worktree::apply_tree_transition(repo, from_tree, target_wt_tree, &everything)?;
+
+    // 6. Index.
+    if matches!(repo.try_find_object(index_target), Ok(Some(_))) {
+        crate::index::write_index_for_tree(repo, index_target)?;
+    }
+
+    // 7. The branches' metadata, by the same rule as the refs.
+    let companions = apply_metadata(repo, &back, &fwd, target_id, now, &mut warnings)?;
+
+    // 8. The pointer itself, last: everything above is idempotent against the
+    //    landing, so a crash before this leaves the log naming a state the
+    //    world is already in, and re-running converges.
+    move_pointer(repo, tip, target_id, &back, &fwd, forward, now)?;
+
+    // 9. The open commits, rebuilt from what the landing recorded.
+    resync_open_commits(repo, &to_table, &back, &fwd, now, &mut warnings)?;
+
+    let mut files = transition.written;
+    files.extend(transition.deleted);
+    files.sort();
+    files.dedup();
+    // The newest *decision* the move touched, preferring what was left
+    // behind. Both other kinds are skipped for the same reason and it is the
+    // reason they are not decisions: a capture only records the working tree,
+    // and a note marks something that happened rather than something that was
+    // done. So "undid the close" is what a step back over a capture, a close
+    // and a trim note reports — which is what actually came back.
+    let decision = |op: &&Operation<'_>| matches!(op.kind(), OpKind::Op | OpKind::Foreign);
+    let named = back
+        .iter()
+        .find(decision)
+        .or_else(|| fwd.iter().find(decision))
+        .or_else(|| back.first())
+        .or_else(|| fwd.first());
+    Ok((
+        RewindReport {
+            landed: target_id.to_string(),
+            landed_summary: target.summary().to_string(),
+            landed_kind: target.kind().as_str().to_string(),
+            stepped: back.len() + fwd.len(),
+            stepped_ops: back
+                .iter()
+                .chain(&fwd)
+                .filter(|op| !op.is_capture())
+                .count(),
+            stepped_summary: named.map(|op| op.summary().to_string()),
+            stepped_kind: named.map(|op| op.kind().as_str().to_string()),
+            collapsed,
+            forward,
+            refs: transitions,
+            head_moved: head_moves.then(|| to_table.head.clone()),
+            files,
+            warnings,
+            pre_op: ctx.pre_op.map(|id| id.to_string()),
+            companions,
+        },
+        ctx,
+    ))
+}
+
+/// Trimmed state refusal: every object the move is about to write must
+/// exist. Under `force` the missing ones are returned to be skipped with
+/// warnings instead.
+fn trimmed_objects(
+    repo: &gix::Repository,
+    transitions: &[RefTransition],
+    target_wt_tree: gix::ObjectId,
+    index_target: gix::ObjectId,
+    force: bool,
+) -> Result<Vec<String>> {
+    let mut missing: Vec<String> = Vec::new();
+    let mut check = |id: gix::ObjectId, what: &str| {
+        if !matches!(repo.try_find_object(id), Ok(Some(_))) {
+            missing.push(format!("{what}: {id}"));
+        }
+    };
+    for t in transitions {
+        if let Some(new) = &t.new
+            && let Ok(id) = gix::ObjectId::from_hex(new.as_bytes())
+        {
+            check(id, &t.name);
+        }
+    }
+    check(target_wt_tree, "recorded worktree");
+    check(index_target, "recorded index");
+    if !missing.is_empty() && !force {
+        return Err(Error::coded(
+            "undo/trimmed",
+            format!(
+                "the recorded state has been trimmed; cannot restore: {}",
+                missing.join(", ")
+            ),
+            vec![
+                "ff op restore <op> --force".into(),
+                "ff config keep <duration>".into(),
+            ],
+        ));
+    }
+    Ok(missing)
+}
+
+/// Step 1 of a move: the worktrees the stepped operations added or removed.
+/// Entering replays the effect as it was; leaving inverts it. Retiring a
+/// busy worktree is the one refusal in the whole move, and it fires before
+/// any ref has moved.
+fn apply_worktree_effects(
+    repo: &gix::Repository,
+    back: &[Operation<'_>],
+    fwd: &[Operation<'_>],
+    now: i64,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    for (op, replay) in replay_order(back, fwd) {
         let Some(op_record) = op.record()? else {
             continue; // a capture performs no worktree effect, by invariant
         };
@@ -332,22 +447,23 @@ pub fn rewind(
         }
     }
 
-    // Reviving a worktree hands a branch back to it, and retiring one hands
-    // a branch back to us — so which refs this worktree may move is a
-    // different answer after step 1 than it was before. Re-derive it and drop
-    // the transitions that are no longer ours. Without this, undoing a
-    // removal would put the bay back and then delete the branch it is
-    // standing on, because the diff was computed while nobody held it.
-    let held_after = crate::linked::held_branches(repo)?;
-    transitions.retain(|t| !crate::linked::owned_elsewhere(&t.name, &held_after));
+    Ok(())
+}
 
-    // 2. Stash effects, in the order the move makes them true: everything
-    //    left behind inverts newest-first (a rolled-back push drops, a
-    //    rolled-back drop re-pushes), then everything entered replays
-    //    oldest-first. The stash *ref* is in the table like any other, but
-    //    its reflog is a stack, so moving the ref alone would leave the
-    //    entries behind it disagreeing with it.
-    for (op, replay) in replay_order(&back, &fwd) {
+/// Step 2 of a move: the stash effects, in the order the move makes them
+/// true — everything left behind inverts newest-first (a rolled-back push
+/// drops, a rolled-back drop re-pushes), then everything entered replays
+/// oldest-first. The stash *ref* is in the table like any other, but its
+/// reflog is a stack, so moving the ref alone would leave the entries
+/// behind it disagreeing with it.
+fn apply_stash_effects(
+    repo: &gix::Repository,
+    back: &[Operation<'_>],
+    fwd: &[Operation<'_>],
+    now: i64,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    for (op, replay) in replay_order(back, fwd) {
         let Some(op_record) = op.record()? else {
             continue; // a capture performs no stash effect, by invariant
         };
@@ -395,11 +511,20 @@ pub fn rewind(
         }
     }
 
-    // 3. Everything else, one atomic transaction. refs/stash was handled
-    //    above; CAS expectations come from the observed present, so a crash
-    //    and re-run sees the remainder as the new diff.
+    Ok(())
+}
+
+/// Step 3 of a move: every ref but `refs/stash`, one atomic transaction.
+/// CAS expectations come from the observed present, so a crash and re-run
+/// sees the remainder as the new diff.
+fn move_refs(
+    repo: &gix::Repository,
+    transitions: &[RefTransition],
+    target_id: OpId,
+    now: i64,
+) -> Result<()> {
     let mut edits = Vec::new();
-    for t in &transitions {
+    for t in transitions {
         if t.name == "refs/stash" {
             continue;
         }
@@ -447,33 +572,26 @@ pub fn rewind(
         }
     }
 
-    // 4. HEAD.
-    if head_moves {
-        match to_table.head.strip_prefix("ref:") {
-            Some(target_ref) => crate::branch::retarget_head(repo, target_ref, now)?,
-            None => {
-                let id = gix::ObjectId::from_hex(to_table.head.as_bytes()).map_err(Error::repo)?;
-                detach_head(repo, id, now)?;
-            }
-        }
-    }
+    Ok(())
+}
 
-    // 5. Worktree, from the state the preamble recorded to the recorded one.
-    let everything = |_: &str| true;
-    let transition = worktree::apply_tree_transition(repo, from_tree, target_wt_tree, &everything)?;
-
-    // 6. Index.
-    if matches!(repo.try_find_object(index_target), Ok(Some(_))) {
-        crate::index::write_index_for_tree(repo, index_target)?;
-    }
-
-    // 7. Pending descriptions, change ids, recorded parents, upstreams,
-    //    editing sessions, held rewrites, and resolution sessions, in the
-    //    same order and by the same rule: what is left behind restores its
-    //    `old`, what is entered applies its `new`, and the last write is the
-    //    one the landing recorded.
+/// Step 7 of a move: pending descriptions, change ids, recorded parents,
+/// upstreams, editing sessions, held rewrites, resolution sessions, and
+/// parked pointers, in the same order and by the same rule — what is left
+/// behind restores its `old`, what is entered applies its `new`, and the
+/// last write is the one the landing recorded. Returns the companions: the
+/// other half of each two-chain operation, which is not this chain's to
+/// move.
+fn apply_metadata(
+    repo: &gix::Repository,
+    back: &[Operation<'_>],
+    fwd: &[Operation<'_>],
+    target_id: OpId,
+    now: i64,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<String>> {
     let mut companions: Vec<String> = Vec::new();
-    for (op, replay) in replay_order(&back, &fwd) {
+    for (op, replay) in replay_order(back, fwd) {
         if let Some(op_record) = op.record()? {
             // The other half of a two-chain operation is not this chain's to
             // move; the report says what the other tree still holds.
@@ -560,22 +678,28 @@ pub fn rewind(
         }
     }
 
-    // 8. The pointer itself, last: everything above is idempotent against the
-    //    landing, so a crash before this leaves the log naming a state the
-    //    world is already in, and re-running converges.
-    move_pointer(repo, tip, target_id, &back, &fwd, forward, now)?;
+    Ok(companions)
+}
 
-    // 9. The open commits, rebuilt from what the landing recorded — the
-    //    branch pointers moved above, and the metadata in step 7 — reusing
-    //    the sha the branch's newest op stated when it still says the same
-    //    thing: the branch HEAD landed on, and every branch the stepped
-    //    operations were recorded on or moved HEAD off. A switch is recorded
-    //    on its destination and names its origin in its HEAD transition, and
-    //    both branches' parks follow the move. A touched branch the landing
-    //    does not have — a start or a `ff branch <name> @` stepped back over
-    //    — loses its open ref with the branch, the way a delete drops it, so
-    //    the copy it carried goes with the mint. Best effort: the ref is
-    //    derived, and the next capture rebuilds it too.
+/// Step 9 of a move: the open commits, rebuilt from what the landing
+/// recorded — the branch pointers and the metadata already moved — reusing
+/// the sha the branch's newest op stated when it still says the same thing:
+/// the branch HEAD landed on, and every branch the stepped operations were
+/// recorded on or moved HEAD off. A switch is recorded on its destination
+/// and names its origin in its HEAD transition, and both branches' parks
+/// follow the move. A touched branch the landing does not have — a start or
+/// a `ff branch <name> @` stepped back over — loses its open ref with the
+/// branch, the way a delete drops it, so the copy it carried goes with the
+/// mint. Best effort: the ref is derived, and the next capture rebuilds it
+/// too.
+fn resync_open_commits(
+    repo: &gix::Repository,
+    to_table: &RefsTable,
+    back: &[Operation<'_>],
+    fwd: &[Operation<'_>],
+    now: i64,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
     let landing_branch = to_table.head.strip_prefix("ref:refs/heads/");
     let mut touched: std::collections::BTreeSet<String> =
         landing_branch.map(str::to_string).into_iter().collect();
@@ -610,47 +734,7 @@ pub fn rewind(
         }
     }
 
-    let mut files = transition.written;
-    files.extend(transition.deleted);
-    files.sort();
-    files.dedup();
-    // The newest *decision* the move touched, preferring what was left
-    // behind. Both other kinds are skipped for the same reason and it is the
-    // reason they are not decisions: a capture only records the working tree,
-    // and a note marks something that happened rather than something that was
-    // done. So "undid the close" is what a step back over a capture, a close
-    // and a trim note reports — which is what actually came back.
-    let decision = |op: &&Operation<'_>| matches!(op.kind(), OpKind::Op | OpKind::Foreign);
-    let named = back
-        .iter()
-        .find(decision)
-        .or_else(|| fwd.iter().find(decision))
-        .or_else(|| back.first())
-        .or_else(|| fwd.first());
-    Ok((
-        RewindReport {
-            landed: target_id.to_string(),
-            landed_summary: target.summary().to_string(),
-            landed_kind: target.kind().as_str().to_string(),
-            stepped: back.len() + fwd.len(),
-            stepped_ops: back
-                .iter()
-                .chain(&fwd)
-                .filter(|op| !op.is_capture())
-                .count(),
-            stepped_summary: named.map(|op| op.summary().to_string()),
-            stepped_kind: named.map(|op| op.kind().as_str().to_string()),
-            collapsed,
-            forward,
-            refs: transitions,
-            head_moved: head_moves.then(|| to_table.head.clone()),
-            files,
-            warnings,
-            pre_op: ctx.pre_op.map(|id| id.to_string()),
-            companions,
-        },
-        ctx,
-    ))
+    Ok(())
 }
 
 /// Both halves of a move, paired with whether each operation is being
