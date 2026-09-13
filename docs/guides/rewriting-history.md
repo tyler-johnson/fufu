@@ -6,6 +6,8 @@ Each one is a single entry on the operation log, so one [`ff undo`](../reference
 
 Every transcript below is real `ff` output from one scratch repository: a `lexer` branch forked from `main`, carrying two commits.
 
+The [Revisions and IDs reference](../reference/revisions.md) explains the change IDs, commit hashes, and bounded source ranges used below, including how to preview a selection before rewriting it.
+
 ```console
 $ ff log
 @  no changes

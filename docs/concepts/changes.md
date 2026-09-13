@@ -87,3 +87,5 @@ Describing work changes this internal object's message and hash. It does not adv
 A **change ID** follows work through fufu rewrites even when its commit hash changes. fufu assigns the open change an ID at its first snapshot or description; the same ID follows it into branch history. Rewording, restacking, and absorbing edits preserve the IDs of surviving changes.
 
 Change IDs use the letters k–z. fufu stores the full ID, representing sixteen random bytes, in a `change-id` commit header that jj also understands. A commit without that header gets an ID derived from its hash, so rewriting it outside fufu can change that derived identity. The [Git compatibility page](two-regimes.md#lazy-absorption) explains what fufu can observe after outside changes.
+
+See [Revisions and IDs](../reference/revisions.md#commit-shas-and-change-ids) for accepted prefixes, divergent copies, and expressions that select one change or a range of commits.

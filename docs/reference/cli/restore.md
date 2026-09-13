@@ -10,6 +10,8 @@ Three flags name a different source, one kind each, because a position argument 
 --at <time>       the operation current at a time (30m/2h/3d, or a date)
 ```
 
+Choose one source flag. --from must resolve to exactly one commit; the open change @ is refused. --at-op also accepts @ and first-parent suffixes such as @^ or @~3, but not operation sets or functions. The source is resolved before the pre-restore snapshot. See [paths, sources, and past-state reads](../revisions.md#paths-sources-and-past-state-reads).
+
 Only the worktree is written. The index, HEAD, and branches stay exactly as they are. Restore takes its own capture first, and that one is mandatory: if the pre-restore capture fails, nothing is written. So any restore is undone by another restore, or by [`ff undo`](undo.md).
 
 ## Usage

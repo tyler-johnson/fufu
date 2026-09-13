@@ -64,6 +64,8 @@ Operation IDs are hexadecimal, displayed at twelve characters. Commit hashes are
 
 In an operation argument, `@` means the current operation, `@^` its predecessor, and `@~3` three operations back. These count individual operations, including snapshots, rather than the grouped steps in `ff history`. The same spelling in a revision argument addresses commit history instead.
 
+The [Revisions and IDs reference](../reference/revisions.md#operation-expressions) defines operation prefixes, ranges, filters, and the separate meaning of `@` in revision arguments. Its [past-state table](../reference/revisions.md#paths-sources-and-past-state-reads) lists which commands implement `--at-op` and `--at`.
+
 [`ff op diff`](../reference/cli/op-diff.md) compares files in operation trees; use `ff op show` to inspect ref transitions. [`ff op revert`](../reference/cli/op-revert.md) inverts an operation where subsequent ref changes still permit it.
 
 ## Undo moves a pointer, never appends

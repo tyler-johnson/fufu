@@ -4,7 +4,7 @@ A merge names the ambiguity instead of picking a parent for you. git prints no d
 
 A commit that carries a signature gets a signature line under its subject, with the verdict in git's own vocabulary — good, bad, untrusted, expired, revoked, unverifiable — and who signed it. An unsigned commit gets no line and costs no signer run. `--json` carries the same as a `signature` object.
 
-Revisions only, and a change id is one: `ff show <change id>`, or any prefix of it unique in the repository, shows that commit; a prefix of the open change's id shows `@`. `ff show <op>` is refused and points at `ff op show`: the operation log is its own address space, hex like commits, and the slot decides. Blobs and trees stay git's, as `ff git show HEAD:file.txt`.
+The first argument is a [revision expression](../revisions.md#revision-names-and-suffixes) that must resolve to exactly one member. A change-ID prefix needs at least four characters and a unique match; the open change's ID selects `@`. `ff show <op>` is refused and points at `ff op show`: operations have their own address space, hexadecimal like commits. Blobs and trees stay Git's, as `ff git show HEAD:file.txt`.
 
 ## Examples
 

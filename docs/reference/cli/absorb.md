@@ -8,6 +8,8 @@ Everything between and above replays in the same operation, so a branch inside t
 
 `-m` gives the target a message: a reword for a closed commit, the pending description for the open change. Without it the target keeps what it had.
 
+See [Revisions and IDs](../revisions.md#revision-sets-and-grammar) for source ranges and single-revision targets. Preview the source with [`ff log -r 'HEAD~2..HEAD'`](log.md); an omitted right endpoint can include other branches.
+
 ## Branches stacked above
 
 The branches stacked on this one follow it. Once the move has landed, every local branch whose base resolves to the rewritten branch is replayed onto its new tip, parent before child, in the same operation, so one [`ff undo`](undo.md) takes the cascade back with the move.

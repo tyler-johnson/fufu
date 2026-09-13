@@ -146,7 +146,10 @@ fn help_for_git_does_not_reach_git() {
     // sibling contract that ff git --help still reaches real git.
     let out = ff(&["help", "git"]);
     let body = stdout(&out);
-    assert!(body.contains("Snapshots first"), "missing fufu about line");
+    assert!(
+        body.contains("Attempts a snapshot"),
+        "missing fufu about line"
+    );
     assert!(body.contains("alias git="), "missing alias mention");
 }
 

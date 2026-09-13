@@ -40,7 +40,7 @@ Pin and test the fufu version your script supports, assert the envelope version,
 
 The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
-Timestamps are unix seconds, always named `time`. Commit ids and operation ids are hex, forty characters in JSON, and the slot decides which a hex prefix means — a revision slot reads a sha or a change id, an operation slot an operation id. A `change_id` is a commit's identity across rewrites, spelled in the letters k–z and never hex: the letters column the human views print. See [Snapshots and undo](../concepts/snapshots-and-undo.md).
+Timestamps are unix seconds, always named `time`. Commit ids and operation ids are hex, forty characters in JSON, and the slot decides which a hex prefix means — a revision slot reads a sha or a change id, an operation slot an operation id. A `change_id` is a commit's identity across rewrites, spelled in the letters k–z and never hex: the letters column the human views print. See [Revisions and IDs](../reference/revisions.md) for accepted expressions, prefix limits, and past-state reads, and [Snapshots and undo](../concepts/snapshots-and-undo.md) for recovery scope.
 
 ## `ff status --json`
 

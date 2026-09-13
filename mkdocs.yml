@@ -74,6 +74,7 @@ nav:
       - The machine surface: agents/machine-surface.md
   - Reference:
       - CLI: reference/cli/index.md
+      - Revisions and IDs: reference/revisions.md
       - Hooks:
           - reference/hooks/index.md
           - bash: reference/hooks/bash.md

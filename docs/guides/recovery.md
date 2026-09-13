@@ -45,7 +45,7 @@ restored from cc54816d (parser: drop whitespace from the stream)
 undo: ff undo
 ```
 
-`--from <rev>` names a different source — a branch, a sha, any revset naming one revision. Here, `src/main.rs` as `main` last shipped it:
+`--from <rev>` names a different source — a branch, a SHA, or a [revision expression](../reference/revisions.md#paths-sources-and-past-state-reads) naming one commit. Here, `src/main.rs` as `main` last shipped it:
 
 ```console
 $ ff restore src/main.rs --from main
@@ -75,7 +75,7 @@ $ ff history
     (the floor)
 ```
 
-The twelve-character ids leading these rows are operation ids — hex like a commit's, and the slot is what says which: `ff op` and `--at-op` read an operation, `-r` and `--from` a revision; [snapshots and undo](../concepts/snapshots-and-undo.md#one-log-one-address-space) owns the address space. Every row is also an address the [`ff op`](../reference/cli/op.md) family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
+The twelve-character IDs leading these rows are operation IDs — hexadecimal like a commit's, with the argument selecting the kind: `--at-op` reads an operation, while `-r` and `--from` read revisions. [Revisions and IDs](../reference/revisions.md#operation-expressions) defines the address syntax. Every row is also an address the [`ff op`](../reference/cli/op.md) family takes. [`ff op show`](../reference/cli/op-show.md) confirms a row is the one you mean before anything moves:
 
 ```console
 $ ff op show 9ac4e7b60636
