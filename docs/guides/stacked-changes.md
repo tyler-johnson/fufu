@@ -1,180 +1,299 @@
 # Stacked changes
 
-A stack is a branch whose base — the branch it forked from and rebases onto — is itself a branch under review. You split a feature into reviewable pieces, each piece on its own branch, each branch forked from the tip of the one below, and each published for its own review.
+A stack splits a feature into reviewable branches. Each branch records the branch beneath it as its base, so feedback on a lower layer can replay the work above it.
 
-This guide builds a two-branch stack, lands review feedback at the bottom, lets the cascade carry the branch above, pulls the stack, and pushes each branch under its own lease — the guard that refuses a push when the shared copy has moved. The repository is the tutorial's demo, and every console block is real `ff` output.
+```text
+main
+  └── parser-core       parser implementation
+        └── parser-cli  command that depends on the parser
+```
 
-The verbs already know the shape. [`ff start`](../reference/cli/switch.md) records which branch a fork came from, every verb that moves a branch's tip replays the branches stacked on it onto the new tip, [`ff pull`](../reference/cli/pull.md) lines a branch up with its base and its remote, and [`ff push`](../reference/cli/push.md) sends the branch you stand on, or every branch you name. A stack is those verbs applied at the bottom, with the cascade doing the climbing.
+| Task | Command | Next step |
+| --- | --- | --- |
+| Create the bottom branch | [`ff switch main -b parser-core`](../reference/cli/switch.md) | Write and commit its implementation. |
+| Create a dependent branch | `ff switch parser-core -b parser-cli` | Write and commit the next layer. |
+| Apply review feedback | [`ff absorb`](../reference/cli/absorb.md) on the lower branch | Inspect the dependent-branch report. |
+| Take in remote updates | [`ff pull`](../reference/cli/pull.md) | Review and test the replayed stack. |
+| Publish selected branches | [`ff push parser-core parser-cli`](../reference/cli/push.md) | Open or update each review. |
+| Move remaining work after a merge | [`ff restack parser-cli --onto main`](../reference/cli/restack.md) | Inspect and push the remaining branch. |
+
+The stack walkthrough starts in an initialized scratch repository with main, `app.txt`, and `README.md`. Its local `origin.git` and plain-Git `../teammate` checkout make remote steps reproducible without a service. `bash scripts/docs/stacked-changes-transcript.sh stack` supplies this setup and runs the complete stack lifecycle; `collision` runs the independent overlap recipe. The unused fixture branch `feature` is only used by the latter recipe.
 
 ## Start a stack
 
-The bottom of the stack begins like any other [branch](../concepts/branches.md): `ff start` forks from trunk.
+Prerequisite: main is the desired base and neither stack branch exists. A branch name alone resumes it; `-b` creates the named new branch. [`ff commit`](../reference/cli/commit.md) records each layer without staging.
 
+<!-- transcript:stack -->
 ```console
-$ ff start -b parser-core
+$ ff switch main -b parser-core
 minted parser-core (forked from main)
-open change on parser-core
-undo: ff undo
-```
-
-Three commits build the parser core — the skeleton, the wiring into `main`, and a buffered stream:
-
-```console
-$ ff commit -m "parser: skeleton and char stream"
-closed 3e766b76 on parser-core: parser: skeleton and char stream (1 file(s))
+switched to parser-core
 undo: ff undo
 
-$ ff commit -m "parser: wire the module into main"
-closed 0fffcd68 on parser-core: parser: wire the module into main (1 file(s))
+$ printf 'parser core\n' > parser.txt
+
+$ ff commit -m "parser: core"
+closed caa9ba32 on parser-core: parser: core (1 file(s))
 undo: ff undo
 
-$ ff commit -m "parser: buffered char stream"
-closed dbf80757 on parser-core: parser: buffered char stream (1 file(s))
-undo: ff undo
-```
-
-The next piece — a CLI flag that exposes the parser — depends on all of that, and it should not wait for parser-core's review. Fork the second branch at parser-core's tip by naming it with `-b`: a branch name alone continues that branch, and `-b` is what makes it a fork.
-
-```console
-$ ff start parser-core -b parser-cli
+$ ff switch parser-core -b parser-cli
 minted parser-cli (forked from parser-core)
-open change on parser-cli
+switched to parser-cli
 undo: ff undo
 
-$ ff commit -m "cli: expose the parser behind a flag"
-closed 527ad478 on parser-cli: cli: expose the parser behind a flag (1 file(s))
+$ printf 'parser command\n' > cli.txt
+
+$ ff commit -m "cli: parser command"
+closed 77fe87e7 on parser-cli: cli: parser command (1 file(s))
 undo: ff undo
+
+$ ff log
+@  no changes
+│  (no description)
+●  xuzrqtyu 77fe87e7   0s ago
+│  cli: parser command
+●  xsoykowr caa9ba32   0s ago
+│  parser: core
+●  xzvrnxpy ad69bc42   0s ago
+│  demo: initial files
+
 ```
+<!-- /transcript -->
 
-`forked from parser-core` is the load-bearing line. The fork recorded parser-core as parser-cli's parent, and that record is what aims every later replay: nothing ever has to be told where parser-cli belongs.
+The recorded base of parser-cli is parser-core. Keep implementation and CLI feedback on their respective branches; they can now be reviewed separately.
 
 ## Read the stack in the map
 
-Bare `ff` is the map, and a healthy stack reads as one column: branch markers stacked over each other, each branch's commits sitting directly on the tip of the branch below.
-
-```console
-$ ff
-@  no changes                  ▸ [parser-cli]
-│  (no description)
-●  ypmunmok 527ad478   0s ago
-│  cli: expose the parser behind a flag
-●  suszrkom dbf80757   0s ago  ▸ [parser-core]
-│  parser: buffered char stream
-~  2 commits
-●  ssrnpyvm d41ac877   0s ago  ▸ [main]
-│  release: cut v0.1.0
-●  mmpmvmzw 30d4dadd   0s ago
-   init: hello world
-```
-
-`@` is the open change on parser-cli, `▸ [parser-core]` stands mid-column because parser-cli's commit sits directly on its tip, and a `~` row elides commits the map does not need to show.
-
-A stack in good shape has no forks in this picture. Every rewrite below carries the branches above with it, so a fork here is the map telling you a branch was left behind, and the verb that left it said so at the time.
+[`ff log`](../reference/cli/log.md) above shows the current ancestry, with a stable change ID before each commit hash. [`ff map`](../reference/cli/map.md), also available as bare `ff`, adds branch markers so you can see where each layer ends. `@` is current open work; `~` elides commits. A fork can indicate an unrelated branch or a dependent branch that has not followed its base; use the command report to tell which.
 
 ## Land review feedback with absorb
 
-Review feedback arrives on the bottom branch: the wiring commit should say how the parser is reached. Switch to parser-core, make the edit, and fold it into the commit it belongs to with [`ff absorb`](../reference/cli/absorb.md).
+Prerequisite: parser-cli is based on parser-core as above. Switch to the lower branch and write its feedback there. Bare absorb amends its latest commit; `--into <revision>` selects an earlier commit on that branch.
 
+<!-- transcript:feedback -->
 ```console
 $ ff switch parser-core
 switched to parser-core
 undo: ff undo
 
-$ ff absorb --into 0fffcd68
-moved 1 file(s) from the open change into 46f6832e: parser: wire the module into main
-restacked 1 commit(s) above it
+$ printf 'reviewed parser core\n' > parser.txt
+
+$ ff absorb
+moved 1 file(s) from the open change into c20a7cfc: parser: core
 parser-cli followed parser-core: replayed 1 commit(s)
 undo: ff undo
+
+$ ff log -r parser-cli
+●  xuzrqtyu f31ea69a   0s ago
+│  cli: parser command
+
 ```
+<!-- /transcript -->
 
-`restacked 1 commit(s) above it`: everything above the target on this branch re-parented in the same operation, with no interactive rebase and no fixup commit. `parser-cli followed parser-core: replayed 1 commit(s)` is the cascade. parser-cli's recorded base is parser-core, parser-core's tip moved, so parser-cli's one commit was replayed onto the new tip inside the same operation, and you never left parser-core. The map is still one column:
-
-```console
-$ ff
-@  no changes                  ▸ [parser-core]
-│  (no description)
-│ ●  yvlxqopm dab92e41   0s ago  ▸ [parser-cli]
-├─╯  cli: expose the parser behind a flag
-●  txrmosvs 747bd826   0s ago
-│  parser: buffered char stream
-~  2 commits
-●  ssrnpyvm d41ac877   0s ago  ▸ [main]
-│  release: cut v0.1.0
-●  mmpmvmzw 30d4dadd   0s ago
-   init: hello world
-```
-
-`@` and `▸ [parser-cli]` both sit on parser-core's tip: the open change here and the branch above share a base, and the join is the map drawing two heads on one commit, not a fork.
+Parser-core now contains the reviewed implementation. The `parser-cli followed parser-core` line confirms the CLI commit replayed onto it. Inspect both layers and run their tests before continuing.
 
 ## The cascade
 
-Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff pull`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree. The replays ride the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together.
+Restack, pull, absorb, [`ff lift`](../reference/cli/lift.md), [`ff describe <revision>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) replay dependent branches parent before child when they move a base tip. This automatic replay is the cascade. Successful updates belong to the initiating operation, so one [`ff undo`](../reference/cli/undo.md) reverses that operation and its cascade.
 
-Each replay is performed rather than predicted: a branch above whose replay conflicts keeps its tip and records a hold. Captures and metadata can still be written; earlier successful branch updates stand. The branches above the hold stay put, and the verb reports them.
+A downstream conflict leaves that branch's tip in place and records a held rewrite. Earlier successful updates remain; branches depending on the held branch stay put. Branches checked out in another worktree, already held, or containing merges are skipped and named. A branch inside the replay range with no commits of its own can also stay put and be reported. Resolve the reported condition, then restack the branch onto its recorded base.
 
-`ff switch` to the held branch and [`ff resolve`](../reference/cli/resolve.md) picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
+| Verb outcome | Exit behavior |
+| --- | --- |
+| Restack or pull has a primary or downstream hold | 3; read which other branches already updated. |
+| Absorb or lift has a primary hold | 3. |
+| Describe, absorb, or lift succeeds but a downstream branch holds | 0; inspect the cascade report or JSON. |
+| Done cannot complete its primary replay | 3; the session needs attention. |
+| Done lands successfully but a downstream branch holds | 0; the downstream hold is still reported. |
+| A cascade only skips branches | Skips do not by themselves imply exit 3. |
 
-Two kinds of branch are left where they stand and named: one checked out in another worktree, because only that worktree may move its HEAD, and one already holding a rewrite. [`ff restack <branch>`](../reference/cli/restack.md) is the verb for either once it is free: it replays the branch you name onto its recorded parent without touching a file on disk, and cascades above it the same way.
+Switch to a held branch and use [`ff resolve`](../reference/cli/resolve.md), fix the marked files, then done. Its dependents can follow once it lands. [Conflicts and held rewrites](../concepts/held-rewrites.md#reading-conflict-reports) explains sessions, parked arrivals, and machine reports. Do not infer from one nonzero exit that every branch and record stayed untouched.
 
 ## Pull the stack
 
-Meanwhile a teammate landed a commit on `main`. `ff pull` fetches once and lines the branch you stand on up with both things it answers to, the base beneath it and the remote copy of itself, cascading as it goes. The base comes level with its own remote copy first, and the branch above follows in the replay; `ff pull --all` is every local branch.
+Prerequisite: parser-core is current, main tracks origin/main, and parser-cli depends on parser-core. The first four commands model a teammate adding an independent file on main.
 
+<!-- transcript:pull-stack -->
 ```console
+$ printf 'teammate documentation\n' > ../teammate/notes.txt
+
+$ git -C ../teammate add notes.txt
+
+$ git -C ../teammate commit -qm "docs: teammate notes"
+
+$ git -C ../teammate push -q origin main
+
 $ ff pull
 fetching from origin
 main moved ahead by 1 commit(s)
-replayed 3 commit(s) onto main
+replayed 1 commit(s) onto main
 parser-cli followed parser-core: replayed 1 commit(s)
 updated the working copy (1 file(s))
 not published yet — ff push
 main
     fast-forwarded to origin/main (1 commit(s))
 undo: ff undo
-```
 
-Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working copy moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The local branch and file updates are one undoable operation. Pull's fetch writes objects and tracking refs separately and requires the remote unless `--no-fetch` is given.
+```
+<!-- /transcript -->
+
+Pull fetches and updates the selected branch with its base and remote copy. Here it brings main level with origin/main, replays parser-core, and cascades to parser-cli. The local branch and file updates are one undoable operation; fetched objects and tracking refs are separate. `--no-fetch` uses already available remote information, while `--dry-run` still fetches unless combined with it. Use `ff pull --all` when you intend to select all local branches. Inspect and test the resulting files before pushing.
 
 ## Push each branch under its own lease
 
-Each branch in the stack goes to the remote as its own branch, so each piece gets its own review. `ff push` sends the branch you stand on; name every branch of the stack to send the stack, from wherever you stand, and each goes out under its own lease — it goes through only if that branch's shared copy still stands where you last saw it. Nothing comes along with a named branch, so a push of parser-cli alone leaves parser-core where it is.
+Prerequisite: both stack branches are ready to publish. This example switches to main first to make the explicit selection visible: only parser-core and parser-cli are sent, not the current branch or an automatically expanded set of ancestors.
 
+<!-- transcript:push-stack -->
 ```console
+$ ff switch main
+switched to main
+undo: ff undo
+
 $ ff push parser-core parser-cli
-created origin/parser-core and set parser-core to track it
 parser-cli
     created origin/parser-cli and set parser-cli to track it
+parser-core
+    created origin/parser-core and set parser-core to track it
 the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
+
 ```
+<!-- /transcript -->
 
-The branch you stand on reads first, and every other branch in the run is a block headed by its name. The leases are per branch because the shared copies are: a teammate pushing to parser-core cannot make pushing parser-cli lie, and a refused lease on one branch costs nothing anywhere else — the rest of the run still goes out, that branch's block says what the wire said, and `ff pull parser-core` takes their work in and cascades, then push again. [The push boundary](../concepts/push-boundary.md) covers what the lease guards.
+Pushing parser-cli alone transfers the Git objects needed for its history, including ancestor commits, but does not create or update the remote parser-core ref. Name both branches to publish both review targets. Each has its own lease and result; a refusal on one does not roll back successes on others. Read every result block, pull the refused branch, inspect the replay, and retry as appropriate. [Pulling and pushing](../concepts/push-boundary.md) explains the seen-record check and remote rollback limits.
 
-The finished stack, in the map:
+### Inspect local work after a named push
 
+Current limitation: a successful off-branch push records the current checkout's tree as open work for the named target. In this example, main lacks the parser and CLI files, so switching to parser-cli resumes apparent deletions even though its committed and remote history still contains both files. Inspect status after switching.
+
+The fixture deliberately had no uncommitted work on either target before pushing. It can therefore use [`ff restore --all`](../reference/cli/restore.md) on each branch to recover its committed files, then return to main. With genuine parked edits, use their retained pre-push capture instead; [file recovery](recovery.md#restore-files-by-time-or-snapshot) explains how. Pushing each branch while it is current avoids this off-branch note behavior.
+
+<!-- transcript:after-named-push -->
 ```console
-$ ff
-@  no changes                  ▸ [parser-cli]
+$ ff switch parser-cli
+switched to parser-cli
+resumed the parked change (2 file(s))
+undo: ff undo
+
+$ ff status
+on parser-cli · nothing to pull
+@  mlwnpvnk 0540b60e   0s ago
 │  (no description)
-●  ozlpwrtz 0683ae0b   1s ago
-│  cli: expose the parser behind a flag
-●  olnytotr 86b61ceb   1s ago  ▸ [parser-core]
-│  parser: buffered char stream
-~  2 commits
-●  pmlqlyxr 821e9eda   1s ago  ▸ [main]
-│  docs: say what this is
-●  ssrnpyvm d41ac877   1s ago
-│  release: cut v0.1.0
-●  mmpmvmzw 30d4dadd   1s ago
-   init: hello world
+│  D cli.txt    +0  -1  --------------------
+│  D parser.txt +0  -1  --------------------
+│    2 files    +0  -2
+●  xuzrqtyu f1517fca   0s ago
+│  cli: parser command
+
+$ ff restore --all
+restored from f1517fca (cli: parser command)
+  restored  cli.txt
+  restored  parser.txt
+undo: ff undo
+
+$ ff switch parser-core
+switched to parser-core
+resumed the parked change (1 file(s))
+undo: ff undo
+
+$ ff restore --all
+restored from e8fef718 (parser: core)
+  restored  parser.txt
+undo: ff undo
+
+$ ff switch main
+switched to main
+undo: ff undo
+
 ```
+<!-- /transcript -->
 
 ## When the bottom lands
 
-Once parser-core merges into `main`, the top of the stack answers to trunk. `ff restack parser-cli --onto main` records `main` as its new parent and replays onto it — re-aiming is the same verb, with the parent said out loud once.
+Prerequisite: parser-core has merged into main. This recipe models a fast-forward merge in the teammate checkout, then updates local main before changing parser-cli's base.
 
-From here:
+<!-- transcript:merged -->
+```console
+$ git -C ../teammate fetch -q origin
 
-- [Rewriting history](rewriting-history.md) — absorb's whole family: edit, reword, split, and where restacking happens by itself.
-- [Held rewrites](../concepts/held-rewrites.md) — what a conflicted cascade looks like and how `ff resolve` finishes it.
-- [The push boundary](../concepts/push-boundary.md) — leases, rollback, and `ff push --dry-run`.
+$ git -C ../teammate merge -q --ff-only origin/parser-core
+
+$ git -C ../teammate push -q origin main
+
+$ ff pull main
+fetching from origin
+fast-forwarded to origin/main (1 commit(s))
+updated the working copy (1 file(s))
+undo: ff undo
+
+$ ff restack parser-cli --onto main
+re-aimed parser-cli at main (was parser-core)
+undo: ff undo
+
+$ ff push parser-cli
+parser-cli
+    nothing to push
+
+```
+<!-- /transcript -->
+
+Parser-cli now records main as its base, with only its CLI commit ahead. This fast-forward merge preserved its existing ancestry, so there was no new commit to send: the final push reports nothing to push. Inspect the remaining diff and update its review target on the forge. Squash and rebase merges can change the identity or ancestry used to recognize already-landed work; inspect the replay report and remaining commits for your team's merge style before pushing. Branch cleanup is separate, through [`ff branch`](../reference/cli/branch.md).
+
+## Would two branches collide
+
+Prerequisite: two independently based branches touch the same file. This standalone recipe starts with the common fixture, writes one greeting on feature, then a conflicting greeting plus independent notes on renamer.
+
+<!-- transcript:collision -->
+```console
+$ printf 'parser greeting\n' > app.txt
+
+$ ff commit -m "app: parser greeting"
+closed e44a388a on feature: app: parser greeting (1 file(s))
+undo: ff undo
+
+$ ff switch main -b renamer
+minted renamer (forked from main)
+switched to renamer
+undo: ff undo
+
+$ printf 'renamed greeting\n' > app.txt
+
+$ printf 'rename notes\n' > notes.txt
+
+$ ff commit -m "app: rename greeting and add notes"
+closed 854044c4 on renamer: app: rename greeting and add notes (2 file(s))
+undo: ff undo
+
+$ ff collide feature
+  renamer  ✕ feature  app.txt
+
+$ ff lift app.txt
+moved 1 file(s) from 854044c4 "app: rename greeting and add notes" into the open change
+limited to 1 path(s)
+undo: ff undo
+
+$ ff collide feature
+  renamer*  ✕ feature  app.txt
+
+  * has uncommitted work
+
+$ ff restore app.txt
+restored from 87ab3ed9 (app: rename greeting and add notes)
+  restored  app.txt
+undo: ff undo
+
+$ ff collide feature
+  renamer  ✓ feature
+
+```
+<!-- /transcript -->
+
+[`ff collide`](../reference/cli/collide.md) with one branch compares it with the current branch. It compares recorded trees, including captured uncommitted work. Lifting app.txt alone would still leave a collision because that edit is now open; restoring it removes the conflicting edit while keeping the committed notes. Review the kept work before continuing. The source script also verifies the intermediate dirty collision through JSON.
+
+Collision findings exit 0 whether the branches conflict or merge cleanly; scripts must inspect the verdict. The comparison itself leaves branches, index, and files alone, but capture, auto-fetch, and maintenance can run around it. For an already-held replay, use resolve rather than collide.
+
+## From here
+
+- [Rewriting history](rewriting-history.md) — amend, reword, split, combine, and edit individual commits.
+- [Worktrees](worktrees.md) — work on separate branches in simultaneous checkouts.
+- [Recovery](recovery.md) — recover local state after a mistaken operation.

@@ -1,104 +1,144 @@
 # Plain-git teammates
 
-Nobody else has to know you run fufu. [The invariant](../concepts/invariant.md) is the reason: at every instant the repository is a boring git repository, so every person and every tool that speaks git keeps working without noticing you.
+Your teammates can keep Git, their GUI, and their existing review and CI workflow. Fufu writes ordinary Git branch history. You need fufu locally for its commands and active hooks for additional capture boundaries; teammates do not need to install either.
 
-This page is what that looks like in practice — what your teammates see, what happens when you type git yourself, and what fufu does and does not ask of the people around you. Every transcript is real `ff` output.
+| Where someone looks | What they see |
+| --- | --- |
+| Another clone after a normal branch push | Ordinary commits, branches, and files. Fufu's local operation and parked-work refs are not sent. |
+| This checkout with `git status`, `git diff`, or `git log` | The real working copy, index, and current branch history. |
+| This repository with `git log --all` or a ref browser | Internal refs too: parked/open commits and operation records under `refs/fufu/`. |
 
-The console blocks below share one scene: a fresh clone, a branch named `parser` with a commit on it, all made through fufu.
-
-```console
-$ ff start -b parser
-minted parser (forked from main)
-open change on parser
-undo: ff undo
-
-$ ff commit -m "lexer: skeleton"
-closed 471c9c0d on parser: lexer: skeleton (1 file(s))
-undo: ff undo
-```
+The [compatibility concept](../concepts/two-regimes.md) is the main explanation of execution paths and reconciliation. These recipes cover practical tasks. Each starts independently in an initialized scratch repository on `feature`, based on main, with `app.txt` containing `hello` and a `README.md`. `bash scripts/docs/plain-git-teammates-transcript.sh` runs all recipes; pass an ID such as `passthrough` for one. The teammate recipe also creates a local origin and another clone.
 
 ## What everyone else sees
 
-A teammate who pulls your branch sees ordinary commits on an ordinary branch. A GUI sees branches where branches should be, HEAD attached, `git status` reading the way it always reads. CI checks out the commit it was asked to build. Nothing fufu stores reaches a remote: snapshots live in refs under `refs/fufu/`, beside the visible history rather than in it, and no push carries them.
+Prerequisite: a branch is ready to publish. [`ff commit`](../reference/cli/commit.md) records the work, then [`ff push`](../reference/cli/push.md) sends its history. The remaining commands inspect it from a plain-Git clone.
 
-The one piece of fufu state a plain-git tool can even encounter is a parked change, and it is deliberately the most boring thing it could be: one ordinary commit, the branch's open commit, sitting one above the branch in the graph. Park something by switching away, then look at it with plain git:
-
+<!-- transcript:teammate -->
 ```console
+$ printf 'feature\n' > app.txt
+
+$ ff commit -m "app: feature"
+closed 2029c40a on feature: app: feature (1 file(s))
+undo: ff undo
+
+$ ff push
+created origin/feature and set feature to track it
+the push left the machine — ff undo cannot reach it
+ff undo then ff push rolls the shared copy back, under a lease
+
+$ git -C ../teammate fetch -q origin
+
+$ git -C ../teammate switch -q feature
+
+$ git -C ../teammate log --oneline -2
+2029c40 app: feature
+c0bc30c demo: initial files
+
+$ git -C ../teammate status --short
+
+```
+<!-- /transcript -->
+
+The teammate gets the same branch tip and a clean checkout. CI can build it normally. History commits can carry a `change-id` header visible through Git plumbing; no special reader is required. A normal fufu branch push does not send `refs/fufu/`. Explicit raw Git mirror or refspec pushes are a different operation. Continue with the team's normal review process.
+
+## Recover parked work with Git
+
+Prerequisite: work was parked by [`ff switch`](../reference/cli/switch.md) and its open ref is retained. [`ff describe`](../reference/cli/describe.md) supplies the pending description here. Inspect the exact parked ref rather than guessing from the first row of `git log --all`.
+
+<!-- transcript:parked -->
+```console
+$ printf 'tuning pass\n' > app.txt
+
+$ ff describe -m "app: tuning pass"
+pending description on feature: app: tuning pass
+
 $ ff switch main
-parked the open change on parser (1d0de5ee)
+parked the open change on feature (bf9945cb)
 switched to main
 undo: ff undo
 
-$ git log --all --oneline -3
-1d0de5e tuning pass
-aece1a4 switch from parser to main
-829462b describe pending change on parser
-```
+$ git log refs/fufu/open/feature -1 --oneline
+bf9945c app: tuning pass
 
-The first line is the park — the sha `ff switch` named, its pending description as the subject — and the two beneath it are fufu's own records of the switch, under `refs/fufu/`. A teammate who opens this repository does not need fufu explained to them, and `git cherry-pick -n` on that sha would take the change back by hand. Switch back with [`ff switch parser`](../reference/cli/switch.md) and the change resumes with its branch. [Branches](../concepts/branches.md) covers parking itself.
+$ git log refs/fufu/wt/main/ops -1 --oneline
+8ed4d1c switch from feature to main
+
+$ git cherry-pick -n refs/fufu/open/feature
+
+```
+<!-- /transcript -->
+
+The first Git log command shows the parked change; the second shows an operation record. Both are ordinary commit objects, but neither is a commit recorded on main. Cherry-pick with `-n` applies the parked patch to the current checkout and index without committing. Inspect `git diff --cached`, then continue with Git if fufu is unavailable. With fufu available, `ff switch feature` normally resumes the parked change directly. Applying a patch this way can conflict if the receiving branch differs.
 
 ## Your own git tools: reads and writes
 
-You are allowed to keep your git habits. The rule that sorts every case is in [the two regimes](../concepts/two-regimes.md): operations through fufu get fufu's guarantees, operations around it get git's exact documented behavior, absorbed afterward.
+Prerequisite: an IDE or raw Git recorded a wanted commit outside fufu. Ordinary reads continue to work; a raw write is reconciled on the next fufu command.
 
-Reads are always fine, with nothing to absorb. `git log`, `git blame`, `git diff`, `gitk`, your IDE's history panel — use them freely and forever. fufu adds no state a reader has to understand.
-
-Writes are fine too, and this is the part worth seeing once. Commit from an IDE, or with raw git in another terminal:
-
+<!-- transcript:outside -->
 ```console
-$ git commit -am "docs: say what this is"
-[parser a10a8a6] docs: say what this is
- 1 file changed, 1 insertion(+)
-```
+$ printf 'IDE edit\n' > app.txt
 
-fufu was not watching and did not interfere; git did exactly what git does. At your next fufu operation, the difference between what fufu remembered and what the repository now says is noticed, folded into the operation log as a foreign operation, and said out loud:
+$ git commit -am "app: IDE edit"
+[feature b3663c3] app: IDE edit
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-```console
 $ ff status
-on parser · nothing to pull
+on feature · nothing to pull
 @  no changes
 │  (no description)
-●  tnqqlvqw a10a8a6d   0s ago
-│  docs: say what this is
-1 change made outside fufu: refs/heads/parser moved to a10a8a6d (absorbed; ff undo can roll it back)
+●  uvrvoyyu b3663c31   0s ago
+│  app: IDE edit
+1 change made outside fufu: refs/heads/feature moved to b3663c31 (absorbed; ff undo can roll it back)
+
 ```
+<!-- /transcript -->
 
-The notice stays pinned in [`ff status`](../reference/cli/status.md) while the log's tip is foreign, so motion fufu did not perform is never silently blended into motion it did. And because the commit is in the operation log now, [`ff undo`](../reference/cli/undo.md) can take it back like anything fufu did itself — here the commit was wanted, so it simply stays.
+[`ff status`](../reference/cli/status.md) reports the observed ref movement as foreign work. The commit remains in place, ready for further editing or a push. Reconciliation records observed state; it does not reconstruct every intermediate file edit made while fufu was absent. Recovery reaches successfully captured, retained states, not every action performed by the other tool.
 
-## `ff git`: the escape hatch that keeps undo working
+<a id="ff-git-the-escape-hatch-that-keeps-undo-working"></a>
+## Capture before a Git command
 
-The gap in the lazy story is the working copy. A foreign ref move is always recoverable from the log, but a raw command that rewrites files can destroy tree state that existed only since the last capture.
+Prerequisite: Git has a command you need and the configured policy permits it. [`ff git`](../reference/cli/git.md) attempts capture before running the requested Git command. This disposable example includes uncommitted bytes immediately before a destructive reset.
 
-[`ff git <args…>`](../reference/cli/git.md) closes that gap: it snapshots first, then runs git verbatim — no flags reinterpreted, no behavior second-guessed. Whatever git has that fufu lacks a verb for, this is how you reach it without stepping off the safety net.
-
-The demonstration is the most destructive habit in git's repertoire:
-
+<!-- transcript:passthrough -->
 ```console
+$ printf 'feature\n' > app.txt
+
+$ ff commit -m "app: feature"
+closed d9db9f9b on feature: app: feature (1 file(s))
+undo: ff undo
+
+$ printf 'uncommitted draft\n' > app.txt
+
 $ ff git reset --hard HEAD~1
 ff: tip: that's ff undo
-HEAD is now at 471c9c0 lexer: skeleton
+HEAD is now at 6d2f84d demo: initial files
 
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser moved to 471c9c0d (reset: moving to HEAD~1)
+ff: absorbed 1 change made outside fufu: refs/heads/feature moved to 6d2f84d5 (reset: moving to HEAD~1)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at 0b6748f58917 (absorbed 1 foreign ref change(s))
-  refs/heads/parser → a10a8a6d
+  now at b1cc30470b38 (pre: git reset --hard HEAD~1)
+  refs/heads/feature → d9db9f9b
   1 worktree file(s) restored
 back: ff redo
-```
 
-The reset really ran, and one `ff undo` brought back refs and worktree together. The `tip:` line is fufu coaching, covered next; the reset itself was never blocked. See [the git passthrough reference](../reference/cli/git.md) for the details.
+```
+<!-- /transcript -->
+
+[`ff undo`](../reference/cli/undo.md) restores the branch tip and the captured uncommitted draft. Inspect the recovered files before continuing. Capture excludes ignored untracked files, unsaved buffers, and content above `fufu.maxFileSize` (50 MiB by default); oversized tracked files may retain older content. Capture success and retention still matter. See [recovery](recovery.md) for choosing a point after later work.
 
 ## The alias and gitPolicy
 
-[`ff hook bash`](../reference/hooks/bash.md) (or `zsh`, `fish`, `powershell`) installs `alias git='ff git'` in your shell, so typed git lands on the fufu surface by spelling you already have as muscle memory. The boundary is execution path: aliased git is captured first and absorbed as fufu's own, while anything that resolves git on PATH — a GUI, a script, a teammate — stays outside and is absorbed lazily as above.
+Prerequisite: you want typed Git commands to go through fufu, or want guidance when they overlap its commands. [`ff hook bash`](../reference/cli/hook.md), or the corresponding zsh, fish, or PowerShell hook, installs shell integration including a Git alias. Activate it in that shell as the [client reference](../reference/hooks/bash.md) directs. Scripts, GUIs, and executables resolving Git directly on PATH do not inherit a shell alias.
 
-What fufu says when git is reached for through it is the `fufu.gitPolicy` setting, with three levels:
+[`ff config gitPolicy`](../reference/cli/config.md) selects the policy on the fufu execution path:
 
-- **`observe`** records and stays quiet.
-- **`coach`**, the default, names the fufu verb once per git word — the `ff: tip: that's ff undo` line above — and then runs the command anyway.
-- **`strict`** refuses a git write that has a fufu verb, and names what to run instead.
+- `observe` runs without coaching.
+- `coach`, the default, suggests the fufu equivalent once per Git word and runs Git.
+- `strict` refuses covered Git writes with a fufu equivalent. It does not substitute another command.
 
+<!-- transcript:policy -->
 ```console
 $ ff config gitPolicy strict
 gitPolicy = strict (this repo)
@@ -108,30 +148,21 @@ ff: fufu.gitPolicy is strict, and fufu has a verb for git commit: ff commit — 
   try:
     ff commit
     ff config gitPolicy coach
+
+$ ff git log --oneline -1
+6d2f84d demo: initial files
+
 ```
+<!-- /transcript -->
 
-Nothing is ever silently run in the refused command's place, and reads pass untouched at every level:
-
-```console
-$ ff git log --oneline -n 2
-a10a8a6 docs: say what this is
-471c9c0 lexer: skeleton
-```
-
-Strict is at its best keeping an agent on the fufu surface — [agents setup](../agents/setup.md) wires the same policy through tool hooks — but it works the same on your own fingers while the reflexes retrain.
+The refused commit does not run; strict passthrough refusal precedes its capture, though the policy tally is recorded. Reads still pass. Active agent hooks have their own received-event coverage and attempt capture before policy evaluation; [agent setup](../agents/setup.md) explains activation. Verify the intended shell or client integration rather than assuming installing a hook enabled every execution path.
 
 ## A weekend away
 
-You can leave entirely: a laptop without fufu installed, a week living in a GUI, a colleague driving your checkout with raw git. Nothing accumulates while you are gone, because there is no fufu-shaped consistency for plain git to violate — fufu's records are a cache over git, and the repository wins every disagreement.
-
-Coming back is reconciliation. At your first fufu operation, everything that happened in the meantime is observed, absorbed into the timeline as foreign operations, and reported — a branch that moved, a parked entry dropped by hand, a commit rewritten behind fufu's back, each said out loud rather than silently forgotten. Then the guarantees resume. [The two regimes](../concepts/two-regimes.md) walks the weekend in full, and [the invariant](../concepts/invariant.md) explains why the return can never find anything broken.
+You can keep using Git on a machine without fufu. On returning, the next fufu command reconciles observed branch and ref changes. Files that were created and lost between captures cannot be recovered from a later observation. Inspect status, then use the ordinary fufu workflow again. [Leaving and coming back](../concepts/two-regimes.md#leaving-and-coming-back) has the details.
 
 ## What fufu asks of the branch, and of the repo
 
-Of the repository and the people in it, fufu asks nothing: no server-side setup, no hooks your teammates must install, no workflow the rest of the team must adopt, no trace in the pushed history that fufu was involved. How work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business. The branch the forge deletes afterwards is [`ff branch --prune`](../reference/cli/branch.md)'s: one operation takes every local branch whose shared copy is gone.
+No server hook or team-wide conversion is required. Merge, squash, and rebase policy remains the team's choice. [`ff branch --prune`](../reference/cli/branch.md) can remove local branches whose previously observed remote copies are gone; review its selection before cleanup.
 
-The same fact is a limit. fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
-
-fufu replays branches onto their bases and can rewrite commits whether or not they have been pushed. Sending a rewrite requires a separate leased push. There is no branch-ownership check or special protection for `main`; append-only shared history requires team policy and server-side protection. [The push boundary](../concepts/push-boundary.md) explains the lease and its limits.
-
-A teammate looking at your branch sees the result of that discipline — a clean stack of commits atop current main — and nothing of the machinery. Which is the invariant doing its job.
+Fufu can rewrite pushed commits locally and send them with a separate leased push. It does not enforce branch ownership or protect main specially. Use server-side protection for shared-history policy. If a teammate force-pushes over your branch, [recover and reconcile](recovery.md#someone-force-pushed-over-my-branch) before retrying. [Pulling and pushing](../concepts/push-boundary.md) explains what the lease checks.

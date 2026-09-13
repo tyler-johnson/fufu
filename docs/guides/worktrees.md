@@ -1,235 +1,206 @@
 # Worktrees
 
-[`ff switch`](../reference/cli/switch.md) already covers most parallel work: the open change — the uncommitted work in your tree — parks with the branch you leave and resumes when you come back, so one tree serves many branches.
+Use a worktree when you need two simultaneous checkouts: a build running while you edit elsewhere, an independent agent task, or a review checkout. For sequential work, [`ff switch`](../reference/cli/switch.md) already parks uncommitted work with its branch and resumes it on return.
 
-A worktree is for the moments when one tree is the bottleneck — a long build or test run that should keep going while you edit something else, an agent working a branch alongside you, a review checkout you keep standing.
+[`ff worktree`](../reference/cli/worktree.md) creates another checkout sharing this repository's Git objects and refs. Each worktree has its own files, index, HEAD, operation chain, and lock. Bare worktree lists live checkouts and retained chains from removed checkouts.
 
-`ff worktree <path>` makes a second checkout of the same repository: one object store and one set of branches are shared, and the working copy, the index, HEAD, and the operation log are the worktree's own.
+Every recipe starts independently in an initialized scratch repository on `feature`, based on main, with `app.txt` containing `hello` and a `README.md`. `bash scripts/docs/worktrees-transcript.sh` runs all recipes and checks the recovered files; pass an ID such as `removal` for one. Every command targeting the second checkout uses `ff -C ../review`; paths in output are the real scratch paths from the recorded run.
 
-Every transcript below is real `ff` output. fufu calls a secondary worktree a bay in places, and this page does too.
+<a id="a-second-checkout"></a>
+<a id="each-tree-has-its-own-open-change"></a>
+## Create a checkout and work independently
 
-## A second checkout
+Prerequisite: `../review` does not exist and the branch name `review` is available. Without an explicit branch, the directory name becomes a new branch name; if already taken, fufu generates a name. Supply a second argument to choose an existing available branch.
 
-Bare [`ff worktree`](../reference/cli/worktree.md) is the list. A fresh clone has one row — the tree you are standing in, marked `*`, with its checkout path and the branch it stands on:
-
+<!-- transcript:independent -->
 ```console
-$ ff worktree
-* main      /tmp/tmp.LEBjpAkBuj/demo  main
-```
-
-`ff worktree <path>` makes the bay. The branch is a name you give, or a new branch named after the directory when you do not say, or a minted name when that name is already taken:
-
-```console
-$ ff worktree ../bay
-made bay at /tmp/tmp.LEBjpAkBuj/bay on bay
+$ ff worktree ../review
+made review at /tmp/opencode/fufu-guide-ZPWYHN/independent/review on review
   on a new branch
-  its log is refs/fufu/wt/bay/ops
+  its log is refs/fufu/wt/review/ops
 
-$ ff worktree
-* main      /tmp/tmp.LEBjpAkBuj/demo  main
-  bay       /tmp/tmp.LEBjpAkBuj/bay   bay
-```
+$ printf 'review draft\n' > ../review/review.txt
 
-The `its log` line is the part git does not have: each worktree carries its own operation chain, and the chain floor is laid as the worktree is made, so [`ff undo`](../reference/cli/undo.md) works in the bay from its first command. A checkout written by hand with `git worktree add` gets its floor on its first fufu command instead, and undo in it is blind until then.
-
-## Each tree has its own open change
-
-Every worktree holds exactly one [open change](../concepts/changes.md). [`ff status`](../reference/cli/status.md) in the bay is about the bay — its own uncommitted files, on its own branch, with capture running there the same as anywhere:
-
-```console
-$ ff status
-on bay · nothing to pull
-@  yoqszpzq 5b696af7   0s ago
+$ ff -C ../review status
+on review · nothing to pull
+@  lvuuumsy 1dfd861a   0s ago
 │  (no description)
-│  A src/lexer.rs +1  -0  ++++++++++++++++++++
-│    1 file       +1  -0
-●  nluyxpmk a39eec67   0s ago
-│  release: cut v0.1.0
+│  A review.txt +1  -0  ++++++++++++++++++++
+│    1 file     +1  -0
+●  kqnotrwk 6d2f84d5   0s ago
+│  demo: initial files
 
-$ ff commit -m "lexer: sketch the tokenizer"
-closed efde28e5 on bay: lexer: sketch the tokenizer (1 file(s))
+$ ff -C ../review commit -m "review: notes"
+closed 6abaafef on review: review: notes (1 file(s))
 undo: ff undo
-```
 
-Meanwhile the first tree keeps its own change moving, on its own branch, with no coordination between the two:
+$ printf 'independent feature\n' > app.txt
 
-```console
-$ ff commit -m "docs: say what this is"
-closed f7bce469 on main: docs: say what this is (1 file(s))
+$ ff commit -m "app: independent feature"
+closed fc5b3dff on feature: app: independent feature (1 file(s))
 undo: ff undo
+
+$ ff -C ../review undo
+undid: commit on review: review: notes
+  now at 950934b51dc1 (pre: ff -C ../review status)
+  refs/heads/review → 6d2f84d5
+back: ff redo
+
+$ ff -C ../review history
+↑1  96b8b979d63a    0s ago  redo  commit on review: review: notes
+@   950934b51dc1    0s ago  now   pre: ff -C ../review status
+↓1  a7b8aab01bb9    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
+    (the floor)
+
 ```
+<!-- /transcript -->
+
+[`ff status`](../reference/cli/status.md) and [`ff commit`](../reference/cli/commit.md) operate in the checkout selected by `-C`. The commit on feature remains when [`ff undo`](../reference/cli/undo.md) reopens the review commit. Inspect both checkouts and continue each task there.
 
 ## One repository, a log per tree
 
-The commits land in one shared repository, so what does `ff undo` mean when two trees are writing to it? The answer is scoping: an operation belongs to the chain of the worktree that ran it, and `ff undo` steps back the chain of the tree you run it in. Close another change in the bay and undo it there:
-
-```console
-$ ff commit -m "lexer: emit spans"
-closed 83fa1076 on bay: lexer: emit spans (1 file(s))
-undo: ff undo
-
-$ ff undo
-undid: commit on bay: lexer: emit spans
-  now at 60913472a848 (pre: ff commit -m lexer: emit spans)
-  refs/heads/bay → efde28e5
-back: ff redo
-```
-
-The commit on `main` stands untouched, because it was never on this chain. [`ff history`](../reference/cli/history.md) in each tree shows the split — the bay's chain holds the bay's operations:
-
-```console
-$ ff history
-↑1  4bd4e95e572c    0s ago  redo  commit on bay: lexer: emit spans [1b234d04-d951-438c-9b46-3de76978f90d]
-@   60913472a848    0s ago  now   pre: ff commit -m lexer: emit spans [1b234d04-d951-438c-9b46-3de76978f90d]
-↓1  a14a55f68140    0s ago  undo  commit on bay: lexer: sketch the tokenizer [1b234d04-d951-438c-9b46-3de76978f90d]
-↓2  15a9b20516d7    0s ago  undo  pre: ff status [1b234d04-d951-438c-9b46-3de76978f90d]
-↓3  2912c896fb1c    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
-    (the floor)
-```
-
-and the first tree's chain holds its own:
-
-```console
-$ ff history
-@   718f6e6a1258    0s ago  now   commit on main: docs: say what this is [1b234d04-d951-438c-9b46-3de76978f90d]
-↓1  82e77eaf4fa2    0s ago  undo  pre: ff commit -m docs: say what this is [1b234d04-d951-438c-9b46-3de76978f90d]
-↓2  7171485a12df    0s ago  undo  add worktree bay on bay [1b234d04-d951-438c-9b46-3de76978f90d]
-↓3  55e895a3ccfb    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
-    (the floor)
-```
-
-Note the `add worktree bay on bay` row: making the bay was itself an operation, on the chain of the tree that ran it, so an `ff undo` right after it would have taken the checkout away again. [Snapshots and undo](../concepts/snapshots-and-undo.md) covers what each press of undo restores.
-
-## Two writers, one repository
-
-Two trees writing one repository is this guide's normal case — you in one, a build or an agent in the other — so the locking is worth saying plainly. Each chain has one write lock, a file at `<common-dir>/fufu/oplog-<chain>.lock`, and no lock spans the repository: a verb in the bay and a verb in the first tree write two different chains and never wait on each other.
-
-The commits and refs underneath stay safe by git's own rules, the same as any two git processes sharing a repository.
-
-### Two processes in one tree
-
-Inside one tree, two fufu processes at once — an agent's hook capturing while you type a verb — settle at that chain's one lock, and the loser loses cleanly. A capture that finds the lock held is skipped outright, because another process is already recording and the next capture is moments away.
-
-A verb waits up to two seconds, then refuses with `ref/contended: another fufu process is writing the operation log` rather than writing over what the other holds — run it again. That refusal exits 4, the one code that means exactly that; [the error id index](../reference/errors.md) has the rest. Neither case can corrupt the log.
-
-[Architecture](../internals/architecture.md#where-fufus-state-lives) places the lock file among the rest of fufu's on-disk state.
-
-## Watching every tree
-
-[`ff watch`](../reference/cli/watch.md) streams the operation log as it moves, one JSON object per line. Bare, it streams the chain of the worktree you run it in; `--all` streams every chain in the repository, opening with one `start` event per worktree, and every line names the worktree it belongs to. Land another commit in the bay while a stream opened from the first tree is running:
-
-```console
-$ ff commit -m "lexer: spans and byte offsets"
-closed be9619b1 on bay: lexer: spans and byte offsets (1 file(s))
-undo: ff undo
-```
-
-The stream saw the whole thing — the two opening events, then the bay's pre-commit capture, then the commit. `-n 4` stops it after four events, counting the opening ones:
-
-```console
-$ ff watch --all -n 4
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"start","tip":"60913472a848185265876f62499330b38b2ac2b3"}}
-{"ff":1,"cmd":"watch","data":{"worktree":"main","motion":"start","tip":"718f6e6a1258912ee4601ae00eaf070447e47d97"}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"a9b8e5b0c3cdbf26494c8072f5a9bcedc843c83a","short_id":"a9b8","kind":"capture","verb":"","summary":"pre: ff commit -m lexer: spans and byte offsets","time":1789184359,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","undo_of":null}}}
-{"ff":1,"cmd":"watch","data":{"worktree":"bay","motion":"landed","op":{"id":"f55f8e20bf95abe487e4052a9d671d98d8d932ff","short_id":"f55f","kind":"op","verb":"commit","summary":"commit on bay: lexer: spans and byte offsets","time":1789184359,"branch":"bay","session":"1b234d04-d951-438c-9b46-3de76978f90d","undo_of":null}}}
-```
-
-That capture event is the point for anyone supervising a bay from outside it: capture runs in a secondary worktree exactly as in the first, and a watcher in any tree sees it happen. `--kind` narrows the stream to captures or verbs, `--session` follows one agent's motion, and a stream under `--all` keeps a bay's chain even after the worktree is removed; the [watch reference](../reference/cli/watch.md) has the full event grammar.
+[`ff history`](../reference/cli/history.md) in the transcript shows review's own chain. Undo walks the chain of the worktree in which it runs, not the latest operation anywhere in the repository. Creating a worktree records its earliest recovery point; one created by raw Git gets that point on its first fufu command. Uncaptured state before that point is unavailable to undo. Shared refs can still be observed as outside changes by another chain, and branches checked out elsewhere have movement guards.
 
 ## Parking crosses trees with its branch
 
-A parked change belongs to its branch, and the branch lives in the shared ref namespace, so any tree can resume it. Start a line of work in the first tree, edit, and park it by switching away:
+Prerequisite: feature has unfinished work and another checkout can take it after this one switches away. The parked change belongs to the branch, so it can resume in another worktree.
 
+<!-- transcript:resume -->
 ```console
-$ ff start
-minted ff/kind-ridge (forked from main)
-open change on ff/kind-ridge
-undo: ff undo
+$ ff worktree ../review
+made review at /tmp/opencode/fufu-guide-ZPWYHN/resume/review on review
+  on a new branch
+  its log is refs/fufu/wt/review/ops
+
+$ printf 'unfinished idea\n' > idea.txt
 
 $ ff switch main
-parked the open change on ff/kind-ridge (63a5167a)
+parked the open change on feature (8519b9d2)
 switched to main
 undo: ff undo
-```
 
-Now take that branch from the bay. The parked change resumes there — same files, same edits, same pending description:
-
-```console
-$ ff switch ff/kind-ridge
-ff: absorbed 1 change made outside fufu: refs/heads/ff/kind-ridge created at f7bce469 (branch: forked from main)
-switched to ff/kind-ridge
+$ ff -C ../review switch feature
+ff: absorbed 1 change made outside fufu: refs/heads/feature created at 6d2f84d5, forked from review (branch: forked from main)
+switched to feature
 resumed the parked change (1 file(s))
 undo: ff undo
-```
 
-The absorbed line is the two chains staying honest with each other. Each worktree's chain keeps its own record of the repository's refs, and the branch the first tree minted is new to the bay's chain, so its next verb absorbs it out loud before acting — [the two regimes](../concepts/two-regimes.md) explains why motion a chain did not perform is never silently blended in.
-
-While the branch is open in the bay, the first tree cannot take it. git allows one branch in two checkouts behind a flag; fufu refuses outright:
-
-```console
-$ ff switch ff/kind-ridge
-ff: 'ff/kind-ridge' is already used by worktree at '/tmp/tmp.LEBjpAkBuj/bay'
+$ ff switch feature
+ff: 'feature' is already used by worktree at '/tmp/opencode/fufu-guide-ZPWYHN/resume/review'
   try:
     ff worktree
     git worktree list
-```
 
-Switching the bay back to its own branch parks the change again, with its branch, where any tree can pick it up later:
-
-```console
-$ ff switch bay
-parked the open change on ff/kind-ridge (63a5167a)
-switched to bay
+$ ff -C ../review switch review
+parked the open change on feature (8519b9d2)
+switched to review
 undo: ff undo
+
+$ ff switch feature
+switched to feature
+resumed the parked change (1 file(s))
+undo: ff undo
+
 ```
+<!-- /transcript -->
+
+The first checkout cannot take feature while review holds it. Switching review away parks the edits again; switching this checkout back resumes them here. Inspect the files where the branch is now open. An absorbed-change notice can appear because each chain independently observes shared refs. [Using fufu alongside Git](../concepts/two-regimes.md#returning-after-outside-changes) explains that reconciliation.
 
 ## Removal captures first
 
-The bay now holds a half-written, uncommitted file. `git worktree remove` demands `--force` for a dirty tree because it has nowhere to put the work. `ff worktree -d` has no `--force`, because the capture comes first, into the bay's own chain, and the removal says where the work went:
+Prerequisite: the second checkout is no longer needed. Removal captures its eligible working-copy content and prints the operation ID before deleting the checkout; dirty work does not require `--force`.
 
+**Capture limits apply at removal:** ignored untracked files, unsaved buffers, and content above `fufu.maxFileSize` are not preserved by the removal capture. Oversized tracked files can retain an older version. Removed chains also expire under `fufu.keep` (90 days by default). Save anything outside that coverage separately, and restore or commit needed captured work before retention removes it.
+
+<!-- transcript:removal -->
 ```console
-$ ff worktree -d bay
-removed bay (was on bay)
-  captured first as 825dc7b6b6c5 — ff restore <path> --at-op 825dc7b6b6c5
-  its log stays at refs/fufu/wt/bay/ops
-```
+$ ff worktree ../review
+made review at /tmp/opencode/fufu-guide-ZPWYHN/removal/review on review
+  on a new branch
+  its log is refs/fufu/wt/review/ops
 
-The chain outlives the checkout. `ff worktree` shows it under the gone chains, with the capture's operation id on the row:
+$ printf 'unfinished review\n' > ../review/review.txt
 
-```console
+$ ff worktree -d ../review
+removed review (was on review)
+  captured first as aa2fd228be1b — ff restore <path> --at-op aa2fd228be1b
+  its log stays at refs/fufu/wt/review/ops
+
 $ ff worktree
-* main      /tmp/tmp.LEBjpAkBuj/demo  main
+* main      /tmp/opencode/fufu-guide-ZPWYHN/removal/demo  feature
 
 chains whose worktree is gone
-  bay       bay  825dc7b6b6c5  0s ago
+  review    review  aa2fd228be1b  0s ago
 ff restore <path> --at-op <op>  brings a file back from one
-```
 
-That id is an address. [`ff restore`](../reference/cli/restore.md) with `--at-op` brings a file out of the capture into whatever tree you are standing in, where it joins the open change like any other edit:
-
-```console
-$ ff restore src/lexer_test.rs --at-op 825dc7b6b6c5
-restored from 825d (pre: ff worktree -d bay)
-  restored  src/lexer_test.rs
+$ ff restore review.txt --at-op aa2fd228be1b
+restored from aa2f (pre: ff worktree -d ../review)
+  restored  review.txt
 undo: ff undo
 
-$ ff status
-on main · 1 to push
-@  srnrtmzq 604489bf   0s ago
-│  (no description)
-│  A src/lexer_test.rs +1  -0  ++++++++++++++++++++
-│    1 file            +1  -0
-●  spkrlvnu f7bce469   1s ago
-│  docs: say what this is
 ```
+<!-- /transcript -->
 
-The removal is one operation on the chain of the tree that ran it, so `ff undo` right after it puts the whole checkout back, uncommitted work included. Two limits to know:
+[`ff restore`](../reference/cli/restore.md) uses the exact capture ID printed by removal and repeated in the gone-chain list. The file joins this surviving checkout's open work; its branch, HEAD, and index do not move. Review it with [`ff diff`](../reference/cli/diff.md), then commit when ready. [Retention and recovery](recovery.md#retention-and-the-earliest-recovery-point) explains expiry.
 
-- Ignored untracked files and content above `fufu.maxFileSize` are outside normal capture coverage. The removal can discard them; see [snapshot limits](../concepts/snapshots-and-undo.md#coverage-and-limits).
-- Gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff op trim`](../reference/cli/op-trim.md) gets there.
+### Bring the whole checkout back
+
+Prerequisite: removal is the latest operation on the chain of the worktree that ran it. This independent recipe undoes immediately, before a later restore or other operation adds work to that chain.
+
+<!-- transcript:removal-undo -->
+```console
+$ ff worktree ../review
+made review at /tmp/opencode/fufu-guide-ZPWYHN/removal-undo/review on review
+  on a new branch
+  its log is refs/fufu/wt/review/ops
+
+$ printf 'unfinished review\n' > ../review/review.txt
+
+$ ff worktree -d ../review
+removed review (was on review)
+  captured first as 049ae9eb2807 — ff restore <path> --at-op 049ae9eb2807
+  its log stays at refs/fufu/wt/review/ops
+
+$ ff undo
+undid: remove worktree review
+  now at 85b19a9f2fa6 (add worktree review on review)
+back: ff redo
+
+```
+<!-- /transcript -->
+
+The checkout and captured uncommitted file return. Inspect it with `ff -C ../review status`, then resume work there. This has the same ignored-file, size, and retention limits as removal's capture; it cannot recreate uncaptured bytes.
+
+## Two writers, one repository
+
+Each worktree's chain has its own write lock, so separate worktrees do not contend for the same operation-log lock. Git's object and ref transactions still guard shared storage, and worktree ownership can prevent moving a branch held elsewhere. A separate chain is not a promise that every concurrent operation can proceed.
+
+### Two processes in one tree
+
+A capture skips when its chain lock is busy. A verb waits up to two seconds, then refuses with `ref/contended` (exit 4); retry it. A skipped capture did not preserve that instant's bytes, so do not assume another process captured your exact file state. [Architecture](../internals/architecture.md#where-fufus-state-lives) locates the locks; [errors](../reference/errors.md) lists refusals.
+
+## Watching every tree
+
+Prerequisite: two live worktrees exist and a script needs to observe their operation logs. [`ff watch`](../reference/cli/watch.md) emits one JSON object per event. This bounded example prints the two initial events and exits, requiring no second terminal or background watcher.
+
+<!-- transcript:watch -->
+```console
+$ ff worktree ../review
+made review at /tmp/opencode/fufu-guide-ZPWYHN/watch/review on review
+  on a new branch
+  its log is refs/fufu/wt/review/ops
+
+$ ff watch --all -n 2
+{"ff":1,"cmd":"watch","data":{"worktree":"main","motion":"start","tip":"61153a83d4ea249a86ea9062d679f6f898cf4186"}}
+{"ff":1,"cmd":"watch","data":{"worktree":"review","motion":"start","tip":"a7b8aab01bb9510b21f0c16c25d9f8c097850106"}}
+
+```
+<!-- /transcript -->
+
+Bare watch follows the current worktree. `--all` follows all chains, including retained chains after removal; each event names its worktree. Without the count bound, later operations produce events such as `landed`, containing the operation's kind, ID, and session. `--kind` and `--session` filter events. Watch observes log movement; it is not a filesystem watcher and does not create captures for file edits. Use the [watch reference](../reference/cli/watch.md) and [JSON output and scripting](../agents/machine-surface.md) for stream handling.
 
 ## From here
 
-- `ff worktree` and [`ff watch`](../reference/cli/watch.md) — the reference for every flag.
-- [Changes](../concepts/changes.md) and [branches](../concepts/branches.md) — the model behind parking and resuming.
-- [Snapshots and undo](../concepts/snapshots-and-undo.md) — what a chain holds and what each press of undo restores.
+- [Changes](../concepts/changes.md) — open work, partial commits, parking, and resuming.
+- [Stacked changes](stacked-changes.md) — dependent branches and cascade skips for branches checked out elsewhere.
+- [Recovery](recovery.md) — restore files or local branch state from retained operations.

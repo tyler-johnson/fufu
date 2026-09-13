@@ -1,173 +1,191 @@
 #!/usr/bin/env bash
-# The source of truth for every console block in docs/guides/recovery.md:
-# builds a throwaway origin, quietly reproduces the state each scenario
-# starts from, then runs each scenario's exact command sequence and prints
-# the labeled transcript to stdout. When a verb's output changes, run this
-# and paste the new blocks rather than hand-editing them — ids, shas, and
-# ages differ run to run, everything else must match. The `-- scenario --`
-# marker lines separate scenarios for pasting; they are not console blocks.
-#
-# FF names the binary under test; default is `ff` on PATH.
-set -euo pipefail
+# Authoritative commands and state assertions for recovery.md. Optional recipe ID.
+source "$(dirname "${BASH_SOURCE[0]}")/guide-scene.sh"
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+if fresh reset; then
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    before=$(tip HEAD)
+    run 'git reset --hard HEAD~1'
+    run 'ff undo'
+    [[ $(tip HEAD) == "$before" && $(<app.txt) == feature ]]
+    end
+fi
 
-FF="${FF:-ff}"
+if fresh file; then
+    run "printf 'wrong\n' > app.txt"
+    before=$(tip HEAD)
+    index=$(git write-tree)
+    run 'ff trigger -m "before discarding the edit"'
+    saved=$(op)
+    run 'ff restore app.txt'
+    [[ $(<app.txt) == hello && $(tip HEAD) == "$before" && $(git write-tree) == "$index" ]]
+    run "ff restore app.txt --at-op ${saved:0:12}"
+    [[ $(<app.txt) == wrong ]]
+    run 'ff restore app.txt --from main'
+    [[ $(<app.txt) == hello ]]
+    end
+fi
 
-# Hermetic: no user or system git config reaches the transcript, and no
-# editor ever opens (every describe/commit carries its message).
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
-export GIT_EDITOR=false EDITOR=false
+if fresh past-files; then
+    run "printf 'keep this draft\n' > app.txt"
+    run 'ff trigger -m "known good draft"'
+    good=$(op)
+    # Date lookup must distinguish the good capture from the later bad one.
+    run 'saved_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
+    run 'sleep 2'
+    run "printf 'bad refactor\n' > app.txt"
+    run 'ff commit -m "app: bad refactor"'
+    before=$(tip HEAD)
+    index=$(git write-tree)
+    run 'ff restore --all --at "$saved_time"'
+    [[ $(<app.txt) == 'keep this draft' && $(tip HEAD) == "$before" && $(git write-tree) == "$index" ]]
+    run "ff restore app.txt --at-op ${good:0:12}"
+    [[ $(<app.txt) == 'keep this draft' ]]
+    end
+fi
 
-SCENE=$(mktemp -d)
-trap 'rm -rf "$SCENE"' EXIT
-cd "$SCENE"
+if fresh state; then
+    run "printf 'good\n' > app.txt"
+    run 'ff commit -m "app: good version"'
+    good=$(op)
+    before=$(tip HEAD)
+    run "printf 'bad\n' > app.txt"
+    run 'ff commit -m "app: wrong direction"'
+    run 'ff history'
+    run "ff op show ${good:0:12}"
+    run "ff op restore ${good:0:12}"
+    [[ $(tip HEAD) == "$before" && $(<app.txt) == good ]]
+    end
+fi
 
-ident() { git config user.name "Ada Lovelace"; git config user.email ada@example.com; }
+if fresh redo; then
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    before=$(tip HEAD)
+    run 'ff undo'
+    run 'ff redo'
+    [[ $(tip HEAD) == "$before" ]]
+    old=$(op)
+    run 'ff undo'
+    run 'ff commit -m "app: better message"'
+    run 'ff redo' 1
+    run "ff op log --at-op ${old:0:12} -n 3"
+    run "ff op restore ${old:0:12}"
+    [[ $(tip HEAD) == "$before" ]]
+    end
+fi
 
-# One console block: the command as the reader would type it, its output,
-# a blank line. The label spells the binary `ff` whatever FF points at, and
-# re-quotes arguments carrying spaces, so a block pastes into the docs as
-# something a reader can type.
-show() {
-  local label='' word
-  for word in "$@"; do
-    if [ "$word" = "$FF" ]; then
-      word='ff'
-    elif [[ "$word" == *' '* ]]; then
-      word="\"$word\""
-    fi
-    label="$label${label:+ }$word"
-  done
-  printf '$ %s\n' "$label"
-  "$@" 2>&1
-  echo
-}
+if fresh revert; then
+    base=$(tip HEAD)
+    run "printf 'wrong branch work\n' > app.txt"
+    run 'ff commit -m "app: unwanted commit"'
+    wrong=$(op)
+    run 'ff switch main -b docs'
+    run "printf 'useful later work\n' > notes.txt"
+    run 'ff commit -m "docs: useful notes"'
+    later=$(tip HEAD)
+    index=$(git write-tree)
+    run 'ff op log -n 6'
+    run "ff op revert ${wrong:0:12}"
+    [[ $(tip feature) == "$base" && $(tip HEAD) == "$later" && $(<notes.txt) == 'useful later work' && $(git write-tree) == "$index" ]]
+    run 'ff undo'
+    [[ $(tip feature) != "$base" ]]
+    end
+fi
 
-# Same block, for a command that exits nonzero by design (a refusal is the
-# output the scenario is about); anything else still aborts the run.
-show_fails() {
-  local label='' word rc=0
-  for word in "$@"; do
-    if [ "$word" = "$FF" ]; then
-      word='ff'
-    elif [[ "$word" == *' '* ]]; then
-      word="\"$word\""
-    fi
-    label="$label${label:+ }$word"
-  done
-  printf '$ %s\n' "$label"
-  "$@" 2>&1 || rc=$?
-  [ "$rc" -ne 0 ] || { echo "expected a refusal, got exit 0: $label" >&2; exit 1; }
-  echo
-}
+if fresh revert-refusal; then
+    run "printf 'first\n' > app.txt"
+    run 'ff commit -m "app: first"'
+    wrong=$(op)
+    run "printf 'later\n' > app.txt"
+    run 'ff commit -m "app: later"'
+    before=$(tip HEAD)
+    run 'ff op log -n 4'
+    run "ff op revert ${wrong:0:12}" 3
+    [[ $(tip HEAD) == "$before" && $(<app.txt) == later ]]
+    end
+fi
 
-mark() { printf -- '-- %s --\n\n' "$1"; }
+if fresh wrong-branch; then
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    run 'ff undo'
+    run 'ff commit -b correct-branch -m "app: feature"'
+    [[ $(git branch --show-current) == correct-branch ]]
+    content feature:app.txt hello
+    content HEAD:app.txt feature
+    end
+fi
 
-# --- the scene, built quietly: the tutorial's repository, a few commits in ---
-git init -q --bare -b main demo.git
-git init -q -b main seed
-(
-  cd seed && ident
-  mkdir src
-  printf 'fn main() {\n    println!("hello world");\n}\n' > src/main.rs
-  printf '# demo\n' > README.md
-  git add -A && git commit -qm "init: hello world"
-  printf '// v0.1.0\n' >> src/main.rs
-  git add -A && git commit -qm "release: cut v0.1.0"
-  git remote add origin ../demo.git && git push -q origin main
-)
-rm -rf seed
+if fresh session-undo; then
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    run 'ff edit HEAD'
+    session=$(git branch --show-current)
+    run 'ff history'
+    run 'ff undo'
+    [[ $(git branch --show-current) == feature ]]
+    git show-ref --verify --quiet "refs/heads/$session"
+    run 'ff undo'
+    absent_ref "refs/heads/$session"
+    end
+fi
 
-"$FF" clone "$SCENE/demo.git" > /dev/null 2>&1
-cd demo && ident
-"$FF" start > /dev/null
-printf 'fn lex() {}\nfn stream() {}\nfn skeleton() {}\n' > src/parser.rs
-printf '// parser wiring\n' >> src/main.rs
-"$FF" commit -m "parser: skeleton and char stream" > /dev/null
-"$FF" describe -b parser-stream > /dev/null
-printf 'fn drop_whitespace() {}\n' >> src/parser.rs
-"$FF" commit -m "parser: drop whitespace from the stream" > /dev/null
+if fresh resolution-undo; then
+    run "printf 'feature greeting\n' > app.txt"
+    run 'ff commit -m "app: feature greeting"'
+    run 'ff switch main'
+    run "printf 'main greeting\n' > app.txt"
+    run 'ff commit -m "app: main greeting"'
+    run 'ff switch feature'
+    run 'ff restack' 3
+    run 'ff resolve'
+    session=$(git branch --show-current)
+    [[ $(<app.txt) == *'<<<<<<<'* ]]
+    run 'ff undo'
+    [[ $(git branch --show-current) == feature && $(<app.txt) == 'feature greeting' ]]
+    git show-ref --verify --quiet "refs/heads/$session"
+    run 'ff undo'
+    absent_ref "refs/heads/$session"
+    # The original held request remains; opening the session is what was undone.
+    python3 -c 'import json; assert json.load(open(".git/fufu/branch/feature"))["held"]'
+    end
+fi
 
-# --- scenario: an agent ran `git reset --hard` ---
-mark "an agent ran git reset --hard"
-show git reset --hard HEAD~2
-show "$FF" undo
+if fresh retention; then
+    run "printf 'retained in branch history\n' > app.txt"
+    run 'ff commit -m "app: keep this commit"'
+    before=$(tip HEAD)
+    run 'ff config keep 2s'
+    run 'sleep 3'
+    run 'ff switch main'
+    run 'ff switch feature'
+    run 'ff op trim -n'
+    run 'ff op trim'
+    [[ $(tip HEAD) == "$before" && $(<app.txt) == 'retained in branch history' ]]
+    run 'ff history'
+    run 'ff config keep 90d'
+    end
+fi
 
-# --- scenario: one file back the way it was ---
-mark "one file back"
-printf 'fn lex() { totally rewritten, and wrong }\n' > src/parser.rs
-show "$FF" restore src/parser.rs
-show "$FF" restore src/main.rs --from main
-"$FF" restore src/main.rs > /dev/null   # quietly put the branch's version back
-
-# --- scenario: the whole tree from twenty minutes ago ---
-mark "the whole tree from earlier"
-# A refactor goes sideways across the tree; a status runs somewhere in
-# between, so the wreckage is captured too.
-printf 'fn lex(input: &Stream) -> ! { unimplemented!() }\n' > src/parser.rs
-printf 'fn main() { compile_error!("mid-refactor") }\n' > src/main.rs
-"$FF" status > /dev/null
-show "$FF" history
-good=$("$FF" op log | awk '/ op /&&/commit on parser-stream: parser: drop whitespace/{print $1; exit}')
-[ -n "$good" ] || { echo "no commit operation found in ff op log" >&2; exit 1; }
-show "$FF" op show "$good"
-show "$FF" op restore "$good"
-
-# --- scenario: I undid too far ---
-mark "undid too far, redo"
-show "$FF" undo
-show "$FF" redo
-
-mark "landing new work forks the redo path"
-show "$FF" undo
-printf 'fn drop_comments() {}\n' >> src/parser.rs   # the reopened whitespace edit is already in the tree
-show "$FF" commit -m "parser: drop whitespace and comments"
-show_fails "$FF" redo
-
-# --- scenario: two writers on one chain, and only one was wrong ---
-mark "two writers on one chain"
-# Writer A and writer B share this worktree, so their operations land on
-# one chain in turn: A commits on parser-stream, B starts a branch off
-# trunk and commits there. A's commit is the wrong one; B's must stand.
-printf '\nThe parser lives in src/parser.rs.\n' >> README.md
-"$FF" commit -m "README: point at the parser" > /dev/null
-"$FF" start -b changelog > /dev/null
-printf '# changelog\n' > CHANGELOG.md
-"$FF" commit -m "changelog: start one" > /dev/null
-show "$FF" op log -n 6
-wrong=$("$FF" op log | awk '/ op /&&/commit on parser-stream: README: point at the parser/{print $1; exit}')
-[ -n "$wrong" ] || { echo "no README commit operation found in ff op log" >&2; exit 1; }
-show "$FF" op revert "$wrong"
-"$FF" switch parser-stream > /dev/null   # quietly back to the branch the rest of the page works on
-
-# --- scenario: wrong message (wrong branch is prose + pointers) ---
-mark "wrong message"
-printf 'fn string_literal() {}\n' >> src/parser.rs
-show "$FF" commit -m "wip"
-sha=$(git rev-parse --short=8 HEAD)
-show "$FF" describe "$sha" -m "parser: string literals"
-
-# --- scenario: someone force-pushed over my branch ---
-mark "force-pushed over my branch"
-show "$FF" push
-(
-  git clone -q "$SCENE/demo.git" -b parser-stream "$SCENE/teammate"
-  cd "$SCENE/teammate" && ident
-  git commit -q --amend -m "parser: string literals (cleaned up)"
-  git push -qf origin parser-stream
-)
-printf 'fn escape_sequence() {}\n' >> src/parser.rs
-"$FF" commit -m "parser: escape sequences" > /dev/null
-show_fails "$FF" push
-show "$FF" pull
-show "$FF" push
-
-# --- scenario: what undo cannot reach — the floor ---
-mark "the floor: a repository fufu just adopted"
-mkdir "$SCENE/legacy"
-cd "$SCENE/legacy" && git init -q -b main . && ident
-printf 'years of history\n' > notes.txt
-git add -A && git commit -qm "old work, made before fufu arrived"
-show "$FF" init
-show "$FF" history
+if fresh force-push; then
+    remote
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    run 'ff push'
+    run 'git -C ../teammate fetch -q origin'
+    run 'git -C ../teammate switch -q feature'
+    run 'git -C ../teammate commit -q --amend -m "app: reviewed feature"'
+    run 'git -C ../teammate push -q --force origin feature'
+    run "printf 'local follow-up\n' > notes.txt"
+    run 'ff commit -m "docs: follow-up"'
+    before=$(tip HEAD)
+    run 'ff push' 1
+    [[ $(tip HEAD) == "$before" ]]
+    run 'ff pull'
+    [[ $(<notes.txt) == 'local follow-up' ]]
+    run 'ff push'
+    [[ $(git --git-dir="$CASE/origin.git" rev-parse feature) == "$(tip HEAD)" ]]
+    end
+fi

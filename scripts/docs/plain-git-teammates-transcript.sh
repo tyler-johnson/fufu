@@ -1,109 +1,59 @@
 #!/usr/bin/env bash
-# The source of truth for every console block in
-# docs/guides/plain-git-teammates.md: builds a throwaway origin, then runs
-# the guide's exact command sequence against it — a parked change seen from
-# plain git, a raw git write absorbed at the next fufu verb, `ff git` as the
-# captured escape hatch, and strict mode refusing — and prints the labeled
-# transcript to stdout. When a verb's output changes, run this and paste the
-# new blocks rather than hand-editing them — ids and ages differ run to run,
-# everything else must match.
-#
-# FF names the binary under test; default is `ff` on PATH.
-set -euo pipefail
+# Authoritative commands and state assertions for plain-git-teammates.md.
+source "$(dirname "${BASH_SOURCE[0]}")/guide-scene.sh"
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+if fresh teammate; then
+    remote
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    run 'ff push'
+    run 'git -C ../teammate fetch -q origin'
+    run 'git -C ../teammate switch -q feature'
+    run 'git -C ../teammate log --oneline -2'
+    run 'git -C ../teammate status --short'
+    [[ $(git -C ../teammate rev-parse HEAD) == "$(tip HEAD)" ]]
+    [[ -z $(git -C ../teammate for-each-ref refs/fufu/) ]]
+    end
+fi
 
-FF="${FF:-ff}"
+if fresh parked; then
+    run "printf 'tuning pass\n' > app.txt"
+    run 'ff describe -m "app: tuning pass"'
+    run 'ff switch main'
+    run 'git log refs/fufu/open/feature -1 --oneline'
+    parked=$(tip refs/fufu/open/feature)
+    run 'git log refs/fufu/wt/main/ops -1 --oneline'
+    run 'git cherry-pick -n refs/fufu/open/feature'
+    [[ $(<app.txt) == 'tuning pass' && $(tip HEAD) == "$(tip main)" ]]
+    [[ $(tip refs/fufu/open/feature) == "$parked" ]]
+    end
+fi
 
-# Hermetic: no user or system git config reaches the transcript, and no
-# editor ever opens (every commit carries its message).
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
-export GIT_EDITOR=false EDITOR=false
+if fresh outside; then
+    run "printf 'IDE edit\n' > app.txt"
+    run 'git commit -am "app: IDE edit"'
+    before=$(tip HEAD)
+    run 'ff status'
+    [[ "$LAST" == *'change made outside fufu'* && $(tip HEAD) == "$before" ]]
+    end
+fi
 
-SCENE=$(mktemp -d)
-trap 'rm -rf "$SCENE"' EXIT
-cd "$SCENE"
+if fresh passthrough; then
+    run "printf 'feature\n' > app.txt"
+    run 'ff commit -m "app: feature"'
+    before=$(tip HEAD)
+    run "printf 'uncommitted draft\n' > app.txt"
+    run 'ff git reset --hard HEAD~1'
+    run 'ff undo'
+    [[ $(tip HEAD) == "$before" && $(<app.txt) == 'uncommitted draft' ]]
+    end
+fi
 
-ident() { git config user.name "Ada Lovelace"; git config user.email ada@example.com; }
-
-# One console block: the command as the reader would type it, its output,
-# a blank line. The label spells the binary `ff` whatever FF points at, and
-# re-quotes arguments carrying spaces, so a block pastes into the docs as
-# something a reader can type.
-show() {
-  local label='' word
-  for word in "$@"; do
-    if [ "$word" = "$FF" ]; then
-      word='ff'
-    elif [[ "$word" == *' '* ]]; then
-      word="\"$word\""
-    fi
-    label="$label${label:+ }$word"
-  done
-  printf '$ %s\n' "$label"
-  "$@" 2>&1
-  echo
-}
-
-# The same block for a command that is expected to be refused: the guide's
-# strict-mode scene ends in exit 2, which must not end the script.
-show_denied() {
-  local label='' word
-  for word in "$@"; do
-    if [ "$word" = "$FF" ]; then
-      word='ff'
-    elif [[ "$word" == *' '* ]]; then
-      word="\"$word\""
-    fi
-    label="$label${label:+ }$word"
-  done
-  printf '$ %s\n' "$label"
-  if "$@" 2>&1; then
-    echo "expected a refusal, got success: $label" >&2
-    exit 1
-  fi
-  echo
-}
-
-# --- the seed: a bare origin holding one starting commit ---
-git init -q --bare -b main demo.git
-git init -q -b main seed
-(
-  cd seed && ident
-  printf 'fn main() {\n    println!("hello world");\n}\n' > main.rs
-  printf '# demo\n' > README.md
-  git add -A && git commit -qm "init: hello world"
-  git remote add origin ../demo.git && git push -q origin main
-)
-rm -rf seed
-
-"$FF" clone "$SCENE/demo.git" > /dev/null
-cd demo && ident
-
-# --- a branch with a commit on it, made through fufu ---
-show "$FF" start -b parser
-printf 'fn lex() {}\n' > lexer.rs
-show "$FF" commit -m "lexer: skeleton"
-
-# --- what a parked change looks like from plain git ---
-printf '// tuning pass\n' >> main.rs
-"$FF" describe -m "tuning pass" > /dev/null
-show "$FF" switch main
-show git log --all --oneline -3
-"$FF" switch parser > /dev/null 2>&1
-"$FF" restore main.rs > /dev/null
-"$FF" describe -m "" > /dev/null 2>&1 || true
-
-# --- a raw git write, absorbed at the next fufu verb ---
-printf 'A demo repo.\n' >> README.md
-show git commit -am "docs: say what this is"
-show "$FF" status
-
-# --- ff git: captured first, run verbatim, undoable ---
-show "$FF" git reset --hard HEAD~1
-show "$FF" undo
-
-# --- strict mode refuses the words fufu has verbs for ---
-show "$FF" config gitPolicy strict
-show_denied "$FF" git commit -m "wip"
-show "$FF" git log --oneline -n 2
+if fresh policy; then
+    run 'ff config gitPolicy strict'
+    before=$(tip HEAD)
+    run 'ff git commit -m wip' 2
+    [[ $(tip HEAD) == "$before" ]]
+    run 'ff git log --oneline -1'
+    end
+fi
