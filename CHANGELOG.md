@@ -4,31 +4,26 @@
 
 ### Added
 
-- The seen record, `refs/fufu/seen/<branch>`: the tip of the shared copy a foreground verb last showed you, written by `ff push`, `ff pull` (real runs, `--no-fetch` included), `ff switch` onto a remote's branch, and `ff clone`, and removed by `ff branch -d --shared`. `ff push` and `ff branch -d --shared` lease against it.
-- `push/unseen`, `branch/shared-moved`, and `branch/shared-unseen`: refusals before the wire when the tracking ref stands off the seen record, or there is none and the push is not a fast-forward. `ff push --dry-run` reports the local refusal as `would not push`.
-- The fetch lane and `fufu.autoFetch`: every verb that reads the tracking refs fetches first, at most once per cadence (`10m` by default), under a three-second deadline and with every prompt off, so `ff status`, `ff branch`, and `ff switch` read the remote's copies as they stand. `false` leaves fetching to `ff pull` and `--fetch`; `CI` set skips the lane.
-- `--fetch` and `--no-fetch` on every verb: run the lane's fetch now, or skip it.
-- `fetch/not-here`: `--fetch` on a verb that reads nothing from the remote.
-- `ff doctor`'s `auto-fetch` row: when the tracking refs were last refreshed, or since when the remote has not answered.
-- `ff branch --prune`: one operation deleting every local branch whose shared copy is gone — an upstream configured, its tracking ref absent, and a seen or published record that the copy once stood — after a fetch of its own. A branch holding commits its copy never held, the branch underfoot, one checked out elsewhere, or one holding a rewrite is kept and named; branches stacked on a pruned one are re-aimed at what it sat on. `--dry-run` (`-n`) plans and writes nothing.
-- `fufu.pruneGone`: when true, `ff pull` prunes the same branches inside its run, riding its one operation. `false` today; the default flips in a later release.
-- Bare `ff branch` says how many branches' shared copies are gone, with `ff branch --prune` as the way out; `ff doctor`'s `tracking` row names it too.
+- The fetch lane and `fufu.autoFetch`: every verb that reads the tracking refs fetches first, at most once per cadence (`10m` by default), under a three-second deadline and with every prompt off. `false` leaves fetching to `ff pull` and `--fetch`; `CI` set skips the lane. `ff doctor`'s `auto-fetch` row says when the refs were last refreshed.
+- `--fetch` and `--no-fetch` on every verb; `--fetch` on a verb that reads nothing from the remote is `fetch/not-here`.
+- `ff branch --prune`: one operation deleting every local branch whose shared copy is gone, keeping and naming any that holds commits its copy never held, is underfoot, is checked out elsewhere, or holds a rewrite; branches stacked on a pruned one are re-aimed. `--dry-run` (`-n`) plans and writes nothing. Bare `ff branch` and `ff doctor`'s `tracking` row count the branches it would take.
+- `fufu.pruneGone`: when true, `ff pull` prunes the same branches inside its run. `false` today; the default flips in a later release.
+- The seen record, `refs/fufu/seen/<branch>`: the tip of the shared copy a foreground verb last showed you, written by `ff push`, `ff pull`, `ff switch` onto a remote's branch, and `ff clone`. `ff push` and `ff branch -d --shared` lease against it and refuse before the wire — `push/unseen`, `branch/shared-moved`, `branch/shared-unseen` — when the tracking ref stands off it.
 
 ### Changed
 
-- `ff pull --no-fetch` is the global flag, with the same meaning.
-- Every fetch prunes the tracking refs of copies the remote no longer has, `ff pull`'s included.
-- `ff doctor` fetches on every run rather than on the cadence, so the remote floor it reports is the one standing now.
-- `ff branch -d` records the branch's pointer move to trash on the operation, so `ff undo` restores the branch's timeline pointer through the record, the way it does after `ff fold`.
 - `ff trim` is `ff op trim`, the family's delete. The old spelling still works and is not listed, and its envelope reads `op trim`.
+- `ff pull --no-fetch` is the global flag, with the same meaning.
+- Every fetch prunes the tracking refs of copies the remote no longer has, and `ff doctor` fetches on every run.
+- `ff undo` after `ff branch -d` restores the branch's timeline pointer, the way it does after `ff fold`.
 
 ### Fixed
 
-- `ff push` and `ff branch -d --shared` leased against the tracking ref, so any fetch behind fufu's back — an editor's, `ff git fetch`, `ff pull --dry-run` — refreshed the lease to a tip never looked at, and a force-with-lease could take a teammate's push off the shared copy. Both now lease against the seen record and refuse before the wire when the tracking ref has moved off it.
+- `ff push` and `ff branch -d --shared` leased against the tracking ref, so a fetch behind fufu's back — an editor's, `ff git fetch`, `ff pull --dry-run` — could move the lease to a tip never looked at and let a force-with-lease take a teammate's push off the shared copy.
 
 ### Known issues
 
-- A repository from an earlier fufu has no seen records. The first push of each branch that only adds commits to its shared copy writes one silently; a branch whose copy holds commits not yet looked at is refused with `push/unseen` once, and `ff pull` records the tip.
+- A repository from an earlier fufu has no seen records. The first push of a branch that only adds commits writes one silently; one whose copy holds commits not yet looked at is refused with `push/unseen` once, and `ff pull` records the tip.
 
 ## v0.15.0 — 2026-09-12
 
