@@ -1,7 +1,8 @@
-//! `ff status` pins the standing work on the branch underfoot: a held
-//! rewrite, and the resolution open on it. Status reports — it never adopts
-//! the verb's exit code, and a lookup that cannot run is a missing line,
-//! never a failed status.
+//! `ff status`: the human header and its rows, the JSON shape and its
+//! stable keys, foreign motion, and the standing work it pins on the branch
+//! underfoot — a held rewrite, and the resolution open on it. Status
+//! reports — it never adopts the verb's exit code, and a lookup that cannot
+//! run is a missing line, never a failed status.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -554,4 +555,335 @@ fn status_json_carries_the_last_operation_and_its_session() {
         "the foreign block agrees: {}",
         data["foreign"]
     );
+}
+
+#[test]
+fn status_json_shape() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "untracked\n");
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.ends_with('\n') && !text[..text.len() - 1].contains('\n'),
+        "one line + one newline"
+    );
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let d = &v["data"];
+    assert_eq!(d["head"]["state"], "branch");
+    assert_eq!(d["head"]["name"], "main");
+    assert_eq!(d["head"]["ref"], "refs/heads/main");
+    assert_eq!(d["operation"], serde_json::Value::Null);
+    assert_eq!(d["upstream"], serde_json::Value::Null);
+    // Old keys are gone
+    assert_eq!(d["staged"], serde_json::Value::Null);
+    assert_eq!(d["unstaged"], serde_json::Value::Null);
+    assert_eq!(d["untracked"], serde_json::Value::Null);
+    // New shape: changes array with modified + added (untracked = ordinary addition)
+    assert!(d["changes"].is_array(), "changes is array");
+    let changes = d["changes"].as_array().unwrap();
+    assert!(changes.len() >= 2, "at least modified and added entries");
+    let kinds: std::collections::HashSet<_> = changes
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap())
+        .collect();
+    assert!(kinds.contains("modified"), "modified entry present");
+    assert!(kinds.contains("added"), "added entry present");
+    assert_eq!(d["conflicts"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn status_json_is_stable_bytes() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let a = ff(&fx, &["status", "--json"]);
+    let b = ff(&fx, &["status", "--json"]);
+    assert_eq!(a.stdout, b.stdout, "identical bytes run to run");
+}
+
+#[test]
+fn status_human_header() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.starts_with("on main\n"), "header: {text:?}");
+    assert!(
+        text.contains("no changes"),
+        "clean tree shows no changes: {text:?}"
+    );
+}
+
+#[test]
+fn status_human_unborn() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.starts_with("on main (no commits yet)"));
+    // No commit row (●) when unborn
+    assert!(!text.contains("●"), "no parent row when unborn: {text:?}");
+}
+
+#[test]
+fn status_human_shows_stat_rows() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\nworld\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    fx.write("new.txt", "untracked content\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("a.txt"), "modified file visible: {text:?}");
+    assert!(text.contains("new.txt"), "untracked file visible: {text:?}");
+    assert!(text.contains("+"), "insertion count present: {text:?}");
+    assert!(text.contains("2 files"), "summary row: {text:?}");
+}
+
+#[test]
+fn status_human_has_no_staging_words() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(!text.contains("staged"), "no 'staged': {text:?}");
+    assert!(!text.contains("unstaged"), "no 'unstaged': {text:?}");
+    assert!(!text.contains("untracked"), "no 'untracked': {text:?}");
+}
+
+#[test]
+fn status_human_parent_row() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "one\n");
+    fx.commit("first");
+    fx.write("a.txt", "two\n");
+    fx.commit("second");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.contains("●"), "parent row bullet present: {text:?}");
+    assert!(text.contains("second"), "parent subject visible: {text:?}");
+}
+
+#[test]
+fn status_json_parent_null_when_unborn() {
+    let fx = Fixture::new();
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["data"]["parent"], serde_json::Value::Null);
+}
+
+#[test]
+fn status_json_reports_foreign_motion() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    // Bootstrap the journal so reconcile has a baseline
+    let _ = ff(&fx, &["status"]);
+    // Move HEAD with raw git so reconcile detects foreign motion
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    // First ff status after the amend: reconcile absorbs AND reports the foreign change
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let foreign = &v["data"]["foreign"];
+    assert!(foreign.is_array(), "foreign is array: {foreign}");
+    assert!(
+        !foreign.as_array().unwrap().is_empty(),
+        "foreign is non-empty"
+    );
+    let first = &foreign[0];
+    assert!(first.get("ref").is_some(), "has ref key");
+    assert!(first.get("old").is_some(), "has old key");
+    assert!(first.get("new").is_some(), "has new key");
+}
+
+#[test]
+fn status_human_reports_one_foreign_change_on_one_line() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains("made outside fufu"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one summary line: {text:?}");
+    assert!(
+        lines[0].starts_with("1 change "),
+        "singular count: {text:?}"
+    );
+    assert!(
+        lines[0].contains("refs/heads/"),
+        "the one ref is named: {text:?}"
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("  refs/")),
+        "no per-ref rows: {text:?}"
+    );
+}
+
+#[test]
+fn reconcile_preamble_is_one_line_carrying_the_ref_and_hint() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Foreign Motion");
+    fx.set_config("user.email", "foreign@motion.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["commit", "--amend", "--no-edit"]);
+    // The next mutating verb absorbs the amend and says so once, on stderr.
+    fx.write("b.txt", "b\n");
+    let out = ff(&fx, &["commit", "-m", "two"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    let lines: Vec<&str> = err
+        .lines()
+        .filter(|l| l.starts_with("ff: absorbed"))
+        .collect();
+    assert_eq!(lines.len(), 1, "one absorbed line: {err:?}");
+    assert!(
+        lines[0].starts_with("ff: absorbed 1 change made outside fufu: refs/heads/main moved to "),
+        "the ref and its motion: {err:?}"
+    );
+    assert!(
+        lines[0].ends_with("(commit (amend): one)"),
+        "git's reflog hint in parentheses: {err:?}"
+    );
+}
+
+#[test]
+fn several_foreign_changes_fold_to_counts_by_kind() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Foreign Motion");
+    fx.set_config("user.email", "foreign@motion.test");
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let _ = ff(&fx, &["status"]);
+    fx.git(&["branch", "a"]);
+    fx.git(&["branch", "b"]);
+    // Status pins the folded line while the log's tip is foreign.
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(
+        text.contains("2 changes made outside fufu, 2 created"),
+        "status folds to counts: {text:?}"
+    );
+    assert!(
+        !text.contains("refs/heads/a"),
+        "no ref names when folded: {text:?}"
+    );
+    // Status absorbed those two; two more, and the next mutating verb's
+    // preamble folds the same way.
+    fx.git(&["branch", "c"]);
+    fx.git(&["branch", "d"]);
+    fx.write("b.txt", "b\n");
+    let out = ff(&fx, &["commit", "-m", "two"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.lines()
+            .any(|l| l == "ff: absorbed 2 changes made outside fufu: 2 created"),
+        "preamble folds to counts: {err:?}"
+    );
+}
+
+#[test]
+fn status_json_foreign_is_null_when_clean() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(v["data"]["foreign"], serde_json::Value::Null);
+}
+
+#[test]
+fn status_json_keys_are_unchanged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("b.txt", "modified\n");
+    let out = ff(&fx, &["status", "--json"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    let v: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    let d = &v["data"];
+    // Every pre-existing key must be present (non-null for non-optional fields)
+    for key in [
+        "head",
+        "changes",
+        "insertions",
+        "deletions",
+        "open",
+        "conflicts",
+    ] {
+        assert!(!d[key].is_null(), "key {} is non-null", key);
+    }
+    // Optional keys exist (may be null)
+    for key in ["operation", "upstream", "parent", "foreign"] {
+        assert!(d.get(key).is_some(), "key {} exists", key);
+    }
+    // open sub-keys
+    let open = &d["open"];
+    for key in ["id", "change_id", "pending", "subject", "clean"] {
+        assert!(open.get(key).is_some(), "open.{} exists", key);
+    }
+}
+
+#[test]
+fn status_human_output_is_unchanged() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "hello\n");
+    fx.commit("initial");
+    fx.write("a.txt", "changed\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    // Two-row shape: header + open change row (plus diffstat)
+    assert!(text.starts_with("on main\n"), "header line: {text:?}");
+    // Diffstat line for the modified file
+    assert!(
+        text.contains("a.txt"),
+        "modified file in diffstat: {text:?}"
+    );
+    assert!(text.contains("1 file"), "summary row: {text:?}");
+}
+
+#[test]
+fn status_and_log_capture_first() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.write("a.txt", "dirty\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success());
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: ff status");
+
+    fx.write("a.txt", "more dirt\n");
+    let out = ff(&fx, &["log"]);
+    assert!(out.status.success());
+    let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
+    assert_eq!(subject.trim(), "pre: ff log");
 }
