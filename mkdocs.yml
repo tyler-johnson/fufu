@@ -55,13 +55,12 @@ nav:
       - Tutorial: tutorial.md
       - Adopting fufu: adopting.md
   - Concepts:
-      - The invariant: concepts/invariant.md
-      - The two regimes: concepts/two-regimes.md
-      - Changes: concepts/changes.md
+      - Working copy and commits: concepts/changes.md
+      - Branches and parked work: concepts/branches.md
       - Snapshots and undo: concepts/snapshots-and-undo.md
-      - Branches: concepts/branches.md
-      - Held rewrites: concepts/held-rewrites.md
-      - The push boundary: concepts/push-boundary.md
+      - Pulling and pushing: concepts/push-boundary.md
+      - Conflicts and held rewrites: concepts/held-rewrites.md
+      - Using fufu alongside Git: concepts/two-regimes.md
       - Glossary: concepts/glossary.md
   - Guides:
       - Recovery: guides/recovery.md
@@ -96,6 +95,7 @@ nav:
       - Related work: comparisons/related-work.md
       - Performance: performance.md
   - Internals:
+      - Git storage model: concepts/invariant.md
       - Architecture: internals/architecture.md
       - Substrate: internals/substrate.md
       - Design document: internals/design.md

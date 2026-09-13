@@ -1,68 +1,64 @@
-# Changes
+# Working copy and commits
 
-**The working copy is the change.**
+<a id="changes"></a>
 
-There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working copy are the change, from the first keystroke. fufu keeps that change as a commit for you, under `refs/fufu/open/<branch>`, rewritten as you work — the sha on the `@` row — and closing moves the branch to it.
+**The working copy is the change.** Edit your files, then [`ff commit`](../reference/cli/commit.md) records the work in branch history. There is no staging step: the command takes the current files, or just the paths you name.
 
-fufu saves them through [captures](snapshots-and-undo.md) — snapshots taken by repository commands and active hooks. Every verb that talks about work in progress is talking about this one thing.
+[`ff switch`](../reference/cli/switch.md) sets uncommitted work aside with the branch you leave and restores the work on the branch you select. You can move to another task without making a temporary commit yourself.
 
-A change is in exactly one of three states:
+A change has three states:
 
-- **Open** — the working copy, being edited right now. Every worktree has exactly one open change. When the tree matches the commit beneath it, the open change is empty, not absent.
-- **Parked** — set aside with a branch when you switched away. A parked change is the open change that branch had, held as you left it as the branch's open commit, and it becomes the open change again when you switch back.
-- **Closed** — a commit. Closing is how a change enters history, and [`ff commit`](../reference/cli/commit.md) is the verb that does it.
+- **Open** — the files you are editing in the current worktree. An open change can be empty: its files match the commit beneath it.
+- **Parked** — uncommitted work set aside with a branch when you switch away. Switching back resumes it, including its pending commit message.
+- **Closed** — work recorded in branch history by `ff commit`. This is what fufu means by *closing* a change.
 
-The verbs move a change between these states and do nothing else. `ff commit` closes, [`ff switch`](../reference/cli/switch.md) parks one change and reopens another, [`ff start`](../reference/cli/switch.md) opens a fresh one. The rest of this page walks each transition.
+[Snapshots](snapshots-and-undo.md) save intermediate file states for recovery. They do not add commits to your branch history.
 
 ## Closing is the commit
 
-`ff commit` closes the open change into a commit. There is no `add` first, because there is nothing to add to — the tree is already the change, and already a commit: the close moves the branch onto the open commit, so the sha `ff log` showed on the `@` row is the sha the `●` row wears afterward. `-m` describes what is closing; a message that differs from the pending description, a partial close, a hook that changes the tree or the message, or signing (the open commit is unsigned) each make the close mint a commit of its own, and it says so.
+`ff commit -m "fix parser options"` records the open change and leaves you with an empty open change ready for more edits. A clean working copy has nothing to commit; the command does not create an empty commit. [`ff undo`](../reference/cli/undo.md) can take the commit back, restoring the recorded local refs and files together.
 
-A clean tree has nothing to close, so `ff commit` on one does nothing rather than making an empty commit. Every close is a recorded operation, and [`ff undo`](../reference/cli/undo.md) takes it back — tree and refs together.
+<a id="closing-a-slice"></a>
 
-### Closing a slice
+### Partial commits
 
-Path arguments close a slice. `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open, still the change you are in the middle of. Paths follow the same rule [`ff restore`](../reference/cli/restore.md) and [`ff diff`](../reference/cli/diff.md) speak: a file, or a directory whose whole subtree lands, and no globs.
+To record only part of your work, give paths:
 
-The part left open keeps no description, since the one it had went out with the slice. `ff describe -m` gives the remainder its own.
+```sh
+ff commit src/parser.rs -m "fix parser options"
+```
 
-### No index to keep in sync
+This commits `src/parser.rs` and leaves the other edits open. A path can be a file or a directory, including its subtree; globs are not supported. The same path selection is available in [`ff restore`](../reference/cli/restore.md) and [`ff diff`](../reference/cli/diff.md).
 
-A slice is selection at the moment of the close, not a staging area. git's index is a real capability — a place to assemble a commit hunk by hunk — but it costs you a third state to keep in sync between commits.
-
-fufu trades the hunk-level assembly away and gets back having nothing to maintain. The selection is an argument to one command, path-level, made once, and nothing persists afterward. If `git add -p` is your daily habit, the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest) has the honest accounting and the escape hatch.
+The pending message goes with the part you commit. The remaining open change has no description until you give it one.
 
 ## Pending descriptions
 
-The open change carries a description before it closes. [`ff describe -m`](../reference/cli/describe.md) sets it inline; bare `ff describe` opens `$EDITOR` seeded with the current text. The description is the open commit's message from that moment, so describing moves the `@` row's sha and not its letters; when the change closes, `ff commit` lands it as the commit message, and `ff commit -m` wins over it.
+[`ff describe -m "fix parser options"`](../reference/cli/describe.md) sets the open change's pending commit message. Bare `ff describe` opens `$EDITOR` with the current message. You can describe the work before making any edits.
 
-So you can name work while you are doing it, when the intent is freshest, instead of reconstructing it at the end.
+The description stays with the change through edits and branch switches. `ff commit` uses it; `ff commit -m` supplies a replacement for that commit. After a partial commit, use `ff describe -m` to describe the remaining work.
 
-The description belongs to the change rather than to the moment of committing. It shows in the `@` row, it parks and resumes with the change on `ff switch`, and it waits through however many edits come before the close.
+### No index to keep in sync
 
-Describing rewrites an internal Git commit object without adding a commit to branch history. Describing a clean tree is legal — the text simply waits for the next close.
+fufu commits working-copy content without using Git's index as a selection step. Path arguments select files when you commit; they do not leave a staged selection behind. Hunk-level selection is not available through `ff commit`. See the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest) for that tradeoff and the Git commands available when you need it.
 
-## A change has an identity
+<a id="parking-travels-with-the-branch-forks-open-clean"></a>
 
-The open change carries a change id from the first capture or describe: sixteen random bytes, spelled in the letters k–z, minted once and written into the commit as a `change-id` header when the change closes. It is the letters column beside the `@` row and, after the close, beside the commit, so the same letters follow the change from one row to the other. A reword, a restack, or an absorb rewrites the commit and keeps the header, which is what makes the id an identity rather than a name for one sha. A commit fufu did not make has no header and derives an id from its sha, the same in every clone, so the column is never blank. jj writes and reads the same header, so a colocated jj sees fufu's ids.
+## Parking and resuming
 
-## Parking travels with the branch; forks open clean
+On `ff switch`, the open change stays with the branch you leave. The destination's parked change becomes your working copy, with the same edits and description. Both sides of the switch are reported.
 
-`ff switch` moves between branches without a stash dance. Whatever is open is parked with the branch you are leaving. Whatever was parked where you are going becomes the open change again — same files, same edits, same pending description.
-
-Both halves are reported, so you always know where your work went and what came back. Underneath, a parked change is the branch's open commit — the sha the `@` row showed, at `refs/fufu/open/<branch>` — and `git log --all` shows it one above the branch. Nothing goes to the stash list. If the branch's tip moved while the change was parked, arrival replays the one commit onto the new tip with the same change id; a replay that conflicts holds the branch, and [`ff resolve`](../reference/cli/resolve.md) lays the change into the working copy with markers. The index is not carried: a staged hunk comes back as an unstaged edit. That is [the invariant](invariant.md) at work; [branches](branches.md) covers the mechanics.
+If the destination's branch tip has moved, fufu replays its parked change onto the new tip. A conflict completes the branch switch but leaves the parked work held for [resolution](held-rewrites.md#parked-change-arrival). Git's staged selection does not travel with parked work: staged hunks return as unstaged edits.
 
 ### Forks open clean
 
-`ff start` is `ff switch` with no branch to find: it mints a fresh one — from trunk, your main line of development, unless you name a revision — and the change it opens there is clean and empty.
+[`ff start`](../reference/cli/switch.md) with no target creates a branch from trunk, the repository's main development branch, and opens an empty change there. `ff start -b hotfix` gives the new branch a name. An existing branch target resumes that branch; use `ff start main -b hotfix` to create a new branch from it.
 
-Nothing crosses a fork but one thing: `ff start @` forks at the commit under the open change and carries a copy of it, the same sha on both branches, while the branch you left keeps its own. Every other target parks the open change where it was, on the branch it belongs to, and the new line of work begins from a commit alone. If the fork itself is the idea, and you thought of the next task mid-edit, `ff start -m "the next thing"` opens the new change already described. `ff start` never creates a commit.
-
-The verbs divide the ground cleanly: `ff commit` records, `ff switch` continues or begins, and `ff start` is its spelling for beginning.
+`ff start @` is the special case for carrying work to a new branch: it creates the branch at the commit beneath the open change and copies that change, including its description. The original branch keeps its own copy. Other new-branch targets leave the work parked on the original branch. See [branches and parked work](branches.md) for naming and base selection.
 
 ## The `@` row
 
-Everywhere fufu draws the graph, the open change is the row marked `@`, sitting atop the commit walk of `●` rows. One notation, three views:
+[`ff status`](../reference/cli/status.md) shows the open change as the `@` row above the branch's committed history, marked with `●`:
 
 ```console
 $ ff status
@@ -76,8 +72,18 @@ on ff/hidden-wren · nothing to pull
 │  release: cut v0.1.0
 ```
 
-Bare `ff` — the map — shows the `@` row where you stand, and marks other branches holding a parked change. [`ff status`](../reference/cli/status.md) reads the `@` row as a diffstat: the files that differ from the commit beneath it.
+The letters identify the change; the hexadecimal value identifies its current Git commit object. The file summary compares the open change with the commit beneath it. `no changes` means those files match, even if the open change has a pending description.
 
-[`ff log`](../reference/cli/log.md) puts `@` atop the walk. With `-r` the row appears only when the open change belongs to the range you asked for, and with paths only when the change touches them. Those are questions about a set of commits, not about you.
+Bare `ff` shows the current open change and marks branches with parked work. [`ff log`](../reference/cli/log.md) also shows `@`; revision or path filters include it only if it matches the requested selection.
 
-The `@` row always exists. `no changes` means the tree matches the commit beneath it, so the open change is empty rather than gone. The pending description prints under the row, so a change you have named but not closed already reads the way its commit will.
+## Internal storage and branch history
+
+fufu stores the open change as a Git commit object under `refs/fufu/open/<branch>`, updating it as snapshots or descriptions change. A parked change is that same kind of object, kept under its branch's name. `git log --all` can show these objects even though they have not been committed to branch history.
+
+Describing work changes this internal object's message and hash. It does not advance the branch. Committing advances the branch, sometimes directly to that object. A different message, a partial commit, signing, or a hook that changes content or the message can require a different object. The hash shown on `@` therefore need not be the hash of the final commit.
+
+## A change has an identity
+
+A **change ID** follows work through fufu rewrites even when its commit hash changes. fufu assigns the open change an ID at its first snapshot or description; the same ID follows it into branch history. Rewording, restacking, and absorbing edits preserve the IDs of surviving changes.
+
+Change IDs use the letters k–z. fufu stores the full ID, representing sixteen random bytes, in a `change-id` commit header that jj also understands. A commit without that header gets an ID derived from its hash, so rewriting it outside fufu can change that derived identity. The [Git compatibility page](two-regimes.md#lazy-absorption) explains what fufu can observe after outside changes.

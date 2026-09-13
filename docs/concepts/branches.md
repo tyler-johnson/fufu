@@ -1,115 +1,116 @@
-# Branches
+# Branches and parked work
 
-**Every line of work is an ordinary git branch, and no work waits for a name.**
+<a id="branches"></a>
 
-[`ff start`](../reference/cli/switch.md) begins every new line of work on a fresh branch. It is a spelling of `ff switch`, and the rule under both is one sentence: find the branch, else mint it. Bare, it forks from trunk — your main line of development. Give it a revision and it forks there instead; give it a branch and it continues that branch, unless `-b` says to fork it.
+Use a branch for each task. [`ff start`](../reference/cli/switch.md) creates one from trunk, the repository's main development branch. [`ff switch`](../reference/cli/switch.md) returns to an existing branch. Both commands park your [open change](changes.md) on the branch you leave and restore any work waiting at the destination.
 
-The [open change](changes.md) — the edits sitting in your working copy — parks with the branch you are leaving, and the new branch opens clean; only `ff start @` carries a copy of it across, and the branch you left keeps its own. The verbs divide the ground the same way everywhere: [`ff commit`](../reference/cli/commit.md) records, `ff switch` resumes, `ff start` begins.
+## Creating and switching
 
-## Minted names
+```sh
+ff start -b parser-fix
+# Edit files for this task.
+ff switch main
+ff switch parser-fix
+```
 
-You do not name a branch at `ff start` unless you want to. Every start mints an **anonymous branch**: a real branch with a generated petname under a reserved prefix, like `ff/hidden-wren`.
+The last command brings your parser edits back. You do not need to commit them just to switch tasks.
 
-It is a genuine ref under `refs/heads/` from the moment it exists. Every GUI shows it, every git command addresses it, and no push refspec matches it by accident.
+`ff start` and `ff switch` are spellings of the same command. With no target they create a branch from trunk. An existing branch target resumes it; a revision target creates a branch at that commit. To create a new branch from an existing one, use `ff start main -b parser-fix`.
 
-That is [the invariant](invariant.md) applied to naming. fufu does not hold work in an unnamed limbo of its own. It puts the work on a branch git already understands and defers only the christening.
-
-The ordering matches how work actually goes. You start a spike before you know whether it is a refactor, a fix, or a dead end, and the name comes when the work has earned one. If you do know at the outset, `ff start -b hotfix` names the branch on the spot.
-
-## Claiming a name
-
-[`ff describe -b <name>`](../reference/cli/describe.md) names the branch you are on. Naming lives on `describe` because that verb's job is saying what work is: `-m` sets the change's description, `-b` sets the branch's name. Claiming a petname is the same act as replacing a name you chose earlier, so there is no separate rename command to learn.
-
-The rename carries everything fufu associates with the branch — the chain of [snapshots](snapshots-and-undo.md) taken before each action, any parked change, and the pending description.
-
-This is the part a bare `git branch -m` would orphan. git renames the ref, but the open commit's ref under the old name, and fufu's records keyed to it, would be left pointing at a branch that no longer exists. Going through the fufu verb keeps the whole bundle attached. That is [the two regimes](two-regimes.md) in miniature.
-
-Claiming a name is also the natural "this is real now" gesture. An anonymous branch is fine to work on indefinitely, but once work heads for a remote, a real name is what marks it as something the rest of the world will see.
-
-## Every commit lands on a branch
-
-HEAD never detaches under fufu. Every commit lands on some branch, and the branch tip advances as commits land, because that is git's own behavior once HEAD is attached.
-
-fufu does not so much move branches itself as keep you in the state where git moves them for you. Even operations that in raw git would detach HEAD, like editing a commit deep in history, instead mint an anonymous branch at the target and switch to it.
-
-This is [the invariant](invariant.md) at work. A detached HEAD is a state plain-git tooling handles badly and teammates read with alarm. By never entering it, fufu keeps the repository legible at every instant.
-
-Contrast jj's bookmarks, which sit still until told to move. fufu's branches behave exactly as git branches because they are git branches, with nothing projected or simulated.
-
-## Listing and deleting
-
-[`ff branch`](../reference/cli/branch.md) lists, and `ff branch <name>` creates one where you are not: it shows named branches first, then the anonymous ones. They are kept apart so a petname never reads as something you chose.
-
-Each row carries the branch's tip and the subject there, plus what is hanging off it:
-
-- a parked change — the edits set aside when you switched away
-- a pending description
-- how the branch stands against its shared copy on the remote
-
-Below your own branches come the ones a remote holds and you do not. You can switch to those directly: `ff switch spike`, or `ff switch origin/spike`, mints the local branch under that name, tracking the remote's, which is what `git switch spike` has always meant. `-b` forks one into a branch of your own instead.
-
-`ff branch -d` removes a branch with no merged-check to argue with, because it does not need one. The branch's pointer moves to trash rather than evaporating, its open change stays pinned as a commit that timeline names, and the tip stays pinned by the operation. [`ff undo`](../reference/cli/undo.md) brings the branch and its timeline back.
-
-A published branch has a second half — the copy on the remote — which a plain delete leaves standing, and says so. `--shared` removes that copy too, under a lease: the removal goes through only if the remote copy still stands where you last saw it. The remote half is the one thing undo cannot reach, which is why removing it takes an explicit flag.
-
-The other direction is the forge deleting the copy when a pull request merges, which leaves the local branch behind. `ff branch --prune` deletes every local branch whose shared copy is gone in one operation — gone meaning an upstream configured, its tracking ref absent, and a record that the copy once stood — keeping and naming any branch that holds commits the copy never held, and re-aiming what was stacked on a pruned branch at what it sat on. One undo brings them all back. `fufu.pruneGone` lets [`ff pull`](../reference/cli/pull.md) do the same inside its run.
+A new branch normally opens with no uncommitted work. `ff start @ -b experiment` instead copies the current open change onto a new branch at the commit beneath it. The original branch keeps its own copy. `ff start -m "investigate parser options"` gives new work a pending commit message when you begin.
 
 ## Switching by prefix
 
-[`ff switch`](../reference/cli/switch.md) takes a branch name or any unique prefix of one. `ff switch uni` reaches `unicode-cleanup` if nothing else starts that way, and an ambiguous prefix is an error listing the candidates rather than a guess.
+A unique branch-name prefix is enough: `ff switch uni` selects `unicode-cleanup` if nothing else matches. An ambiguous prefix is refused with the candidate names.
 
-What happens to the open change on either side of the move — parked here, resumed there — is the change lifecycle, covered in [changes](changes.md).
+You can also switch to a branch that exists only on a remote. `ff switch spike` or `ff switch origin/spike` creates a local `spike` that tracks `origin/spike`. Adding `-b my-spike` creates a separate branch based on that target instead.
+
+<a id="minted-names"></a>
+
+## Automatically named branches
+
+If you omit `-b`, a new branch gets a generated name such as `ff/hidden-wren`. It is already an ordinary Git branch under `refs/heads/`, visible to Git commands and GUIs. Work is not genuinely unnamed or waiting outside the branch system. Some command output calls these branches *anonymous* or their generated names *petnames*.
+
+You can keep the generated name while you work and choose a descriptive name when you are ready. `ff start -b hotfix` chooses it at creation time.
+
+<a id="claiming-a-name"></a>
+
+## Renaming a branch
+
+[`ff describe -b parser-fix`](../reference/cli/describe.md) renames the current branch, whether its previous name was generated or chosen. `-b` changes the branch name; `-m` changes the open change's pending commit message.
+
+The fufu rename carries its branch-associated records and open-change ref to the new name. A raw `git branch -m` renames Git's branch but does not perform that metadata update. Use the fufu command to keep parked work and its description associated with the renamed branch.
+
+## Every commit lands on a branch
+
+[`ff commit`](../reference/cli/commit.md) records work on the current branch and advances its tip. Selecting an old revision through `ff switch` creates a branch there rather than detaching HEAD. Editing a historical commit also uses a temporary branch. These are ordinary Git branches; see [using fufu alongside Git](two-regimes.md) for how other tools see them.
+
+## Listing and deleting
+
+[`ff branch`](../reference/cli/branch.md) lists chosen names first, then generated names. It shows branch tips, parked work, pending descriptions, and the relation to remote copies. `ff branch parser-fix` creates a branch at trunk without switching to it; an additional revision chooses a different starting point.
+
+`ff branch -d parser-fix` deletes a local branch without requiring it to be merged. Its tip and parked work remain recoverable from the recorded operation while retained; [`ff undo`](../reference/cli/undo.md) restores the deletion. Deleting a local branch leaves its remote copy in place.
+
+`ff branch -d parser-fix --shared` also deletes the remote copy under a [lease](push-boundary.md#push-carries-a-lease). Undo cannot restore that remote deletion.
+
+## Base branch and remote copy
+
+A branch can have two separate relationships. Its **base branch** is the line of development its commits build on. Its **remote copy** is the published version of the same branch. For example:
+
+```text
+Local branches                  Remote copies on origin
+
+main                            origin/main
+  └── parser-fix                origin/parser-fix
+        └── parser-tests        origin/parser-tests
+
+parser-fix is based on main.
+parser-tests is based on parser-fix.
+origin/parser-fix is the remote copy of parser-fix.
+```
+
+Trunk is the default base. fufu uses `fufu.trunk` when configured, otherwise repository heuristics; ambiguous choices are reported for you to resolve.
 
 ## Stacking: a branch records its parent
 
-`ff start <branch> -b <name>` forks from another branch's tip and records that branch as the new one's **base**. A bare `ff start` forks from trunk and records nothing, so its base is trunk wherever trunk goes. A branch created outside fufu gets the same record when the repository can say where it was cut: its tip is exactly one other non-trunk branch's tip, or git's reflog names the branch it was created from. Anything less certain leaves it on trunk, and `ff restack --onto` is the correction. The git spelling of the same intent, `git checkout -b <name> --track <other>`, is read the same way: an upstream wearing another branch's name is the base the branch was cut from, not a shared copy of it, and the first [`ff push`](../reference/cli/push.md) records it as the parent when it sets tracking to the copy it creates.
+`ff start parser-fix -b parser-tests` creates a branch at `parser-fix`'s tip and records `parser-fix` as its base. A bare `ff start` starts from trunk without an explicit base record, so it follows the repository's trunk setting.
 
-That record is what "base" means everywhere fufu says the word: the base axis on [`ff status`](../reference/cli/status.md), the standing `ff branch` reports, and the replay every rewrite performs. [`ff restack --onto`](../reference/cli/restack.md) is the one way to change it.
+[`ff restack`](../reference/cli/restack.md) replays a branch's commits onto its base's current tip. `ff restack --onto main` changes the base to `main` and replays the work there. [Stacked changes](../guides/stacked-changes.md) walks through a stack in review.
+
+### Parent inference for branches made with Git
+
+For a branch created outside fufu, fufu can infer a base when its tip matches exactly one other non-trunk branch, or Git's reflog identifies the branch it was created from. Otherwise the base defaults to trunk; `ff restack --onto` supplies a correction.
+
+An upstream with a different branch name, such as `origin/main` for local `parser-fix`, is treated as a base rather than as the remote copy of `parser-fix`. The first [`ff push`](../reference/cli/push.md) records that base when it creates the same-named remote copy and sets tracking.
 
 ### The cascade
 
-When a branch's tip moves, the branches stacked on it follow. Seven verbs move a tip and set that cascade going:
+Rewriting a branch can also replay the local branches based on it. This is a **cascade**: parents update before children, inside the original command's operation, so one undo takes back the rewrite and its cascade together.
 
-- [`ff restack`](../reference/cli/restack.md)
-- [`ff fold`](../reference/cli/fold.md)
-- [`ff pull`](../reference/cli/pull.md)
-- [`ff absorb`](../reference/cli/absorb.md)
-- [`ff lift`](../reference/cli/lift.md)
-- [`ff describe <rev>`](../reference/cli/describe.md)
-- [`ff done`](../reference/cli/done.md)
+The commands that run cascades are `ff restack`, [`ff fold`](../reference/cli/fold.md), [`ff pull`](../reference/cli/pull.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), `ff describe <rev>`, and [`ff done`](../reference/cli/done.md).
 
-Each replays every local branch whose base is the branch it moved, parent before child, through the whole tree. It happens inside the verb's own operation, so one `ff undo` takes the rewrite and the cascade back together.
+A conflicting replay leaves that branch [held](held-rewrites.md) at its existing tip. Branches above it stay put; successful updates elsewhere in the cascade can stand. Resolving that branch and finishing with `ff done` resumes the cascade from there.
 
-Each replay is performed, not predicted. A branch whose replay conflicts is [held](held-rewrites.md) where it stands, and the branches above it stay put because their base did not move. [`ff resolve`](../reference/cli/resolve.md) on that branch, then `ff done`, resumes the cascade from there.
+Branches checked out in another worktree, already holding a rewrite, or containing merge commits in their own work are skipped and named. A branch with no commits of its own stays put. Read the report for what updated, held, or was skipped; [conflict reporting](held-rewrites.md#deferred-requires-loud) explains the exit-code distinctions.
 
-Three kinds of branch are skipped rather than replayed, and the verb names each one:
+<a id="pull-reaches-a-branch-and-what-it-answers-to"></a>
 
-- a branch checked out in another worktree, since only that worktree may move its HEAD
-- one already holding a rewrite
-- one whose commits hold a merge
+## Updating branches
 
-A branch with no commits of its own stays put.
+`ff pull` updates the current branch against both its base and remote copy, bringing local bases up to date first. `ff pull parser-fix parser-tests` selects branches by name; `ff pull --all` updates all local branches in base-first order. Only the current branch's working copy changes; the other updates move refs and create commit objects.
 
-The verb says what followed, what held, and what was skipped. `ff restack`, `ff fold`, and `ff pull` exit 3 when any branch held, because the question they answer is whether the stack is lined up. The rewriting verbs exit 0, because the rewrite they were asked for landed, and `ff status` shows the hold.
+[Pulling and pushing](push-boundary.md) explains fetch behavior, dry-run effects, leases, and rollback.
 
-[Stacked changes](../guides/stacked-changes.md) walks a stack through review.
+<a id="tracking-one-branch-one-shared-copy"></a>
 
-## Pull reaches a branch and what it answers to
+## Tracking: one branch, one remote copy
 
-`ff pull` fetches once and brings the branch you stand on up to date with both things it answers to: the shared copy of itself, and the base beneath it. The base comes first, brought level with its own shared copy, and so does every local base beneath that down to trunk, so a teammate's commit on `main` reaches your branch through `main`. `ff pull <branch>...` does the same for the branches named, from wherever you stand, and `ff pull --all` is every local branch, parent before child, where a trunk that moved carries every branch started from it in one run. `ff pull --dry-run` says what any of these runs would do, fetch included, and writes none of it.
+fufu tracks one remote copy per branch. With a single remote, or one named `origin`, the first push creates the copy and sets tracking. With several remotes, `ff push --to upstream` selects one and remembers it. It is refused if the branch already tracks a copy on a different remote.
 
-Standing on a branch changes nothing about how it is treated. It only decides whether a working copy moves — the branches you are not on move as refs and objects and touch no file.
+A remote-tracking ref such as `origin/parser-fix` is your local record of the remote branch's last fetched position. Automatic fetching refreshes these refs on `fufu.autoFetch`'s cadence, ten minutes by default, without replaying local branches. `--fetch` requests a fetch now and `--no-fetch` skips it; `ff pull` performs the local updates.
 
-The whole run is one operation and one `ff undo`. [The push boundary](push-boundary.md) covers what pull takes in and what push sends.
+## Pruning deleted remote branches
 
-## Tracking: one branch, one shared copy
+After a forge deletes a merged branch's remote copy, `ff branch --prune` fetches and can remove its local branch. It looks for configured upstreams whose tracking refs are gone and whose remote copies were previously recorded. It keeps and reports branches with commits the remote copy never held, the current branch, branches checked out in other worktrees, and held branches. Children of a pruned branch are redirected to that branch's base.
 
-A branch answers to at most one remote, and its shared copy there is the only one. fufu does not model a branch published to two places, because the guarantees around pushing — the lease, rollback, knowing which commits out there are yours — all assume a single shared copy to reason about.
-
-Most repositories never face the question. With a single remote, or one named `origin`, the first [`ff push`](../reference/cli/push.md) creates the shared copy and sets up tracking in the same step.
-
-The tracking refs — what `ff status` counts against, what `ff branch` lists as the remote's, what `ff switch` minds from — are kept fresh on a cadence: at most once per `fufu.autoFetch` (ten minutes by default), a fetch rides an ff command before the verb runs, and it prunes the copies the remote no longer has. `--fetch` on any verb runs it now, `--no-fetch` skips it, and `ff pull` is still the verb that moves your branches.
-
-With several remotes, `ff push --to <remote>` names where this branch answers and records the answer, so every later `ff push`, `ff pull`, and `ff status` needs no flag. Asking `--to` for a branch that already answers somewhere else is refused: the answer is a fact about the branch, given once.
-
-What pushing actually promises, and the lease that guards it, is [the push boundary](push-boundary.md).
+The local deletions form one undoable operation. `--dry-run` previews them but still fetches; `--no-fetch` uses existing tracking refs. Maintenance can still run. `fufu.pruneGone` enables this pruning within `ff pull`; see [configuration](../reference/config.md) for the setting.

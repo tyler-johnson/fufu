@@ -1,73 +1,81 @@
-# The push boundary
+# Pulling and pushing
 
-**`ff pull` updates local branches; `ff push` updates remote branches. Undo can restore recorded local changes, but cannot reach a remote push.**
+<a id="the-push-boundary"></a>
 
-Local branch and file changes are recorded on the current worktree's [operation log](snapshots-and-undo.md). Fetches and ambient maintenance have their own effects outside that undo step.
+[`ff pull`](../reference/cli/pull.md) updates local branches from their bases and remote copies. [`ff push`](../reference/cli/push.md) sends selected branches to the remote. Pulling can change your working copy; pushing changes what other people can fetch.
 
-A push updates the remote branch. Other clones can fetch it, CI can run, and webhooks can fire — no operation log on your machine reaches those effects.
+Suppose local `parser-fix` is based on `main` and has a remote copy at `origin/parser-fix`. These are separate relationships: `main` supplies the base for the work, while `origin/parser-fix` is the published version of that work. The [branch diagram](branches.md#base-branch-and-remote-copy) shows a larger example.
 
-The outgoing half is a verb you type on purpose, and it never rides along as a default inside anything else; it has no `--all`, so every branch that leaves the machine is one you named or one you stand on.
+<a id="pull-is-the-incoming-half"></a>
 
-## Pull is the incoming half
+## Pulling local updates
 
-[`ff pull`](../reference/cli/pull.md) brings a branch up to date with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. Bare, that is the branch you stand on; names take others, and `--all` every local branch. [Tracking](branches.md#tracking-one-branch-one-shared-copy) means there is exactly one shared copy to answer to.
+On `parser-fix`, bare `ff pull` fetches, updates local bases such as `main` from their remote copies, and brings `parser-fix` up to date with both its base and its own remote copy. Your commits replay on the updated history. Branches stacked above a moved branch can follow in the same run.
 
-It fetches once, then replays each branch's commits onto whatever moved, with the branches stacked above following.
+```sh
+ff pull                     # Update the current branch and its bases.
+ff pull parser-fix          # Select a branch from anywhere in the worktree.
+ff pull --all               # Update all local branches, bases first.
+```
 
-For the shared copy, pull asks two questions of each branch:
+Only the current branch's update changes the working copy. Updates to other branches move refs and create commit objects.
 
-- **Have you changed this branch since you last saw its shared copy?** If not, the branch simply follows the shared copy wherever it went.
-- **If you have, what does the shared copy hold beyond you?** New work is taken in, and your commits replay on top. Old versions of your own commits are left alone for [`ff push`](../reference/cli/push.md) to replace.
+For a remote copy, pull distinguishes two cases:
 
-fufu can tell those two apart because it recorded the rewrite, or the push you undid. Plain git cannot, which is the whole reason fufu keeps the record.
+- If you have not changed the local branch since fufu last recorded its remote position, the branch follows the remote copy, including a remote rewrite.
+- If you have changed it locally, pull takes in new remote work and replays your work on top. It uses recorded local rewrites and pushed tips to distinguish new work from older versions of your own commits that a later push can replace.
 
-The replay runs in memory and lands only when it is clean. A commit that conflicts holds the branch it belongs to: nothing moves there, no half-applied tree touches the repository, and the run goes on to the next branch. [`ff resolve`](../reference/cli/resolve.md) picks that [held rewrite](held-rewrites.md) up at a moment you choose.
+A conflicting replay leaves that branch [held](held-rewrites.md) at its existing tip, without putting a partially replayed tree in your working copy. Earlier successful updates can remain, and the run can update other branches. [`ff resolve`](../reference/cli/resolve.md) starts resolution when you are ready.
 
-Pull sends no branch updates to the remote. Its local branch and working-copy changes form one undoable operation; fetched objects and tracking-ref updates are separate. `ff pull --dry-run` still fetches, writes objects and remote-tracking refs, prunes deleted tracking refs, and fetches tags. It previews the replay without changing local branches or files. `--no-fetch` skips that fetch. Successful invocations can still run automatic trimming and update maintenance, including under `--dry-run --no-fetch`.
+## Fetching and dry runs
+
+Fetching writes downloaded objects and remote-tracking refs such as `origin/parser-fix`. These tracking refs are local observations of the remote; refreshing them alone does not replay your local branches. Foreground pull also fetches tags and prunes deleted tracking refs. Automatic fetch leaves tags to foreground pull.
+
+`ff pull --dry-run` still fetches and previews the local replay without changing local branches or working-copy files. `ff pull --dry-run --no-fetch` uses the existing tracking refs instead. Neither form sends branch updates to the remote. Automatic trimming and update maintenance can still run after a successful invocation, even with both flags.
+
+Pull's recorded local branch and file updates form one [undoable operation](snapshots-and-undo.md). Fetched objects, tracking-ref updates, tags, and ambient maintenance are separate from that undo step.
+
+<a id="four-pushes-one-verb"></a>
+
+## Choosing what to push
+
+Bare `ff push` sends the current branch. `ff push parser-fix parser-tests` sends only those branches, each to its own remote copy. Bases and children are not included automatically, and there is no `--all` option. No other fufu command pushes as a default side effect.
+
+| Remote copy | What push does |
+| --- | --- |
+| None yet | Creates it and sets tracking. |
+| Exists | Updates it to the selected local branch, subject to the checks below. |
+| Was deleted | Recreates it only if the remote ref is still absent. |
+| Contains work you undid locally | Can roll it back under the same lease and server-side rules. |
+
+With one remote, or one named `origin`, the first push selects it. `ff push --to upstream` selects a remote for a branch without a remote copy and records that choice. A branch already tracking a copy on another remote is refused; fufu models [one remote copy per branch](branches.md#tracking-one-branch-one-remote-copy).
+
+`ff push --dry-run` previews without sending a remote update or moving local branches and files. Push can auto-fetch before planning on `fufu.autoFetch`'s cadence; `--no-fetch` skips that fetch. Dry-run flags do not disable all network access or maintenance.
 
 ## Push carries a lease
 
-`ff push` sends the branch you stand on to its remote, or the branches you name, from wherever you stand. Each push carries a **lease**: the remote ref must match the expected tip when Git updates it. Replacing commits requires that fufu's recorded seen tip agree with the tracking ref. A fast-forward can proceed without that agreement because it removes no commits; creating or recreating a copy requires the remote ref to be absent. Among several, a refused lease is that branch's alone; the rest still go out, and the report says which.
+A **lease** means the remote ref must still match its expected value when the server updates it. For example, if a push plans to replace `origin/parser-fix` at commit A, but another person moves it to B first, that update is refused.
 
-If the lease or seen-record check refuses a branch, that branch is not sent. `ff pull` takes in the remote work before you retry.
+Replacing remote commits also requires fufu's **seen record** to agree with the remote-tracking tip. The seen record is the remote position fufu recorded through pull, [`ff switch`](../reference/cli/switch.md) onto a remote branch, [`ff clone`](../reference/cli/clone.md), or a successful push. A fetch by an editor, [`ff git fetch`](../reference/cli/git.md), automatic fetch, or `ff pull --dry-run` refreshes tracking refs without updating that record. Fetching alone therefore does not authorize replacing a newly observed remote tip.
 
-Push can auto-fetch on `fufu.autoFetch`'s cadence before planning; `--no-fetch` skips it. That fetch updates tracking refs without refreshing fufu's seen record. The record is written by `ff pull`, [`ff switch`](../reference/cli/switch.md) onto a remote's branch, [`ff clone`](../reference/cli/clone.md), and a successful push. A fetch by an editor, `ff git fetch`, or `ff pull --dry-run` likewise does not authorize replacing an unseen tip. A non-fast-forward push after such a move is refused before the wire; the wire lease also catches later races.
+A fast-forward adds commits without removing existing ones and can proceed without seen-record agreement. Creating or recreating a remote copy uses a lease requiring the ref to be absent. The server checks the lease even if the earlier local checks passed, catching races after planning.
 
-A [held rewrite](held-rewrites.md) blocks the exit. Nothing is sent while the branch's commits are still about to be rewritten out from under it.
+If a lease or seen-record check refuses a branch, that branch is not sent. Pull and review the remote changes before retrying. In a multi-branch push, other branches can still succeed; read each branch's report. A held rewrite also blocks that branch's push.
 
 ## Rollback is undo, then push
 
-There is a way back from a push, and it is this same verb rather than `ff undo` alone.
+[`ff undo`](../reference/cli/undo.md) restores local recorded state. It does not send a remote update. To roll back a pushed commit, undo the commit locally, use [`ff status`](../reference/cli/status.md) to check the result, then push that branch again. If other operations followed the commit, use [history and recovery commands](snapshots-and-undo.md#choosing-a-recovery-command) to select the intended local state first.
 
-[`ff undo`](../reference/cli/undo.md) moves your local branch back, a pointer move on the operation log like any other undo. The next `ff push` then finds the shared copy standing ahead of where you now do, at a tip fufu itself sent.
-
-fufu records pushed tips and the tips it has seen. Those records support rollback and reconciliation; they do not identify a branch's owner or grant permission to rewrite it.
-
-The rollback goes out under a lease like any other push. If somebody pushed onto the branch since, it stops rather than taking their work with it.
+The new push can move the remote copy back to the local tip because fufu records the tips it previously sent. It still uses a lease and must satisfy the server's rules. A changed remote tip can refuse the rollback.
 
 ### What rollback promises
 
-Rollback is not erasure. Other clones may already hold the commits, CI already ran on them, a webhook already fired.
-
-What rollback promises is narrower: the shared copy stands where your branch does, and anyone who pulls from now on takes in the rolled-back line. Commits that reached the world stay reached — the branch simply stops pointing at them.
-
-## Four pushes, one verb
-
-Push is one verb wearing four different acts:
-
-- **A branch with no shared copy** gets one created, with tracking set up in the same step. With several remotes, [`--to <remote>`](../reference/cli/push.md) names where it answers, once, because [one branch has one shared copy](branches.md#tracking-one-branch-one-shared-copy).
-- **A branch whose shared copy stands behind it** gets that copy replaced, under the lease.
-- **A branch whose shared copy was deleted** gets it put back, under a lease saying it must not exist. Telling a deleted copy apart from one that never existed is another reason fufu keeps a record of what it has sent.
-- **A branch you undid** gets its shared copy rolled back.
-
-`ff push --dry-run` previews the push without sending a remote update or moving local branches and files. The automatic fetch and maintenance can still run, so it is not a promise of no disk writes or network access.
+A successful rollback makes the remote branch point at the selected local commit. It does not erase commits from other clones or reverse CI runs and webhooks. The remote update is a new action, not an undo of those effects.
 
 ## Shared-history policy
 
-The rewrite verbs can rewrite commits that have already been pushed. They report published commits, then leave sending the rewrite to a separate `ff push`.
+Local rewrite commands accept already-pushed commits and report them. Sending that rewrite requires a separate push.
 
-fufu has no branch-ownership check and no special force-push guard for `main`. A lease checks a ref's expected position, not who owns its commits or whether the team permits rewriting them. Enforce append-only shared history with team policy and server-side branch protection.
+fufu has no branch-ownership check and no special force-push protection for `main`. A lease checks a ref's position, not who owns the commits or whether a team permits replacing them. Use team policy and server-side branch protection to enforce append-only shared history.
 
-How work lands on the shared branch — merge commit, squash, rebase — stays the team's business and the forge's, not fufu's.
-
-Pushed commits remain ordinary Git commits. That is [the invariant](invariant.md); it does not make published history immutable.
+How reviewed work reaches the shared branch — a merge commit, squash, or rebase — remains the team's and forge's choice.

@@ -1,45 +1,45 @@
 # Adopting fufu
 
-[`ff init`](reference/cli/init.md) in a repository git made means *turn fufu on here*. That is the whole adopt path — no migration, no import, no conversion. This page says what stays exactly as it was, what that one command does, and what you are agreeing to by running it.
+Run [`ff init`](reference/cli/init.md) inside an existing Git repository to enable snapshots and local operation history. No import or conversion is needed. Your existing commits and branches stay in place, and teammates do not need to install fufu.
 
-## What does not change
+```sh
+ff init
+```
 
-Nothing that anyone else can see. Refs, history, remotes, hooks, CI, and teammates all continue exactly as before, because [the invariant](concepts/invariant.md) holds from the first moment: at every instant the repository is a boring git repository.
+<a id="what-arming-does"></a>
 
-There is no server-side setup, no hook a teammate must install, and no trace in pushed history that fufu was involved. `ff init` adds config keys and refs in fufu's own namespace; it rewrites nothing, moves nothing, and installs no hooks that intercept anything.
+## What initialization does
 
-A teammate cloning the repository, a GUI opening it, a CI job checking it out — none of them can tell fufu is there.
+Initialization writes local Git configuration to protect fufu's recovery refs from ordinary garbage collection, records the earliest recovery point from the observed repository state, and takes an initial working-copy snapshot. Later repository commands take further snapshots. fufu does not continuously watch the filesystem.
 
-## What arming does
+[`ff undo`](reference/cli/undo.md) can reach retained states recorded from this point onward; enabling fufu does not make earlier uncommitted work recoverable retroactively. [Snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits) describe excluded files, size limits, retention, and worktree scope.
 
-Arming writes two things. First, the gc guard: a pair of keys in the repository's local config that stop `git gc` from expiring the refs fufu keeps its snapshots in. Second, [the floor](concepts/snapshots-and-undo.md#the-floor): the operation log's first entry, taken from observed state. [`ff undo`](reference/cli/undo.md) reaches back to the floor and no further — everything before fufu's arrival is git's history, not fufu's timeline, and nothing that happened before arming becomes undoable retroactively.
+## Install shell and agent hooks
 
-Immediately after the floor, an ordinary capture runs, subject to [snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits). Repository commands and active hooks take later captures; fufu does not continuously watch the filesystem.
+Initialization is local to the repository. [`ff hook`](reference/cli/hook.md) installs shell and agent integrations separately. Follow the [hook setup](reference/hooks/index.md) instructions to activate them in the sessions you use; installed files alone do not make every editor or script invoke fufu.
 
-`ff init` does not touch your shell or your agent — those are yours, not this repository's. [`ff hook`](reference/cli/hook.md) wires them, and is worth running once per machine: without it capture fires only when you type an `ff` command. [`ff doctor`](reference/cli/doctor.md) reports what is armed and what is wired.
+[`ff doctor`](reference/cli/doctor.md) reports repository setup and installed integrations. It also attempts snapshot/reconciliation, can fetch when enabled, and can run maintenance; it is not a read-only inspection command.
+
+<a id="what-does-not-change"></a>
+
+## Using your existing tools
+
+Git, IDEs, GUIs, remotes, and CI keep using the same repository. Initialization adds fufu's local config and refs without rewriting branch history or installing shell and agent hooks. Git views that include all refs can show fufu's saved objects too.
+
+[Using fufu alongside Git](concepts/two-regimes.md) explains which commands park work, what shell aliases and policy checks cover, and how fufu reports changes made by other tools.
 
 ## The workflow shift
 
-Adopting fufu is partly a workflow shift, not a transparent overlay. Using it is accepting a set of positions: your branches rebase onto main rather than merging it in, unpublished commits are malleable by default, and force-pushing your own branches — leased and guarded — is routine rather than exceptional. If your habits are merge-from-main and history-is-immutable-once-committed, fufu will pull against them.
+Start with [Working copy and commits](concepts/changes.md): edit files, commit without staging, and switch tasks with unfinished work parked on its branch. Updates replay branch commits onto their bases rather than merging the base into each task branch.
 
-The rewrite verbs also accept pushed commits. A separate push sends the rewrite under a lease, with no branch-ownership check or special protection for `main`. Keeping shared history append-only requires team policy and server-side branch protection. [The push boundary](concepts/push-boundary.md) explains the guards and their limits; merge, squash, and rebase policy remain the team's choice.
-
-## Trying it and leaving
-
-fufu is abandonable and returnable at any moment, and deleting it loses convenience, never data. Everything fufu writes is ordinary git: snapshots are refs outside the visible graph, parked changes — the edits fufu sets aside when you switch away from a branch — are ordinary commits under `refs/fufu/open/`, and the operation log is a cache over the repository, never an authority over it.
-
-Uninstall the binary and the repository is complete and legible without it — the stash dance comes back, the manual rebase comes back, but no commit, no branch, and no file state is lost.
-
-Leaving does not have to be permanent, and it does not have to be total. A GUI session, a weekend of raw git, a machine without fufu installed — all are absorbed when you return.
-
-The first fufu operation back compares what it remembered against what it finds, folds the difference into the log as foreign operations — ref motion fufu did not perform itself — and says out loud anything that no longer matches. [The two regimes](concepts/two-regimes.md) covers that boundary in full; the short version is that coming back is reconciliation, not recovery.
+Before sending rewritten work, read [Pulling and pushing](concepts/push-boundary.md) for the lease rules and the distinction between local rewriting and a team's shared-history policy.
 
 ## Adopting mid-flight
 
-`ff init` does not ask for a clean state, because the repository's current state is exactly what the floor records.
+- **Uncommitted work:** a dirty working copy is accepted. The initial snapshot records it subject to coverage and successful recording; check [`ff history`](reference/cli/history.md) to see the available recovery steps.
+- **A Git operation in progress:** finish or abort an existing merge, rebase, or bisect with Git. fufu does not take over that session.
+- **Existing stashes:** your Git stash entries are left alone. A parked change from an older fufu version that used a recorded stash entry is converted to an open-change commit when you first switch to that branch; personal stashes are not applied or removed.
 
-**A dirty tree** is fine. Nothing is touched at arming, and the capture that follows the floor snapshots the uncommitted work immediately, so it is held from the first moment.
+## Trying it and leaving
 
-**An in-progress rebase or merge** stays git's. fufu does not adopt, continue, or abort it — it belongs to the outside regime, so finish it or abort it with git as you would have anyway, and the resulting motion is absorbed as a [foreign operation](concepts/two-regimes.md#lazy-absorption) at your next fufu verb.
-
-**Existing stashes** are never touched. fufu writes nothing to the stash list and applies nothing from it; a park made by an earlier fufu — a labeled entry it recorded by exact sha — is folded into the branch's open commit the first time you switch there, and your own stashes stay in `git stash list` untouched.
+You can use Git between fufu commands or remove the binary later. [Leaving and coming back](concepts/two-regimes.md#leaving-and-coming-back) is the main reference for accessing parked work with Git and what fufu can observe when you return.

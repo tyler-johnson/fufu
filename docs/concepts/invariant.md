@@ -1,48 +1,34 @@
-# The invariant
+# Git storage model
 
-**At every instant, the repository is a boring git repository.**
+fufu stores its work in Git objects and refs. Branches remain ordinary Git branches, and the history sent to a remote consists of ordinary commits. For day-to-day behavior with IDEs, raw Git, or a machine without fufu, read [Using fufu alongside Git](two-regimes.md). New readers can start with [Working copy and commits](changes.md).
 
-HEAD is attached to a branch. Commits are ordinary commits. `git status` reads the way it always reads. Collaborators, CI, IDEs, and plain-git tooling see nothing unusual, ever. fufu never creates a state that plain git cannot represent. It only automates the moves between states git already has.
+## The invariant
 
-This is the one promise that never bends. Every other design question in fufu is settled by asking what preserves it.
+The design rule is to use states Git can represent and read. fufu creates branches when selecting historical revisions, stores parked work as commits, and records a conflicting rewrite as pending intent rather than updating the original branch to an unresolved result.
 
-You can see it in the mechanisms.
+This does not hide every internal object from Git tooling. A view including all refs can display snapshots, open-change commits, and temporary resolution-session commits containing literal conflict markers.
 
-- [Snapshots](snapshots-and-undo.md) live in refs outside the visible graph, so the history you and your teammates read is untouched.
-- A [parked change](branches.md) — work fufu sets aside when you leave a branch — is an ordinary commit, the branch's open commit at `refs/fufu/open/<branch>`, which `git log --all` shows one above the branch.
+## Objects outside branch history
 
-jj takes the other road. Its own store is authoritative and the git repository is projected out of it, which is where detached HEADs and machine-generated conflict commits come from. fufu keeps git authoritative and stays inside states git already understands. [fufu vs jj](../comparisons/vs-jj.md) is the full comparison.
+[Snapshots](snapshots-and-undo.md) use refs outside the branch history normally read by teammates. An [open or parked change](changes.md#internal-storage-and-branch-history) is a commit under `refs/fufu/open/<branch>`. Updating that object saves work without advancing the branch.
 
-## Deleting fufu loses convenience, never data
+A [resolution session](held-rewrites.md#the-session) uses a temporary branch at a marker-containing commit. Finishing the session applies fixes to the replayed commits before updating the original branch. [Architecture](../internals/architecture.md) documents the full ref layout and operation records.
 
-Because everything fufu writes is ordinary git, removing fufu costs you the automation and nothing else. Every commit, every branch, every snapshot ref, every parked change is still there, still legible, still reachable with plain git commands.
+<a id="a-cache-over-git-never-an-authority"></a>
 
-Someone stripped of fufu is slower, not stranded. The stash dance comes back and the manual rebase comes back, but no work is lost and nothing becomes unreadable. A parked change is found with `git log --all` — the commit one above its branch — and taken back with `git cherry-pick -n <sha>`, or `git checkout <sha> -- .` for the whole tree.
+## Git state and fufu records
 
-That last part matters as much as the data. A repository fufu has been driving does not need fufu to be explained. A teammate opening it in a GUI sees branches where branches should be, and a parked change as one more commit in the graph. Nothing requires the reader to know fufu exists.
+Git refs and objects describe the repository's current state. fufu's operation log and metadata add information Git alone does not record: earlier captured working copies, branch-associated parked work, rewrite relationships, and pending rewrite intent.
 
-## A cache over git, never an authority
+When outside tools change refs, fufu reconciles its records with the observed repository. Those records cannot reconstruct every intermediate state or infer every foreign rewrite. The [compatibility page](two-regimes.md#lazy-absorption) explains the observable behavior and recovery limits.
 
-The stronger form: fufu is abandonable and returnable at any moment, not merely removable once. A GUI session, a teammate's raw git, a weekend on a machine without fufu — all legitimate, all absorbable when you come back.
+<a id="deleting-fufu-loses-convenience-never-data"></a>
+<a id="reconciliation-is-loud"></a>
 
-Supporting that forces one deep rule. Everything fufu records for itself — the operation log, the rewrite map, parked changes, [held rewrites](held-rewrites.md) — is a cache over git, never an authority.
+For removing the binary, accessing saved work with Git, and returning later, see [Leaving and coming back](two-regimes.md#leaving-and-coming-back).
 
-When fufu's records disagree with what the repository actually contains, the repository wins and fufu rebuilds its picture from what it finds. No state file has to stay consistent for the repository to be valid. The repository is valid on its own, and fufu's records are a derived convenience.
+<a id="compatibility-not-neutrality"></a>
 
-## Reconciliation is loud
+## Workflow choices
 
-Coming back to a repository after working around fufu is reconciliation, not recovery. Nothing is broken and nothing needs repair. fufu compares what it remembered against what it finds, folds the [foreign operations](two-regimes.md#lazy-absorption) into its timeline, and carries on.
-
-What it will not do is quietly forget. A branch that moved, a parked change whose branch moved under it, a commit that was rewritten behind its back — each is reported, so you know what changed while fufu was not watching.
-
-This is one half of a wider boundary. Work that goes through fufu gets fufu's guarantees; work that goes around it gets git's exact documented behavior, snapshotted and absorbed afterward. [The two regimes](two-regimes.md) covers that boundary in full.
-
-## Compatibility, not neutrality
-
-The invariant promises the repository stays legible to every tool and every teammate. It does not promise fufu has no opinions about how you work.
-
-Adopting fufu is partly a workflow shift. Your branches rebase onto main rather than merging it in, unpublished commits stay malleable by default, and force-pushing your own branches — leased and guarded — is routine rather than exceptional.
-
-At [the push boundary](push-boundary.md), sending a rewrite requires a separate leased push. fufu can rewrite already-pushed commits and does not enforce branch ownership or append-only shared history. Team policy and server-side protections govern that, along with how work lands — merge commit, squash, or rebase.
-
-Inside your own unpublished work, fufu is opinionated. In everything the rest of the world can see, it is indistinguishable from careful use of plain git. That is the invariant doing its job.
+The storage format permits a particular workflow: working-copy commits without staging, automatic snapshots, parked work, and replay-based updates. It does not enforce a team's shared-history policy; [pulling and pushing](push-boundary.md#shared-history-policy) describes that boundary. The design comparisons belong in [fufu vs Git](../comparisons/vs-git.md) and [fufu vs jj](../comparisons/vs-jj.md).

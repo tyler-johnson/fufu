@@ -1,69 +1,77 @@
 # Glossary
 
-One or two sentences per term, each linking to the page that owns it.
-
 ## A–C
 
-**arm** — Turn fufu on in a repository: write the gc guard that stops `git gc` from expiring fufu's refs, and take the [operation log](snapshots-and-undo.md)'s floor. [`ff init`](../reference/cli/init.md) and [`ff clone`](../reference/cli/clone.md) both arm, and [`ff undo`](../reference/cli/undo.md) reaches back to the moment of arming and no further.
+**automatically named branch** — An ordinary branch given a generated name, such as `ff/hidden-wren`, when you create it without choosing one. See [branch naming](branches.md#automatically-named-branches).
 
-**bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working copy, an index, HEAD, and an operation chain of its own. [`ff worktree <path>`](../reference/cli/worktree.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
+**base branch** — The branch your work builds on, such as `main` for `parser-fix`. See [base branch and remote copy](branches.md#base-branch-and-remote-copy).
 
-**capture** — A [snapshot](snapshots-and-undo.md) taken by repository commands or active hooks, or manually with [`ff trigger -m "checkpoint"`](../reference/cli/trigger.md). Captures do not add commits to branch history; their coverage and retention limit what can be recovered.
+**capture** — The technical name in command output for a working-copy snapshot. See [when snapshots run](snapshots-and-undo.md#when-snapshots-run).
 
-**cascade** — What follows a branch's tip moving: every local branch whose base is that branch is replayed onto its new tip, parent before child, through the whole tree, inside the same operation. Every verb that moves a tip runs one; a replay that conflicts holds that branch and leaves the branches above it alone. [Branches](branches.md#stacking-a-branch-records-its-parent) has the rule.
+**cascade** — The replay of child branches after a command rewrites their base branch. See [cascades](branches.md#the-cascade) for holds and skipped branches.
 
-**change id** — A commit's identity across rewrites: sixteen random bytes fufu mints for the [open change](changes.md) and writes into the commit as a `change-id` header, jj's own, spelled in the letters k–z. A reword, restack, or absorb keeps it, and a commit made outside fufu derives one from its sha, the same in every clone. It is the letters column on `ff log`, `ff status`, and the map, and any prefix of one that is unique in the repository names its commit wherever a revision goes.
+**chain** — One worktree's recorded operation history. See [worktree-specific recovery](snapshots-and-undo.md#coverage-and-limits).
 
-**chain** — One worktree's own line of the [operation log](snapshots-and-undo.md): every operation belongs to the chain of the worktree that ran it, `ff undo` steps back the chain of the tree it runs in, and a chain outlives its worktree. The [worktrees guide](../guides/worktrees.md#one-repository-a-log-per-tree) shows the split.
+**change** — A unit of work that can be open in the working copy, parked with a branch, or recorded as a commit. See [working copy and commits](changes.md).
 
-**change** — The unit of work in progress: the working copy is the change, with no index or staging area in front of it. A change is in exactly one of three states — **open**, the working copy being edited right now, of which every worktree has exactly one; **parked**, set aside with a branch you switched away from; **closed**, a commit — and [changes](changes.md) walks the transitions.
+**change ID** — An identifier using k–z that follows a surviving change through fufu rewrites, even when its commit hash changes. See [change identity](changes.md#a-change-has-an-identity).
 
-**claim** — Give a branch a name you chose with [`ff describe -b <name>`](../reference/cli/describe.md), replacing its petname or an earlier name; there is no separate rename command. The rename carries everything fufu associates with the branch — the capture chain, any parked change, the pending description — as [branches](branches.md) describes.
+**close** — Record the open change, or selected paths from it, in branch history with [`ff commit`](../reference/cli/commit.md). See [committing work](changes.md#closing-is-the-commit).
 
-**close** — Turn the [open change](changes.md) into a commit: [`ff commit`](../reference/cli/commit.md) is the verb, paths close a slice, and closing is the only way a change enters history. A closed change is an ordinary git commit.
+**commit hash** — The hexadecimal ID of a Git commit object; changing the object's content, message, or parents changes the hash. An [internal open-change object](changes.md#internal-storage-and-branch-history) can have a hash before work is committed to branch history.
 
-## F–L
+**current branch** — The branch selected in this worktree, whose files you are working on. See [creating and switching](branches.md#creating-and-switching).
 
-**the floor** — The operation log's first entry, taken when the repository was armed. [Undo](snapshots-and-undo.md) reaches back to the floor and no further: everything before fufu's arrival is git's history, not fufu's timeline.
+<a id="fl"></a>
 
-**foreign operation** — An operation recording what raw git did behind fufu's back, absorbed lazily into the operation log at the next fufu invocation — labeled as foreign, quoted with git's own reflog messages, and undoable like anything fufu did itself. [The two regimes](two-regimes.md) covers the boundary it crosses.
+## D–L
 
-**held rewrite** — A rewrite whose conflicting replay has not landed on that branch. Earlier successful updates in a cascade can stand, and captures and hold metadata can be written. A hold blocks [`ff push`](../reference/cli/push.md) on that branch; [held rewrites](held-rewrites.md) explains how [`ff resolve`](../reference/cli/resolve.md) opens it.
+**earliest recovery point** — The oldest recorded state still available to restore. Initializing fufu records the first observation, called a *floor* in output; retention can shorten the available history. See [recovery's starting point](snapshots-and-undo.md#earliest-recovery-point).
 
-**lease** — The expected remote ref value a [push](push-boundary.md) must match when the server updates it. Replacing commits also checks fufu's seen record; fast-forwards can proceed without that agreement. It checks ref position, not branch ownership or team policy.
+**foreign operation** — A record of ref changes fufu observes after Git or another tool changed the repository. It does not reconstruct intermediate working copies; see [returning after outside changes](two-regimes.md#lazy-absorption).
+
+**held rewrite** — A requested rewrite waiting on a conflict, with that branch's conflicting replay unapplied. See [resolving a hold](held-rewrites.md#resolve-edit-finish).
+
+**lease** — A push check requiring the remote ref to match its expected value when the server updates it. See [push leases](push-boundary.md#push-carries-a-lease) for the separate seen-record and team-policy rules.
 
 ## M–P
 
-**map** — What bare `ff` draws: recent work across every branch, parked changes included — where you left things. It shows only the commits that relate the branches shown and contracts the runs between them; [`ff map`](../reference/cli/map.md) is its spelled-out name.
+**map** — The view of branches and recent work drawn by bare `ff`, also available as [`ff map`](../reference/cli/map.md).
 
-**mint** — Create an anonymous branch: every [`ff start`](branches.md) mints a real branch under a reserved prefix with a generated petname, deferring only the christening. `-b` names the minted branch at birth instead.
+**open change** — The files you are editing now, including any pending commit message; it can be empty. See [working copy and commits](changes.md).
 
-**operation** — One entry on the operation log: a verb fufu ran, a capture, or a foreign operation absorbed from outside. Every operation records all refs plus the tree state, which is why [undo](snapshots-and-undo.md) restores both together.
+**operation** — A recorded snapshot, command action, or observed outside ref change. See [the operation log](snapshots-and-undo.md#one-log-one-address-space).
 
-**operation id** — An operation's address: hex, like a commit id and like jj's, printed at twelve characters. The slot decides which space a hex prefix is read in: `ff op`, `ff history`, and `--at-op` read an operation, and a revision slot reads a sha or a change id, which is letters and nothing else. `@` is the newest operation and takes git's first-parent suffixes — `@^`, `@~3` — as [snapshots and undo](snapshots-and-undo.md) explains.
+**operation ID** — A hexadecimal identifier for one operation, used in operation arguments and `--at-op`. See [addressing an operation](snapshots-and-undo.md#addressing-an-operation).
 
-**operation log** — The one log every mutation fufu performs lands on, captures and foreign operations included; [`ff op log`](../reference/cli/op-log.md) lists it, newest first. [Snapshots and undo](snapshots-and-undo.md) explains why there is one log and one address space rather than two.
+**operation log** — The worktree's record of snapshots and local actions, listed by [`ff op log`](../reference/cli/op-log.md). See [snapshots and undo](snapshots-and-undo.md#one-log-one-address-space).
 
-**park** — Set the [open change](changes.md) aside with its branch on a switch: the branch's open commit, at `refs/fufu/open/<branch>`, which becomes the open change again — same files, same edits, same pending description — when you switch back, replayed onto the tip if it moved. [Branches](branches.md) covers the mechanics.
+**parked change** — Uncommitted work saved with a branch when you switch away, then resumed when you return. See [parking and resuming](changes.md#parking-and-resuming).
 
-**pending description** — The description the open change carries before it closes, set with [`ff describe -m`](changes.md): the message of the open commit fufu keeps under `refs/fufu/open/<branch>`, and the commit message when `ff commit` moves the branch to it. It parks and resumes with the change.
+**pending description** — The open change's planned commit message, set with [`ff describe`](../reference/cli/describe.md). See [pending descriptions](changes.md#pending-descriptions).
 
-**petname** — The generated name of an anonymous branch, like `ff/hidden-wren`: a genuine ref under a reserved prefix that every GUI shows, every git command addresses, and no push refspec matches by accident. See [branches](branches.md).
+**pull** — Update local branches from their bases and remote copies with [`ff pull`](../reference/cli/pull.md). See [pulling local updates](push-boundary.md#pulling-local-updates).
 
-**pull** — [`ff pull`](../reference/cli/pull.md) fetches and lines up selected branches with their bases and remote copies. Local branch and file updates are undoable; fetched objects, tracking refs, and tags are separate. `--dry-run` previews the local replay but still fetches unless `--no-fetch` is given, and maintenance can still run. See [the push boundary](push-boundary.md).
+**push** — Send selected branches to their remote copies with [`ff push`](../reference/cli/push.md). See [choosing what to push](push-boundary.md#choosing-what-to-push).
 
-**push** — The outgoing half of [the push boundary](push-boundary.md): [`ff push`](../reference/cli/push.md) sends the branch you stand on, or the branches you name, each to its one remote under its own lease, and never rides along as a default inside any other verb.
+<a id="rt"></a>
 
-## R–T
+## R–W
 
-**replay** — Recreate commits one by one onto a new base, in memory, landing only when the result is clean; the first step that conflicts stops the run and becomes a [held rewrite](held-rewrites.md). Pull, restack, and fufu's other rewrites all move history this way.
+**remote copy** — The published branch corresponding to a local branch, such as `parser-fix` on `origin`. See [branch relationships](branches.md#base-branch-and-remote-copy).
 
-**restack** — Replay a branch's commits onto the base it sits on; [`ff restack`](../reference/cli/restack.md) is the verb, and `--onto` records a new base first, which is how a branch is re-aimed. It is the primitive under [pull](push-boundary.md)'s replay and the rest of the [rewrites](held-rewrites.md), and the branches stacked on the moved branch follow it through the [cascade](branches.md#stacking-a-branch-records-its-parent).
+**remote-tracking ref** — A local record such as `origin/parser-fix` of a remote branch's last fetched position. See [tracking](branches.md#tracking-one-branch-one-remote-copy).
 
-**run** — [Undo](snapshots-and-undo.md)'s unit: the longest stretch of adjacent captures carrying the same session, ending at the first operation that is not one, so forty captures of an editing session are one keystroke back. Only captures group — a verb's operation is always its own step.
+**replay** — Reapply commits' changes on an updated base, creating new commit objects. See [stacking](branches.md#stacking-a-branch-records-its-parent) and [conflicts](held-rewrites.md).
 
-**slice** — The part of the open change that path arguments close: `ff commit src/parser.rs -m "one fix"` lands that file and leaves everything else open. Selection at the moment of the close, not a staging area; see [changes](changes.md).
+**restack** — Replay a branch's commits onto its base's current tip with [`ff restack`](../reference/cli/restack.md). See [stacking](branches.md#stacking-a-branch-records-its-parent).
 
-**snapshot** — The tree state an operation carries, stored in refs outside the visible graph so the commit history you and your teammates read is untouched. Not a second concept with its own log and ids — [snapshots and undo](snapshots-and-undo.md) explains why restore is uniform because of it.
+**run** — Adjacent snapshots from the same session, grouped into one undo step. See [undo grouping](snapshots-and-undo.md#undo-steps-over-runs).
 
-**trunk** — The repository's main line — what "main" is — which bare [`ff start`](branches.md) forks from and which is the default base a branch answers to. fufu resolves it once per repository: config (`fufu.trunk`) first, heuristics otherwise, and ambiguity is an error naming the candidates, never a guess.
+**snapshot** — Saved file state for recovery, taken automatically or manually without adding a commit to branch history. See [snapshot coverage and limits](snapshots-and-undo.md#coverage-and-limits).
+
+**trunk** — The repository's main development branch and the default base for new work. See [base selection](branches.md#base-branch-and-remote-copy).
+
+**undo step** — One move backward in [`ff history`](../reference/cli/history.md): a recorded command operation or a grouped run of snapshots. See [reading history](snapshots-and-undo.md#reading-ff-history).
+
+**worktree** — A checkout with its own files, index, HEAD, and operation chain, sharing the repository's objects and branches. See [worktrees](../guides/worktrees.md).

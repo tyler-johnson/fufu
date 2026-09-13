@@ -1,57 +1,53 @@
-# The two regimes
+# Using fufu alongside Git
 
-fufu's guarantees follow its surface. Work that goes through fufu gets fufu's rules; work that goes around it gets git's rules, exactly. Every operation belongs to one regime or the other, and knowing which one is knowing what to expect from it.
+<a id="the-two-regimes"></a>
 
-## Inside: through fufu
+fufu works in an ordinary Git repository. Your branches and committed history remain available to Git, GUIs, IDEs, CI, and teammates who do not use fufu. You can use both tools in the same repository; what happens to uncommitted work depends on which command or integration runs.
 
-An operation that goes through fufu gets everything fufu promises:
+<a id="inside-through-fufu"></a>
 
-- Repository commands and active hooks take [snapshots](snapshots-and-undo.md), subject to coverage, capture success, and retention.
-- Recorded local changes can be restored with [`ff undo`](../reference/cli/undo.md) — refs and working copy together, on this worktree's chain. Remote updates and ambient maintenance are outside that undo scope.
-- Switching branches [parks](branches.md) dirty work, so it resumes with its branch.
-- Pulling replays in memory and [holds its conflicts](held-rewrites.md) for a moment you choose.
-- [`ff status`](../reference/cli/status.md) reports futures rather than just facts: not "12 commits behind main" but "rebases cleanly onto main," worked out in memory before you commit to anything.
+## Commands through fufu
 
-Someone who stays on the fufu surface never meets a conflict at a moment they did not choose. That is what "inside" buys.
+Use fufu commands when you want its working-copy workflow: [`ff commit`](../reference/cli/commit.md) records files without staging, and [`ff switch`](../reference/cli/switch.md) parks uncommitted work with the branch you leave. [Working copy and commits](changes.md) explains that lifecycle.
 
-## Outside: around fufu
+Repository commands and active hooks take [snapshots](snapshots-and-undo.md), subject to successful recording, coverage, and retention. [`ff undo`](../reference/cli/undo.md) restores recorded local state on the current worktree's chain. [Held rewrites](held-rewrites.md) let you defer conflicting replays until you choose to resolve them.
 
-Everything else is outside:
+<a id="outside-around-fufu"></a>
 
-- a GUI's branch switcher
-- a raw `git pull` in another terminal
-- an IDE's commit button
-- a teammate's push
-- a script that shells out to git
+## Commands through Git and other tools
 
-Outside, you get git's exact documented behavior, including git's conflicts at git's usual moments. That is expected, and it belongs to you. fufu does not reach into operations it did not perform: no hooks that intercept, no wrappers that second-guess, no state a foreign write can corrupt.
+An IDE commit button, a GUI branch switch, or a raw Git command performs that tool's operation. A Git branch switch does not park work through fufu, and a Git rebase can stop at a conflict. Finish or abort a Git merge, rebase, or bisect with Git; fufu does not take over its in-progress session.
 
-[`ff push`](../reference/cli/push.md) refuses to send a branch with a held rewrite. Raw Git that bypasses fufu has no such guard. Git invoked through the shell alias or an active agent hook is also subject to `fufu.gitPolicy`; strict policy can refuse it.
+Git's index still exists. If you stage files with Git, a later fufu commit selects working-copy files rather than using that staged selection. A fufu branch switch restores parked edits as unstaged work. Use [`ff diff`](../reference/cli/diff.md) and [`ff status`](../reference/cli/status.md) to check the files before committing.
 
-This makes GUIs and IDEs first-class writers rather than tolerated exceptions. Every git GUI keeps working identically — showing status, making commits, switching branches — because fufu's conveniences accrue to whoever goes through fufu, one operation at a time, and cost nothing to whoever does not.
+Git can read the extra objects fufu stores for snapshots, open changes, and resolution sessions. Views such as `git log --all` can show those refs as well as ordinary branch history. See the [storage model](invariant.md) for their layout.
 
 ### Which program ran
 
-The recommended shell alias, `alias git='ff git'`, routes typed Git through [`ff git`](../reference/cli/git.md). A strict refusal happens before capture; otherwise it attempts capture before running Git. Capture failure warns and does not stop Git. A script or editor that bypasses the alias needs another active integration to capture before its edits.
+[`ff git`](../reference/cli/git.md) runs Git after attempting a snapshot, unless `fufu.gitPolicy=strict` refuses the command first. A permitted command still has Git's semantics. A snapshot failure prints a warning and Git runs anyway. Strict refusals can write the policy tally even though Git and the pre-command snapshot do not run.
 
-Automation is not foreign by nature, only by habit. A script, a CI job, or an agent that calls `ff` is inside the surface with everyone else, and gets everything the surface promises.
+The shell alias `alias git='ff git'` routes typed Git commands through that path. An editor or script usually bypasses shell aliases. Installed agent hooks instead act on the events the client delivers; they attempt a snapshot before their policy check. See [hook setup](../reference/hooks/index.md) for activation and [configuration](../reference/config.md) for policy settings.
 
-## Lazy absorption
+[`ff push`](../reference/cli/push.md) blocks a branch with a held rewrite. A raw Git push that bypasses fufu has no such guard; an active alias or agent hook may refuse it under strict policy. Server-side protection and the [team's shared-history policy](push-boundary.md#shared-history-policy) apply independently.
 
-fufu does not watch the repository. It notices foreign motion at the next fufu operation, by comparing what it remembered against what the repository now says.
+<a id="lazy-absorption"></a>
 
-Ref differences are folded into the operation log as foreign operations, with Git's reflog messages. Undo can recover recorded ref and file states, but ref history cannot reconstruct uncaptured edits destroyed by an outside command.
+## Returning after outside changes
 
-Absorption is loud. The foreign operation is reported in `ff status`, and the notice stays pinned there while the log's tip is foreign, so motion fufu did not perform is never quietly blended into motion it did.
+At the next reconciliation, fufu compares its recorded state with the repository. Observed ref changes enter the operation log as **foreign operations**, accompanied by available Git reflog messages. Status reports the outside changes; its notice remains while the log's current entry is foreign.
 
-Anything fufu remembered that reality no longer matches — a branch that moved, a parked change whose tip moved under it — is said out loud, and then the records update to match the repository. The repository wins every disagreement. [The invariant](invariant.md) explains why fufu's records are a cache over git and never an authority.
+Several Git commands between observations can become one foreign operation. Recovery points exist only for recorded states at the observed endpoints. Reflogs record ref movements, not each intermediate working copy; neither reconciliation nor undo can reconstruct uncaptured edits that an outside command discarded. The [snapshot coverage and limits](snapshots-and-undo.md#coverage-and-limits) apply here too.
 
-## A weekend without fufu
+If a branch tip moved while work was parked on it, switching back replays that work over the new tip and can produce a [held arrival](held-rewrites.md#parked-change-arrival). Use [`ff describe -b`](../reference/cli/describe.md) for branch renames so fufu moves its branch-associated records too; raw Git renames do not perform that update.
 
-Here is the strong form of the outside regime. You can leave fufu entirely — a GUI session, a laptop without it installed, a weekend of raw git — and come back. Nothing accumulates, nothing breaks, nothing needs repair.
+Commits made outside fufu may lack a `change-id` header. Their derived IDs depend on their hashes, so an outside rewrite that drops the header may also change the ID. fufu can report the ref movement without knowing the same rewrite relationships it records for its own commands.
 
-Returning is reconciliation, not recovery. At your first fufu operation back, everything that happened in the meantime is observed, reported, and absorbed into the timeline, and the surface's guarantees resume from there.
+<a id="a-weekend-without-fufu"></a>
 
-This is only safe because of [the invariant](invariant.md). At every instant the repository is a boring git repository, so nothing done with plain git can put it in a state fufu cannot make sense of. There is no fufu-shaped consistency for a foreign operation to violate.
+## Leaving and coming back
 
-The two regimes are that invariant seen from the operational side: inside, automation you can undo; outside, git exactly; and a loud, mechanical reconciliation whenever you cross back over.
+You can use Git for a session or remove the fufu binary. Removing the binary does not delete repository objects: branches, commits, snapshot refs, and parked changes remain in Git. The fufu commands that interpret and manage those records are no longer available until you reinstall it.
+
+A parked change is stored at `refs/fufu/open/<branch>`. For example, `git log -1 refs/fufu/open/parser-fix` inspects the saved work on `parser-fix`. In a clean working copy on the appropriate base, `git cherry-pick -n <sha>` can apply that saved commit's changes without committing them. Use the actual saved hash you inspected; this Git operation can conflict if the base has changed.
+
+On return, fufu observes and reports the repository state as described above. Check status and follow any reported hold or repair instructions. The time spent away does not create snapshots retroactively. [Adopting fufu](../adopting.md) covers enabling it in an existing repository; the [plain-Git teammates guide](../guides/plain-git-teammates.md) has collaboration examples.

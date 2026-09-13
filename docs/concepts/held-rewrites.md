@@ -1,83 +1,77 @@
-# Held rewrites
+# Conflicts and held rewrites
 
-**A conflict is the operation staying pending, not a strange object in the graph.**
+<a id="held-rewrites"></a>
 
-fufu's rewrites all run in memory and land only when the result is clean: [`ff restack`](../reference/cli/restack.md) moving a branch onto a new base, [`ff pull`](../reference/cli/pull.md)'s replay, [`ff done`](../reference/cli/done.md) landing an editing session, and the restacking that [`ff absorb`](../reference/cli/absorb.md) and [`ff lift`](../reference/cli/lift.md) do to descendants.
+When a replay conflicts, fufu reports a **held rewrite**: the requested rewrite is waiting for you to resolve it. [`ff status`](../reference/cli/status.md) shows `held:`, the command that caused it, the conflicting commit and files, and what to do next.
 
-When a branch's replay conflicts, that replay does not land:
+That branch's conflicting replay has not advanced its tip or put markers in your working copy. Earlier successful branch updates in the same command can stand. You can keep working at the existing tip, or resolve the conflict now.
 
-- That branch's replay does not advance its tip; earlier successful branch updates in the run can stand.
-- No half-applied tree reaches the working directory.
-- No rebase sits stopped in the repository, and both inputs stay ordinary git commits.
+<a id="ff-resolve-all-of-it-at-once"></a>
 
-What gets recorded instead is the intent — this branch has a pending rewrite, conflicting at commit such-and-such — as a **held rewrite**. Captures and metadata can still be written. Pull, restack, done, absorb, and lift report held replays with exit 3. A reword's cascade can also hold, but [`ff describe`](../reference/cli/describe.md) currently returns 0 for that outcome; scripts must inspect its `reword.cascade.held` report.
+## Resolve, edit, finish
 
-What that buys is scheduling. The conflict does not interrupt you at the machine's moment. You keep working at the existing tip and materialize the conflict when you choose.
+On the held branch, [`ff resolve`](../reference/cli/resolve.md) opens a resolution session and puts the surviving conflicts into files as labeled markers. Edit those files, remove the markers, then run [`ff done`](../reference/cli/done.md) to apply the fixes and return to the original branch.
 
-Someone who stays on the fufu surface never meets a conflict at a moment they did not choose. [The two regimes](two-regimes.md) makes that promise, and holds are how it is kept.
+```sh
+ff resolve
+# Edit the conflicting files and remove the conflict markers.
+ff done
+```
 
-## Why not a conflicted commit
-
-jj answers the same problem the other way. It stores the unresolved conflict inside the result: a commit whose content is a symbolic merge expression, materialized as markers on demand.
-
-That machinery exists mostly so jj's always-rebasing engine never has to stop, and it cannot cross [fufu's invariant](invariant.md). A git tree cannot hold an expression, so a `.jjconflict-*`-style tree is exactly the kind of state plain git cannot read, and therefore the kind fufu refuses to write.
-
-fufu's observation is that for a person, conflicts are operation-shaped rather than edit-shaped. The user-visible benefit of jj's model is the deferral, and the deferral survives translation into states git already understands.
-
-Instead of a strange commit that exists, you get a pending rewrite that does not yet. The hold is operation-shaped, the resolution is an edit session, and the graph never contains anything a teammate's GUI cannot display.
-
-## What a hold records
-
-A hold records the verb's own question — the branch, the target, what it was asked to become. It never records the plan it could not finish computing.
-
-Every input is a ref or the working copy, so nothing has to be pinned, and resolving is a recomputation rather than a comparison. That is [cache-not-authority](invariant.md#a-cache-over-git-never-an-authority) taken literally, and it is what makes a hold durable rather than fragile.
-
-So you keep committing at the existing tip, and the pending rewrite replays over whatever you add, because the replan sees what you added. If the world moves such that the rewrite now applies cleanly, the hold is released rather than resolved.
-
-A target that has gone, or moved out of history — foreign commits, a rewritten base — expires the hold loudly, at the moment somebody asks. It is never silently replayed from a stale plan.
-
-## `ff resolve`: all of it at once
-
-Git's stop-fix-continue rebase is sequential because each replayed commit changes the base of the next.
-
-fufu runs that propagation in memory instead. Each step of the held rewrite replays against the previous step's result, unresolved regions are carried forward as literal marker content, and a commit whose own changes land clear of the marks replays over them untouched. A conflict a later commit resolves anyway vanishes along the way.
+You do not need to stage the fixes. If another branch is held, first use [`ff switch`](../reference/cli/switch.md) to select it. A parked change that conflicts when you switch back is a [distinct case](#parked-change-arrival), resolved in place.
 
 ### The session
 
-[`ff resolve`](../reference/cli/resolve.md) then puts every surviving conflict region into one editing session together, as ordinary conflict markers: a branch minted at a commit carrying the marker tree, which you switch to, the way [`ff edit`](../reference/cli/edit.md) opens one.
+A rewrite resolution session uses an automatically named branch whose starting commit contains the marker tree. Your original branch keeps its tip and hold; its open change parks there. Status shows `resolving:` while the session is open.
 
-The current side is labeled `the rewrite so far`. The incoming side carries the step that wrote it — `>>>>>>> rebasing "add parser options" (3/10)` — because the incoming side is where git puts the commit, and therefore where a reader already looks. Those labels are not decoration: they are what attributes each fix back to its owning step when the session lands.
+The current side of a marker is labeled `the rewrite so far`. The incoming side identifies the replayed commit, for example `>>>>>>> rebasing "add parser options" (3/10)`. These labels associate each fix with the step that needs it.
 
-The branch you left stays put, and the hold stays on it, because it is what the session is resolving. Your open change [parks](changes.md) there, as it does on any switch, and comes back when the session ends. The session travels the way any branch does: switching away parks the fixes in progress on it, switching back resumes them, and `ff status` and `ff branch` show it as they show an editing session. A rogue `git checkout` away leaves a committed marker tree behind rather than a marker-laden working copy.
+You can switch away from the session and return later. Its unfinished edits park and resume like other branch work. The temporary session commit contains literal markers that ordinary Git can read; the original branch does not contain that marker commit.
 
 ### Landing the session
 
-Fix the markers, then `ff done` lands it. Each resolution is folded back into the step that wrote it, the chain of steps re-runs in memory, and the whole rebased stack lands at once — refs move one time, every landed commit clean, no conflicted state ever existing in the graph. The landing deletes the session branch and returns you to the branch the hold stood on, in the same operation.
+`ff done` applies each fix to its corresponding replay step and reruns the rewrite. When it succeeds, the rewritten branch receives the clean commits, the session branch is deleted, and you return to the original branch with its parked work restored or reported as a held arrival. Branches based on the rewritten branch can then follow through a [cascade](branches.md#the-cascade).
 
-Two commits conflicting on the same region is the one shape this cannot flatten. Carried markers do not nest — they interleave, and the earlier block stops bracketing anything.
+Some conflicts require more than one round. When two replay steps conflict over the same unresolved region, fufu stops before creating overlapping marker blocks. Resolve the presented part and run `ff done`; any remaining work is held for another `ff resolve` round.
 
-So the chain stops rather than write the tangle. `ff resolve` presents the steps before it, and what is left is held again. A stack of tangles unwinds one round at a time, without anyone having to know the word.
+## Abandoning or undoing a resolution
 
-`ff resolve --abandon` drops the hold instead, and an open session with it, from either branch. Opening a session is two operations, the mint and the switch, so two [`ff undo`](snapshots-and-undo.md) take a fresh one back; landing or abandoning it is one, so one undo restores the session, the hold, and the fixes together.
+`ff resolve --abandon` drops the held rewrite and an open resolution session, returning from the session if needed. It works from the session or the held branch.
 
-## Deferred requires loud
+Opening a rewrite session takes two operations: creating the session branch and switching to it. One [`ff undo`](../reference/cli/undo.md) returns to the original branch; another removes the newly created session. Landing or abandoning is one operation, so one undo restores the session, hold, and recorded fixes. [Snapshot coverage and retention](snapshots-and-undo.md#coverage-and-limits) apply.
 
-Deferring a conflict is only safe if you cannot forget it. Holds get three disciplines for that.
+## Parked-change arrival
 
-- **A hold is announced at creation.** The verb says what conflicts and where before it exits.
-- **A hold is pinned until it is gone.** [`ff status`](../reference/cli/status.md) shows a `held:` line naming the verb, the commit it stopped at, the conflicting files, and the way out, on every render until the rewrite lands or is abandoned. Once a session is open, a `resolving:` line stands above it, because markers in your working copy are the more urgent fact.
-- **Exits are blocked**, which is the next section.
+A **held arrival** happens when `ff switch` cannot replay parked work over a branch tip that has moved. The branch switch still completes and reports exit 3, but the parked edits wait for resolution.
 
-[`ff branch`](../reference/cli/branch.md) marks a held branch the same way it marks an unfinished session, so standing work is visible wherever branches are listed.
+Here `ff resolve` lays the parked change into the current working copy with markers. It does not create a resolution-session branch: the result is an open change. Edit the markers, then continue working or use [`ff commit`](../reference/cli/commit.md) when ready to record it. There is no session to finish with `ff done`.
 
-Deferred and quiet is how work rots. The disclosure is what makes the deferral safe.
+If the branch already has another open change, resolve refuses to overwrite it. Commit that work or switch away to set it aside before retrying. `ff resolve --abandon` drops a still-held arrival and reports the saved parked commit; it does not apply that work.
+
+<a id="deferred-requires-loud"></a>
+
+## Reading conflict reports
+
+The command announces the hold when it is created. Status keeps showing it until it is resolved or abandoned, and [`ff branch`](../reference/cli/branch.md) marks held branches and unfinished sessions in its list.
+
+Exit 3 reports a held primary replay for [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), `ff done`, [`ff absorb`](../reference/cli/absorb.md), and [`ff lift`](../reference/cli/lift.md). Pull, restack, and [`ff fold`](../reference/cli/fold.md) also exit 3 for holds in their cascades. A successful absorb, lift, or session landing can return 0 with a downstream branch held, because its primary change landed. A reword through [`ff describe`](../reference/cli/describe.md) currently returns 0 even when its cascade holds; scripts must inspect `reword.cascade.held`. Read the branch reports as well as the exit code.
 
 ## What a hold blocks, and what it does not
 
-A hold blocks [`ff push`](push-boundary.md). Nothing is sent while the branch's commits are still about to be rewritten out from under it.
+[`ff push`](../reference/cli/push.md) refuses to send a held branch. Resolve or abandon its pending rewrite before pushing. This is a guard on fufu's push command; [Git compatibility and policy](two-regimes.md#which-program-ran) explain what happens with other callers.
 
-That hold guard lives on the fufu surface. Raw Git that bypasses fufu can push; a shell alias or agent hook may instead refuse it under strict git policy. [The two regimes](two-regimes.md) explains those paths.
+A hold does not itself prevent local commits or branch switches. You can keep building on the existing tip, but the requested post-rewrite state is not available until it applies successfully. Other command-specific guards still apply.
 
-A hold blocks nothing local. You can commit, switch, park, and keep building at the existing tip. A rewrite that cannot leave the machine is still one you can keep working on.
+## What a hold records
 
-What fufu gives up against jj is the other half. You cannot build on the post-rewrite state before resolving, and conflicted commits cannot be shipped around — which is the half you would never want to push anyway.
+A hold saves the requested rewrite's intent: its branch and target. Resolution recomputes the replay against current inputs instead of resuming an old partial plan. Work committed at the existing tip can therefore be included when you resolve later.
+
+If the rewrite now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. If its target disappeared or no longer belongs to the required history, it reports that the hold expired rather than using a stale plan.
+
+## How conflicts reach the session
+
+fufu replays commits in memory before updating the branch. During resolution it carries unresolved regions forward as literal marker content, letting later commits apply around them. A conflict already fixed by a later commit can disappear before the session opens. The remaining regions are presented together, except where overlapping conflicts require another round.
+
+<a id="why-not-a-conflicted-commit"></a>
+
+For the design choice between a pending rewrite and jj's conflict objects, see [fufu vs jj](../comparisons/vs-jj.md). The [storage model](invariant.md) explains how session and parked-change objects remain readable by Git.
