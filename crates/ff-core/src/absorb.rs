@@ -37,7 +37,9 @@ use crate::error::{Error, Result};
 use crate::futures::At;
 use crate::held::{self, Held, Intent};
 use crate::hooks;
-use crate::model::{HeadState, HeldReport, MoveOutcome, MoveReport, MoveSource, MoveTarget};
+use crate::model::{
+    Cascade, HeadState, HeldReport, MoveOutcome, MoveReport, MoveSource, MoveTarget,
+};
 use crate::ops::record::observe_refs;
 use crate::ops::{ChangeIdTransition, DescriptionTransition, OpKind, OpRecord, verb};
 use crate::park::ArrivePlan;
@@ -761,95 +763,7 @@ pub fn move_with(
     let (branch, tip) = head_branch(repo, on, verb.noun())?;
     let tip_tree = tree_of(repo, tip)?;
 
-    // The ends, defaulted by the verb's word. Absorb's default target is the
-    // commit under the lowest source, which needs the sources placed first;
-    // the placeholder is the tip, and the run is resolved again once the
-    // sources are known.
-    let from: Vec<Endpoint> = match &opts.from {
-        Some(from) => from.clone(),
-        None => match verb {
-            MoveVerb::Absorb => vec![Endpoint::Open],
-            MoveVerb::Lift => vec![Endpoint::Commit(tip)],
-        },
-    };
-    let into = match opts.into {
-        Some(into) => into,
-        None => match verb {
-            MoveVerb::Absorb => under_the_sources(repo, verb, tip, &from)?,
-            MoveVerb::Lift => Endpoint::Open,
-        },
-    };
-    // The bare words: absorb aimed at the open change is where the changes
-    // already are, and lift taking from the open change has nothing
-    // committed to take. Any other move whose target is its only source is
-    // the generic refusal, raised by `resolve_run`.
-    if into == Endpoint::Open && from == [Endpoint::Open] {
-        return Err(match (verb, opts.from.is_none(), opts.into.is_none()) {
-            (MoveVerb::Absorb, true, _) => Error::coded(
-                "usage/absorb-into-open",
-                "the open change is already where your changes are: name a commit that has \
-                 closed",
-                vec!["ff absorb".into(), "ff commit -m <msg>".into()],
-            ),
-            (MoveVerb::Lift, _, true) => Error::coded(
-                "usage/lift-from-open",
-                "the open change has nothing committed to lift out of: name a commit that has \
-                 closed",
-                vec!["ff lift".into(), "ff log".into()],
-            ),
-            _ => Error::coded(
-                "usage/move-into-self",
-                "the open change is the only source and the target: there is nothing to move",
-                vec![
-                    match verb {
-                        MoveVerb::Absorb => "ff absorb --from <revset> --into <rev>".into(),
-                        MoveVerb::Lift => "ff lift --from <revset> --into <rev>".into(),
-                    },
-                    "ff log".into(),
-                ],
-            ),
-        });
-    }
-    let run = resolve_run(repo, verb, tip, &from, into)?;
-
-    // A default target on trunk: the sources sit at the bottom of the
-    // branch, and the commit under them is trunk's. Rewriting trunk by
-    // default is not a thing a bare word should do, so it is named or
-    // nothing. A trunk that cannot be resolved is not consulted.
-    if opts.into.is_none()
-        && let Endpoint::Commit(target) = run.into
-        && run.from.iter().any(|end| *end != Endpoint::Open)
-        && let Ok(trunk) = crate::trunk::trunk(repo)
-        && let Some(trunk_tip) = refs::ref_target(repo, &trunk.full_ref)?
-        && on_line_of(repo, target, trunk_tip)?
-    {
-        // Only absorb reaches here: lift's default target is the open change.
-        let lo = run.lo();
-        let exit = if run.from.len() == 1 {
-            format!("ff absorb --into {}", lo.short())
-        } else {
-            let hi_spelled = match run.hi() {
-                Endpoint::Open => "@".to_string(),
-                Endpoint::Commit(id) => crate::sha::short_oid(id),
-            };
-            format!(
-                "ff absorb --from {}..{} --into {}",
-                lo.short(),
-                hi_spelled,
-                lo.short()
-            )
-        };
-        return Err(Error::coded(
-            "absorb/into-trunk",
-            format!(
-                "the commit under {} is {}, on {}: name the commit to move into",
-                lo.short(),
-                crate::sha::short_oid(target),
-                trunk.name
-            ),
-            vec![exit, "ff log".into()],
-        ));
-    }
+    let run = resolve_ends(repo, opts, tip)?;
 
     // The open change: read off the working copy, or recorded by the
     // resolution session that is landing — `chain` folded the change and
@@ -878,13 +792,7 @@ pub fn move_with(
     // among the ones it introduced. None anywhere is nothing to move.
     let mut files = moved_files(repo, &run, paths, tip_tree, open_tree)?;
     if clearing.is_none() && files.is_empty() {
-        return Ok((
-            MoveOutcome::Nothing {
-                verb: verb.as_str().to_string(),
-                branch: branch.clone(),
-            },
-            ctx,
-        ));
+        return Ok((nothing_to_move(verb, &branch), ctx));
     }
 
     // The pre-commit gate, run only when the open change is a source: that
@@ -918,71 +826,17 @@ pub fn move_with(
                 open_tree = reread;
                 files = moved_files(repo, &run, paths, tip_tree, open_tree)?;
                 if files.is_empty() {
-                    return Ok((
-                        MoveOutcome::Nothing {
-                            verb: verb.as_str().to_string(),
-                            branch: branch.clone(),
-                        },
-                        ctx,
-                    ));
+                    return Ok((nothing_to_move(verb, &branch), ctx));
                 }
             }
         }
     }
 
-    // `-m`: a reword for a closed target, through the message hooks the way
-    // `ff describe <rev>` runs them; the pending description for the open
-    // change. A resolution landing carries the text the hold recorded,
-    // which already went through the hooks.
-    let mut message: Option<BString> = None;
-    let mut pending: Option<String> = None;
-    // The target's subject as the report names it: the reword's, when there
-    // is one, since that is what the commit says once it lands.
-    let mut reworded_subject: Option<String> = None;
-    if let Some(text) = &opts.message {
-        match run.into {
-            Endpoint::Commit(target) => {
-                let normalized = crate::close::normalize_message(text);
-                let normalized = if clearing.is_none() {
-                    let target_hex = target.to_string();
-                    crate::close::normalize_message(&hooks::message_hooks(
-                        repo,
-                        &normalized,
-                        hooks::MsgSource::Commit(&target_hex),
-                        opts.verify,
-                        verb.as_str(),
-                    )?)
-                } else {
-                    normalized
-                };
-                if normalized.is_empty() {
-                    return Err(Error::coded(
-                        "usage/needs-message",
-                        "the commit-msg hook left the description empty; a reworded commit \
-                         needs one",
-                        vec![match verb {
-                            MoveVerb::Absorb => "ff absorb -m <msg>".into(),
-                            MoveVerb::Lift => "ff lift -m <msg>".into(),
-                        }],
-                    ));
-                }
-                reworded_subject = Some(
-                    normalized
-                        .lines()
-                        .next()
-                        .unwrap_or("(no description)")
-                        .to_string(),
-                );
-                message = Some(normalized.into());
-            }
-            Endpoint::Open => {
-                let text = text.trim_end().to_string();
-                if !text.is_empty() {
-                    pending = Some(text);
-                }
-            }
-        }
-    }
+    let Reword {
+        message,
+        pending,
+        reworded_subject,
+    } = reword_for(repo, opts, &run, clearing.is_none())?;
 
     // The plan. Its folds can conflict before a single descendant is
     // replayed, so when nothing is decided the plan is built first against
@@ -993,70 +847,11 @@ pub fn move_with(
     // stack it would have restacked is unknown here, and we do not invent
     // one. A decided landing has the fold's result in `decided`, so the
     // merge is no longer going to happen and is not probed.
-    let intent = || match verb {
-        MoveVerb::Absorb => Intent::Absorb {
-            from: run.from.iter().map(|end| end.spell()).collect(),
-            into: run.into.spell(),
-            message: opts.message.clone(),
-            paths: paths.clone(),
-        },
-        MoveVerb::Lift => Intent::Lift {
-            from: run.from.iter().map(|end| end.spell()).collect(),
-            into: run.into.spell(),
-            message: opts.message.clone(),
-            paths: paths.clone(),
-        },
-    };
-    let hold_summary = format!("hold {} {}", verb.as_str(), run.describe());
-    if decided.is_empty() {
-        let memory = repo.clone().with_object_memory();
-        let probe = plan_move(&memory, tip, &run, paths, open_tree, message.clone())?;
-        let target_at = || match run.into {
-            Endpoint::Commit(id) => At::Commit {
-                id: id.to_string(),
-                subject: subject(repo, id).unwrap_or_default(),
-            },
-            Endpoint::Open => At::OpenChange,
-        };
-        let conflicted = if !probe.bottom_conflicts.is_empty() {
-            Some((
-                if run.includes_open() {
-                    At::OpenChange
-                } else {
-                    target_at()
-                },
-                probe.bottom_conflicts,
-            ))
-        } else if !probe.into_conflicts.is_empty() {
-            Some((target_at(), probe.into_conflicts))
-        } else {
-            None
-        };
-        if let Some((at, conflicted)) = conflicted {
-            let held = Held {
-                intent: intent(),
-                at,
-                paths: conflicted,
-                time: now,
-            };
-            return Ok((
-                MoveOutcome::Held(hold(
-                    repo,
-                    held::Recording {
-                        ctx: &ctx,
-                        prov,
-                        argv: opts.argv.clone(),
-                        now,
-                    },
-                    verb,
-                    &branch,
-                    &held,
-                    hold_summary,
-                    0,
-                )?),
-                ctx,
-            ));
-        }
+    if decided.is_empty()
+        && let Some((at, conflicted)) =
+            probe_folds(repo, tip, &run, paths, open_tree, message.clone())?
+    {
+        return held_outcome(repo, ctx, prov, opts, &branch, &run, at, conflicted, 0);
     }
     let MovePlan { replan, .. } = plan_move(repo, tip, &run, paths, open_tree, message)?;
     let bottom = replan.target;
@@ -1069,29 +864,17 @@ pub fn move_with(
     if decided.is_empty()
         && let Some(conflict) = rewrite::conflict(repo, bottom, tip, &change)?
     {
-        let held = Held {
-            intent: intent(),
-            at: conflict.at.clone(),
-            paths: conflict.paths.clone(),
-            time: now,
-        };
-        return Ok((
-            MoveOutcome::Held(hold(
-                repo,
-                held::Recording {
-                    ctx: &ctx,
-                    prov,
-                    argv: opts.argv.clone(),
-                    now,
-                },
-                verb,
-                &branch,
-                &held,
-                hold_summary,
-                conflict.of,
-            )?),
+        return held_outcome(
+            repo,
             ctx,
-        ));
+            prov,
+            opts,
+            &branch,
+            &run,
+            conflict.at,
+            conflict.paths,
+            conflict.of,
+        );
     }
     let plan = rewrite::plan_with(repo, bottom, tip, &change, now, &decided.trees)?;
     let published = rewrite::published_count(repo, &branch, &plan)?;
@@ -1286,6 +1069,322 @@ pub fn move_with(
         branchmeta::write(repo, &branch, &meta)?;
     }
 
+    let report = move_report(
+        repo,
+        verb,
+        branch,
+        &run,
+        &plan,
+        Landed {
+            files,
+            published,
+            paths: paths.clone(),
+            reworded_subject,
+            // The exact open tree from above, not `ctx.pre_tree`: the
+            // capture floor may have size-capped a blob out of `pre_tree`
+            // while the exact tree kept it, and comparing the capped tree
+            // would report work still open when there is none. A resolution
+            // landing left the tree standing on the new tip, so nothing is
+            // open there by construction.
+            still_open: run.includes_open() && return_trip.is_none() && open_tree != new_tip_tree,
+            cascade: cascade.report,
+        },
+    )?;
+    Ok((MoveOutcome::Moved(Box::new(report)), ctx))
+}
+
+/// The ends, defaulted by the verb's word, resolved onto the branch's line,
+/// and refused where a bare word would do something it should not. Absorb's
+/// default target is the commit under the lowest source, which needs the
+/// sources placed first; the placeholder is the tip, and the run is resolved
+/// again once the sources are known.
+fn resolve_ends(repo: &gix::Repository, opts: &MoveOptions, tip: gix::ObjectId) -> Result<Run> {
+    let verb = opts.verb;
+    let from: Vec<Endpoint> = match &opts.from {
+        Some(from) => from.clone(),
+        None => match verb {
+            MoveVerb::Absorb => vec![Endpoint::Open],
+            MoveVerb::Lift => vec![Endpoint::Commit(tip)],
+        },
+    };
+    let into = match opts.into {
+        Some(into) => into,
+        None => match verb {
+            MoveVerb::Absorb => under_the_sources(repo, verb, tip, &from)?,
+            MoveVerb::Lift => Endpoint::Open,
+        },
+    };
+    // The bare words: absorb aimed at the open change is where the changes
+    // already are, and lift taking from the open change has nothing
+    // committed to take. Any other move whose target is its only source is
+    // the generic refusal, raised by `resolve_run`.
+    if into == Endpoint::Open && from == [Endpoint::Open] {
+        return Err(match (verb, opts.from.is_none(), opts.into.is_none()) {
+            (MoveVerb::Absorb, true, _) => Error::coded(
+                "usage/absorb-into-open",
+                "the open change is already where your changes are: name a commit that has \
+                 closed",
+                vec!["ff absorb".into(), "ff commit -m <msg>".into()],
+            ),
+            (MoveVerb::Lift, _, true) => Error::coded(
+                "usage/lift-from-open",
+                "the open change has nothing committed to lift out of: name a commit that has \
+                 closed",
+                vec!["ff lift".into(), "ff log".into()],
+            ),
+            _ => Error::coded(
+                "usage/move-into-self",
+                "the open change is the only source and the target: there is nothing to move",
+                vec![
+                    match verb {
+                        MoveVerb::Absorb => "ff absorb --from <revset> --into <rev>".into(),
+                        MoveVerb::Lift => "ff lift --from <revset> --into <rev>".into(),
+                    },
+                    "ff log".into(),
+                ],
+            ),
+        });
+    }
+    let run = resolve_run(repo, verb, tip, &from, into)?;
+
+    // A default target on trunk: the sources sit at the bottom of the
+    // branch, and the commit under them is trunk's. Rewriting trunk by
+    // default is not a thing a bare word should do, so it is named or
+    // nothing. A trunk that cannot be resolved is not consulted.
+    if opts.into.is_none()
+        && let Endpoint::Commit(target) = run.into
+        && run.from.iter().any(|end| *end != Endpoint::Open)
+        && let Ok(trunk) = crate::trunk::trunk(repo)
+        && let Some(trunk_tip) = refs::ref_target(repo, &trunk.full_ref)?
+        && on_line_of(repo, target, trunk_tip)?
+    {
+        // Only absorb reaches here: lift's default target is the open change.
+        let lo = run.lo();
+        let exit = if run.from.len() == 1 {
+            format!("ff absorb --into {}", lo.short())
+        } else {
+            let hi_spelled = match run.hi() {
+                Endpoint::Open => "@".to_string(),
+                Endpoint::Commit(id) => crate::sha::short_oid(id),
+            };
+            format!(
+                "ff absorb --from {}..{} --into {}",
+                lo.short(),
+                hi_spelled,
+                lo.short()
+            )
+        };
+        return Err(Error::coded(
+            "absorb/into-trunk",
+            format!(
+                "the commit under {} is {}, on {}: name the commit to move into",
+                lo.short(),
+                crate::sha::short_oid(target),
+                trunk.name
+            ),
+            vec![exit, "ff log".into()],
+        ));
+    }
+    Ok(run)
+}
+
+/// Nothing selected anywhere: the verb's outcome for a move with no content.
+fn nothing_to_move(verb: MoveVerb, branch: &str) -> MoveOutcome {
+    MoveOutcome::Nothing {
+        verb: verb.as_str().to_string(),
+        branch: branch.to_string(),
+    }
+}
+
+/// What `-m` means for the move, by the target's kind.
+struct Reword {
+    /// A closed target's new message, through the hooks.
+    message: Option<BString>,
+    /// The open change's pending description.
+    pending: Option<String>,
+    /// The target's subject as the report names it: the reword's, when there
+    /// is one, since that is what the commit says once it lands.
+    reworded_subject: Option<String>,
+}
+
+/// `-m`: a reword for a closed target, through the message hooks the way
+/// `ff describe <rev>` runs them; the pending description for the open
+/// change. A resolution landing (`fresh` false) carries the text the hold
+/// recorded, which already went through the hooks.
+fn reword_for(
+    repo: &gix::Repository,
+    opts: &MoveOptions,
+    run: &Run,
+    fresh: bool,
+) -> Result<Reword> {
+    let verb = opts.verb;
+    let mut reword = Reword {
+        message: None,
+        pending: None,
+        reworded_subject: None,
+    };
+    let Some(text) = &opts.message else {
+        return Ok(reword);
+    };
+    match run.into {
+        Endpoint::Commit(target) => {
+            let normalized = crate::close::normalize_message(text);
+            let normalized = if fresh {
+                let target_hex = target.to_string();
+                crate::close::normalize_message(&hooks::message_hooks(
+                    repo,
+                    &normalized,
+                    hooks::MsgSource::Commit(&target_hex),
+                    opts.verify,
+                    verb.as_str(),
+                )?)
+            } else {
+                normalized
+            };
+            if normalized.is_empty() {
+                return Err(Error::coded(
+                    "usage/needs-message",
+                    "the commit-msg hook left the description empty; a reworded commit \
+                     needs one",
+                    vec![match verb {
+                        MoveVerb::Absorb => "ff absorb -m <msg>".into(),
+                        MoveVerb::Lift => "ff lift -m <msg>".into(),
+                    }],
+                ));
+            }
+            reword.reworded_subject = Some(
+                normalized
+                    .lines()
+                    .next()
+                    .unwrap_or("(no description)")
+                    .to_string(),
+            );
+            reword.message = Some(normalized.into());
+        }
+        Endpoint::Open => {
+            let text = text.trim_end().to_string();
+            if !text.is_empty() {
+                reword.pending = Some(text);
+            }
+        }
+    }
+    Ok(reword)
+}
+
+/// The plan's folds can conflict before a single descendant is replayed, so
+/// the plan is built first against a handle that writes nothing. A
+/// conflicted fold is where the move holds: the fold cannot apply the open
+/// change to the target — `at` is the open change — or cannot fold a closed
+/// source into it — `at` is the target.
+fn probe_folds(
+    repo: &gix::Repository,
+    tip: gix::ObjectId,
+    run: &Run,
+    paths: &[String],
+    open_tree: gix::ObjectId,
+    message: Option<BString>,
+) -> Result<Option<(At, Vec<String>)>> {
+    let memory = repo.clone().with_object_memory();
+    let probe = plan_move(&memory, tip, run, paths, open_tree, message)?;
+    let target_at = || match run.into {
+        Endpoint::Commit(id) => At::Commit {
+            id: id.to_string(),
+            subject: subject(repo, id).unwrap_or_default(),
+        },
+        Endpoint::Open => At::OpenChange,
+    };
+    Ok(if !probe.bottom_conflicts.is_empty() {
+        Some((
+            if run.includes_open() {
+                At::OpenChange
+            } else {
+                target_at()
+            },
+            probe.bottom_conflicts,
+        ))
+    } else if !probe.into_conflicts.is_empty() {
+        Some((target_at(), probe.into_conflicts))
+    } else {
+        None
+    })
+}
+
+/// The move holds at `at` over `conflicted`: the hold is recorded on the
+/// branch and the verb returns it. `of` is the size of the stack the replay
+/// would have restacked — 0 from the fold probe, where the move never
+/// reached a replay and the size is unknown rather than invented.
+#[allow(clippy::too_many_arguments)]
+fn held_outcome(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    prov: &Provenance,
+    opts: &MoveOptions,
+    branch: &str,
+    run: &Run,
+    at: At,
+    conflicted: Vec<String>,
+    of: usize,
+) -> Result<(MoveOutcome, verb::VerbContext)> {
+    let verb = opts.verb;
+    let now = ctx.now;
+    let from: Vec<String> = run.from.iter().map(|end| end.spell()).collect();
+    let intent = match verb {
+        MoveVerb::Absorb => Intent::Absorb {
+            from,
+            into: run.into.spell(),
+            message: opts.message.clone(),
+            paths: opts.paths.clone(),
+        },
+        MoveVerb::Lift => Intent::Lift {
+            from,
+            into: run.into.spell(),
+            message: opts.message.clone(),
+            paths: opts.paths.clone(),
+        },
+    };
+    let held = Held {
+        intent,
+        at,
+        paths: conflicted,
+        time: now,
+    };
+    let report = hold(
+        repo,
+        held::Recording {
+            ctx: &ctx,
+            prov,
+            argv: opts.argv.clone(),
+            now,
+        },
+        verb,
+        branch,
+        &held,
+        format!("hold {} {}", verb.as_str(), run.describe()),
+        of,
+    )?;
+    Ok((MoveOutcome::Held(report), ctx))
+}
+
+/// What the write left behind, for the report.
+struct Landed {
+    files: Vec<String>,
+    published: usize,
+    paths: Vec<String>,
+    reworded_subject: Option<String>,
+    still_open: bool,
+    cascade: Cascade,
+}
+
+/// The report: each end's new identity — or the fact that the rewrite
+/// dropped it — and the branches the plan carried.
+fn move_report(
+    repo: &gix::Repository,
+    verb: MoveVerb,
+    branch: String,
+    run: &Run,
+    plan: &rewrite::RewritePlan,
+    landed: Landed,
+) -> Result<MoveReport> {
     let branch_ref = format!("refs/heads/{branch}");
     let moved: Vec<String> = plan
         .carried
@@ -1299,7 +1398,6 @@ pub fn move_with(
         })
         .collect();
 
-    // Each end's new identity — or the fact that the rewrite dropped it.
     // Absent from `rewrites` legitimately only when the plan names it in
     // `dropped`; anywhere else it is an ordering bug, not a drop.
     let new_of = |id: gix::ObjectId| -> Result<Option<String>> {
@@ -1342,7 +1440,7 @@ pub fn move_with(
         Endpoint::Commit(id) => MoveTarget {
             id: id.to_string(),
             new: new_of(id)?,
-            subject: Some(match reworded_subject {
+            subject: Some(match landed.reworded_subject {
                 Some(reworded) => reworded,
                 None => subject(repo, id)?,
             }),
@@ -1353,29 +1451,20 @@ pub fn move_with(
     let ends_rewritten = from_report.iter().filter(|s| s.new.is_some()).count()
         + usize::from(into_report.new.is_some());
 
-    Ok((
-        MoveOutcome::Moved(Box::new(MoveReport {
-            verb: verb.as_str().to_string(),
-            branch,
-            from: from_report,
-            into: into_report,
-            files,
-            restacked: plan.rewrites.len().saturating_sub(ends_rewritten),
-            moved,
-            published,
-            paths: paths.clone(),
-            // The exact open tree from above, not `ctx.pre_tree`: the
-            // capture floor may have size-capped a blob out of `pre_tree`
-            // while the exact tree kept it, and comparing the capped tree
-            // would report work still open when there is none. A resolution
-            // landing left the tree standing on the new tip, so nothing is
-            // open there by construction.
-            still_open: run.includes_open() && return_trip.is_none() && open_tree != new_tip_tree,
-            dropped: plan.dropped.clone(),
-            cascade: cascade.report,
-        })),
-        ctx,
-    ))
+    Ok(MoveReport {
+        verb: verb.as_str().to_string(),
+        branch,
+        from: from_report,
+        into: into_report,
+        files: landed.files,
+        restacked: plan.rewrites.len().saturating_sub(ends_rewritten),
+        moved,
+        published: landed.published,
+        paths: landed.paths,
+        still_open: landed.still_open,
+        dropped: plan.dropped.clone(),
+        cascade: landed.cascade,
+    })
 }
 
 /// Absorb's default target: the commit under the lowest source. The
