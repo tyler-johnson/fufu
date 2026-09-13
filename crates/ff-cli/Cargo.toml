@@ -27,6 +27,7 @@ gix = { workspace = true, features = [
 clap.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
+toml.workspace = true
 anstyle.workspace = true
 anstream.workspace = true
 ureq.workspace = true

@@ -437,17 +437,17 @@ fn the_config_registry_is_generated() {
 /// stays with `ff explain <id>`.
 fn errors_region() -> String {
     let mut out = String::from(
-        "<!-- errors:begin — generated from ENTRIES in crates/ff-cli/src/explain.rs by a \
+        "<!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a \
          test; edit there, then make docs-gen -->\n\n| id | exit | meaning |\n| --- | --- | --- |\n",
     );
     let mut entries: Vec<&crate::explain::Entry> = crate::explain::ENTRIES.iter().collect();
-    entries.sort_by_key(|e| e.id);
+    entries.sort_by_key(|e| e.id.as_str());
     for entry in entries {
         let _ = writeln!(
             out,
             "| `{}` | {} | {} |",
             entry.id,
-            ff_core::exit_code_for(entry.id),
+            ff_core::exit_code_for(&entry.id),
             entry.summary
         );
     }

@@ -22,6 +22,9 @@ gix = { version = "0.87.1", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The error registry (`crates/ff-cli/src/explain/errors.toml`), parsed once on
+# first use; only reading, so the writer stays out.
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 anstyle = "1"

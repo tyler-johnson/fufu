@@ -27,7 +27,7 @@ The near miss is `push/unrecorded`, which stays at 1: the push landed and only t
 
 Every id in the registry behind `ff explain`, one row each, with the code it exits and its one-line meaning. Two ids are structural rather than raised. `internal` is what every uncoded failure reports, and its message is the whole of what is known. `repo/not-found` is the command running somewhere no git repository can be found. The table is generated from `crates/ff-cli/src/explain.rs` by a test — edit there, then `make docs-gen`.
 
-<!-- errors:begin — generated from ENTRIES in crates/ff-cli/src/explain.rs by a test; edit there, then make docs-gen -->
+<!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a test; edit there, then make docs-gen -->
 
 | id | exit | meaning |
 | --- | --- | --- |
