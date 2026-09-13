@@ -297,53 +297,7 @@ fn finish_resolution(
         .map(|s| gix::ObjectId::from_hex(s.old.as_bytes()).map_err(Error::repo))
         .transpose()?;
 
-    // A step still carrying a marker means the reader's fix created a
-    // conflict further up the stack — one they were never shown, because the
-    // run that laid the markers down did not get that far or did not produce
-    // it. Nothing lands: the session stays open and the working tree stays
-    // theirs, so the way forward is to edit it again and re-run `ff done`.
-    // The shown step is exempt: its tree is the working tree, applied by the
-    // override below, and that is the same reason `attribute` returns no
-    // resolution for it.
-    let mut stuck: Option<(gix::ObjectId, String)> = None;
-    for step in &landed.steps {
-        let id = gix::ObjectId::from_hex(step.old.as_bytes()).map_err(Error::repo)?;
-        if Some(id) == shown {
-            continue;
-        }
-        for path in &step.paths {
-            if stuck.is_none() && rewrite::carries_markers(repo, step.tree, path)? {
-                stuck = Some((id, step.subject.clone()));
-            }
-        }
-    }
-    // A re-run that tangles is the same refusal from the other side: two
-    // conflicts land on one region, so the chain cannot even carry them
-    // forward to be shown.
-    if let Some(tangle) = &landed.tangled
-        && stuck.is_none()
-    {
-        stuck = Some((
-            gix::ObjectId::from_hex(tangle.old.as_bytes()).map_err(Error::repo)?,
-            tangle.subject.clone(),
-        ));
-    }
-    if let Some((id, subject)) = stuck {
-        return Err(Error::coded(
-            "held/unresolved",
-            format!(
-                "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working copy \
-                 again and re-run ff done",
-                crate::sha::short_oid(id),
-                subject
-            ),
-            vec![
-                "ff status".into(),
-                "ff done".into(),
-                "ff resolve --abandon".into(),
-            ],
-        ));
-    }
+    refuse_if_stuck(repo, &landed, shown)?;
 
     // 5. Decide the trees: each step takes the tree the re-run gave it, and
     // the SHOWN step takes the working tree — it is what the reader typed, so
@@ -380,123 +334,13 @@ fn finish_resolution(
             return_trip: Some(return_trip),
         }),
     };
-    // The branch the landed stack sits on, and its new tip. Both come off
-    // the verb's own report rather than being re-read here: a landed `done`
-    // has deleted the session branch this arm was standing on, so asking the
-    // repository for "the branch's tip" would ask about a ref that is gone.
-    //
-    // Each verb cascades onto the branches stacked above the one it moved,
-    // decided or not, and that is the resumption: the subtree the hold
-    // stopped replays from the landed tip, inside the landing's own
-    // operation. The arm only carries the verb's account of it.
     let Landed {
         replayed,
         landed_on,
         new_tip,
         cascade,
         arrival,
-    } = match &hold.intent {
-        Intent::Restack { branch, onto } => {
-            let (outcome, _ctx, arrival) = crate::restack::restack_landing(
-                repo,
-                Some(branch.clone()),
-                Some(onto.clone()),
-                rec.prov,
-                (Some(rec.now), rec.argv.clone()),
-                &decided,
-                crate::restack::Aim::Settled,
-            )?;
-            match outcome {
-                crate::RestackOutcome::Restacked(report) => Landed {
-                    replayed: report.replayed,
-                    landed_on: report.branch,
-                    new_tip: report.new_tip,
-                    cascade: report.cascade,
-                    arrival,
-                },
-                other => {
-                    return Err(Error::msg(format!(
-                        "internal: the decided restack did not land: {other:?}"
-                    )));
-                }
-            }
-        }
-        Intent::Done { .. } => {
-            let (outcome, _ctx) = done_with(
-                repo,
-                false,
-                verify,
-                rec.prov,
-                (Some(rec.now), rec.argv.clone()),
-                &decided,
-            )?;
-            match outcome {
-                DoneOutcome::Done(report) => Landed {
-                    replayed: report.replayed,
-                    landed_on: report.onto,
-                    new_tip: report.new_tip,
-                    cascade: report.cascade,
-                    arrival: report.arrival,
-                },
-                other => {
-                    return Err(Error::msg(format!(
-                        "internal: the decided done did not land: {other:?}"
-                    )));
-                }
-            }
-        }
-        Intent::Absorb { .. } | Intent::Lift { .. } => {
-            let held::MoveIntent {
-                verb,
-                from,
-                into,
-                message,
-                paths,
-            } = hold.intent.as_move().expect("the arm matched a move");
-            let from: Vec<crate::absorb::Endpoint> = from
-                .iter()
-                .map(|end| crate::absorb::Endpoint::parse(end))
-                .collect::<Result<_>>()?;
-            let into = crate::absorb::Endpoint::parse(into)?;
-            let (outcome, _ctx) = crate::absorb::move_with(
-                repo,
-                &crate::absorb::MoveOptions {
-                    verb,
-                    from: Some(from),
-                    into: Some(into),
-                    paths: paths.to_vec(),
-                    message: message.map(String::from),
-                    verify,
-                    now: Some(rec.now),
-                    argv: rec.argv.clone(),
-                },
-                rec.prov,
-                &decided,
-            )?;
-            match outcome {
-                crate::MoveOutcome::Moved(report) => Landed {
-                    replayed: report.restacked,
-                    new_tip: tip_of(repo, &report.branch)?,
-                    landed_on: report.branch,
-                    cascade: report.cascade,
-                    arrival: ArrivalReport::None,
-                },
-                other => {
-                    return Err(Error::msg(format!(
-                        "internal: the decided {} did not land: {other:?}",
-                        verb.as_str()
-                    )));
-                }
-            }
-        }
-        // An arrival hold is resolved in place by `ff resolve`; it never has
-        // a session to land.
-        Intent::Arrive { .. } => {
-            return Err(Error::msg(
-                "internal: a held arrival has no resolution session to land",
-            ));
-        }
-    };
+    } = land_decided(repo, &rec, hold, &decided, verify)?;
 
     // The landing moved refs and rewrote the index to match: the staged
     // index is no longer provisional. Every exit above — a declining hook,
@@ -545,6 +389,182 @@ fn finish_resolution(
         arrival,
         cascade,
     }))
+}
+
+/// A step still carrying a marker means the reader's fix created a
+/// conflict further up the stack — one they were never shown, because the
+/// run that laid the markers down did not get that far or did not produce
+/// it. Nothing lands: the session stays open and the working tree stays
+/// theirs, so the way forward is to edit it again and re-run `ff done`.
+/// The shown step is exempt: its tree is the working tree, applied by the
+/// override in `finish_resolution`, and that is the same reason `attribute`
+/// returns no resolution for it.
+fn refuse_if_stuck(
+    repo: &gix::Repository,
+    landed: &rewrite::Chain,
+    shown: Option<gix::ObjectId>,
+) -> Result<()> {
+    let mut stuck: Option<(gix::ObjectId, String)> = None;
+    for step in &landed.steps {
+        let id = gix::ObjectId::from_hex(step.old.as_bytes()).map_err(Error::repo)?;
+        if Some(id) == shown {
+            continue;
+        }
+        for path in &step.paths {
+            if stuck.is_none() && rewrite::carries_markers(repo, step.tree, path)? {
+                stuck = Some((id, step.subject.clone()));
+            }
+        }
+    }
+    // A re-run that tangles is the same refusal from the other side: two
+    // conflicts land on one region, so the chain cannot even carry them
+    // forward to be shown.
+    if let Some(tangle) = &landed.tangled
+        && stuck.is_none()
+    {
+        stuck = Some((
+            gix::ObjectId::from_hex(tangle.old.as_bytes()).map_err(Error::repo)?,
+            tangle.subject.clone(),
+        ));
+    }
+    if let Some((id, subject)) = stuck {
+        return Err(Error::coded(
+            "held/unresolved",
+            format!(
+                "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working copy \
+                 again and re-run ff done",
+                crate::sha::short_oid(id),
+                subject
+            ),
+            vec![
+                "ff status".into(),
+                "ff done".into(),
+                "ff resolve --abandon".into(),
+            ],
+        ));
+    }
+    Ok(())
+}
+
+/// Land the decided stack through the verb that owns the rewrite. The
+/// branch the landed stack sits on and its new tip both come off the verb's
+/// own report rather than being re-read here: a landed `done` has deleted
+/// the session branch this arm was standing on, so asking the repository
+/// for "the branch's tip" would ask about a ref that is gone.
+///
+/// Each verb cascades onto the branches stacked above the one it moved,
+/// decided or not, and that is the resumption: the subtree the hold stopped
+/// replays from the landed tip, inside the landing's own operation. The arm
+/// only carries the verb's account of it.
+fn land_decided(
+    repo: &gix::Repository,
+    rec: &held::Recording<'_>,
+    hold: &Held,
+    decided: &rewrite::Decided,
+    verify: hooks::Verify,
+) -> Result<Landed> {
+    Ok(match &hold.intent {
+        Intent::Restack { branch, onto } => {
+            let (outcome, _ctx, arrival) = crate::restack::restack_landing(
+                repo,
+                Some(branch.clone()),
+                Some(onto.clone()),
+                rec.prov,
+                (Some(rec.now), rec.argv.clone()),
+                decided,
+                crate::restack::Aim::Settled,
+            )?;
+            match outcome {
+                crate::RestackOutcome::Restacked(report) => Landed {
+                    replayed: report.replayed,
+                    landed_on: report.branch,
+                    new_tip: report.new_tip,
+                    cascade: report.cascade,
+                    arrival,
+                },
+                other => {
+                    return Err(Error::msg(format!(
+                        "internal: the decided restack did not land: {other:?}"
+                    )));
+                }
+            }
+        }
+        Intent::Done { .. } => {
+            let (outcome, _ctx) = done_with(
+                repo,
+                false,
+                verify,
+                rec.prov,
+                (Some(rec.now), rec.argv.clone()),
+                decided,
+            )?;
+            match outcome {
+                DoneOutcome::Done(report) => Landed {
+                    replayed: report.replayed,
+                    landed_on: report.onto,
+                    new_tip: report.new_tip,
+                    cascade: report.cascade,
+                    arrival: report.arrival,
+                },
+                other => {
+                    return Err(Error::msg(format!(
+                        "internal: the decided done did not land: {other:?}"
+                    )));
+                }
+            }
+        }
+        Intent::Absorb { .. } | Intent::Lift { .. } => {
+            let held::MoveIntent {
+                verb,
+                from,
+                into,
+                message,
+                paths,
+            } = hold.intent.as_move().expect("the arm matched a move");
+            let from: Vec<crate::absorb::Endpoint> = from
+                .iter()
+                .map(|end| crate::absorb::Endpoint::parse(end))
+                .collect::<Result<_>>()?;
+            let into = crate::absorb::Endpoint::parse(into)?;
+            let (outcome, _ctx) = crate::absorb::move_with(
+                repo,
+                &crate::absorb::MoveOptions {
+                    verb,
+                    from: Some(from),
+                    into: Some(into),
+                    paths: paths.to_vec(),
+                    message: message.map(String::from),
+                    verify,
+                    now: Some(rec.now),
+                    argv: rec.argv.clone(),
+                },
+                rec.prov,
+                decided,
+            )?;
+            match outcome {
+                crate::MoveOutcome::Moved(report) => Landed {
+                    replayed: report.restacked,
+                    new_tip: tip_of(repo, &report.branch)?,
+                    landed_on: report.branch,
+                    cascade: report.cascade,
+                    arrival: ArrivalReport::None,
+                },
+                other => {
+                    return Err(Error::msg(format!(
+                        "internal: the decided {} did not land: {other:?}",
+                        verb.as_str()
+                    )));
+                }
+            }
+        }
+        // An arrival hold is resolved in place by `ff resolve`; it never has
+        // a session to land.
+        Intent::Arrive { .. } => {
+            return Err(Error::msg(
+                "internal: a held arrival has no resolution session to land",
+            ));
+        }
+    })
 }
 
 /// The triple an editing session lands: the anchor takes the session's
@@ -694,54 +714,16 @@ pub fn done_with(
         HeadState::Unborn { .. } | HeadState::Detached { .. } => return Err(session_none()),
     };
 
-    // 3b. A resolution session underfoot: this branch was minted by
-    // `ff resolve` over a held rewrite's conflicts, and finishing them is
-    // this verb's job — not the editing-session landing below, which would
-    // read the markers as the session's own content. `decided.clearing` set
-    // means this call IS such a landing (entered from the arm below), in
-    // which case the return trip rides its own operation and the ordinary
-    // path runs.
+    // 3b. A resolution session underfoot is this verb's job to finish, not
+    // the editing-session landing below. `decided.clearing` set means this
+    // call IS such a landing (entered from the arm), in which case the return
+    // trip rides its own operation and the ordinary path runs.
     let clearing = decided.clearing.as_ref();
     if clearing.is_none()
-        && let Some((onto, resolve)) = held::session_of(repo, &session_branch)?
+        && let Some(outcome) =
+            resolution_underfoot(repo, &ctx, prov, &argv, &session_branch, abandon, verify)?
     {
-        if abandon {
-            // Abandoning a resolution is the same act whichever verb spells
-            // it: one implementation, called from both doors.
-            let (outcome, _ctx) = crate::resolve::resolve(repo, true, prov, Some(now), argv)?;
-            return Ok((abandoned_as_done(outcome)?, ctx));
-        }
-        let rec = held::Recording {
-            ctx: &ctx,
-            prov,
-            argv,
-            now,
-        };
-        return Ok((
-            finish_resolution(repo, rec, &onto, &resolve, &session_branch, verify)?,
-            ctx,
-        ));
-    }
-    // The branch the hold stands on, whose session is open elsewhere: the
-    // way to its markers is a switch, not this verb.
-    if clearing.is_none()
-        && let Some(open) = held::resolving(repo, &session_branch)?
-    {
-        if open.session.is_empty() {
-            return Err(held::predates_sessions(&session_branch));
-        }
-        return Err(Error::coded(
-            "held/resolving",
-            format!(
-                "a resolution of {session_branch} is open on {}",
-                open.session
-            ),
-            vec![
-                format!("ff switch {}", open.session),
-                "ff resolve --abandon".into(),
-                "ff status".into(),
-            ],
-        ));
+        return Ok((outcome, ctx));
     }
 
     // Under a resolution landing HEAD stands on the resolution session, and
@@ -763,210 +745,52 @@ pub fn done_with(
         None => session_tip,
     };
 
-    let meta = branchmeta::read(repo, &session_branch)?;
-    let Some(sess) = meta.session.clone() else {
-        return Err(session_none());
-    };
+    let Session {
+        sess,
+        onto,
+        onto_tip,
+        anchor,
+        anchor_short,
+        anchor_subject,
+    } = session_guards(repo, abandon, &session_branch, session_tip)?;
 
-    let onto = sess.onto.clone();
-    let anchor = gix::ObjectId::from_hex(sess.at.as_bytes()).map_err(Error::repo)?;
-    let anchor_short = crate::sha::short_oid(anchor);
-    let anchor_subject = subject(repo, anchor)?;
-
-    // 4a. A commit landed on top of the session — the branch grew — refuses:
-    // finishing would amend the anchor and leave the landed commit behind.
-    // A rewrite of the anchor in place (`ff absorb`, `ff lift`, `ff describe`)
-    // does not grow the branch: the rewrite copies the parent list, so the
-    // first-parent comparison accepts it. Landing path only — abandon drops
-    // the session anyway.
-    if !abandon {
-        let tip_parent = first_parent(repo, session_tip)?;
-        let anchor_parent = first_parent(repo, anchor)?;
-        if tip_parent != anchor_parent {
-            return Err(Error::coded(
-                "session/moved",
-                format!(
-                    "{session_branch} has commits of its own since the session opened: \
-                     finishing would amend {anchor_short} and leave them behind"
-                ),
-                vec!["ff done --abandon".into(), "ff undo".into()],
-            ));
-        }
-    }
-
-    // 4b. `onto` must still exist — both paths.
     let onto_ref = format!("refs/heads/{onto}");
-    let onto_tip = refs::ref_target(repo, &onto_ref)?.ok_or_else(|| {
-        Error::coded(
-            "branch/not-found",
-            format!("{onto}, the branch this session replays onto, no longer exists"),
-            vec!["ff switch <branch>".into()],
-        )
-    })?;
-    branch::guard_other_worktrees(repo, &onto)?;
-
-    // 4c. The edited commit must still be in `onto`'s history — landing path only.
-    if !abandon {
-        let bases: Vec<gix::ObjectId> = repo
-            .merge_bases_many(anchor, &[onto_tip])
-            .map_err(Error::repo)?
-            .into_iter()
-            .map(|id| id.detach())
-            .collect();
-        if !bases.contains(&anchor) {
-            return Err(Error::coded(
-                "session/unreachable",
-                format!(
-                    "{anchor_short} \"{anchor_subject}\" is no longer in {onto}'s history: this \
-                     session has nothing to land onto"
-                ),
-                vec!["ff done --abandon".into(), "ff log".into()],
-            ));
-        }
-    }
-
     let session_ref = format!("refs/heads/{session_branch}");
     let session_tip_tree = tree_of(repo, session_tip)?;
     let return_trip = clearing.and_then(|c| c.return_trip.as_ref());
 
     // 5. The landing path: the rewrite. Planning only — no ref moves yet.
-    // The anchor is what sits in `onto`'s history and therefore what can be
-    // replayed onto; the tip only says what the content became.
-    let mut rewrite_plan: Option<rewrite::RewritePlan> = None;
-    let mut unchanged = false;
-    let mut worktree_tree: Option<gix::ObjectId> = None;
-    // The pre-commit gate's index window, opened below and disarmed once the
-    // refs have moved. It lives out here so every `?` between the two drops
-    // it armed and puts `.git/index` back byte-for-byte.
-    let mut window = None;
+    let mut landing = LandingPlan::default();
     if !abandon {
-        let anchor_tree = tree_of(repo, anchor)?;
-        // The triple the session lands — the same one `held::replan`
-        // re-derives, so the verb and the replan cannot disagree. Under a
-        // resolution the session's content comes from what the session
-        // recorded, because the markers are standing in the working tree.
-        let session_open = clearing
-            .and_then(|c| c.resolve.as_ref())
-            .and_then(|s| s.open.as_deref())
-            .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
-            .transpose()?;
-        let mut change = replan_done(repo, &session_branch, session_open)?.change;
-
-        // The pre-commit gate. An edit session's worktree is about to become
-        // the anchor's content, so the gate runs over the tree the session
-        // assembled, and a formatter's fixes are re-read into what gets
-        // amended. A resolution landing has already run it in
-        // `finish_resolution`: this re-entry must not run it a second time.
-        if decided.clearing.is_none()
-            && verify == hooks::Verify::Run
-            && let rewrite::Change::Tree { tree, .. } = &change
-            && hooks::will_run(repo, &["pre-commit"])?
-        {
-            let (opened, ran) = hooks::Window::open(repo, *tree, &[], verify, "done")?;
-            window = Some(opened);
-            if ran {
-                change = replan_done(repo, &session_branch, session_open)?.change;
-            }
-        }
-
-        let (assembled, reworded) = match &change {
-            rewrite::Change::Tree { tree, message } => (*tree, message.is_some()),
-            other => {
-                return Err(Error::msg(format!(
-                    "internal: a session landing is not a tree change: {other:?}"
-                )));
-            }
+        landing = match plan_landing(
+            repo,
+            &ctx,
+            prov,
+            &argv,
+            verify,
+            decided,
+            &session_branch,
+            anchor,
+            onto_tip,
+        )? {
+            Planned::Held(report) => return Ok((DoneOutcome::Held(report), ctx)),
+            Planned::Landing(plan) => plan,
         };
-        // The amend is one tree change carrying both halves that differ
-        // from the anchor: the content the worktree holds, and the tip's
-        // message if a reword landed on the tip under us. A pure reword is
-        // the same change with the anchor's own tree, so no merge runs
-        // anywhere. Neither differs and there is nothing to land.
-        if assembled == anchor_tree && !reworded {
-            unchanged = true;
-        } else {
-            // The amend and the replay behind it are one rewrite. Pre-flight it
-            // with the same `change` `plan` will get: a conflict is a hold, and
-            // after a clean pre-flight `plan` cannot conflict. Returning here
-            // stays on the planning side of `done` — nothing has mutated, so
-            // the session is still open for `ff resolve` or a clean retry.
-            // Skipped for a decided landing: its trees are already known, so
-            // the replay has nothing left to conflict on.
-            if decided.is_empty()
-                && let Some(conflict) = rewrite::conflict(repo, anchor, onto_tip, &change)?
-            {
-                // The hold is recorded on the session branch: that is the branch
-                // underfoot and the one `ff resolve` will find, not `onto`.
-                let held = Held {
-                    intent: Intent::Done {
-                        session: session_branch.clone(),
-                    },
-                    at: conflict.at.clone(),
-                    paths: conflict.paths.clone(),
-                    time: now,
-                };
-                return Ok((
-                    DoneOutcome::Held(hold(
-                        repo,
-                        held::Recording {
-                            ctx: &ctx,
-                            prov,
-                            argv,
-                            now,
-                        },
-                        &session_branch,
-                        &held,
-                        format!("hold done of {session_branch}"),
-                        conflict.of,
-                    )?),
-                    ctx,
-                ));
-            }
-            // The session carries a description the anchor does not: a
-            // message authored for a commit, so both message hooks run over
-            // it, named as an amend the way git names `commit --amend` to
-            // `prepare-commit-msg`. A declining `commit-msg` refuses here,
-            // before anything is planned.
-            if let rewrite::Change::Tree {
-                message: Some(text),
-                ..
-            } = &mut change
-            {
-                let anchor_hex = anchor.to_string();
-                let before = text.to_string();
-                let hooked = hooks::message_hooks(
-                    repo,
-                    &before,
-                    hooks::MsgSource::Commit(&anchor_hex),
-                    verify,
-                    "done",
-                )?;
-                // Untouched messages are left exactly as the session tip
-                // carries them: cleanup is git's answer to a hook having
-                // edited the file, not a rewrite of what was already a
-                // commit message.
-                if hooked != before {
-                    *text = crate::close::normalize_message(&hooked).into();
-                }
-            }
-            rewrite_plan = Some(rewrite::plan_with(
-                repo,
-                anchor,
-                onto_tip,
-                &change,
-                now,
-                &decided.trees,
-            )?);
-        }
-        // What the worktree actually holds, which is `assembled` on an
+        // What the worktree actually holds, which is the assembled tree on an
         // ordinary landing and the resolution session's fixes under a
         // resolution — the amend lands the session's content either way, but
         // the transition below has to start from what is really on disk.
-        worktree_tree = Some(match return_trip {
+        landing.worktree_tree = Some(match return_trip {
             Some(ret) => ret.worktree,
             None => open_tree(repo, session_tip_tree)?.0,
         });
     }
+    let LandingPlan {
+        rewrite_plan,
+        unchanged,
+        worktree_tree,
+        mut window,
+    } = landing;
 
     // 6. The abandon path: what is uncommitted is the session's open commit,
     // left where the capture put it and pinned by this operation. A dirty
@@ -1249,41 +1073,28 @@ pub fn done_with(
     if let ArrivalReport::Restored { files: f, .. } = &arrival_report {
         files += f.len();
     }
-
-    if abandon {
-        Ok((
-            DoneOutcome::Abandoned(AbandonReport {
-                session: session_branch,
-                editing: anchor.to_string(),
-                subject: anchor_subject,
-                onto,
-                left: left.map(|id| id.to_string()),
-                arrival: arrival_report,
-                files,
-            }),
-            ctx,
-        ))
+    let outcome = if abandon {
+        DoneOutcome::Abandoned(AbandonReport {
+            session: session_branch,
+            editing: anchor.to_string(),
+            subject: anchor_subject,
+            onto,
+            left: left.map(|id| id.to_string()),
+            arrival: arrival_report,
+            files,
+        })
     } else {
-        let moved: Vec<String> = carried
-            .iter()
-            .filter(|t| t.name != onto_ref)
-            .map(|t| {
-                t.name
-                    .strip_prefix("refs/heads/")
-                    .unwrap_or(&t.name)
-                    .to_string()
-            })
-            .collect(); // carried is already sorted by ref name
-        Ok((
-            DoneOutcome::Done(DoneReport {
-                session: session_branch,
-                editing: anchor.to_string(),
+        DoneOutcome::Done(done_report(
+            session_branch,
+            anchor,
+            anchor_subject,
+            onto,
+            &onto_ref,
+            &carried,
+            Landing {
                 amended,
-                subject: anchor_subject,
-                onto,
                 replayed,
-                moved,
-                new_tip: new_onto_tip.to_string(),
+                new_tip: new_onto_tip,
                 unchanged,
                 published,
                 published_on,
@@ -1291,8 +1102,369 @@ pub fn done_with(
                 files,
                 dropped,
                 cascade: cascade.report,
-            }),
-            ctx,
+            },
         ))
+    };
+    Ok((outcome, ctx))
+}
+
+/// A resolution session underfoot: this branch was minted by `ff resolve`
+/// over a held rewrite's conflicts, and finishing them is this verb's job —
+/// not the editing-session landing, which would read the markers as the
+/// session's own content. `None` when the branch underfoot is no
+/// resolution session; the branch a hold stands on, whose session is open
+/// elsewhere, is refused here too, since the way to its markers is a
+/// switch.
+fn resolution_underfoot(
+    repo: &gix::Repository,
+    ctx: &verb::VerbContext,
+    prov: &Provenance,
+    argv: &[String],
+    session_branch: &str,
+    abandon: bool,
+    verify: hooks::Verify,
+) -> Result<Option<DoneOutcome>> {
+    let now = ctx.now;
+    if let Some((onto, resolve)) = held::session_of(repo, session_branch)? {
+        if abandon {
+            // Abandoning a resolution is the same act whichever verb spells
+            // it: one implementation, called from both doors.
+            let (outcome, _ctx) =
+                crate::resolve::resolve(repo, true, prov, Some(now), argv.to_vec())?;
+            return Ok(Some(abandoned_as_done(outcome)?));
+        }
+        let rec = held::Recording {
+            ctx,
+            prov,
+            argv: argv.to_vec(),
+            now,
+        };
+        return Ok(Some(finish_resolution(
+            repo,
+            rec,
+            &onto,
+            &resolve,
+            session_branch,
+            verify,
+        )?));
+    }
+    if let Some(open) = held::resolving(repo, session_branch)? {
+        if open.session.is_empty() {
+            return Err(held::predates_sessions(session_branch));
+        }
+        return Err(Error::coded(
+            "held/resolving",
+            format!(
+                "a resolution of {session_branch} is open on {}",
+                open.session
+            ),
+            vec![
+                format!("ff switch {}", open.session),
+                "ff resolve --abandon".into(),
+                "ff status".into(),
+            ],
+        ));
+    }
+    Ok(None)
+}
+
+/// The session on the branch underfoot, once its guards have passed.
+struct Session {
+    sess: branchmeta::Session,
+    onto: String,
+    onto_tip: gix::ObjectId,
+    anchor: gix::ObjectId,
+    anchor_short: String,
+    anchor_subject: String,
+}
+
+/// The session's metadata and the refusals about the triple it lands: the
+/// branch grew since the session opened, `onto` is gone or checked out
+/// elsewhere, or the anchor left `onto`'s history. The abandon path takes
+/// only the `onto` guard: it drops the session whatever became of the rest.
+fn session_guards(
+    repo: &gix::Repository,
+    abandon: bool,
+    session_branch: &str,
+    session_tip: gix::ObjectId,
+) -> Result<Session> {
+    let meta = branchmeta::read(repo, session_branch)?;
+    let Some(sess) = meta.session.clone() else {
+        return Err(session_none());
+    };
+
+    let onto = sess.onto.clone();
+    let anchor = gix::ObjectId::from_hex(sess.at.as_bytes()).map_err(Error::repo)?;
+    let anchor_short = crate::sha::short_oid(anchor);
+    let anchor_subject = subject(repo, anchor)?;
+
+    // 4a. A commit landed on top of the session — the branch grew — refuses:
+    // finishing would amend the anchor and leave the landed commit behind.
+    // A rewrite of the anchor in place (`ff absorb`, `ff lift`, `ff describe`)
+    // does not grow the branch: the rewrite copies the parent list, so the
+    // first-parent comparison accepts it. Landing path only — abandon drops
+    // the session anyway.
+    if !abandon {
+        let tip_parent = first_parent(repo, session_tip)?;
+        let anchor_parent = first_parent(repo, anchor)?;
+        if tip_parent != anchor_parent {
+            return Err(Error::coded(
+                "session/moved",
+                format!(
+                    "{session_branch} has commits of its own since the session opened: \
+                     finishing would amend {anchor_short} and leave them behind"
+                ),
+                vec!["ff done --abandon".into(), "ff undo".into()],
+            ));
+        }
+    }
+
+    // 4b. `onto` must still exist — both paths.
+    let onto_tip = refs::ref_target(repo, &format!("refs/heads/{onto}"))?.ok_or_else(|| {
+        Error::coded(
+            "branch/not-found",
+            format!("{onto}, the branch this session replays onto, no longer exists"),
+            vec!["ff switch <branch>".into()],
+        )
+    })?;
+    branch::guard_other_worktrees(repo, &onto)?;
+
+    // 4c. The edited commit must still be in `onto`'s history — landing path only.
+    if !abandon {
+        let bases: Vec<gix::ObjectId> = repo
+            .merge_bases_many(anchor, &[onto_tip])
+            .map_err(Error::repo)?
+            .into_iter()
+            .map(|id| id.detach())
+            .collect();
+        if !bases.contains(&anchor) {
+            return Err(Error::coded(
+                "session/unreachable",
+                format!(
+                    "{anchor_short} \"{anchor_subject}\" is no longer in {onto}'s history: this \
+                     session has nothing to land onto"
+                ),
+                vec!["ff done --abandon".into(), "ff log".into()],
+            ));
+        }
+    }
+
+    Ok(Session {
+        sess,
+        onto,
+        onto_tip,
+        anchor,
+        anchor_short,
+        anchor_subject,
+    })
+}
+
+/// The landing, planned: nothing has moved.
+#[derive(Default)]
+struct LandingPlan {
+    /// The amend and the replay behind it; `None` when the session changed
+    /// nothing, and on the abandon path.
+    rewrite_plan: Option<rewrite::RewritePlan>,
+    unchanged: bool,
+    /// What the worktree holds, set by the caller once the return trip is
+    /// known.
+    worktree_tree: Option<gix::ObjectId>,
+    /// The pre-commit gate's index window, disarmed once the refs have moved.
+    /// Every `?` between the two drops it armed and puts `.git/index` back
+    /// byte-for-byte.
+    window: Option<hooks::Window>,
+}
+
+enum Planned {
+    Landing(LandingPlan),
+    /// The replay conflicts: the hold is recorded on the session branch —
+    /// the branch underfoot and the one `ff resolve` will find, not `onto` —
+    /// and nothing has mutated, so the session is still open for `ff
+    /// resolve` or a clean retry.
+    Held(HeldReport),
+}
+
+/// Plan the landing: the triple the session lands, the pre-commit gate over
+/// the assembled tree, the pre-flight of the replay, and the message hooks
+/// over a description the anchor does not carry. The anchor is what sits in
+/// `onto`'s history and therefore what can be replayed onto; the tip only
+/// says what the content became.
+#[allow(clippy::too_many_arguments)]
+fn plan_landing(
+    repo: &gix::Repository,
+    ctx: &verb::VerbContext,
+    prov: &Provenance,
+    argv: &[String],
+    verify: hooks::Verify,
+    decided: &rewrite::Decided,
+    session_branch: &str,
+    anchor: gix::ObjectId,
+    onto_tip: gix::ObjectId,
+) -> Result<Planned> {
+    let now = ctx.now;
+    let clearing = decided.clearing.as_ref();
+    let mut landing = LandingPlan::default();
+    let anchor_tree = tree_of(repo, anchor)?;
+    // The triple the session lands — the same one `held::replan`
+    // re-derives, so the verb and the replan cannot disagree. Under a
+    // resolution the session's content comes from what the session
+    // recorded, because the markers are standing in the working tree.
+    let session_open = clearing
+        .and_then(|c| c.resolve.as_ref())
+        .and_then(|s| s.open.as_deref())
+        .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
+        .transpose()?;
+    let mut change = replan_done(repo, session_branch, session_open)?.change;
+
+    // The pre-commit gate. An edit session's worktree is about to become
+    // the anchor's content, so the gate runs over the tree the session
+    // assembled, and a formatter's fixes are re-read into what gets
+    // amended. A resolution landing has already run it in
+    // `finish_resolution`: this re-entry must not run it a second time.
+    if clearing.is_none()
+        && verify == hooks::Verify::Run
+        && let rewrite::Change::Tree { tree, .. } = &change
+        && hooks::will_run(repo, &["pre-commit"])?
+    {
+        let (opened, ran) = hooks::Window::open(repo, *tree, &[], verify, "done")?;
+        landing.window = Some(opened);
+        if ran {
+            change = replan_done(repo, session_branch, session_open)?.change;
+        }
+    }
+
+    let (assembled, reworded) = match &change {
+        rewrite::Change::Tree { tree, message } => (*tree, message.is_some()),
+        other => {
+            return Err(Error::msg(format!(
+                "internal: a session landing is not a tree change: {other:?}"
+            )));
+        }
+    };
+    // The amend is one tree change carrying both halves that differ
+    // from the anchor: the content the worktree holds, and the tip's
+    // message if a reword landed on the tip under us. A pure reword is
+    // the same change with the anchor's own tree, so no merge runs
+    // anywhere. Neither differs and there is nothing to land.
+    if assembled == anchor_tree && !reworded {
+        landing.unchanged = true;
+        return Ok(Planned::Landing(landing));
+    }
+    // The amend and the replay behind it are one rewrite. Pre-flight it
+    // with the same `change` `plan` will get: a conflict is a hold, and
+    // after a clean pre-flight `plan` cannot conflict. Skipped for a
+    // decided landing: its trees are already known, so the replay has
+    // nothing left to conflict on.
+    if decided.is_empty()
+        && let Some(conflict) = rewrite::conflict(repo, anchor, onto_tip, &change)?
+    {
+        let held = Held {
+            intent: Intent::Done {
+                session: session_branch.to_string(),
+            },
+            at: conflict.at.clone(),
+            paths: conflict.paths.clone(),
+            time: now,
+        };
+        return Ok(Planned::Held(hold(
+            repo,
+            held::Recording {
+                ctx,
+                prov,
+                argv: argv.to_vec(),
+                now,
+            },
+            session_branch,
+            &held,
+            format!("hold done of {session_branch}"),
+            conflict.of,
+        )?));
+    }
+    // The session carries a description the anchor does not: a message
+    // authored for a commit, so both message hooks run over it, named as an
+    // amend the way git names `commit --amend` to `prepare-commit-msg`. A
+    // declining `commit-msg` refuses here, before anything is planned.
+    if let rewrite::Change::Tree {
+        message: Some(text),
+        ..
+    } = &mut change
+    {
+        let anchor_hex = anchor.to_string();
+        let before = text.to_string();
+        let hooked = hooks::message_hooks(
+            repo,
+            &before,
+            hooks::MsgSource::Commit(&anchor_hex),
+            verify,
+            "done",
+        )?;
+        // Untouched messages are left exactly as the session tip carries
+        // them: cleanup is git's answer to a hook having edited the file,
+        // not a rewrite of what was already a commit message.
+        if hooked != before {
+            *text = crate::close::normalize_message(&hooked).into();
+        }
+    }
+    landing.rewrite_plan = Some(rewrite::plan_with(
+        repo,
+        anchor,
+        onto_tip,
+        &change,
+        now,
+        &decided.trees,
+    )?);
+    Ok(Planned::Landing(landing))
+}
+
+/// What the landing wrote, for the report.
+struct Landing {
+    amended: Option<String>,
+    replayed: usize,
+    new_tip: gix::ObjectId,
+    unchanged: bool,
+    published: usize,
+    published_on: Option<String>,
+    arrival: ArrivalReport,
+    files: usize,
+    dropped: Vec<rewrite::Dropped>,
+    cascade: Cascade,
+}
+
+/// The landed session's report. `carried` is already sorted by ref name.
+fn done_report(
+    session: String,
+    anchor: gix::ObjectId,
+    subject: String,
+    onto: String,
+    onto_ref: &str,
+    carried: &[RefTransition],
+    landing: Landing,
+) -> DoneReport {
+    let moved: Vec<String> = carried
+        .iter()
+        .filter(|t| t.name != onto_ref)
+        .map(|t| {
+            t.name
+                .strip_prefix("refs/heads/")
+                .unwrap_or(&t.name)
+                .to_string()
+        })
+        .collect();
+    DoneReport {
+        session,
+        editing: anchor.to_string(),
+        amended: landing.amended,
+        subject,
+        onto,
+        replayed: landing.replayed,
+        moved,
+        new_tip: landing.new_tip.to_string(),
+        unchanged: landing.unchanged,
+        published: landing.published,
+        published_on: landing.published_on,
+        arrival: landing.arrival,
+        files: landing.files,
+        dropped: landing.dropped,
+        cascade: landing.cascade,
     }
 }
