@@ -108,61 +108,7 @@ pub fn close(
     opts: &CloseOptions,
     prov: &Provenance,
 ) -> Result<(CommitOutcome, verb::VerbContext)> {
-    if repo.workdir().is_none() {
-        return Err(Error::coded(
-            "repo/bare",
-            "bare repository: nothing to commit",
-            vec![],
-        ));
-    }
-    if let Some(op) = crate::head::operation(repo) {
-        return Err(Error::coded(
-            "repo/mid-operation",
-            format!(
-                "a {op:?} is in progress: finish it with git (git commit / git merge --abort); \
-                 fufu owns merges in a later phase"
-            ),
-            vec![],
-        ));
-    }
-
-    let head = crate::head::head_state(repo)?;
-
-    // The session guard sits ahead of the capture floor: refusing before the
-    // capture means nothing at all is written to learn that a session is
-    // running. A session branch's whole content is the amendment of the
-    // commit under its feet, and a commit landed on that branch puts fufu in
-    // a state no other verb can describe. `ff commit` inside a session is
-    // `ff done` under another name, which is what the refusal says.
-    if let HeadState::Branch { name, commit, .. } = &head
-        && branchmeta::read(repo, name)?.session.is_some()
-    {
-        let tip = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
-        let short = crate::sha::short_oid(tip);
-        let subject = subject(repo, tip)?;
-        return Err(Error::coded(
-            "session/open",
-            format!(
-                "{name} is an editing session on {short} \"{subject}\": a commit here would land \
-                 somewhere no verb can describe"
-            ),
-            vec![
-                "ff done".into(),
-                "ff done --abandon".into(),
-                "ff switch <branch>".into(),
-            ],
-        ));
-    }
-
-    // A path that names nothing is a typo or a forgotten -m, not a commit
-    // with a hole in it. Refuse before the capture floor so nothing at all
-    // is written to learn it; the bare/mid-operation/session refusals above
-    // still lead.
-    for path in &opts.paths {
-        if !crate::restore::path_exists(repo, path)? {
-            return Err(no_such_path(path));
-        }
-    }
+    let head = refuse_before_capture(repo, opts)?;
 
     // The signer is resolved here, above every write and above the tree
     // work: a bad `gpg.format` or a missing key costs a config read and
@@ -207,98 +153,13 @@ pub fn close(
         None => changeid::ChangeId::mint()?,
     };
 
-    // Emptiness first (git's order too): a clean slice runs no hooks and
-    // closes nothing, whatever the message. Emptiness is judged on the
-    // narrowed scan — a clean slice refuses the way a clean tree does.
     let head_tree = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-    let mut scan_full = snaptree::scan(repo)?;
-    let mut scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
-    if scan_slice.is_empty() {
-        return Err(empty_refusal(
-            &current_branch,
-            pending.as_deref(),
-            &opts.paths,
-        ));
-    }
-
-    // Hook-runners — lefthook, lint-staged, husky, pre-commit — ask git
-    // what is staged and do nothing when the answer is empty. fufu's index
-    // describes the last commit while a change is open, so every one of
-    // them silently no-ops. Git populates the index before running
-    // `pre-commit` (both `commit -a` and `commit -- <path>` do) and rolls it
-    // back when the commit does not land; do the same. The index stays a
-    // derived surface the user never maintains — it is just written at the
-    // right moment now.
-    //
-    // The provisional tree is the *slice*, so a partial `ff commit <paths>`
-    // stages exactly what is landing, as git's pathspec form does.
-    //
-    // `prepare-commit-msg` is in the gate as well: it runs even under
-    // `--no-verify`, and it wants the same staged index, so the window that
-    // holds it open is the same one.
-    let close_hooks: &[&str] = match opts.verify {
-        hooks::Verify::Run => &["pre-commit", "prepare-commit-msg", "commit-msg"],
-        hooks::Verify::Skip => &["prepare-commit-msg"],
-    };
-    let mut window = None;
-    let mut hook_ran = false;
-    if hooks::will_run(repo, close_hooks)? {
-        // Never `head_tree`: `snaptree::scan` short-circuits on a valid
-        // cache-tree root equal to HEAD's tree and would then report only
-        // index↔worktree, so a provisional index equal to HEAD (or written
-        // without a cache tree) would make the re-scan below come back
-        // empty and refuse a real change as `commit/empty`. The empty
-        // slice already refused above, so this tree differs from HEAD.
-        let provisional = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?.0;
-        let differs = snaptree::unselected_paths(&scan_full, &opts.paths);
-        let (opened, ran) =
-            hooks::Window::open(repo, provisional, &differs, opts.verify, "commit")?;
-        window = Some(opened);
-        hook_ran = ran;
-    }
-
-    // Hooks before the tree build — pre-commit hooks format files, so a
-    // hook that ran invalidates the scan. Re-take both, and re-narrow.
-    if hook_ran {
-        scan_full = snaptree::scan(repo)?;
-        scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
-        if scan_slice.is_empty() {
-            return Err(empty_refusal(
-                &current_branch,
-                pending.as_deref(),
-                &opts.paths,
-            ));
-        }
-    }
-
-    // The close tree is exact: nothing is size-capped out of a commit. An
-    // empty slice already refused above, so a close always assembles a
-    // real tree.
-    let (commit_tree, _skipped) = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?;
-    if commit_tree == head_tree {
-        return Err(empty_refusal(
-            &current_branch,
-            pending.as_deref(),
-            &opts.paths,
-        ));
-    }
-    // The working tree keeps what the close did not take. With no paths the
-    // two are the one tree, as before; a second identical assembly on that
-    // common path is pure cost, so only a real slice assembles the
-    // remainder.
-    let worktree_tree = if opts.paths.is_empty() {
-        commit_tree
-    } else {
-        snaptree::assemble(repo, head_tree, &scan_full, u64::MAX)?.0
-    };
-
-    // What the close is leaving on disk: everything the scan saw that the
-    // slice did not take. The index is about to be written to `commit_tree`,
-    // which for these paths is HEAD's blob rather than what the worktree
-    // holds — so their stat data must not be carried over, or the next
-    // status trusts it and the remainder stops being the open change. See
-    // `index::write_index_for_tree_except`.
-    let worktree_differs = snaptree::unselected_paths(&scan_full, &opts.paths);
+    let Trees {
+        commit_tree,
+        worktree_tree,
+        worktree_differs,
+        mut window,
+    } = close_trees(repo, opts, &current_branch, pending.as_deref(), head_tree)?;
 
     // Message: -m beats the pending description; either way the pending
     // description is consumed by the close.
@@ -318,34 +179,19 @@ pub fn close(
         "commit",
     )?;
     let message = normalize_message(&message);
+    let hook_changed_message =
+        message != normalize_message(supplied.as_deref().unwrap_or_default());
     let subject = message
         .lines()
         .next()
         .unwrap_or("(no description)")
         .to_string();
 
-    // The branch axis: where does this close land?
-    let mut claim_from: Option<String> = None;
-    let mut created_branch = false;
-    let target_branch = match &opts.branch {
-        None => current_branch.clone(),
-        Some(name) => {
-            branch::validate_name(name)?;
-            if refs::ref_target(repo, &format!("refs/heads/{name}"))?.is_some() {
-                return Err(Error::coded(
-                    "branch/exists",
-                    format!("a branch named {name} already exists"),
-                    vec!["ff branch".into()],
-                ));
-            }
-            if branch::is_anonymous(&current_branch) {
-                claim_from = Some(current_branch.clone());
-            } else {
-                created_branch = true;
-            }
-            name.clone()
-        }
-    };
+    let Axis {
+        target_branch,
+        claim_from,
+        created_branch,
+    } = landing_branch(repo, opts, &current_branch)?;
 
     // The commit that lands: the open commit, when it is exactly what this
     // close would write — the pre-verb capture wrote it over this tree with
@@ -354,57 +200,22 @@ pub fn close(
     // of its own: the object is written up front because the plan needs its
     // sha.
     let sig = refs::user_signature(repo, now)?;
-    let open_commit =
-        open::current(repo, &current_branch, ctx.pre_tree, head_commit)?.filter(|id| {
-            repo.find_commit(*id)
-                .ok()
-                .is_some_and(|c| changeid::header_of(&c.data) == Some(change_id))
-        });
-    // `reuse` is whether the open commit lands; `reminted` is why not, when
-    // the reason is fufu's to explain. A `-m` that differs from the
-    // description is the user's own choice and gets no line.
-    let hook_changed_message =
-        message != normalize_message(supplied.as_deref().unwrap_or_default());
-    let (reuse, reminted) = match open_commit {
-        None => (false, None),
-        Some(_) if signer.is_some() => (false, Some(Remint::Signed)),
-        Some(_) if !opts.paths.is_empty() => (false, Some(Remint::Partial)),
-        Some(id) => {
-            let commit = repo.find_commit(id).map_err(Error::repo)?;
-            let tree = commit.tree_id().map_err(Error::repo)?.detach();
-            if tree != commit_tree {
-                (false, Some(Remint::HookTree))
-            } else if commit.message_raw_sloppy() != message.as_bytes() {
-                (false, hook_changed_message.then_some(Remint::HookMessage))
-            } else {
-                (true, None)
-            }
-        }
-    };
-    let commit_id = match (open_commit, reuse) {
-        (Some(id), true) => id,
-        _ => {
-            let parents: Vec<gix::ObjectId> = head_commit.into_iter().collect();
-            let commit = gix::objs::Commit {
-                tree: commit_tree,
-                parents: parents.into(),
-                // Authored at the change's birth, the way the open commit
-                // is, so the date a commit shows is when the work began.
-                author: refs::user_signature(repo, meta.change_born.unwrap_or(now))?,
-                committer: sig.clone(),
-                encoding: None,
-                message: message.clone().into(),
-                // The identity header sits inside the signed payload: the
-                // signer pushes `gpgsig` after it.
-                extra_headers: vec![changeid::header(&change_id)],
-            };
-            // A signing failure aborts here, with nothing but an unreferenced
-            // object written — before the op-journal append and before any
-            // ref moves, the same shape as every other pre-transaction
-            // refusal.
-            sign::write_user_commit(repo, signer.as_ref(), commit)?
-        }
-    };
+    let (commit_id, reminted) = landing_commit(
+        repo,
+        &ctx,
+        LandingCommit {
+            current_branch: &current_branch,
+            head_commit,
+            change_id,
+            change_born: meta.change_born,
+            signer: signer.as_ref(),
+            partial: !opts.paths.is_empty(),
+            commit_tree,
+            message: &message,
+            hook_changed_message,
+            sig: &sig,
+        },
+    )?;
 
     // Write-ahead: the planned table is the post-close world.
     let target_ref = format!("refs/heads/{target_branch}");
@@ -539,50 +350,22 @@ pub fn close(
         branch::retarget_head(repo, &target_ref, now)?;
     }
 
-    let expected = match (claim_from.is_some() || created_branch, head_commit) {
-        // Same branch, born: CAS against the exact tip the plan saw.
-        (false, Some(c)) => {
-            gix::refs::transaction::PreviousValue::MustExistAndMatch(gix::refs::Target::Object(c))
-        }
-        // A fresh -b branch was just created at HEAD: advance from there.
-        (true, Some(c)) => {
-            gix::refs::transaction::PreviousValue::MustExistAndMatch(gix::refs::Target::Object(c))
-        }
-        // Unborn: the close is the first commit.
-        (_, None) => gix::refs::transaction::PreviousValue::MustNotExist,
-    };
-    let reflog_msg = match head_commit {
-        Some(_) => format!("commit: {subject}"),
-        None => format!("commit (initial): {subject}"),
-    };
-    let edit = refs::update_edit(&target_ref, commit_id, expected, &reflog_msg)?;
-    let time_str = format!("{now} +0000");
-    let sig_ref = gix::actor::SignatureRef {
-        name: sig.name.as_ref(),
-        email: sig.email.as_ref(),
-        time: &time_str,
-    };
-    match refs::commit_edits_as(repo, Some(edit), sig_ref)? {
-        refs::EditOutcome::Applied => {
-            // The close has landed: the provisional index is no longer
-            // provisional, and putting the old one back would contradict
-            // HEAD. Every exit before this point — the post-hook empty
-            // refusal, a declining `commit-msg`, `branch/exists`,
-            // `ref/contended`, any `?` on the way — drops the guard armed
-            // and gets the index back byte-for-byte.
-            if let Some(window) = window.take() {
-                window.landed();
-            }
-        }
-        refs::EditOutcome::Contended => {
-            return Err(Error::coded(
-                "ref/contended",
-                format!(
-                    "{target_ref} moved while closing; nothing was committed (re-run to close on the new tip)"
-                ),
-                vec![],
-            ));
-        }
+    advance_branch(
+        repo,
+        &target_ref,
+        commit_id,
+        head_commit,
+        &subject,
+        &sig,
+        now,
+    )?;
+    // The close has landed: the provisional index is no longer provisional,
+    // and putting the old one back would contradict HEAD. Every exit before
+    // this point — the post-hook empty refusal, a declining `commit-msg`,
+    // `branch/exists`, `ref/contended`, any `?` on the way — drops the guard
+    // armed and gets the index back byte-for-byte.
+    if let Some(window) = window.take() {
+        window.landed();
     }
 
     // The index becomes the commit: nothing staged, next edit opens the next
@@ -634,6 +417,365 @@ pub fn close(
         },
         ctx,
     ))
+}
+
+/// The refusals that sit ahead of the capture floor: refusing before the
+/// capture means nothing at all is written to learn that the close cannot
+/// run. Returns HEAD as read.
+fn refuse_before_capture(repo: &gix::Repository, opts: &CloseOptions) -> Result<HeadState> {
+    if repo.workdir().is_none() {
+        return Err(Error::coded(
+            "repo/bare",
+            "bare repository: nothing to commit",
+            vec![],
+        ));
+    }
+    if let Some(op) = crate::head::operation(repo) {
+        return Err(Error::coded(
+            "repo/mid-operation",
+            format!(
+                "a {op:?} is in progress: finish it with git (git commit / git merge --abort); \
+                 fufu owns merges in a later phase"
+            ),
+            vec![],
+        ));
+    }
+
+    let head = crate::head::head_state(repo)?;
+
+    // The session guard sits ahead of the capture floor: refusing before the
+    // capture means nothing at all is written to learn that a session is
+    // running. A session branch's whole content is the amendment of the
+    // commit under its feet, and a commit landed on that branch puts fufu in
+    // a state no other verb can describe. `ff commit` inside a session is
+    // `ff done` under another name, which is what the refusal says.
+    if let HeadState::Branch { name, commit, .. } = &head
+        && branchmeta::read(repo, name)?.session.is_some()
+    {
+        let tip = gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?;
+        let short = crate::sha::short_oid(tip);
+        let subject = subject(repo, tip)?;
+        return Err(Error::coded(
+            "session/open",
+            format!(
+                "{name} is an editing session on {short} \"{subject}\": a commit here would land \
+                 somewhere no verb can describe"
+            ),
+            vec![
+                "ff done".into(),
+                "ff done --abandon".into(),
+                "ff switch <branch>".into(),
+            ],
+        ));
+    }
+
+    // A path that names nothing is a typo or a forgotten -m, not a commit
+    // with a hole in it. Refuse before the capture floor so nothing at all
+    // is written to learn it; the bare/mid-operation/session refusals above
+    // still lead.
+    for path in &opts.paths {
+        if !crate::restore::path_exists(repo, path)? {
+            return Err(no_such_path(path));
+        }
+    }
+
+    Ok(head)
+}
+
+/// The trees a close writes, and the hook window it holds open.
+struct Trees {
+    /// The commit's tree: the slice over HEAD, exact.
+    commit_tree: gix::ObjectId,
+    /// What the working tree keeps: the whole scan, which is `commit_tree`
+    /// when no paths narrowed the close.
+    worktree_tree: gix::ObjectId,
+    /// The paths the scan saw and the slice did not take. The index is
+    /// about to be written to `commit_tree`, which for these paths is HEAD's
+    /// blob rather than what the worktree holds — so their stat data must
+    /// not be carried over, or the next status trusts it and the remainder
+    /// stops being the open change. See `index::write_index_for_tree_except`.
+    worktree_differs: Vec<String>,
+    /// The pre-commit gate's index window, when a hook will run; disarmed by
+    /// the caller once the close has landed.
+    window: Option<hooks::Window>,
+}
+
+/// Scan, refuse an empty slice, run the pre-commit gate over the
+/// provisional index, and assemble the trees. Emptiness first (git's order
+/// too): a clean slice runs no hooks and closes nothing, whatever the
+/// message, and it is judged on the narrowed scan — a clean slice refuses
+/// the way a clean tree does.
+fn close_trees(
+    repo: &gix::Repository,
+    opts: &CloseOptions,
+    current_branch: &str,
+    pending: Option<&str>,
+    head_tree: gix::ObjectId,
+) -> Result<Trees> {
+    let mut scan_full = snaptree::scan(repo)?;
+    let mut scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
+    if scan_slice.is_empty() {
+        return Err(empty_refusal(current_branch, pending, &opts.paths));
+    }
+
+    // Hook-runners — lefthook, lint-staged, husky, pre-commit — ask git
+    // what is staged and do nothing when the answer is empty. fufu's index
+    // describes the last commit while a change is open, so every one of
+    // them silently no-ops. Git populates the index before running
+    // `pre-commit` (both `commit -a` and `commit -- <path>` do) and rolls it
+    // back when the commit does not land; do the same. The index stays a
+    // derived surface the user never maintains — it is just written at the
+    // right moment now.
+    //
+    // The provisional tree is the *slice*, so a partial `ff commit <paths>`
+    // stages exactly what is landing, as git's pathspec form does.
+    //
+    // `prepare-commit-msg` is in the gate as well: it runs even under
+    // `--no-verify`, and it wants the same staged index, so the window that
+    // holds it open is the same one.
+    let close_hooks: &[&str] = match opts.verify {
+        hooks::Verify::Run => &["pre-commit", "prepare-commit-msg", "commit-msg"],
+        hooks::Verify::Skip => &["prepare-commit-msg"],
+    };
+    let mut window = None;
+    let mut hook_ran = false;
+    if hooks::will_run(repo, close_hooks)? {
+        // Never `head_tree`: `snaptree::scan` short-circuits on a valid
+        // cache-tree root equal to HEAD's tree and would then report only
+        // index↔worktree, so a provisional index equal to HEAD (or written
+        // without a cache tree) would make the re-scan below come back
+        // empty and refuse a real change as `commit/empty`. The empty
+        // slice already refused above, so this tree differs from HEAD.
+        let provisional = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?.0;
+        let differs = snaptree::unselected_paths(&scan_full, &opts.paths);
+        let (opened, ran) =
+            hooks::Window::open(repo, provisional, &differs, opts.verify, "commit")?;
+        window = Some(opened);
+        hook_ran = ran;
+    }
+
+    // Hooks before the tree build — pre-commit hooks format files, so a
+    // hook that ran invalidates the scan. Re-take both, and re-narrow.
+    if hook_ran {
+        scan_full = snaptree::scan(repo)?;
+        scan_slice = snaptree::scan(repo)?.narrowed(&opts.paths);
+        if scan_slice.is_empty() {
+            return Err(empty_refusal(current_branch, pending, &opts.paths));
+        }
+    }
+
+    // The close tree is exact: nothing is size-capped out of a commit. An
+    // empty slice already refused above, so a close always assembles a
+    // real tree.
+    let (commit_tree, _skipped) = snaptree::assemble(repo, head_tree, &scan_slice, u64::MAX)?;
+    if commit_tree == head_tree {
+        return Err(empty_refusal(current_branch, pending, &opts.paths));
+    }
+    // The working tree keeps what the close did not take. With no paths the
+    // two are the one tree, as before; a second identical assembly on that
+    // common path is pure cost, so only a real slice assembles the
+    // remainder.
+    let worktree_tree = if opts.paths.is_empty() {
+        commit_tree
+    } else {
+        snaptree::assemble(repo, head_tree, &scan_full, u64::MAX)?.0
+    };
+
+    // What the close is leaving on disk: everything the scan saw that the
+    // slice did not take.
+    let worktree_differs = snaptree::unselected_paths(&scan_full, &opts.paths);
+
+    Ok(Trees {
+        commit_tree,
+        worktree_tree,
+        worktree_differs,
+        window,
+    })
+}
+
+/// The branch axis: where the close lands.
+struct Axis {
+    target_branch: String,
+    /// The anonymous branch a `-b` claims under the new name.
+    claim_from: Option<String>,
+    /// `-b` with a fresh name on a named branch: the close forks.
+    created_branch: bool,
+}
+
+/// Where this close lands: the branch underfoot, or the `-b` name — a claim
+/// when the branch underfoot is anonymous, a fork otherwise.
+fn landing_branch(
+    repo: &gix::Repository,
+    opts: &CloseOptions,
+    current_branch: &str,
+) -> Result<Axis> {
+    let mut claim_from: Option<String> = None;
+    let mut created_branch = false;
+    let target_branch = match &opts.branch {
+        None => current_branch.to_string(),
+        Some(name) => {
+            branch::validate_name(name)?;
+            if refs::ref_target(repo, &format!("refs/heads/{name}"))?.is_some() {
+                return Err(Error::coded(
+                    "branch/exists",
+                    format!("a branch named {name} already exists"),
+                    vec!["ff branch".into()],
+                ));
+            }
+            if branch::is_anonymous(current_branch) {
+                claim_from = Some(current_branch.to_string());
+            } else {
+                created_branch = true;
+            }
+            name.clone()
+        }
+    };
+
+    Ok(Axis {
+        target_branch,
+        claim_from,
+        created_branch,
+    })
+}
+
+/// What decides the commit that lands.
+struct LandingCommit<'a> {
+    current_branch: &'a str,
+    head_commit: Option<gix::ObjectId>,
+    change_id: changeid::ChangeId,
+    change_born: Option<i64>,
+    signer: Option<&'a sign::Signer>,
+    /// Paths narrowed the close.
+    partial: bool,
+    commit_tree: gix::ObjectId,
+    message: &'a str,
+    /// A hook changed the message, so a differing one is fufu's to explain.
+    hook_changed_message: bool,
+    sig: &'a gix::actor::Signature,
+}
+
+/// The commit that lands: the open commit, when it is exactly what this
+/// close would write — the pre-verb capture wrote it over this tree with
+/// this message and this id, and the branch just moves onto it. Anything
+/// that makes the landing commit differ is named, and the close mints one
+/// of its own: the object is written up front because the plan needs its
+/// sha. The second value is why the open commit did not land, when the
+/// reason is fufu's to explain; a `-m` that differs from the description is
+/// the user's own choice and gets no line.
+fn landing_commit(
+    repo: &gix::Repository,
+    ctx: &verb::VerbContext,
+    landing: LandingCommit<'_>,
+) -> Result<(gix::ObjectId, Option<Remint>)> {
+    let LandingCommit {
+        current_branch,
+        head_commit,
+        change_id,
+        change_born,
+        signer,
+        partial,
+        commit_tree,
+        message,
+        hook_changed_message,
+        sig,
+    } = landing;
+    let now = ctx.now;
+    let open_commit =
+        open::current(repo, current_branch, ctx.pre_tree, head_commit)?.filter(|id| {
+            repo.find_commit(*id)
+                .ok()
+                .is_some_and(|c| changeid::header_of(&c.data) == Some(change_id))
+        });
+    // `reuse` is whether the open commit lands; `reminted` is why not.
+    let (reuse, reminted) = match open_commit {
+        None => (false, None),
+        Some(_) if signer.is_some() => (false, Some(Remint::Signed)),
+        Some(_) if partial => (false, Some(Remint::Partial)),
+        Some(id) => {
+            let commit = repo.find_commit(id).map_err(Error::repo)?;
+            let tree = commit.tree_id().map_err(Error::repo)?.detach();
+            if tree != commit_tree {
+                (false, Some(Remint::HookTree))
+            } else if commit.message_raw_sloppy() != message.as_bytes() {
+                (false, hook_changed_message.then_some(Remint::HookMessage))
+            } else {
+                (true, None)
+            }
+        }
+    };
+    let commit_id = match (open_commit, reuse) {
+        (Some(id), true) => id,
+        _ => {
+            let parents: Vec<gix::ObjectId> = head_commit.into_iter().collect();
+            let commit = gix::objs::Commit {
+                tree: commit_tree,
+                parents: parents.into(),
+                // Authored at the change's birth, the way the open commit
+                // is, so the date a commit shows is when the work began.
+                author: refs::user_signature(repo, change_born.unwrap_or(now))?,
+                committer: sig.clone(),
+                encoding: None,
+                message: message.to_string().into(),
+                // The identity header sits inside the signed payload: the
+                // signer pushes `gpgsig` after it.
+                extra_headers: vec![changeid::header(&change_id)],
+            };
+            // A signing failure aborts here, with nothing but an unreferenced
+            // object written — before the op-journal append and before any
+            // ref moves, the same shape as every other pre-transaction
+            // refusal.
+            sign::write_user_commit(repo, signer, commit)?
+        }
+    };
+
+    Ok((commit_id, reminted))
+}
+
+/// The CAS advance: the target branch moves onto the commit, as the user's
+/// own signature in the reflog.
+fn advance_branch(
+    repo: &gix::Repository,
+    target_ref: &str,
+    commit_id: gix::ObjectId,
+    head_commit: Option<gix::ObjectId>,
+    subject: &str,
+    sig: &gix::actor::Signature,
+    now: i64,
+) -> Result<()> {
+    let expected = match head_commit {
+        // Born: CAS against the exact tip the plan saw — the same tip a
+        // fresh `-b` branch was just created at.
+        Some(c) => {
+            gix::refs::transaction::PreviousValue::MustExistAndMatch(gix::refs::Target::Object(c))
+        }
+        // Unborn: the close is the first commit.
+        None => gix::refs::transaction::PreviousValue::MustNotExist,
+    };
+    let reflog_msg = match head_commit {
+        Some(_) => format!("commit: {subject}"),
+        None => format!("commit (initial): {subject}"),
+    };
+    let edit = refs::update_edit(target_ref, commit_id, expected, &reflog_msg)?;
+    let time_str = format!("{now} +0000");
+    let sig_ref = gix::actor::SignatureRef {
+        name: sig.name.as_ref(),
+        email: sig.email.as_ref(),
+        time: &time_str,
+    };
+    match refs::commit_edits_as(repo, Some(edit), sig_ref)? {
+        refs::EditOutcome::Applied => {}
+        refs::EditOutcome::Contended => {
+            return Err(Error::coded(
+                "ref/contended",
+                format!(
+                    "{target_ref} moved while closing; nothing was committed (re-run to close on the new tip)"
+                ),
+                vec![],
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 /// Git-style minimal cleanup: strip trailing whitespace per line end, cap
