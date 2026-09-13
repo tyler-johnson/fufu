@@ -9,9 +9,8 @@
 //! ff-cli --bins docs` rewrites the files. A test is also the only place
 //! this can live: `Cli::command()` and `help::GROUPS` are crate-private.
 //!
-//! A page is the help file's markdown emitted verbatim — the description
-//! above a fenced `## Usage` block holding what clap prints for the verb,
-//! the `## Examples` section below it. The prose is docs-grade because it is
+//! A page places purpose and defaults above usage, then examples, generated
+//! options, and detailed sections. The prose is docs-grade because it is
 //! the same prose `ff help <verb>` renders; nothing is written twice. The one
 //! transformation is a link: the first mention of every other verb on a page
 //! points at that verb's page, the convention the hand-written docs keep.
@@ -46,25 +45,18 @@ fn dir() -> PathBuf {
 }
 
 /// The help file backing a command, by the same name the `pages!` manifest
-/// uses: `op log` reads `op-log.md`, and `map` reads the root page it shares.
+/// uses: `op log` reads `op-log.md`.
 fn source(path: &str) -> Option<String> {
-    let file = if path == "map" {
-        "root.md".to_string()
-    } else {
-        format!("{}.md", path.replace(' ', "-"))
-    };
+    let file = format!("{}.md", path.replace(' ', "-"));
     let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src/help")
         .join(file);
     std::fs::read_to_string(file).ok()
 }
 
-/// What clap prints for one command, usage line through the options — the
-/// default long-help page minus the two halves the markdown already carries.
-fn usage(cmd: &clap::Command) -> String {
-    let mut cmd = cmd
-        .clone()
-        .help_template("{usage-heading} {usage}\n\n{all-args}");
+/// Render clap's usage or argument reference without the Markdown prose.
+fn clap_block(cmd: &clap::Command, template: &'static str) -> String {
+    let mut cmd = cmd.clone().help_template(template);
     cmd.render_long_help().to_string().trim_end().to_string()
 }
 
@@ -140,37 +132,25 @@ fn promote(description: &str) -> String {
     out
 }
 
-/// One command's page: title, the markdown description with the other verbs
-/// linked on first mention, the fenced usage block, and the `## Examples`
-/// section verbatim.
+/// One command's page in the same reading order as long terminal help.
 fn page(path: &str, cmd: &clap::Command, verbs: &[String]) -> Page {
     let mut content = format!("# ff {path}\n\n");
-    match source(path) {
-        Some(src) => {
-            let src = linkify(&src, path, verbs);
-            let seam = src
-                .find(help::SEAM)
-                .unwrap_or_else(|| panic!("help/{path}: no `## Examples` heading"));
-            let _ = write!(
-                content,
-                "{}\n\n## Usage\n\n```\n{}\n```\n\n{}",
-                promote(&src[..seam]),
-                usage(cmd),
-                src[seam + 2..].trim_end()
-            );
-        }
-        // The one verb with no page file (`explain`) documents itself with
-        // its derive `about`, the same text `ff help explain` falls back to.
-        None => {
-            let about = cmd.get_about().map(ToString::to_string).unwrap_or_default();
-            let _ = write!(
-                content,
-                "{}.\n\n## Usage\n\n```\n{}\n```",
-                about,
-                usage(cmd)
-            );
-        }
-    }
+    let src = source(path).unwrap_or_else(|| panic!("help/{path}: missing source page"));
+    let src = linkify(&src, path, verbs);
+    let (intro, tail) = src
+        .split_once(help::SEAM)
+        .unwrap_or_else(|| panic!("help/{path}: no `## Examples` heading"));
+    let (examples, details) = tail
+        .split_once(help::OPTIONS)
+        .unwrap_or_else(|| panic!("help/{path}: no `### Options` insertion point"));
+    let _ = write!(
+        content,
+        "{intro}\n\n## Usage\n\n```\n{}\n```\n\n## Examples\n{}\n\n## Options\n\n```\n{}\n```\n\n{}",
+        clap_block(cmd, "{usage-heading} {usage}"),
+        examples.trim_end(),
+        clap_block(cmd, "{all-args}"),
+        promote(details.trim())
+    );
     content.push('\n');
     Page {
         file: format!("{}.md", path.replace(' ', "-")),
@@ -199,7 +179,7 @@ fn pages() -> Vec<Page> {
     let mut index = String::from(
         "# CLI reference\n\n\
          Every command, grouped the way `ff --help` groups them. Each page is the same text \
-         `ff help <command>` prints, with clap's usage block between the two halves. This \
+         `ff help <command>` prints: purpose, usage, examples, options, and details. This \
          directory is generated from `crates/ff-cli/src/help/` by a test — edit there, \
          then `make docs-gen`.\n",
     );
@@ -247,6 +227,31 @@ fn pages() -> Vec<Page> {
         content: index,
     });
     out
+}
+
+#[test]
+fn every_command_page_orders_usage_examples_options_and_details() {
+    for page in pages().into_iter().filter(|page| page.file != "index.md") {
+        let usage = page.content.find("\n## Usage\n").expect("usage");
+        let examples = page.content.find("\n## Examples\n").expect("examples");
+        let options = page.content.find("\n## Options\n").expect("options");
+        assert!(usage < examples && examples < options, "{}", page.file);
+        assert!(
+            page.content[options + 1..].matches("\n## ").count() > 0,
+            "{} has no details",
+            page.file
+        );
+        assert!(
+            !page.content[..usage].contains("\n## "),
+            "{} puts details before usage",
+            page.file
+        );
+        assert!(
+            !page.content.contains("\n### "),
+            "{} has unpromoted headings",
+            page.file
+        );
+    }
 }
 
 /// The checked-in reference equals regeneration, byte for byte, and holds

@@ -1,17 +1,24 @@
-Where you are and what is uncommitted: the branch, its upstream, the open change, and the files that differ from the commit underneath it. `ff st` is the short spelling.
-
-The files are a diffstat — counts, not content. `ff diff` is the same change read down to the line, and it sees the untracked files `git diff` does not.
-
-`--json` also carries the orientation an agent asks for first: the checkout root and which worktree this is, the base the branch sits on and how far above it the branch stands, the remote the branch answers to, and the last operation on this worktree with its session — `ff op log --json`'s own row, never the read's own capture.
-
-Status is also where drift is loud. Work done behind fufu's back — a plain `git commit`, a rebase run by a tool that never heard of fufu — is absorbed into the operation log lazily, and status keeps reporting it until the next fufu operation, so foreign motion is never silent. Status reports the motion as one line, the count and the shape of what moved, and `ff op show @` lists every ref it moved.
-
-The tracking refs the counts are measured against are kept fresh on a cadence: at most once per `fufu.autoFetch` (ten minutes by default), a fetch rides an ff command before the verb runs, pruning the copies the remote no longer has. `--fetch` runs it now and `--no-fetch` skips it, and `ff pull` is still the verb that moves your branches.
+Show the current branch, its base and remote relationship, and uncommitted file changes. Files are listed with insertion and deletion counts against the commit below the open change. `ff st` is the short spelling.
 
 ## Examples
 
+```sh
+ff status                       # Branch and file summary
+ff status --json                # The same state for scripts
+ff status --no-fetch            # Use existing remote-tracking refs
+ff diff                         # Read the file changes as a patch
 ```
-ff status
-ff status --json               the same state, for scripts
-ff diff                        the same change, with content
-```
+
+### Options
+
+### Files and outside changes
+
+The file summary includes eligible untracked content as well as tracked edits. `ff diff` shows the corresponding patch. Snapshot exclusions, including ignored untracked files and oversized content, still apply.
+
+The CLI attempts capture and reconciles Git ref changes made outside fufu. Status reports those changes until the next fufu operation. `ff op show` lists an operation's individual ref transitions. A held rewrite or parked-arrival conflict is reported here with the next recovery command.
+
+### Fetching and JSON
+
+Remote counts use tracking refs. Automatic fetching can refresh them on `fufu.autoFetch`'s cadence, ten minutes by default, pruning deleted remote branches. `--fetch` requests it now; `--no-fetch` skips it. `ff pull` updates local branches. Automatic trimming and update maintenance can also run.
+
+JSON includes the checkout root, worktree identity, branch base and distance, remote, and the last operation with its session. That last-operation field excludes the status invocation's own capture. `--at` and `--at-op` are declared but currently refused here.

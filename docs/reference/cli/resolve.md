@@ -1,18 +1,25 @@
 # ff resolve
 
-A held rewrite is a conflict fufu chose not to interrupt you with — and this is where you choose to deal with it, all at once. Every surviving conflict region lands in the working copy together, as ordinary labeled markers, in one session: fix them, then [`ff done`](done.md) lands the rewrite.
-
-The session is a branch, the way [`ff edit`](edit.md) opens one: an anonymous branch minted at a commit carrying the markers, and you switch to it. The hold stays on the branch you left, because it is what the session is resolving, and your open change parks there as it does on any switch; a [`ff switch`](switch.md) away parks the fixes in progress on the session, and switching back resumes them. `ff done` lands the fixes and returns you in one operation. If the world has moved and the rewrite applies cleanly now, the hold is released instead, and re-running the verb that recorded it lands it.
-
-A held arrival — a parked change `ff switch` could not lay back over a tip that moved — is the one hold with no session: there is no closed commit to protect, so the change is laid into the working copy in place, markers and all, and the open change is the resolution. It refuses while the branch has an open change of its own; [`ff commit`](commit.md) it or `ff switch` away first.
-
---abandon drops the hold — and an open session with it, returning you to the branch — so it is also the way out of one, from either side. Opening a session is two operations, the mint and the switch, so two [`ff undo`](undo.md) take it back.
+Open the current branch's held rewrite for conflict resolution. A held rewrite is a requested replay waiting on conflicting file changes. Resolve puts the conflicts into the working copy as labeled markers; edit them, then use [`ff done`](done.md) to apply the rewrite and return.
 
 ## Usage
 
 ```
 Usage: ff resolve [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff resolve                      # Open the recorded conflicts
+# Edit the marked files, then finish the rewrite session:
+ff done
+ff resolve --abandon            # Alternatively, drop the pending rewrite
+```
+
+## Options
+
+```
 Options:
       --abandon
           Drop the pending rewrite instead of resolving it
@@ -21,7 +28,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -36,12 +43,16 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Rewrite sessions
 
-```
-ff resolve                   materialize the hold's conflicts and fix them
-ff done                      land the fixes, and the rewrite behind them
-ff resolve --abandon         drop the hold instead
-ff switch <branch>           step away; the fixes stay on the session
-ff undo                      twice takes a fresh session back, markers and all
-```
+A resolution session is an automatically named branch containing the conflict markers. The hold remains on the original branch, where your previous open work is parked. Switching away parks fixes in progress; switching back resumes them. Done applies the fixes and returns in one operation.
+
+If changed circumstances make the rewrite apply cleanly, resolve releases the hold instead. Re-run the original command to apply that rewrite.
+
+## Parked-change arrivals
+
+A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. Resolution refuses if the branch already has an open change; commit that work or switch away first.
+
+## Abandoning and undo
+
+`--abandon` drops the hold and any open resolution session, returning to the original branch. Opening a rewrite-resolution session is two operations, creation and switching; two [`ff undo`](undo.md) calls take it back. Landing or abandoning is one operation. [`ff history`](history.md) shows the available steps.

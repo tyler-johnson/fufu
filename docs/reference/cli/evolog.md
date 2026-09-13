@@ -1,25 +1,28 @@
 # ff evolog
 
-Every operation on a change, newest first — the drill-in behind the letters column in [`ff log`](log.md). Bare, or on `@`, it is the open change: each row is a capture, a whole worktree, and [`ff restore --at-op <id>`](restore.md) brings any of them back. This is where a lost hour is found. `ff ev` is the short spelling.
-
-Because fufu captures before it works, the newest row is often this command's own capture, taken a moment ago when it found the tree dirty. That is intended.
-
-On a revision — a change id, a prefix of one, a sha — it is that change's history: every operation, on every worktree's chain, that produced a commit carrying its id — the close, a reword, a restack, an absorb, a pull's replay — with the commit each produced, and under a `captures` divider the captures behind the close: the work the commit closed. A commit fufu did not close has no header and no operations; it gets the captures on this chain that match it, when any do.
-
-The thread is the `change-id` header. A rebase or cherry-pick run outside fufu drops it, so a commit rewritten behind fufu's back comes back with a derived id and its history starts over there; jj has the same limitation.
-
-Ids are hex; the bold prefix on a capture row is the shortest one [`ff op`](op.md) and `--at-op` resolve unambiguously, and on an operation row the same.
-
--p prints each capture row's patch under it — what that one capture changed, measured against the capture before it on its branch. Operation rows name what they produced and print nothing under it.
+Show the recorded evolution of one change, newest first. With no revision, show snapshots of the open change `@`. For a recorded commit, show operations that produced versions of the same change. `ff ev` is the short spelling.
 
 ## Usage
 
 ```
 Usage: ff evolog [OPTIONS] [rev]
+```
 
+## Examples
+
+```sh
+ff evolog                       # Open change's snapshots
+ff evolog HEAD~2                # An earlier change's evolution
+ff evolog -n 0                  # All matching rows
+ff evolog -p                    # Include each capture's patch
+```
+
+## Options
+
+```
 Arguments:
   [rev]
-          The change to drill into: a change id, a sha, any revision; `@` when omitted
+          Change ID, commit SHA, or revision to inspect; `@` when omitted
 
 Options:
   -n, --max-count <COUNT>
@@ -28,7 +31,7 @@ Options:
           [default: 25]
 
   -p, --patch
-          Print each row's patch under it — what that operation changed
+          Include patches for capture rows; operation rows have no patch
 
       --at-op <op>
           Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
@@ -40,7 +43,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -55,13 +58,16 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Choosing a change
 
-```
-ff evolog                      the open change's captures
-ff evolog nyrszqtk             a change's operations, by the id ff log prints
-ff evolog HEAD~2               the same, by revision
-ff evolog -n 0                 all of them
-ff evolog -p                   each row with what it changed, in full
-ff restore src/ --at-op <id>   pull a directory back from one
-```
+The revision can be a branch, commit SHA, or change ID from [`ff log`](log.md). `@` is the open change; `@^` is HEAD. See [Revisions and IDs](../revisions.md#commit-shas-and-change-ids). `--at` and `--at-op` are declared but currently refused here.
+
+This command attempts a snapshot before reading. On a dirty tree, its newest row may be the capture taken by this invocation. Each capture holds a worktree snapshot; use its operation ID with [`ff restore <path> --at-op <id>`](restore.md) to recover files within snapshot coverage and retention limits.
+
+## Reading the rows
+
+For a recorded change, operation rows search all worktree chains for versions carrying its `change-id`: commit, reword, restack, absorb, and pull replay operations. A `captures` divider introduces the snapshots behind its commit. A commit with no stored change ID gets matching captures from this chain when available.
+
+Rows display hexadecimal operation IDs. Their bold prefixes distinguish retained operations, not changes. `-p` prints a capture's patch against the preceding capture on its branch; operation rows name the commit produced and have no patch beneath them.
+
+An outside rebase or cherry-pick can drop the `change-id` header. The rewritten commit then has a derived ID and does not continue the old evolution history. Use [`ff op log`](op-log.md) for all recorded operations, or [`ff history`](history.md) for undo steps.

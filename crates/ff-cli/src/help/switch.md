@@ -1,27 +1,42 @@
-Move between lines of work: to a branch that is here, to one a remote holds, to a revision, or to new work off trunk. `ff sw` is the short spelling, and `ff start` and `ff new` — jj's name for it — are the same verb: `ff commit` records, `ff switch` continues or begins.
-
-The rule under every spelling is one sentence: find the branch, else mint it. The target is looked up as a branch here (a unique prefix is enough; an ambiguous one lists the candidates), then as a branch a remote holds — bare `spike` or qualified `origin/spike` — then as a revision. A branch here is continued. A remote's branch is minted here under its own name, tracking it, so the next `ff push` sends it where it came from. A revision mints an anonymous branch at that commit. No target at all mints one at trunk's tip, which is what beginning new work means.
-
--b turns a branch target into a fork — a new branch at its tip, with the branch recorded as its parent — or names the branch a mint would otherwise leave anonymous. Bare -b goes after the target: `ff switch main -b` forks main, where `ff switch -b main` asks for a branch named main. -m describes the change being opened, and is refused on a switch that opens nothing.
-
-Whatever is open here stays with the branch you are leaving as its open commit — the `@` row's sha, at `refs/fufu/open/<branch>`, where `git log --all` shows it — and whatever was parked where you are going comes back exactly as you left it — same files, same edits, same pending description. Both halves are reported, so you always know where your work went and what came back. A minted branch opens clean, with one exception: `@` as the target forks at the commit under the open change and the new branch carries a copy of it — same files, same edits, same description, one sha on both branches — while the branch you left keeps its own, parked.
-
-A parked change comes back over a tip that moved by replaying its one commit there, same change id. When that replay conflicts, the switch still happens and the branch is held: exit 3, `ff status` says so, `ff resolve` lays the change into the working copy with markers, and `ff resolve --abandon` drops it. The index is not carried: a staged hunk comes back as an unstaged edit.
-
-No spelling creates a commit, and every one is one operation: `ff undo` takes back the mint, the copy, and the move together.
+Switch to a branch, or create a branch for new work. With no target, create an automatically named branch at trunk's tip. Uncommitted work stays parked with the branch you leave; work parked on the destination resumes there. `ff sw`, `ff start`, and `ff new` are aliases.
 
 ## Examples
 
+```sh
+ff switch main                  # Continue a local branch
+ff switch origin/spike          # Create a local tracking branch
+ff start                        # New branch at trunk
+ff start -b hotfix              # New branch named hotfix
+ff switch main -b               # Fork main with an automatic name
+ff start HEAD~2 -b experiment    # New branch at a revision
+ff start @ -b spike             # Copy the open change to a new branch
+ff undo                         # Reverse the switch and branch creation
 ```
-ff switch main
-ff switch uni                  a unique prefix is enough
-ff switch spike                only origin has it: minted here, tracking it
-ff start                       new work, forked from trunk
-ff start -m "the next thing"   …with the new change already described
-ff start -b hotfix             name the branch at birth
-ff switch main -b              fork main onto an anonymous branch
-ff start 5b7a90e               fork from a specific commit
-ff start @ -b spike            fork under the open change, carrying a copy
-ff undo                        changed your mind: the move rolls back,
-                               and both branches' open changes with it
+
+### Options
+
+### Target behavior
+
+```text
+Target                  Result
+none                    New automatically named branch at trunk
+local branch            Continue it; a unique prefix is accepted
+remote branch           Create a local branch tracking that copy
+revision                New automatically named branch at that commit
+branch with -b          Fork it; record that branch as the base
+@                       Fork below the open change and copy its edits
 ```
+
+Lookup tries a local branch, then a remote branch, then a revision. Remote branches accept a qualified name such as `origin/spike`, or an unambiguous bare name. A new tracking branch sends future `ff push` updates to that remote copy.
+
+`-b` accepts an optional name. Put a bare `-b` after the target: `ff switch main -b` forks main, while `ff switch -b main` requests a new branch named main at trunk. `-m` supplies the new open change's description and is refused when the switch opens no new change.
+
+### Parked work and conflicts
+
+A parked change contains files, edits, and its pending description. The index is not carried: staged hunks return as unstaged edits. A new branch starts clean except when the target is `@`: that copies the open change while leaving the original parked on the branch you left.
+
+When a destination tip has moved, its parked change replays onto that tip. A conflict still completes the switch and records a held arrival, exiting 3. `ff status` reports it. `ff resolve` puts markers in the working copy in place; edit them there, without a `ff done` session. `ff resolve --abandon` drops the held arrival.
+
+### Storage and recovery
+
+Switching does not record a commit in branch history. Parked work uses an internal open commit under `refs/fufu/open/<branch>`, visible to `git log --all`. The switch, any new branch, and any copied open change are one operation, reversible together with `ff undo`.

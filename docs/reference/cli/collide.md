@@ -1,28 +1,34 @@
 # ff collide
 
-Would these two branches hit each other if both landed? The comparison replays a three-way merge in memory without changing branches, the index, or worktree files. The CLI can still capture, auto-fetch, and run maintenance around that comparison.
-
-The other two axes are vertical: a branch against the base beneath it, or against the remote copy of itself. This one runs sideways, between two branches where neither sits under the other, which is the pair no other verb asks about.
-
-Each side is judged on the tree the operation log holds for it, not the one on disk, so a branch checked out in another worktree — or nowhere at all — still answers, and uncommitted work counts. A name wears * when that is what happened.
-
-A collision is a finding rather than a failure: the exit is 0 whichever way the answer goes, and a program reads the verdict from --json.
+Check whether two branches' file changes would conflict when combined. With one branch name, compare it with the current branch. With two names, compare those branches.
 
 ## Usage
 
 ```
 Usage: ff collide [OPTIONS] <branch>...
+```
 
+## Examples
+
+```sh
+ff collide feat-x               # Compare with the current branch
+ff collide feat-x feat-y        # Compare two named branches
+ff collide feat-x --json        # Read the verdict in a script
+```
+
+## Options
+
+```
 Arguments:
   <branch>...
-          The two branches; one name means the branch you are on and that one
+          Branches to compare; one name compares with the current branch
 
 Options:
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -37,10 +43,10 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Scope and side effects
 
-```
-ff collide feat-x              against the branch you are on
-ff collide feat-x feat-y       two you name
-ff collide feat-x --json       the verdict, for a program
-```
+The comparison performs a three-way merge in memory without changing branch tips, the index, or worktree files. The CLI can still capture, auto-fetch, and run maintenance around it. `--no-fetch` skips fetching.
+
+Each side uses the tree recorded for that branch, so saved uncommitted work counts even when a branch is checked out elsewhere or nowhere. A `*` beside the branch name marks use of that work. Unsaved or uncaptured edits in another worktree are not available to the comparison.
+
+A collision is a finding: both clean and conflicting comparisons exit 0. Scripts must inspect the JSON verdict. This checks the two branches against each other; it does not pull, restack, or record a held rewrite.

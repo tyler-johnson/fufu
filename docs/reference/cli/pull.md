@@ -1,77 +1,44 @@
 # ff pull
 
-Line a branch up with the two things it answers to: the base it sits on, and the shared copy of itself on the remote. Both halves, every run — what arrived on the remote is taken in, and a branch whose base moved beneath it is replayed onto where that base now stands. One fetch opens the run, then each branch in it is replayed onto whatever moved, and the whole run is one operation — one [`ff undo`](undo.md) puts every branch and the working copy back. `ff sync` is an alias: fufu's older word for this verb, kept for the fingers that learned it.
-
-No branch update is sent to the remote. [`ff push`](push.md) sends, and undo cannot reach that remote update. Pull's local branch and file changes are undoable; fetched objects, tracking-ref updates, and fetched tags are separate. When a branch is ahead of its shared copy, this says so and leaves it for the outgoing half.
-
-## Which branches
-
-Bare, this is the branch you stand on. Names take one or more branches instead, and `--all` is every local branch. A branch in the run brings the local bases beneath it in with it, down to trunk, each brought level with its own shared copy first: that is how a teammate's commit on `main` reaches the branch you stand on, and local `main` moves with it whether trunk is spelled `main` or `origin/main`. A name resolves the way [`ff restack`](restack.md) resolves one, an unambiguous prefix included, and a name no branch answers to is refused before the fetch.
-
-What is stacked above a branch in the run is not in the run: its shared copy is not read, and it moves only when a replay beneath it carries it, the way it would under `ff restack`. Name it, or run `--all`, to pull it on its own account.
-
-## The shared copy
-
-Two questions of each branch. Have you changed this branch since you last saw its shared copy? If not, the branch follows the shared copy wherever it went, a force-push included.
-
-If you have, is what the shared copy holds beyond you new work, or old versions of yours? New work is taken in and your commits replay on top. Old versions of yours are left alone, and `ff push` replaces them; fufu knows them because it recorded the rewrite, or the push you undid.
-
-A branch whose shared copy is gone — the forge deleted it when the pull request merged — is reported and left standing. Under `fufu.pruneGone` the run deletes it first, the way [`ff branch --prune`](branch.md) does: the same three-part test for gone, the same guard that keeps and names a branch holding commits the copy never held, the same re-aim of the branches stacked on it, all inside the run's one operation, so one `ff undo` takes the prune back with the rest. The report says what was pruned ahead of the axes, `--dry-run` says it in the conditional, and a kept branch keeps its gone line. The setting is off today and flips on in a later release.
-
-Only a branch tracking the remote this run fetched from gets this half. With `--no-fetch` — the global flag, the same one that keeps any verb from fetching — or a branch tracking another remote, the branch you are standing on is the only one whose shared copy is read. A branch you are not standing on that only fast-forwards moves as a ref, and nothing above it follows; a replay carries what is stacked above it, as every replay does.
-
-## The base
-
-One question: did it move? If so, the branch's commits replay onto where it now stands, and the branches stacked on this one follow, parent before child, the way `ff restack` does. This half runs whether or not there is a remote at all.
-
-Only the branch you are standing on has a working copy, so the others move as refs and objects and touch no file.
-
-## What holds, and what is skipped
-
-A replay that conflicts holds that branch: nothing is written there, the run goes on to the next branch, and [`ff resolve`](resolve.md) on that branch picks it up. The branches above a held one stay put, since their base did not move.
-
-Four kinds of branch are named and left where they stand:
-
-- one checked out in another worktree
-- one already holding a rewrite
-- one whose commits hold a merge
-- one that shares no history with its base
-
-## Dry run
-
-`--dry-run` (`-n`) previews the local replay. Every branch is planned the way a real run plans it, so the report says which would fast-forward, replay, hold, or be skipped. No local branch moves, no worktree file is written, and no hold or replay operation is recorded. There is no replay to undo; the fetch and maintenance effects below still apply.
-
-The fetch still runs. It writes objects and remote-tracking refs under `refs/remotes/<remote>/`, prunes tracking refs for deleted remote branches, and fetches tags, without moving local branches or worktree files. `--dry-run --no-fetch` previews using existing refs. Neither form takes the pull's capture or records its replay operation, but a successful invocation can still run automatic trimming and update maintenance. The exit is 3 when a branch would hold, the same as a real run, so a script can ask before it pulls.
-
-## The report
-
-The branch you are standing on comes first, then one block per other branch in the run that did something: its name on a line of its own, and under it what moved, what held, and what was skipped. A run with nothing to do reads `nothing to pull`. When names left the branch you stand on out of the run, it says nothing, and neither does the line about what it has waiting to push.
-
-With `--json`, the other branches in the run are the `branches` array, one row per branch tagged `Pulled`, `Elsewhere`, or `Held`; a `Pulled` row carries its `remote` and `base` halves, and `files` and `still_open` on the report describe the run's one working-copy write. The branch you stand on has `remote` and `base` of its own, and both read `NotNamed` when the run did not reach it. `dry_run` says the local replay was previewed, not whether the invocation wrote anything. Under a dry run the envelope's `undo` is null and `files` is the count the write would have touched.
-
-The exit is 3 when any branch held, and the last line names the branch to switch to before resolve.
+Update the current branch from its base branch and its remote copy. Pull fetches first, incorporates remote work, and replays local commits when needed. It also updates the selected branch's local base branches, down to trunk. `ff sync` is an alias.
 
 ## Usage
 
 ```
 Usage: ff pull [OPTIONS] [branch]...
+```
 
+## Examples
+
+```sh
+ff pull                         # Update this branch and its local bases
+ff pull side                    # Select side instead
+ff pull a b                     # Select two branches, with one fetch
+ff pull --all                   # Select every local branch
+ff pull -n                      # Preview local updates; still fetches
+ff pull -n --no-fetch           # Preview using existing tracking refs
+ff push                         # Send this branch after reviewing it
+```
+
+## Options
+
+```
 Arguments:
   [branch]...
-          Branches to pull, each with the bases beneath it; without any, the one you are on
+          Branches to update with their local bases; defaults to this branch
 
 Options:
       --all
           Every local branch
 
   -n, --dry-run
-          Say what would move, hold, and be skipped, without writing it
+          Preview local updates without applying them; still fetches
 
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -86,14 +53,38 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Which branches
 
-```
-ff pull                        fetch, then line this branch up
-ff pull side                   the same for side, from wherever you stand
-ff pull a b                    two branches, one fetch, one operation
-ff pull --all                  every local branch
-ff pull -n                     say what would move, hold, and be skipped
-ff pull --no-fetch             with what you already have
-ff push                        send the branch you are on, once it lines up
-```
+With no names, pull selects the current branch. Names select one or more branches instead; `--all` selects every local branch. Unique local branch prefixes are accepted. Unknown or ambiguous names are refused before fetching.
+
+Each selected branch brings its local base branches into the run, down to trunk. Their remote copies are incorporated first, so a teammate's change on main can reach your branch through local main, even when trunk is configured as `origin/main`.
+
+Dependent branches above a selected branch are not themselves selected. They follow a replay beneath them, but their own remote copies are not incorporated unless you name them or use `--all`. A non-current branch that only fast-forwards moves its ref without cascading to dependents.
+
+## Remote and base updates
+
+If a local branch has not changed since fufu last recorded seeing its remote copy, it follows that copy, including a force-push. Otherwise new remote work is incorporated and local commits replay above it. Remote commits recognized as old versions of local work are left for [`ff push`](push.md) to replace. An ahead branch is reported without sending anything.
+
+Only branches tracking the fetched remote receive this remote update. With `--no-fetch`, or for a branch tracking another remote, only the current branch's remote copy is considered. The base update still runs without a remote: if the base moved, local commits replay onto it and dependent branches follow parent before child.
+
+A deleted remote copy is reported while its local branch remains. With `fufu.pruneGone` enabled, eligible branches are pruned first using [`ff branch --prune`](branch.md)'s rules, including protection for unpublished commits and reassignment of dependents. Pruning is part of the same undoable operation. The setting defaults to false.
+
+## Conflicts and recovery
+
+A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run [`ff resolve`](resolve.md) to continue. The exit is 3 if any branch holds.
+
+Branches checked out in another worktree, already holding a rewrite, containing merges, or sharing no history with their base are skipped and named.
+
+Local branch and working-copy changes form one operation, including cascades and pruning. One [`ff undo`](undo.md) reverses them. Only the current branch has files written in this worktree; other selected branches move as refs and objects. Fetched objects, tracking refs, and tags are separate from these undoable changes. No remote branch update is sent.
+
+## Dry runs and network effects
+
+`--dry-run` (`-n`) plans every selected branch and reports what would fast-forward, replay, hold, or be skipped. It moves no local branch, writes no worktree files, takes no pull capture, and records no hold or replay operation. The exit is 3 if a branch would hold.
+
+Fetching still writes objects, remote-tracking refs, and tags, and prunes tracking refs for deleted remote branches. Add `--no-fetch` to use existing refs. Successful invocations can still run automatic trimming and update maintenance in either form.
+
+## Report and JSON
+
+The current branch is reported first when selected, then other branches that changed, held, or were skipped. An idle run prints `nothing to pull`.
+
+With `--json`, the other selected branches appear in `branches`, tagged `Pulled`, `Elsewhere`, or `Held`. A `Pulled` row has `remote` and `base` results. The top-level `remote` and `base` describe the current branch and read `NotNamed` when it was not selected. `files` and `still_open` describe the one working-copy write. In a dry run, `undo` is null and `files` is the projected count; `dry_run` describes the replay preview, not the absence of all writes.

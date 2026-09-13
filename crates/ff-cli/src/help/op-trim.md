@@ -1,15 +1,23 @@
-Retention with an undo. The log's pre-trim tip is written to the chain's own trash ref, `refs/fufu/wt/<worktree>/trash/@ops`, before a single ref moves, so the last trim is itself recoverable. Survivors keep their trees, messages, and dates byte-for-byte — only parent slots relink — and the reflog is replayed with the original times, so `--at 2h` stays truthful afterwards. `ff trim` is the older spelling, still answered and not listed.
-
-You rarely need to run this. A trim rides an ff command at most once per fufu.autoTrim (daily by default), per worktree. A real manual run also invokes `git gc --auto --quiet`, even when no operations were dropped; automatic trimming skips that nudge.
-
-`--dry-run` previews retention without dropping operations. The CLI still attempts a pre-command capture and can run update maintenance; it is not a promise of no writes.
+Remove operations older than `fufu.keep` (90 days by default). Most users can rely on automatic trimming, which runs at most once per `fufu.autoTrim` interval per worktree, daily by default. `ff trim` is the older, unlisted spelling.
 
 ## Examples
 
+```sh
+ff op trim -n                   # Preview operations to remove
+ff op trim                      # Apply retention
+ff op trim --gone               # Also drop pointers for deleted branches
+ff config keep 30d              # Set a shorter retention window
+ff config autoTrim false        # Trim only when requested manually
 ```
-ff op trim -n                  preview retention without dropping operations
-ff op trim                     drop everything past the keep window
-ff op trim --gone              also drop pointers whose branch is gone
-ff config keep 30d             a shorter window
-ff config autoTrim false       leave trimming entirely to this command
-```
+
+### Options
+
+### Side effects and recovery
+
+`--dry-run` previews without dropping operations. The CLI still attempts capture and can run update maintenance. A real manual trim also invokes `git gc --auto --quiet`, even when no operations are dropped. Automatic trimming skips that invocation.
+
+Before trimming, the old chain tip is saved under `refs/fufu/wt/<worktree>/trash/@ops`, making the last trim recoverable. Retention still limits long-term recovery; discarded content is not promised indefinitely.
+
+### Retained records
+
+Surviving operations keep their trees, messages, and dates. Their predecessor links are rewritten, which can change operation IDs. The reflog preserves original times so time-based lookups still use the recorded dates.

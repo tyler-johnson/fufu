@@ -29,16 +29,16 @@ fn bare_help_prints_the_root_page() {
     assert!(out.status.success(), "exit 0: {:?}", out.status);
     let body = stdout(&out);
     assert!(body.contains("Usage: ff"), "missing Usage line");
-    // The command list is grouped, git-style, so the headings are the list.
+    // Task headings organize the command list.
     for heading in [
-        "start a working area:",
-        "work on the current change:",
-        "examine the history and state:",
-        "grow, mark and tweak your common history:",
-        "collaborate:",
-        "go back:",
-        "wire it in, and check on it:",
-        "fufu itself:",
+        "Getting started:",
+        "Working changes:",
+        "Inspect history:",
+        "Branches:",
+        "Rewrite commits:",
+        "Remotes:",
+        "Recovery:",
+        "Setup:",
     ] {
         assert!(body.contains(heading), "missing heading {heading:?}");
     }
@@ -126,7 +126,8 @@ fn every_command_has_a_page() {
         "map", "status", "collide", "diff", "show", "log", "history", "evolog", "git", "restore",
         "commit", "switch", "undo", "redo", "op", "new", "describe", "branch", "hook", "unhook",
         "trigger", "config", "doctor", "update", "resolve", "init", "clone", "remote", "version",
-        "worktree", "fold",
+        "worktree", "fold", "absorb", "lift", "restack", "pull", "push", "edit", "done", "watch",
+        "explain",
     ];
     for cmd in &commands {
         let out = ff(&["help", cmd]);
@@ -211,11 +212,9 @@ fn short_help_stays_short() {
     );
 }
 
-/// The command list on the root page: everything between the usage line and
-/// the options, which is what the grouping replaced clap's flat `Commands:`
-/// section with.
+/// The grouped list begins after the root's examples and ends at options.
 fn command_list(page: &str) -> &str {
-    page.split_once("Usage: ff")
+    page.split_once("Getting started:")
         .and_then(|(_, rest)| rest.split_once("\nOptions:"))
         .map(|(list, _)| list)
         .expect("a command list")
@@ -302,7 +301,7 @@ fn the_command_list_wears_claps_styles() {
         .expect("spawn ff");
     let page = stdout(&out);
     assert!(
-        page.contains("\u{1b}[1m\u{1b}[4mstart a working area:\u{1b}[0m"),
+        page.contains("\u{1b}[1m\u{1b}[4mGetting started:\u{1b}[0m"),
         "the heading should be bold+underline: {page:?}"
     );
     assert!(
@@ -321,4 +320,56 @@ fn the_command_list_wears_claps_styles() {
         !plain.contains('\u{1b}'),
         "piped help carries no escape byte"
     );
+}
+
+/// Usage and examples must be reachable before flags and detailed rules,
+/// including nested help and the special Git passthrough page.
+#[test]
+fn long_help_orders_usage_examples_options_and_details() {
+    for (path, detail) in [
+        (vec!["commit"], "Messages, paths, and branches:"),
+        (vec!["pull"], "Which branches:"),
+        (vec!["switch"], "Target behavior:"),
+        (vec!["op", "revert"], "Applicability and recovery:"),
+        (vec!["git"], "Arguments and policy:"),
+        (vec!["explain"], "Lookup behavior:"),
+        (vec!["map"], "Reading the map:"),
+    ] {
+        let mut args = vec!["help"];
+        args.extend(path);
+        let out = ff(&args);
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let body = stdout(&out);
+        let positions: Vec<usize> = ["Usage:", "Examples:", "Options:", detail]
+            .iter()
+            .map(|part| {
+                body.find(part)
+                    .unwrap_or_else(|| panic!("missing {part}: {body}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|p| p[0] < p[1]),
+            "{args:?}: {body}"
+        );
+        assert_eq!(body.matches("Examples:").count(), 1, "{body}");
+        assert_eq!(body.matches("Options:").count(), 1, "{body}");
+        assert!(!body.contains("```"), "fences leaked: {body}");
+    }
+}
+
+#[test]
+fn map_has_focused_help_and_switch_table_keeps_its_columns() {
+    let map = stdout(&ff(&["map", "--help"]));
+    assert!(map.contains("Show how local branches relate"), "{map}");
+    assert!(!map.contains("Setup and snapshot coverage:"), "{map}");
+    let switch = stdout(&ff(&["switch", "--help"]));
+    assert!(
+        switch.contains("  Target                  Result"),
+        "{switch}"
+    );
+    assert!(
+        switch.contains("  local branch            Continue it"),
+        "{switch}"
+    );
+    assert!(switch.contains("ff switch -b main"), "{switch}");
 }

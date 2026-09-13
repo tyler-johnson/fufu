@@ -1,18 +1,26 @@
 # ff init
 
-Starts a repository with the safety net already on: a `git init`, then fufu's own two — the floor of the operation log, and the gc guard, the config that stops `git gc` expiring fufu's refs. Both are written before you have typed anything else, so [`ff undo`](undo.md) has somewhere to land from your first command onward.
-
-The default branch is `init.defaultBranch` if you set one, and `main` if you did not.
-
-Run inside a repository that already exists, it means turn fufu on here: the same two things, and it says so rather than pretending it made anything. That is the way to adopt a repository git created, or one you cloned before fufu was on the machine.
-
-It does not touch your shell or your agent. [`ff hook`](hook.md) installs those when you want them, and [`ff doctor`](doctor.md) says what is wired and what is not.
+Create a Git repository with fufu snapshots enabled, or enable fufu in an existing repository. With no directory, use the current directory. Existing work and history stay in place.
 
 ## Usage
 
 ```
 Usage: ff init [OPTIONS] [dir]
+```
 
+## Examples
+
+```sh
+ff init                         # Create or adopt here
+ff init myproject               # Create in a new directory
+ff hook                         # Install machine integrations
+ff doctor                       # Check the setup
+ff git init --bare              # Use Git for a bare repository
+```
+
+## Options
+
+```
 Arguments:
   [dir]
           Where to create it; the current directory when omitted
@@ -22,7 +30,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -37,12 +45,12 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Repository setup
 
-```
-ff init                        here
-ff init myproject              in a new directory
-ff init                        again, in a repo git made: adopt it
-ff doctor                      is the net actually on?
-ff git init --bare             a bare repository is still git's job
-```
+A new repository uses `init.defaultBranch`, or main when unset. Initialization establishes the operation log's earliest recovery point and the garbage-collection configuration that protects fufu's refs. Recovery starts from recorded state; initialization cannot recover earlier uncaptured work.
+
+Bare repositories have no working copy to snapshot and are refused. Use Git to create them.
+
+## Machine integrations
+
+Repository initialization does not install shell or agent hooks. [`ff hook`](hook.md) installs them per machine; follow its activation, restart, and trust instructions. [`ff doctor`](doctor.md) checks the log and integration configuration.

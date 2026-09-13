@@ -1,20 +1,28 @@
-Snapshots the working copy, now. Every ff command captures first and then goes and does something; this one captures and stops, which makes it the fastest way to force a snapshot and the natural thing to type before something risky. -m says what it is for, so a hand-taken snapshot carries its reason.
-
-### Sources
-
-`ff trigger <source>` means: a capture trigger fired, from this source. The other sources are machine surface rather than commands to type — claude, codex, cursor and gemini for the agent clients, shell for the prompt hook. The client invokes them with a payload on stdin.
-
-Three rules hold for every one of them:
-
-- They exit 0 whatever went wrong, and say nothing. FF_DEBUG=1 makes them talk.
-- A source name fufu does not know exits 0 and says nothing too, which is what makes a fufu trigger safe to wire into a client fufu has never heard of.
-- They never veto the action they fired on. The one veto there is, `fufu.gitPolicy strict` for raw git, is config saying so, and it travels as JSON the client may ignore rather than as an exit code.
+Take a snapshot of eligible working-copy content now. With no source, or with `manual`, this is a manual capture. `-m` labels its purpose. Unchanged content creates no new capture.
 
 ## Examples
 
+```sh
+ff trigger                      # Snapshot now and report the result
+ff trigger -m "before experiment"
+ff trigger --json               # Machine-readable manual result
+ff op log                       # Inspect retained snapshots
 ```
-ff trigger                     snapshot now
-ff trigger -m "before this"    and say why it was taken
-ff op log                      the snapshot you just took
-ff restore --all --at 2h       what the snapshots are for
-```
+
+### Options
+
+### Manual results and limits
+
+A new manual capture prints its hexadecimal operation ID and changed-file count. An unchanged tree reports that it is already snapshotted; contention reports another capture in progress. Those outcomes succeed. Other capture errors are reported normally with a nonzero exit. Warnings go to stderr.
+
+Manual JSON includes `source`, `captured`, `op`, and `files`. `captured` is true only for a new capture. Labels are trimmed and limited to 64 characters. Automatic trimming and update-check maintenance can also run.
+
+Snapshots exclude ignored untracked files, unsaved buffers, and content above `fufu.maxFileSize` (50 MiB by default). Older index or base content can remain for oversized tracked files. `ff restore` can recover only successfully captured, retained content.
+
+### Client and shell triggers
+
+Other sources are integration entry points, usually invoked by installed hooks: `claude`, `codex`, `cursor`, `gemini`, and `shell`. Agent sources read client payloads from stdin; the shell source handles prompt events. Use `ff hook` to install the appropriate invocation.
+
+Client triggers exit 0 even on pipeline errors; failures are silent unless `FF_DEBUG` is set. Successful agent triggers can emit client-protocol replies containing a briefing, advice, or a strict Git-policy denial request. They are not always silent, and `--json` does not replace that protocol with the manual envelope. Unknown sources exit 0 silently.
+
+Capture precedes agent Git-policy evaluation. Strict policy asks the client to deny covered raw Git actions through its protocol, rather than through the trigger's exit code; enforcement depends on the client.

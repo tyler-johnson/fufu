@@ -1,15 +1,17 @@
-Which fufu this is: the full name, the release, and the commit and date it was built from, with the project's home under it.
-
-A build made without git available (a source tarball, a crates.io vendor, a docker context with no .git) names the release alone — there is no commit to name.
-
-Then whether it is the current one, read from the cache the passive update lane keeps rather than from the network: nothing here reaches out, and nothing here waits. A line appears only when a newer release is cached; up to date says nothing.
-
---json splits the line into fields — version, commit, date, and the update status. `ff -v` is the same answer spelled as a flag: it reads the update cache, says the "available" line, and takes --json exactly as the verb does.
+Print the fufu release, build commit and date when available, and project URL. If the update cache knows a newer release, also print its availability. `ff -v` gives the same result.
 
 ## Examples
 
+```sh
+ff version                      # Release and build identity
+ff -v                           # Same result as a flag
+ff version --json               # Version and update status as fields
 ```
-ff version                     the release, the build, the update lane
-ff -v                          the same, spelled as a flag
-ff version --json              the same, as fields
-```
+
+### Options
+
+### Build and update information
+
+A build made without Git metadata, such as a source archive, prints the release without a commit or date. JSON uses null for missing build fields and includes the cached update status.
+
+The displayed update result reads the cache without waiting for the network. In a repository, the CLI's passive update check can refresh that cache in the background when enabled. `ff update` reports the update command appropriate for this installation.

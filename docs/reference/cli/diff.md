@@ -1,18 +1,27 @@
 # ff diff
 
-The open change as a patch: what [`ff commit`](commit.md) would land, and what it says. Every other view here reports `path +N -M`; this is the same tree diff read down to the line.
-
-It is the one patch tool that sees the whole change. `git diff` is blind to untracked files, and an untracked file is exactly where a wrong commit comes from — so the file you just created shows up here with its content, without an [`ff status`](status.md) first to make it visible.
-
-The body is git's unified diff, verbatim, because a patch format is not fufu's to invent: what comes out of here is what `git apply` takes. The diffstat is `ff status`, and this verb deliberately does not reprint it.
-
-Paths narrow it, by the rule [`ff restore`](restore.md) speaks: a file, or a directory prefix. No globs.
+Show uncommitted work as a patch against the commit below the open change. With no paths, include the whole eligible change, including newly created untracked files.
 
 ## Usage
 
 ```
 Usage: ff diff [OPTIONS] [path]...
+```
 
+## Examples
+
+```sh
+ff diff                         # Whole open change
+ff diff src/                    # Changes under src/
+ff diff --json                  # Hunks and lines as fields
+ff diff > fix.patch             # Save a patch for git apply
+ff status                       # File counts instead of a patch
+ff op diff '@^' @               # Compare two recorded file trees
+```
+
+## Options
+
+```
 Arguments:
   [path]...
           Files or directories to limit the patch to; all of them when omitted
@@ -22,7 +31,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -37,13 +46,8 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Paths and output
 
-```
-ff diff                        the whole open change, with content
-ff diff src/                   just what changed under src/
-ff diff --json                 hunks and lines as fields
-ff diff > fix.patch            output git apply reads back
-ff status                      the same change, as counts
-ff op diff <a> <b>             the same question between two operations
-```
+Paths select files or directory prefixes, without globs. Snapshot exclusions apply, including ignored untracked files and content above `fufu.maxFileSize`.
+
+Text output is a unified diff suitable for `git apply`. It does not repeat the diffstat from [`ff status`](status.md). [`ff show`](show.md) adds the revision's identity and message to the patch; [`ff commit`](commit.md) records eligible working changes in branch history.

@@ -1,26 +1,25 @@
 # ff describe
 
-The open change carries a description before it enters branch history, so you can name work while you are doing it and let [`ff commit`](commit.md) pick the name up when it closes. Describing rewrites the internal open commit object without moving the branch tip. -m sets it inline; the bare form opens $EDITOR seeded with the current text. `ff desc` is the short spelling, and jj's too.
-
--b names the branch you are on instead — the same act whether it is an anonymous petname earning a real name or a chosen name being replaced. The capture chain, the open commit, and the pending description all come along, which is the part a bare `git branch -m` would orphan.
-
-Naming a revision rewords a commit that has already closed instead. The [revision expression](../revisions.md#revision-sets-and-grammar) must select exactly one member; @ selects the pending open description. Everything above a reworded commit re-parents in the same operation, so any branches sitting inside that range come along with it.
-
-## Hooks
-
-A reword authors a message for a commit, so your `prepare-commit-msg` and `commit-msg` hooks run over it, and a hook that exits non-zero refuses the reword before anything is planned; `--no-verify` skips `commit-msg`. No tree moves, so `pre-commit` does not run. The bare form updates the internal open commit's pending description and runs no hook at all — they fire when the change closes.
-
-## Branches stacked above
-
-The branches stacked on this one follow a reword. Once the reword has landed, every local branch whose base resolves to the reworded branch is replayed onto its new tip, parent before child, in the same operation, so one [`ff undo`](undo.md) takes the cascade back with the reword.
-
-A reword preserves its commit's tree, but a stacked branch that was already out of date can still conflict during the cascade. That branch records a hold while the reword stands. This outcome currently exits 0; scripts must inspect `reword.cascade.held`. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named, with everything above it left alone.
+Set the draft message for your open change, reword an existing commit, or rename the current branch. With no revision or `-b`, edit the draft message in `$EDITOR`; `-m` sets it directly. `ff desc` is the short spelling.
 
 ## Usage
 
 ```
 Usage: ff describe [OPTIONS] [rev]
+```
 
+## Examples
+
+```sh
+ff describe -m "parser: handle unicode escapes"  # Draft message
+ff describe                     # Edit the draft in $EDITOR
+ff describe HEAD~2 -m "parser: fix escapes"  # Existing commit
+ff describe -b unicode-cleanup  # Rename the current branch
+```
+
+## Options
+
+```
 Arguments:
   [rev]
           The revision to reword; omitted describes the open change
@@ -30,7 +29,7 @@ Options:
           The description text; omitted opens $EDITOR
 
   -b <branch>
-          Name the branch you are on instead — anonymous or already named
+          Rename the current branch instead of editing a message
 
       --no-verify
           Skip pre-commit and commit-msg hooks
@@ -39,7 +38,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -54,11 +53,20 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Three modes
 
-```
-ff describe -m "parser: handle unicode escapes"
-ff describe                    open $EDITOR on the pending description
-ff describe -b unicode-cleanup name the branch you are on
-ff describe HEAD~2 -m "fix"    reword a closed commit, restacking above it
-```
+- Draft message: omit the revision, or use `@`. [`ff commit`](commit.md) uses this pending description unless its own `-m` overrides it. Describing updates internal open metadata without advancing branch history, and runs no commit hooks.
+- Existing message: name one recorded revision. Its message changes and commits above it re-parent in the same operation, including branches inside that range. Surviving change IDs stay the same; commit hashes change.
+- Branch rename: `-b <name>` renames the current branch, whether its old name was automatic or chosen. Its capture history, parked work, and pending description remain associated with it. This mode cannot be combined with a revision or `-m`.
+
+The [revision expression](../revisions.md#revision-sets-and-grammar) must select exactly one member. Without `-m`, message modes open `$EDITOR` with the current text.
+
+## Dependent branches and recovery
+
+After a reword, dependent local branches replay parent before child in the same operation. One [`ff undo`](undo.md) takes back the reword and cascade.
+
+A reword preserves its commit's tree, but an already stale dependent branch can conflict. That branch records a hold while the reword stands. This outcome currently exits 0; scripts must inspect `reword.cascade.held`. Branches checked out elsewhere, already held, or containing merges are skipped and named, along with the dependents left alone above them. Use [`ff switch`](switch.md) and [`ff resolve`](resolve.md) on a held branch.
+
+## Hooks
+
+Rewording a recorded commit runs `prepare-commit-msg` and `commit-msg`; a failing hook refuses it before replay planning. `--no-verify` skips `commit-msg`. No file content is committed, so `pre-commit` does not run. Draft descriptions run their hooks later, when committed.

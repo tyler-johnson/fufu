@@ -1,26 +1,26 @@
 # ff git
 
-Attempts a snapshot, then runs a permitted Git command verbatim. A strict-policy refusal happens before capture. If capture fails, fufu warns and Git still runs. The shell alias — `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md) — routes typed Git here while that alias is active.
-
-What `fufu.gitPolicy` decides is what fufu *says* about a git word it has a verb for:
-
-- observe records it and stays quiet.
-- coach — the default — adds one line naming the fufu verb, once per word.
-- strict refuses that word outright and says what to run instead.
-
-Words fufu has no verb for (`apply`, `bisect`, `gc`) are never touched under any tier.
-
-`tag` and `merge` have no fufu verb of their own, and their answer is `ff git` itself, so they run under every tier here; the hook still names the passthrough.
-
-The same setting governs raw git in an agent's own shell, through the hook: there coach injects the alternative into the model's context and strict asks the client to stop the call.
-
-Every flag here belongs to git, including --help. This page is `ff help git`.
+Run a Git command through fufu's snapshot and Git-policy checks. Attempts a snapshot before a permitted command; a strict-policy refusal happens before capture. If capture fails, fufu warns and Git still runs. Read this page with `ff help git`: `ff git --help` is Git's help.
 
 ## Usage
 
 ```
 Usage: ff git [OPTIONS] [ARGS]...
+```
 
+## Examples
+
+```sh
+ff git status                   # Snapshot, then Git status
+ff git tag                      # List tags through Git
+ff config gitPolicy strict      # Refuse covered Git commands
+ff config gitPolicy observe     # Record policy use without advice
+ff help git                     # Fufu's passthrough help
+```
+
+## Options
+
+```
 Arguments:
   [ARGS]...
           Arguments passed to git verbatim
@@ -30,7 +30,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -42,13 +42,20 @@ Options:
           Run as if fufu had been started in <dir>
 ```
 
-## Examples
+## Arguments and policy
 
-```
-ff git status                  snapshot, then real git status
-ff git commit -m "…"           git's, plus a line naming ff commit
-ff config gitPolicy strict     refuse the words fufu has verbs for
-ff config gitPolicy observe    count them and say nothing
-ff git rebase -i HEAD~3        Git's rewrite; refused under strict policy
-ff hook zsh                    make every typed git command do this
-```
+All arguments after `git` pass to Git verbatim, including flags such as `--help`. Git controls its output; `--json` does not wrap it in fufu's envelope.
+
+`fufu.gitPolicy` governs commands for which fufu has an alternative:
+
+- `observe` records policy use and stays quiet.
+- `coach` (default) adds advice naming the fufu command, once per word.
+- `strict` refuses the covered command and names the alternative. It still records the policy tally.
+
+Commands with no covered alternative, such as apply, bisect, and gc, run in every mode. Tag and merge passthroughs also run in every mode. Git commit and rebase are refused under strict policy.
+
+## Shell and agent integration
+
+The active shell alias `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md), routes typed Git commands here. Activate that configuration as instructed; editing an rc file alone does not change the current shell.
+
+Agent hooks use the same policy for received raw Git calls. They attempt capture before policy evaluation. Coach supplies context, while strict asks the client to deny the action through its protocol; client enforcement is separate from a passthrough refusal.

@@ -1,43 +1,42 @@
 # ff commit
 
-There is no staging step: the working copy is the change, and closing it is the commit. -m describes what is closing and wins over any pending description left by [`ff describe`](describe.md). `ff ci` is the short spelling.
-
-The open change is stored as an internal Git commit object — the one the `@` row's sha names, kept under `refs/fufu/open/<branch>` and rewritten as you work. It enters branch history when the close moves the branch onto it, so the sha [`ff log`](log.md) showed before is the sha the `●` row wears after. When that commit cannot be what lands, the close mints one of its own and says why on a `re-minted:` line: signing is on (the open commit is unsigned), a partial close, a hook that changed the tree, a hook that changed the message. A -m that differs from the description mints one too, without the line — that message is your own choice. Either way the commit is authored when the change began and committed when it closed.
-
--b lands the close on a branch — it claims the anonymous branch you are standing on, or forks a fresh one from here, leaving the branch you were on where it was.
-
-A clean tree has nothing to close, and a description does not make one — it waits for the next close instead. Every close is recorded, so [`ff undo`](undo.md) takes it back, tree and refs together.
-
-## Closing part of the tree
-
-Paths close a slice: a file or a directory — the same rule [`ff restore`](restore.md) and [`ff diff`](diff.md) speak, no globs — and what lies under it lands while the rest stays open, still the change you are in the middle of. The remainder is left without a description, and `ff describe -m` gives it one.
-
-Selection is by path and made once at the close; there is no hunk-level pick. When one file holds two changes, [`ff git commit -p`](git.md) builds that commit with git's own `-p`, capture-first, and refused under `fufu.gitPolicy strict` like every git commit.
-
-## Signing
-
-Signing follows git's configuration: `commit.gpgsign` and `gpg.format`, with the key from `user.signingkey`, in all three formats git signs in — openpgp, x509 and ssh. -S signs a repository that does not, --no-sign declines to sign one that does.
-
-Both are plain switches, and the key always comes from `user.signingkey`. With signing on, the `@` row shows no sha: the open commit is unsigned, the close signs, and the sha it lands is a different one.
+Record eligible working-copy edits in branch history, without staging. By default, all changed files are included. `-m` supplies the message and overrides a pending description set by [`ff describe`](describe.md). `ff ci` is the short spelling.
 
 ## Usage
 
 ```
 Usage: ff commit [OPTIONS] [path]...
+```
 
+## Examples
+
+```sh
+ff commit -m "parser: handle unicode escapes"
+ff commit                       # Use the pending description
+ff commit src/parser.rs -m "parser: fix escapes"
+ff commit src/ -m "parser: cleanup"  # Leave other paths uncommitted
+ff commit -b unicode-cleanup -m "parser: fix escapes"
+ff commit -S -m "signed change"
+ff commit --no-sign -m "unsigned change"
+ff commit --no-verify            # Skip pre-commit and commit-msg
+```
+
+## Options
+
+```
 Arguments:
   [path]...
-          Files or directories to close, leaving the rest open; all of it when omitted
+          Files or directories to commit; omit for all eligible changes
 
 Options:
   -m <msg>
-          Describe what is closing; wins over the pending description
+          Commit message; overrides the pending description
 
       --no-verify
           Skip pre-commit and commit-msg hooks
 
   -b <branch>
-          Branch to land the close on: claim an anonymous one, or fork here
+          Rename an automatically named branch, or create a branch here
 
       --json
           Emit machine-readable JSON
@@ -46,7 +45,7 @@ Options:
           Sign the commit, whatever commit.gpgsign says; the key is user.signingkey
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-sign
           Do not sign the commit, whatever commit.gpgsign says
@@ -64,15 +63,22 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Messages, paths, and branches
 
-```
-ff commit -m "parser: handle unicode escapes"
-ff commit                      close with the pending description
-ff commit -b unicode-cleanup   claim the name as the work lands
-ff commit --no-verify          skip pre-commit and commit-msg hooks
-ff commit -S -m "signed"       sign it, whatever commit.gpgsign says
-ff commit --no-sign -m "quick" do not sign it, whatever commit.gpgsign says
-ff commit src/parser.rs -m "one fix"  land one file, leave the rest open
-ff commit src/ -m "one fix"           a directory prefix works the same way
-```
+A clean tree has nothing to commit; a pending description waits for later edits. The open change is your current uncommitted work. Committing closes it and records the result on the branch. One [`ff undo`](undo.md) takes the commit back, including local refs and files.
+
+Paths select files or directory prefixes, without globs. Unselected edits remain open, without a pending description; use `ff describe -m` to give the remainder a message. Selection is by path, not hunk. For Git's interactive staging, [`ff git commit -p`](git.md) uses Git's interface and is refused under strict Git policy.
+
+`-b` renames an automatically named branch, or creates a new branch here when the current branch already has a chosen name. The commit is recorded on that branch.
+
+Ignored untracked files and content above `fufu.maxFileSize` are excluded by snapshot rules. Review [`ff diff`](diff.md) and any capture warnings before committing.
+
+## Hooks and signing
+
+Commit runs the configured commit hooks. `--no-verify` skips `pre-commit` and `commit-msg`. Signing follows `commit.gpgsign`, `gpg.format`, and `user.signingkey`, supporting OpenPGP, X.509, and SSH. `-S` enables signing for this commit; `--no-sign` disables it. Both use the configured key.
+
+## Internal objects and timestamps
+
+The open change already has an internal Git commit object under `refs/fufu/open/<branch>`. Its SHA is not proof that it has entered branch history. A full commit can reuse that object when it advances the branch. Signing, partial selection, or a hook changing the tree or message requires a new object and a `re-minted:` report. A different `-m` message also creates a new object, without that report.
+
+The author time is when the change began; the committer time is when it closed. With signing enabled, the open `@` row hides its SHA because the unsigned open object cannot be the final signed commit.

@@ -1,24 +1,28 @@
 # ff op log
 
-Every operation, newest first, wearing the ids the [`ff op`](op.md) verbs take. Captures are in there too, and they outnumber verb operations by more than an order of magnitude, so narrowing is the expression's job — `ff op log 'kind(op)'`. Where you can go *back* to is a different question, and [`ff history`](history.md) is the verb for it.
-
-The bold prefix on each ID distinguishes it across retained operation history, including abandoned entries and other worktrees. New operations can make an old prefix ambiguous; copy more of the ID if needed.
-
-This verb attempts a snapshot before reading, so on a dirty tree the newest row can be this command's own capture — the same timing [`ff evolog`](evolog.md) has.
-
-## The expression
-
-The argument is the set language over operations: the same operators as [`ff log`](log.md), reading the other address space, and positional the way an operation id is positional in [`ff op show`](op-show.md).
-
-Ancestry follows the log, so `@^` is the operation before the newest and `::@` is the whole live log. Operations have on_branch(), session() and kind(), and share latest(), heads() and roots() with revisions. All take one argument. Use `session(exact:nightly)` for an exact session label; a bare pattern is a substring match. See [operation expressions](../revisions.md#operation-expressions) for the complete syntax.
-
---at-op and --at bound the output at a past operation. Without an expression, the walk starts there. With an expression, it is evaluated against the live log, then filtered to entries at or before the bound: `@` still means the live tip, so `ff op log '@' --at-op '@^'` returns no rows. See [past-state reads](../revisions.md#paths-sources-and-past-state-reads).
+List recorded operations, newest first, including captures. By default, show the last 25 entries on the current worktree's live chain. Use [`ff history`](history.md) to see grouped undo steps instead.
 
 ## Usage
 
 ```
 Usage: ff op log [OPTIONS] [revset]
+```
 
+## Examples
+
+```sh
+ff op log                       # Last 25 entries of every kind
+ff op log 'kind(op)'            # Fufu command operations
+ff op log 'kind(capture)'       # Snapshots only
+ff op log 'session(exact:nightly)'  # One exact session label
+ff op log '~on_branch(main)'    # Entries from other branches
+ff op log --at 2h               # Entries at or before two hours ago
+ff log -r 'base(@)'             # Base commit of the live operation
+```
+
+## Options
+
+```
 Arguments:
   [revset]
           Operations to show, as a revset over the operation log
@@ -39,7 +43,7 @@ Options:
           Read as of the operation current at this time (30m/2h/3d, or a date)
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -54,14 +58,14 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## IDs and expressions
 
-```
-ff op log                      the last 25 operations, every kind
-ff op log 'kind(op)'           verb operations only
-ff op log 'kind(capture)'      the machine-rate rows alone
-ff op log 'session(nightly)'   one session's operations
-ff op log '~on_branch(main)'   everything that happened elsewhere
-ff log -r 'base(@)'            the commit the newest operation ran on
-ff op log --at 2h              the log as it read two hours ago
-```
+Rows have hexadecimal operation IDs. The bold prefix distinguishes retained history, including abandoned entries and other worktrees. Later operations can make a copied prefix ambiguous; use more characters then.
+
+The positional argument is an operation set. `@` means the live operation tip; `@^` is its predecessor and `::@` is its ancestry. Operators match the revision-set language used by [`ff log`](log.md), but select operations. Functions include `on_branch()`, `session()`, `kind()`, `latest()`, `heads()`, and `roots()`, each with one argument. Bare patterns match substrings; `exact:` requests an exact match. See [operation expressions](../revisions.md#operation-expressions).
+
+## Captures and past-state reads
+
+The CLI attempts capture before reading, so a dirty tree can put this invocation's snapshot at the top.
+
+`--at-op` and `--at` bound output at a past operation. Without an expression, the walk starts there. With one, the expression is evaluated on the live log and then intersected with the bound's ancestry. Thus `ff op log '@' --at-op '@^'` returns no rows. See [past-state reads](../revisions.md#paths-sources-and-past-state-reads).

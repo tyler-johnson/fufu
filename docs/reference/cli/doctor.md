@@ -1,35 +1,34 @@
 # ff doctor
 
-Checks fufu's operation log, configuration, and installed integrations. The CLI attempts a capture before checking, which can initialize the log and absorb foreign ref changes. It also fetches before every check when automatic fetching is enabled (`--no-fetch` skips it; CI skips it unless `--fetch` is explicit). Automatic trimming and update maintenance can run after the report, including when it contains findings. The diagnostic checks themselves report findings; `--fix` enables their repairs.
-
-What it reads, in order:
-
-- The engine — the operation log and its age, the fufu identity on its tip, reflogs, the gc guard, log health and pending foreign drift, settings validated through the readers' own parsers, a trim preview, the auto-trim clock, and the auto-fetch clock — when the tracking refs were last refreshed, or since when the remote has not answered.
-- The remote floor — whether every branch can name the remote it answers to, config left naming branches that are not here, and tracking refs that have gone.
-- The wiring — agent hooks, the shell alias, and a warning when nothing at all feeds capture.
-- Extensions — every `ff-<name>` found on PATH.
-- Commit signing — whether it is on, and whether the format, program and key it names will actually work — then the update lane.
-
-Rows come at three levels: ok counts nothing, info is news rather than a problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1 findings — so CI can gate on it, and --json emits the same rows for machines.
-
-## Repairs: --fix
-
-It repairs the gc reflog-expiry keys, config sections naming branches gone from both sides, partial or stale managed hook installations, and stale shipped skills. It never removes a branch config section whose shared copy is still standing — that one is [`ff branch -d`](branch.md) doing its job, not drift.
+Check fufu's operation log, configuration, and installed integrations. By default, report findings; `--fix` repairs supported problems. The CLI also attempts capture and can fetch and run maintenance, even without `--fix`.
 
 ## Usage
 
 ```
 Usage: ff doctor [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff doctor                       # Check this repository and machine setup
+ff doctor --no-fetch            # Check using existing tracking refs
+ff doctor --fix                 # Repair supported findings
+ff doctor --json                # Read diagnostic rows in a script
+```
+
+## Options
+
+```
 Options:
       --fix
-          Repair the gc config keys (the one write doctor performs)
+          Repair supported config, managed-hook, and shipped-skill findings
 
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -44,10 +43,20 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Findings and repairs
 
-```
-ff doctor                      read the net
-ff doctor --fix                repair the findings marked fixable
-ff doctor --json               the same rows, for machines
-```
+Rows are `ok`, `info`, or `WARN`. Warnings count as findings: exit 0 means healthy, exit 1 means findings. JSON contains the same rows.
+
+`--fix` repairs garbage-collection reflog-expiry keys, configuration for branches gone from both local and remote sides, partial or stale managed hooks, and stale shipped skills. It does not remove branch configuration while a remote copy still exists.
+
+## Capture, fetch, and maintenance
+
+Before checking, the CLI attempts a snapshot, which can initialize the operation log and reconcile outside ref changes. It fetches every run when automatic fetching is enabled. `--no-fetch` skips that; CI skips it unless `--fetch` is explicit. Automatic trimming and update maintenance can run after the report, including a report with findings.
+
+## Checks performed
+
+- Operation history, identity, reflogs, garbage-collection protection, pending outside changes, settings, retention preview, and automatic trim/fetch timing.
+- Branch remote assignments, stale branch configuration, and deleted tracking refs.
+- Agent and shell integrations, including a warning when no hooks feed capture.
+- Executable extensions named `ff-<name>` on PATH.
+- Commit signing format, program, and key, followed by update configuration.

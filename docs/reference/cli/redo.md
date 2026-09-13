@@ -1,20 +1,30 @@
 # ff redo
 
-The complement of [`ff undo`](undo.md): step forward again along the branch of the log an undo stepped off. Takes no argument, and repeats — each one goes one run further forward, until the log is back where it started.
-
-Redo reads where the operation ref has been, so it can only follow a path that is still there. New work after an undo forks the log rather than truncating it: nothing is discarded, but redo stops offering a way forward it can no longer take, and says so. The forked-off branch keeps its ids, and [`ff op restore`](op-restore.md) still lands on any of them until trim ages them out.
+Step forward after [`ff undo`](undo.md) or [`ff op restore`](op-restore.md). It takes no argument. Repeat it to follow the available redo path in the current worktree; [`ff history`](history.md) shows that path above `@`.
 
 ## Usage
 
 ```
 Usage: ff redo [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff undo                         # Step back
+ff redo                         # Return forward
+ff history                      # See remaining steps
+```
+
+## Options
+
+```
 Options:
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -29,10 +39,8 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## When redo stops
 
-```
-ff undo && ff redo             back, and forward again
-ff redo                        …and again, after several undos
-ff op log                      where the log stands now
-```
+New work after undo forks the operation history and ends the offered redo path. The older records are retained rather than truncated. Their operation IDs can still be used with `ff op restore` until retention removes them.
+
+Redo has the same local scope as undo: recorded refs, HEAD, index, and files for this worktree, subject to worktree guards. It cannot reproduce uncaptured content or change a remote.

@@ -1,42 +1,30 @@
 # ff log
 
-The changes view: the open change (@) sits above the commit walk (●), and each commit has a change ID — the letters column [`ff evolog`](evolog.md) uses to inspect its recorded evolution. The @ row carries the ID the change will keep when [`ff commit`](commit.md) records it in branch history. Its SHA identifies the internal open commit object; a different message, partial commit, signing, or hook can give the recorded commit a different SHA. The SHA is blank while the tree is clean and under signing.
-
-Every commit has a change ID. A commit fufu recorded carries it as a `change-id` header, which jj also uses; surviving changes keep it through fufu rewrites. A commit without that header derives its ID from its SHA, so an outside rewrite can change that identity. The bold prefix is unique only on the displayed page. Resolution requires at least four characters and a unique match in the repository: use more letters for an ambiguous prefix, or a commit SHA for divergent copies of the same change. See [Revisions and IDs](../revisions.md#prefixes-and-divergent-copies) for lookup limits and local/remote precedence.
-
---commits drops to plain history, no change ids. The operation log itself is [`ff op log`](op-log.md): every mutation fufu has made, newest first, carrying the ids the [`ff op`](op.md) verbs take.
-
-## Choosing the rows
-
--r takes a revision set and replaces where the rows come from. It accepts commit and change IDs, branch and tag names, supported Git-style suffixes, and the set operators | & ~ .. and :: . The [revision grammar](../revisions.md#revision-sets-and-grammar) lists the implemented forms and boundaries. The @ row appears only when the open change is a member of the set. `@^` is `HEAD`, `@~3` is `HEAD~2`, and on linear history `@~3..@` is two commits plus the open change. It has no reflog, so `@@{1}` is refused; `@{1}` alone is HEAD's.
-
-Paths narrow the log to the commits that touch them, by the rule [`ff restore`](restore.md) speaks: a file, or a directory prefix. No globs. The @ row appears when the open change touches them, the same rule -r has.
-
-No `--` is needed, the opposite of what git teaches: revisions go to -r and the positional is only ever paths, so `ff log main` is a question about the path main, even where a branch called main exists.
-
-## Renames
-
-A path that names a blob is followed through its renames, on by default. A directory gets no follow — git tracks no such thing as a directory rename, so there is nothing to follow.
-
--r filters but does not follow: a revset names a set, and a set has no line of descent to carry a name along. `ff log -r 'trunk..@' src/` still works — it filters.
-
-## Signatures
-
-A commit that carries a signature says `signed` beside it. That is free — the header is on an object the walk already read — so it is on by default. It is a claim about the commit rather than about the key: a signature is there, not that anybody checked it.
-
---signatures checks them, replacing `signed` with the verdict, the tool, and the short id of the key — `verified gpg 9B295D68` — or `bad signature`, `untrusted key`, `expired signature`, `expired key`, `revoked key`, `unverifiable`.
-
-The checks run in parallel, one per core up to eight, and cost one signer run per signed row, which is why it is a flag. Unsigned commits say nothing either way.
-
-## Paging
-
-The log family pages on a terminal, git-style — fufu.pager, then FF_PAGER, then PAGER, then less. Piped output and --json never page.
+Show commit history, with the open change `@` above the recorded commits `●`. By default, show the last 25 rows from `HEAD`. The letters column contains change IDs, which [`ff evolog`](evolog.md) uses to show a change's recorded evolution.
 
 ## Usage
 
 ```
 Usage: ff log [OPTIONS] [path]...
+```
 
+## Examples
+
+```sh
+ff log                          # Last 25 rows, including open work
+ff log -n 0                     # Unlimited rows
+ff log --commits                # Commit history without change IDs
+ff log --signatures             # Verify signatures and show verdicts
+ff log -r main                  # Only main's tip
+ff log -r 'trunk..@'            # Work beyond trunk, including @
+ff log -r '@~3..@'              # Two commits and the open change
+ff log src/parser.rs            # Follow a file through renames
+ff log -r 'trunk..@' src/       # Filter a revision set by path
+```
+
+## Options
+
+```
 Arguments:
   [path]...
           Files or directories to limit the log to; all of them when omitted
@@ -57,10 +45,10 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --signatures
-          Verify each commit's signature and show the status letter — one signer run per row
+          Verify signatures and show verdict words; one signer run per signed row
 
       --at-op <op>
           Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
@@ -81,17 +69,24 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Choosing rows
 
-```
-ff log                         the last 25 rows
-ff log -n 0                    all of it
-ff log --commits               history only, no change ids
-ff log --signatures            verify each row and show its status letter
-ff log -r main                 just main's tip — no @ row, it is not in it
-ff log -r 'trunk..@'           what this branch has that trunk does not
-ff log -r '@~3..@'             the last two commits and the open change
-ff log src/parser.rs           what happened to this file, renames and all
-ff log -r 'trunk..@' src/      filters that set by path — no rename follow
-ff op log                      the operation log, in its own address space
-```
+`-r` (`--revisions`) selects a revision set (revset) instead of walking from HEAD. It accepts commit SHAs, change IDs, branches, tags, suffixes, and set operators. `@` means the open change; `@^` is `HEAD`, and `@~3` is `HEAD~2`. The open row appears only if selected. See [Revisions and IDs](../revisions.md#revision-sets-and-grammar) for grammar and current set boundaries.
+
+Positional arguments are paths, never revisions: `ff log main` filters the path main. Paths select files or directory prefixes, without globs. The open row appears only when it touches a selected path. A file is followed through renames by default; a directory is not. With `-r`, paths filter the selected commits without rename following.
+
+`--commits` omits change IDs. `--at` and `--at-op` are declared but currently refused for log. [`ff op log`](op-log.md) lists recorded operations, and [`ff history`](history.md) lists undo steps.
+
+## Change IDs and commit objects
+
+A fufu commit stores a stable `change-id` header, also used by jj. Surviving changes keep it through fufu rewrites. A commit without the header derives its ID from its SHA, so an outside rewrite can change its identity.
+
+The bold change-ID prefix is unique only on the displayed page. Resolution needs at least four characters and a unique repository match. Use more letters for an ambiguous prefix, or a commit SHA for divergent copies of one change. The [prefix reference](../revisions.md#prefixes-and-divergent-copies) describes lookup limits.
+
+The `@` row's SHA identifies an internal open object, not a commit already recorded in branch history. A different message, partial commit, signing, or hook can change the SHA when [`ff commit`](commit.md) records it. The SHA is blank on a clean tree and when signing is enabled.
+
+## Signatures and paging
+
+`signed` means a signature is present, without verifying it. `--signatures` verifies signed commits and displays words such as `verified gpg 9B295D68`, `bad signature`, `untrusted key`, `expired signature`, `expired key`, `revoked key`, or `unverifiable`. Unsigned commits have no verdict. Verification costs one signer run per signed row, in parallel up to eight workers.
+
+Terminal output uses `fufu.pager`, then `FF_PAGER`, then `PAGER`, then `less`. Piped output and JSON do not page.

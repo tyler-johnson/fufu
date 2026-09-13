@@ -254,10 +254,10 @@ mod notice {
     #[test]
     fn the_help_block_routes_an_agent_to_a_command_that_runs() {
         let block = crate::help::ROOT_EXAMPLES
-            .split_once("Are you an agent")
+            .split_once("### Extensions and agent instructions")
             .expect("the root help still carries the agent block")
             .1;
-        // Two columns: the command, then whitespace, then what it is for.
+        // Executable command lines in the agent section's fenced block.
         let commands: Vec<Vec<String>> = block
             .lines()
             .map(str::trim)

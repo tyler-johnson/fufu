@@ -125,11 +125,9 @@ fn the_mutating_aliases_resolve_to_their_verbs() {
 fn the_aliases_ride_their_rows() {
     let fx = repo();
     let page = stdout(&ff(&fx, &["--help"]));
-    // The list is grouped now, so there is no one `Commands:` header to split
-    // on: it runs from the usage line to the options, and a row is indented
-    // where a heading is not.
+    // The list starts after the examples, at the first task heading.
     let list = page
-        .split_once("Usage: ff")
+        .split_once("Getting started:")
         .and_then(|(_, rest)| rest.split_once("\nOptions:"))
         .map(|(list, _)| list.to_string())
         .expect("a command list");
@@ -190,7 +188,7 @@ fn the_aliases_ride_their_rows() {
 }
 
 /// Bare `ff` is the map, and "the map" is a word the docs use — so it is a
-/// word you can type. Same command, same page, same envelope.
+/// word you can type. Same command and envelope, with focused help.
 #[test]
 fn the_map_has_a_name_of_its_own() {
     let fx = repo();
@@ -204,9 +202,12 @@ fn the_map_has_a_name_of_its_own() {
         "the named form draws what the bare form draws"
     );
 
-    // The page is the root page, because it is the same command.
+    // The focused page still names the bare spelling.
     let page = stdout(&ff(&fx, &["help", "map"]));
-    assert!(page.contains("Bare `ff` is the map"), "root page: {page}");
+    assert!(
+        page.contains("Bare `ff` runs this same command"),
+        "map page: {page}"
+    );
 }
 
 /// The scope flags belong to whichever spelling is being used, and they are

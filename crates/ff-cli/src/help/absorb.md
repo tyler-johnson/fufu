@@ -1,30 +1,33 @@
-Moves content out of a run of commits and into one commit. `ff absorb` and `ff lift` are one move with two sets of defaults: `--from <revset>` names the sources, `--into <rev>` names the target, and each verb's word is its defaults and nothing more. Absorb moves from the open change into the commit under the sources — fold what is on disk into the commit it belongs to — and every other shape is the same move with an end named. `ff squash` is jj's name for the move, and an alias here.
-
-The sources are one contiguous run of commits on the branch's line, the open change allowed as the top member or alone; `--from HEAD~2..HEAD` is the two commits above `HEAD~2`, and they fold into it. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A move does not attribute hunks: the change is the unit, whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
-
-Everything between and above replays in the same operation, so a branch inside that range comes along with it. Content and commit hashes change; surviving changes keep their change IDs. A conflicting primary replay records a hold without landing that rewrite; captures and metadata may still be written. `ff resolve` opens it.
-
-`-m` gives the target a message: a reword for a closed commit, the pending description for the open change. Without it the target keeps what it had.
-
-See [Revisions and IDs](../revisions.md#revision-sets-and-grammar) for source ranges and single-revision targets. Preview the source with `ff log -r 'HEAD~2..HEAD'`; an omitted right endpoint can include other branches.
-
-### Branches stacked above
-
-The branches stacked on this one follow it. Once the move has landed, every local branch whose base resolves to the rewritten branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the move.
-
-A branch above whose replay conflicts is held on its own, with everything above it left alone, and the move still lands; `ff status` shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named.
-
-### Hooks
-
-When the open change is among the sources, its content is about to become commit content, so your `pre-commit` hook runs over it exactly as it would for a close — the index is staged with what is folding in, and a hook that exits non-zero refuses the move. A move between closed commits runs no `pre-commit`. `-m` on a closed commit runs `commit-msg` the way a reword does. `--no-verify` skips both.
+Add your uncommitted changes to an existing commit. By default, update the latest commit on the current branch. Use `--into` to update an earlier commit. `ff squash` is an alias.
 
 ## Examples
 
+```sh
+ff absorb                       # Add all eligible uncommitted changes
+ff absorb src/parser.rs         # Add only this file's changes
+ff absorb --into HEAD~2         # Update an earlier commit
+ff absorb --from 'HEAD~2..HEAD'  # Combine two commits into their parent
+ff absorb -m "parser: handle escapes"  # Also change the target's message
 ```
-ff absorb                        fold everything open into the commit under it
-ff absorb --into HEAD~2          fold it into a commit further back
-ff absorb --from HEAD~2..HEAD   fold the two commits above HEAD~2 into it
-ff absorb --from HEAD~2..HEAD -m "…"  also reword their target
-ff absorb src/parser.rs          fold only that path
-ff absorb --no-verify            fold without running the pre-commit hook
-```
+
+### Options
+
+### Paths, messages, and ranges
+
+Paths select files or directory prefixes, without globs or hunk selection. Unselected changes stay where they are. `-m` changes the target's message; an open target receives a pending description. Without it, the target keeps its message.
+
+`--from <revset>` selects a contiguous run on the branch's history, optionally including the open change `@`. With no `--into`, absorb targets the commit immediately below the sources. When committed sources would default to a target on trunk's history, the move is refused: name the intended target explicitly. This guard does not forbid an explicit trunk target or adding only uncommitted work to trunk's tip.
+
+`ff absorb` and `ff lift` share the same move engine with different defaults. An explicit target can be below, above, or inside the source run, or `@`. A source emptied by the move is dropped. Surviving changes keep their change IDs while commit hashes change.
+
+Preview a range with `ff log -r 'HEAD~2..HEAD'`. An omitted right endpoint can include other branches. See [Revisions and IDs](../revisions.md#revision-sets-and-grammar) for the full syntax.
+
+### Conflicts and dependent branches
+
+Commits between and above the endpoints replay in the same operation, including branches inside that range. A conflicting primary replay records a held rewrite without landing it and exits 3; captures and metadata may still be written. `ff resolve` opens the conflicts.
+
+After a successful move, dependent local branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the original move still lands and currently exits 0. Inspect the cascade report or `ff status`. Branches checked out elsewhere, already held, or containing merges are skipped and named. One `ff undo` takes back the move and its cascade.
+
+### Hooks
+
+When sources include the open change, `pre-commit` runs with the selected content in the index. Moves between recorded commits do not run it. `-m` on a recorded target runs message hooks as a reword does. A failing hook refuses the move; `--no-verify` skips `pre-commit` and `commit-msg`.

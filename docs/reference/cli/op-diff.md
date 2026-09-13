@@ -1,16 +1,24 @@
 # ff op diff
 
-What changed in the worktree between two operations. Both are operation ids; the second defaults to `@`, so a single argument reads "from there to now".
-
-This compares the trees two operations carry, not their ref transitions — adjacent operations can sit on different branches, and the diff across that seam reads as the whole worktree being replaced, which is literal rather than wrong.
-
--p puts the patch under the diffstat, the same unified diff [`ff diff`](diff.md) prints.
+Compare the recorded file trees of two operations. The first address is required; the second defaults to `@`, the live operation tip. By default, print a diffstat; `-p` adds the patch.
 
 ## Usage
 
 ```
 Usage: ff op diff [OPTIONS] <a> [b]
+```
 
+## Examples
+
+```sh
+ff op diff '@^' @               # Files across the newest operation
+ff op diff '@~3'                # From three operations ago to now
+ff op diff -p '@~3' '@^'        # Compare two older states with a patch
+```
+
+## Options
+
+```
 Arguments:
   <a>
           The older operation
@@ -32,7 +40,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -47,11 +55,10 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Addresses and comparison scope
 
-```
-ff op diff @^ @                what the newest operation changed
-ff op diff a1b2c3d4e5f6       from that operation to now
-ff op diff a1b2c3d4e5f6 b2c3d4e5f6a7  between two of them
-ff op diff -p @^ @             with content, not just counts
-```
+Addresses are hexadecimal operation IDs or unique prefixes, or `@` with predecessor suffixes. `@^` means the previous operation. See [operation addresses](../revisions.md#operation-expressions).
+
+`--at-op` or `--at` supplies the second address when that positional argument is omitted. An explicit second address takes precedence. The CLI attempts a snapshot before reading, so the live tip can include current edits.
+
+This compares files, not ref transitions. Use [`ff op show`](op-show.md) to inspect ref movement. Adjacent operations can be on different branches; comparing across a switch can show the entire checkout difference. [`ff diff`](diff.md) shows only the current uncommitted change.

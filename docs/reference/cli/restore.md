@@ -1,31 +1,33 @@
 # ff restore
 
-Files come back as they were somewhere else. Bare, that somewhere is the commit under the open change — the everyday "discard my edits to this file". --all restores the whole tree, including deleting files that were created since.
-
-Three flags name a different source, one kind each, because a position argument has exactly one kind and a second kind takes a flag:
-
-```
---from <rev>      a revision — a branch, a sha, any revset naming one
---at-op <op>      an operation, by its hex id or a prefix
---at <time>       the operation current at a time (30m/2h/3d, or a date)
-```
-
-Choose one source flag. --from must resolve to exactly one commit; the open change @ is refused. --at-op also accepts @ and first-parent suffixes such as @^ or @~3, but not operation sets or functions. The source is resolved before the pre-restore snapshot. See [paths, sources, and past-state reads](../revisions.md#paths-sources-and-past-state-reads).
-
-Only the worktree is written. The index, HEAD, and branches stay exactly as they are. Restore takes its own capture first, and that one is mandatory: if the pre-restore capture fails, nothing is written. So any restore is undone by another restore, or by [`ff undo`](undo.md).
+Discard edits to selected files by restoring their content from the commit below the open change. Paths are required unless you use `--all`, which restores the entire working copy and removes files absent from the source.
 
 ## Usage
 
 ```
 Usage: ff restore [OPTIONS] [path]...
+```
 
+## Examples
+
+```sh
+ff restore src/main.rs          # Discard this file's edits
+ff restore --all                # Discard all eligible working-copy edits
+ff restore --all --at 2h        # Recover files from two hours ago
+ff restore docs/ --at-op '@^'   # Recover a directory from an operation
+ff restore src/ --from main~2   # Recover files from a commit
+```
+
+## Options
+
+```
 Arguments:
   [path]...
           Paths to restore from the source
 
 Options:
       --from <rev>
-          Revision to restore from; without it, the commit under the change
+          Source revision; defaults to the commit below the open change
 
       --all
           Restore the entire worktree to the source state
@@ -40,7 +42,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -55,11 +57,18 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Alternate sources
 
+```text
+--from <rev>      One recorded revision: branch, SHA, or change ID
+--at-op <op>      One operation: hexadecimal ID, prefix, or @ suffix
+--at <time>       Operation current at a time: 30m, 2h, 3d, or a date
 ```
-ff restore src/main.rs         discard edits: back to the commit below
-ff restore --all --at 2h       the whole tree, as it stood two hours ago
-ff restore docs/ --at-op a1b2c3d4e5f6  a directory, from one operation
-ff restore src/ --from main~2  the same paths, from history instead
-```
+
+Choose one source flag. `--from` must resolve to exactly one commit and refuses the open change `@`. In operation space, `@` is the live tip, `@^` its predecessor, and `@~3` three predecessors back; sets and functions are not accepted here. The source resolves before the mandatory pre-restore snapshot. See [paths and sources](../revisions.md#paths-sources-and-past-state-reads).
+
+Paths are files or directory prefixes, without globs. Recovery can only use retained captured content: ignored untracked files, unsaved buffers, and oversized content are not recoverable from snapshots that excluded them.
+
+## Effects and recovery
+
+Restore writes worktree files only. It leaves the index, HEAD, and branch refs in place. If its pre-restore capture fails, it writes no files. [`ff undo`](undo.md) takes the restore back; another restore can also recover from that pre-operation snapshot. Use [`ff op restore`](op-restore.md) to restore branch state and the index together with files.

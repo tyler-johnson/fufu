@@ -1,43 +1,38 @@
 # ff fold
 
-Lands the branch you are standing on onto another and takes the branch away: its commits replay onto the target's tip, the target fast-forwards to the result, the branch is deleted the way [`ff branch -d`](branch.md) deletes one, and this worktree moves to the target with the open change still open. Trunk is the target when you name none. One operation, so one [`ff undo`](undo.md) takes all four moves back.
-
-Nothing is merged. The history that lands is linear, the same shape `git rebase --onto` and then `git merge --ff-only` would leave, with the branch's pointer into the log parked under trash and its tip pinned. An anonymous branch — the one a bare `ff start` mints — has no name to lose, and folding it is how a bay lands.
-
-- The replay carries the branch's own commits and no others, bounded where it forked from the target, and the open change replays as the last step. A replay that would conflict refuses with nothing changed; [`ff restack --onto <target>`](restack.md) holds the same replay so [`ff resolve`](resolve.md) can pick it up, and `ff fold` lands it once it is clean.
-- A branch that already sits on the target's tip, or ahead of it, replays nothing: the target moves to its tip.
-- Trunk cannot be folded, a branch cannot be folded into itself, and a target on a remote is refused, since fold lands into a local branch only. A target another worktree has checked out is refused unless `--stay` says to advance it there.
-
-## Branches stacked above
-
-The branches stacked on the folded branch follow it onto the target's new tip, parent before child, in the one operation, and each records the target as its base, since the branch it sat on is gone. A branch above whose replay conflicts is held where it stands with everything above it left alone, and [`ff switch`](switch.md) to it and `ff resolve` picks the replay up. One checked out in another worktree, one already holding a rewrite, and one whose commits hold a merge are skipped and named.
-
-## What it reports
-
-The output says what landed, how far the target moved, what was deleted and where its timeline went, what followed, held, and was skipped, and where you now stand. `--json` carries the cascade as `cascade`. The exit is 3 when a branch above held.
-
-## --stay
-
-`--stay` keeps this worktree on the branch and keeps the branch: it moves to the new tip with the target recorded as its base, sitting on the target with nothing of its own, and the open change stays open here. When another worktree holds the target, the target advances there — its files move to the new tip with its uncommitted work carried over, and refused with nothing written when that work would conflict — and the operation is written on both chains, each half naming the other, so `ff undo` in either tree takes back that tree's half and says what the other still holds. With no other worktree on the target, `--stay` is the same fold minus the deletion and the switch, so a script can pass it unconditionally.
+Replay the current branch onto a target, advance the target, and delete the source branch. With no target, use trunk. This worktree switches to the target with its uncommitted work still open. One [`ff undo`](undo.md) reverses the local operation.
 
 ## Usage
 
 ```
 Usage: ff fold [OPTIONS] [branch]
+```
 
+## Examples
+
+```sh
+ff fold                         # Fold this branch into trunk
+ff fold release-1.2             # Fold into another local branch
+ff fold --stay                  # Keep this branch and checkout
+ff undo                         # Restore the branch and target
+```
+
+## Options
+
+```
 Arguments:
   [branch]
           Branch to fold into; without it, trunk
 
 Options:
       --stay
-          Advance a target another worktree holds, there, and keep this branch here
+          Keep this branch and checkout; allow a target checked out elsewhere
 
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -52,12 +47,20 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Target and replay rules
 
-```
-ff fold                        land this branch on trunk and delete it
-ff fold release-1.2            land it on another branch instead
-ff fold --stay                 the target is open in another worktree:
-                               advance it there, keep this branch here
-ff undo                        put the branch back, the target too
-```
+Fold replays commits and advances the target without adding a merge commit. The source's timeline pointer moves to trash and its tip remains pinned by the operation. If the source is already on or ahead of the target's tip, no replay is needed.
+
+Trunk cannot be folded, a branch cannot target itself, and the target must be local. A target checked out elsewhere requires `--stay`.
+
+## Conflicts and dependent branches
+
+The source's commits replay from their fork point with the target, followed by its open change. A conflicting primary replay refuses to land. Use [`ff restack --onto <target>`](restack.md) to record that replay as a held rewrite, then [`ff resolve`](resolve.md) and finish it before folding again. Pre-operation capture can still occur.
+
+Dependents replay parent before child and record the target as their new base. A conflicting dependent holds in place, leaving branches above it alone. Branches checked out elsewhere, already held, or containing merges are skipped and named. The exit is 3 if a dependent holds. JSON reports these results in `cascade`.
+
+## Keeping the source with --stay
+
+`--stay` keeps the source branch and this checkout, moves the source to the new tip, and records the target as its base. Open work remains here. Without another worktree on the target, this simply omits deletion and switching.
+
+If another worktree has the target checked out, its files advance there with its uncommitted work carried over. A conflict in that work refuses the landing. Both worktree chains record their own half; undo in either reverses that half and reports what the other still holds.

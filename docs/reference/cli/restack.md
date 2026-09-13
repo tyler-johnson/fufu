@@ -1,31 +1,28 @@
 # ff restack
 
-Replays a branch's commits onto the base it sits on — the branch it was forked from when one was recorded, trunk otherwise. `--onto` records a new parent first, which is how a branch is re-aimed and the only way to change it. A base is a branch wherever it lives: `origin/main` names one that lives on a remote, and re-aiming at it records it like any other. `ff rebase` is an alias: jj's word, and the git habit, land here.
-
-The positional names the branch being moved, so restacking another branch leaves this worktree's files alone unless the cascade reaches the current branch. The replay is local, but the CLI can auto-fetch before it and run maintenance afterward. `--no-fetch` disables the fetch; passive update behavior has its own configuration.
-
-- The replay carries the branch's own commits and no others. A commit whose change id the target already holds is a stale copy of one the target has since rewritten: it is dropped as superseded by the target's commit, with no merge attempted, so a base rewrite that changed its content cannot conflict on a file the branch never touched. For a commit without the header — one made by git, or one a raw `git rebase` stripped — the range stops where the branch forked from the history of whatever it is replayed onto, read from that ref's reflog. `--onto` reads the target's reflog the same way, which is how a branch cut outside fufu and first aimed at the branch it really sits on sheds the stale copies it carries.
-- A conflicting replay leaves that branch tip and its files at their pre-replay state and records a hold. Captures, metadata, and successful replays on other branches can still have been written.
-- A branch inside the replayed range with no commits of its own is left where it stood, and named.
-
-## Branches stacked above
-
-The branches stacked above follow. Every local branch whose base is the one that moved is replayed onto its new tip, parent before child, through the whole tree, and the whole cascade rides the one operation, so one [`ff undo`](undo.md) takes all of it back.
-
-A branch above whose replay conflicts is held the way the branch itself would be, with everything above it left alone; [`ff switch`](switch.md) to it and [`ff resolve`](resolve.md) picks the replay up. A branch checked out in another worktree is skipped and the worktree named, with everything above it left alone; so is one already holding a rewrite, and one whose commits hold a merge.
-
-## What it reports
-
-The output says what followed, what held, and what was skipped, and `--json` carries it as `cascade`. The exit is 3 when a branch above held, since the stack is not yet lined up.
+Replay the current branch's commits onto its base branch's latest tip. The base is its recorded parent, or trunk when none is recorded. Name another branch to restack it, or use `--onto` to change the selected branch's base. `ff rebase` is an alias.
 
 ## Usage
 
 ```
 Usage: ff restack [OPTIONS] [branch]
+```
 
+## Examples
+
+```sh
+ff restack                      # Update this branch from its base
+ff restack feature              # Restack another branch
+ff restack --onto release-1.2   # Choose a new base
+ff restack --onto origin/main   # Use a remote-tracking base
+```
+
+## Options
+
+```
 Arguments:
   [branch]
-          Branch to restack; without it, the one you are on
+          Branch to restack; defaults to the current branch
 
 Options:
       --onto <branch>
@@ -35,7 +32,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -50,11 +47,20 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Selecting a base and side effects
 
-```
-ff restack                     replay onto the base this branch sits on
-ff restack feature             restack a branch you are not standing on
-ff restack --onto release-1.2  re-aim this branch and replay onto it
-ff restack --onto origin/main  a base that lives on a remote
-```
+`--onto` records the new base and replays onto it. Local branches and remote-tracking branches such as `origin/main` are accepted. Restacking another branch leaves this worktree's files alone unless the cascade reaches the current branch.
+
+Replay is local. The CLI can auto-fetch first and run maintenance afterward. `--no-fetch` skips the fetch; passive update behavior has separate configuration.
+
+## Conflicts and dependent branches
+
+A conflicting primary replay leaves that branch's tip and files at their pre-replay state and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. [`ff resolve`](resolve.md) opens a held rewrite.
+
+Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere, already held, or containing merges are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One [`ff undo`](undo.md) takes back the restack and cascade.
+
+## Replay selection and report
+
+The replay carries the branch's own commits. A source change ID already present on the target is dropped as superseded, without merging its old content. For commits without stored change IDs, the fork point uses the target's reflog to exclude stale history, including when `--onto` selects a new target.
+
+A branch inside the replay range with no commits of its own stays put and is named. Output lists what followed, held, and was skipped; JSON carries the dependent-branch results in `cascade`.

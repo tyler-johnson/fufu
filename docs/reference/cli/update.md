@@ -1,25 +1,24 @@
 # ff update
 
-Names the one command that updates this copy of fufu, and offers to run it. fufu never writes an `ff` binary itself: whatever placed one owns replacing it.
-
-So it works out which of four channels this copy came through, and answers accordingly:
-
-- a source build gets `cargo install`
-- a Homebrew binary gets `brew upgrade fufu`
-- a binary mise or nix or a hand copy placed gets the releases page
-- a binary sitting where the install script puts it gets the `curl … | sh` line
-
-That last one is the only channel ff acts on. It checks the latest release, prints the command, and runs it after `-y` or a typed yes. Without a terminal to ask, printing the command is the whole answer. `-y` on any other channel is an error rather than a silent no-op.
-
-Official builds also look for new releases without being asked. A check runs at most once per fufu.updateCheck (daily by default) and lands a one-line notice on stderr, naming the same command this verb would. Nothing installs itself, and a release is announced at most once, ever.
-
---check is that background lane: it refreshes the cache and prints nothing.
+Show how to update this installation of fufu. For an install-script binary, check the latest release and offer to run the installer when an update is available. Other installation types print their update instructions.
 
 ## Usage
 
 ```
 Usage: ff update [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff update                       # Show the appropriate update command
+ff update -y                    # Run an install-script update without asking
+ff config updateCheck false      # Disable passive update checks
+```
+
+## Options
+
+```
 Options:
       --check
           Refresh the update cache only (used by the background check)
@@ -31,7 +30,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -46,10 +45,17 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Installation types
 
-```
-ff update                      what updates this fufu, and offer to run it
-ff update -y                   run the install without asking
-ff config updateCheck false    turn the background check off
-```
+- Source builds receive a `cargo install` command.
+- Homebrew installations receive `brew upgrade fufu`.
+- Unmanaged binaries, including copies placed by mise or Nix, receive the releases-page URL.
+- Binaries in the install script's destination receive that script's update command.
+
+Only the install-script channel runs an installer. It runs after `-y` or an interactive yes. Without a terminal, it only prints instructions unless `-y` is given. `-y` on another channel returns an error. The installer replaces the binary and refreshes existing hooks with [`ff hook -u`](hook.md).
+
+## Passive checks and output
+
+Official builds can check for releases in the background on `fufu.updateCheck`'s cadence, daily by default. Update notices name the appropriate command; no update installs itself automatically. A cached release is announced at most once while that notice record remains.
+
+`--check` refreshes the update cache silently, including silent lookup failures; it is used by the background check. Ordinary update output is human-oriented and is not wrapped by `--json`.

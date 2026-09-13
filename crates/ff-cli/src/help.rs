@@ -12,11 +12,11 @@
 //! mechanical reason: clap_derive joins a doc comment's lines into a single
 //! paragraph, while a rendered string is emitted line for line.
 //!
-//! One file holds both halves clap prints, split at its `## Examples`
-//! heading: above it the long description that goes over `Usage:`
-//! (`long_about`), below it the examples that go under the options
-//! (`after_long_help`). The one-line `about` stays in `cli.rs`, where it is
-//! also the row in the parent's command list.
+//! A page starts with purpose and defaults, followed by `## Examples` and
+//! `### Options`. The latter marks where clap's argument reference belongs;
+//! subsequent sections hold exceptions, recovery, and advanced details.
+//! [`command`] places usage before examples and options before details.
+//! The one-line `about` in `cli.rs` supplies short help and command lists.
 //!
 //! The `the_pages_are_formatted` test holds every file to one shape: one
 //! line per paragraph, balanced fences, exactly one `## Examples`, and no
@@ -29,6 +29,9 @@
 /// in a file and only ever at column 0, which is what lets the split have no
 /// special cases.
 pub(crate) const SEAM: &str = "\n\n## Examples\n";
+
+/// The insertion point for the generated argument reference in both renderers.
+pub(crate) const OPTIONS: &str = "\n\n### Options\n";
 
 /// Where [`SEAM`] sits in a page. Const, so a file that lost its marker is a
 /// compile error rather than a page that prints half of itself.
@@ -79,6 +82,8 @@ macro_rules! pages {
 
 pages! {
     ROOT             ROOT_EXAMPLES             "help/root.md"
+    MAP              MAP_EXAMPLES              "help/map.md"
+    EXPLAIN          EXPLAIN_EXAMPLES          "help/explain.md"
     COLLIDE          COLLIDE_EXAMPLES          "help/collide.md"
     STATUS           STATUS_EXAMPLES           "help/status.md"
     LOG              LOG_EXAMPLES              "help/log.md"
@@ -208,11 +213,33 @@ pub fn term(md: &str) -> String {
     out
 }
 
-/// [`term`] for the `## Examples` half — the same rendering, named so a
-/// `cli.rs` attachment reads as the pair it is: `term(X)` over the usage,
-/// `term_examples(X_EXAMPLES)` under the options.
+/// Render the examples and details, retaining the options insertion point
+/// for [`command`] to split into clap's long-only fields.
 pub fn term_examples(md: &str) -> String {
+    assert!(
+        md.contains(OPTIONS),
+        "a help page needs an options insertion point"
+    );
     term(md)
+}
+
+/// Reorder clap's long-only prose fields without changing its argument tree.
+/// `before_long_help` holds examples inside our template, after usage. Short
+/// help has neither that field nor the detailed after-help text.
+pub fn command(mut cmd: clap::Command) -> clap::Command {
+    if let Some(tail) = cmd.get_after_long_help() {
+        let tail = tail.to_string();
+        let (examples, details) = tail
+            .split_once("\n\nOptions:\n")
+            .expect("every help page has an options insertion point");
+        cmd = cmd
+            .before_long_help(examples.to_string())
+            .after_long_help(details.trim().to_string())
+            .help_template(
+                "{about-with-newline}\n{usage-heading} {usage}\n\n{before-help}{all-args}{after-help}",
+            );
+    }
+    cmd.mut_subcommands(command)
 }
 
 /// Greedy fill at [`FILL`], counting characters rather than bytes: the prose
@@ -290,27 +317,18 @@ const fn r(name: &'static str) -> Row {
     }
 }
 
-/// Every command, grouped. Four of the headings are `git help`'s own words,
-/// because git already solved this page and a reader who knows one should
-/// not have to learn the other; the fufu-only groups are written in the same
-/// register.
-///
-/// Three placements are deliberate. `commit` sits with the current change
-/// rather than under "grow, mark and tweak", because in fufu the working
-/// tree *is* the change. `restore` sits there too, where git has it. And
-/// `map` heads "examine" rather than taking a line of its own, since bare
-/// `ff` is taught two paragraphs into [`ROOT`].
+/// Every command grouped by the task a reader is trying to perform.
 ///
 /// clap's generated `help` subcommand is not a row: it exists only after
 /// `Command::build()`, which [`root_template`] deliberately does not call,
 /// and [`ROOT_EXAMPLES`] already teaches `ff help <command>`.
 pub const GROUPS: &[Group] = &[
     Group {
-        heading: "start a working area",
-        commands: &[c("init"), c("clone"), r("worktree")],
+        heading: "Getting started",
+        commands: &[c("init"), c("clone")],
     },
     Group {
-        heading: "work on the current change",
+        heading: "Working changes",
         commands: &[
             c("status"),
             c("diff"),
@@ -320,7 +338,7 @@ pub const GROUPS: &[Group] = &[
         ],
     },
     Group {
-        heading: "examine the history and state",
+        heading: "Inspect history",
         commands: &[
             r("map"),
             c("log"),
@@ -331,10 +349,12 @@ pub const GROUPS: &[Group] = &[
         ],
     },
     Group {
-        heading: "grow, mark and tweak your common history",
+        heading: "Branches",
+        commands: &[c("switch"), c("branch"), r("worktree")],
+    },
+    Group {
+        heading: "Rewrite commits",
         commands: &[
-            c("switch"),
-            c("branch"),
             r("absorb"),
             r("lift"),
             r("restack"),
@@ -345,15 +365,15 @@ pub const GROUPS: &[Group] = &[
         ],
     },
     Group {
-        heading: "collaborate",
+        heading: "Remotes",
         commands: &[c("pull"), c("push"), r("remote")],
     },
     Group {
-        heading: "go back",
+        heading: "Recovery",
         commands: &[c("undo"), r("redo"), r("op")],
     },
     Group {
-        heading: "wire it in, and check on it",
+        heading: "Setup",
         commands: &[
             r("hook"),
             r("unhook"),
@@ -361,11 +381,11 @@ pub const GROUPS: &[Group] = &[
             r("watch"),
             r("config"),
             r("doctor"),
+            r("git"),
+            r("explain"),
+            r("version"),
+            r("update"),
         ],
-    },
-    Group {
-        heading: "fufu itself",
-        commands: &[r("git"), r("explain"), r("version"), r("update")],
     },
 ];
 
@@ -459,7 +479,10 @@ pub fn root_template(long: bool) -> String {
         }
     }
 
-    let mut template = String::from("{before-help}{about-with-newline}\n{usage-heading} {usage}\n");
+    let mut template = String::from("{about-with-newline}\n{usage-heading} {usage}\n");
+    if long {
+        template.push_str("\n{before-help}");
+    }
     let _ = write!(template, "\n{block}");
     if !long {
         let dim = anstyle::Style::new().dimmed();
@@ -535,12 +558,7 @@ mod tests {
             if aliases.is_empty() {
                 continue;
             }
-            // Bare `ff` is `map`, and the root page is its page.
-            let file = if path == "map" {
-                "root".to_string()
-            } else {
-                path.clone()
-            };
+            let file = path.clone();
             let page = std::fs::read_to_string(dir.join(format!("{file}.md")))
                 .unwrap_or_else(|_| panic!("{path} has aliases and no page help/{file}.md"));
             for alias in aliases {
@@ -677,6 +695,16 @@ mod tests {
             findings.push(format!(
                 "help/{name} has {headings} `## Examples` headings, want exactly 1"
             ));
+        }
+        if src.matches(OPTIONS).count() != 1 {
+            findings.push(format!(
+                "help/{name} must have one `### Options` insertion point"
+            ));
+        }
+        if let (Some(examples), Some(options)) = (src.find(SEAM), src.find(OPTIONS))
+            && examples >= options
+        {
+            findings.push(format!("help/{name} must put examples before options"));
         }
         findings
     }

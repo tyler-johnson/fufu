@@ -1,22 +1,30 @@
 # ff remote
 
-What the remotes here are called, and where each one points.
-
-fufu's own verbs name a remote rather than assume one — ff push --to takes a name, ff pull fetches from the one this branch answers to, and a refusal that could not tell which remote you meant sends you here. So the list those verbs are checked against is worth having inside fufu rather than borrowed from git. One row per remote, its fetch URL beside it.
-
-A read and nothing more. Adding a remote is a name and a URL, two facts fufu has no verb for yet: [`ff git remote add <name> <url>`](git.md) is where that lives.
+List configured remote names and their fetch URLs, one row per remote. Use these names when selecting a destination with [`ff push --to`](push.md).
 
 ## Usage
 
 ```
 Usage: ff remote [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff remote                       # Names and fetch URLs
+ff remote --json                # The same list as JSON
+ff branch                       # Local and remote-only branches
+```
+
+## Options
+
+```
 Options:
       --json
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -31,11 +39,8 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Managing remotes
 
-```
-ff remote                      what the remotes here are called
-ff remote --json               the same, for a machine
-ff push --to origin            send a branch to one of them, by name
-ff branch                      what those remotes are holding
-```
+Add or edit remote configuration through Git, for example [`ff git remote add <name> <url>`](git.md). [`ff pull`](pull.md) fetches from the current branch's selected remote; `ff push --to <name>` assigns a remote when the branch has none.
+
+The list command changes no remote configuration. The CLI still attempts capture and can run maintenance. It does not fetch, and past-state flags are not supported.

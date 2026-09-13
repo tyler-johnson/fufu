@@ -1,30 +1,31 @@
-Wires fufu into the agent clients and shells on this machine, so a snapshot lands before every tool call your agent makes, before every git command you type, and at every shell prompt. With none of them wired, fufu snapshots only when you type an ff command, and `ff doctor` warns that nothing is feeding capture.
-
-Bare `ff hook` reports what it found and then asks. Name slugs to wire exactly those; --all takes everything detected without asking; -l reports and stops either way. -u refreshes what is already wired and adds nothing: the install is re-run for every slug already wired, on whatever mechanism it is on. The install scripts run it at their end, so an upgrade refreshes the machine. The slugs are flat:
-
-```
-claude  codex  cursor  gemini  bash  zsh  fish  powershell
-```
-
-`cursor` is the agent client — a future editor integration gets its own name. `powershell` writes `$PROFILE`, a `git` function and a wrapped `prompt`, for PowerShell 7 or Windows PowerShell 5.1.
-
-### What gets written
-
-Not a choice you make. Claude Code takes a plugin directory fufu owns outright, the other three clients take entries merged into their own settings file, and the shells take marked lines in an rc file. A line you wrote yourself is detected, reported, and never touched.
-
-Claude Code and Codex also take fufu's skill — the manual for what the once-per-session briefing has no room for, from recovery to rewriting commits that have closed. Claude's skill rides inside the plugin, so --settings wires capture and no skill.
-
-An MCP server registration an earlier fufu wrote is removed on the next `ff hook`; one you wrote yourself is left alone.
+Install fufu's shell and agent integrations on this machine. With no arguments, report detected clients and shells, then ask which to install. Installed and active hooks attempt snapshots at received agent events, typed Git commands through the alias, and shell prompts.
 
 ## Examples
 
+```sh
+ff hook                         # Detect integrations and ask
+ff hook claude codex             # Install selected clients
+ff hook bash                    # Install shell integration
+ff hook --all                   # Install every detected integration
+ff hook -l                      # List without installing
+ff hook -u                      # Refresh existing installations
+ff hook --skill                 # Print the shipped agent instructions
 ```
-ff hook                  what is on this machine, then asks
-ff hook claude codex     wire exactly those
-ff hook --all            everything detected, no question
-ff hook -l               report and stop
-ff hook -u               refresh what is wired, after a binary moved on
-ff hook --skill          print the manual, for a client that reads no skill
-ff unhook claude         take back exactly what hook added
-ff doctor                check that something is feeding capture
-```
+
+### Options
+
+### Selection and activation
+
+Supported slugs are `claude`, `codex`, `cursor`, `gemini`, `bash`, `zsh`, `fish`, and `powershell`. Cursor means the agent client. PowerShell supports PowerShell 7 and Windows PowerShell 5.1 through `$PROFILE`, a Git function, and a prompt wrapper.
+
+`--all` installs detected integrations without asking. `-l` (`--list`) only reports. `-u` (`--update`) refreshes existing installations using their current mechanisms and adds no new clients. Install scripts run this refresh after updating the binary. `--skill` prints the instructions without installing hooks.
+
+Follow the printed activation steps: load the shell configuration, or restart and trust the agent integration. Hooks are per machine; `ff init` enables repository snapshots separately. `ff doctor` checks integration configuration. Captures require delivered events and successful snapshots, and exclude ignored untracked files, unsaved buffers, and oversized content.
+
+### Files installed
+
+Claude Code receives a managed plugin directory. Other clients receive entries merged into their settings; shells receive marked rc-file blocks. Existing hand-written integrations are detected and reported without replacement.
+
+Claude Code and Codex also receive the shipped skill. Claude's `--settings` mode installs settings-based capture instead of the plugin and does not install its skill. An old fufu-managed MCP registration is removed on installation; hand-written registrations remain.
+
+Use `ff unhook` to remove managed integrations.

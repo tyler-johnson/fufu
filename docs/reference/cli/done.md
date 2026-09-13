@@ -1,36 +1,27 @@
 # ff done
 
-Ends the editing session [`ff edit`](edit.md) opened: the commit the session was opened on is amended with what the working copy now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing. It ends the session [`ff resolve`](resolve.md) opened the same way: the fixes land in the steps that owned them, and you land back on the branch the hold stood on.
-
-A conflicting primary replay leaves the session open without landing that rewrite; captures and metadata can still be written. Landing is one operation — the amend, replay, and return move together — so one [`ff undo`](undo.md) restores the session before landing. Opening the session is a separate step; opening a rewrite resolution takes two operations.
-
-Two flags:
-
-- `--abandon` drops the session instead of landing it, leaving whatever is uncommitted as the session's open commit — named on the way out, pinned by the operation, and back with `ff undo` — rather than discarding it. It runs no hook, since nothing is being committed.
-- `--no-verify` lands without running the hooks below.
-
-## Branches stacked above
-
-The branches stacked on the branch you land on follow it. Once the session has landed, every local branch whose base resolves to that branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the session.
-
-A branch above whose replay conflicts is held on its own, with everything above it left alone, and the session still lands; [`ff status`](status.md) shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named.
-
-Landing a resolution does the same from the branch the hold stood on, which is how the branches a hold stopped resume once it lands.
-
-## Hooks
-
-The session's content is about to become the amended commit's content, so your `pre-commit` hook runs over it, and a hook that exits non-zero refuses the landing with the session still open. A session that also carries a new description runs the message hooks over that description.
-
-Landing a resolution — the `ff done` that finishes `ff resolve` — runs `pre-commit` too.
+Finish the current editing or rewrite-resolution session and return to the original branch. For [`ff edit`](edit.md), amend the selected commit and replay later commits. For [`ff resolve`](resolve.md), apply the conflict fixes to the rewrite they belong to.
 
 ## Usage
 
 ```
 Usage: ff done [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff done                         # Apply the session and return
+ff done --abandon               # Return without applying it
+ff done --no-verify             # Skip pre-commit and commit-msg
+```
+
+## Options
+
+```
 Options:
       --abandon
-          Drop the session instead of landing it
+          Return without applying the session; retain its captured work
 
       --no-verify
           Skip pre-commit and commit-msg hooks
@@ -39,7 +30,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -54,10 +45,18 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Abandoning and conflicts
 
-```
-ff done                        amend, replay what waited, land back
-ff done --abandon              drop the session; its open commit stays
-ff done --no-verify            land without running the hooks
-```
+`--abandon` drops the session without applying it or running commit hooks. Uncommitted session work remains as an internal open commit pinned by the operation, named in the report and recoverable with [`ff undo`](undo.md).
+
+A conflicting primary replay leaves the session open without landing it and exits 3. Captures and metadata may still be written. A held parked-change arrival resolves in place and has no session to finish with done.
+
+## Dependent branches and undo
+
+After a successful landing, dependent branches replay parent before child in the same operation. A downstream conflict holds that branch, leaving dependents above it alone; the session still lands and currently exits 0. Inspect the cascade report or [`ff status`](status.md). Branches checked out elsewhere, already held, or containing merges are skipped and named.
+
+One undo restores the session before its landing or abandonment, including the cascade. Opening it is separate: a rewrite-resolution opening takes two operations, so undo once returns from the session and again removes it.
+
+## Hooks
+
+Landing runs `pre-commit` over the content being recorded, including resolution sessions. A new description also runs message hooks. A failing hook leaves the session open. `--no-verify` skips `pre-commit` and `commit-msg`.

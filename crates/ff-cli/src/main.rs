@@ -179,7 +179,7 @@ fn main() {
     // not a panic before clap has seen the command line at all.
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let long = argv.iter().any(|a| a == "--help") || argv.get(1).is_some_and(|a| a == "help");
-    let root = cli::Cli::command().help_template(help::root_template(long));
+    let root = help::command(cli::Cli::command()).help_template(help::root_template(long));
 
     // Parse first, PATH second: a builtin verb always wins, and an
     // extension is only considered once clap has declined the word. The

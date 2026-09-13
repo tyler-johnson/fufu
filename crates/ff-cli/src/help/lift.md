@@ -1,29 +1,33 @@
-Moves content out of a run of commits and into one commit. `ff lift` and `ff absorb` are one move with two sets of defaults: `--from <revset>` names the sources, `--into <rev>` names the target, and each verb's word is its defaults and nothing more. Lift moves from the commit under the open change into the open change — take a closed commit's files back out onto disk — and every other shape is the same move with an end named.
-
-The sources are one contiguous run of commits on the branch's line; `--from HEAD~2..HEAD` is the two commits above `HEAD~2`, and both come out. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A lift does not attribute hunks: whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
-
-Everything between and above replays in the same operation, so a branch inside that range comes along with it. Content and commit hashes change; surviving changes keep their change IDs. A conflicting primary replay records a hold without landing that rewrite; captures and metadata may still be written. `ff resolve` opens it.
-
-`-m` gives the target a message: the pending description for the open change, a reword for a closed commit. Without it the target keeps what it had.
-
-See [Revisions and IDs](../revisions.md#revision-sets-and-grammar) for source ranges and single-revision targets. Preview the source with `ff log -r 'HEAD~2..HEAD'`; an omitted right endpoint can include other branches.
-
-### Branches stacked above
-
-The branches stacked on this one follow it. Once the move has landed, every local branch whose base resolves to the rewritten branch is replayed onto its new tip, parent before child, in the same operation, so one `ff undo` takes the cascade back with the move.
-
-A branch above whose replay conflicts is held on its own, with everything above it left alone, and the move still lands; `ff status` shows the branch waiting. A branch checked out in another worktree, one already holding a rewrite, or one whose commits hold a merge is skipped and named.
-
-### Hooks
-
-A lift into the open change makes no worktree content into commit content, so no `pre-commit` runs; naming the open change among the sources with `--from` does, and then it runs as it would for a close. `-m` on a closed target runs `commit-msg` the way a reword does. `--no-verify` skips both.
+Take changes out of the latest commit and return them to your uncommitted work. By default, the source is `HEAD` and the destination is the open change `@`. Use `--from` to select an earlier commit.
 
 ## Examples
 
+```sh
+ff lift                         # Reopen the latest commit's changes
+ff lift src/parser.rs           # Reopen only this file's changes
+ff lift --from HEAD~2           # Take changes from an earlier commit
+ff lift --from 'HEAD~2..HEAD'    # Reopen the last two commits
+ff lift --from HEAD~3 --into HEAD  # Move content between commits
 ```
-ff lift                          take everything out of the commit under it
-ff lift --from HEAD~2            take it out of a commit further back
-ff lift --from HEAD~2..HEAD     uncommit the two commits above HEAD~2
-ff lift --from HEAD~3 --into HEAD  move a commit's content up into the tip
-ff lift src/parser.rs            take only that path back out
-```
+
+### Options
+
+### Paths, messages, and ranges
+
+Paths select whole files or directory prefixes, without globs or hunk selection. Other content stays in its source. A source emptied by the move is dropped, so lifting all of `HEAD` removes that commit from branch history while keeping its changes on disk.
+
+`--from <revset>` selects a contiguous run on the branch's history. `--into <rev>` selects one target below, above, or inside that run, or the open change. `-m` sets the target's message: a pending description for `@`, a reword for a recorded commit. Otherwise its message stays the same.
+
+`ff lift` and `ff absorb` share the same move engine with different defaults. Lift's default destination is always the open change. Absorb's guard against implicitly targeting trunk applies when committed sources default to a recorded target; it does not apply to lift's default open target. A root commit cannot be emptied and dropped.
+
+Preview a range with `ff log -r 'HEAD~2..HEAD'`. An omitted right endpoint can include other branches. See [Revisions and IDs](../revisions.md#revision-sets-and-grammar).
+
+### Conflicts and dependent branches
+
+Commits between and above the endpoints replay in the same operation, including branches inside that range. Surviving changes keep their change IDs while commit hashes change. A conflicting primary replay records a held rewrite without landing it and exits 3; captures and metadata may still be written. `ff resolve` opens it.
+
+After a successful move, dependent branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the move still lands and currently exits 0. Inspect the cascade report or `ff status`. Branches checked out elsewhere, already held, or containing merges are skipped and named. One `ff undo` takes back the move and its cascade.
+
+### Hooks
+
+A default lift makes content uncommitted, so it runs no `pre-commit`. An explicit move with `@` among its sources does run that hook. `-m` on a recorded target runs message hooks as a reword does. `--no-verify` skips `pre-commit` and `commit-msg`.

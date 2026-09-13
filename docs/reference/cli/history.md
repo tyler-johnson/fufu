@@ -1,18 +1,25 @@
 # ff history
 
-Where you can go back to. [`ff op log`](op-log.md) answers what happened; this answers the other question, and they are not the same question — captures outnumber verb operations by more than an order of magnitude, so a log is mostly a machine's account of itself.
-
-One row is one keystroke. `@` is where the repository stands; each row below it is one more press of [`ff undo`](undo.md), and each row above is one more press of [`ff redo`](redo.md). A run of captures collapses into the single row it undoes as, and says how many it collapsed — a keystroke that moved forty operations should not have to be inferred.
-
-The redo path is whatever is still reversible. Landing work after an undo forks the log rather than truncating it, so the rows above `@` simply stop being offered once that happens.
-
-Ids are the ones the [`ff op`](op.md) verbs take, so any row is also [`ff op show <id>`](op-show.md) and [`ff op restore <id>`](op-restore.md).
+Show available undo and redo steps for the current worktree. By default, show 25 undo steps. Each row below `@` is one more [`ff undo`](undo.md); each row above it is one more [`ff redo`](redo.md).
 
 ## Usage
 
 ```
 Usage: ff history [OPTIONS]
+```
 
+## Examples
+
+```sh
+ff history                      # Last 25 undo steps
+ff history -n 0                 # Back to the earliest recovery point
+ff history --json               # Steps as JSON
+ff op show @                    # Inspect the live operation tip
+```
+
+## Options
+
+```
 Options:
   -n, --max-count <COUNT>
           Number of undo steps to show; 0 means unlimited
@@ -23,7 +30,7 @@ Options:
           Emit machine-readable JSON
 
       --fetch
-          Fetch from the remote first, whatever the cadence says
+          Fetch now on commands that support fetching, regardless of cadence
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
@@ -38,11 +45,12 @@ Options:
           Print help (see a summary with '-h')
 ```
 
-## Examples
+## Steps and operation IDs
 
-```
-ff history                     the last 25 undo steps
-ff history -n 0                every step back to the floor
-ff history --json              the same, for machines
-ff op show <id>                what one of those rows was
-```
+Here `@` marks the current operation state. Adjacent captures in one session collapse into an undo step, with their count shown. Recorded command operations are separate steps. Opening a rewrite resolution takes two operations: one undo returns from the session, another removes it.
+
+Rows carry hexadecimal operation IDs accepted by [`ff op show <id>`](op-show.md) and [`ff op restore <id>`](op-restore.md). [`ff op log`](op-log.md) lists individual recorded operations; [`ff log`](log.md) shows commits, and [`ff evolog`](evolog.md) shows one change's evolution. See [Revisions and IDs](../revisions.md#operation-expressions).
+
+## Recovery limits
+
+New work after undo forks the operation history and ends the offered redo path. The older operations remain addressable until retention removes them. Recovery requires retained captures; it cannot restore uncaptured bytes, another worktree's chain, or remote effects.
