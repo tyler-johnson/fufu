@@ -1,6 +1,6 @@
 Ends the editing session `ff edit` opened: the commit the session was opened on is amended with what the working copy now holds, what waited ahead is replayed onto it, and you land back on the branch the session left standing. It ends the session `ff resolve` opened the same way: the fixes land in the steps that owned them, and you land back on the branch the hold stood on.
 
-A replay that would conflict stops with nothing changed rather than leaving you mid-rewrite. It is one operation — the amend, the replay and the return move together — so one `ff undo` takes the whole session back.
+A conflicting primary replay leaves the session open without landing that rewrite; captures and metadata can still be written. Landing is one operation — the amend, replay, and return move together — so one `ff undo` restores the session before landing. Opening the session is a separate step; opening a rewrite resolution takes two operations.
 
 Two flags:
 

@@ -58,6 +58,6 @@ Options:
 ```
 ff restore src/main.rs         discard edits: back to the commit below
 ff restore --all --at 2h       the whole tree, as it stood two hours ago
-ff restore docs/ --at-op kqzm  a directory, from one operation
+ff restore docs/ --at-op a1b2c3d4e5f6  a directory, from one operation
 ff restore src/ --from main~2  the same paths, from history instead
 ```

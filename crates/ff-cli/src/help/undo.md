@@ -1,4 +1,4 @@
-Whole-repo undo: refs and the working copy together, not one without the other. It takes no argument and repeats — each one goes one step further back.
+Undo the current worktree's recorded state: local refs, HEAD, index, and files together. It follows this worktree's operation chain, not another worktree's history, and cannot reach remote pushes or uncaptured file content. It takes no argument and repeats — each one goes one step further back, within retained history.
 
 A step is a *run*, not an operation. Captures happen at machine rate and a person's undo does not, so undo steps over the longest stretch of adjacent captures carrying the same session, ending at the first operation that is not one. A verb's operation is always its own step: a switch and a commit are two undos, never one.
 
@@ -13,5 +13,5 @@ ff undo                        step back one run of work
 ff undo                        …and again, further back
 ff redo                        forward again
 ff op log                      what the log holds, with ids
-ff op restore kqzm             land on one named operation instead
+ff op restore a1b2c3d4e5f6     land on one named operation instead
 ```

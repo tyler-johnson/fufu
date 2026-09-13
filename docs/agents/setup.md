@@ -2,9 +2,9 @@
 
 [Why agents want fufu](why.md) is the argument; this page is the wiring.
 
-Six steps: pick a git policy, put standing orders where the agent reads them, wire the per-turn hook, ship the skill, serve the verbs as a tool, and verify the net. The last step includes breaking something on purpose to watch [`ff undo`](../reference/cli/undo.md) take it back.
+Pick a git policy, install the hooks and skill, and verify capture in a scratch repository. Standing orders can also live in project instructions. The verification includes recovering a captured edit with [`ff undo`](../reference/cli/undo.md).
 
-`ff hook --all` does the middle four in one command. The blocks below are for reading what it wires, and for pasting by hand where an installer cannot reach.
+[`ff hook --all`](../reference/cli/hook.md) installs integrations for detected clients and shells, including the briefing and supported skills. Commands run through the shell; fufu no longer serves an MCP tool. The blocks below show the wiring for manual installations.
 
 ## Pick a git policy
 
@@ -24,18 +24,18 @@ For an agent you are watching, `coach` is the right default. One correction is c
 
 Know what strict does not promise before you lean on it. Git words with no fufu verb pass untouched, ambiguous shell strings fail open, and `ff git <args…>` stays an open escape hatch. [why.md walks the limits](why.md#strict-mode-as-a-leash).
 
-Under every level the snapshot lands before the command runs, so the policy call never decides whether the tree is recoverable.
+An allowed passthrough attempts capture before running Git, but capture can fail with a warning. A strict passthrough refusal happens before capture. Agent hooks attempt capture before evaluating policy; their denials rely on the client enforcing the response.
 
 ## Standing orders: the CLAUDE.md / AGENTS.md block
 
-The agent needs one paragraph of doctrine: write through `ff`, and never write a backup copy. Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries:
+Paste this into your project's `CLAUDE.md`, `AGENTS.md`, or whatever memory file your client reads. It is the same text fufu's own briefing carries:
 
 ```markdown
 ## Version control
 
-fufu (`ff`) is capturing this repository: the working copy is snapshotted before every tool action, so no edit can lose file state. Work directly — no backup copies, no hedging.
+fufu (`ff`) takes snapshots through repository commands and active hooks. Recovery requires a successful, retained capture; ignored and oversized files may be excluded.
 
-Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the open change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. `ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
+Use `ff`, not `git`, for anything that writes. `ff commit -m "…"` closes the open change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. `ff undo` takes back the last undo step in this worktree. `ff restore <path>` discards a file's edits. Anything else git does: `ff git <args…>`, which attempts a snapshot before running permitted git commands verbatim.
 
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git counterparts.
 
@@ -48,7 +48,7 @@ The file copy is for clients without a hook channel, and for repositories where 
 
 ## The per-turn hook
 
-The hook is what makes capture ambient: a snapshot before every tool call the agent makes, so the last capture is always the moment before the agent's action. One command wires it:
+The hook attempts capture on the events the client sends. It must be installed, trusted where required, and active in that session. [Snapshot coverage and limits](../concepts/snapshots-and-undo.md#coverage-and-limits) apply. One command installs it:
 
 ```console
 $ ff hook claude
@@ -78,7 +78,7 @@ If you manage your Claude Code settings by hand instead, this is the wiring — 
 }
 ```
 
-These two events are the floor. `PreToolUse` is the capture that cannot miss — every edit, every shell command, and the only channel that reaches a subagent or a repository the agent just entered. `UserPromptSubmit` is the turn boundary the briefing rides.
+These two events provide capture before the matching tools and at the turn boundary. `PreToolUse` also reaches subagents and newly entered repositories when the client emits it. `UserPromptSubmit` is the turn boundary the briefing rides. Hook captures are best-effort, including when another writer holds the lock.
 
 The installer wires five more (`SessionStart`, `Stop`, `SubagentStop`, `SubagentStart`, `CwdChanged`) that widen capture rather than found it. The `Stop` pair matters most: capture is snapshot-*before*, so without a turn-end event, whatever the agent writes as its final action sits uncaptured until the next thing happens.
 
@@ -119,7 +119,7 @@ A source name fufu does not know exits 0 silently, so the same command is safe t
 
 This is a supported shape, and the wiring above is all it takes.
 
-- **A worktree each.** Give every agent its own with [`ff worktree <path>`](../reference/cli/worktree.md), and their operation logs never touch. Each worktree writes its own chain — its own line of captures and operations — under its own lock, so parallel agents cannot contend, and `ff undo` in one tree steps back only that tree's work.
+- **A worktree each.** Give every agent its own with [`ff worktree <path>`](../reference/cli/worktree.md). Each has its own operation chain and capture lock; shared refs can still contend. `ff undo` follows the current worktree's chain, subject to guards on branches held elsewhere.
 - **One worktree shared.** Two agents there settle at that chain's lock instead. A capture that loses the lock is skipped, because the winner is already recording. A verb waits briefly and then refuses with `ref/contended`, exit 4, rather than interleaving — run it again.
 
 One chain is also one undo. `ff undo` takes back the last operation whoever wrote it, so undoing agent A's mistake after agent B has moved on takes back B's work first.
@@ -159,20 +159,20 @@ A half-wired client is a `WARN` naming the missing event, and `ff hook <slug>` r
 
 When nothing at all feeds capture, doctor warns about that too, because a silent engine feels safe while capturing nothing. Findings drive the exit code — 0 healthy, 1 findings — and `--json` emits the same rows, so CI can gate on it.
 
-Then run the one test that exercises the actual promise. Seed a file, and ask the agent to destroy it:
+In a scratch repository, seed a non-ignored file below the size limit and ask the agent to destroy it:
 
 ```console
 $ echo "keep me" > smoke.txt
 ```
 
-Tell the agent: *delete smoke.txt, then empty another file in this repository.* Whatever route it takes — its editing tools, raw git, `ff git` — the hook captures the tree before each call. When it is done, look at the session and take it back:
+Tell the agent: *delete smoke.txt, then empty another file in this scratch repository.* The active hook should capture before each matching call. When it is done, inspect the retained steps and take them back:
 
 ```console
 $ ff history
 $ ff undo
 ```
 
-[`ff history`](../reference/cli/history.md) shows the agent's machine-rate captures collapsed into the rows they undo as, and one `ff undo` returns the tree: `smoke.txt` back on disk, the emptied file whole.
+[`ff history`](../reference/cli/history.md) shows adjacent captures from the same session collapsed into undo steps. Use as many steps as the map shows to reach the capture containing both original files, and verify their contents.
 
 Nothing was discarded in the process. [`ff redo`](../reference/cli/redo.md) walks forward again if the agent's work turns out to be the version you wanted.
 

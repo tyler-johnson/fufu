@@ -10,7 +10,7 @@ Operation ids are hex, the same as commits, and the slot decides which space a p
 ff op log                      what has happened, newest first
 ff op show @                   what the newest operation did
 ff op diff @^ @                what changed across it
-ff op restore 9dfd5e5d         rewind the whole repository there
+ff op restore 9dfd5e5d         restore this worktree's recorded local state
 ff undo                        the same move, one run at a time
-ff op trim -n                  what retention would drop, nothing written
+ff op trim -n                  preview retention without dropping operations
 ```

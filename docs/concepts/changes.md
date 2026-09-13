@@ -4,7 +4,7 @@
 
 There is no object you assemble before committing — no index, no staging area, no draft. The edits sitting in your working copy are the change, from the first keystroke. fufu keeps that change as a commit for you, under `refs/fufu/open/<branch>`, rewritten as you work — the sha on the `@` row — and closing moves the branch to it.
 
-fufu saves them for you as you work: every command takes a [capture](snapshots-and-undo.md) — an automatic snapshot of the tree — before it acts. Every verb that talks about work in progress is talking about this one thing.
+fufu saves them through [captures](snapshots-and-undo.md) — snapshots taken by repository commands and active hooks. Every verb that talks about work in progress is talking about this one thing.
 
 A change is in exactly one of three states:
 
@@ -40,7 +40,7 @@ So you can name work while you are doing it, when the intent is freshest, instea
 
 The description belongs to the change rather than to the moment of committing. It shows in the `@` row, it parks and resumes with the change on `ff switch`, and it waits through however many edits come before the close.
 
-Describing does not create a commit. Describing a clean tree is legal — the text simply waits for the next close.
+Describing rewrites an internal Git commit object without adding a commit to branch history. Describing a clean tree is legal — the text simply waits for the next close.
 
 ## A change has an identity
 

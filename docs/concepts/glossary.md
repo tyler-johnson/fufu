@@ -8,7 +8,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **bay** — A secondary worktree: a second checkout of the same repository, sharing the object store and the branches, with a working copy, an index, HEAD, and an operation chain of its own. [`ff worktree <path>`](../reference/cli/worktree.md) makes one; the [worktrees guide](../guides/worktrees.md) is its story.
 
-**capture** — An automatic [snapshot](snapshots-and-undo.md) of the working copy, taken before every fufu command and around every mutation an agent or editor makes through it, at machine rate. A capture is an operation that moves no ref — the tree alone — and its description is written by fufu, never by a person.
+**capture** — A [snapshot](snapshots-and-undo.md) taken by repository commands or active hooks, or manually with [`ff trigger -m "checkpoint"`](../reference/cli/trigger.md). Captures do not add commits to branch history; their coverage and retention limit what can be recovered.
 
 **cascade** — What follows a branch's tip moving: every local branch whose base is that branch is replayed onto its new tip, parent before child, through the whole tree, inside the same operation. Every verb that moves a tip runs one; a replay that conflicts holds that branch and leaves the branches above it alone. [Branches](branches.md#stacking-a-branch-records-its-parent) has the rule.
 
@@ -28,9 +28,9 @@ One or two sentences per term, each linking to the page that owns it.
 
 **foreign operation** — An operation recording what raw git did behind fufu's back, absorbed lazily into the operation log at the next fufu invocation — labeled as foreign, quoted with git's own reflog messages, and undoable like anything fufu did itself. [The two regimes](two-regimes.md) covers the boundary it crosses.
 
-**held rewrite** — A pending rewrite that stopped at a conflict: no ref moved, no half-applied tree touched the repository, and the verb's question — the branch, the target — is recorded for a moment you choose. A hold blocks [`ff push`](push-boundary.md) and nothing local; [held rewrites](held-rewrites.md) is the full story, and [`ff resolve`](../reference/cli/resolve.md) is the way out.
+**held rewrite** — A rewrite whose conflicting replay has not landed on that branch. Earlier successful updates in a cascade can stand, and captures and hold metadata can be written. A hold blocks [`ff push`](../reference/cli/push.md) on that branch; [held rewrites](held-rewrites.md) explains how [`ff resolve`](../reference/cli/resolve.md) opens it.
 
-**lease** — The guard every [push](push-boundary.md) carries: the push goes through only if the shared copy still stands where you last saw it, and stops otherwise with nothing sent and nothing lost.
+**lease** — The expected remote ref value a [push](push-boundary.md) must match when the server updates it. Replacing commits also checks fufu's seen record; fast-forwards can proceed without that agreement. It checks ref position, not branch ownership or team policy.
 
 ## M–P
 
@@ -50,7 +50,7 @@ One or two sentences per term, each linking to the page that owns it.
 
 **petname** — The generated name of an anonymous branch, like `ff/hidden-wren`: a genuine ref under a reserved prefix that every GUI shows, every git command addresses, and no push refspec matches by accident. See [branches](branches.md).
 
-**pull** — The incoming half of [the push boundary](push-boundary.md): [`ff pull`](../reference/cli/pull.md) fetches once and takes in what arrived for the branch you stand on, from the base beneath it and the shared copy of it, replaying the branch's commits onto the result; names take other branches, and `--all` every local branch. Nothing it does leaves the machine, and one `ff undo` takes the whole run back; `--dry-run` says what the run would do and writes nothing.
+**pull** — [`ff pull`](../reference/cli/pull.md) fetches and lines up selected branches with their bases and remote copies. Local branch and file updates are undoable; fetched objects, tracking refs, and tags are separate. `--dry-run` previews the local replay but still fetches unless `--no-fetch` is given, and maintenance can still run. See [the push boundary](push-boundary.md).
 
 **push** — The outgoing half of [the push boundary](push-boundary.md): [`ff push`](../reference/cli/push.md) sends the branch you stand on, or the branches you name, each to its one remote under its own lease, and never rides along as a default inside any other verb.
 

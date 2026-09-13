@@ -115,7 +115,7 @@ printf 'fn signed() {}\n' >> src/lexer.rs
 printf 'fn float() {}\n' >> src/lexer.rs
 "$FF" commit -m "lexer: numbers, floats" > /dev/null 2>&1
 show "$FF" log
-show "$FF" absorb --from HEAD~2.. -m "lexer: numbers, signed and floating"
+show "$FF" absorb --from HEAD~2..HEAD -m "lexer: numbers, signed and floating"
 show "$FF" log
 
 # --- reopen a closed commit: edit, then done ---
@@ -154,7 +154,7 @@ show "$FF" lift
 show "$FF" undo
 
 # --- a run comes back out the same way ---
-show "$FF" lift --from HEAD~2..
+show "$FF" lift --from HEAD~2..HEAD
 show "$FF" status
 show "$FF" undo
 
@@ -162,8 +162,7 @@ show "$FF" undo
 # The map orders branches newest tip first; the pause keeps renamer's tip
 # strictly newer than lexer's so the column order holds run to run.
 sleep 1
-"$FF" start main > /dev/null 2>&1
-"$FF" describe -b renamer > /dev/null 2>&1
+"$FF" start main -b renamer > /dev/null 2>&1
 printf 'fn rename() {}\n' > src/rename.rs
 printf '// rename pass wiring\n' >> src/main.rs
 "$FF" commit -m "renamer: rename pass" > /dev/null 2>&1

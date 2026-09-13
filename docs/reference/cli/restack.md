@@ -2,10 +2,10 @@
 
 Replays a branch's commits onto the base it sits on — the branch it was forked from when one was recorded, trunk otherwise. `--onto` records a new parent first, which is how a branch is re-aimed and the only way to change it. A base is a branch wherever it lives: `origin/main` names one that lives on a remote, and re-aiming at it records it like any other. `ff rebase` is an alias: jj's word, and the git habit, land here.
 
-The positional names the branch being moved, so a branch you are not standing on restacks without touching a file on disk. Offline: it never reaches the network.
+The positional names the branch being moved, so restacking another branch leaves this worktree's files alone unless the cascade reaches the current branch. The replay is local, but the CLI can auto-fetch before it and run maintenance afterward. `--no-fetch` disables the fetch; passive update behavior has its own configuration.
 
 - The replay carries the branch's own commits and no others. A commit whose change id the target already holds is a stale copy of one the target has since rewritten: it is dropped as superseded by the target's commit, with no merge attempted, so a base rewrite that changed its content cannot conflict on a file the branch never touched. For a commit without the header — one made by git, or one a raw `git rebase` stripped — the range stops where the branch forked from the history of whatever it is replayed onto, read from that ref's reflog. `--onto` reads the target's reflog the same way, which is how a branch cut outside fufu and first aimed at the branch it really sits on sheds the stale copies it carries.
-- A replay that would conflict stops with nothing changed rather than leaving you mid-rebase.
+- A conflicting replay leaves that branch tip and its files at their pre-replay state and records a hold. Captures, metadata, and successful replays on other branches can still have been written.
 - A branch inside the replayed range with no commits of its own is left where it stood, and named.
 
 ## Branches stacked above

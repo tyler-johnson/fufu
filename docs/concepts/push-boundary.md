@@ -1,12 +1,12 @@
 # The push boundary
 
-**`ff pull` takes in; `ff push` sends. Two verbs, because everything pull does is undoable and a push is not.**
+**`ff pull` updates local branches; `ff push` updates remote branches. Undo can restore recorded local changes, but cannot reach a remote push.**
 
-Every operation fufu performs on your machine lands on the [operation log](snapshots-and-undo.md), where one `ff undo` takes it back.
+Local branch and file changes are recorded on the current worktree's [operation log](snapshots-and-undo.md). Fetches and ambient maintenance have their own effects outside that undo step.
 
-A push is the one act that leaves the machine. The moment it lands, other clones can fetch it, CI runs on it, webhooks fire — and no operation log on your machine reaches any of that.
+A push updates the remote branch. Other clones can fetch it, CI can run, and webhooks can fire — no operation log on your machine reaches those effects.
 
-So fufu splits reconciling with a remote along exactly that line. The incoming half is a routine verb with the full undo guarantee. The outgoing half is a verb you type on purpose, and it never rides along as a default inside anything else; it has no `--all`, so every branch that leaves the machine is one you named or one you stand on.
+The outgoing half is a verb you type on purpose, and it never rides along as a default inside anything else; it has no `--all`, so every branch that leaves the machine is one you named or one you stand on.
 
 ## Pull is the incoming half
 
@@ -23,15 +23,15 @@ fufu can tell those two apart because it recorded the rewrite, or the push you u
 
 The replay runs in memory and lands only when it is clean. A commit that conflicts holds the branch it belongs to: nothing moves there, no half-applied tree touches the repository, and the run goes on to the next branch. [`ff resolve`](../reference/cli/resolve.md) picks that [held rewrite](held-rewrites.md) up at a moment you choose.
 
-Nothing pull does leaves the machine. The fetch, the replay, the whole run is one operation, and one `ff undo` takes it back. That guarantee is why pull stops where it does — when your branch is ahead of its shared copy, pull names what is waiting and leaves it. `ff pull --dry-run` says what the run would do, the fetch included, and writes none of it.
+Pull sends no branch updates to the remote. Its local branch and working-copy changes form one undoable operation; fetched objects and tracking-ref updates are separate. `ff pull --dry-run` still fetches, writes objects and remote-tracking refs, prunes deleted tracking refs, and fetches tags. It previews the replay without changing local branches or files. `--no-fetch` skips that fetch. Successful invocations can still run automatic trimming and update maintenance, including under `--dry-run --no-fetch`.
 
 ## Push carries a lease
 
-`ff push` sends the branch you stand on to its remote, or the branches you name, from wherever you stand. Each push carries a **lease**: it goes through only if that branch's shared copy still stands where you last saw it. Among several, a refused lease is that branch's alone; the rest still go out, and the report says which.
+`ff push` sends the branch you stand on to its remote, or the branches you name, from wherever you stand. Each push carries a **lease**: the remote ref must match the expected tip when Git updates it. Replacing commits requires that fufu's recorded seen tip agree with the tracking ref. A fast-forward can proceed without that agreement because it removes no commits; creating or recreating a copy requires the remote ref to be absent. Among several, a refused lease is that branch's alone; the rest still go out, and the report says which.
 
-If somebody pushed since, nothing is sent and nothing is lost. `ff pull` takes their work in first, and the push goes afterward.
+If the lease or seen-record check refuses a branch, that branch is not sent. `ff pull` takes in the remote work before you retry.
 
-The push does not fetch first, on purpose. The lease is worth something precisely because it means the tip you last read. Fetching just before pushing would refresh the lease to a tip you never looked at, and git would then be guarding you against a change you accepted sight unseen. What you last saw is fufu's own record, written by the verbs that show you the copy — `ff pull`, [`ff switch`](../reference/cli/switch.md) onto a remote's branch, [`ff clone`](../reference/cli/clone.md), and the push itself — so a fetch behind fufu's back (an editor's, `ff git fetch`, `ff pull --dry-run`, the fetch lane that rides any verb) moves the tracking ref and not the lease, and a push after one is refused before the wire.
+Push can auto-fetch on `fufu.autoFetch`'s cadence before planning; `--no-fetch` skips it. That fetch updates tracking refs without refreshing fufu's seen record. The record is written by `ff pull`, [`ff switch`](../reference/cli/switch.md) onto a remote's branch, [`ff clone`](../reference/cli/clone.md), and a successful push. A fetch by an editor, `ff git fetch`, or `ff pull --dry-run` likewise does not authorize replacing an unseen tip. A non-fast-forward push after such a move is refused before the wire; the wire lease also catches later races.
 
 A [held rewrite](held-rewrites.md) blocks the exit. Nothing is sent while the branch's commits are still about to be rewritten out from under it.
 
@@ -41,7 +41,7 @@ There is a way back from a push, and it is this same verb rather than `ff undo` 
 
 [`ff undo`](../reference/cli/undo.md) moves your local branch back, a pointer move on the operation log like any other undo. The next `ff push` then finds the shared copy standing ahead of where you now do, at a tip fufu itself sent.
 
-fufu records every push, so it knows which commits out there are your own. Moving the shared copy back over your own push is a different act from moving it back over a teammate's.
+fufu records pushed tips and the tips it has seen. Those records support rollback and reconciliation; they do not identify a branch's owner or grant permission to rewrite it.
 
 The rollback goes out under a lease like any other push. If somebody pushed onto the branch since, it stops rather than taking their work with it.
 
@@ -60,14 +60,14 @@ Push is one verb wearing four different acts:
 - **A branch whose shared copy was deleted** gets it put back, under a lease saying it must not exist. Telling a deleted copy apart from one that never existed is another reason fufu keeps a record of what it has sent.
 - **A branch you undid** gets its shared copy rolled back.
 
-`ff push --dry-run` says which of the four this push would be, without making it. It writes nothing and sends nothing, and it is the way to ask while the answer still costs nothing.
+`ff push --dry-run` previews the push without sending a remote update or moving local branches and files. The automatic fetch and maintenance can still run, so it is not a promise of no disk writes or network access.
 
-## Published history is append-only
+## Shared-history policy
 
-fufu's opinions about history stop at this boundary: commits malleable until they are shared, branches rebased onto their base, force-pushes to your own leased branches as routine.
+The rewrite verbs can rewrite commits that have already been pushed. They report published commits, then leave sending the rewrite to a separate `ff push`.
 
-Those apply to work only you hold — unpublished commits, and the shared copies of your own branches, which the lease and the push record make safe to move. History the team shares is append-only, and fufu has no verb that rewrites it.
+fufu has no branch-ownership check and no special force-push guard for `main`. A lease checks a ref's expected position, not who owns its commits or whether the team permits rewriting them. Enforce append-only shared history with team policy and server-side branch protection.
 
 How work lands on the shared branch — merge commit, squash, rebase — stays the team's business and the forge's, not fufu's.
 
-Inside your own work fufu is opinionated. In everything the rest of the world can see, it is indistinguishable from careful use of plain git. That is [the invariant](invariant.md) holding at the one place work leaves the machine.
+Pushed commits remain ordinary Git commits. That is [the invariant](invariant.md); it does not make published history immutable.

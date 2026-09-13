@@ -342,7 +342,7 @@ fn pretooluse_bash_snapshots_with_provenance_and_briefs_the_first_time() {
     assert!(
         value["hookSpecificOutput"]["additionalContext"]
             .as_str()
-            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+            .is_some_and(|t| t.starts_with("fufu (`ff`) takes snapshots")),
         "a tool call is a channel the briefing can reach: {text}"
     );
     assert!(out.stderr.is_empty());
@@ -581,7 +581,7 @@ fn a_session_start_rebriefs_where_a_second_turn_does_not() {
     let out = ff_stdin(&fx.path(), &["trigger", "claude"], &body);
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(
-        text.starts_with("fufu (`ff`) is capturing"),
+        text.starts_with("fufu (`ff`) takes snapshots"),
         "a boundary briefs on an id the marker already holds: {text:?}"
     );
     assert!(
@@ -613,7 +613,7 @@ fn a_subagent_is_briefed_once_on_its_own_first_tool_call() {
     assert!(
         value["hookSpecificOutput"]["additionalContext"]
             .as_str()
-            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+            .is_some_and(|t| t.starts_with("fufu (`ff`) takes snapshots")),
         "the subagent's first write is where fufu can reach it: {first}"
     );
     assert!(call("sub-1").is_empty(), "and it hears it once");
@@ -667,7 +667,7 @@ fn a_briefing_and_a_denial_arrive_as_one_object() {
     assert!(
         hook["additionalContext"]
             .as_str()
-            .is_some_and(|t| t.starts_with("fufu (`ff`) is capturing")),
+            .is_some_and(|t| t.starts_with("fufu (`ff`) takes snapshots")),
         "the briefing rode it: {text}"
     );
     assert_eq!(hook["permissionDecision"], "deny");
@@ -698,7 +698,7 @@ fn the_briefing_is_wrapped_the_way_each_client_reads_it() {
         assert!(!text.is_empty(), "{source} briefs on {event}");
         if plain {
             assert!(
-                text.starts_with("fufu (`ff`) is capturing"),
+                text.starts_with("fufu (`ff`) takes snapshots"),
                 "{source} takes plain text: {text:?}"
             );
         } else {
@@ -820,7 +820,7 @@ fn the_briefing_names_the_skill_only_where_it_is_installed() {
         ff_stdin_home(&fx.path(), &["trigger", "claude"], &body, home.path()).stdout,
     )
     .unwrap();
-    assert!(bare.starts_with("fufu (`ff`) is capturing"), "{bare:?}");
+    assert!(bare.starts_with("fufu (`ff`) takes snapshots"), "{bare:?}");
     assert!(
         !bare.contains("skill"),
         "nothing is installed, so nothing is named: {bare:?}"

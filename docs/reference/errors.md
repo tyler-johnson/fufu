@@ -1,6 +1,8 @@
 # Error ids
 
-Every failure fufu reports carries a stable id: `ref/contended`, `usage/bad-flags`, `held/rewrite-conflict`. The id is the contract and the message is not. Prose gets reworded between releases; ids do not, so a script branches on `error.id` and never matches a sentence.
+Structured failures carry a machine id such as `ref/contended`, `usage/bad-flags`, or `held/rewrite-conflict`. Scripts should branch on `error.id` rather than message prose. Error IDs have changed across releases while the envelope stayed at `ff: 1`; pin and test supported versions as described in [JSON compatibility](../agents/machine-surface.md#compatibility-in-current-releases).
+
+A refusal does not imply the invocation made no disk writes or network requests. Capture, reconciliation, or automatic fetching may already have run, and a multi-branch report can include successful updates before a hold or refusal. Inspect the report for those outcomes.
 
 [`ff explain <id>`](cli/explain.md) has the long form of each, with the ways out. `ff explain --list` prints this same table from the binary you have, and `ff explain --list --json` hands it over as data, each entry carrying its `exit`.
 

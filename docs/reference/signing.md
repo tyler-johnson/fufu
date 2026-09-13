@@ -12,7 +12,7 @@ git config gpg.format ssh                       # or openpgp (the default), or x
 git config user.signingkey ~/.ssh/id_ed25519.pub
 ```
 
-[`ff doctor`](../reference/cli/doctor.md) has a `signing` row that says whether that will work — the format, the program it names, the key, and for ssh the allowed-signers file verification needs. It is read-only and runs nothing, so asking costs no pinentry prompt.
+[`ff doctor`](../reference/cli/doctor.md) has a `signing` row that checks the format, program, key, and SSH allowed-signers file without invoking the signer or pinentry. The command's [capture, fetch, and maintenance effects](doctor.md) still apply.
 
 ## The three formats
 

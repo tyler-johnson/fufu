@@ -38,7 +38,7 @@ Options:
 ## Examples
 
 ```
-ff op revert kqzm              take that one change back out
+ff op revert a1b2c3d4e5f6      take that one change back out
 ff op log                      …and see the revert recorded
 ff undo                        take the revert back too
 ```

@@ -1,25 +1,32 @@
 # Snapshots and undo
 
-**The working copy is snapshotted before every action, so no action can lose file state.**
+**Snapshots preserve the file state fufu has captured. Undo restores retained snapshots and recorded local operations.**
 
-fufu calls each snapshot a **capture**, and taking one is entirely automatic. There is no verb for asking. Captures happen:
+fufu calls each snapshot a **capture**. Capture is normally automatic when something invokes fufu:
 
-- Before every command fufu runs — before a switch, before a pull, before [`ff git`](../reference/cli/git.md) hands your arguments to git.
-- Around every edit an agent or editor makes through fufu, at machine rate.
+- Repository readers attempt a capture before reading. Mutating verbs capture before their local changes, after initial guards; a pull's fetch and a command's automatic fetch can run before that capture. Help, version, watch, setup commands, and some dry runs do not take a pre-command snapshot.
+- [`ff git`](../reference/cli/git.md) attempts a capture before running Git. A strict-policy refusal stops before that capture; a capture failure prints a warning and Git still runs.
+- Installed and active agent hooks capture on the events they receive. Shell integration adds a `git='ff git'` alias and prompt captures. An editor, script, or shell that bypasses those integrations does not automatically invoke fufu.
 
-The manual checkpoint is one of the rituals fufu exists to delete, the way the stash dance is. What you would reach for by hand already happened, before the command you typed.
+[`ff trigger`](../reference/cli/trigger.md) takes a manual snapshot; `ff trigger -m "before refactor"` labels it. An unchanged tree produces no new capture. Reader and hook captures are best-effort and may fail or lose a lock race, so an invocation alone does not prove that a new recovery point exists.
 
-fufu writes a capture's description itself, never you: what ran, or which agent acted. The record stays a machine's account of what happened rather than a place to leave notes. Saying what work *means* happens elsewhere — [`ff describe`](../reference/cli/describe.md) names the [open change](changes.md), and [`ff commit`](../reference/cli/commit.md) closes it.
+Automatic captures describe what ran or which agent acted. A manual capture can carry your `-m` description. [`ff describe`](../reference/cli/describe.md) instead sets the [open change](changes.md)'s pending commit message, and [`ff commit`](../reference/cli/commit.md) records that change in branch history.
 
 Captures live in refs outside the visible graph, so the commit history you and your teammates read is untouched. That is [the invariant](invariant.md) at work.
 
-Capturing everything is also what licenses everything else: automatic rebases, malleable unpublished commits, and agents editing at full speed are only defensible once no state can exist solely in the filesystem.
+### Coverage and limits
+
+Captures include tracked files and non-ignored untracked files. Ignored untracked files and unsaved editor buffers are outside the snapshot. `fufu.maxFileSize` defaults to 50 MiB: regular files above the limit are skipped when hashing working-copy content, including modified tracked files; content already in the index or base tree can still be present. A successful capture does not mean every file's latest content was saved.
+
+Recovery reaches only states actually captured and still retained. `fufu.keep` defaults to 90 days, and automatic trimming runs daily by default. Trimming can remove recovery points and rewrite operation IDs. Uncaptured edits destroyed by raw Git or an editor cannot be reconstructed from ref history.
+
+Undo follows the current worktree's operation chain. It restores that operation's local refs, HEAD, index, and files, subject to worktree guards; it does not roll back another worktree's chain. Remote pushes, other clones, CI, and hook or tool effects outside the recorded repository state are beyond its reach. See [worktrees](../guides/worktrees.md) and [the push boundary](push-boundary.md).
 
 ## One log, one address space
 
 Every capture is an **operation**. A snapshot is not a second concept with its own log and its own ids — it is what an operation carries.
 
-Every mutation fufu performs lands on one operation log, and each entry records all refs plus the tree state. That is why undo restores both together, and why there is one address space to learn rather than two.
+Captures and recorded local operations share one log per worktree. Entries carry file state and recorded ref state, so undo can restore both together. Network and maintenance effects do not all belong to that log.
 
 Operations differ only in what they contain:
 
@@ -27,7 +34,7 @@ Operations differ only in what they contain:
 - **A verb's operation** carries ref movements too — a switch, a commit, a pull.
 - **A foreign operation** records what raw git did behind fufu's back, absorbed lazily at the next fufu invocation. [The two regimes](two-regimes.md) covers that boundary.
 
-By the time you ask, work done around fufu is in the log and undoable like anything fufu did itself.
+At the next reconciliation, ref changes made around fufu enter the log. Their recovery points are limited to the states fufu observed.
 
 These kinds sort the log; they do not fork the model. Every operation has a tree, which is what makes restore uniform — the same thing happens whichever entry you name.
 
@@ -39,7 +46,7 @@ Operation ids are hex, like commit ids and like jj's, and print at twelve charac
 
 `@` is the newest operation, and git's first-parent suffixes work on it — `@^` is the one before, `@~3` three back — because an operation's first parent is the operation before it.
 
-The rest of the [`ff op`](../reference/cli/op.md) family reads and moves the log. `show` and `diff` read one operation, `restore` rewinds the whole repository to one, and `revert` inverts one while leaving later work standing.
+The rest of the [`ff op`](../reference/cli/op.md) family reads and moves the log. `show` reads an operation and its ref transitions; `diff` compares the files in two operation trees. `restore` rewinds the current worktree's recorded state to one, and `revert` inverts one where later ref movements still allow it.
 
 ## Undo steps over runs
 
@@ -91,4 +98,4 @@ The reason is that git's reflogs record where refs moved but never what the work
 
 Sharper still: a foreign tree change that moves no ref — a raw `git restore <file>`, an editor discarding a buffer — is invisible until the next capture, so it can destroy work fufu never saw.
 
-How far back you can reach is set by the last time fufu was looking. For everything done through the surface, that is always the moment before it happened.
+How far back you can reach is set by successful captures and retention, not by when an edit or destructive command happened.

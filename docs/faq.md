@@ -28,7 +28,7 @@ The whole pull is one operation that one [`ff undo`](reference/cli/undo.md) take
 
 Yes, with any forge that serves the git protocol. There is nothing forge-specific to support: a remote is a git remote, a push is a git push under force-with-lease, and nothing server-side knows fufu exists.
 
-Your existing credential helpers, `url.insteadOf` rewrites, and proxies are honored, so a repository that already authenticates keeps working with nothing new to configure.
+The native clone/fetch transport reads credential helpers and `url.insteadOf` rewrites, but its HTTP backend does not honor `http.proxy`. Push uses Git's transport. [Configuration](reference/config.md#what-fufu-reads-from-gits-config) covers the settings and the Git passthrough for proxy-dependent fetches.
 
 Gerrit's review flow is the one caveat. fufu has no verb for pushing to a magic ref like `refs/for/main`, so that flow stays [`ff git push`](reference/cli/git.md), and it is untested. See [what stays git](comparisons/vs-git.md#what-stays-git) and [configuration](reference/config.md#what-fufu-reads-from-gits-config).
 

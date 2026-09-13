@@ -45,13 +45,13 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 
 ## go back
 
-- [`ff undo`](undo.md) — Step the whole repository back one run of work
+- [`ff undo`](undo.md) — Restore this worktree's recorded local state one run back
 - [`ff redo`](redo.md) — Step forward again after an undo
 - [`ff op`](op.md) — The operation log as objects: read it, compare it, move to it
     - [`ff op log`](op-log.md) — Every operation, newest first, with the ids these verbs take
     - [`ff op show`](op-show.md) — Show one operation: what it was, what it moved, what it holds
     - [`ff op diff`](op-diff.md) — Compare the worktrees two operations carry
-    - [`ff op restore`](op-restore.md) — Rewind the whole repository to an operation
+    - [`ff op restore`](op-restore.md) — Restore this worktree's recorded local state at an operation
     - [`ff op revert`](op-revert.md) — Invert one operation, leaving later work standing
     - [`ff op trim`](op-trim.md) — Drop operations past the retention cutoff (fufu.keep, 90d)
 

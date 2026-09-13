@@ -43,6 +43,6 @@ The invariant promises the repository stays legible to every tool and every team
 
 Adopting fufu is partly a workflow shift. Your branches rebase onto main rather than merging it in, unpublished commits stay malleable by default, and force-pushing your own branches — leased and guarded — is routine rather than exceptional.
 
-Those opinions stop at [the push boundary](push-boundary.md). Published history is append-only, and how work lands on the shared branch — merge commit, squash, rebase — stays the team's business and the forge's, not fufu's.
+At [the push boundary](push-boundary.md), sending a rewrite requires a separate leased push. fufu can rewrite already-pushed commits and does not enforce branch ownership or append-only shared history. Team policy and server-side protections govern that, along with how work lands — merge commit, squash, or rebase.
 
 Inside your own unpublished work, fufu is opinionated. In everything the rest of the world can see, it is indistinguishable from careful use of plain git. That is the invariant doing its job.

@@ -1,8 +1,8 @@
 Moves content out of a run of commits and into one commit. `ff lift` and `ff absorb` are one move with two sets of defaults: `--from <revset>` names the sources, `--into <rev>` names the target, and each verb's word is its defaults and nothing more. Lift moves from the commit under the open change into the open change — take a closed commit's files back out onto disk — and every other shape is the same move with an end named.
 
-The sources are one contiguous run of commits on the branch's line; `--from HEAD~2..` is the two commits above `HEAD~2`, and both come out. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A lift does not attribute hunks: whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
+The sources are one contiguous run of commits on the branch's line; `--from HEAD~2..HEAD` is the two commits above `HEAD~2`, and both come out. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A lift does not attribute hunks: whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
 
-Everything between and above replays in the same operation, so a branch inside that range comes along with it. What moves is content and the identity of the commits above; no file is copied or renamed in the re-point. A replay that conflicts holds with nothing written, and `ff resolve` opens it.
+Everything between and above replays in the same operation, so a branch inside that range comes along with it. Content and commit hashes change; surviving changes keep their change IDs. A conflicting primary replay records a hold without landing that rewrite; captures and metadata may still be written. `ff resolve` opens it.
 
 `-m` gives the target a message: the pending description for the open change, a reword for a closed commit. Without it the target keeps what it had.
 
@@ -21,7 +21,7 @@ A lift into the open change makes no worktree content into commit content, so no
 ```
 ff lift                          take everything out of the commit under it
 ff lift --from HEAD~2            take it out of a commit further back
-ff lift --from HEAD~2..          uncommit the two commits above HEAD~2
+ff lift --from HEAD~2..HEAD     uncommit the two commits above HEAD~2
 ff lift --from HEAD~3 --into HEAD  move a commit's content up into the tip
 ff lift src/parser.rs            take only that path back out
 ```

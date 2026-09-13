@@ -14,7 +14,7 @@ A teammate cloning the repository, a GUI opening it, a CI job checking it out �
 
 Arming writes two things. First, the gc guard: a pair of keys in the repository's local config that stop `git gc` from expiring the refs fufu keeps its snapshots in. Second, [the floor](concepts/snapshots-and-undo.md#the-floor): the operation log's first entry, taken from observed state. [`ff undo`](reference/cli/undo.md) reaches back to the floor and no further — everything before fufu's arrival is git's history, not fufu's timeline, and nothing that happened before arming becomes undoable retroactively.
 
-Immediately after the floor, an ordinary capture runs, so whatever the working copy holds at the moment of adoption is already snapshotted before you type anything else. From then on every fufu verb captures the tree before it acts.
+Immediately after the floor, an ordinary capture runs, subject to [snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits). Repository commands and active hooks take later captures; fufu does not continuously watch the filesystem.
 
 `ff init` does not touch your shell or your agent — those are yours, not this repository's. [`ff hook`](reference/cli/hook.md) wires them, and is worth running once per machine: without it capture fires only when you type an `ff` command. [`ff doctor`](reference/cli/doctor.md) reports what is armed and what is wired.
 
@@ -22,7 +22,7 @@ Immediately after the floor, an ordinary capture runs, so whatever the working c
 
 Adopting fufu is partly a workflow shift, not a transparent overlay. Using it is accepting a set of positions: your branches rebase onto main rather than merging it in, unpublished commits are malleable by default, and force-pushing your own branches — leased and guarded — is routine rather than exceptional. If your habits are merge-from-main and history-is-immutable-once-committed, fufu will pull against them.
 
-Those opinions stop at [the push boundary](concepts/push-boundary.md). Published history is append-only, and how work lands on the shared branch — merge commit, squash, rebase — remains the team's and the forge's business, not fufu's. The shift is entirely inside your own unpublished work.
+The rewrite verbs also accept pushed commits. A separate push sends the rewrite under a lease, with no branch-ownership check or special protection for `main`. Keeping shared history append-only requires team policy and server-side branch protection. [The push boundary](concepts/push-boundary.md) explains the guards and their limits; merge, squash, and rebase policy remain the team's choice.
 
 ## Trying it and leaving
 

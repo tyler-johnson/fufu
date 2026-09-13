@@ -49,9 +49,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "52428800",
             kind: SettingKind::Size,
             desc: &[
-                "Largest new file a snapshot will include, in bytes (52428800 = 50 MiB).",
-                "Suffixes work: 100M, 1G. Bigger files are skipped and the snapshot",
-                "message lists them.",
+                "Largest regular file whose working-copy content is hashed into a snapshot",
+                "(52428800 = 50 MiB). Includes modified tracked files. Larger files are",
+                "skipped; their index or base content can remain. Suffixes: 100M, 1G.",
             ],
         },
         Setting {
@@ -72,7 +72,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             kind: SettingKind::Cadence,
             desc: &[
                 "How often retention enforces itself: a trim rides an ff command at",
-                "most this often, per repo. false leaves trimming entirely to",
+                "most this often, per worktree. false leaves trimming entirely to",
                 "`ff op trim`; durations work too (12h, 2w), floored at one minute.",
             ],
         },

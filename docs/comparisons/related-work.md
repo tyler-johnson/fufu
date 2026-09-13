@@ -14,7 +14,7 @@ The full argument — what fufu takes, what the inversion buys, and what it hone
 
 jog is fufu's proving ground: continuous capture of the working copy over an ordinary git repository, shipped and lived with daily.
 
-fufu took the capture floor whole — snapshot automatically before every action, with no verb for asking — along with the passthrough-and-alias pattern that pulls raw git commands into the net.
+fufu took automatic snapshots and the passthrough-and-alias pattern that pulls raw git commands into the net. It also provides [`ff trigger`](../reference/cli/trigger.md) for a manual snapshot.
 
 It also took the operational furniture around a tool you trust with your work: a doctor that inspects the safety net, plain git config as the settings store, and keeping hand-dropped work recoverable long after git would have swept it.
 

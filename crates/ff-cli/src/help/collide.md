@@ -1,4 +1,4 @@
-Would these two branches hit each other if both landed? A three-way merge replayed in memory against their merge base, so the answer costs a read and changes nothing — no index, no worktree, nothing written to the object database.
+Would these two branches hit each other if both landed? The comparison replays a three-way merge in memory without changing branches, the index, or worktree files. The CLI can still capture, auto-fetch, and run maintenance around that comparison.
 
 The other two axes are vertical: a branch against the base beneath it, or against the remote copy of itself. This one runs sideways, between two branches where neither sits under the other, which is the pair no other verb asks about.
 

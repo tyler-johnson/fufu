@@ -110,7 +110,7 @@ $ ff
 
 Every verb that moves a branch's tip does what absorb just did. `ff restack`, `ff pull`, `ff absorb`, [`ff lift`](../reference/cli/lift.md), [`ff describe <rev>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) each replay every local branch whose base is the branch they moved onto its new tip, parent before child, through the whole tree. The replays ride the verb's one operation, so one [`ff undo`](../reference/cli/undo.md) takes the rewrite and the cascade back together.
 
-Each replay is performed rather than predicted: a branch above whose replay conflicts holds where it stands with nothing written there, the branches above it stay put because their base did not move, and the verb says so.
+Each replay is performed rather than predicted: a branch above whose replay conflicts keeps its tip and records a hold. Captures and metadata can still be written; earlier successful branch updates stand. The branches above the hold stay put, and the verb reports them.
 
 `ff switch` to the held branch and [`ff resolve`](../reference/cli/resolve.md) picks the replay up; when `ff done` lands it, the branches above it resume from there. [Held rewrites](../concepts/held-rewrites.md) covers that state.
 
@@ -133,7 +133,7 @@ main
 undo: ff undo
 ```
 
-Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working copy moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The whole run is one operation, offline, and one `ff undo` away.
+Read it top down. parser-core, the branch you stand on, replayed onto the `main` that arrived; parser-cli followed it in the same replay; the working copy moved with parser-core. Then one block per other branch that did something: `main` fast-forwarded to what the teammate pushed. The local branch and file updates are one undoable operation. Pull's fetch writes objects and tracking refs separately and requires the remote unless `--no-fetch` is given.
 
 ## Push each branch under its own lease
 

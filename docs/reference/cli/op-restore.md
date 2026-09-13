@@ -1,6 +1,6 @@
 # ff op restore
 
-Rewind the whole repository to an operation: refs, HEAD, the working copy and the index together, exactly as that operation recorded them.
+Rewind the current worktree's recorded state to an operation: local refs, HEAD, the working copy and the index together, subject to worktree guards. This does not rewind another worktree's chain or a remote push.
 
 It moves the log's pointer rather than appending, so what it steps off stays reachable and [`ff redo`](redo.md) walks back forward along it. Nothing is discarded and no entry is written saying you navigated — the log records work, not movement.
 
@@ -43,7 +43,7 @@ Options:
 ## Examples
 
 ```
-ff op restore kqzm             land on that operation
+ff op restore a1b2c3d4e5f6     land on that operation
 ff op restore @~3              three operations back
 ff op restore @ --force        what remains, after a trim took the rest
 ff redo                        undo the rewind

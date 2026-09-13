@@ -288,7 +288,7 @@ pub enum Command {
         branch: Option<Option<String>>,
     },
     // agent notice quotes this: `ff undo`
-    /// Step the whole repository back one run of work
+    /// Restore this worktree's recorded local state one run back
     #[command(long_about = help::term(help::UNDO), after_long_help = help::term_examples(help::UNDO_EXAMPLES))]
     Undo,
     /// Step forward again after an undo
@@ -477,7 +477,7 @@ pub enum Command {
         /// Delete every branch whose shared copy is gone, in one operation
         #[arg(long, conflicts_with_all = ["name", "delete", "shared", "all", "at", "at_op"])]
         prune: bool,
-        /// Say what --prune would delete and keep, and write nothing
+        /// Preview branch pruning without deleting branches; fetching can still run
         #[arg(short = 'n', long, requires = "prune")]
         dry_run: bool,
         /// Every remote-only branch, not just the newest few
@@ -732,7 +732,7 @@ pub enum OpAction {
         #[command(flatten)]
         past: Past,
     },
-    /// Rewind the whole repository to an operation
+    /// Restore this worktree's recorded local state at an operation
     #[command(long_about = help::term(help::OP_RESTORE), after_long_help = help::term_examples(help::OP_RESTORE_EXAMPLES))]
     Restore {
         /// The operation to land on

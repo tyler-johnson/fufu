@@ -30,14 +30,14 @@
 /// means adding that marker at its definition, so the trail stays two-way:
 /// `grep -rn "agent notice" crates/ff-cli/src`.
 pub const NOTICE: &str = "\
-fufu (`ff`) is capturing this repository: the working copy is snapshotted before every \
-tool action, so no edit can lose file state. Work directly — no backup copies, no \
-hedging.
+fufu (`ff`) takes snapshots through repository commands and active hooks. Recovery \
+requires a successful, retained capture; ignored and oversized files may be excluded.
 
 Use `ff`, not `git`, for anything that writes. `ff commit -m \"…\"` closes the open \
 change — no add, no staging, the working copy is the change. `ff switch <branch>` moves. \
-`ff undo` takes back the last operation. `ff restore <path>` discards a file's edits. \
-Anything else git does: `ff git <args…>`, which snapshots and then runs git verbatim.
+`ff undo` takes back the last undo step in this worktree. `ff restore <path>` discards \
+a file's edits. Anything else git does: `ff git <args…>`, which attempts a snapshot \
+before running permitted git commands verbatim.
 
 Reading with git is fine. `ff status`, `ff log`, and `ff diff` say more than their git \
 counterparts.

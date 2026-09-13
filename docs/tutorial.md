@@ -2,7 +2,7 @@
 
 This walks the whole loop once: get a repository, make commits, switch branches mid-edit, fold a fix into an earlier commit, line up with a teammate, push, and undo a disaster. Twenty minutes. Every transcript below is real `ff` output.
 
-One thing to unlearn before you start: there is no staging area, no stash, and no dirty state. fufu snapshots the working copy before every action, the tree itself is the change you are working on, and every operation is undoable. You never prepare a commit; you close one.
+The working copy is the open change. You can commit it without staging, and switching branches parks uncommitted work. Repository commands and active hooks take snapshots; recovery depends on [coverage, capture success, and retention](concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ## Get a repository
 
@@ -10,15 +10,15 @@ One thing to unlearn before you start: there is no staging area, no stash, and n
 
 ```console
 $ ff clone https://github.com/tyler-johnson/fufu
-cloned into ./fufu — 361 commits on main
+cloned into ./fufu — 407 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
 ```
 
-The second line is the promise the rest of this tutorial leans on. From this moment, every verb takes a snapshot before it acts, so [`ff undo`](reference/cli/undo.md) always has somewhere to land.
+The second line says the operation log has been initialized. [`ff undo`](reference/cli/undo.md) can restore the local states recorded from that point, while they are retained.
 
 The repository you just cloned is fufu's own — real history, real files — so everything below is something you can type, not just read. The work you make here stays in your clone.
 
-That covers fufu's own verbs. An editor edit or a file an agent writes is captured by whatever runs next, so run [`ff hook`](install.md#wire-it-in) if you have not.
+Editor and agent edits need a later successful capture to be saved. [`ff hook`](reference/cli/hook.md) installs integrations that attempt capture on supported events; activate them as described in [installation](install.md#wire-it-in).
 
 If you have a repository git already made, [`ff init`](reference/cli/init.md) inside it means *turn fufu on here* — same arming, nothing else changes. See [Adopting fufu](adopting.md).
 
@@ -30,8 +30,8 @@ Bare `ff` is the map: recent work on every branch, parked changes included. A fr
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-●  xspyoolp a50bd06b  50m ago
-│  changelog: the Unreleased section in the releases' voice
+●  mrwkzuqt 68614022  19h ago
+│  core: close in phases
 ~
 ```
 
@@ -49,8 +49,8 @@ The letters column next to each commit is its change id: the identity a commit k
 
 ```console
 $ ff start
-minted ff/snug-spruce (forked from main)
-open change on ff/snug-spruce
+minted ff/bold-hawk (forked from main)
+switched to ff/bold-hawk
 undo: ff undo
 ```
 
@@ -58,13 +58,13 @@ Now edit. Add a file — a design note, say — and notice what you don't do nex
 
 ```console
 $ ff status
-on ff/snug-spruce · nothing to pull
-@  kknxlqmu            0s ago
+on ff/bold-hawk · nothing to pull
+@  urrumwkl            0s ago
 │  (no description)
 │  A notes/parser.md +3  -0  ++++++++++++++++++++
 │    1 file          +3  -0
-●  xspyoolp a50bd06b  50m ago  signed
-│  changelog: the Unreleased section in the releases' voice
+●  mrwkzuqt 68614022  19h ago  signed
+│  core: close in phases
 ```
 
 [`ff status`](reference/cli/status.md) answers where you are and what is uncommitted, as a diffstat. [`ff diff`](reference/cli/diff.md) is the same change read down to the line — and it sees untracked files, which `git diff` does not.
@@ -79,14 +79,14 @@ The open change can carry a description before it closes, so you can name work w
 
 ```console
 $ ff describe -m "notes: parser skeleton and char stream"
-pending description on ff/snug-spruce: notes: parser skeleton and char stream
+pending description on ff/bold-hawk: notes: parser skeleton and char stream
 ```
 
 Closing the change is the commit. [`ff commit`](reference/cli/commit.md) picks up the pending description:
 
 ```console
 $ ff commit
-closed cf70946d on ff/snug-spruce: notes: parser skeleton and char stream (1 file(s))
+closed f12fbdec on ff/bold-hawk: notes: parser skeleton and char stream (1 file(s))
 re-minted: signing is on
 undo: ff undo
 ```
@@ -97,7 +97,7 @@ Or say it at the close. Make a second edit, then:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
-closed d8f59f61 on ff/snug-spruce: notes: drop whitespace from the stream (1 file(s))
+closed bb595ed7 on ff/bold-hawk: notes: drop whitespace from the stream (1 file(s))
 re-minted: signing is on
 undo: ff undo
 ```
@@ -108,16 +108,16 @@ undo: ff undo
 $ ff log -n 5
 @  no changes
 │  (no description)
-●  klrqoort d8f59f61   1s ago  signed
+●  tlwwsulp bb595ed7   0s ago  signed
 │  notes: drop whitespace from the stream
-●  kknxlqmu cf70946d   1s ago  signed
+●  urrumwkl f12fbdec   1s ago  signed
 │  notes: parser skeleton and char stream
-●  xspyoolp a50bd06b  50m ago  signed
-│  changelog: the Unreleased section in the releases' voice
-●  lttyllqx d78b48ad  55m ago  signed
-│  core: an upstream under another name is a base, not a shared copy
-●  ztlputtv 23e686a2   1h ago  signed
-│  restack: drop a commit the base already holds by change id
+●  mrwkzuqt 68614022  19h ago  signed
+│  core: close in phases
+●  wrnspylp c1518a8b  19h ago  signed
+│  core: rewind's steps are functions
+●  zmnkwzuk 670dd3e4  19h ago  signed
+│  core: done_with and finish_resolution in phases
 ```
 
 The two commits fufu made wear the ids their open changes wore: the letters on the `@` row before each close are the letters on its `●` row after it. [`ff evolog <rev>`](reference/cli/evolog.md) drills into a commit's history through that column — the close, every later rewrite, and the captures behind it — and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
@@ -132,7 +132,7 @@ Start another edit — a stray note in `README.md`, say — and leave mid-though
 
 ```console
 $ ff switch main
-parked the open change on ff/snug-spruce (fd795b17)
+parked the open change on ff/bold-hawk (65f2036f)
 switched to main
 undo: ff undo
 ```
@@ -143,20 +143,20 @@ The map shows where the work went:
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-│ ●  klrqoort d8f59f61   1s ago  ▸ [ff/snug-spruce]  (+ parked change, 1 file)
+│ ●  tlwwsulp bb595ed7   0s ago  ▸ [ff/bold-hawk]  (+ parked change, 1 file)
 │ │  notes: drop whitespace from the stream
-│ ●  kknxlqmu cf70946d   1s ago
+│ ●  urrumwkl f12fbdec   0s ago
 ├─╯  notes: parser skeleton and char stream
-●  xspyoolp a50bd06b  50m ago
-│  changelog: the Unreleased section in the releases' voice
+●  mrwkzuqt 68614022  19h ago
+│  core: close in phases
 ~
 ```
 
 Switching back brings the parked change in exactly as you left it — same files, same edits, same pending description. A unique prefix of the branch name is enough for the target.
 
 ```console
-$ ff switch ff/snug-spruce
-switched to ff/snug-spruce
+$ ff switch ff/bold-hawk
+switched to ff/bold-hawk
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
@@ -165,7 +165,7 @@ The work is real now, so claim the name. The capture chain, the parked state, an
 
 ```console
 $ ff describe -b parser-stream
-claimed ff/snug-spruce as parser-stream
+claimed ff/bold-hawk as parser-stream
 undo: ff undo
 ```
 
@@ -173,7 +173,7 @@ That stray README edit isn't part of this work. [`ff restore`](reference/cli/res
 
 ```console
 $ ff restore README.md
-restored from d8f59f61 (notes: drop whitespace from the stream)
+restored from bb595ed7 (notes: drop whitespace from the stream)
   restored  README.md
 undo: ff undo
 ```
@@ -187,8 +187,8 @@ undo: ff undo
 Review feedback: the heading you just added belongs in the first commit, not in a new `fixup!` on top. Make the edit, then fold it into the commit it belongs to:
 
 ```console
-$ ff absorb --into cf70946d
-moved 1 file(s) from the open change into 42c5fd84: notes: parser skeleton and char stream
+$ ff absorb --into f12fbdec
+moved 1 file(s) from the open change into 33819a31: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
@@ -217,7 +217,7 @@ main
 undo: ff undo
 ```
 
-Nothing left the machine, and everything the pull did is one `ff undo` away. Sending is a separate verb, on purpose — a push cannot be taken back, so it is the one thing you type deliberately:
+Pull sent no remote branch update, and its local branch and file changes are one `ff undo` away. Fetched objects and tracking refs are separate. Sending is a separate verb because undo cannot reach the remote:
 
 ```console
 $ ff push
@@ -226,9 +226,9 @@ the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-Every push carries a lease: it goes through only if the shared copy still stands where you last saw it. In git's terms this is a force-push under a lease, `--force-with-lease`.
+Every push carries a lease: the remote ref must match the expected tip when Git updates it. Replacing commits also checks fufu's seen record; a fast-forward can proceed without that agreement. In Git's terms the wire update uses `--force-with-lease`.
 
-The bound is worth stating. fufu never force-pushes `main` or anyone else's branch; it replaces the remote copy of your own branch, and only if nobody has touched it since.
+The lease checks the remote ref's expected position. It does not check branch ownership, and fufu has no special force-push guard for `main`. Follow your team's shared-history policy and use server-side branch protection where rewrites must be refused.
 
 If somebody pushed to your branch since, nothing is sent and nothing is lost — `ff pull` takes their work in, and you push after. [The push boundary](concepts/push-boundary.md) covers leases, rollback, and `--dry-run`.
 
@@ -238,47 +238,46 @@ If somebody pushed to your branch since, nothing is sent and nothing is lost —
   <noscript><img src="../assets/tutorial/undo-anything.gif" alt="git reset --hard destroying two commits, and ff undo putting refs and the tree back"></noscript>
 </div>
 
-fufu snapshots the repository around every operation — including operations it didn't make. So when an overeager agent, or you at 4pm on a Friday, runs something destructive with raw git:
+The work in this example was captured by the preceding fufu commands. Raw Git only gets a fresh pre-command snapshot when an active agent hook or the shell alias invokes fufu first. Here, resetting the already-recorded branch demonstrates recovery from that saved state:
 
 ```console
 $ git reset --hard HEAD~2
-HEAD is now at 89e60b3 docs: a line from a teammate
+HEAD is now at 0ad8617 docs: a line from a teammate
 ```
 
 …one `ff undo` brings refs and working copy back together:
 
 ```console
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 89e60b3e (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 0ad8617c (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at 25d19be607f1 (pushed parser-stream to origin/parser-stream)
-  refs/heads/parser-stream → 7dc50ddd
+  now at 5035c044dda5 (pushed parser-stream to origin/parser-stream)
+  refs/heads/parser-stream → 9c1c290f
   1 worktree file(s) restored
 back: ff redo
 ```
 
-The reset was never dangerous: fufu snapshotted before it ran, noticed the foreign ref motion, and undid it as if it were any other operation. [`ff redo`](reference/cli/redo.md) goes forward again.
+fufu noticed the foreign ref motion and restored the retained pre-reset state. Edits made after the last successful capture could still have been lost. Snapshots exclude ignored untracked files and cap oversized working-copy content; retention limits their lifetime. Undo follows this worktree's chain and cannot reverse remote effects. [Snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits) has the details. [`ff redo`](reference/cli/redo.md) goes forward again.
 
 Undo repeats — each press steps one run of work further back. [`ff history`](reference/cli/history.md) is the map of where you can go: `@` is where the repository stands, each row below is one more press of `ff undo`, each row above one more `ff redo`:
 
 ```console
 $ ff history
-↑1  f7db296a1424    0s ago  redo  absorbed 1 foreign ref change(s)
-@   25d19be607f1    0s ago  now   pushed parser-stream to origin/parser-stream
-↓1  e4fdcc6c937c    0s ago  undo  move from the open change into cf70946d on parser-stream
-↓2  ceed90a4e8bb    0s ago  undo  pre: ff absorb --into cf70946d
-↓3  916d150ba023    0s ago  undo  claim ff/snug-spruce as parser-stream
-↓4  7cf338c04154    0s ago  undo  switch from main to ff/snug-spruce
-↓5  7d4177b27988    0s ago  undo  switch from ff/snug-spruce to main
-↓6  90e95fea23c8    0s ago  undo  pre: ff switch main
-↓7  800454d07721    1s ago  undo  commit on ff/snug-spruce: notes: drop whitespace from the stream
-↓8  a98c9a8c5ce4    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
-↓9  a970de933ac3    1s ago  undo  commit on ff/snug-spruce: notes: parser skeleton and char stream
-↓10 40998af77189    1s ago  undo  describe pending change on ff/snug-spruce
-↓11 93c94792af22    1s ago  undo  pre: ff status
-↓12 8cde691a2160    1s ago  undo  switch from main to ff/snug-spruce
-↓13 9755d574b654    1s ago  undo  mint branch ff/snug-spruce at a50bd06b
-↓14 c06fe90927eb    1s ago  undo  operation log initialized from observed state; earlier operations not undoable
+↑1  30b6292bba9b    0s ago  redo  absorbed 1 foreign ref change(s)
+@   5035c044dda5    0s ago  now   pushed parser-stream to origin/parser-stream
+↓1  c5ddbdad8c1a    1s ago  undo  move from the open change into f12fbdec on parser-stream
+↓2  afe01e6f2b3c    1s ago  undo  pre: ff absorb --into f12fbdec
+↓3  83d22784d6bf    1s ago  undo  claim ff/bold-hawk as parser-stream
+↓4  410f2b8b34b6    1s ago  undo  switch from main to ff/bold-hawk
+↓5  5162b667b0bf    1s ago  undo  switch from ff/bold-hawk to main
+↓6  3329a299c602    1s ago  undo  pre: ff switch main
+↓7  acca545e81a8    1s ago  undo  commit on ff/bold-hawk: notes: drop whitespace from the stream
+↓8  0b18bb7d2ca4    1s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
+↓9  2f31ad9c6a5d    1s ago  undo  commit on ff/bold-hawk: notes: parser skeleton and char stream
+↓10 6b0cfd0631a8    2s ago  undo  describe pending change on ff/bold-hawk
+↓11 7438353ddc76    2s ago  undo  pre: ff status
+↓12 1f2f3c75b39b    2s ago  undo  mint ff/bold-hawk at 68614022 and switch from main
+↓13 87c42cadf3eb    2s ago  undo  operation log initialized from observed state; earlier operations not undoable
     (the floor)
 ```
 
@@ -286,7 +285,7 @@ Every row is also an address: [`ff op show <id>`](reference/cli/op-show.md) says
 
 ## Where you are now
 
-You have the whole loop: `start` begins, `commit` closes, `switch` parks and resumes, `absorb` puts fixes where they belong, `pull` takes in, `push` sends, and `undo` takes back everything except the push. What you never did: stage, stash, resolve a detached HEAD, or run an interactive rebase.
+You have the whole loop: `start` begins, `commit` closes, `switch` parks and resumes, `absorb` puts fixes where they belong, `pull` takes in, `push` sends, and `undo` restores recorded local work. You did not stage, stash, resolve a detached HEAD, or run an interactive rebase.
 
 From here:
 

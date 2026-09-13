@@ -2,9 +2,9 @@
 
 Moves content out of a run of commits and into one commit. `ff absorb` and [`ff lift`](lift.md) are one move with two sets of defaults: `--from <revset>` names the sources, `--into <rev>` names the target, and each verb's word is its defaults and nothing more. Absorb moves from the open change into the commit under the sources — fold what is on disk into the commit it belongs to — and every other shape is the same move with an end named. `ff squash` is jj's name for the move, and an alias here.
 
-The sources are one contiguous run of commits on the branch's line, the open change allowed as the top member or alone; `--from HEAD~2..` is the two commits above `HEAD~2`, and they fold into it. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A move does not attribute hunks: the change is the unit, whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
+The sources are one contiguous run of commits on the branch's line, the open change allowed as the top member or alone; `--from HEAD~2..HEAD` is the two commits above `HEAD~2`, and they fold into it. The target is any commit on the line — below the run, above it, or a member of it, which takes both sides — or the open change. A move does not attribute hunks: the change is the unit, whole files are what move, and a path filter only chooses which of the sources' files they are, leaving the rest where it was. A source the move empties is dropped, because fufu writes no empty commit, and the report names it.
 
-Everything between and above replays in the same operation, so a branch inside that range comes along with it. What moves is content and the identity of the commits above; no file is copied or renamed in the re-point. A replay that conflicts holds with nothing written, and [`ff resolve`](resolve.md) opens it.
+Everything between and above replays in the same operation, so a branch inside that range comes along with it. Content and commit hashes change; surviving changes keep their change IDs. A conflicting primary replay records a hold without landing that rewrite; captures and metadata may still be written. [`ff resolve`](resolve.md) opens it.
 
 `-m` gives the target a message: a reword for a closed commit, the pending description for the open change. Without it the target keeps what it had.
 
@@ -64,8 +64,8 @@ Options:
 ```
 ff absorb                        fold everything open into the commit under it
 ff absorb --into HEAD~2          fold it into a commit further back
-ff absorb --from HEAD~2..        fold the two commits above HEAD~2 into it
-ff absorb --from HEAD~2.. -m "…" the same, and reword the commit they land in
+ff absorb --from HEAD~2..HEAD   fold the two commits above HEAD~2 into it
+ff absorb --from HEAD~2..HEAD -m "…"  also reword their target
 ff absorb src/parser.rs          fold only that path
 ff absorb --no-verify            fold without running the pre-commit hook
 ```

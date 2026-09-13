@@ -40,7 +40,7 @@ Every setting `ff config` knows, rendered from the registry in `crates/ff-cli/sr
 
 `fufu.maxFileSize` — size; default `52428800`
 
-Largest new file a snapshot will include, in bytes (52428800 = 50 MiB). Suffixes work: 100M, 1G. Bigger files are skipped and the snapshot message lists them.
+Largest regular file whose working-copy content is hashed into a snapshot (52428800 = 50 MiB). Includes modified tracked files. Larger files are skipped; their index or base content can remain. Suffixes: 100M, 1G.
 
 ### keep
 
@@ -52,7 +52,7 @@ How long operations live: ff op trim drops everything past the cutoff, captures 
 
 `fufu.autoTrim` — cadence; default `1d`
 
-How often retention enforces itself: a trim rides an ff command at most this often, per repo. false leaves trimming entirely to `ff op trim`; durations work too (12h, 2w), floored at one minute.
+How often retention enforces itself: a trim rides an ff command at most this often, per worktree. false leaves trimming entirely to `ff op trim`; durations work too (12h, 2w), floored at one minute.
 
 ### pruneGone
 
@@ -121,6 +121,6 @@ How many commits bare ff walks before it stops and says so with a trailing ~. Th
 The `fufu.*` keys above are fufu's own. Everything else fufu needs, it reads from git's existing configuration rather than keeping a second copy:
 
 - **Identity.** Commits and operations are authored from `user.name` and `user.email`. With neither set, fufu refuses with the same fix git would ask for: `git config user.name <name>`, `git config user.email <email>`.
-- **URLs, proxies, and credentials.** [`ff pull`](../reference/cli/pull.md) and [`ff clone`](../reference/cli/clone.md) speak the git protocol natively, but they honor `url.<base>.insteadOf` rewrites, `http.proxy`, and `credential.helper` from your git config, and they invoke your credential helpers and `ssh` exactly as git would. Push runs the git binary itself, so everything that configures a git push applies unchanged.
+- **URLs, proxies, and credentials.** [`ff pull`](../reference/cli/pull.md) and [`ff clone`](../reference/cli/clone.md) use a native transport that reads `url.<base>.insteadOf` and `credential.helper`, invokes credential helpers, and uses `ssh` for SSH URLs. Its HTTP backend does not honor `http.proxy`. Push runs the Git binary and uses Git's transport configuration.
 
-The practical consequence: a repo that already fetches through a corporate proxy or authenticates through a credential helper keeps working under fufu with nothing new to configure. fufu adds settings only for behavior git does not have.
+For an HTTP proxy, use [`ff git fetch`](../reference/cli/git.md) followed by `ff pull --no-fetch`, or `ff git clone` followed by [`ff init`](../reference/cli/init.md). Disable `fufu.autoFetch` when native automatic fetches cannot reach the remote.

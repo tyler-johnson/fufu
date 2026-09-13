@@ -6,7 +6,7 @@ A safety net you cannot inspect is not trustworthy, and every floor of fufu's ca
 - a branch that answers to no remote anything can name;
 - hooks never installed, or a stale binary.
 
-[`ff doctor`](../reference/cli/doctor.md) reads the whole net in one pass and prints one row per check. It observes and never enforces — no snapshot is taken, no drift is absorbed, nothing is reconciled. The one consented write is `--fix`, covered [below](#the-one-write-fix).
+[`ff doctor`](../reference/cli/doctor.md) checks the operation log, configuration, and installed integrations. Before checking, the CLI attempts capture, which can initialize the log and reconcile foreign ref changes. It fetches on every run when automatic fetching is enabled; `--no-fetch` skips it, and CI skips it unless `--fetch` is explicit. Automatic trimming and update maintenance can run afterward, even when the report contains findings. The checks report problems; `--fix` enables the [repairs](#repairs-fix).
 
 The flags and examples live on the [CLI page](cli/doctor.md); the wiring it verifies is what [agent setup](../agents/setup.md#verify) installs.
 
@@ -63,9 +63,9 @@ The rows group into five floors: the engine, the remote floor, the wiring, exten
 - **gc config** — whether reflog expiry is disabled for `refs/fufu/*` in local config. Without those keys, a manual `git gc` could expire fufu reflog entries. Missing keys are a `WARN`, and the one `--fix` writes.
 - **trash** — `info`, only when present: pre-trim tips held until the next trim.
 - **objects** — loose object and pack counts. fufu writes objects natively and never triggers git's auto-gc on its own, so once the loose count passes `gc.auto` the row turns `info` and points at [`ff op trim`](../reference/cli/op-trim.md), which nudges git to pack them.
-- **id index** — the index behind short operation ids. Read-only like everything else here: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
+- **id index** — the index behind short operation ids. The check itself is read-only: a stale or absent index is `info`, because both self-heal on the next [`ff log`](../reference/cli/log.md) or [`ff evolog`](../reference/cli/evolog.md).
 - **last op** — `info`: the newest operation's summary and age. A tip that does not parse as an operation is a `WARN` (it accompanies the identity warning when the ref was moved).
-- **drift** — `info`, only when present: refs moved outside fufu since the last operation, absorbed on the next one. Doctor reports the drift and deliberately does not absorb it — that would be the observer changing what it observes.
+- **drift** — `info`, only when present: foreign ref changes still visible after the CLI's capture attempt. The check reports them; preflight may already have reconciled earlier drift.
 - **legacy** — `info`, only when present: refs under `refs/fufu/legacy/` holding snapshots and operations from before the one-log cutover. This fufu cannot read them; they are kept so nothing was destroyed silently, and you delete them with git when you no longer want them.
 - **parked** — `info`, only when present: branches whose tree memory [`ff switch`](../reference/cli/switch.md) is holding, by their open commits; a second row names legacy stash parks still awaiting their fold.
 - **settings** — every fufu key in config, validated through the same parsers the readers use. Defaults and valid non-default values are `info`; a value the reader cannot parse is a `WARN` naming the key and pointing at [`ff config <name>`](../reference/cli/config.md).
@@ -112,16 +112,13 @@ Every transcript below is real output from a deliberately broken repository.
 
 ### The engine has never run here
 
-A git repository fufu has never touched — cloned before the hooks were wired, or adopted on a machine without them:
+A missing-log finding can appear if the preflight capture did not initialize the log, for example when capture could not acquire its lock. Ordinarily even a first doctor invocation attempts to initialize it. The finding reads:
 
 ```console
-$ ff doctor
-  ok    repository     ~/scratch/unarmed/.git
   WARN  log            no refs/fufu/wt/main/ops — the engine has never run here (run `ff`, or any git command via the alias)
-  ...
 ```
 
-The fix is the row's own suggestion: any fufu command opens the log and takes the first snapshot. [Adopting a repository](../adopting.md) covers what that first operation records.
+Check any capture warning, then run a repository reader again. [Adopting a repository](../adopting.md) covers what the first operation records.
 
 ### The gc guard is gone
 
@@ -181,13 +178,13 @@ A skill written by an older fufu, a hook stored in a retired spelling, a client 
 
 `ff hook <slug>` rewires it, and `ff doctor --fix` does the same thing in passing. This is why the wiring repair lives in doctor at all: a stored string is only rewritten when somebody runs the installer again, and doctor is the command people run when they are already suspicious.
 
-## The one write: --fix
+## Repairs: --fix
 
-Read-only is the design, because doctor must never absorb the drift it reports. `--fix` is the one consented write, and it repairs exactly the findings whose rows say so:
+`--fix` repairs the findings whose rows say so, in addition to the CLI's ordinary capture, fetch, and maintenance effects:
 
 - the gc reflog-expiry keys;
 - a `[branch]` config section that names nothing on either side;
-- wiring stored in a retired or partial spelling.
+- wiring stored in a retired or partial spelling, and stale shipped skills.
 
 Everything else — a moved log ref, a missing reflog, an invalid setting — is reported with the repair named in the row, and the repair stays yours to run. The summary line counts what `--fix` would take:
 

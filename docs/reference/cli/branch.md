@@ -30,7 +30,7 @@ When a pull request merges and the forge deletes the branch, the local branch st
 
 A branch whose tip holds commits the copy never held is kept and named, with the count: that is work the copy's deletion did not take, and there is no `--force` — `ff branch -d <name>` is the verb for deleting one branch on purpose. The branch you are on, one checked out in another worktree, and one holding a rewrite are kept and named too.
 
-A branch stacked on a pruned one is re-aimed at what the pruned branch sat on, the way [`ff fold`](fold.md) re-aims them, and the report says so inline: `beta (delta now sits on main)`. The whole prune is one operation, so one `ff undo` brings every branch back with its timeline, its parent link, and its tracking section, and [`ff status`](status.md) on one then says its copy is gone, as before. `--dry-run` (`-n`) says what would go and what would be kept and writes nothing; `--no-fetch` prunes from the tracking refs as they stand.
+A branch stacked on a pruned one is re-aimed at what the pruned branch sat on, the way [`ff fold`](fold.md) re-aims them, and the report says so inline: `beta (delta now sits on main)`. The local prune is one operation, so one `ff undo` restores the branches, timelines, parent links, and tracking sections. `--dry-run` (`-n`) previews without deleting local branches; the fetch can still update objects and tracking refs, and maintenance can still run. `--no-fetch` uses the tracking refs as they stand.
 
 Bare `ff branch` says how many are gone, with this flag as the way out. `fufu.pruneGone` lets [`ff pull`](pull.md) do the same inside its run.
 
@@ -66,7 +66,7 @@ Options:
           Emit machine-readable JSON
 
   -n, --dry-run
-          Say what --prune would delete and keep, and write nothing
+          Preview branch pruning without deleting branches; fetching can still run
 
       --all
           Every remote-only branch, not just the newest few

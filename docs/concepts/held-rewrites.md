@@ -4,13 +4,13 @@
 
 fufu's rewrites all run in memory and land only when the result is clean: [`ff restack`](../reference/cli/restack.md) moving a branch onto a new base, [`ff pull`](../reference/cli/pull.md)'s replay, [`ff done`](../reference/cli/done.md) landing an editing session, and the restacking that [`ff absorb`](../reference/cli/absorb.md) and [`ff lift`](../reference/cli/lift.md) do to descendants.
 
-When a step conflicts, nothing is touched:
+When a branch's replay conflicts, that replay does not land:
 
-- No ref moves.
+- That branch's replay does not advance its tip; earlier successful branch updates in the run can stand.
 - No half-applied tree reaches the working directory.
 - No rebase sits stopped in the repository, and both inputs stay ordinary git commits.
 
-What gets recorded instead is the intent — this branch has a pending rewrite, conflicting at commit such-and-such — as a **held rewrite**. The verb reports the hold, says what conflicts and where, and exits 3, the code meaning a human decision is required.
+What gets recorded instead is the intent — this branch has a pending rewrite, conflicting at commit such-and-such — as a **held rewrite**. Captures and metadata can still be written. Pull, restack, done, absorb, and lift report held replays with exit 3. A reword's cascade can also hold, but [`ff describe`](../reference/cli/describe.md) currently returns 0 for that outcome; scripts must inspect its `reword.cascade.held` report.
 
 What that buys is scheduling. The conflict does not interrupt you at the machine's moment. You keep working at the existing tip and materialize the conflict when you choose.
 
@@ -76,7 +76,7 @@ Deferred and quiet is how work rots. The disclosure is what makes the deferral s
 
 A hold blocks [`ff push`](push-boundary.md). Nothing is sent while the branch's commits are still about to be rewritten out from under it.
 
-That guard lives on the fufu surface only. Raw `git push` is git and it pushes, with the status channel getting loud afterward rather than a hook getting in the way — exactly as [the two regimes](two-regimes.md) says.
+That hold guard lives on the fufu surface. Raw Git that bypasses fufu can push; a shell alias or agent hook may instead refuse it under strict git policy. [The two regimes](two-regimes.md) explains those paths.
 
 A hold blocks nothing local. You can commit, switch, park, and keep building at the existing tip. A rewrite that cannot leave the machine is still one you can keep working on.
 

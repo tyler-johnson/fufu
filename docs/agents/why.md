@@ -16,7 +16,7 @@ The exposure is wider than the dramatic commands:
 
 ## The net
 
-fufu [snapshots the working copy before every action](../concepts/snapshots-and-undo.md), automatically, with no verb for asking. With the agent hooks wired — [setup](setup.md) shows how — that happens before every tool call the agent makes: every edit, every shell command, at machine rate.
+fufu takes [snapshots through repository commands and active hooks](../concepts/snapshots-and-undo.md). [`ff trigger -m "checkpoint"`](../reference/cli/trigger.md) also takes a manual snapshot. [Setup](setup.md) shows how to install hooks that attempt capture on the client's tool and turn events.
 
 Each snapshot records the tree and all refs together on one operation log. So fufu holds a running record of the agent's work that no other tool has, taken the moment before each action rather than whenever someone remembered to save.
 
@@ -24,11 +24,11 @@ Each snapshot records the tree and all refs together on one operation log. So fu
 
 [`ff git <args…>`](../reference/cli/git.md) snapshots first and then runs git verbatim, and the recommended alias plus the agent hooks route the agent's git invocations through it.
 
-A `reset --hard` still resets — fufu never blocks a command you ran, per [the two regimes](../concepts/two-regimes.md) — but the tree it discarded is now one operation back.
+A permitted `reset --hard` still resets; strict policy can refuse it. Recovery of discarded edits depends on a successful capture before the reset and on [coverage and retention](../concepts/snapshots-and-undo.md#coverage-and-limits).
 
-Even git run entirely around fufu is absorbed into the operation log at the next fufu invocation, labeled as foreign — made outside fufu, behind its back — and undoable like anything else.
+Ref changes made by Git outside fufu are reconciled at the next capture and recorded as foreign operations. That record cannot reconstruct uncaptured file content.
 
-The one honest gap is a foreign tree change that moves no ref, which is invisible until the next capture. Closing that gap is exactly what wiring the hooks buys, because with them the last capture is always the moment before the agent's action.
+A raw file edit that moves no ref is invisible until a capture observes it. Active hooks narrow that gap; skipped events, failed captures, ignored or oversized files, and unsaved buffers remain outside their coverage.
 
 ### The human keeps the last word
 
@@ -61,10 +61,10 @@ When it needs structure, `--json` carries each verb's full data model, errors ca
 Here is the setup this enables. The agent works — through `ff`, or even through raw git under the alias — and you review afterward, with real leverage.
 
 - [`ff history`](../reference/cli/history.md) is the review at the coarse grain: one row per undo step, with the agent's capture noise collapsed into the rows it would undo as, so the session reads as a short list of decisions rather than hundreds of operations.
-- [`ff op diff`](../reference/cli/op-diff.md) answers the finer question — what changed between any two operations, tree and refs — so you can inspect exactly what a stretch of agent work did before deciding whether it stays.
+- [`ff op diff`](../reference/cli/op-diff.md) compares files in two operation trees. [`ff op show`](../reference/cli/op-show.md) shows an operation's ref transitions too.
 - [`ff op log 'session(<id>)'`](../reference/cli/op-log.md) isolates one agent's work even when two were interleaving, because sessions tag every operation an agent records.
 
-Then the verdict is cheap in both directions. Work that holds up gets committed as usual. Work that does not costs one `ff undo`, and a disaster mid-session costs the same.
+Work that holds up gets committed as usual. To take work back, inspect the undo map and restore the retained state you want; a session may span several undo steps.
 
 That changes what you are willing to let an agent attempt, because the downside of a wrong turn is no longer the afternoon.
 
@@ -82,7 +82,7 @@ The limits of the leash are deliberate, and worth knowing before you rely on it:
 - `ff git <args…>` stays an open escape hatch even under strict for those words. A word fufu does have a verb for is refused there too, `commit -p` included.
 - Ambiguous shell strings fail open, because guessing at someone else's compound command is the wrong risk to take.
 
-Strict mode is a nudge with teeth. The actual guarantee sits underneath it: the capture already happened before the command ran, so whichever way the policy call goes, the net is intact.
+Strict policy is not a sandbox. The passthrough refuses before capture; agent hooks attempt capture before evaluating policy. Recovery still depends on successful captures, their coverage, and retention.
 
 ## What this rests on
 

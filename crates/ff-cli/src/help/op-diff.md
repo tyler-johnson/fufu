@@ -8,7 +8,7 @@ This compares the trees two operations carry, not their ref transitions — adja
 
 ```
 ff op diff @^ @                what the newest operation changed
-ff op diff kqzm                from that operation to now
-ff op diff kqzm kwzq           between two of them
+ff op diff a1b2c3d4e5f6       from that operation to now
+ff op diff a1b2c3d4e5f6 b2c3d4e5f6a7  between two of them
 ff op diff -p @^ @             with content, not just counts
 ```

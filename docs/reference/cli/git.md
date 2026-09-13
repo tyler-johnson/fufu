@@ -1,6 +1,6 @@
 # ff git
 
-Snapshots first, then runs the git command. Nothing is ever translated: the command that runs is the one you typed, or none at all. This is what the shell alias runs — `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md) — so typed git keeps working exactly as it did, with a snapshot in front of it.
+Attempts a snapshot, then runs a permitted Git command verbatim. A strict-policy refusal happens before capture. If capture fails, fufu warns and Git still runs. The shell alias — `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md) — routes typed Git here while that alias is active.
 
 What `fufu.gitPolicy` decides is what fufu *says* about a git word it has a verb for:
 
@@ -49,6 +49,6 @@ ff git status                  snapshot, then real git status
 ff git commit -m "…"           git's, plus a line naming ff commit
 ff config gitPolicy strict     refuse the words fufu has verbs for
 ff config gitPolicy observe    count them and say nothing
-ff git rebase -i HEAD~3        no fufu verb to name: snapshot, then git
+ff git rebase -i HEAD~3        Git's rewrite; refused under strict policy
 ff hook zsh                    make every typed git command do this
 ```

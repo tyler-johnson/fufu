@@ -1,6 +1,6 @@
 # The machine surface
 
-**A script, a CI job, or an agent calling `ff` is a first-class reader: every reader takes `--json`, every failure carries a stable id, and every exit code means one thing.**
+**Scripts, CI jobs, and agents can read `--json` reports, branch on structured error IDs, and check exit codes. Pin and test the binary versions they support.**
 
 A verb computes one data model, and the human rendering and the JSON rendering are both readers of it. Neither is a translation of the other.
 
@@ -8,7 +8,7 @@ So `--json` is not the human layout re-serialized. [`ff status`](../reference/cl
 
 That is what keeps the two from drifting apart, and it is why a script should parse the JSON and never the display text.
 
-> Every transcript below is real `ff` output. Where one is piped through `jq .`, that is for the page's eye — the actual emission is always a single line.
+> The status, log, evolog, history, and op JSON examples come from `scripts/docs/machine-surface-transcript.sh` in a scratch repository. `jq .` expands the single-line output for reading. IDs, timestamps, and paths vary between runs.
 
 ## The envelope
 
@@ -28,15 +28,15 @@ $ echo $?
 2
 ```
 
-`error.id` is the stable machine name. Prose gets reworded and ids do not, so a script branches on the id and never matches a sentence. `error.exits` is the same block the human rendering prints — the commands somebody would type next — handed over as data.
+`error.id` is the machine name to branch on, rather than the message prose. IDs have been renamed or removed across releases, so match against the supported binary version. `error.exits` carries suggested next commands as data.
 
 [`ff explain <id>`](../reference/cli/explain.md) turns any id back into prose on demand. [The error id index](../reference/errors.md) lists every id with its exit code, and `ff explain --list` prints the same table from the binary.
 
-### What is promised
+### Compatibility in current releases
 
-Within one contract version, a field keeps its name and its meaning, and the envelope keeps its shape. New fields may appear as the surface grows, so take fields by name and tolerate ones you do not know.
+The envelope currently uses `ff: 1`, but that number alone does not establish payload compatibility across releases. Releases have renamed or removed fields and error IDs without changing it: v0.13.0 renamed `sync/*` and `publish/*` errors, v0.14.0 removed `id_letters`, and v0.15.0 renamed arrival fields and removed operation `route`.
 
-A change that breaks an existing field is what bumps the `ff` number, which is why a strict consumer asserts it before parsing.
+Pin and test the fufu version your script supports, assert the envelope version, read fields by name, and tolerate unknown fields. Check [the changelog](../changelog.md) when upgrading. A stronger cross-release payload or error-ID stability guarantee requires a separately established versioning policy.
 
 The human rendering promises none of this. Layout, wording, and color are free to change in any release.
 
@@ -56,13 +56,13 @@ $ ff status --json | jq .
       "state": "branch",
       "name": "main",
       "ref": "refs/heads/main",
-      "commit": "cd5c0d35d19736cef307912620fcd77e0dce1645"
+      "commit": "e629c0d9955c9184bb66538b09463db90f77c9f2"
     },
-    "root": "/home/tyler/parser",
+    "root": "/tmp/tmp.q3ZBT5iKNP",
     "worktree": {
       "id": "main",
       "linked": false,
-      "main": "/home/tyler/parser"
+      "main": "/tmp/tmp.q3ZBT5iKNP"
     },
     "base": null,
     "remote": null,
@@ -81,20 +81,20 @@ $ ff status --json | jq .
     "insertions": 1,
     "deletions": 1,
     "open": {
-      "id": "04c78631534881f3319290940ee156e5b89dfe9a",
-      "change_id": "nyrszqtkznwuykyxoskttupyppplxnwu",
-      "pending": "b052c0d32a8637271add239049f1e06e87ffb55e",
+      "id": "033a2e4a5d79bfc05f855c6db5230b9c77a4fe6b",
+      "change_id": "qprtzzrrxtsnzlllvrzstmowwwzmxvlx",
+      "pending": "616d14a37ceb2c96501cb19185ff385c637fe4d3",
       "subject": null,
       "clean": false,
-      "base": "cd5c0d35d19736cef307912620fcd77e0dce1645",
-      "time": 1788748661
+      "base": "e629c0d9955c9184bb66538b09463db90f77c9f2",
+      "time": 1789331633
     },
     "parent": {
-      "id": "cd5c0d35d19736cef307912620fcd77e0dce1645",
-      "change_id": "lqsypptxyrxlkonpnolqqtovsvzmuzwt",
+      "id": "e629c0d9955c9184bb66538b09463db90f77c9f2",
+      "change_id": "nspyotlrrxvwmxponuqykpkwxysyvlnp",
       "subject": "parser: skeleton",
-      "time": 1788748661,
-      "segment": "a34ed99aa8b4c4fee5ad18eedd811fd098767d54",
+      "time": 1789331633,
+      "segment": "b5c58c9c980cccdf25ddcd46ce94927485f5e0b6",
       "signed": false
     },
     "conflicts": [],
@@ -108,12 +108,12 @@ $ ff status --json | jq .
     "held": null,
     "resolving": null,
     "last_op": {
-      "id": "utoozzykkzxtqwmntvoptlxxuqxszpvlwpyrmkol",
-      "short_id": "utoo",
+      "id": "bf4bea5413f13a515a85591880eedc298264db6e",
+      "short_id": "bf4b",
       "kind": "op",
       "verb": "commit",
       "summary": "commit on main: parser: skeleton",
-      "time": 1788748661,
+      "time": 1789331633,
       "branch": "main",
       "session": null,
       "undo_of": null
@@ -149,27 +149,27 @@ $ ff log --json -n 1 | jq .
   "data": {
     "commits": [
       {
-        "id": "64962838a9353e3a4c3e78677f1bc6348b328058",
-        "short_id": "64962838",
+        "id": "e629c0d9955c9184bb66538b09463db90f77c9f2",
+        "short_id": "e629c0d9",
         "subject": "parser: skeleton",
-        "author_name": "Tyler Johnson",
-        "author_email": "tyler@tylerjohnson.me",
-        "time": 1787985378,
+        "author_name": "Ada Lovelace",
+        "author_email": "ada@example.com",
+        "time": 1789331633,
         "signed": false,
-        "change_id": "wrmoxxnnkqvtpsrkywlvzxynnmoslryu",
+        "change_id": "nspyotlrrxvwmxponuqykpkwxysyvlnp",
         "session": null
       }
     ],
     "open": {
       "branch": "main",
-      "id": "38db22cc13e4fcd1cf8c28771a1d4014861cc7dc",
-      "change_id": "qtwplrskwswwkymmtlynvxrlzvwvurzs",
-      "base": "64962838a9353e3a4c3e78677f1bc6348b328058",
+      "id": "033a2e4a5d79bfc05f855c6db5230b9c77a4fe6b",
+      "change_id": "qprtzzrrxtsnzlllvrzstmowwwzmxvlx",
+      "base": "e629c0d9955c9184bb66538b09463db90f77c9f2",
       "subject": null,
-      "time": 1787985391,
+      "time": 1789331633,
       "clean": false,
-      "pending": "bdbf5c8c8157f25cbd4dfc422840924899109b47",
-      "pending_short": "bdbf5c8c"
+      "pending": "616d14a37ceb2c96501cb19185ff385c637fe4d3",
+      "pending_short": "616d14a3"
     }
   }
 }
@@ -187,15 +187,15 @@ $ ff evolog --json -n 1 | jq .
   "ff": 1,
   "cmd": "evolog",
   "data": {
-    "change_id": "qtwplrskwswwkymmtlynvxrlzvwvurzs",
+    "change_id": "qprtzzrrxtsnzlllvrzstmowwwzmxvlx",
     "snapshots": [
       {
-        "id": "38db22cc13e4fcd1cf8c28771a1d4014861cc7dc",
-        "short_id": "38db",
-        "subject": "pre: ff status",
-        "time": 1787985391,
-        "base": "64962838a9353e3a4c3e78677f1bc6348b328058",
-        "prev": null,
+        "id": "033a2e4a5d79bfc05f855c6db5230b9c77a4fe6b",
+        "short_id": "033a",
+        "subject": "pre: ff status --json",
+        "time": 1789331633,
+        "base": "e629c0d9955c9184bb66538b09463db90f77c9f2",
+        "prev": "b5c58c9c980cccdf25ddcd46ce94927485f5e0b6",
         "session": null
       }
     ]
@@ -206,26 +206,36 @@ $ ff evolog --json -n 1 | jq .
 On a revision, the operations that produced a commit carrying the change's id, on every worktree's chain, newest first, and the captures behind its close:
 
 ```console
-$ ff evolog --json wrmoxxnn | jq .
+$ ff evolog HEAD --json | jq .
 {
   "ff": 1,
   "cmd": "evolog",
   "data": {
-    "change_id": "wrmoxxnnkqvtpsrkywlvzxynnmoslryu",
-    "commit": "64962838a9353e3a4c3e78677f1bc6348b328058",
+    "change_id": "nspyotlrrxvwmxponuqykpkwxysyvlnp",
+    "commit": "e629c0d9955c9184bb66538b09463db90f77c9f2",
     "operations": [
       {
-        "id": "ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr",
-        "short_id": "ksrn",
+        "id": "bf4bea5413f13a515a85591880eedc298264db6e",
+        "short_id": "bf4b",
         "chain": "main",
         "verb": "commit",
         "summary": "commit on main: parser: skeleton",
-        "time": 1787985378,
-        "commit": "64962838a9353e3a4c3e78677f1bc6348b328058",
+        "time": 1789331633,
+        "commit": "e629c0d9955c9184bb66538b09463db90f77c9f2",
         "session": null
       }
     ],
-    "snapshots": [ ... ]
+    "snapshots": [
+      {
+        "id": "b5c58c9c980cccdf25ddcd46ce94927485f5e0b6",
+        "short_id": "b5c5",
+        "subject": "pre: ff commit -m parser: skeleton",
+        "time": 1789331633,
+        "base": null,
+        "prev": null,
+        "session": null
+      }
+    ]
   }
 }
 ```
@@ -238,11 +248,11 @@ The undo map as data: one object per keystroke of [`ff undo`](../reference/cli/u
 
 ```console
 $ ff history --json | jq -c '.data.steps[]'
-{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","landing":"now","kind":"capture","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","collapsed":0,"distance":0}
-{"id":"syvwzwqxsrnuwptyuxqqkmrzlwuutotsvvzkswko","short_id":"syvw","landing":"undo","kind":"capture","summary":"pre: ff status --json","time":1787985378,"branch":"main","session":null,"collapsed":2,"distance":1}
-{"id":"ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr","short_id":"ksrn","landing":"undo","kind":"op","summary":"commit on main: parser: skeleton","time":1787985378,"branch":"main","session":null,"collapsed":1,"distance":2}
-{"id":"noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll","short_id":"noym","landing":"undo","kind":"capture","summary":"pre: ff commit -m parser: skeleton","time":1787985378,"branch":"main","session":null,"collapsed":1,"distance":3}
-{"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","landing":"undo","kind":"note","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"collapsed":1,"distance":4}
+{"id":"002422158476205b28a05e88e880b6b107baa74c","short_id":"0024","landing":"now","kind":"capture","summary":"manual","time":1789331633,"branch":"main","session":"flight-3","collapsed":0,"distance":0}
+{"id":"033a2e4a5d79bfc05f855c6db5230b9c77a4fe6b","short_id":"033a","landing":"undo","kind":"capture","summary":"pre: ff status --json","time":1789331633,"branch":"main","session":null,"collapsed":2,"distance":1}
+{"id":"bf4bea5413f13a515a85591880eedc298264db6e","short_id":"bf4b","landing":"undo","kind":"op","summary":"commit on main: parser: skeleton","time":1789331633,"branch":"main","session":null,"collapsed":1,"distance":2}
+{"id":"b5c58c9c980cccdf25ddcd46ce94927485f5e0b6","short_id":"b5c5","landing":"undo","kind":"capture","summary":"pre: ff commit -m parser: skeleton","time":1789331633,"branch":"main","session":null,"collapsed":1,"distance":3}
+{"id":"8d3f32d135b4c8deea13646577f265332a1de6d2","short_id":"8d3f","landing":"undo","kind":"note","summary":"operation log initialized from observed state; earlier operations not undoable","time":1789331633,"branch":"main","session":null,"collapsed":1,"distance":4}
 ```
 
 `landing` is `now` for where the repository stands, `undo` for each step below it, and `redo` for steps above after an undo. Redo rows carry negative `distance`, so `distance` alone says how many presses in which direction.
@@ -260,12 +270,14 @@ Five codes, one meaning each:
 | 0 | done — or yes, for a command that answers a question |
 | 1 | no — the command failed, or the check's answer is negative |
 | 2 | the command line was wrong |
-| 3 | held — a human decision is required, and the branch that held was not touched |
-| 4 | contended — nothing was touched, and the same command run again is the answer |
+| 3 | held or blocked, or a dry run predicts a hold; earlier successful updates can stand |
+| 4 | contended — retry the command with a bounded retry policy; ambient work may already have run |
 
 The code follows the error id: `usage/*` errors exit 2, `held/*` errors exit 3, `ref/contended` exits 4, everything else exits 1.
 
-Exit 3 also rides a `data` envelope. When [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), [`ff done`](../reference/cli/done.md), [`ff lift`](../reference/cli/lift.md), [`ff absorb`](../reference/cli/absorb.md), or [`ff push`](../reference/cli/push.md) holds a rewrite, the verb prints its full report as `data` and exits 3, because a held rewrite is an outcome with a report and not an error with an id. [`ff doctor`](../reference/cli/doctor.md) does the same at 1, its findings as `data` and the code as the verdict. A script reads the envelope for what happened and the code for whether to stop.
+Exit 3 also rides a `data` envelope. [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), [`ff done`](../reference/cli/done.md), [`ff lift`](../reference/cli/lift.md), and [`ff absorb`](../reference/cli/absorb.md) report held replays this way. [`ff push`](../reference/cli/push.md) reports a branch blocked by an existing hold. [`ff doctor`](../reference/cli/doctor.md) does the same at 1, its findings as `data` and the code as the verdict. A script reads the envelope for what happened and the code for whether to stop.
+
+A reword's cascade is an exception: [`ff describe`](../reference/cli/describe.md) currently exits 0 even if `reword.cascade.held` is nonempty. Multi-branch push exits 1 for a refusal even if another branch was blocked by a hold. Exit codes do not imply that every branch succeeded or that no earlier updates landed; inspect the report.
 
 The rewrite verbs' reports — `ff restack`, `ff pull`, `ff done`, `ff lift`, `ff absorb`, and each branch under `cascade.moved` — carry `dropped`: the commits the replay removed rather than rewrote. Each entry has `old`, the commit's full sha, `subject`, and `reason`, either `empty`, its replayed tree matched its new parent's, or `superseded`, the base already holds a commit with its change id; under `superseded`, `by` is that base commit's full sha.
 
@@ -273,7 +285,7 @@ The rewrite verbs' reports — `ff restack`, `ff pull`, `ff done`, `ff lift`, `f
 - **Exit 4** asks the opposite. Another writer held the ref for a moment, so retry the same command — with a cap, because a lock file nobody clears gives the same answer every time.
 - **Exit 1** is also `ff doctor`'s verdict, 0 healthy and 1 findings, so CI can gate on it.
 
-Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses any git word fufu has a verb for, before the capture and before anything runs:
+Strict mode is where exit 2 earns attention. With `fufu.gitPolicy` set to `strict`, [`ff git <word>`](../reference/cli/git.md) refuses mapped Git writes before capture or Git execution. It still records the policy tally:
 
 ```console
 $ ff config gitPolicy strict
@@ -287,7 +299,7 @@ $ echo $?
 2
 ```
 
-The refusal is a usage error — id `usage/git-policy` — because the command line itself is what policy rejects. Nothing was captured and nothing ran; the exits name the fufu verb to type instead. Git words fufu has no verb of its own for pass straight through under every policy, so a strict repository still runs `ff git rebase` or `ff git bisect` untouched. [Agent setup](setup.md) covers choosing a policy tier.
+The refusal is a usage error — id `usage/git-policy` — because the command line itself is what policy rejects. No capture or Git execution occurred; the exits name the fufu verb to type instead. `ff git rebase` is refused too, with `ff restack` as the suggestion. Passthrough words such as `ff git merge` and `ff git bisect` still run. Agent hooks have a different order: capture is attempted before policy evaluation. [Agent setup](setup.md) covers the tiers and limits.
 
 One more contract keeps scripts out of stuck states: no verb ever blocks on a prompt or an editor with nobody there to answer. Wherever fufu would ask, a flag supplies the answer up front, and when stdin is not a terminal — or `FF_NONINTERACTIVE` is set to force it — the question becomes a structured error naming that flag, such as [`ff describe`](../reference/cli/describe.md) with no `-m` failing instead of opening an editor.
 
@@ -330,12 +342,12 @@ For the repository root in any other context, `ff git rev-parse --show-toplevel`
 
 ```console
 $ ff op log --json | jq -c '.data.ops[]'
-{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
-{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
-{"id":"syvwzwqxsrnuwptyuxqqkmrzlwuutotsvvzkswko","short_id":"syvw","kind":"capture","verb":"","summary":"pre: ff status --json","time":1787985378,"branch":"main","session":null,"undo_of":null}
-{"id":"ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr","short_id":"ksrn","kind":"op","verb":"commit","summary":"commit on main: parser: skeleton","time":1787985378,"branch":"main","session":null,"undo_of":null}
-{"id":"noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll","short_id":"noym","kind":"capture","verb":"","summary":"pre: ff commit -m parser: skeleton","time":1787985378,"branch":"main","session":null,"undo_of":null}
-{"id":"qvtsvptlqsqszpyzykuwxkynmkoqnmpourkuwtol","short_id":"qvts","kind":"note","verb":"init","summary":"operation log initialized from observed state; earlier operations not undoable","time":1787985378,"branch":"main","session":null,"undo_of":null}
+{"id":"002422158476205b28a05e88e880b6b107baa74c","short_id":"0024","kind":"capture","verb":"","summary":"manual","time":1789331633,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"ae38c7d110818c4c40474bafd3f0d4c9ebe79a69","short_id":"ae38","kind":"capture","verb":"","summary":"manual","time":1789331633,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"033a2e4a5d79bfc05f855c6db5230b9c77a4fe6b","short_id":"033a","kind":"capture","verb":"","summary":"pre: ff status --json","time":1789331633,"branch":"main","session":null,"undo_of":null}
+{"id":"bf4bea5413f13a515a85591880eedc298264db6e","short_id":"bf4b","kind":"op","verb":"commit","summary":"commit on main: parser: skeleton","time":1789331633,"branch":"main","session":null,"undo_of":null}
+{"id":"b5c58c9c980cccdf25ddcd46ce94927485f5e0b6","short_id":"b5c5","kind":"capture","verb":"","summary":"pre: ff commit -m parser: skeleton","time":1789331633,"branch":"main","session":null,"undo_of":null}
+{"id":"8d3f32d135b4c8deea13646577f265332a1de6d2","short_id":"8d3f","kind":"note","verb":"init","summary":"operation log initialized from observed state; earlier operations not undoable","time":1789331633,"branch":"main","session":null,"undo_of":null}
 ```
 
 `verb` names which fufu verb an `op` was; a capture's `summary` says what it ran ahead of — the `pre:` prefix is literal, because operations are written before the mutation they describe, so an entry is a claim about the next moment rather than a report on the last one. `undo_of` links an operation to the one it reversed, when it was one.
@@ -343,25 +355,25 @@ $ ff op log --json | jq -c '.data.ops[]'
 An operation id addresses the operation everywhere the `ff op` family takes one, and the shortest unique prefix is enough — `short_id` is exactly that prefix. [`ff op show`](../reference/cli/op-show.md) reads one out whole, ref transitions included:
 
 ```console
-$ ff op show ksrn --json | jq .
+$ ff op show bf4bea5413f13a515a85591880eedc298264db6e --json | jq .
 {
   "ff": 1,
   "cmd": "op show",
   "data": {
-    "id": "ksrnsmvwzxopnqxxrslukyzuvquqkrlvqmkrxrqr",
+    "id": "bf4bea5413f13a515a85591880eedc298264db6e",
     "kind": "op",
     "summary": "commit on main: parser: skeleton",
-    "time": 1787985378,
+    "time": 1789331633,
     "branch": "main",
     "session": null,
     "base": null,
-    "prev": "noymxonwyuztvnxtzwspwlkxyxlyxksxvwtwwoll",
+    "prev": "b5c58c9c980cccdf25ddcd46ce94927485f5e0b6",
     "tree": "5d90422423db5ef6b431e8b9e60e0baf04b8742a",
     "refs": [
       {
         "name": "refs/heads/main",
         "old": null,
-        "new": "64962838a9353e3a4c3e78677f1bc6348b328058"
+        "new": "e629c0d9955c9184bb66538b09463db90f77c9f2"
       }
     ],
     "changes": [],
@@ -371,9 +383,9 @@ $ ff op show ksrn --json | jq .
 }
 ```
 
-From there the rest of the family acts on the same ids. [`ff op restore <id>`](../reference/cli/op-restore.md) rewinds the whole repository to one, [`ff op diff`](../reference/cli/op-diff.md) compares two, and `--at-op <id>` on the verbs that take it reads a path as it stood at one.
+From there the rest of the family acts on the same ids. [`ff op restore <id>`](../reference/cli/op-restore.md) restores the current worktree's recorded local state, subject to worktree guards. [`ff op diff`](../reference/cli/op-diff.md) compares files in two operation trees, not ref transitions, and `--at-op <id>` reads a path as it stood at one.
 
-`--at-op` is also the only place an operation id is legal outside the `ff op` family. Operations and revisions are separate address spaces, and passing one where the other belongs is a refused error rather than a convenience: `usage/op-in-rev-position` one way, `usage/rev-in-op-position` the other. A change id, which shares the alphabet, is a revision: any prefix of one that is unique in the repository names its commit in a revision slot, a prefix of the open change's id is `@`, and a change standing on more than one visible commit is refused as `usage/revset-divergent`, naming each.
+Operations and revisions are separate address spaces: `--at-op` reads an operation, while `--from` and revision arguments read commits or change IDs. The wrong kind is refused as `usage/op-in-rev-position` or `usage/rev-in-op-position`. Change IDs use k–z, not the operation's hex alphabet. A unique change-ID prefix names its commit in a revision slot; a prefix of the open change's ID names `@`. A change on multiple visible commits is refused as `usage/revset-divergent`. Other operation-taking flags, such as `ff watch --since`, follow the operation address space too.
 
 ### Sessions: tagging work, and asking about it
 
@@ -381,8 +393,8 @@ A session is a tag on an operation, and nothing more. Set one — `--session <na
 
 ```console
 $ ff op log 'session(flight-3)' --json | jq -c '.data.ops[]'
-{"id":"wrmoxxnnywlvknmynkrnxrssypymvzyvrtynnsmn","short_id":"wrmo","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
-{"id":"pwknzqxqpurrvwokmqnyvuovmzumukxlpmmztywr","short_id":"pwkn","kind":"capture","verb":"","summary":"manual","time":1787985391,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"002422158476205b28a05e88e880b6b107baa74c","short_id":"0024","kind":"capture","verb":"","summary":"manual","time":1789331633,"branch":"main","session":"flight-3","undo_of":null}
+{"id":"ae38c7d110818c4c40474bafd3f0d4c9ebe79a69","short_id":"ae38","kind":"capture","verb":"","summary":"manual","time":1789331633,"branch":"main","session":"flight-3","undo_of":null}
 ```
 
 `kind(capture)`, `kind(op)`, and the rest of the grammar compose the same way, so "everything agent flight-3 did that was a real verb" is one expression. Two agents interleaving in one repository stay separable forever, because the tag rides each operation rather than a range between two points.

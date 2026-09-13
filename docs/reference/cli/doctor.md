@@ -1,6 +1,6 @@
 # ff doctor
 
-Reads fufu's whole safety net in one pass and reports what it finds. Read-only by design: it takes no snapshot, reconciles nothing, and reports the drift the log will absorb rather than absorbing it. The one thing it refreshes is the tracking refs: the fetch lane runs before every doctor rather than on its cadence, so the remote floor it reports is the one standing now (`--no-fetch` reads the refs as they are).
+Checks fufu's operation log, configuration, and installed integrations. The CLI attempts a capture before checking, which can initialize the log and absorb foreign ref changes. It also fetches before every check when automatic fetching is enabled (`--no-fetch` skips it; CI skips it unless `--fetch` is explicit). Automatic trimming and update maintenance can run after the report, including when it contains findings. The diagnostic checks themselves report findings; `--fix` enables their repairs.
 
 What it reads, in order:
 
@@ -12,9 +12,9 @@ What it reads, in order:
 
 Rows come at three levels: ok counts nothing, info is news rather than a problem, WARN is a finding. Findings drive the exit code — 0 healthy, 1 findings — so CI can gate on it, and --json emits the same rows for machines.
 
-## The one write: --fix
+## Repairs: --fix
 
-It repairs exactly two things: the gc reflog-expiry keys, and a config section left naming a branch that is gone from both sides. It never touches a section whose shared copy is still standing — that one is [`ff branch -d`](branch.md) doing its job, not drift.
+It repairs the gc reflog-expiry keys, config sections naming branches gone from both sides, partial or stale managed hook installations, and stale shipped skills. It never removes a branch config section whose shared copy is still standing — that one is [`ff branch -d`](branch.md) doing its job, not drift.
 
 ## Usage
 
@@ -48,6 +48,6 @@ Options:
 
 ```
 ff doctor                      read the net
-ff doctor --fix                repair gc keys and dead config (the only write)
+ff doctor --fix                repair the findings marked fixable
 ff doctor --json               the same rows, for machines
 ```

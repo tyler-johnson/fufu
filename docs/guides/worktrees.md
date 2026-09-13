@@ -190,7 +190,7 @@ The bay now holds a half-written, uncommitted file. `git worktree remove` demand
 ```console
 $ ff worktree -d bay
 removed bay (was on bay)
-  captured first as 90ffa659fe72 — ff restore <path> --at-op 90ffa659fe72
+  captured first as 825dc7b6b6c5 — ff restore <path> --at-op 825dc7b6b6c5
   its log stays at refs/fufu/wt/bay/ops
 ```
 
@@ -201,15 +201,15 @@ $ ff worktree
 * main      /tmp/tmp.LEBjpAkBuj/demo  main
 
 chains whose worktree is gone
-  bay       bay  90ffa659fe72  0s ago
+  bay       bay  825dc7b6b6c5  0s ago
 ff restore <path> --at-op <op>  brings a file back from one
 ```
 
 That id is an address. [`ff restore`](../reference/cli/restore.md) with `--at-op` brings a file out of the capture into whatever tree you are standing in, where it joins the open change like any other edit:
 
 ```console
-$ ff restore src/lexer_test.rs --at-op fd5974d0070a
-restored from fd59 (pre: ff worktree -d bay)
+$ ff restore src/lexer_test.rs --at-op 825dc7b6b6c5
+restored from 825d (pre: ff worktree -d bay)
   restored  src/lexer_test.rs
 undo: ff undo
 
@@ -225,7 +225,7 @@ on main · 1 to push
 
 The removal is one operation on the chain of the tree that ran it, so `ff undo` right after it puts the whole checkout back, uncommitted work included. Two limits to know:
 
-- Ignored files — build outputs, `node_modules`, virtualenvs — are not captured and do not come back, the same trade any worktree removal makes.
+- Ignored untracked files and content above `fufu.maxFileSize` are outside normal capture coverage. The removal can discard them; see [snapshot limits](../concepts/snapshots-and-undo.md#coverage-and-limits).
 - Gone chains age out on the ordinary `fufu.keep` retention window (90 days by default), so commit or restore what matters before [`ff op trim`](../reference/cli/op-trim.md) gets there.
 
 ## From here

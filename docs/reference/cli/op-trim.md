@@ -2,7 +2,9 @@
 
 Retention with an undo. The log's pre-trim tip is written to the chain's own trash ref, `refs/fufu/wt/<worktree>/trash/@ops`, before a single ref moves, so the last trim is itself recoverable. Survivors keep their trees, messages, and dates byte-for-byte — only parent slots relink — and the reflog is replayed with the original times, so `--at 2h` stays truthful afterwards. `ff trim` is the older spelling, still answered and not listed.
 
-You rarely need to run this. A trim rides an ff command at most once per fufu.autoTrim (daily by default), per worktree. This is the hand-run form, and the only one that nudges git's own gc when it dropped something.
+You rarely need to run this. A trim rides an ff command at most once per fufu.autoTrim (daily by default), per worktree. A real manual run also invokes `git gc --auto --quiet`, even when no operations were dropped; automatic trimming skips that nudge.
+
+`--dry-run` previews retention without dropping operations. The CLI still attempts a pre-command capture and can run update maintenance; it is not a promise of no writes.
 
 ## Usage
 
@@ -38,7 +40,7 @@ Options:
 ## Examples
 
 ```
-ff op trim -n                  preview: what would go, nothing written
+ff op trim -n                  preview retention without dropping operations
 ff op trim                     drop everything past the keep window
 ff op trim --gone              also drop pointers whose branch is gone
 ff config keep 30d             a shorter window

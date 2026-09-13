@@ -132,6 +132,6 @@ Of the repository and the people in it, fufu asks nothing: no server-side setup,
 
 The same fact is a limit. fufu cannot stop a teammate's raw-git force-push over a shared branch, because nothing of fufu runs on their machine or on the server. Prevention is a branch protection rule on the forge; what fufu holds is the recovery half, [when someone force-pushed over your branch](recovery.md#someone-force-pushed-over-my-branch).
 
-Of your own unpublished branches, fufu is opinionated: they rebase onto main rather than merging it in, unpublished commits stay malleable, and updating the remote copy of your branch after a rewrite is a leased force-push — sent only if the shared copy still stands where you last saw it. Those opinions are confined to work only you can see, and they stop at [the push boundary](../concepts/push-boundary.md): published history is append-only.
+fufu replays branches onto their bases and can rewrite commits whether or not they have been pushed. Sending a rewrite requires a separate leased push. There is no branch-ownership check or special protection for `main`; append-only shared history requires team policy and server-side protection. [The push boundary](../concepts/push-boundary.md) explains the lease and its limits.
 
 A teammate looking at your branch sees the result of that discipline — a clean stack of commits atop current main — and nothing of the machinery. Which is the invariant doing its job.

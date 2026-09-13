@@ -22,7 +22,7 @@ The wire is climbed too, except for sending. [`ff clone`](../reference/cli/clone
 
 What those verbs still reach outside the process for is git's configuration and authentication surface, not its porcelain:
 
-- One `git config -l` per process, so `url.<base>.insteadOf`, `http.proxy`, and `credential.helper` from the installation config are honored.
+- One `git config -l` per process, so `url.<base>.insteadOf` and `credential.helper` from the installation config are read. The native HTTP backend does not honor `http.proxy`; push uses Git's transport.
 - A credential helper when a remote asks for auth.
 - `ssh` for an ssh URL.
 - `git-upload-pack` for a filesystem remote, because a local transport is a spawned upload-pack in git as well.

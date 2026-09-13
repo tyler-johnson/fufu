@@ -1,6 +1,6 @@
 Clones a repository and arms it on arrival: the gc guard written, the operation log's floor taken, and one line saying what landed.
 
-fufu speaks the git protocol itself here rather than running `git clone` — it negotiates the pack, writes it, and checks out the worktree. What it still reaches outside the process for is git's configuration and authentication surface: the installation config (so `url.<base>.insteadOf` and `http.proxy` keep working), your credential helper when a remote asks for one, and `ssh` for an ssh URL. Those are inherited whole rather than reimplemented.
+fufu speaks the git protocol itself here rather than running `git clone` — it negotiates the pack, writes it, and checks out the worktree. It reads git's installation config for `url.<base>.insteadOf` rewrites and `credential.helper`, invokes credential helpers when needed, and uses `ssh` for an ssh URL. The native HTTP backend does not honor `http.proxy`. `ff git clone` uses Git's transport when proxy support is required.
 
 ### What lands on disk
 
