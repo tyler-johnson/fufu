@@ -1,5 +1,7 @@
 # Install
 
+Install `ff`, activate the integrations you want, then try the [tutorial](tutorial.md). Keep Git installed: fufu uses it for pushing, explicit Git commands, and some maintenance. Credential helpers and repository hooks can also need external programs; [Git dependencies](internals/substrate.md#the-git-free-destination) has the details.
+
 ## Get the binary
 
 Linux/macOS:
@@ -20,7 +22,32 @@ Homebrew:
 brew install tyler-johnson/tap/fufu
 ```
 
-Check the result:
+Follow any PATH instructions printed by the installer so the shell can find `ff`.
+
+<a id="wire-it-in"></a>
+
+## Install hooks
+
+[`ff hook`](reference/cli/hook.md) detects your shells and agent clients and asks which to configure. Hooks are optional and recommended: fufu captures only when invoked, and active hooks add capture attempts around supported tool calls, aliased Git commands, and shell prompts.
+
+```sh
+ff hook
+```
+
+Install hooks once per machine. This is separate from initializing each repository. `ff hook --all` selects everything detected; `ff hook -l` only lists the installed state. The [hook reference](reference/hooks/index.md) lists the supported clients and the files each integration writes.
+
+## Activate the integrations
+
+- **Bash, Zsh, Fish, or PowerShell:** restart the shell, or source the file named by `ff hook`. PowerShell can reload its profile with `. $PROFILE`.
+- **Claude Code:** restart the client to load the plugin. `claude plugin list` should show `fufu@skills-dir`.
+- **Codex:** run `/hooks` in Codex and review the installed hook. Codex skips an untrusted hook; fufu cannot read its trust list.
+- **Other supported clients:** follow the instructions printed by `ff hook` and the client-specific [hook page](reference/hooks/index.md).
+
+Installed files alone do not activate a running shell or make every editor and script invoke fufu. Recovery still depends on [successful snapshots, coverage, and retention](concepts/snapshots-and-undo.md#coverage-and-limits).
+
+## Verify
+
+Check that [`ff version`](reference/cli/version.md) runs. A released binary prints its version and build information, for example:
 
 ```console
 $ ff version
@@ -28,77 +55,71 @@ fufu 0.15.0 (bccfe92 2026-09-12)
 https://github.com/tyler-johnson/fufu
 ```
 
-To install one exact release, or to check a download by hand, see [Pin and verify](#pin-and-verify) at the end of this page.
-
-## Wire it in
-
-Optional, and recommended.
+Then check the installed integrations:
 
 ```sh
-ff hook
+ff hook -l
 ```
 
-fufu captures only when something invokes it, so without hooks only an `ff` command takes a capture — the snapshot of your working copy that undo returns you to. With hooks a snapshot lands before every agent tool call, every git command you type, and every shell prompt.
+This reports files on disk; also complete the activation and trust steps above.
 
-What each surface gets:
+## Initialize or clone a repository
 
-- **A shell** — two marked lines in your rc file, `alias git='ff git'` and a prompt hook.
-- **Windows** — [`ff hook powershell`](reference/cli/hook.md), which writes PowerShell's `$PROFILE`.
-- **An agent client** — hook entries in its own settings file, or a plugin directory for Claude Code.
+The [tutorial](tutorial.md) creates a disposable local remote and uses [`ff clone`](reference/cli/clone.md), which initializes fufu in the new checkout. Follow it for a complete first run without a hosting account or push credentials.
 
-What each slug writes, and what [`ff unhook`](reference/cli/unhook.md) takes back, is on [the hook reference](reference/hooks/index.md).
+For a repository you already use, run [`ff init`](reference/cli/init.md) inside it:
 
-Bare `ff hook` reports the shells and agent clients it found and asks; `--all` takes everything detected, `-l` reports and stops. Claude Code and Codex get [fufu's skill](agents/setup.md) with the wiring. Once per machine, not per repository. The install script ends by running `ff hook -u`, which refreshes what is already wired and adds nothing, so an upgrade carries the new binary into every client and shell that was on the old one.
+```sh
+ff init
+```
 
-## What you installed
+[Adopting fufu](adopting.md) explains existing edits and the workflow changes. After initialization, [`ff doctor`](reference/cli/doctor.md) reports repository setup and installed integrations. It also attempts capture/reconciliation, can fetch when enabled, and can run maintenance.
 
-fufu ships as a single `ff` binary. Most of what it does is native, but today it still reaches your git installation for a few operations — the push, credential helpers, hooks — so keep git installed. [`ff doctor`](reference/cli/doctor.md) reports what fufu found and whether the repository it is standing in is armed.
+<a id="what-you-installed"></a>
 
-`ff update` names the command that updates this copy of fufu — the install script, `brew upgrade fufu`, `cargo install`, or whatever else placed the binary — and offers to run it. Nothing updates itself unasked.
+## Update
+
+[`ff update`](reference/cli/update.md) identifies how this binary was installed and prints the update command. For a binary in the install script's location, it checks for a release and offers to run the installer; `ff update -y` accepts that offer. Without an interactive terminal it only prints the command unless `-y` is supplied.
+
+For Homebrew, source builds, and other locations, run the printed command or use the package manager that installed fufu. `ff update -y` refuses those channels. Automatic update checks only announce releases; they never install them.
+
+The install scripts finish with `ff hook -u`, refreshing integrations already installed without adding new ones.
 
 ## Platforms
 
-Release builds cover Linux, macOS, and Windows, each on amd64 and arm64 — the same six targets the install scripts and the tap select from. CI runs the full test suite on all three operating systems for every code change; the Windows leg is sharded four ways for wall-clock, not for coverage.
+Release builds cover Linux, macOS, and Windows, each on amd64 and arm64. The install scripts and Homebrew tap select the matching binary. [How fufu is tested](project.md#how-it-is-tested) covers CI and platform-specific suites.
 
 ### On Windows
 
-Line endings follow git's own rules by construction: fufu reads and writes the worktree through gix's filter pipeline, so `core.autocrlf` and `.gitattributes` are honored the way git honors them. Long paths get no special handling — fufu neither sets nor works around `core.longpaths`, so a repository that needs it under git needs it under fufu too.
-
-Four integration suites run on unix only today:
-
-- the [`ff git`](reference/cli/git.md) passthrough
-- the extension suite
-- the zero-spawn proof
-- commit signing
-
-Everything else runs on all three, the differential suites included, and the PowerShell hook's profile is dot-sourced by a real `pwsh` on every one.
+Line endings follow `core.autocrlf` and `.gitattributes` through gix's filter pipeline. Long paths receive no special handling: fufu neither sets nor works around `core.longpaths`, so a repository that needs it under Git needs it under fufu too.
 
 ## Pin and verify
 
-Both installers take a version: set `FF_VERSION=vX.Y.Z` (`$env:FF_VERSION` in PowerShell) and the script installs exactly that release instead of the latest. Either way the script verifies the download's sha256 against the `checksums.txt` published with the release before anything lands on your PATH.
+Both installers accept an exact release through `FF_VERSION=vX.Y.Z` (`$env:FF_VERSION` in PowerShell). They verify the download's SHA-256 against the release's `checksums.txt` before installing the binary.
 
-To skip the scripts entirely, every release publishes versioned archives — `ff_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows — beside their `checksums.txt` on the [releases page](https://github.com/tyler-johnson/fufu/releases). Download the archive and `checksums.txt` into one directory, verify, and put `ff` on your PATH:
+To install manually, download the versioned archive and `checksums.txt` from the [releases page](https://github.com/tyler-johnson/fufu/releases). Archives are named `ff_<version>_<os>_<arch>.tar.gz`, or `.zip` on Windows. Verify the archive, extract it, and put `ff` on your PATH. On Linux:
 
 ```console
 $ sha256sum -c --ignore-missing checksums.txt
 ff_0.15.0_linux_amd64.tar.gz: OK
 ```
 
-One honest limit: `checksums.txt` is not itself signed today, so verification proves your download matches what CI published with the release, not who published it. Pin a version and fetch over TLS from the releases page.
+`checksums.txt` is unsigned. Verification establishes that the download matches the published checksum, not who published it. Pin a version and fetch over TLS from the releases page.
 
-## In a regulated environment
+<a id="in-a-regulated-environment"></a>
 
-The pieces above, as one list to file with security:
+## Network settings
 
-1. **Pin.** Set `FF_VERSION=vX.Y.Z` with the script, or take the versioned archive from the releases page. With the version pinned, `install.sh` fetches only the archive and `checksums.txt`, from the release's own download URL, and nothing else. `install.ps1` does the same, and asks the GitHub API for the latest tag only when no version is set.
-2. **Verify, with the limit in the same breath.** The scripts check the sha256 against `checksums.txt` and refuse on a mismatch; by hand it is the `sha256sum -c` above. `checksums.txt` is unsigned, so this proves the download matches what CI published with the release, not who published it. Signed provenance is not offered today.
-3. **Turn the update check off.** [`ff config --global updateCheck false`](reference/cli/config.md), which is the git config key [`fufu.updateCheck`](reference/config.md#updatecheck). What it turns off, in official builds:
+With `FF_VERSION` set, the installers download only the archive and checksums from that release. Without a pin, they also look up the latest release.
 
-    - at most once a day, a detached [`ff update --check`](reference/cli/update.md) makes one GET to `api.github.com` for the latest release tag;
-    - it sends `GITHUB_TOKEN` as a bearer header if the environment has one;
-    - it caches the answers in `<cache>/fufu/update.json` for a one-line notice apiece.
+Official builds check for updates daily by default. To disable the automatic check and notices, use [`ff config`](reference/cli/config.md):
 
-    It never installs anything; `false` stops the check and the notice both.
-4. **What remains.** With the check off, what reaches the network is the remotes your repository configures, and only those. `ff update` fetches only when you run it, `ff hook` writes local files and nothing else, [`ff pull`](reference/cli/pull.md) and [`ff push`](reference/cli/push.md) talk to the remote, and any verb that reads the remote's copies may fetch from it first on a cadence — `fufu.autoFetch`, ten minutes by default — unless `--no-fetch` is on the line or the setting is `false`. That fetch is the same native one pull makes, reading git's credential config (`credential.helper`, `url.<base>.insteadOf`; `http.proxy` is not honored by this http backend), with fufu's own prompt off — a configured GUI credential helper can still ask on its own — and it gives up after three seconds, so a remote that is down costs a verb a short wait and one dim line. The push runs git.
+```sh
+ff config --global updateCheck false
+```
 
-Next: the [tutorial](tutorial.md), or [adopting fufu](adopting.md) if you already have a repository.
+The check runs a detached `ff update --check`, requests the latest release from `api.github.com`, and caches results in `<cache>/fufu/update.json`. If `GITHUB_TOKEN` is set, it sends that token as a bearer header. An explicit `ff update` can still check for a release and run the installer as described above.
+
+Repository traffic is separate. [`ff pull`](reference/cli/pull.md) fetches from remotes; [`ff push`](reference/cli/push.md) sends branch updates. Commands that read remote copies can auto-fetch first, on a ten-minute cadence by default. Disable automatic fetch with `ff config --global autoFetch false`, or suppress fetching for one supported invocation with `--no-fetch`. `--no-fetch` does not disable update checks. See [fetching and dry runs](concepts/push-boundary.md#fetching-and-dry-runs).
+
+Native clone/fetch reads Git's credential helpers and `url.<base>.insteadOf`, but its HTTP backend does not honor `http.proxy`. Automatic fetch disables fufu's own credential prompt and times out after three seconds; a configured GUI helper can still prompt. Push and [`ff git`](reference/cli/git.md) use Git's transport. Hooks write local files and do not contact the network.

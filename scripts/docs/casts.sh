@@ -28,6 +28,7 @@ FF="${FF:-ff}"
 
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
 # Nor the session of whatever launched this: an operation records the one
 # it ran under, and a recording made from inside an agent's session would
 # carry that session's id on every `ff history` row.
@@ -53,7 +54,6 @@ tutorial_put_ff_on_path "$FF"
 if $check; then
   scene=$(mktemp -d)
   trap 'rm -rf "$scene" "${TUTORIAL_BIN_DIR:-}"' EXIT
-  tutorial_origin "$scene" "$ROOT_DIR"
   (
     SCENE=$scene
     cd "$scene"
@@ -89,14 +89,12 @@ gif() {
 scene_up_to() {
   local target=$1 scene step
   scene=$(mktemp -d)
-  tutorial_origin "$scene" "$ROOT_DIR"
   (
     SCENE=$scene
     cd "$scene"
     for step in "${TUTORIAL_STEPS[@]}"; do
       if [ "$step" = "$target" ]; then
-        # The step's own machinery — a teammate landing a commit — belongs
-        # to the state the recording opens on, not to the recording.
+        # Any silent setup belongs to the state the recording opens on.
         tutorial_run_step "$step" setup
         break
       fi

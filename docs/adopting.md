@@ -6,6 +6,14 @@ Run [`ff init`](reference/cli/init.md) inside an existing Git repository to enab
 ff init
 ```
 
+## The workflow shift
+
+- Edit files, then [`ff commit -m "message"`](reference/cli/commit.md) records eligible changes without staging.
+- [`ff switch`](reference/cli/switch.md) saves unfinished work with the branch you leave and resumes the destination branch's work. Returning brings the saved edits back.
+- [`ff pull`](reference/cli/pull.md) updates the current branch from its base and remote copy by replaying commits. [`ff push`](reference/cli/push.md) sends branch updates separately.
+
+Try the [tutorial](tutorial.md) in a scratch repository, or read [Working copy and commits](concepts/changes.md) for the lifecycle. Before sending rewritten work, read [Pulling and pushing](concepts/push-boundary.md) for lease rules and shared-history policy.
+
 <a id="what-arming-does"></a>
 
 ## What initialization does
@@ -16,7 +24,7 @@ Initialization writes local Git configuration to protect fufu's recovery refs fr
 
 ## Install shell and agent hooks
 
-Initialization is local to the repository. [`ff hook`](reference/cli/hook.md) installs shell and agent integrations separately. Follow the [hook setup](reference/hooks/index.md) instructions to activate them in the sessions you use; installed files alone do not make every editor or script invoke fufu.
+Initialization is local to the repository. [`ff hook`](reference/cli/hook.md) installs shell and agent integrations once per machine, separately. If you have not installed and activated them, follow [installation](install.md#install-hooks); installed files alone do not make every editor or script invoke fufu.
 
 [`ff doctor`](reference/cli/doctor.md) reports repository setup and installed integrations. It also attempts snapshot/reconciliation, can fetch when enabled, and can run maintenance; it is not a read-only inspection command.
 
@@ -28,18 +36,12 @@ Git, IDEs, GUIs, remotes, and CI keep using the same repository. Initialization 
 
 [Using fufu alongside Git](concepts/two-regimes.md) explains which commands park work, what shell aliases and policy checks cover, and how fufu reports changes made by other tools.
 
-## The workflow shift
-
-Start with [Working copy and commits](concepts/changes.md): edit files, commit without staging, and switch tasks with unfinished work parked on its branch. Updates replay branch commits onto their bases rather than merging the base into each task branch.
-
-Before sending rewritten work, read [Pulling and pushing](concepts/push-boundary.md) for the lease rules and the distinction between local rewriting and a team's shared-history policy.
-
 ## Adopting mid-flight
 
 - **Uncommitted work:** a dirty working copy is accepted. The initial snapshot records it subject to coverage and successful recording; check [`ff history`](reference/cli/history.md) to see the available recovery steps.
 - **A Git operation in progress:** finish or abort an existing merge, rebase, or bisect with Git. fufu does not take over that session.
-- **Existing stashes:** your Git stash entries are left alone. A parked change from an older fufu version that used a recorded stash entry is converted to an open-change commit when you first switch to that branch; personal stashes are not applied or removed.
+- **Existing stashes:** your personal Git stash entries are left alone. Apply them with Git when you want their contents in the working copy.
 
 ## Trying it and leaving
 
-You can use Git between fufu commands or remove the binary later. [Leaving and coming back](concepts/two-regimes.md#leaving-and-coming-back) is the main reference for accessing parked work with Git and what fufu can observe when you return.
+You can use Git between fufu commands or remove the binary later. First resume and commit any parked work you want in ordinary branch history. [`ff unhook`](reference/cli/unhook.md) removes the integrations you select; restart the affected shells and clients afterward. Your commits and branches remain usable with Git. [Leaving and coming back](concepts/two-regimes.md#leaving-and-coming-back) covers accessing parked work directly and what fufu can observe when you return.

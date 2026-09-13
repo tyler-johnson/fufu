@@ -10,23 +10,21 @@
 #
 #   run|<cmd>    a command the reader types: shown in the transcript, typed
 #                on camera
-#   edit|<cmd>   an edit standing in for opening an editor: silent in the
-#                transcript, where the prose says what changed, and typed on
-#                camera, where nothing can happen off screen
+#   edit|<cmd>   a file edit or exercise setup: shown in the transcript and
+#                typed on camera, so the reader can reproduce every input
 #   note|# text  narration: typed on camera only
 #   video|<cmd>  a read-only command a recording opens with so that it stands
 #                on its own — where the page has prose and the section above
 #                it, a video has only itself. Typed on camera, never run in
 #                the transcript
-#   set|<cmd>    scene machinery — a teammate pushing, a cd: silent in both,
+#   set|<cmd>    scene machinery: silent in both,
 #                and only ever at the head of a step, because a recording
 #                clears the screen once and then never again
 #   cont|<line>  a further line of the command above, for a heredoc
 #
 # A step runs with the working directory the step before it left, so a
 # function is free to read the repository to build its own commands: the
-# branch `ff start` minted and the commit an absorb aims at are both looked
-# up here rather than pasted anywhere.
+# branch `ff start` created is looked up here rather than pasted anywhere.
 #
 # `ff` is spelled `ff` in every command; the callers put the binary under
 # test on PATH under that name.
@@ -66,33 +64,19 @@ tutorial_put_ff_on_path() {
   export PATH
 }
 
-# The origin every scene starts from: a bare, main-only copy of this
-# repository, so `ff push` sends somewhere harmless.
-tutorial_origin() {
-  local scene=$1 root=$2
-  git clone -q --bare --branch main --single-branch "$root" "$scene/fufu.git"
-}
-
-# Signs a checkout's commits: a throwaway ssh key in the scene, named in
-# git's own config the way a signing user's is, so the commits fufu closes
-# on camera say `signed` beside the ones it cloned, which are. One key per
-# person, made the first time they are asked for.
-tutorial_sign_as() {
-  local dir=$1 who=$2 key
-  key=$SCENE/$who.key
-  [ -f "$key" ] || ssh-keygen -q -t ed25519 -N '' -C "$who" -f "$key"
-  git -C "$dir" config gpg.format ssh
-  git -C "$dir" config user.signingkey "$key.pub"
-  git -C "$dir" config commit.gpgsign true
-}
-
 step_get_a_repository() {
   printf '%s\n' \
-    "run|ff clone $SCENE/fufu.git" \
-    "set|cd fufu" \
-    "set|git config user.name 'Ada Lovelace'" \
-    "set|git config user.email ada@example.com" \
-    "set|tutorial_sign_as . ada"
+    "edit|command git init -q -b main seed" \
+    "edit|command git -C seed config user.name 'Tutorial Reader'" \
+    "edit|command git -C seed config user.email reader@example.com" \
+    "edit|printf '# Tutorial project\\n' > seed/README.md" \
+    "edit|command git -C seed add README.md" \
+    "edit|command git -C seed commit -qm 'docs: start the tutorial'" \
+    "edit|command git clone -q --bare seed origin.git" \
+    "run|ff clone ./origin.git exercise" \
+    "edit|cd exercise" \
+    "edit|command git config user.name 'Tutorial Reader'" \
+    "edit|command git config user.email reader@example.com"
 }
 
 step_look_around() {
@@ -102,7 +86,7 @@ step_look_around() {
 
 step_start_work() {
   printf '%s\n' \
-    "note|# a fresh branch off trunk, nothing to name yet" \
+    "note|# a new branch from main, with an automatic name" \
     "run|ff start" \
     "edit|mkdir notes" \
     "edit|cat > notes/parser.md <<'EOF'" \
@@ -131,13 +115,13 @@ step_switch_without_stashing() {
   minted=$(git branch --format='%(refname:short)' | grep -vx main | head -n1)
   printf '%s\n' \
     "edit|printf '\\nstray note\\n' >> README.md" \
-    "note|# mid-edit is fine: this parks, that resumes" \
+    "note|# leave the unfinished edit on this branch" \
     "run|ff switch main" \
     "run|ff" \
     "run|ff switch $minted" \
     "note|# name the branch now that the work has a shape" \
     "run|ff describe -b parser-stream" \
-    "note|# and drop the stray edit" \
+    "note|# restore captures this edit before discarding it" \
     "run|ff restore README.md"
 }
 
@@ -147,40 +131,33 @@ step_fix_an_earlier_commit() {
   # commit appended to, so the restack above the absorb replays cleanly —
   # the tutorial's absorb is the no-conflict one, and `ff resolve` has its
   # own page.
-  local first
-  first=$(git rev-parse --short=8 HEAD~1)
   printf '%s\n' \
     "video|ff log -n 3" \
     "note|# the heading belongs in the first commit, not a new one" \
     "edit|printf '# Parser notes\\n' | cat - notes/parser.md > notes/parser.md.new" \
     "edit|mv notes/parser.md.new notes/parser.md" \
-    "run|ff absorb --into $first"
+    "run|ff absorb --into HEAD~1"
 }
 
 step_line_up_then_send() {
-  # The teammate's commit landed while the reader worked, so it carries a
-  # date from an hour or two back rather than the same second as the
-  # recording; under a week, the span demo-check.sh's age mask covers.
-  local landed
-  landed="@$(( $(date +%s) - 90 * 60 )) +0000"
   printf '%s\n' \
-    "set|git clone -q $SCENE/fufu.git $SCENE/teammate" \
-    "set|git -C $SCENE/teammate config user.name 'Grace Hopper'" \
-    "set|git -C $SCENE/teammate config user.email grace@example.com" \
-    "set|tutorial_sign_as $SCENE/teammate grace" \
-    "set|printf 'A line from a teammate.\\n' >> $SCENE/teammate/README.md" \
-    "set|GIT_AUTHOR_DATE='$landed' GIT_COMMITTER_DATE='$landed' git -C $SCENE/teammate commit -qam 'docs: a line from a teammate'" \
-    "set|git -C $SCENE/teammate push -q origin main" \
-    "note|# a teammate landed on main while I worked" \
+    "note|# simulate a teammate in a second local clone" \
+    "edit|command git clone -q ../origin.git ../teammate" \
+    "edit|command git -C ../teammate config user.name 'Tutorial Teammate'" \
+    "edit|command git -C ../teammate config user.email teammate@example.com" \
+    "edit|printf 'A line from a teammate.\\n' >> ../teammate/README.md" \
+    "edit|command git -C ../teammate commit -qam 'docs: a line from a teammate'" \
+    "edit|command git -C ../teammate push -q origin main" \
+    "note|# bring that update into this branch" \
     "run|ff pull" \
-    "note|# the one thing undo cannot take back" \
+    "note|# send the branch to the disposable local remote" \
     "run|ff push"
 }
 
 step_undo_anything() {
   printf '%s\n' \
-    "note|# something done behind fufu's back, with raw git" \
-    "run|git reset --hard HEAD~2" \
+    "note|# the preceding ff commands recorded the state to recover" \
+    "run|command git reset --hard HEAD~2" \
     "run|ff undo" \
     "run|ff history"
 }
@@ -190,7 +167,7 @@ tutorial_step_lines() {
   "step_${1//-/_}"
 }
 
-# Runs a step. `transcript` prints each `run` line as a console block, the
+# Runs a step. `transcript` prints each command and edit as a console block, the
 # way docs/tutorial.md carries it; `quiet` runs the whole step for its
 # effect, which is how a recording of a later step reaches its own starting
 # state. `set` lines run silently in both.
@@ -216,32 +193,25 @@ tutorial_run_step() {
       # on so that it stands without the page around it.
       note|video) ;;
       # Scene machinery. `setup` is the scene builder asking for exactly
-      # this and nothing else — the teammate's push has to have happened
-      # before the recording of `ff pull` starts.
-      set) eval "$cmd" >/dev/null 2>&1 || true ;;
-      edit)
-        [ "$mode" != setup ] || continue
-        eval "$cmd" >/dev/null 2>&1 || true
-        ;;
-      run)
+      # this and nothing else before recording starts.
+      set) eval "$cmd" >/dev/null 2>&1 || return $? ;;
+      edit|run)
         [ "$mode" != setup ] || continue
         case "$mode" in
           transcript)
             printf '$ %s\n' "$cmd"
-            eval "$cmd" 2>&1 || true
+            eval "$cmd" 2>&1 || return $?
             echo
             ;;
-          # The check mode is the one place a failing command matters: it is
-          # how a renamed verb or a dropped flag is caught before a release
-          # ships a video of it.
+          # Run in this shell: edits can change its directory or variables.
+          # Every mode fails on errors; check suppresses successful output.
           check)
-            local said
-            said=$(eval "$cmd" 2>&1) || {
-              printf '$ %s\n%s\n' "$cmd" "$said" >&2
+            eval "$cmd" >/dev/null || {
+              printf 'failed: $ %s\n' "$cmd" >&2
               return 1
             }
             ;;
-          *) eval "$cmd" >/dev/null 2>&1 || true ;;
+          *) eval "$cmd" >/dev/null 2>&1 || return $? ;;
         esac
         ;;
     esac

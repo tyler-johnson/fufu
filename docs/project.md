@@ -24,4 +24,6 @@ No declared minimum version. The daily surface — status, commit, switch, undo,
 
 fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially. A permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, pull, stash, signing, the index, the revset grammar, and the rest.
 
-The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the full suite on Linux, macOS, and Windows for every code change — [platforms](install.md#platforms) says what that covers per OS.
+The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the suite on Linux, macOS, and Windows for every code change. The Windows leg is sharded four ways for wall-clock time, not reduced coverage.
+
+Four integration suites run on Unix only: Git passthrough, extensions, the zero-spawn proof, and commit signing. The remaining suites, including the differential suites, run on all three operating systems. The PowerShell hook's profile is dot-sourced by a real `pwsh` on each platform. [Platforms](install.md#platforms) lists the released binaries.
