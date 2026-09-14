@@ -1,122 +1,127 @@
 # Commit signing
 
-fufu writes commit objects itself, so signing them is fufu's job too — gitoxide implements none. What that job is, though, is entirely git's: fufu reads git's configuration keys, runs git's signing programs, produces git's `gpgsig` header, and its signatures verify under `git verify-commit` and `git log --show-signature`. There is no `fufu.*` setting here. A repository that already signs under git signs under fufu without being told twice.
+Fufu uses your existing Git signing configuration: `commit.gpgsign`, `gpg.format`, `user.signingkey`, and the format's signing program. If Git already signs commits in this repository, [`ff commit`](cli/commit.md) uses the same setup. There is no separate `fufu.*` signing setting.
 
 ## Turning it on
 
-Exactly as git documents it:
+For an existing SSH key, configure signing in this repository:
 
 ```sh
 git config commit.gpgsign true
-git config gpg.format ssh                       # or openpgp (the default), or x509
-git config user.signingkey ~/.ssh/id_ed25519.pub
+git config gpg.format ssh
+git config user.signingkey "$HOME/.ssh/id_ed25519.pub"
 ```
 
-[`ff doctor`](../reference/cli/doctor.md) has a `signing` row that checks the format, program, key, and SSH allowed-signers file without invoking the signer or pinentry. The command's [capture, fetch, and maintenance effects](doctor.md) still apply.
+The private key must be accessible to `ssh-keygen`, either beside the public key or through your SSH agent. OpenPGP and X.509 configuration is [below](#the-three-formats).
 
-## The three formats
+Creating a signature and trusting it are separate steps. For SSH verification, set `gpg.ssh.allowedSignersFile` to a file containing the principals and public keys you trust. For example, add a line with your email principal followed by the contents of your `.pub` file, then configure that file's path:
 
-| `gpg.format` | program | program overrides |
-|---|---|---|
-| `openpgp` (default) | `gpg` | `gpg.openpgp.program`, then `gpg.program` |
-| `x509` | `gpgsm` | `gpg.x509.program` |
-| `ssh` | `ssh-keygen` | `gpg.ssh.program` |
+```text
+ada@example.com ssh-ed25519 AAAA...actual-public-key...
+```
 
-`user.signingkey` names the key. For openpgp and x509 it is optional — gpg falls back to a default key of its own. For ssh it is required: a path (the public half is enough, `ssh-keygen` finds the private one beside it) or the key itself, in which case it is signed through the agent. `gpg.ssh.defaultKeyCommand` satisfies the requirement too, when it produces one.
+```sh
+git config gpg.ssh.allowedSignersFile "$HOME/.ssh/allowed_signers"
+```
 
-Verification reads three more of git's keys: `gpg.ssh.allowedSignersFile`, `gpg.ssh.revocationFile`, and `gpg.minTrustLevel`.
+Use the complete real public key, not the placeholder. Preserve any existing allowed-signers entries. With an eligible file change ready to record, test both creation and verification:
 
-## What gets signed
+```sh
+ff commit -m "Record signed work"
+ff show HEAD
+git verify-commit HEAD
+```
 
-Every commit that is *your* work:
+[`ff show`](cli/show.md) should report `signature: verified` when the verifier accepts the signature under your trust configuration. `git verify-commit` independently checks the same Git commit object.
 
-- [`ff commit`](../reference/cli/commit.md) — the close.
-- Every commit a rewrite replays: [`ff describe`](../reference/cli/describe.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), [`ff done`](../reference/cli/done.md), [`ff resolve`](../reference/cli/resolve.md).
-
-This is a deliberate departure from git, where `git rebase` needs `rebase.gpgSign` set separately and a rebase silently unsigns a branch without it. `commit.gpgsign` governs every user commit fufu writes, replays included. fufu's whole model is that history moves under you — a restack that quietly unsigned three commits is exactly the failure signing exists to prevent.
-
-The cost is one signer run per replayed commit, the same as `git rebase -S`. On a passphrase-protected gpg key with no agent cached, a restack of ten commits is ten prompts.
-
-What is *not* signed, and will not be:
-
-- **Operation-journal commits.** They carry the `fufu <fufu@local>` identity rather than yours; a signature on one would assert something untrue about who wrote it.
-- **Park and stash commits.** They carry your identity, but they are internal scratch that never leaves the repository. `git stash` does not sign either.
+[`ff doctor --no-fetch`](cli/doctor.md) checks signing configuration without running the signer. Its `ok` does not establish access to the private key or validate the contents or existence of the allowed-signers file. The command's [capture, fetch, and maintenance effects](doctor.md#capture-fetch-and-maintenance) still apply.
 
 ## Per-invocation overrides
 
-`ff commit` takes `-S`/`--sign` and `--no-sign`. Both are plain switches, deliberately not git's `-S<keyid>`: `ff commit` takes positional paths, so an optional-value short flag would make `ff commit -S file.txt` ambiguous. The key always comes from `user.signingkey`.
-
 ```sh
-ff commit -S -m "signed"        # sign, whatever commit.gpgsign says
-ff commit --no-sign -m "quick"  # do not, whatever it says
+ff commit -S -m "Signed work"       # Sign even when config disables it
+ff commit --no-sign -m "Local work" # Skip signing for this commit
 ```
 
-The rewrite verbs get no flag — config governs them, and the one-off override is git's own environment escape hatch, which gix honors:
+`-S`/`--sign` and `--no-sign` are switches. `-S` takes no key argument; select the key through Git configuration. Rewrite verbs use configuration without a signing flag. For a one-command override in a POSIX shell:
 
 ```sh
 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false ff restack
 ```
 
+This disables signatures on commits newly written by that [`ff restack`](cli/restack.md) invocation; it does not remove signatures from untouched objects.
+
 ## Reading signatures back
 
-[`ff show <rev>`](../reference/cli/show.md) verifies the commit it shows and prints a `signature:` line when there is one — the verdict, who signed, and on a second line which key said so:
+- `ff show <rev>` verifies the shown commit and prints a signature verdict when a signature is present.
+- [`ff log`](cli/log.md) and [`ff status`](cli/status.md) mark signed commits `signed` by inspecting their headers. That means a signature is present, not that it has been verified.
+- `ff log --signatures` invokes verification and replaces the `signed` mark with a verdict. Status has no verification flag; use `ff show HEAD` to verify its parent commit.
 
+```sh
+ff log --signatures -n 5
+ff show HEAD
+ff show HEAD --json
 ```
-7e2de1ff  Tyler Johnson  13m ago
-  core: honor git's commit signing configuration
-  signature: verified — signed by Tyler Johnson <tyler@tylerjohnson.me> (gpg 9B295D68)
-```
-
-`--json` carries the same as a `signature` object. An unsigned commit gets no line and costs no signer run.
-
-[`ff log`](../reference/cli/log.md) marks signed commits `signed`, by default and for free: whether a commit carries a signature is a header on an object the walk already decoded, so it costs no signer run. [`ff status`](../reference/cli/status.md) marks its parent commit row the same way. The word is deliberately `signed` and not `verified` — nothing was checked to say it.
-
-Checking is what `--signatures` buys, and it replaces the mark with the verdict, the tool, and the eight characters that identify the key:
-
-```
-●  owrowrvq 7e2de1ff  13m ago  verified gpg 9B295D68
-│  core: honor git's commit signing configuration
-```
-
-| mark | `%G?` | meaning |
-|---|---|---|
-| `verified` | `G` | the signature checks out |
-| `bad signature` | `B` | it does not |
-| `untrusted key` | `U` | it checks out, but below `gpg.minTrustLevel` |
-| `expired signature` | `X` | it checks out, expired |
-| `expired key` | `Y` | it checks out, made by an expired key |
-| `revoked key` | `R` | it checks out, made by a revoked key |
-| `unverifiable` | `E` | could not be checked — no key, no allowed-signers file, no verifier |
-
-That costs one signer run per signed row, which is why it is a flag rather than the default. Unsigned rows are skipped, so the cost is proportional to how much there is to check.
-
-The runs go in parallel — up to one per core, capped at eight — because they are independent and almost entirely process startup. Verifying twenty ssh-signed commits (two `ssh-keygen` runs apiece) costs about 94ms on four cores against 245ms in a row.
-
-Only verification is parallel. Signing is not, and will not be: it can stop for a passphrase, and several pinentry prompts racing for one terminal is not a speed-up. A rewrite signs its commits one after another for the same reason `git rebase -S` does.
 
 ### What the marks print
 
-An unsigned commit is marked nothing at all, with or without the flag: most rows in most repositories are unsigned, and a column of `unsigned` would be a column of noise.
+| Mark | JSON `code` / Git `%G?` | Meaning |
+| --- | --- | --- |
+| `verified` | `G` | Signature verifies under the configured trust policy |
+| `bad signature` | `B` | Signature verification failed |
+| `untrusted key` | `U` | Signature is valid but below `gpg.minTrustLevel` |
+| `expired signature` | `X` | Signature is valid but expired |
+| `expired key` | `Y` | Signature is valid but its key is expired |
+| `revoked key` | `R` | Signature is valid but its key is revoked |
+| `unverifiable` | `E` | Could not check it, for example because a key, allowed-signers entry, or verifier is unavailable |
 
-git's `%G?` letters are still what the machine surface carries — `ff show --json` and `ff log --signatures --json` both report `code` — but a row prints words. A bare `G` in a column reads as "gpg" about as readily as "good".
+Unsigned commits have no human signature mark. `ff log --json` includes `signed` on each commit, and adds a `signature` object only with `--signatures`. `ff show --json` includes its verification result in `signature`. See [JSON output and scripting](../agents/machine-surface.md) for interpreting reports.
 
-`ff log --json` carries `signed` on every commit whether or not the flag was given, and adds a `signature` object only under `--signatures`: the key's absence is what says nothing was verified, which is not the same claim as null.
+## The three formats
 
-## The open commit's sha
+| `gpg.format` | Default program | Program override |
+| --- | --- | --- |
+| `openpgp` (default) | `gpg` | `gpg.openpgp.program`, then `gpg.program` |
+| `x509` | `gpgsm` | `gpg.x509.program` |
+| `ssh` | `ssh-keygen` | `gpg.ssh.program` |
 
-`ff log` and `ff status` normally show a sha in the `@` row — the open commit's, the commit fufu keeps for the open change under `refs/fufu/open/<branch>` and the one the close moves the branch to. That commit is unsigned: it is rewritten by every capture, and running the signer on every status render is out of the question. The close signs, and a signature is part of the object, so the sha it lands is a different one.
+`user.signingkey` selects the key. OpenPGP and X.509 can use the signing program's default key when it is unset. SSH requires a key path, a literal public key backed by an agent, or a key returned by `gpg.ssh.defaultKeyCommand`. That command is run during signer resolution, not by doctor's signing check.
 
-So with `commit.gpgsign` on, the `@` row's sha column is blank — the same empty column a clean tree shows — though the object and the ref exist. `ff commit` says `re-minted: signing is on` when it lands. This is a real, accepted gap for signing users, not an oversight.
+Verification also reads `gpg.ssh.allowedSignersFile`, `gpg.ssh.revocationFile`, and `gpg.minTrustLevel`. SSH signing can succeed without an allowed-signers file; verification cannot. An SSH principal comes from the allowed-signers file and need not match the commit author's email.
+
+## What gets signed
+
+When signing is enabled, fufu signs commits it writes into user history:
+
+- `ff commit` records the open change as a signed commit.
+- Rewrites sign newly written commits: [`ff describe`](cli/describe.md), [`ff absorb`](cli/absorb.md), [`ff lift`](cli/lift.md), `ff restack`, [`ff pull`](cli/pull.md), [`ff done`](cli/done.md), and [`ff resolve`](cli/resolve.md) use the same configuration when replay writes a commit.
+
+A rewrite can preserve another person's author identity while signing the new object with your configured key. New changes use the configured Git committer identity for both author and committer; [identity configuration](config.md#what-fufu-reads-from-gits-config) explains the environment overrides. The author field, committer field, and signer identity answer different questions; a signature does not establish that the signer originally authored the change. Existing signatures are removed from replayed objects, and signing configuration determines whether a new signature is added.
+
+Internal open-change objects, including [parked changes](../concepts/changes.md#parking-and-resuming), are unsigned. Operation-journal objects are also unsigned and use `fufu <fufu@local>` as their Git author and committer. These internal objects are distinct from commits recorded in branch history.
+
+<a id="the-open-commits-sha"></a>
+## The open change's commit hash
+
+Fufu stores the open change as an unsigned internal commit under `refs/fufu/open/<branch>`. Without signing, recording the change can reuse that object when the other [commit conditions](cli/commit.md) allow it. A signature changes the object's bytes and therefore its hash.
+
+With `commit.gpgsign` enabled, `ff log` and `ff status` leave the open `@` row's SHA column blank even though the internal object exists. The commit output says `re-minted: signing is on` when signing creates the final object. Use the recorded commit's SHA afterward; see [commit SHAs and change IDs](revisions.md#commit-shas-and-change-ids).
+
+## Signing and verification processes
+
+Fufu writes Git's `gpgsig` header after invoking the configured signing program. Signing is serial: each newly signed commit requires a signer invocation, and a passphrase-protected key can prompt repeatedly unless its agent caches access.
+
+Verification can run concurrently for independent commits, with up to one worker per available core, capped at eight. OpenPGP/X.509 verification uses the configured program; SSH verification normally uses two `ssh-keygen` calls per signed commit to find a principal and check the signature. Unsigned commits skip verification. Runtime depends on the program, key setup, and number of signatures checked.
 
 ## Failure modes
 
-Signing is resolved once per verb, before the first object is written, so a misconfiguration costs nothing. If the signer itself refuses, the commit object was written but no ref moved and no operation was recorded — the same shape as any other pre-transaction refusal, and `ff status` still shows the change open.
+| Error | What to check |
+| --- | --- |
+| `sign/unknown-format` | Set `gpg.format` to `openpgp`, `x509`, or `ssh` |
+| `sign/no-key` | Configure an SSH signing key or a working `gpg.ssh.defaultKeyCommand` |
+| `sign/no-program` | Install or correct the configured signer executable |
+| `sign/failed` | Read the signer's diagnostic; check private-key access, agent, and passphrase setup |
 
-- `sign/unknown-format` — `gpg.format` names something that is not `openpgp`, `x509` or `ssh`.
-- `sign/no-key` — the ssh format with no `user.signingkey` and no `gpg.ssh.defaultKeyCommand`.
-- `sign/no-program` — the program is not on `PATH`.
-- `sign/failed` — the signer ran and refused. Its own words are in the message.
+A failed signer during `ff commit` leaves the change open and does not advance the branch. Pre-command capture or reconciliation may already have written objects and operation records; a signing refusal is not a promise that the entire invocation wrote nothing. Rewrites may also have made earlier progress before a later signing failure. Correct the setup, inspect status, and retry the intended operation.
 
-[`ff explain <id>`](../reference/cli/explain.md) has the long form of each, and [the error id index](errors.md) lists every id with its exit code.
-
-fufu captures the signer's stderr rather than letting it through, which is what makes those messages worth reading. A passphrase prompt still reaches your terminal: gpg-agent's pinentry opens the tty itself through `GPG_TTY` rather than inheriting fufu's.
+[`ff explain <id>`](cli/explain.md) gives detailed repair advice; the [error reference](errors.md) lists IDs and exit codes. Signer stderr is included in the error. GPG pinentry can still open your terminal through `GPG_TTY`, so ensure the signing environment can obtain the passphrase.

@@ -21,6 +21,10 @@ FF="${FF:-ff}"
 # ever opens, and no rc file, shell, or client outside the scene is read.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_EDITOR=false EDITOR=false
+export GIT_CONFIG_COUNT=3
+export GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
+export GIT_CONFIG_KEY_1=fufu.autoFetch GIT_CONFIG_VALUE_1=false
+export GIT_CONFIG_KEY_2=fufu.autoTrim GIT_CONFIG_VALUE_2=false
 unset ZDOTDIR XDG_CONFIG_HOME
 # `ff hook claude` peeks at a non-terminal stdin for a legacy hook payload;
 # a closed stdin is the hermetic answer.

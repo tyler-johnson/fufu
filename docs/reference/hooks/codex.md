@@ -1,10 +1,31 @@
-# ff hook codex
+<a id="ff-hook-codex"></a>
+# Codex
 
-Two entries merged into `~/.codex/hooks.json`, and [fufu's skill](../../agents/setup.md) in a directory of its own at `~/.codex/skills/fufu/`.
+[`ff hook codex`](../cli/hook.md) installs snapshot hooks and the shipped skill for Codex. **Run `/hooks` in Codex and approve the hook by hash; an unreviewed hook is skipped.** Repeat the review after hook changes.
 
-The hooks file belongs to you: fufu parses it, adds its entries, and writes everything else back untouched. The skill directory belongs to fufu, written whole and removed whole.
+## Install
 
-## What it writes
+```sh
+ff hook codex
+```
+
+## Activate
+
+Start or restart Codex, run `/hooks`, and review and approve fufu's hook. The skill requires no command approval.
+
+## Verify
+
+```sh
+ff hook -l
+ff doctor --no-fetch
+```
+
+[`ff doctor`](../cli/doctor.md) cannot read Codex's trust state, so it always retains the review reminder. An installed-file `ok` does not prove approval or capture. Follow the [capture-and-recovery check](../../agents/setup.md#verify) in the running client.
+
+<a id="what-it-writes"></a>
+## Files changed
+
+The installer merges two events into `~/.codex/hooks.json` and writes the owned `~/.codex/skills/fufu/` directory. Unrelated JSON entries survive under the [shared ownership rules](index.md#files-changed); personal files should stay outside the skill directory. Reinstallation refreshes the skill.
 
 ```console
 $ ff hook codex
@@ -44,17 +65,12 @@ $ find ~/.codex -type f | sort
 ~/.codex/skills/fufu/SKILL.md
 ```
 
-`PreToolUse` is the snapshot before a shell command or a patch; `UserPromptSubmit` is the turn boundary the briefing rides. Entries already in the file that run something else stay, in whatever shape they had. A file that is not valid JSON is refused untouched. Running [`ff hook codex`](../../reference/cli/hook.md) on a wired file reports it as already wired and rewrites the skill, which is how a skill that has drifted from this fufu is refreshed.
+`PreToolUse` attempts capture before Bash or apply_patch calls. `UserPromptSubmit` captures and can deliver the briefing. There is no installed turn-end or subagent event, so a final edit waits for the next event or repository command. Codex captures and tallies recognized Git writes but returns no pre-tool coaching or denial reply, including under strict policy.
 
-A fufu before v0.15 also wrote a marked `[mcp_servers.fufu]` block into `~/.codex/config.toml`, registering the retired `ff mcp` verb. The next `ff hook codex` removes the block by its markers, says so, and leaves the rest of the file where it was; a `[mcp_servers.fufu]` table outside the markers was written by hand and is left alone.
+<a id="what-ff-unhook-codex-removes"></a>
+## Remove
 
-The trust line is the one thing to act on. Codex trusts a hook by its hash: run `/hooks` in Codex to review this one, or it is skipped and nothing captures.
-
-`ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) keep saying so for as long as the hook is wired, because fufu cannot read Codex's trust list and an unreviewed hook looks the same as a reviewed one from outside. The skill needs no review: it is a file Codex reads, not a command it runs.
-
-## What `ff unhook codex` removes
-
-The two entries and the skill directory.
+[`ff unhook codex`](../cli/unhook.md) removes the managed commands and skill directory. Restart Codex afterward.
 
 ```console
 $ ff unhook codex
@@ -70,6 +86,9 @@ $ find ~/.codex -type f | sort
 
 An entry that carried a foreign command beside fufu's keeps the foreign command. An event left with no entries is dropped, and a `hooks` object left with no events is dropped too, which is why the file above is empty rather than holding empty lists.
 
-## Notes
+<a id="notes"></a>
+## Troubleshooting and migration
 
-[The setup page](../../agents/setup.md) covers Codex from the agent's side, including what the briefing says once the hook is trusted.
+If configuration is installed but no capture appears, check `/hooks` approval and that Codex can find `ff` on PATH. `ff doctor --fix` repairs partial or stale managed configuration and skills; it cannot approve a hook.
+
+Before v0.15, fufu wrote a marked `[mcp_servers.fufu]` block into `~/.codex/config.toml`. Installation, refresh, or removal deletes that retired MCP block by its markers. An unmarked table is left alone.

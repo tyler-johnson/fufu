@@ -1,23 +1,51 @@
 # Hooks
 
-[`ff hook <slug>`](../cli/hook.md) wires fufu into one shell or one agent client, and [`ff unhook <slug>`](../cli/unhook.md) takes back exactly what that added. The slugs are `bash`, `zsh`, `fish`, `powershell`, `claude`, `codex`, `cursor`, and `gemini`. One page per slug shows the files it writes, pasted from a run, and what unhook leaves behind.
+Install hooks with [`ff hook`](../cli/hook.md) so your shell or agent client attempts snapshots as you work. Choose the clients you use on this machine:
 
-Two mechanisms cover the eight slugs.
+## Install
 
-- A shell takes marked lines in its rc file: the alias `git='ff git'` (a `git` function in PowerShell), so every git command you type snapshots first, and a prompt hook that runs [`ff trigger shell`](../cli/trigger.md) before each prompt.
-- An agent client takes hook entries merged into a settings file it owns, each running `ff trigger <slug>` before a tool call and at the turn boundary, with the rest of the file left as it was. Claude Code is the exception: it takes a plugin directory fufu owns outright, written whole and removed whole.
+```sh
+ff hook bash             # Shell alias and prompt snapshots
+ff hook claude           # Claude Code hooks and skill
+ff hook -l               # List installed configuration
+```
 
-The rules are the same everywhere:
+- Shells: [Bash](bash.md), [Zsh](zsh.md), [Fish](fish.md), [PowerShell](powershell.md).
+- Agent clients: [Claude Code](claude.md), [Codex](codex.md), [Cursor](cursor.md), [Gemini CLI](gemini.md).
 
-- A line or an entry you wrote by hand is detected, reported, and never touched. In a shell the two pieces are independent, so a hand-written alias leaves the prompt hook to be installed and the other way around.
-- A settings file that is not valid JSON is refused with the file untouched. fufu never rewrites a file into something the client cannot read.
-- Running `ff hook <slug>` on a wired machine reports it as already wired and changes nothing, except to rewrite a spelling fufu no longer writes. `ff hook -u` re-runs the install for every slug already wired and adds none; the install scripts run it at their end.
-- An MCP server registration a fufu before v0.15 wrote is removed on the next `ff hook <slug>`, `ff hook -u`, or `ff unhook <slug>`, and the line says so; one you wrote yourself is left alone.
-- `ff hook -l` reports the state of every slug and stops. [`ff doctor`](../doctor.md) reports the same state, one row per client plus rows for the alias, the prompt hook, and the skill, and `ff doctor --fix` rewires whatever is stale.
+Hook installation changes local files and makes no network request.
 
-Nothing here reaches the network: every slug writes local files and nothing else.
+## Activate
 
-- [bash](bash.md), [zsh](zsh.md), [fish](fish.md), [PowerShell](powershell.md)
-- [Claude Code](claude.md), [Codex](codex.md), [Cursor](cursor.md), [Gemini CLI](gemini.md)
+Restart the shell or source the file named by the installer; each shell page gives the exact command. Restart Claude Code after installing its plugin. In Codex, run `/hooks` and review and approve the hook by hash after installation or changes. Restart Cursor or Gemini CLI before testing their new configuration.
 
-[Setup for agents](../../agents/setup.md) is the guide side of this: what the hook does once wired, the briefing, and the hand-pasted two-event floor for Claude Code.
+Cursor cloud agents do not fire `sessionStart`, so they receive no fufu briefing; their `preToolUse` event can still capture. Codex, Cursor, and Gemini CLI have no installed turn-end capture event. A final edit waits for the next matching event or repository command. See [agent setup](../../agents/setup.md#what-the-hook-captures-and-what-it-tells-the-agent) for each client's events and replies.
+
+## Verify
+
+Run `ff hook -l` and [`ff doctor --no-fetch`](../cli/doctor.md). They inspect installed files, not a running shell, loaded plugin, or Codex trust approval. Use the checks on each shell page or the [agent capture-and-recovery check](../../agents/setup.md#verify) to verify actual events.
+
+Shell hooks add a `git` alias or function that routes through [`ff git`](../cli/git.md), plus a prompt hook running [`ff trigger shell`](../cli/trigger.md). Allowed passthrough commands attempt a snapshot before Git runs; strict-policy refusals happen before that capture. Prompt snapshots are quiet. Recovery still depends on a successful retained snapshot; [coverage and limits](../../concepts/snapshots-and-undo.md#coverage-and-limits) apply.
+
+## Files changed
+
+- **Shells:** marked lines in the shell's startup file. Alias and prompt hook are managed independently. Recognized hand-written equivalents are reported and left alone; the missing piece can still be installed.
+- **Agent settings:** fufu merges recognized hook commands into JSON. Unrelated settings and commands survive, although formatting can change. Invalid JSON is refused without rewriting that file. A command matching fufu's current or retired spelling is treated as managed even if you pasted it by hand.
+- **Owned directories:** the Claude Code plugin and Codex skill directories are written and removed as fufu-managed content. Keep personal files elsewhere. Cursor and Gemini CLI receive no skill from these installers.
+
+Re-running an installer repairs missing or stale managed entries and refreshes shipped content. `ff hook -u` refreshes already installed integrations without adding new clients.
+
+## Remove
+
+```sh
+ff unhook bash
+ff unhook claude
+```
+
+[`ff unhook`](../cli/unhook.md) removes managed lines, entries, and owned directories for the named client. Unrelated settings and hand-written shell hooks survive. Restart the shell or client afterward: removing configuration does not unload it from an existing process.
+
+## Troubleshooting and migration
+
+`ff doctor --fix` repairs partial or stale managed hooks and stale skills. Activation and trust remain separate steps. If snapshots are absent, check the running shell/client and the [verification recipe](../../agents/setup.md#verify) before relying on an installed-file row.
+
+Retired shell markers and trigger spellings are recognized and upgraded by the installer. Managed MCP registrations from before v0.15 are removed by `ff hook <client>`, `ff hook -u`, or `ff unhook <client>`; unrelated MCP commands and unmarked Codex TOML entries survive. Client pages identify the affected files.

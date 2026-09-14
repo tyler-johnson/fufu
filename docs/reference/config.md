@@ -1,38 +1,54 @@
 # Configuration
 
-fufu's settings are plain git config under `fufu.<key>`, read and written with [`ff config`](cli/config.md). There are no subcommands — arity decides:
+Use [`ff config`](cli/config.md) to read or change settings stored in Git configuration under `fufu.<key>`. Run it inside a repository, including when using `--global`.
 
-- bare `ff config` lists every setting with its value, its meaning, and a `(default)` marker;
-- a key alone prints the effective value;
-- a key plus a value sets it;
-- `--unset` returns it to the default.
+```sh
+ff config                       # List settings and descriptions
+ff config keep                  # Read the effective retention value
+ff config keep 30d              # Set this repository's retention
+ff config --global pager cat    # Disable paging by default in your repositories
+ff config --unset keep          # Remove this repository's override
+```
 
 Keys are case-insensitive and the `fufu.` prefix is optional, so `ff config keep`, `ff config Keep`, and `ff config fufu.keep` all name the same setting.
 
 ## Where values live
 
-A plain `ff config <key> <value>` writes this repo's config; `--global` writes user-level git config instead, so the value applies to every repo. Precedence between the scopes is git's own — environment overrides, then repo, then global, then system — and when a non-default value applies, `ff config` says which scope it came from.
+A plain `ff config <key> <value>` writes the repository's shared `.git/config`, including when run from a linked worktree. `--global` writes user-level Git configuration. Effective values follow Git precedence: environment overrides, repository configuration, global configuration, then system configuration. A built-in default applies when no configured value exists. `ff config --json` includes each value's source; the human list marks built-in defaults with `(default)`.
 
-Because storage is ordinary git config, `git config fufu.keep` reads and writes the very same value, and the two tools can never disagree.
+For example, in a repository with no other `keep` overrides:
 
-What `ff config` adds over raw `git config` is the registry below: it knows what settings exist and what they default to, and it validates a new value through the same parser that will later read it, so a typo is refused before it touches disk.
+```sh
+ff config --global keep 60d
+ff config keep 30d
+ff config keep                  # 30d from this repository
+ff config --unset keep
+ff config keep                  # 60d from global configuration
+ff config --global --unset keep
+ff config keep                  # 90d built-in default
+```
 
-Set the same typo with raw `git config` and every fufu reader quietly falls back to its default — the setting looks set and does nothing.
+`--unset` removes a value in the selected scope; it does not force the built-in default. A higher-precedence environment override also continues to apply. A one-command override in a POSIX shell looks like this:
 
-## The pager
+```sh
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.keep GIT_CONFIG_VALUE_0=7d ff config keep
+```
 
-[`ff log`](../reference/cli/log.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op log`](../reference/cli/op-log.md) page their output, but only when stdout is a real terminal and the view is human — pipes, scripts, and `--json` always get plain direct bytes. Which pager runs, in precedence order:
+`git config fufu.keep` reads the same stored key, but does not supply fufu's built-in default. `ff config` validates writes. Raw Git configuration can contain an invalid value: some readers fall back to a default, while invalid `keep` makes trimming fail. [`ff doctor`](cli/doctor.md) reports invalid settings; correct or unset them in the scope that supplies them.
 
-- `fufu.pager` git config — when set, it overrides both environment variables.
-- `FF_PAGER`.
-- `PAGER`.
-- `less`.
+## Common settings
 
-The value is whitespace-split with no shell quoting, and `cat` means no pager — git's own convention. When the pager runs and `LESS` or `LESSCHARSET` is unset, fufu supplies `LESS=FR` (quit if one screen, keep ANSI colors) and `LESSCHARSET=utf-8`. A pager that fails to spawn falls back to direct printing, silently.
+- **Recovery:** `keep` sets the age window (90 days by default); `autoTrim` sets when eligible commands check retention (daily by default, with a separate timer per worktree). Trimming processes the current worktree's log and orphan logs left by removed worktrees; other live worktrees keep their own schedules. Old captures and recorded operations age out together, and a log with no surviving operations can be removed. Preview with [`ff op trim --dry-run`](cli/op-trim.md). See [retention and the earliest recovery point](../guides/recovery.md#retention-and-the-earliest-recovery-point).
+- **Snapshot size:** `maxFileSize` defaults to 50 MiB, in bytes. Oversized untracked files and oversized modified tracked content are skipped; index or base content may remain. Ignored untracked files and unsaved editor buffers are also outside [snapshot coverage](../concepts/snapshots-and-undo.md#coverage-and-limits), regardless of this limit.
+- **Network:** `autoFetch false` disables automatic fetches; explicit `--fetch` and [`ff pull`](cli/pull.md) still fetch. `--no-fetch` skips fetching for one supported invocation. Native HTTP proxy limits are [below](#what-fufu-reads-from-gits-config).
+- **Git commands:** `gitPolicy` defaults to `coach`. Read [policy behavior and client limits](../agents/setup.md#pick-a-git-policy) before choosing `strict`.
+- **Display:** `pager cat` disables paging; `theme terminal` uses your terminal's base colors.
+
+Duration values use `s`, `m`, `h`, `d`, or `w`; bare numbers mean days. Cadences (`autoTrim`, `autoFetch`, `updateCheck`) also accept `true` for that setting's default and `false` to disable it, and clamp explicit durations to at least one minute. `0` disables a cadence; `0d` is a duration and becomes one minute. Git size suffixes use powers of 1024: `1k` is 1024, `1M` is 1048576.
 
 ## Settings
 
-Every setting `ff config` knows, rendered from the registry in `crates/ff-cli/src/cmd/config.rs` — the same source bare `ff config` lists.
+The full list of supported settings, defaults, and accepted values follows.
 
 <!-- registry:begin — generated from registry() in crates/ff-cli/src/cmd/config.rs by a test; edit there, then make docs-gen -->
 
@@ -40,87 +56,98 @@ Every setting `ff config` knows, rendered from the registry in `crates/ff-cli/sr
 
 `fufu.maxFileSize` — size; default `52428800`
 
-Largest regular file whose working-copy content is hashed into a snapshot (52428800 = 50 MiB). Includes modified tracked files. Larger files are skipped; their index or base content can remain. Suffixes: 100M, 1G.
+Maximum regular-file size in bytes for working-copy snapshots (50 MiB). Oversized untracked and modified tracked content is skipped; index or base content can remain. Git size suffixes work: 100M, 1G.
 
 ### keep
 
 `fufu.keep` — duration; default `90d`
 
-How long operations live: ff op trim drops everything past the cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w, 45s); a bare number means days.
+Retention window for captures and recorded operations, applied by ff op trim and automatic trimming to the current and removed-worktree logs. Default: 90 days. Units: s, m, h, d, w; bare numbers mean days.
 
 ### autoTrim
 
 `fufu.autoTrim` — cadence; default `1d`
 
-How often retention enforces itself: a trim rides an ff command at most this often, per worktree. false leaves trimming entirely to `ff op trim`; durations work too (12h, 2w), floored at one minute.
+Automatic trim cadence, checked after eligible commands, per worktree. true means daily; false disables automatic trimming. Durations (12h, 2w) have a one-minute minimum; bare numbers mean days. Skipped in CI.
 
 ### pruneGone
 
 `fufu.pruneGone` — bool; default `false`
 
-Whether ff pull deletes the local branches whose shared copy is gone, as ff branch --prune does, inside its run: the same guard, so a branch holding commits its copy never held is kept and named. false today; the default flips to true in a later release.
+Let ff pull prune local branches whose remote copy is gone, using the ff branch --prune guards. Branches with unpublished commits are kept. Disabled by default.
 
 ### autoFetch
 
 `fufu.autoFetch` — cadence; default `10m`
 
-How often the tracking refs are refreshed: a fetch rides an ff command at most this often, per repo, before the verb runs. false leaves fetching to `ff pull` and --fetch; durations work too (1h, 2d), floored at one minute.
+Automatic fetch cadence per repository: true means 10 minutes; false leaves fetching to ff pull and --fetch. Some commands fetch every run when enabled. Durations have a one-minute minimum; bare numbers mean days.
 
 ### pager
 
 `fufu.pager` — command; default `less`
 
-Pager for ff log and ff evolog on a TTY. When set it overrides FF_PAGER and PAGER; whitespace-split, no shell quoting; cat means no pager.
+Pager for ff log, ff evolog, and ff op log on a TTY. Overrides FF_PAGER and PAGER; whitespace-split, no shell quoting; cat means no pager.
 
 ### updateCheck
 
 `fufu.updateCheck` — cadence; default `1d`
 
-How often ff looks for a new release in the background. false turns the whole machinery off (checks and notices); true means daily; durations work too (12h, 7d, 2w), floored at one minute.
+Background release-check cadence. true means daily; false disables checks and notices. Durations (12h, 7d, 2w) have a one-minute minimum; bare numbers mean days.
 
 ### trunk
 
 `fufu.trunk` — branch; unset by default
 
-Which branch is trunk: what ff pull rebases onto, what ff status measures against, and where a bare ff start forks from. Local (main) or remote-qualified (origin/main). Unset means fufu works it out.
+Trunk branch used for default branch creation and as a fallback base for status and pull. Accepts local (main) or remote-qualified (origin/main) names. Unset means automatic detection.
 
 ### theme
 
 `fufu.theme` — choice of `muted`, `vivid`, `terminal`; default `muted`
 
-Color theme for ff output. muted gives desaturated 256-color (the default); vivid the saturated cut; terminal the base sixteen so your own terminal theme decides the actual hues.
+Output colors: muted uses desaturated 256-color shades; vivid uses saturated shades; terminal uses your terminal's base sixteen colors.
 
 ### gitPolicy
 
 `fufu.gitPolicy` — choice of `observe`, `coach`, `strict`; default `coach`
 
-What fufu says when git is reached for directly — through ff git, or in an agent's own shell. observe records and stays quiet; coach (the default) names the fufu verb once per word; strict refuses the words fufu has verbs for, and tag and merge, whose answer is ff git itself, run. Nothing is ever silently run in its place.
+Policy for covered Git writes through ff git and Claude Code hooks: observe stays quiet; coach suggests a fufu command; strict refuses. Codex, Cursor, and Gemini hooks tally writes but send no policy reply. Commands are never silently translated.
 
 ### futuresDepth
 
 `fufu.futuresDepth` — size; default `200`
 
-How many commits ff will replay when simulating a rebase. Past this many, the verdict is an honest "can't simulate" rather than a slow one. Suffixes work: 1k.
+Maximum commits replayed in a rebase simulation. Larger simulations report that they cannot be simulated. Git size suffixes work: 1k.
 
 ### watchInterval
 
 `fufu.watchInterval` — size; default `200`
 
-How often ff watch re-reads the operation log's tip, in milliseconds. A tick reads two refs and nothing else, so the default costs well under a millisecond five times a second. Suffixes work: 1k.
+Polling interval for ff watch, in milliseconds (default: 200). Git size suffixes work: 1k means 1024 milliseconds.
 
 ### mapDepth
 
 `fufu.mapDepth` — size; default `1000`
 
-How many commits bare ff walks before it stops and says so with a trailing ~. The map is a skeleton of branch tips and forks, so this caps the walk, not the rows. Suffixes work: 2k.
+Maximum commits walked by the branch map. A trailing ~ marks a truncated walk. This limits commits visited, not displayed rows. Git size suffixes work: 2k.
 
 <!-- registry:end -->
 
+## The pager
+
+[`ff log`](cli/log.md), [`ff evolog`](cli/evolog.md), and [`ff op log`](cli/op-log.md) use a pager only for human output on a terminal. Pipes and `--json` receive output directly. Pager selection is:
+
+1. `fufu.pager`, when configured.
+2. `FF_PAGER`.
+3. `PAGER`.
+4. `less`.
+
+The value is split on whitespace without shell quoting; `cat` disables paging. When unset, fufu supplies `LESS=FR` (quit if one screen, preserve ANSI colors) and `LESSCHARSET=utf-8`. If the pager cannot start, fufu prints directly.
+
 ## What fufu reads from git's config
 
-The `fufu.*` keys above are fufu's own. Everything else fufu needs, it reads from git's existing configuration rather than keeping a second copy:
+Fufu also reads existing Git settings:
 
-- **Identity.** Commits and operations are authored from `user.name` and `user.email`. With neither set, fufu refuses with the same fix git would ask for: `git config user.name <name>`, `git config user.email <email>`.
-- **URLs, proxies, and credentials.** [`ff pull`](../reference/cli/pull.md) and [`ff clone`](../reference/cli/clone.md) use a native transport that reads `url.<base>.insteadOf` and `credential.helper`, invokes credential helpers, and uses `ssh` for SSH URLs. Its HTTP backend does not honor `http.proxy`. Push runs the Git binary and uses Git's transport configuration.
+- **Identity:** `user.name` and `user.email` supply your commit identity. Fufu resolves the Git committer identity for both author and committer when creating a new change, so `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` override it; `GIT_AUTHOR_*` does not independently select a new author. Replays preserve the original author. Operation-journal commit objects use `fufu <fufu@local>`. [Signing](signing.md) uses Git's signing configuration.
+- **URLs and credentials:** `ff pull` and [`ff clone`](cli/clone.md) use native transport, read `url.<base>.insteadOf` and `credential.helper`, invoke credential helpers, and use `ssh` for SSH URLs. The native HTTP backend does not honor `http.proxy`. [`ff push`](cli/push.md) uses the Git binary and its transport configuration.
 
 For an HTTP proxy, use [`ff git fetch`](../reference/cli/git.md) followed by `ff pull --no-fetch`, or `ff git clone` followed by [`ff init`](../reference/cli/init.md). Disable `fufu.autoFetch` when native automatic fetches cannot reach the remote.

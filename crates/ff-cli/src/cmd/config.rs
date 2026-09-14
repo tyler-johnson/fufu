@@ -49,9 +49,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "52428800",
             kind: SettingKind::Size,
             desc: &[
-                "Largest regular file whose working-copy content is hashed into a snapshot",
-                "(52428800 = 50 MiB). Includes modified tracked files. Larger files are",
-                "skipped; their index or base content can remain. Suffixes: 100M, 1G.",
+                "Maximum regular-file size in bytes for working-copy snapshots (50 MiB).",
+                "Oversized untracked and modified tracked content is skipped; index or",
+                "base content can remain. Git size suffixes work: 100M, 1G.",
             ],
         },
         Setting {
@@ -60,9 +60,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "90d",
             kind: SettingKind::Duration,
             desc: &[
-                "How long operations live: ff op trim drops everything past the",
-                "cutoff, captures and verbs alike. Compact durations (30d, 36h, 2w,",
-                "45s); a bare number means days.",
+                "Retention window for captures and recorded operations, applied by",
+                "ff op trim and automatic trimming to the current and removed-worktree",
+                "logs. Default: 90 days. Units: s, m, h, d, w; bare numbers mean days.",
             ],
         },
         Setting {
@@ -71,9 +71,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "1d",
             kind: SettingKind::Cadence,
             desc: &[
-                "How often retention enforces itself: a trim rides an ff command at",
-                "most this often, per worktree. false leaves trimming entirely to",
-                "`ff op trim`; durations work too (12h, 2w), floored at one minute.",
+                "Automatic trim cadence, checked after eligible commands, per worktree.",
+                "true means daily; false disables automatic trimming. Durations (12h,",
+                "2w) have a one-minute minimum; bare numbers mean days. Skipped in CI.",
             ],
         },
         Setting {
@@ -82,10 +82,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "false",
             kind: SettingKind::Bool,
             desc: &[
-                "Whether ff pull deletes the local branches whose shared copy is gone,",
-                "as ff branch --prune does, inside its run: the same guard, so a branch",
-                "holding commits its copy never held is kept and named. false today;",
-                "the default flips to true in a later release.",
+                "Let ff pull prune local branches whose remote copy is gone, using",
+                "the ff branch --prune guards. Branches with unpublished commits are",
+                "kept. Disabled by default.",
             ],
         },
         Setting {
@@ -94,10 +93,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "10m",
             kind: SettingKind::Cadence,
             desc: &[
-                "How often the tracking refs are refreshed: a fetch rides an ff command",
-                "at most this often, per repo, before the verb runs. false leaves",
-                "fetching to `ff pull` and --fetch; durations work too (1h, 2d), floored",
-                "at one minute.",
+                "Automatic fetch cadence per repository: true means 10 minutes; false",
+                "leaves fetching to ff pull and --fetch. Some commands fetch every run",
+                "when enabled. Durations have a one-minute minimum; bare numbers mean days.",
             ],
         },
         Setting {
@@ -106,7 +104,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "less",
             kind: SettingKind::Command,
             desc: &[
-                "Pager for ff log and ff evolog on a TTY. When set it overrides FF_PAGER",
+                "Pager for ff log, ff evolog, and ff op log on a TTY. Overrides FF_PAGER",
                 "and PAGER; whitespace-split, no shell quoting; cat means no pager.",
             ],
         },
@@ -116,9 +114,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "1d",
             kind: SettingKind::Cadence,
             desc: &[
-                "How often ff looks for a new release in the background. false turns",
-                "the whole machinery off (checks and notices); true means daily;",
-                "durations work too (12h, 7d, 2w), floored at one minute.",
+                "Background release-check cadence. true means daily; false disables",
+                "checks and notices. Durations (12h, 7d, 2w) have a one-minute minimum;",
+                "bare numbers mean days.",
             ],
         },
         Setting {
@@ -127,9 +125,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "",
             kind: SettingKind::Branch,
             desc: &[
-                "Which branch is trunk: what ff pull rebases onto, what ff status measures",
-                "against, and where a bare ff start forks from. Local (main) or",
-                "remote-qualified (origin/main). Unset means fufu works it out.",
+                "Trunk branch used for default branch creation and as a fallback base",
+                "for status and pull. Accepts local (main) or remote-qualified",
+                "(origin/main) names. Unset means automatic detection.",
             ],
         },
         Setting {
@@ -138,9 +136,8 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "muted",
             kind: SettingKind::Choice(&["muted", "vivid", "terminal"]),
             desc: &[
-                "Color theme for ff output. muted gives desaturated 256-color (the default);",
-                "vivid the saturated cut; terminal the base sixteen so your own",
-                "terminal theme decides the actual hues.",
+                "Output colors: muted uses desaturated 256-color shades; vivid uses",
+                "saturated shades; terminal uses your terminal's base sixteen colors.",
             ],
         },
         Setting {
@@ -149,11 +146,10 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "coach",
             kind: SettingKind::Choice(&["observe", "coach", "strict"]),
             desc: &[
-                "What fufu says when git is reached for directly — through ff git, or",
-                "in an agent's own shell. observe records and stays quiet; coach (the",
-                "default) names the fufu verb once per word; strict refuses the words",
-                "fufu has verbs for, and tag and merge, whose answer is ff git itself,",
-                "run. Nothing is ever silently run in its place.",
+                "Policy for covered Git writes through ff git and Claude Code hooks:",
+                "observe stays quiet; coach suggests a fufu command; strict refuses.",
+                "Codex, Cursor, and Gemini hooks tally writes but send no policy reply.",
+                "Commands are never silently translated.",
             ],
         },
         Setting {
@@ -162,9 +158,8 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "200",
             kind: SettingKind::Size,
             desc: &[
-                "How many commits ff will replay when simulating a rebase. Past this",
-                "many, the verdict is an honest \"can't simulate\" rather than a slow",
-                "one. Suffixes work: 1k.",
+                "Maximum commits replayed in a rebase simulation. Larger simulations",
+                "report that they cannot be simulated. Git size suffixes work: 1k.",
             ],
         },
         Setting {
@@ -173,9 +168,8 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "200",
             kind: SettingKind::Size,
             desc: &[
-                "How often ff watch re-reads the operation log's tip, in milliseconds.",
-                "A tick reads two refs and nothing else, so the default costs well under",
-                "a millisecond five times a second. Suffixes work: 1k.",
+                "Polling interval for ff watch, in milliseconds (default: 200).",
+                "Git size suffixes work: 1k means 1024 milliseconds.",
             ],
         },
         Setting {
@@ -184,9 +178,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "1000",
             kind: SettingKind::Size,
             desc: &[
-                "How many commits bare ff walks before it stops and says so with a",
-                "trailing ~. The map is a skeleton of branch tips and forks, so this",
-                "caps the walk, not the rows. Suffixes work: 2k.",
+                "Maximum commits walked by the branch map. A trailing ~ marks a",
+                "truncated walk. This limits commits visited, not displayed rows.",
+                "Git size suffixes work: 2k.",
             ],
         },
     ]

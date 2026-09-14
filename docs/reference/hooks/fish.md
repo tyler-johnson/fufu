@@ -1,8 +1,38 @@
-# ff hook fish
+<a id="ff-hook-fish"></a>
+# Fish
 
-Two marked lines appended to the end of `$XDG_CONFIG_HOME/fish/config.fish`, or `~/.config/fish/config.fish` when `XDG_CONFIG_HOME` is unset: the alias, so every git command you type runs through [`ff git`](../../reference/cli/git.md) and snapshots first, and a `fish_prompt` event handler, so a snapshot lands at every prompt. The file and its directory are created if they are missing.
+[`ff hook fish`](../cli/hook.md) installs a `git` alias and quiet prompt snapshots in `$XDG_CONFIG_HOME/fish/config.fish`, or `~/.config/fish/config.fish` when `XDG_CONFIG_HOME` is unset. The alias runs [`ff git`](../cli/git.md); the prompt runs [`ff trigger shell`](../cli/trigger.md). See the [shared capture and ownership rules](index.md).
 
-## What it writes
+## Install
+
+```fish
+ff hook fish
+```
+
+## Activate
+
+Open a new Fish shell, or source the file named by the installer:
+
+```fish
+if set -q XDG_CONFIG_HOME
+    source "$XDG_CONFIG_HOME/fish/config.fish"
+else
+    source ~/.config/fish/config.fish
+end
+```
+
+## Verify
+
+```fish
+type git
+functions _fufu_ambient
+ff hook -l
+```
+
+The alias should run `ff git`, and `_fufu_ambient` should handle `fish_prompt` by running `ff trigger shell`. The list command checks installed files. To test prompt capture, edit a disposable file, return to the prompt, then inspect [`ff history`](../cli/history.md) for the shell capture.
+
+<a id="what-it-writes"></a>
+## Files changed
 
 ```console
 $ ff hook fish
@@ -14,15 +44,12 @@ alias git 'ff git'  # fufu — added by `ff hook`
 function _fufu_ambient --on-event fish_prompt; ff trigger shell; end  # fufu — added by `ff hook`
 ```
 
-Every line fufu writes ends in the marker `# fufu — added by \`ff hook\``, which is how fufu tells its own lines from yours. Running [`ff hook fish`](../../reference/cli/hook.md) on a wired file reports both pieces as already wired and changes nothing.
+The file and parent directory are created if missing. The marker identifies managed lines; recognized hand-written alias and prompt lines survive as described in the [overview](index.md#files-changed).
 
-The alias and the prompt hook are independent: a hand-written `alias git` line naming `ff git`, or a hand-written line naming [`ff trigger shell`](../../reference/cli/trigger.md), is detected, reported as written by hand, and left alone, and the other piece is still installed.
+<a id="what-ff-unhook-fish-removes"></a>
+## Remove
 
-Older markers (`ff hook shell install`, `ff shell install`) and the older prompt command `ff hook shell trigger` still count as fufu's. The next `ff hook fish` rewrites them in place, and [`ff doctor`](../../reference/cli/doctor.md) reports them as stale until then.
-
-## What `ff unhook fish` removes
-
-Exactly the marked lines. Everything else in the file stays where it was.
+[`ff unhook fish`](../cli/unhook.md) removes the marked lines. Restart Fish afterward to unload the alias and event handler.
 
 ```console
 $ ff unhook fish
@@ -33,10 +60,9 @@ $ cat ~/.config/fish/config.fish
 
 A hand-written alias or prompt hook is reported and stays.
 
-## Notes
+<a id="notes"></a>
+## Troubleshooting and migration
 
-Restart the shell or source the file to activate it.
+The event handler works alongside prompt frameworks without wrapping their prompt function. Check that `_fufu_ambient` remains defined if a later configuration removes functions.
 
-The prompt hook prints nothing. `ff trigger shell` captures the working copy and says nothing.
-
-Event handlers are additive, so the order against a prompt framework does not matter. `functions _fufu_ambient` in a new shell shows the handler, and `type git` shows the alias.
+Older markers (`ff hook shell install`, `ff shell install`) and `ff hook shell trigger` are upgraded by `ff hook fish`. [`ff doctor`](../cli/doctor.md) reports these as stale until repaired.

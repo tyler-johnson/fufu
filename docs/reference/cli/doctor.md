@@ -47,7 +47,9 @@ Options:
 
 Rows are `ok`, `info`, or `WARN`. Warnings count as findings: exit 0 means healthy, exit 1 means findings. JSON contains the same rows.
 
-`--fix` repairs garbage-collection reflog-expiry keys, configuration for branches gone from both local and remote sides, partial or stale managed hooks, and stale shipped skills. It does not remove branch configuration while a remote copy still exists.
+`--fix` repairs garbage-collection reflog-expiry keys, configuration for absent local branches with no surviving tracking ref, partial or stale managed hooks, and stale shipped skills. A surviving tracking ref keeps its branch configuration.
+
+Hook checks inspect installed files, not a running client or its trust approval. Restart or reload after repairs; review changed Codex hooks through `/hooks`. With `--no-fetch`, branch checks use cached tracking refs.
 
 ## Capture, fetch, and maintenance
 

@@ -1,10 +1,31 @@
-# ff hook cursor
+<a id="ff-hook-cursor"></a>
+# Cursor
 
-Two entries merged into `~/.cursor/hooks.json`, in Cursor's flat shape: an entry is a matcher and a command, with no nested list. The file belongs to you: fufu parses it, adds its entries, sets `"version": 1` at the top level if it is absent, and writes everything else back untouched. No skill: Cursor reads none.
+[`ff hook cursor`](../cli/hook.md) installs snapshot hooks for the Cursor agent client. **Cloud agents do not fire `sessionStart`, so they receive no fufu briefing.** Their matching `preToolUse` events can still capture.
 
-`cursor` is the agent client, not the editor. A future editor integration would get a slug of its own.
+## Install
 
-## What it writes
+```sh
+ff hook cursor
+```
+
+## Activate
+
+Restart the Cursor agent client to load the configuration. Ensure `ff` is on the client's PATH.
+
+## Verify
+
+```sh
+ff hook -l
+ff doctor --no-fetch
+```
+
+[`ff doctor`](../cli/doctor.md) checks installed files and retains the cloud-agent reminder. Test actual events with the [capture-and-recovery check](../../agents/setup.md#verify); an installed-file `ok` does not prove the running client loaded it.
+
+<a id="what-it-writes"></a>
+## Files changed
+
+The installer merges two flat event entries into `~/.cursor/hooks.json` and adds `"version": 1` if absent. Unrelated settings and commands survive under the [shared ownership rules](index.md#files-changed). This installer supplies no skill.
 
 ```console
 $ ff hook cursor
@@ -30,13 +51,12 @@ $ cat ~/.cursor/hooks.json
 }
 ```
 
-`preToolUse` is the snapshot before a shell command, a write, or a delete; `sessionStart` is where the briefing lands. Entries already in the file that run something else stay. A file that is not valid JSON is refused untouched. Running [`ff hook cursor`](../../reference/cli/hook.md) on a wired file reports it as already wired and changes nothing.
+`preToolUse` attempts capture before Shell, Write, or Delete calls; `sessionStart` delivers the briefing. There is no installed turn-end event, so a final edit waits for another event or repository command. Cursor captures and tallies recognized Git writes but returns no pre-tool coaching or denial reply, including under strict policy.
 
-A fufu before v0.15 also registered the retired `ff mcp` verb as `mcpServers.fufu` in `~/.cursor/mcp.json`. The next `ff hook cursor` removes that key, says so, and leaves the rest of the file as it was; a `fufu` entry that runs something else was written by hand and is left alone.
+<a id="what-ff-unhook-cursor-removes"></a>
+## Remove
 
-## What `ff unhook cursor` removes
-
-The two entries. `version` stays, because Cursor requires it and it was never fufu's.
+[`ff unhook cursor`](../cli/unhook.md) removes the two managed entries. The `version` field stays. Restart the client afterward.
 
 ```console
 $ ff unhook cursor
@@ -48,6 +68,9 @@ $ cat ~/.cursor/hooks.json
 }
 ```
 
-## Notes
+<a id="notes"></a>
+## Troubleshooting and migration
 
-`sessionStart` does not fire for cloud agents, so a cloud agent is never briefed. Capture still rides `preToolUse`, so the snapshots are there; what the agent lacks is the once-per-session spelling of fufu's verbs. `ff hook -l` and [`ff doctor`](../../reference/cli/doctor.md) say so whenever the hook is wired.
+If capture is absent, check PATH, restart the agent client, and run the verification recipe. Missing briefings on cloud agents are an event limitation; reinstalling does not add `sessionStart` there. `ff doctor --fix` repairs partial or stale managed entries.
+
+Before v0.15, fufu registered its MCP command as `mcpServers.fufu` in `~/.cursor/mcp.json`. Installation, refresh, or removal deletes that managed registration. An entry running an unrelated command survives.

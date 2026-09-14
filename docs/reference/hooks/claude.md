@@ -1,12 +1,32 @@
-# ff hook claude
+<a id="ff-hook-claude"></a>
+# Claude Code
 
-A plugin directory at `~/.claude/skills/fufu/`, which fufu owns outright: written whole, removed whole, with nothing of yours inside it. Claude Code loads a plugin from that location with no marketplace and no install step. The directory holds three files.
+[`ff hook claude`](../cli/hook.md) installs snapshot hooks, session briefings, and the shipped skill as a Claude Code plugin. Restart Claude Code to load it.
 
-- `.claude-plugin/plugin.json`, the manifest: the plugin's name `fufu`, the version of the fufu that wrote it, a one-line description, and the repository as its homepage.
-- `hooks/hooks.json`, the seven events below.
-- `skills/fufu/SKILL.md`, [fufu's skill](../../agents/setup.md), the manual an agent reads for recovery, rewriting closed commits, and the JSON. [`ff hook --skill`](../../reference/cli/hook.md) prints the same text.
+## Install
 
-## What it writes
+```sh
+ff hook claude
+```
+
+## Activate
+
+Exit and restart Claude Code. It loads the plugin from `~/.claude/skills/fufu/` without a marketplace registration or a separate plugin-install command.
+
+## Verify
+
+```sh
+claude plugin list
+ff hook -l
+ff doctor --no-fetch
+```
+
+The plugin list should contain `fufu@skills-dir`. [`ff doctor`](../cli/doctor.md) checks installed files; use the [capture-and-recovery check](../../agents/setup.md#verify) to confirm a running session sends events.
+
+<a id="what-it-writes"></a>
+## Files changed
+
+Fufu manages the whole `~/.claude/skills/fufu/` directory. Keep personal files outside it. It contains `.claude-plugin/plugin.json` (manifest), `hooks/hooks.json` (seven events), and `skills/fufu/SKILL.md` ([the shipped skill](../../agents/setup.md#ship-the-skill)). `ff hook --skill` prints the same skill text.
 
 ```console
 $ ff hook claude
@@ -100,31 +120,26 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
 
 The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`. A plugin's hooks do not go looking on `PATH`, so the path is baked in.
 
-After moving or reinstalling the binary somewhere else, run `ff hook -u`, which re-runs the install for everything wired, or `ff hook claude` for this one. The moved plugin still reads as wired in the meantime, because fufu recognizes its own command by its tail.
-
-Claude Code loads the plugin on its next restart. `claude plugin list` shows it as `fufu@skills-dir`.
-
-A plugin written by a fufu before v0.15 carried a fourth file, `.mcp.json`, registering the retired `ff mcp` verb; the next `ff hook claude` removes it and says so.
-
 ### The seven events
 
-`PreToolUse` and `UserPromptSubmit` are the floor: the snapshot before every tool call, and the turn boundary the briefing rides. The other five widen capture.
+`PreToolUse` attempts a snapshot before matching Bash, Edit, Write, and NotebookEdit calls. `UserPromptSubmit` captures at prompt submission and can deliver the briefing. The other events cover more session boundaries:
 
-- `SessionStart` rebuilds the briefing after a resume, a `/clear`, a compaction, or a fork dropped the context it was in.
-- `Stop` and `SubagentStop` make the last edit of a turn durable, since capture is a snapshot before an action and a session that ends on an edit would otherwise never snapshot it.
-- `SubagentStart` lays a floor before a subagent writes anything, and `CwdChanged` lays one in the repository the agent just entered.
+- `SessionStart` rebriefs at startup, resume, clear, compaction, and fork.
+- `Stop` and `SubagentStop` attempt to capture the final edit of a turn.
+- `SubagentStart` and `CwdChanged` attempt capture before subagent work and on entering a repository.
 
-A plugin missing one of the five is stale, which [`ff doctor --fix`](../../reference/cli/doctor.md) repairs; a plugin missing one of the two is partial, which is a finding.
+Pre-tool replies can also brief newly entered repositories or subagents. Claude Code is the adapter that returns Git-policy coaching and denial replies; [policy settings](../../agents/setup.md#pick-a-git-policy) control them. Capture precedes policy evaluation and remains subject to [coverage and contention limits](../../concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ### The settings escape hatch
 
-`ff hook claude --settings` merges the same seven events into `~/.claude/settings.json` with the command [`ff trigger claude`](../../reference/cli/trigger.md), carries no skill, and removes the plugin if there is one. The plugin is the mechanism a bare `ff hook claude` prefers.
+`ff hook claude --settings` merges the seven events into `~/.claude/settings.json` using [`ff trigger claude`](../cli/trigger.md), installs no skill, and removes an existing plugin. Unrelated settings and commands survive under the [shared ownership rules](index.md#files-changed).
 
-On a machine wired through settings entries, `ff hook claude` writes the plugin, verifies it, and only then strips the entries, so there is never a moment with no capture. Entries written under the older spellings `ff hook agent trigger claude` and `ff hook claude` are recognized as fufu's and upgraded in place.
+To switch back, run `ff hook claude`. It writes and verifies the plugin before removing managed settings entries. Restart Claude Code after changing mechanisms; file installation alone does not establish continuous capture in the running client.
 
-## What `ff unhook claude` removes
+<a id="what-ff-unhook-claude-removes"></a>
+## Remove
 
-The plugin directory, and any fufu entries in `~/.claude/settings.json`, whichever of the two an earlier install wrote. Both are checked every time.
+[`ff unhook claude`](../cli/unhook.md) removes the plugin directory and managed entries in `~/.claude/settings.json`. Both locations are checked. Restart Claude Code afterward.
 
 ```console
 $ ff unhook claude
@@ -135,8 +150,13 @@ $ find ~/.claude -type f | sort
 
 Settings entries written by hand that run something other than `ff trigger claude` stay.
 
-## Notes
+<a id="notes"></a>
+## Troubleshooting and migration
 
-The two-event floor for a settings file you manage yourself, `PreToolUse` and `UserPromptSubmit` with the command `ff trigger claude`, is on [the setup page](../../agents/setup.md). It captures and briefs; it does not carry the skill or the five wider events.
+After moving the binary, run `ff hook claude` or `ff hook -u` to refresh the plugin's absolute command path, then restart Claude Code. Its old command can still be recognized as installed even when the binary has moved.
+
+A missing primary event is partial; missing wider events or retired spellings are stale. `ff doctor --fix` repairs these installed-file findings. The [manual two-event settings example](../../agents/setup.md#manual-hook-configuration) captures and briefs but omits the skill and wider events.
+
+Installers recognize the retired `ff hook agent trigger claude` and `ff hook claude` commands as managed. They also remove the pre-v0.15 plugin's `.mcp.json`, which registered the retired MCP command.
 
 In a script, give `ff hook claude` a closed stdin (`< /dev/null`). When stdin is a pipe rather than a terminal, the command first looks there for a hook payload, because `ff hook claude` was once the spelling that meant trigger and a stale hook entry may still run it.
