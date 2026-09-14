@@ -65,7 +65,7 @@ This reports files on disk; also complete the activation and trust steps above.
 
 ## Initialize or clone a repository
 
-The [tutorial](tutorial.md) creates a disposable local remote and uses [`ff clone`](reference/cli/clone.md), which initializes fufu in the new checkout. Follow it for a complete first run without a hosting account or push credentials.
+The [tutorial](tutorial.md) starts with [`ff clone`](reference/cli/clone.md) of fufu's own repository, which initializes fufu in the new checkout. Make a few edits there and walk through the everyday workflow; the push example is for a repository where you have push access.
 
 For a repository you already use, run [`ff init`](reference/cli/init.md) inside it:
 

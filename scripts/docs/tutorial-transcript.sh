@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# The source of truth for every console block in docs/tutorial.md: builds
-# a tiny repository and a disposable local origin, then runs the
-# tutorial's exact command sequence and prints the labeled transcript to
-# stdout. When a verb's output changes, run this and paste the new blocks
-# rather than hand-editing them; ids, ages, shas, and commit counts differ
-# run to run, everything else must match. The transcripts follow the release:
-# regenerate them when a release changes what the verbs print.
+# Replay the tutorial workflow in a tiny repository with a disposable local
+# origin. The output is evidence for reviewing the illustrative page, not
+# a line-for-line specification for it: readers clone fufu's real repository,
+# choose their own edits, and adapt IDs and output. Keep fixture setup here
+# rather than teaching it as a prerequisite. Rerun when a release changes
+# the verbs and reconcile the examples for behavior and clarity.
 #
 # The sequence itself lives in scripts/docs/tutorial-steps.sh, which
 # scripts/docs/casts.sh records one clip per section from. Editing the

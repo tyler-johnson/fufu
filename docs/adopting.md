@@ -12,7 +12,7 @@ ff init
 - [`ff switch`](reference/cli/switch.md) saves unfinished work with the branch you leave and resumes the destination branch's work. Returning brings the saved edits back.
 - [`ff pull`](reference/cli/pull.md) updates the current branch from its base and remote copy by replaying commits. [`ff push`](reference/cli/push.md) sends branch updates separately.
 
-Try the [tutorial](tutorial.md) in a scratch repository, or read [Working copy and commits](concepts/changes.md) for the lifecycle. Before sending rewritten work, read [Pulling and pushing](concepts/push-boundary.md) for lease rules and shared-history policy.
+Try the [tutorial](tutorial.md) in a fresh clone of fufu's own repository, or read [Working copy and commits](concepts/changes.md) for the lifecycle. Before sending rewritten work, read [Pulling and pushing](concepts/push-boundary.md) for lease rules and shared-history policy.
 
 <a id="what-arming-does"></a>
 

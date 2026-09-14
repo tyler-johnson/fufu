@@ -1,227 +1,184 @@
 # Tutorial
 
-Make two commits, switch branches mid-edit, fix an earlier commit, pull an update, push your branch, and undo a local reset. Allow about twenty minutes. Every edit is supplied, and the transcripts come from the [shared command script](https://github.com/tyler-johnson/fufu/blob/main/scripts/docs/tutorial-steps.sh).
+This walks the whole loop once: get a repository, make commits, switch branches mid-edit, fold a fix into an earlier commit, line up with a teammate, push, and undo a disaster. Twenty minutes. The examples show real `ff` output; your history, IDs, branch names, and output will differ.
 
-You need [fufu installed](install.md), Git, and Bash with standard Unix tools (Linux, macOS, or Git Bash on Windows). The exercise creates a tiny project, a bare repository to serve as its remote, and a second clone to simulate a teammate. Everything stays in a temporary directory: no hosting account, network access, or push credentials are needed. Run the restore and reset examples only in this scratch project.
+Have [fufu and Git installed](install.md), with your usual Git name and email configured. We'll use a fresh clone of fufu's own repository to experiment in. The pull and push section is a demonstration to follow along with; sending work requires a repository where you have push access.
 
-Your working copy is the open change. Repository commands attempt snapshots; active hooks add capture attempts on supported events. Recovery depends on [coverage, capture success, and retention](concepts/snapshots-and-undo.md#coverage-and-limits).
+The working copy is the open change. You can commit it without staging, and switching branches parks uncommitted work. Repository commands and active hooks take snapshots; recovery depends on [what was captured and retained](concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ## Get a repository
 
-Open a clean Bash session so your usual prompt hooks and Git aliases do not add extra recovery steps to the transcript:
-
-```sh
-bash --noprofile --norc
-```
-
-In that shell, create a temporary directory and isolate the exercise from machine-specific Git settings, including signing. These environment variables apply only to this shell and its children; your configuration files are untouched.
-
-```sh
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
-export GIT_EDITOR=false EDITOR=false
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
-unset FF_SESSION CLAUDE_CODE_SESSION_ID
-SCENE=$(mktemp -d)
-cd "$SCENE"
-```
-
-The `updateCheck` override disables release checks for this session so the exercise needs only its local remote.
-
-Create the initial commit and the disposable remote. `command git` explicitly runs Git rather than a shell alias or function. The identities below are just labels for the exercise commits.
-
-```sh
-command git init -q -b main seed
-command git -C seed config user.name 'Tutorial Reader'
-command git -C seed config user.email reader@example.com
-printf '# Tutorial project\n' > seed/README.md
-command git -C seed add README.md
-command git -C seed commit -qm 'docs: start the tutorial'
-command git clone -q --bare seed origin.git
-```
-
-[`ff clone`](reference/cli/clone.md) creates your working checkout and initializes fufu in it:
+[`ff clone`](reference/cli/clone.md) gets the repository, checks out the files, and turns fufu on in the new checkout:
 
 ```console
-$ ff clone ./origin.git exercise
-cloned into ./exercise — 1 commit on main
+$ ff clone https://github.com/tyler-johnson/fufu
+cloned into ./fufu — 407 commits on main
 the net is on: ff undo has a floor to land on, and every verb takes one first
+$ cd fufu
 ```
 
-The second line means the operation log now has an earliest recovery point. [`ff undo`](reference/cli/undo.md) can restore retained local states recorded from this point onward. Enter the checkout and set its commit identity:
+The second line says the operation log has been initialized. [`ff undo`](reference/cli/undo.md) can restore local states recorded from that point, while they are retained.
 
-```sh
-cd exercise
-command git config user.name 'Tutorial Reader'
-command git config user.email reader@example.com
-```
+The repository you just cloned is fufu's own — real history, real files — so you have something to look around in and make changes to. The work you make here stays in your clone.
 
-For your own existing repository later, use [`ff init`](reference/cli/init.md); see [Adopting fufu](adopting.md). For shell and agent capture outside this controlled exercise, install and activate [`ff hook`](reference/cli/hook.md) integrations as described in [installation](install.md#install-hooks).
+Editor and agent edits are saved by a later successful capture. [`ff hook`](reference/cli/hook.md) installs integrations that add capture attempts as you work; activate them as described in [installation](install.md#wire-it-in) if you have not.
+
+If you have a repository git already made, [`ff init`](reference/cli/init.md) inside it means *turn fufu on here*. See [Adopting fufu](adopting.md).
 
 ## Look around
 
-Bare [`ff`](reference/cli/map.md) shows the map: recent commits and open or parked work across branches.
+Bare [`ff`](reference/cli/map.md) is the map: recent work on every branch, parked changes included. A fresh clone is quiet:
 
 ```console
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-●  nszrlrzt 26306cdd   0s ago
-   docs: start the tutorial
+●  mrwkzuqt 68614022  19h ago
+│  core: close in phases
+~
 ```
 
-`@` is your open change; `no changes` means its files match the commit beneath it. `●` marks a commit recorded in branch history, and `▸ [main]` marks the current branch. The letters are a change ID; the hexadecimal value is a commit SHA. [Revisions and IDs](reference/revisions.md) explains how to use them. Your IDs, timestamps, and automatically generated branch name will differ from this run.
+Reading the rows: `@` is the open change — the working copy, as a change in progress. It always exists; `no changes` means the tree matches the commit beneath it. `●` rows are commits, newest first, and `▸ [main]` marks where a branch stands. The `~` says history continues below what is shown.
+
+The letters column is the change ID; the hexadecimal value is the commit SHA. A change can keep its identity through rewrites even when its SHA changes. [Revisions and IDs](reference/revisions.md) has the details when you need them.
 
 ## Start work
 
 <div class="demo cast" data-cast="../assets/tutorial/start-work.cast">
-  <noscript><img src="../assets/tutorial/start-work.gif" alt="ff start creating a branch, the exact parser note, and ff status showing the open change"></noscript>
+  <noscript><img src="../assets/tutorial/start-work.gif" alt="ff start creating a branch, an edit to notes/parser.md, and ff status showing the open change"></noscript>
 </div>
 
-[`ff start`](reference/cli/switch.md) creates and switches to a new branch from trunk, which is `main` here. It chooses a branch name when you do not supply one:
+Let's sketch a design note for a parser. [`ff start`](reference/cli/switch.md) begins a new line of work on a fresh branch forked from trunk — `main` here. There is nothing to name up front; fufu chooses a name, and you can rename it once the work has earned one.
 
 ```console
 $ ff start
-minted ff/noble-maple (forked from main)
-switched to ff/noble-maple
+minted ff/bold-hawk (forked from main)
+switched to ff/bold-hawk
 undo: ff undo
 ```
 
-Create `notes/parser.md` with these three lines:
-
-```sh
-mkdir notes
-cat > notes/parser.md <<'EOF'
-A char stream feeds the lexer.
-The lexer emits spans.
-Whitespace is the stream's problem, not the lexer's.
-EOF
-```
-
-[`ff status`](reference/cli/status.md) captures eligible saved edits and shows what is uncommitted:
+Now edit. Add `notes/parser.md` in your editor and jot down a few lines about a character stream feeding a lexer. Save it, then see what [`ff status`](reference/cli/status.md) makes of the change:
 
 ```console
 $ ff status
-on ff/noble-maple · nothing to pull
-@  xqwkwqpz 44f0b294   0s ago
+on ff/bold-hawk · nothing to pull
+@  urrumwkl            0s ago
 │  (no description)
 │  A notes/parser.md +3  -0  ++++++++++++++++++++
 │    1 file          +3  -0
-●  nszrlrzt 26306cdd   0s ago
-│  docs: start the tutorial
+●  mrwkzuqt 68614022  19h ago  signed
+│  core: close in phases
 ```
 
-`A` means a new file: three added lines, none removed. No staging command is needed. [`ff diff`](reference/cli/diff.md) shows the same open change line by line, including eligible untracked files.
+No `add`, no staging. Status shows where you are and what is uncommitted, as a diffstat. [`ff diff`](reference/cli/diff.md) is the same change read down to the line — and it sees eligible untracked files too.
 
-<a id="name-it-then-close-it"></a>
+<a id="commit-your-changes"></a>
 
-## Commit your changes
+## Name it, then close it
 
 <div class="demo cast" data-cast="../assets/tutorial/name-it-then-close-it.cast">
-  <noscript><img src="../assets/tutorial/name-it-then-close-it.gif" alt="ff describe setting a message, ff commit recording it, an exact second edit, and ff log"></noscript>
+  <noscript><img src="../assets/tutorial/name-it-then-close-it.gif" alt="ff describe naming the change, ff commit closing it, a second commit, and ff log"></noscript>
 </div>
 
-You can set a pending message with [`ff describe`](reference/cli/describe.md) while you work:
+The open change can carry a description before it closes, so you can name work while you are doing it. [`ff describe`](reference/cli/describe.md) sets that pending message:
 
 ```console
 $ ff describe -m "notes: parser skeleton and char stream"
-pending description on ff/noble-maple: notes: parser skeleton and char stream
+pending description on ff/bold-hawk: notes: parser skeleton and char stream
 ```
 
-[`ff commit`](reference/cli/commit.md) records the edits in branch history, using that message:
+Closing the change records it in branch history. [`ff commit`](reference/cli/commit.md) picks up the pending description:
 
 ```console
 $ ff commit
-closed 79fb3f38 on ff/noble-maple: notes: parser skeleton and char stream (1 file(s))
+closed f12fbdec on ff/bold-hawk: notes: parser skeleton and char stream (1 file(s))
+re-minted: signing is on
 undo: ff undo
 ```
 
-`closed` means the change is now recorded on your branch. A new open change is ready for the next edit. Append one line:
+This run signs its commits, hence the `re-minted` line. Your signing settings may differ. Either way, your first commit is recorded and the next open change is ready.
 
-```sh
-printf 'The lexer never sees whitespace.\n' >> notes/parser.md
-```
-
-This time, give the message directly to `ff commit`:
+Or say it at the close. Add a line at the end of your note saying that the stream drops whitespace before the lexer sees it, then commit that second edit:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
-closed a6cf0b91 on ff/noble-maple: notes: drop whitespace from the stream (1 file(s))
+closed bb595ed7 on ff/bold-hawk: notes: drop whitespace from the stream (1 file(s))
+re-minted: signing is on
 undo: ff undo
 ```
 
-[`ff log`](reference/cli/log.md) shows the current branch's commits beneath the open change. `-n 5` limits the commit rows:
+[`ff log`](reference/cli/log.md) is the changes view for the branch you are on — the open change atop the commit walk; `-n` bounds the rows:
 
 ```console
 $ ff log -n 5
 @  no changes
 │  (no description)
-●  utkxrvkw a6cf0b91   0s ago
+●  tlwwsulp bb595ed7   0s ago  signed
 │  notes: drop whitespace from the stream
-●  xqwkwqpz 79fb3f38   0s ago
+●  urrumwkl f12fbdec   1s ago  signed
 │  notes: parser skeleton and char stream
-●  nszrlrzt 26306cdd   0s ago
-│  docs: start the tutorial
+●  mrwkzuqt 68614022  19h ago  signed
+│  core: close in phases
+●  wrnspylp c1518a8b  19h ago  signed
+│  core: rewind's steps are functions
+●  zmnkwzuk 670dd3e4  19h ago  signed
+│  core: done_with and finish_resolution in phases
 ```
 
-Your two commits are above the initial project commit. The open change is empty again. Internal snapshot objects and recorded branch commits are distinct; [Working copy and commits](concepts/changes.md#internal-storage-and-branch-history) covers storage and signing details.
+The two commits fufu made wear the IDs their open changes wore: the letters on the `@` row before each close are the letters on its `●` row after it. [`ff evolog <rev>`](reference/cli/evolog.md) drills into a change's evolution — captures, closing, and later rewrites — and [`ff op log`](reference/cli/op-log.md) is the operation log itself.
 
 ## Switch without stashing
 
 <div class="demo cast" data-cast="../assets/tutorial/switch-without-stashing.cast">
-  <noscript><img src="../assets/tutorial/switch-without-stashing.gif" alt="ff switch leaving an unfinished edit on its branch, resuming it, renaming the branch, and restoring one file"></noscript>
+  <noscript><img src="../assets/tutorial/switch-without-stashing.gif" alt="ff switch parking a mid-edit change on one branch and resuming it on the other"></noscript>
 </div>
 
-Append a temporary note to this exercise's `README.md`:
-
-```sh
-printf '\nstray note\n' >> README.md
-```
-
-[`ff switch`](reference/cli/switch.md) parks the unfinished edit with the branch you leave:
+Start another edit — a stray note in `README.md`, say — and leave mid-thought. [`ff switch`](reference/cli/switch.md) parks whatever is open with the branch you are leaving:
 
 ```console
 $ ff switch main
-parked the open change on ff/noble-maple (3da267ff)
+parked the open change on ff/bold-hawk (65f2036f)
 switched to main
 undo: ff undo
 ```
 
-You are now on `main`, where that note is absent. The map shows it saved with your task branch:
+The README on `main` has no stray note. The map shows where the work went:
 
 ```console
 $ ff
 @  no changes                  ▸ [main]
 │  (no description)
-│ ●  utkxrvkw a6cf0b91   0s ago  ▸ [ff/noble-maple]  (+ parked change, 1 file)
+│ ●  tlwwsulp bb595ed7   0s ago  ▸ [ff/bold-hawk]  (+ parked change, 1 file)
 │ │  notes: drop whitespace from the stream
-│ ●  xqwkwqpz 79fb3f38   0s ago
+│ ●  urrumwkl f12fbdec   0s ago
 ├─╯  notes: parser skeleton and char stream
-●  nszrlrzt 26306cdd   0s ago
-   docs: start the tutorial
+●  mrwkzuqt 68614022  19h ago
+│  core: close in phases
+~
 ```
 
-Switch back, substituting the branch name your `ff start` printed for `ff/noble-maple`:
+Switching back brings the parked change in as you left it — same files, same edits, same pending description. Use the branch name your `ff start` chose:
 
 ```console
-$ ff switch ff/noble-maple
-switched to ff/noble-maple
+$ ff switch ff/bold-hawk
+switched to ff/bold-hawk
 resumed the parked change (1 file(s))
 undo: ff undo
 ```
 
-The temporary note is back. Rename the branch to `parser-stream`; its saved work and pending message follow the rename:
+The work is real now, so give the branch a name. Its saved work and pending description follow the rename:
 
 ```console
 $ ff describe -b parser-stream
-claimed ff/noble-maple as parser-stream
+claimed ff/bold-hawk as parser-stream
 undo: ff undo
 ```
 
-`claimed` is the output for renaming an automatically named branch. Now discard the temporary README edit with [`ff restore`](reference/cli/restore.md). Restore takes a pre-operation snapshot of eligible edits before replacing the file with its committed content; the earlier switch also recorded this note. This example affects only the scratch checkout.
+That stray README edit isn't part of this work. [`ff restore`](reference/cli/restore.md) captures eligible edits first, then discards the file's edits back to the commit beneath the change:
 
 ```console
 $ ff restore README.md
-restored from a6cf0b91 (notes: drop whitespace from the stream)
+restored from bb595ed7 (notes: drop whitespace from the stream)
   restored  README.md
 undo: ff undo
 ```
@@ -229,51 +186,31 @@ undo: ff undo
 ## Fix an earlier commit
 
 <div class="demo cast" data-cast="../assets/tutorial/fix-an-earlier-commit.cast">
-  <noscript><img src="../assets/tutorial/fix-an-earlier-commit.gif" alt="Adding a heading and using ff absorb to include it in the first task commit"></noscript>
+  <noscript><img src="../assets/tutorial/fix-an-earlier-commit.gif" alt="ff log finding the commit, an edit, and ff absorb folding it into that commit"></noscript>
 </div>
 
-The note needs a heading. Add it at the top, leaving the four existing lines intact:
-
-```sh
-printf '# Parser notes\n' | cat - notes/parser.md > notes/parser.md.new
-mv notes/parser.md.new notes/parser.md
-```
-
-The heading belongs in the first task commit. [`ff absorb`](reference/cli/absorb.md) adds your open edits to that commit; `HEAD~1` selects the commit immediately before the current branch tip:
+Review feedback: the note needs a heading, and it belongs in the first commit. Add a heading at the top of `notes/parser.md`, away from the line you appended in the second commit. [`ff absorb`](reference/cli/absorb.md) folds the edit into the commit it belongs to; `HEAD~1` is the commit just before the current branch tip:
 
 ```console
 $ ff absorb --into HEAD~1
-moved 1 file(s) from the open change into 00df0275: notes: parser skeleton and char stream
+moved 1 file(s) from the open change into 33819a31: notes: parser skeleton and char stream
 restacked 1 commit(s) above it
 undo: ff undo
 ```
 
-The first commit now includes the heading, and the second was replayed above it. Your files already contain the result, so the working copy does not need another edit. The rewritten commits have new SHAs and keep their change IDs. [Rewriting history](guides/rewriting-history.md) covers other ways to move edits between commits.
+The target commit was amended and everything above it replayed in the same operation — no interactive rebase, no autosquash dance, and no file moved on disk. You say where the change belongs, and the restacking is automatic. [Rewriting history](guides/rewriting-history.md) has the rest of the family.
 
-<a id="line-up-then-send"></a>
+<a id="pull-updates-and-push-your-branch"></a>
 
-## Pull updates and push your branch
+## Line up, then send
 
 <div class="demo cast" data-cast="../assets/tutorial/line-up-then-send.cast">
-  <noscript><img src="../assets/tutorial/line-up-then-send.gif" alt="Creating a teammate update in the local remote, pulling it, and pushing parser-stream"></noscript>
+  <noscript><img src="../assets/tutorial/line-up-then-send.gif" alt="ff pull taking in a teammate's commit, then ff push sending the branch"></noscript>
 </div>
 
-Simulate a teammate updating `main` from a second clone. Run these commands from `exercise`, where you already are. They write only to the sibling scratch directories and the disposable local remote:
+This is the collaboration part of the loop. Read it along on your clone of fufu, and try it when you work in a repository where you have push access. Cloning the public project does not give you permission to push to it.
 
-```sh
-command git clone -q ../origin.git ../teammate
-command git -C ../teammate config user.name 'Tutorial Teammate'
-command git -C ../teammate config user.email teammate@example.com
-printf 'A line from a teammate.\n' >> ../teammate/README.md
-command git -C ../teammate commit -qam 'docs: a line from a teammate'
-command git -C ../teammate push -q origin main
-```
-
-[`ff pull`](reference/cli/pull.md) updates your current branch from its base and remote copy. Here it will:
-
-1. Fetch the teammate's commit from `origin`.
-2. Advance local `main` to `origin/main`.
-3. Replay your two task commits onto the updated `main` and update your working files.
+Meanwhile a teammate landed a commit on `main`. [`ff pull`](reference/cli/pull.md) lines your current branch up with its base and its remote copy: fetch the new history, bring `main` level with `origin/main`, then replay your two commits on top.
 
 ```console
 $ ff pull
@@ -287,9 +224,9 @@ main
 undo: ff undo
 ```
 
-Your README now includes the teammate's line, and the parser note still has all five lines. `not published yet` means your task branch has no remote copy. The indented `main` report describes the base branch update. Pull sends no branch updates to the remote; its local branch/file changes are undoable, while fetched objects and tracking refs are separate.
+The indented report is the other branch it moved, here `main`. If nobody has pushed anything new, there is simply nothing to bring in. Pull sends no branch updates; its local branch and file changes are undoable, while fetched objects and tracking refs are separate.
 
-[`ff push`](reference/cli/push.md) sends `parser-stream`:
+Your branch is ready to share. [`ff push`](reference/cli/push.md) sends it and sets up tracking:
 
 ```console
 $ ff push
@@ -298,72 +235,59 @@ the push left the machine — ff undo cannot reach it
 ff undo then ff push rolls the shared copy back, under a lease
 ```
 
-Here `origin` is a directory on the same machine. The standard warning still applies: undo does not change the remote repository, even a local one. Your branch now tracks `origin/parser-stream`.
-
-A lease checks that the remote ref still has the expected value before updating it. Replacing commits also checks fufu's seen record; fast-forwards can proceed without that agreement. A lease does not check ownership, and fufu has no special force-push protection for `main`. For real shared repositories, follow your team's history policy and server-side branch protection. [Pulling and pushing](concepts/push-boundary.md) covers leases and rollback.
+Every push carries a lease: the remote ref must match the expected tip when it is updated. That checks the ref's position, not ownership, and there is no special force-push guard for `main`. Follow your team's shared-history policy. [Pulling and pushing](concepts/push-boundary.md) covers the replacement checks, rollback, and `--dry-run`.
 
 <a id="undo-anything"></a>
 
 ## Undo a local operation
 
 <div class="demo cast" data-cast="../assets/tutorial/undo-anything.cast">
-  <noscript><img src="../assets/tutorial/undo-anything.gif" alt="Resetting the scratch branch by two commits and using ff undo to restore its recorded state"></noscript>
+  <noscript><img src="../assets/tutorial/undo-anything.gif" alt="git reset --hard removing two commits from the local branch, and ff undo putting refs and the tree back"></noscript>
 </div>
 
-The preceding fufu commands recorded this branch and its files. With no new edits since that capture, use raw Git to reset the scratch branch by two commits:
+Back in your practice clone, try recovering from a mistake. The preceding fufu commands recorded your two commits and their files. With no new edits since that capture, reset the `parser-stream` branch by two commits — the sort of thing an overeager agent, or you at 4pm on a Friday, might do by accident:
 
 ```console
 $ command git reset --hard HEAD~2
-HEAD is now at 048cb72 docs: a line from a teammate
+HEAD is now at 0ad8617 docs: a line from a teammate
 ```
 
-The parser note disappears from your working files. This command bypasses a shell Git alias; recovery here relies on the **preceding fufu captures**, not on Git taking a fresh snapshot. One `ff undo` restores the recorded local branch and files:
+`command git` runs raw Git even if you have a shell alias. The recovery point here comes from the **preceding fufu commands**, not from Git taking a fresh snapshot. Your reset will name a different commit if you skipped the collaboration demonstration.
+
+The parser note is gone. One `ff undo` brings refs and working copy back together:
 
 ```console
 $ ff undo
-ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 048cb725 (reset: moving to HEAD~2)
+ff: absorbed 1 change made outside fufu: refs/heads/parser-stream moved to 0ad8617c (reset: moving to HEAD~2)
 undid (a change made outside fufu): absorbed 1 foreign ref change(s)
-  now at 30fc5ecee521 (pushed parser-stream to origin/parser-stream)
-  refs/heads/parser-stream → d1e64ac0
+  now at 5035c044dda5 (pushed parser-stream to origin/parser-stream)
+  refs/heads/parser-stream → 9c1c290f
   1 worktree file(s) restored
 back: ff redo
 ```
 
-fufu observed the outside branch movement, then undid it. The parser note and your two task commits are back. The remote copy was unaffected by both the reset and undo. [`ff redo`](reference/cli/redo.md) would reapply the local reset.
+fufu noticed the foreign ref motion and restored the retained pre-reset state. Edits made after the last successful capture could still have been lost, and undo cannot change a remote. [Snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits) covers exclusions and retention. [`ff redo`](reference/cli/redo.md) goes forward again.
 
-Unsaved buffers, edits made after the last successful capture, ignored untracked files, and oversized working-copy content may not be recoverable. Retention also limits recovery, and undo follows this worktree's chain. See [snapshot coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits).
-
-[`ff history`](reference/cli/history.md) shows available undo steps. `@` is where you are now; `↑1` is one redo ahead, and `↓1` is one undo back:
+Undo repeats — each press steps further back. [`ff history`](reference/cli/history.md) is the map of where you can go: `@` is where the repository stands, each row below is one more `ff undo`, each row above one more `ff redo`. Here is the top of the history from this run:
 
 ```console
 $ ff history
-↑1  5a5c7bd27eed    0s ago  redo  absorbed 1 foreign ref change(s)
-@   30fc5ecee521    0s ago  now   pushed parser-stream to origin/parser-stream
-↓1  60ca6b5a2c88    0s ago  undo  move from the open change into 79fb3f38 on parser-stream
-↓2  516558286c11    0s ago  undo  pre: ff absorb --into HEAD~1
-↓3  00c3b577dce0    0s ago  undo  claim ff/noble-maple as parser-stream
-↓4  55ec0195d90f    0s ago  undo  switch from main to ff/noble-maple
-↓5  b87ac2649f9b    0s ago  undo  switch from ff/noble-maple to main
-↓6  ffb2c921b635    0s ago  undo  pre: ff switch main
-↓7  ab24d91a382e    0s ago  undo  commit on ff/noble-maple: notes: drop whitespace from the stream
-↓8  ad4cc6f80c64    0s ago  undo  pre: ff commit -m notes: drop whitespace from the stream
-↓9  2e47a4a328fe    0s ago  undo  commit on ff/noble-maple: notes: parser skeleton and char stream
-↓10 bb9b4485193d    0s ago  undo  describe pending change on ff/noble-maple
-↓11 f8928822abfd    0s ago  undo  pre: ff status
-↓12 7ecba9417742    0s ago  undo  mint ff/noble-maple at 26306cdd and switch from main
-↓13 54335bdf0956    0s ago  undo  operation log initialized from observed state; earlier operations not undoable
-    (the floor)
+↑1  30b6292bba9b    0s ago  redo  absorbed 1 foreign ref change(s)
+@   5035c044dda5    0s ago  now   pushed parser-stream to origin/parser-stream
+↓1  c5ddbdad8c1a    1s ago  undo  move from the open change into f12fbdec on parser-stream
+↓2  afe01e6f2b3c    1s ago  undo  pre: ff absorb --into f12fbdec
+↓3  83d22784d6bf    1s ago  undo  claim ff/bold-hawk as parser-stream
 ```
 
-The hexadecimal values here are operation IDs, not commit SHAs. `the floor` labels the earliest recovery point. [`ff op show`](reference/cli/op-show.md) inspects an operation; [`ff op restore`](reference/cli/op-restore.md) returns directly to a retained operation state. [Recovery](guides/recovery.md) explains how to choose a recovery command.
+Every row is also an address: [`ff op show <id>`](reference/cli/op-show.md) says what one was, and [`ff op restore <id>`](reference/cli/op-restore.md) lands on it directly instead of pressing undo five times. These hexadecimal addresses are operation IDs; use the ones your history prints.
 
 ## Where you are now
 
-You have created a branch, recorded commits, parked and resumed an edit, amended an earlier commit, pulled an update, pushed your branch, and recovered a local reset. All the exercise repositories are under the temporary directory in `$SCENE`; exit this Bash session when finished to return to your normal environment.
+You have the whole loop: `start` begins, `commit` closes, `switch` parks and resumes, `absorb` puts fixes where they belong, `pull` takes in, `push` sends, and `undo` restores recorded local work. You did not stage, stash, resolve a detached HEAD, or run an interactive rebase.
 
 From here:
 
-- [Adopting fufu](adopting.md) — use it in an existing repository.
-- [Working copy and commits](concepts/changes.md) and [snapshots and undo](concepts/snapshots-and-undo.md) — understand what was recorded.
-- [The command table](comparisons/command-table.md) — find the fufu command for a familiar Git task.
-- [Plain-Git teammates](guides/plain-git-teammates.md) — collaborate through the same repository and remotes.
+- [Changes](concepts/changes.md) and [snapshots and undo](concepts/snapshots-and-undo.md) — the model under what you just did.
+- [Recovery](guides/recovery.md) — the undo cookbook for when things are already on fire.
+- [fufu vs git](comparisons/vs-git.md) — what changes about your day, and the [command table](comparisons/command-table.md) for reflexes.
+- Working alongside people and tools that only speak git: [plain-Git teammates](guides/plain-git-teammates.md).

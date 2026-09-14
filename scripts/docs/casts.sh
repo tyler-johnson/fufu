@@ -13,9 +13,9 @@
 #
 # The demo's lines come from scripts/docs/demo-steps.sh, which
 # scripts/docs/demo-check.sh replays against its golden transcript, and the
-# tutorial's from scripts/docs/tutorial-steps.sh, which the page's
-# transcripts come from, so a recording cannot drift from what the checks
-# and the page carry. Only --check runs in CI; rendering wants agg on PATH
+# tutorial's from scripts/docs/tutorial-steps.sh. Those fixtures exercise
+# the page's workflow; the reader's edits and history can differ from the
+# recordings. Only --check runs in CI; rendering wants agg on PATH
 # and JetBrains Mono installed, and is something a release does by hand.
 #
 # FF names the binary under test; default is `ff` on PATH.

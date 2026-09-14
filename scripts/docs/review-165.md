@@ -1,6 +1,6 @@
 # Integrated documentation review — #165
 
-Verified on September 14, 2026 (UTC), directly on main, from series base `68614022` through `97ac515b` plus this review's fixes, committed as `338c2184`. The review read every #154 handoff and independently inspected current sources, rendered pages, and scratch results. Parent acceptance is complete as recorded below.
+Verified on September 14, 2026 (UTC), directly on main, from series base `68614022` through `97ac515b` plus this review's fixes, committed as `338c2184`. The review read every #154 handoff and independently inspected current sources, rendered pages, and scratch results. Parent acceptance and Tyler's subsequent landing-page/tutorial correction are recorded below; the original check results describe the tree reviewed at that time.
 
 ## Parent acceptance — #154
 
@@ -8,7 +8,15 @@ Accepted on September 14, 2026 (UTC), after all eleven children (#155–#165) fi
 
 Tyler's README correction is satisfied byte for byte against `3f72274d`: light factual edits, original voice and structure, and link-free feature bullets. Historical release notes, changelog history, and the founding design body remain preserved. The consolidated product bugs, policy decisions, unverified suspicion, and measurement boundaries below remain unresolved follow-up work; this acceptance makes no repair, compatibility, or performance promise.
 
-Verification rests on #165's evidence below and the orchestrator's independent rerun at `338c2184`: formatting, workspace/all-target Clippy, the full workspace suite, generation plus four non-rewrite drift checks, strict documentation build, all 39 guide transcripts, and demo replay passed. The final reviewer independently checked the full-suite log totals (**1,908 passed, 0 failed, 0 ignored**), source/page inventory, protected content, acceptance Markdown links, and worktree/base-relative whitespace. Full-suite rerun output: `/home/pi/.local/share/opencode/tool-output/tool_09dcae5db001aj6FJLFkqjbRhl`. Only this acceptance record changed afterward. The untracked `site/` matched #165's archived build byte for byte and was preserved at `/tmp/opencode/fufu-docs-154-orchestrator-site`.
+Verification rests on #165's evidence below and the orchestrator's independent rerun at `338c2184`: formatting, workspace/all-target Clippy, the full workspace suite, generation plus four non-rewrite drift checks, strict documentation build, all 39 guide transcripts, and demo replay passed. The final reviewer independently checked the full-suite log totals (**1,908 passed, 0 failed, 0 ignored**), source/page inventory, protected content, acceptance Markdown links, and worktree/base-relative whitespace. Full-suite rerun output: `/home/pi/.local/share/opencode/tool-output/tool_09dcae5db001aj6FJLFkqjbRhl`. Only this acceptance record changed between that rerun and `81db8862`. The untracked `site/` matched #165's archived build byte for byte and was preserved at `/tmp/opencode/fufu-docs-154-orchestrator-site`.
+
+### User-directed landing page and tutorial correction
+
+After parent acceptance at `81db8862`, Tyler extended the README constraint to `docs/index.md`: preserve the original voice, introduction, structure, and feature bullets, with only the short approved recovery/hooks qualifications. The feature bullets are intentionally link-free; navigation belongs in Where to go. README itself remains unchanged.
+
+Tyler also superseded #158's exact-fixture tutorial requirement. The tutorial again starts by cloning fufu's real repository, motivates each action, and lets readers make their own edits and adapt sample IDs and output. Pull/push is a contextual demonstration for a repository where the reader has push access. Install and adoption introductions follow that narrative. Hermetic fixtures remain contributor tooling; the collaboration recording hides teammate setup and shows pulling and pushing. Final acceptance follows this user-directed illustrative walkthrough, rather than requiring every page command and output to mirror a fixture. The exact tutorial comparisons below remain historical verification of the former page.
+
+Correction checks: dogfood build, strict documentation/asset build, first-command links, shell syntax, formatting, and demo replay passed. The existing rendered-link audit passed on all 91 pages with 7,480 local link/fragment occurrences and 323 pre-series anchors preserved. The tutorial fixture replay passed, and only the collaboration cast/GIF was regenerated and reviewed; the other recordings still illustrate the same actions. README remains byte-identical to `3f72274d`. No new page-mirroring tests were added, and all test pushes remained in disposable local repositories.
 
 ## Coverage
 
@@ -55,7 +63,7 @@ All builds used `CARGO_BUILD_JOBS=1`; Rust tests used `--test-threads=1`. The do
 | `make docs` with `/tmp/opencode/fufu-docs-155-venv/bin` on PATH | Asset validation and MkDocs strict build passed. Material printed its upstream MkDocs-2 notice; no strict-build link or asset finding. |
 | `python3 scripts/docs/guide-transcripts.py` | 39 blocks and state assertions passed: recovery 12, rewriting 10, stacks 7, plain-Git 5, worktrees 5. |
 | Independent guide-scene replay | All 34 fixtures passed separately; 238 displayed commands parsed. Wrong-ID, duplicated-output, setup-failure, and verb-failure probes behaved correctly. |
-| Tutorial source and page replay | 41 command/edit matches, 19 normalized output comparisons, 12 final file/history/remote assertions, and nine failure-propagation probes passed. |
+| Tutorial source and page replay (before the user correction above) | 41 command/edit matches, 19 normalized output comparisons, 12 final file/history/remote assertions, and nine failure-propagation probes passed against the former fixture-style page. |
 | Hook and machine transcript replay | All eight installer/file/removal transcripts and eight valid-JSON projections matched; repeated-ID/prefix relationships checked. |
 | `make demo-check` | Golden demo output and all eight tutorial steps passed on the final binary. Seven existing cast streams and GIF companions validated; recorded terminal output inspected. Recording commands/output did not change, so no re-recording or blessing was needed. |
 | `bash scripts/bench/test_report.sh`; `make bench-docs` | 22 report checks passed. Regeneration preserved historical table cells and raw data; no timing run. |

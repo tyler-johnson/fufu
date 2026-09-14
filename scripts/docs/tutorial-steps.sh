@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# The tutorial's command sequence, in one place. Two things consume it and
-# they must never drift apart: scripts/docs/tutorial-transcript.sh, which
-# prints the console blocks docs/tutorial.md carries, and
-# scripts/docs/casts.sh, which records one clip per section.
+# The tutorial's example scenes, shared by tutorial-transcript.sh and
+# casts.sh. The page walks a reader through fufu's real repository and lets
+# them make their own edits; these small hermetic fixtures exercise the
+# same workflow without network access or writes to the project's remote.
+# Fixture setup and literal editor substitutions are contributor tooling,
+# not commands the tutorial reader needs to reproduce.
 #
 # This file is sourced, not run.
 #
@@ -10,8 +12,8 @@
 #
 #   run|<cmd>    a command the reader types: shown in the transcript, typed
 #                on camera
-#   edit|<cmd>   a file edit or exercise setup: shown in the transcript and
-#                typed on camera, so the reader can reproduce every input
+#   edit|<cmd>   a file edit or fixture setup: shown in the transcript and
+#                typed on camera as a stand-in for editing a file
 #   note|# text  narration: typed on camera only
 #   video|<cmd>  a read-only command a recording opens with so that it stands
 #                on its own — where the page has prose and the section above
@@ -141,16 +143,15 @@ step_fix_an_earlier_commit() {
 
 step_line_up_then_send() {
   printf '%s\n' \
-    "note|# simulate a teammate in a second local clone" \
-    "edit|command git clone -q ../origin.git ../teammate" \
-    "edit|command git -C ../teammate config user.name 'Tutorial Teammate'" \
-    "edit|command git -C ../teammate config user.email teammate@example.com" \
-    "edit|printf 'A line from a teammate.\\n' >> ../teammate/README.md" \
-    "edit|command git -C ../teammate commit -qam 'docs: a line from a teammate'" \
-    "edit|command git -C ../teammate push -q origin main" \
-    "note|# bring that update into this branch" \
+    "set|command git clone -q ../origin.git ../teammate" \
+    "set|command git -C ../teammate config user.name 'Tutorial Teammate'" \
+    "set|command git -C ../teammate config user.email teammate@example.com" \
+    "set|printf 'A line from a teammate.\\n' >> ../teammate/README.md" \
+    "set|command git -C ../teammate commit -qam 'docs: a line from a teammate'" \
+    "set|command git -C ../teammate push -q origin main" \
+    "note|# a teammate landed on main while I worked" \
     "run|ff pull" \
-    "note|# send the branch to the disposable local remote" \
+    "note|# send the branch for review" \
     "run|ff push"
 }
 
@@ -167,8 +168,8 @@ tutorial_step_lines() {
   "step_${1//-/_}"
 }
 
-# Runs a step. `transcript` prints each command and edit as a console block, the
-# way docs/tutorial.md carries it; `quiet` runs the whole step for its
+# Runs a step. `transcript` prints commands, edits, and output for review;
+# `quiet` runs the whole step for its
 # effect, which is how a recording of a later step reaches its own starting
 # state. `set` lines run silently in both.
 tutorial_run_step() {
