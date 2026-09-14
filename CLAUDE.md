@@ -6,8 +6,9 @@
 2. Close `CHANGELOG.md`'s `## Unreleased` as `## vX.Y.Z — <date>`, using the UTC date the cut commit will carry.
 3. Write `.github/release-notes/vX.Y.Z.md`.
 4. Commit as `cut vX.Y.Z`, tag `vX.Y.Z` annotated, push `main`, then push the tag.
+5. Once `release.yml` is green, update `docs/install.md`: the `ff version` block shows `fufu X.Y.Z (<cut commit short hash> <date>)` and the checksum block names `ff_X.Y.Z_linux_amd64.tar.gz`. Commit as `docs: update install examples for vX.Y.Z`.
 
-The tutorial's transcripts follow the release the way install.md's `ff version` block does: when a release changes verb output or moves history, rerun `scripts/docs/tutorial-transcript.sh` and reconcile `docs/tutorial.md`.
+The tutorial's transcripts follow the release the way install.md does: when a release changes verb output or moves history, rerun `scripts/docs/tutorial-transcript.sh` and reconcile `docs/tutorial.md`.
 
 The recordings follow it too, and CI says when: `make demo-check` replays the demo's commands against `scripts/docs/demo.golden.txt` and every tutorial step for its exit status. When it fails, `make demo` re-records the casts and gifs, `docs/assets/demo.*` and the six under `docs/assets/tutorial/` — then `scripts/docs/demo-check.sh --bless`. Rendering needs agg and JetBrains Mono. The demo's commands live in `scripts/docs/demo-steps.sh`; the tutorial's clips and its transcripts come from one file, `scripts/docs/tutorial-steps.sh`, so a change to the tutorial's commands is a change there.
 
