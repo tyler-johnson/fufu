@@ -33,7 +33,7 @@ undo: ff undo
 $ printf 'parser core\n' > parser.txt
 
 $ ff commit -m "parser: core"
-closed caa9ba32 on parser-core: parser: core (1 file(s))
+closed 6a773795 on parser-core: parser: core (1 file(s))
 undo: ff undo
 
 $ ff switch parser-core -b parser-cli
@@ -44,17 +44,17 @@ undo: ff undo
 $ printf 'parser command\n' > cli.txt
 
 $ ff commit -m "cli: parser command"
-closed 77fe87e7 on parser-cli: cli: parser command (1 file(s))
+closed ff5e780e on parser-cli: cli: parser command (1 file(s))
 undo: ff undo
 
 $ ff log
 @  no changes
 │  (no description)
-●  xuzrqtyu 77fe87e7   0s ago
+●  ullormnz ff5e780e   0s ago
 │  cli: parser command
-●  xsoykowr caa9ba32   0s ago
+●  vqmwrqkn 6a773795   0s ago
 │  parser: core
-●  xzvrnxpy ad69bc42   0s ago
+●  okzskrsy 4aacb104   0s ago
 │  demo: initial files
 
 ```
@@ -79,12 +79,12 @@ undo: ff undo
 $ printf 'reviewed parser core\n' > parser.txt
 
 $ ff absorb
-moved 1 file(s) from the open change into c20a7cfc: parser: core
+moved 1 file(s) from the open change into c1b8a2ef: parser: core
 parser-cli followed parser-core: replayed 1 commit(s)
 undo: ff undo
 
 $ ff log -r parser-cli
-●  xuzrqtyu f31ea69a   0s ago
+●  ullormnz 588987d3   0s ago
 │  cli: parser command
 
 ```
@@ -164,41 +164,25 @@ Pushing parser-cli alone transfers the Git objects needed for its history, inclu
 
 ### Inspect local work after a named push
 
-Current limitation: a successful off-branch push records the current checkout's tree as open work for the named target. In this example, main lacks the parser and CLI files, so switching to parser-cli resumes apparent deletions even though its committed and remote history still contains both files. Inspect status after switching.
+Named pushes preserve each target's saved working state. This fixture had no uncommitted work on either target, so switching to parser-cli shows its committed files and a clean working copy. Genuine parked edits resume when you switch to their branch.
 
-The fixture deliberately had no uncommitted work on either target before pushing. It can therefore use [`ff restore --all`](../reference/cli/restore.md) on each branch to recover its committed files, then return to main. With genuine parked edits, use their retained pre-push capture instead; [file recovery](recovery.md#restore-files-by-time-or-snapshot) explains how. Pushing each branch while it is current avoids this off-branch note behavior.
+In v0.16.0, an off-branch push could instead save the current checkout's tree as the target's open work. Switching there could resume apparent deletions or overwrite parked edits. Updating prevents new occurrences but does not reconstruct already affected work. If the branch had no uncommitted edits, [`ff restore --all`](../reference/cli/restore.md) restores its committed files. To recover genuine parked edits, use a retained pre-push capture; [file recovery](recovery.md#restore-files-by-time-or-snapshot) explains how. While using an affected version, push each branch while it is current.
 
 <!-- transcript:after-named-push -->
 ```console
 $ ff switch parser-cli
 switched to parser-cli
-resumed the parked change (2 file(s))
 undo: ff undo
 
 $ ff status
 on parser-cli · nothing to pull
-@  mlwnpvnk 0540b60e   0s ago
+@  no changes
 │  (no description)
-│  D cli.txt    +0  -1  --------------------
-│  D parser.txt +0  -1  --------------------
-│    2 files    +0  -2
-●  xuzrqtyu f1517fca   0s ago
+●  ullormnz 196a010c   1s ago
 │  cli: parser command
-
-$ ff restore --all
-restored from f1517fca (cli: parser command)
-  restored  cli.txt
-  restored  parser.txt
-undo: ff undo
 
 $ ff switch parser-core
 switched to parser-core
-resumed the parked change (1 file(s))
-undo: ff undo
-
-$ ff restore --all
-restored from e8fef718 (parser: core)
-  restored  parser.txt
 undo: ff undo
 
 $ ff switch main
@@ -248,7 +232,7 @@ Prerequisite: two independently based branches touch the same file. This standal
 $ printf 'parser greeting\n' > app.txt
 
 $ ff commit -m "app: parser greeting"
-closed e44a388a on feature: app: parser greeting (1 file(s))
+closed aa28d305 on feature: app: parser greeting (1 file(s))
 undo: ff undo
 
 $ ff switch main -b renamer
@@ -261,14 +245,14 @@ $ printf 'renamed greeting\n' > app.txt
 $ printf 'rename notes\n' > notes.txt
 
 $ ff commit -m "app: rename greeting and add notes"
-closed 854044c4 on renamer: app: rename greeting and add notes (2 file(s))
+closed 11104b93 on renamer: app: rename greeting and add notes (2 file(s))
 undo: ff undo
 
 $ ff collide feature
   renamer  ✕ feature  app.txt
 
 $ ff lift app.txt
-moved 1 file(s) from 854044c4 "app: rename greeting and add notes" into the open change
+moved 1 file(s) from 11104b93 "app: rename greeting and add notes" into the open change
 limited to 1 path(s)
 undo: ff undo
 
@@ -278,7 +262,7 @@ $ ff collide feature
   * has uncommitted work
 
 $ ff restore app.txt
-restored from 87ab3ed9 (app: rename greeting and add notes)
+restored from fc6eff41 (app: rename greeting and add notes)
   restored  app.txt
 undo: ff undo
 

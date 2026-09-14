@@ -93,6 +93,212 @@ fn pushes_recorded(fx: &Fixture, branch: &str) -> usize {
     text.lines().filter(|l| l.contains(&row)).count()
 }
 
+/// Read saved state directly, before another command can capture or resume it.
+fn saved_branch(
+    fx: &Fixture,
+    branch: &str,
+) -> (
+    Option<ff_core::ops::OpId>,
+    Option<String>,
+    ff_core::branchmeta::BranchMeta,
+) {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let open = fx.try_git(&[
+        "rev-parse",
+        "--verify",
+        "-q",
+        &format!("refs/fufu/open/{branch}"),
+    ]);
+    (
+        log.branch_tip(branch).unwrap(),
+        open.status.success().then(|| stdout(&open).trim().into()),
+        ff_core::branchmeta::read(&repo, branch).unwrap(),
+    )
+}
+
+/// Both a first send and an update must preserve a target's clean or parked
+/// state, even when the invoking checkout has different staged and live edits.
+#[test]
+fn named_push_preserves_clean_and_parked_work() {
+    for update in [false, true] {
+        for parked in [false, true] {
+            let fx = two_topics();
+            ok(&ff(&fx, &["switch", "alpha"]));
+            if update {
+                ok(&ff(&fx, &["push"]));
+                fx.write("a.txt", "second commit\n");
+                ok(&ff(&fx, &["commit", "-m", "alpha: second"]));
+            }
+            let committed = std::fs::read(fx.path().join("a.txt")).unwrap();
+            if parked {
+                fx.write("a.txt", "parked edit\n");
+                fx.write("untracked.txt", "parked addition\n");
+                ok(&ff(&fx, &["describe", "-m", "alpha: unfinished"]));
+            }
+            ok(&ff(&fx, &["switch", "main"]));
+            fx.write("root.txt", "staged main\n");
+            fx.git(&["add", "root.txt"]);
+            fx.write("root.txt", "unstaged main\n");
+            fx.write("main-only.txt", "main addition\n");
+            ok(&ff(&fx, &["describe", "-m", "main: unfinished"]));
+            let target_before = saved_branch(&fx, "alpha");
+            assert_eq!(target_before.1.is_some(), parked);
+            let current_before = saved_branch(&fx, "main");
+            let index_before = fx.git(&["write-tree"]);
+            let files_before = fx.git(&["status", "--porcelain"]);
+            let tip = fx.git(&["rev-parse", "alpha"]).trim().to_string();
+
+            ok(&ff(&fx, &["push", "alpha"]));
+
+            assert_eq!(saved_branch(&fx, "alpha"), target_before);
+            let current_after = saved_branch(&fx, "main");
+            assert_eq!(current_after.1, current_before.1, "reuse the open commit");
+            assert_eq!(current_after.2, current_before.2);
+            assert_eq!(fx.git(&["write-tree"]), index_before);
+            assert_eq!(fx.git(&["status", "--porcelain"]), files_before);
+            assert_eq!(
+                std::fs::read_to_string(fx.path().join("root.txt")).unwrap(),
+                "unstaged main\n"
+            );
+            assert_eq!(remote_tip(&fx, "alpha"), Some(tip.clone()));
+            assert_eq!(seen(&fx, "alpha"), Some(tip.clone()));
+            assert!(ff_core::published_tip(&fx.repo(), "alpha", &tip).unwrap());
+
+            ok(&ff(&fx, &["switch", "alpha"]));
+            assert!(!fx.path().join("main-only.txt").exists());
+            if parked {
+                assert_eq!(
+                    std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+                    "parked edit\n"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(fx.path().join("untracked.txt")).unwrap(),
+                    "parked addition\n"
+                );
+                let resumed = saved_branch(&fx, "alpha");
+                assert_eq!(resumed.1, target_before.1);
+                assert_eq!(resumed.2, target_before.2);
+            } else {
+                assert_eq!(std::fs::read(fx.path().join("a.txt")).unwrap(), committed);
+                assert!(fx.git(&["status", "--porcelain"]).is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn a_multi_branch_push_preserves_each_branchs_own_work() {
+    let fx = two_topics();
+    ok(&ff(&fx, &["switch", "alpha"]));
+    fx.write("a.txt", "parked alpha\n");
+    ok(&ff(&fx, &["describe", "-m", "alpha: pending"]));
+    ok(&ff(&fx, &["switch", "main"]));
+    fx.write("root.txt", "dirty main\n");
+    ok(&ff(&fx, &["describe", "-m", "main: pending"]));
+    let alpha = saved_branch(&fx, "alpha");
+    let beta = saved_branch(&fx, "beta");
+    let main = saved_branch(&fx, "main");
+
+    ok(&ff(&fx, &["push", "main", "beta", "alpha"]));
+
+    assert_eq!(saved_branch(&fx, "alpha"), alpha);
+    assert_eq!(saved_branch(&fx, "beta"), beta);
+    let after = saved_branch(&fx, "main");
+    assert_eq!(after.1, main.1);
+    assert_eq!(after.2, main.2);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("root.txt")).unwrap(),
+        "dirty main\n"
+    );
+    for branch in ["alpha", "beta", "main"] {
+        let tip = fx.git(&["rev-parse", branch]).trim().to_string();
+        assert_eq!(remote_tip(&fx, branch), Some(tip.clone()));
+        assert_eq!(seen(&fx, branch), Some(tip.clone()));
+        assert!(ff_core::published_tip(&fx.repo(), branch, &tip).unwrap());
+        assert_eq!(pushes_recorded(&fx, branch), 1);
+    }
+    ok(&ff(&fx, &["switch", "beta"]));
+    assert!(fx.git(&["status", "--porcelain"]).is_empty());
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("b.txt")).unwrap(),
+        "b\n"
+    );
+    ok(&ff(&fx, &["switch", "alpha"]));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "parked alpha\n"
+    );
+}
+
+#[test]
+fn a_named_push_preserves_another_worktrees_state() {
+    let fx = two_topics();
+    let bay = fx.root().join("bay");
+    fx.git(&["worktree", "add", "-q", &bay.to_string_lossy(), "alpha"]);
+    std::fs::write(bay.join("a.txt"), "staged alpha\n").unwrap();
+    fx.git_in(&bay, &["add", "a.txt"]);
+    std::fs::write(bay.join("a.txt"), "live alpha\n").unwrap();
+    std::fs::write(bay.join("new.txt"), "new alpha\n").unwrap();
+    ok(&ff_at(&bay, &["describe", "-m", "alpha: pending"]));
+    ok(&ff(&fx, &["status"]));
+    let before = saved_branch(&fx, "alpha");
+    let index = fx.git_in(&bay, &["write-tree"]);
+    let repo = ff_core::discover(&bay).unwrap();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let log_before = log.tip().unwrap();
+
+    ok(&ff(&fx, &["push", "alpha"]));
+
+    assert_eq!(saved_branch(&fx, "alpha"), before);
+    assert_eq!(log.tip().unwrap(), log_before);
+    assert_eq!(fx.git_in(&bay, &["write-tree"]), index);
+    assert_eq!(
+        std::fs::read_to_string(bay.join("a.txt")).unwrap(),
+        "live alpha\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(bay.join("new.txt")).unwrap(),
+        "new alpha\n"
+    );
+    assert!(!fx.path().join("a.txt").exists());
+    assert_eq!(
+        remote_tip(&fx, "alpha"),
+        Some(fx.git(&["rev-parse", "alpha"]).trim().into())
+    );
+}
+
+#[test]
+fn undo_and_redo_across_a_named_push_preserve_the_target() {
+    let fx = two_topics();
+    ok(&ff(&fx, &["status"]));
+    let main = fx.git(&["rev-parse", "main"]);
+    fx.write("root.txt", "main change\n");
+    ok(&ff(&fx, &["commit", "-m", "main: change"]));
+    let closed = fx.git(&["rev-parse", "main"]);
+    let alpha = saved_branch(&fx, "alpha");
+    ok(&ff(&fx, &["push", "alpha"]));
+    let sent = remote_tip(&fx, "alpha").unwrap();
+
+    for command in ["undo", "redo"] {
+        ok(&ff(&fx, &[command]));
+        assert_eq!(fx.git(&["branch", "--show-current"]).trim(), "main");
+        assert_eq!(
+            fx.git(&["rev-parse", "main"]),
+            if command == "undo" { &main } else { &closed }.clone()
+        );
+        assert_eq!(
+            std::fs::read_to_string(fx.path().join("root.txt")).unwrap(),
+            "main change\n"
+        );
+        assert!(!fx.path().join("a.txt").exists());
+        assert_eq!(saved_branch(&fx, "alpha"), alpha);
+        assert_eq!(remote_tip(&fx, "alpha"), Some(sent.clone()));
+        assert_eq!(seen(&fx, "alpha"), Some(sent.clone()));
+        assert!(ff_core::published_tip(&fx.repo(), "alpha", &sent).unwrap());
+    }
+}
+
 /// Bare push is the branch underfoot, rendered as it always was: no block,
 /// the line, the tail. `alpha` and `beta` keep no copy, and the envelope
 /// files the one row the run had.
@@ -294,8 +500,13 @@ fn a_refused_lease_is_that_branchs_alone_and_the_exit_is_1() {
     let fx = two_topics();
     let theirs = beta_moved_under_alpha_and_beta(&fx);
     let alpha = fx.git(&["rev-parse", "alpha"]).trim().to_string();
+    ok(&ff(&fx, &["--no-fetch", "status"]));
+    let alpha_before = saved_branch(&fx, "alpha");
+    let beta_before = saved_branch(&fx, "beta");
 
     let output = ff(&fx, &["push", "alpha", "beta"]);
+    assert_eq!(saved_branch(&fx, "alpha"), alpha_before);
+    assert_eq!(saved_branch(&fx, "beta"), beta_before);
     assert_eq!(output.status.code(), Some(1), "{}", out(&output));
     assert_eq!(
         stdout(&output),
@@ -391,8 +602,12 @@ fn a_held_branch_is_blocked_beside_one_that_lands_at_exit_3() {
     fx.commit("theirs");
     let held = ff(&fx, &["pull", "--no-fetch", "side"]);
     assert_eq!(held.status.code(), Some(3), "fixture: {}", out(&held));
+    let clean_before = saved_branch(&fx, "clean");
+    let held_before = saved_branch(&fx, "side");
 
     let output = ff(&fx, &["push", "side", "clean"]);
+    assert_eq!(saved_branch(&fx, "clean"), clean_before);
+    assert_eq!(saved_branch(&fx, "side"), held_before);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
     assert_eq!(
         stdout(&output),
@@ -500,14 +715,60 @@ fn push_creates_a_copy_of_its_own_beside_the_base_it_tracked() {
     );
 }
 
+/// A receipt on main can still carry a parent transition for the pushed
+/// target, including when undo and redo move past that receipt.
+#[test]
+fn a_named_push_records_the_targets_upstream_alias_parent() {
+    let fx = feature_tracking_main();
+    fx.write("f.txt", "parked feature\n");
+    ok(&ff(&fx, &["describe", "-m", "feature: pending"]));
+    ok(&ff(&fx, &["switch", "main"]));
+    let before = saved_branch(&fx, "feature");
+    assert_eq!(before.2.parent, None);
+    let main_before = saved_branch(&fx, "main");
+
+    ok(&ff(&fx, &["push", "feature"]));
+
+    let after = saved_branch(&fx, "feature");
+    assert_eq!(after.0, before.0);
+    assert_eq!(after.1, before.1);
+    let mut expected = before.2.clone();
+    expected.parent = Some("origin/main".into());
+    assert_eq!(after.2, expected);
+    assert_eq!(saved_branch(&fx, "main").2, main_before.2);
+    assert_eq!(
+        fx.git(&["config", "branch.feature.merge"]).trim(),
+        "refs/heads/feature"
+    );
+    let sent = remote_tip(&fx, "feature").unwrap();
+
+    for command in ["undo", "redo"] {
+        ok(&ff(&fx, &[command]));
+        let expected_parent = (command == "redo").then(|| "origin/main".to_string());
+        assert_eq!(saved_branch(&fx, "feature").2.parent, expected_parent);
+        assert_eq!(remote_tip(&fx, "feature"), Some(sent.clone()));
+        assert_eq!(seen(&fx, "feature"), Some(sent.clone()));
+        assert!(ff_core::published_tip(&fx.repo(), "feature", &sent).unwrap());
+    }
+    ok(&ff(&fx, &["switch", "feature"]));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "parked feature\n"
+    );
+}
+
 /// `--dry-run` with names says which push each would be and sends none:
 /// one closing line for the run, no copy on the far side, nothing on the
 /// log, and the envelope says so.
 #[test]
 fn a_dry_run_with_names_says_would_and_sends_nothing() {
     let fx = two_topics();
+    let alpha = saved_branch(&fx, "alpha");
+    let beta = saved_branch(&fx, "beta");
 
     let text = ok(&ff(&fx, &["push", "-n", "alpha", "beta"]));
+    assert_eq!(saved_branch(&fx, "alpha"), alpha);
+    assert_eq!(saved_branch(&fx, "beta"), beta);
     assert_eq!(
         text,
         "alpha\n    would create origin/alpha and set alpha to track it\n\

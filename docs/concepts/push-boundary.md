@@ -41,7 +41,7 @@ Pull's recorded local branch and file updates form one [undoable operation](snap
 
 Bare `ff push` sends the current branch. `ff push parser-fix parser-tests` sends only those branches, each to its own remote copy. Bases and children are not included automatically, and there is no `--all` option. No other fufu command pushes as a default side effect.
 
-Current off-branch pushes can replace a named target's open state with the current checkout's tree. Prefer pushing each branch while current; [the named-push recipe](../guides/stacked-changes.md#inspect-local-work-after-a-named-push) shows the effect and capture-based recovery.
+Named pushes preserve each target's parked work. Push notes belong to the branch where the command ran and name the branch sent. If an earlier off-branch push in v0.16.0 affected your saved work, see [recovery after a named push](../guides/stacked-changes.md#inspect-local-work-after-a-named-push).
 
 | Remote copy | What push does |
 | --- | --- |

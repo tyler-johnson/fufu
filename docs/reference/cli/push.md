@@ -55,7 +55,7 @@ Options:
 
 Names accept unique local branch prefixes. Bases and dependents are not sent automatically; name every branch you want to send. There is no `--all`.
 
-Current off-branch push notes can replace a named target's open state with this checkout's tree. Prefer pushing each branch while current. If already affected, inspect retained pre-push captures before recovering parked edits; see the [stack guide](../../guides/stacked-changes.md).
+Named pushes preserve the target branches' parked work. Each push note records the invoking checkout's state and belongs to its branch in the operation log; the note names the branch sent, whose published and seen records are updated separately. For recovery from the off-branch push bug in v0.16.0, see the [stack guide](../../guides/stacked-changes.md#inspect-local-work-after-a-named-push).
 
 A branch without a remote copy gets one with tracking configured. An upstream named after another branch, such as feature tracking origin/main, is treated as its base: push creates origin/feature and records origin/main as the base. A previously deleted copy is recreated with a lease requiring that it remain absent.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [`ff push`](docs/reference/cli/push.md) records named off-branch pushes on the invoking checkout's timeline, preserving the target branches' open changes and saved timelines. Previously affected parked edits still require recovery from retained pre-push captures.
+
 ## v0.16.0 — 2026-09-14
 
 ### Added

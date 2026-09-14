@@ -51,7 +51,7 @@ Repository commands normally attempt a snapshot before acting, subject to their 
 | Fetch and update current work | `git pull --rebase` | [`ff pull`](../reference/cli/pull.md) | Reconciles the current branch with its remote copy and required local bases; names or `--all` widen selection. Not just a fetch. |
 | Preview a pull | Fetch, then inspect | `ff pull --dry-run` | Skips local replay but still fetches objects, tracking refs, and tags unless `--no-fetch`; [dry-run effects](../concepts/push-boundary.md#fetching-and-dry-runs) include maintenance. |
 | Send a branch | `git push`, `--force-with-lease`, `-u` | [`ff push`](../reference/cli/push.md) | Current branch by default; `--to <remote>` records the destination. Replacements require seen/tracking agreement and an expected remote-tip lease. No branch-ownership check. |
-| Send named branches | `git push <remote> <refspec>…` | `ff push <branch>…` | Each send has its own result. Review the current [off-branch open-state issue](../guides/stacked-changes.md#inspect-local-work-after-a-named-push) before using this form. |
+| Send named branches | `git push <remote> <refspec>…` | `ff push <branch>…` | Each send has its own result and preserves the target's parked work. See [named pushes](../guides/stacked-changes.md#push-each-branch-under-its-own-lease). |
 
 ## Manage branches, worktrees, and remotes
 

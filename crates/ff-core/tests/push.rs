@@ -252,6 +252,58 @@ fn a_dry_run_plans_the_same_push_and_writes_nothing() {
 // A real bare remote, because an undone push only exists on the far side
 // of a push and every other test here fakes the remote with `update-ref`.
 
+/// A named push records the invoking checkout's state. The target's own
+/// saved state is independent of the receipt and the published/seen refs.
+#[test]
+fn an_off_branch_push_note_belongs_to_the_invoking_checkout() {
+    let fx = Fixture::new();
+    let target = feature(&fx);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("root.txt", "staged\n");
+    fx.git(&["add", "root.txt"]);
+    fx.write("root.txt", "unstaged\n");
+    let repo = fx.repo();
+    let pre = ff_core::preflight::preflight_branch(
+        &repo,
+        ff_core::preflight::Verb::Push,
+        "feature",
+        None,
+    )
+    .unwrap();
+    let ctx = ff_core::push::begin(&repo, false, Some(NOW), &prov())
+        .unwrap()
+        .unwrap();
+    let report = PushReport {
+        branch: "feature".into(),
+        push: ff_core::push::plan(&repo, &pre).unwrap(),
+        dry_run: false,
+    };
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let target_before = log.branch_tip("feature").unwrap();
+    let head = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let index = fx.git(&["write-tree"]).trim().to_string();
+    let id = ff_core::push::record(&repo, &pre, &report, &ctx, &prov())
+        .unwrap()
+        .unwrap();
+    let note = log.get(id).unwrap();
+    assert_eq!(note.kind(), ff_core::ops::OpKind::Note);
+    assert_eq!(note.branch(), Some("main"));
+    assert_eq!(note.tree(), ctx.pre_tree);
+    assert_eq!(note.base().unwrap().to_string(), head);
+    assert_eq!(note.index_tree().unwrap().unwrap().to_string(), index);
+    assert_eq!(log.branch_tip("main").unwrap(), Some(id));
+    assert_eq!(log.branch_tip("feature").unwrap(), target_before);
+    let record = note.record().unwrap().unwrap();
+    assert_eq!(record.summary, "pushed feature to origin/feature");
+    assert_eq!(record.published.as_ref().unwrap().to, target);
+    assert!(ff_core::published_tip(&repo, "feature", &target).unwrap());
+    assert_eq!(
+        fx.git(&["rev-parse", "refs/fufu/seen/feature"]).trim(),
+        target
+    );
+    assert!(!ff_core::ever_published(&repo, "main").unwrap());
+}
+
 /// Push `branch` to the fixture's real remote, then record it the way
 /// `ff push` does: plan, push, record.
 fn push_for_real(fx: &Fixture, branch: &str) -> PushReport {

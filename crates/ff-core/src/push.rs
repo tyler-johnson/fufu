@@ -427,10 +427,11 @@ pub fn record(
             planned: observe_refs(repo)?,
             tree: ctx.pre_tree,
             index_tree: crate::index::tree_from_index(repo)?,
-            // The branch preflight read, not the chain name — this row is
-            // looked up by `published::published_tip` along exactly that
-            // branch's pointer, and the two must be one name.
-            branch: pre.branch.clone(),
+            // The receipt carries this checkout's tree and index, so it
+            // belongs to this branch. Naming an off-branch target here
+            // would replace its parked work with this checkout's state.
+            // Published and seen refs below remember the target separately.
+            branch: crate::snapshot::chain::chain_name(&head),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
             pins: &pins,

@@ -35,22 +35,25 @@ if fresh stack; then
 
     printf '<!-- transcript:push-stack -->\n```console\n'
     run 'ff switch main'
+    core_saved=$(tip refs/fufu/snap/parser-core)
+    cli_saved=$(tip refs/fufu/snap/parser-cli)
     run 'ff push parser-core parser-cli'
     [[ $(git --git-dir="$CASE/origin.git" rev-parse parser-core) == "$(tip parser-core)" ]]
     [[ $(git --git-dir="$CASE/origin.git" rev-parse parser-cli) == "$(tip parser-cli)" ]]
-    # Current off-branch push notes associate the current tree with the target.
-    # Verify and expose the resulting open-work difference before recovering it.
-    [[ $(tip 'refs/fufu/open/parser-cli^{tree}') == "$(tip 'main^{tree}')" ]]
+    # Check saved state before switching can append another operation.
+    [[ $(tip refs/fufu/snap/parser-core) == "$core_saved" ]]
+    [[ $(tip refs/fufu/snap/parser-cli) == "$cli_saved" ]]
+    absent_ref refs/fufu/open/parser-core
+    absent_ref refs/fufu/open/parser-cli
     end
 
     printf '<!-- transcript:after-named-push -->\n```console\n'
     run 'ff switch parser-cli'
-    [[ ! -e cli.txt && ! -e parser.txt ]]
     run 'ff status'
-    run 'ff restore --all'
+    [[ -z $(git status --porcelain) ]]
     [[ $(<cli.txt) == 'parser command' && $(<parser.txt) == 'reviewed parser core' ]]
     run 'ff switch parser-core'
-    run 'ff restore --all'
+    [[ -z $(git status --porcelain) ]]
     [[ $(<parser.txt) == 'reviewed parser core' ]]
     run 'ff switch main'
     end
