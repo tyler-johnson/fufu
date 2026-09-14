@@ -504,7 +504,7 @@ fn a_divergent_change_is_refused_by_name() {
     assert!(ff(&fx, &["show", &new]).status.success());
     let explained = ff(&fx, &["explain", "usage/revset-divergent"]);
     assert!(explained.status.success(), "{}", stderr(&explained));
-    assert!(stdout(&explained).contains("more than one visible commit"));
+    assert!(stdout(&explained).contains("one change ID identifies multiple visible commits"));
 
     // Move the stale ref away and the id resolves again.
     fx.git(&["branch", "-D", "stale"]);

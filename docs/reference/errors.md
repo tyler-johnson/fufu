@@ -1,164 +1,174 @@
-# Error ids
+# Error IDs
 
-Structured failures carry a machine id such as `ref/contended`, `usage/bad-flags`, or `held/rewrite-conflict`. Scripts should branch on `error.id` rather than message prose. Error IDs have changed across releases while the envelope stayed at `ff: 1`; pin and test supported versions as described in [JSON compatibility](../agents/machine-surface.md#compatibility-in-current-releases).
+Use [`ff explain <id>`](cli/explain.md) to read what a structured failure means and how to proceed. Copy the ID from the error, such as `branch/exists` or `held/moved`. `ff explain` works outside a repository; `ff explain --list` lists the installed binary's catalog.
 
-A refusal does not imply the invocation made no disk writes or network requests. Capture, reconciliation, or automatic fetching may already have run, and a multi-branch report can include successful updates before a hold or refusal. Inspect the report for those outcomes.
+Read the specific message before using a suggested command. Replace placeholders such as `<branch>`, `<path>`, and `<op>` with your own values, and retain the original command's targets and flags when retrying. Suggestions are diagnostic steps or choices with prerequisites, not a script to run from top to bottom. The [revisions and IDs reference](revisions.md) explains which arguments take commit SHAs, change IDs, or operation IDs.
 
-[`ff explain <id>`](cli/explain.md) has the long form of each, with the ways out. `ff explain --list` prints this same table from the binary you have, and `ff explain --list --json` hands it over as data, each entry carrying its `exit`.
+A refusal does not imply the invocation made no disk writes or network requests. Capture, reconciliation, hooks, or fetching may already have run. A multi-branch command can update some branches before another refuses. Inspect the report and the named checkout's state before deciding whether to retry, resolve, or recover.
+
+For scripts, `ff explain --list --json` returns entries with `id`, `summary`, `detail`, `exits`, and `exit`. Structured command failures use `error.id`; prefer that over parsing message prose. IDs and payloads have changed across releases while the envelope stayed at `ff: 1`, so [pin and test supported versions](../agents/machine-surface.md#compatibility-in-current-releases).
 
 ## Exit codes
 
-Five codes, one meaning each:
+Interpret the process exit together with its error or data report:
 
 | code | meaning |
 | --- | --- |
-| 0 | done — or yes, for a command that answers a question |
-| 1 | no — the command failed, or the check's answer is negative |
-| 2 | the command line was wrong |
-| 3 | held — a human decision is required, and the branch that held was not touched |
-| 4 | contended — nothing was touched, and the same command run again is the answer |
+| 0 | Success; inspect any per-branch holds or skips in the report. |
+| 1 | Failure or a negative check result; a multi-branch push may have partly succeeded. |
+| 2 | Invalid, unsupported, or incompatible command-line input. |
+| 3 | Held outcome or a `held/*` refusal requiring attention; not proof that a resolution session exists. |
+| 4 | A ref update was contended; inspect any partial progress before a bounded retry. |
 
-The code follows the id: `usage/*` exits 2, `held/*` exits 3, `ref/contended` exits 4, everything else exits 1. For a script, 3 and 4 are the two codes that mean a branch was not moved, and they ask opposite things.
+For a structured error, the code follows its ID: `usage/*` exits 2, `held/*` exits 3, `ref/contended` exits 4, and other IDs exit 1. Successful data reports have command-specific rules. [`ff pull`](cli/pull.md) and [`ff restack`](cli/restack.md) can report holds at exit 3; [`ff describe`](cli/describe.md), [`ff absorb`](cli/absorb.md), [`ff lift`](cli/lift.md), and [`ff done`](cli/done.md) can land their primary update and report downstream holds at exit 0. [`ff push`](cli/push.md) exits 1 for any refused send, otherwise 3 when a selected branch is blocked by a hold. See [conflict reports](../concepts/held-rewrites.md#reading-conflict-reports) and [command-specific machine output](../agents/machine-surface.md).
 
-- On 3, stop and surface it. A [held rewrite](../concepts/held-rewrites.md) is parked on the branch that conflicted, whatever else the run landed stands, and only a person can say what happens next.
-- On 4, run the same command again, with a cap. Contention is another writer holding the ref for a moment, but a lock file nobody clears makes the answer the same every time, so retry a few times and then surface that.
+- On 3, inspect the ID and branch. A recorded [held rewrite](../concepts/held-rewrites.md) can be opened with [`ff resolve`](cli/resolve.md), but `held/op-revert` is an applicability refusal with no hold to resolve. Abandoning a rewrite resolution drops both its session and hold; retrying the original rewrite is how to start again. A parked-change arrival resolves in place and has no session for `ff done`.
+- On 4, wait for the competing writer and cap retries. Contention can be reported after capture, after other writes, or after a whole-state restoration has applied but its operation pointer has not moved. Read the diagnostic and inspect [`ff status`](cli/status.md) and [`ff op log`](cli/op-log.md) when it reports partial progress. Keep explicit target IDs for retries; relative addresses can change meaning after a write.
 
-The near miss is `push/unrecorded`, which stays at 1: the push landed and only the operation log lost the race to record it, so the tree did move, and re-running [`ff push`](../reference/cli/push.md) records it.
+`push/unrecorded` exits 1 after a successful remote update and failed local bookkeeping. The note, published pointer, and seen pointer are separate writes, so some may already exist. Inspect the remote and local log, then fix the reported write problem. Another push can report “nothing to push” without repairing a missing record; a reporting pull updates seen state but does not recreate a missing push note or published pointer. Local undo cannot reverse the remote update. See [leases and push records](../concepts/push-boundary.md#push-carries-a-lease).
+
+## Choosing a repair
+
+- **Wrong name or selection:** inspect the available branches, paths, or IDs and retry with a supported expression. An incomplete expression, an empty result, an ambiguous prefix, and divergent copies of one change ID are different failures.
+- **Unfinished Git operation:** use `git status` in the checkout named in the message, then complete or abort that operation with Git. A rebase, merge, cherry-pick, revert, mailbox application, or bisect has its own completion commands.
+- **Missing Git or signing program:** install or repair the named executable in the invoking environment. [`ff doctor`](cli/doctor.md) checks configuration and program availability but does not prove that credentials or signing keys work. It can capture, fetch, and run maintenance even without `--fix`.
+- **Strict-policy refusal:** use a fufu command when it matches the intended task, or explicitly change the policy before using the Git passthrough. Strict currently refuses tag pushes even though fufu's push command sends branches only. See [Git policy](../concepts/two-regimes.md#which-program-ran).
+- **Missing recovery data:** select an available retained state. Force options cannot recreate missing objects, and increasing retention cannot recover already removed history. Ignored untracked files, oversized content, uncaptured edits, and unsaved buffers need the [coverage limits](../concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ## The index
 
-Every id in the registry behind `ff explain`, one row each, with the code it exits and its one-line meaning. Two ids are structural rather than raised. `internal` is what every uncoded failure reports, and its message is the whole of what is known. `repo/not-found` is the command running somewhere no git repository can be found. The table is generated from `crates/ff-cli/src/explain.rs` by a test — edit there, then `make docs-gen`.
+The table lists all 127 catalog entries with their structured-error exit codes. `internal` is the fallback for unclassified failures. `repo/not-found` covers repository-discovery failures. The installed binary's `ff explain --list` is the catalog to use when it differs from this page.
 
 <!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a test; edit there, then make docs-gen -->
 
 | id | exit | meaning |
 | --- | --- | --- |
-| `absorb/into-trunk` | 1 | the default target sits on trunk |
+| `absorb/into-trunk` | 1 | absorb's implicit target would rewrite a trunk commit |
 | `branch/ambiguous` | 1 | that name matches more than one branch |
 | `branch/checked-out-elsewhere` | 1 | another worktree has that branch checked out |
-| `branch/exists` | 1 | a branch of that name already exists |
-| `branch/invalid-name` | 1 | git would not accept that branch name |
-| `branch/is-current` | 1 | that is the branch you are on |
-| `branch/not-found` | 1 | no branch of that name, here or on a remote |
-| `branch/shared-lease-refused` | 1 | the shared copy moved since you last looked, so it was not deleted |
-| `branch/shared-moved` | 1 | the shared copy is not where fufu last showed it, so nothing was deleted |
-| `branch/shared-unseen` | 1 | fufu has no record of looking at the shared copy, so nothing was deleted |
-| `clone/bad-url` | 1 | that is not a URL fufu can address |
-| `clone/failed` | 1 | the pack arrived and the working copy could not be written |
-| `clone/refused` | 1 | the remote answered, and said no |
-| `clone/target-exists` | 1 | the directory to clone into already has something in it |
-| `clone/unreachable` | 1 | the remote never answered |
-| `commit/empty` | 1 | there is nothing to close: the tree matches HEAD |
-| `edit/not-in-history` | 1 | that commit is not in the branch you are standing on |
-| `editor/failed` | 1 | the editor did not produce a description |
-| `fetch/not-here` | 1 | --fetch on a verb that reads nothing from the remote |
-| `fold/conflict` | 1 | the replay would conflict, so nothing was folded |
-| `fold/other-tree-conflict` | 1 | the target's open change in the other worktree would conflict with the fold |
-| `fold/remote-target` | 1 | the target lives on a remote, and fold lands into a local branch only |
-| `fold/trunk-source` | 1 | trunk is what branches fold into, and folds into nothing |
-| `held/already-held` | 3 | a rewrite is already held on this branch |
-| `held/expired` | 3 | the held rewrite no longer has a question to answer |
-| `held/moved` | 3 | the repository changed while the resolution was open |
-| `held/none` | 3 | nothing is held on this branch |
-| `held/op-revert` | 3 | the inversion conflicts with work done since |
-| `held/resolving` | 3 | a resolution of this hold is already open |
-| `held/rewrite-conflict` | 3 | the rewrite stops at a commit it cannot replay |
-| `held/unresolved` | 3 | conflict markers are still standing in the working copy |
-| `held/unsupported` | 3 | the held rewrite selected paths, and the open change reaches beyond them |
-| `hook/declined` | 1 | one of your git hooks refused the commit |
-| `identity/missing` | 1 | git has no name and email to sign work with |
-| `init/bare` | 1 | ff init was asked for a bare repository |
-| `init/failed` | 1 | the repository could not be created there |
+| `branch/exists` | 1 | a branch with that name already exists |
+| `branch/invalid-name` | 1 | that branch name is not a valid Git ref name |
+| `branch/is-current` | 1 | the branch to delete is the current branch |
+| `branch/not-found` | 1 | the requested branch or ref was not found |
+| `branch/shared-lease-refused` | 1 | the remote refused the deletion lease after the local branch was deleted |
+| `branch/shared-moved` | 1 | the remote-tracking tip differs from the seen record; deletion was refused |
+| `branch/shared-unseen` | 1 | there is no seen record for the remote copy; deletion was refused |
+| `clone/bad-url` | 1 | the clone URL, name, or destination setup is invalid |
+| `clone/failed` | 1 | objects arrived but the working-copy checkout failed |
+| `clone/refused` | 1 | clone could not fetch the requested repository or branch |
+| `clone/target-exists` | 1 | the clone destination is not empty |
+| `clone/unreachable` | 1 | the clone transport could not establish a connection |
+| `commit/empty` | 1 | there are no selected changes to commit |
+| `edit/not-in-history` | 1 | the commit to edit is not in the current branch's history |
+| `editor/failed` | 1 | the description editor could not start or exited unsuccessfully |
+| `fetch/not-here` | 1 | this command does not support the --fetch preflight |
+| `fold/conflict` | 1 | the source cannot replay cleanly onto the fold target |
+| `fold/other-tree-conflict` | 1 | the target worktree's open change conflicts with the fold result |
+| `fold/remote-target` | 1 | fold requires a local target branch |
+| `fold/trunk-source` | 1 | fold cannot remove trunk as its source branch |
+| `held/already-held` | 3 | the named branch already has a held rewrite blocking this request |
+| `held/expired` | 3 | the held request or its resolution state can no longer be used |
+| `held/moved` | 3 | the current rewrite no longer produces the conflicts this session was opened for |
+| `held/none` | 3 | the current branch has no held request to resolve or abandon |
+| `held/op-revert` | 3 | refs no longer have the values required to invert this operation |
+| `held/resolving` | 3 | a resolution session for this hold is already open |
+| `held/rewrite-conflict` | 3 | a commit could not be replayed over the requested rewrite |
+| `held/unresolved` | 3 | the resolution still has markers or produces another replay conflict |
+| `held/unsupported` | 3 | the current open change prevents this hold from being resolved |
+| `hook/declined` | 1 | a commit-time Git hook exited unsuccessfully |
+| `identity/missing` | 1 | the commit author name or email is not configured |
+| `init/bare` | 1 | ff init does not create bare repositories |
+| `init/failed` | 1 | the repository could not be created at that path |
 | `internal` | 1 | an unclassified failure |
-| `op/ambiguous` | 1 | that id prefix matches more than one operation |
-| `op/floor` | 1 | there is nothing recorded before that operation |
-| `op/not-found` | 1 | no operation goes by that id |
-| `op/nothing-to-redo` | 1 | there is no forward step to take |
-| `op/trimmed` | 1 | that operation is no longer on the log |
-| `op/unreadable` | 1 | an operation on the log could not be decoded |
-| `pull/ambiguous-remote` | 1 | more than one remote, and nothing says which one this branch answers to |
-| `pull/fetch-failed` | 1 | git could not fetch from the remote |
-| `push/failed` | 1 | the push did not go through |
-| `push/lease-refused` | 1 | the remote moved since you last looked at it |
-| `push/no-git` | 1 | git is not on PATH, and pushing still needs it |
-| `push/rejected` | 1 | the remote refused the push |
-| `push/retarget` | 1 | the branch already answers to a different remote |
-| `push/unknown-remote` | 1 | --to named a remote this repository does not have |
-| `push/unreachable` | 1 | the remote never answered |
-| `push/unrecorded` | 1 | the push went through and the log could not write it down |
-| `push/unseen` | 1 | fufu has no record of looking at the shared copy, and it holds commits you lack |
-| `ref/contended` | 4 | another process is holding that ref |
-| `repo/bare` | 1 | this is a bare repository, and the verb needs a working copy |
-| `repo/detached` | 1 | HEAD is not on a branch |
-| `repo/mid-operation` | 1 | git is in the middle of something |
-| `repo/not-found` | 1 | no git repository here, or in any parent directory |
-| `restack/no-base` | 1 | there is no base to replay this branch onto |
-| `restack/own-remote` | 1 | a branch cannot be restacked onto its own shared copy |
-| `restack/unrelated` | 1 | the branch and its base share no history |
-| `restore/nothing-selected` | 1 | restore was given nothing to restore |
-| `revset/deferred-descendants` | 1 | descendants are not available yet |
-| `revset/regex-unavailable` | 1 | regex patterns are recognized but not available yet |
-| `rewrite/merge-in-range` | 1 | a merge commit sits in the range being replayed |
-| `rewrite/not-in-history` | 1 | that commit is not in the history under you |
-| `session/moved` | 1 | the session branch has commits of its own now |
-| `session/none` | 1 | there is no editing session to finish |
-| `session/open` | 1 | you are already inside an editing session |
-| `session/unreachable` | 1 | the edited commit has left the branch the session lands on |
-| `sign/failed` | 1 | the signing program ran and refused |
-| `sign/no-key` | 1 | ssh signing needs a key and user.signingkey is empty |
-| `sign/no-program` | 1 | the signing program is not on PATH |
-| `sign/unknown-format` | 1 | gpg.format names a signing format fufu does not know |
-| `switch/nothing-opened` | 1 | -m describes a change the switch opens, and this switch opens none |
-| `target/unresolvable` | 1 | that target resolves, but not to something this verb can use |
-| `undo/not-undoable` | 1 | that operation has nothing in it to invert |
-| `undo/nothing` | 1 | the operation log has nothing left to undo |
-| `undo/trimmed` | 1 | the state that undo would put back has been trimmed away |
-| `usage/absorb-into-open` | 2 | absorb was aimed at the open change with nothing else to move |
-| `usage/at-op-unsupported` | 2 | that verb does not read a past state yet |
-| `usage/bad-flags` | 2 | those flags do not go together |
-| `usage/bad-restore-target` | 2 | --at was given something that is neither an age nor a date |
-| `usage/bad-session` | 2 | that is not a usable session name |
-| `usage/bad-value` | 2 | the value did not parse as this setting's type |
-| `usage/collide-same-branch` | 2 | collide was given one branch twice |
+| `op/ambiguous` | 1 | that hexadecimal prefix matches more than one retained operation |
+| `op/floor` | 1 | the request steps before the earliest retained operation |
+| `op/not-found` | 1 | the requested operation or recovery source was not found |
+| `op/nothing-to-redo` | 1 | there is no available redo step from the current operation tip |
+| `op/trimmed` | 1 | that operation is outside retained live history |
+| `op/unreadable` | 1 | required operation or ref data is unavailable or unusable |
+| `pull/ambiguous-remote` | 1 | multiple remotes are configured and this branch has no selected remote |
+| `pull/fetch-failed` | 1 | the remote fetch or its repository setup failed |
+| `push/failed` | 1 | Git failed to complete the requested remote update |
+| `push/lease-refused` | 1 | the expected remote tip no longer permits this push |
+| `push/no-git` | 1 | fufu could not start Git for the network operation |
+| `push/rejected` | 1 | the remote rejected the requested ref update |
+| `push/retarget` | 1 | --to conflicts with the branch's configured remote |
+| `push/unknown-remote` | 1 | --to named a remote that is not configured |
+| `push/unreachable` | 1 | Git reported a connection, authentication, or repository failure |
+| `push/unrecorded` | 1 | the remote update succeeded but local push bookkeeping failed |
+| `push/unseen` | 1 | replacing remote commits requires a seen record that is missing |
+| `ref/contended` | 4 | a ref update lost a race or could not acquire its lock |
+| `repo/bare` | 1 | this is a bare repository, and the command needs a working copy |
+| `repo/detached` | 1 | the command needs a branch with a usable current state |
+| `repo/mid-operation` | 1 | an unfinished Git operation blocks this command |
+| `repo/not-found` | 1 | a Git repository could not be discovered from this directory |
+| `restack/no-base` | 1 | no base branch was found for this restack |
+| `restack/own-remote` | 1 | restack cannot target the branch's own remote copy |
+| `restack/unrelated` | 1 | the branch and requested base have no common ancestor |
+| `restore/nothing-selected` | 1 | restore needs paths or --all |
+| `revset/deferred-descendants` | 1 | x+ and descendants() are not implemented |
+| `revset/regex-unavailable` | 1 | regex patterns are recognized but not implemented |
+| `rewrite/merge-in-range` | 1 | the requested content replay includes a merge commit |
+| `rewrite/not-in-history` | 1 | a selected commit is outside the history this rewrite can use |
+| `session/moved` | 1 | the editing session branch no longer has its expected commit structure |
+| `session/none` | 1 | the current branch is not an editing session to finish or abandon |
+| `session/open` | 1 | an editing session blocks the requested operation |
+| `session/unreachable` | 1 | the edited commit is no longer in the destination branch's history |
+| `sign/failed` | 1 | the signer failed or did not produce a signature |
+| `sign/no-key` | 1 | SSH signing has no configured or default key |
+| `sign/no-program` | 1 | the configured signing program could not be started |
+| `sign/unknown-format` | 1 | gpg.format is not openpgp, x509, or ssh |
+| `switch/nothing-opened` | 1 | -m cannot describe a new change when switching to an existing branch |
+| `target/unresolvable` | 1 | the command has no usable committed target |
+| `undo/not-undoable` | 1 | op revert cannot invert a capture or note |
+| `undo/nothing` | 1 | the current worktree's operation log has no undo step |
+| `undo/trimmed` | 1 | some objects needed for the requested state are missing |
+| `usage/absorb-into-open` | 2 | absorb's default source and the requested target are both the open change |
+| `usage/at-op-unsupported` | 2 | this command accepts past-state flags but does not implement them |
+| `usage/bad-flags` | 2 | an option is missing, retired, misplaced, or incompatible with another |
+| `usage/bad-restore-target` | 2 | --at could not parse the requested age or date |
+| `usage/bad-session` | 2 | the session label is empty, too long, or contains control characters |
+| `usage/bad-value` | 2 | the value is not valid for this setting or option |
+| `usage/collide-same-branch` | 2 | collide resolved both sides to the same branch |
 | `usage/fold-into-self` | 2 | a branch cannot be folded into itself |
-| `usage/foreign-verb` | 2 | that is a git or jj verb fufu answers rather than runs |
-| `usage/git-policy` | 2 | fufu.gitPolicy is strict, and this git word has a fufu verb |
-| `usage/lift-from-open` | 2 | lift was told to take from the open change with nowhere else to land |
-| `usage/move-gap` | 2 | the sources are not one run of commits |
+| `usage/foreign-verb` | 2 | this Git or jj spelling needs a different fufu command |
+| `usage/git-policy` | 2 | strict Git policy refused this passthrough command |
+| `usage/lift-from-open` | 2 | lift's requested source and default target are both the open change |
+| `usage/move-gap` | 2 | the sources are not one contiguous run of commits |
 | `usage/move-into-self` | 2 | the move's only source is its target |
-| `usage/needs-message` | 2 | a description was needed and there was no terminal to ask on |
-| `usage/no-such-directory` | 2 | -C names a directory that is not there |
-| `usage/no-such-path` | 2 | that path names nothing here |
-| `usage/op-in-rev-position` | 2 | that is an operation, and this position takes a revision |
+| `usage/needs-message` | 2 | a required commit description is missing or empty |
+| `usage/no-such-directory` | 2 | fufu could not enter the directory given to -C |
+| `usage/no-such-path` | 2 | the path is absent from the working copy and HEAD |
+| `usage/op-in-rev-position` | 2 | an operation ID was used where a revision is required |
 | `usage/restack-onto-self` | 2 | a branch cannot be restacked onto itself |
-| `usage/rev-in-op-position` | 2 | that names a commit, and this position takes an operation |
-| `usage/revset-adjacent-operands` | 2 | two revisions stand side by side with no operator between them |
-| `usage/revset-ambiguous` | 2 | that name reads more than one way, and fufu will not pick one |
-| `usage/revset-arity` | 2 | that function was called with the wrong arguments |
-| `usage/revset-divergent` | 2 | that change stands on more than one visible commit |
-| `usage/revset-empty` | 2 | the revset is empty |
-| `usage/revset-empty-set` | 2 | the expression is valid and matches nothing |
-| `usage/revset-expected-expression` | 2 | an operator or a call is missing the expression it needs |
-| `usage/revset-no-symmetric-difference` | 2 | there is no `a...b`; the set language already says it |
-| `usage/revset-not-a-commit` | 2 | that names an object, but not a commit |
-| `usage/revset-not-a-point` | 2 | the expression matches more than one revision, and this takes exactly one |
-| `usage/revset-open-suffix` | 2 | `@` is the open change, and has no reflog |
-| `usage/revset-parent-shorthand` | 2 | there is no `x-` suffix; git already spells it `x^` |
-| `usage/revset-range-suffix` | 2 | `x^!` and `x^@` are rev-list ranges, not revisions |
-| `usage/revset-unbalanced-parens` | 2 | the parentheses in that expression do not pair up |
-| `usage/revset-unknown-function` | 2 | no revset function goes by that name |
-| `usage/revset-unknown-revision` | 2 | nothing in revision space answers to that name |
-| `usage/revset-unterminated-brace` | 2 | a git suffix opened a brace and never closed it |
-| `usage/revset-unterminated-quote` | 2 | a pattern value opened a quote and never closed it |
-| `usage/revset-wrong-space` | 2 | that function reads operations, and this position takes revisions |
-| `usage/unknown-error-id` | 2 | no error goes by that id |
-| `usage/unknown-key` | 2 | no fufu setting goes by that name |
-| `usage/unknown-slug` | 2 | that is not a slug ff hook knows |
-| `worktree/busy` | 1 | something is running in that worktree |
-| `worktree/exists` | 1 | that path is already taken |
-| `worktree/is-current` | 1 | that is the worktree you are standing in |
-| `worktree/is-main` | 1 | the main worktree is not removable |
-| `worktree/not-found` | 1 | no linked worktree by that name |
-| `worktree/unborn` | 1 | no commits to check out yet |
+| `usage/rev-in-op-position` | 2 | a revision or non-operation parent was used in operation space |
+| `usage/revset-adjacent-operands` | 2 | two revision expressions need an operator between them |
+| `usage/revset-ambiguous` | 2 | that name or prefix has multiple revision matches |
+| `usage/revset-arity` | 2 | a function received the wrong argument count, kind, or value |
+| `usage/revset-divergent` | 2 | one change ID identifies multiple visible commits |
+| `usage/revset-empty` | 2 | the revision expression contains no text |
+| `usage/revset-empty-set` | 2 | the expression is valid but selects no target |
+| `usage/revset-expected-expression` | 2 | an operator or function call is missing an expression |
+| `usage/revset-no-symmetric-difference` | 2 | the a...b range syntax is not supported |
+| `usage/revset-not-a-commit` | 2 | the revision names a tree or blob rather than a commit |
+| `usage/revset-not-a-point` | 2 | the expression selects multiple revisions where one is required |
+| `usage/revset-open-suffix` | 2 | that suffix is not supported on the open change @ |
+| `usage/revset-parent-shorthand` | 2 | use ^ or ~n for parents, not the x- shorthand |
+| `usage/revset-range-suffix` | 2 | x^! and x^@ are not supported revision suffixes |
+| `usage/revset-unbalanced-parens` | 2 | the expression has unmatched parentheses or a misplaced comma |
+| `usage/revset-unknown-function` | 2 | that function is not available in this address space |
+| `usage/revset-unknown-revision` | 2 | no revision matches that name or prefix |
+| `usage/revset-unterminated-brace` | 2 | a revision suffix has an opening brace without its closing brace |
+| `usage/revset-unterminated-quote` | 2 | a quoted pattern value is missing its closing quote |
+| `usage/revset-wrong-space` | 2 | that function belongs in the other address space |
+| `usage/unknown-error-id` | 2 | this binary has no catalog entry for that error ID |
+| `usage/unknown-key` | 2 | that name is not a supported fufu setting |
+| `usage/unknown-slug` | 2 | the hook integration name is unknown or could not be inferred |
+| `worktree/busy` | 1 | the target worktree's snapshot could not acquire its operation-log lock |
+| `worktree/exists` | 1 | the worktree destination is occupied or cannot be named |
+| `worktree/is-current` | 1 | the checkout to remove is the command's current worktree |
+| `worktree/is-main` | 1 | the main worktree cannot be removed by this command |
+| `worktree/not-found` | 1 | no linked worktree matches that ID or path |
+| `worktree/unborn` | 1 | the worktree needs a committed checkout target |
 
 <!-- errors:end -->

@@ -113,8 +113,7 @@ pub fn resolve(
         return Err(Error::coded(
             "repo/mid-operation",
             format!(
-                "a {op:?} is in progress: finish it with git (git rebase --abort / git merge \
-                 --abort); fufu owns merges in a later phase"
+                "a {op:?} is in progress: use git status, then finish or abort that operation with Git"
             ),
             vec![],
         ));
@@ -414,12 +413,11 @@ fn lay_arrival(
         return Err(Error::coded(
             "held/unsupported",
             format!(
-                "{branch} has an open change; ff commit it or ff switch away before resolving \
-                 the held arrival"
+                "{branch} has an open change: preserve or commit it before resolving the held arrival"
             ),
             vec![
                 "ff commit -m <msg>".into(),
-                "ff switch <branch>".into(),
+                "ff explain held/unsupported".into(),
                 "ff resolve --abandon".into(),
             ],
         ));

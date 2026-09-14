@@ -143,8 +143,8 @@ fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr], verb: &str
     if !status.success() {
         return Err(Error::coded(
             "hook/declined",
-            format!("{name} hook declined the commit"),
-            vec![format!("ff {verb} --no-verify")],
+            format!("{name} hook declined the commit during ff {verb}"),
+            vec!["ff status".into(), "ff explain hook/declined".into()],
         ));
     }
     Ok(true)

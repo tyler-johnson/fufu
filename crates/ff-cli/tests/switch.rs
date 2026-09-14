@@ -303,7 +303,7 @@ fn an_unknown_name_is_branch_not_found() {
     assert_eq!(v["error"]["id"], "branch/not-found", "{v}");
     assert_eq!(v["error"]["message"], "no branch named nosuch", "{v}");
     let explain = stdout(&ok(ff(&fx, &["explain", "branch/not-found"])));
-    assert!(explain.contains("ff switch <branch>"), "{explain}");
+    assert!(explain.contains("local tracking branch"), "{explain}");
     let explain = stdout(&ok(ff(&fx, &["explain", "switch/nothing-opened"])));
     assert!(explain.contains("ff describe -m"), "{explain}");
 }
@@ -431,9 +431,7 @@ fn dash_m_describes_a_mint_and_is_refused_on_a_continue() {
     let v = json(&out);
     assert_eq!(v["error"]["id"], "switch/nothing-opened", "{v}");
     assert!(
-        v["error"]["exits"]
-            .to_string()
-            .contains("ff describe -m <msg>"),
+        v["error"]["exits"].to_string().contains("ff switch main"),
         "{v}"
     );
     assert_ne!(current(&fx), "main", "nothing moved");

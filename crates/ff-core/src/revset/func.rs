@@ -186,9 +186,9 @@ fn pattern_arg(sig: &Signature, arg: &Arg) -> Result<Pattern> {
 fn deferred_descendants() -> Error {
     Error::coded(
         "revset/deferred-descendants",
-        "no `descendants(x, depth)` yet: children are a reverse walk with no index \
-         behind them. `x::` is the descendant set that does exist, unbounded",
-        vec!["ff log -r \"x::\"".into()],
+        "descendants() is not implemented; use `<rev>::` for visible descendants, including \
+         the selected revision, without a depth limit",
+        vec!["ff log -r '<rev>::'".into()],
     )
 }
 
@@ -200,7 +200,7 @@ fn unknown_function(name: &str) -> Error {
             "no revset function named `{name}`; revisions have {}",
             names.join(", ")
         ),
-        vec!["ff log -r \"latest(main)\"".into()],
+        vec!["ff explain usage/revset-unknown-function".into()],
     )
 }
 
@@ -233,6 +233,6 @@ fn wrong_space(name: &str) -> Error {
             "`{name}()` reads operations, and `-r` here takes revisions; the two address \
              spaces share a grammar, not a vocabulary"
         ),
-        vec![format!("ff op log \"{name}(...)\"")],
+        vec!["ff explain usage/revset-wrong-space".into()],
     )
 }

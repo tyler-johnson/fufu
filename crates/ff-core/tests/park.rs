@@ -684,7 +684,7 @@ fn resolve_refuses_a_held_arrival_over_an_open_change() {
     assert_eq!(err.id(), "held/unsupported");
     assert!(
         err.to_string()
-            .contains("main has an open change; ff commit it or ff switch away"),
+            .contains("main has an open change: preserve or commit it before resolving"),
         "{err}"
     );
 }

@@ -57,7 +57,7 @@ pub(super) fn sign(signer: &super::Signer, payload: &[u8]) -> Result<Vec<u8>> {
         Error::coded(
             "sign/failed",
             format!("{} wrote no signature: {err}", signer.program),
-            vec!["ff doctor".into(), "ff commit --no-sign".into()],
+            vec!["ff doctor".into(), "ff explain sign/failed".into()],
         )
     })
 }

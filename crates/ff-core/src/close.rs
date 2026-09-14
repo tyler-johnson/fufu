@@ -434,8 +434,7 @@ fn refuse_before_capture(repo: &gix::Repository, opts: &CloseOptions) -> Result<
         return Err(Error::coded(
             "repo/mid-operation",
             format!(
-                "a {op:?} is in progress: finish it with git (git commit / git merge --abort); \
-                 fufu owns merges in a later phase"
+                "a {op:?} is in progress: use git status, then finish or abort that operation with Git"
             ),
             vec![],
         ));
@@ -619,7 +618,7 @@ fn landing_branch(
                 return Err(Error::coded(
                     "branch/exists",
                     format!("a branch named {name} already exists"),
-                    vec!["ff branch".into()],
+                    vec!["ff branch".into(), format!("ff switch {name}")],
                 ));
             }
             if branch::is_anonymous(current_branch) {

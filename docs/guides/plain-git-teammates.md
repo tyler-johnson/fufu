@@ -144,9 +144,9 @@ $ ff config gitPolicy strict
 gitPolicy = strict (this repo)
 
 $ ff git commit -m wip
-ff: fufu.gitPolicy is strict, and fufu has a verb for git commit: ff commit — the working copy is the change, and ff commit closes it onto the log
+ff: fufu.gitPolicy is strict and refused git commit; review ff commit and the policy's scope before retrying
   try:
-    ff commit
+    ff explain usage/git-policy
     ff config gitPolicy coach
 
 $ ff git log --oneline -1

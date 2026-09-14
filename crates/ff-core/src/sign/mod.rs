@@ -201,8 +201,8 @@ pub fn resolve(repo: &gix::Repository, choice: Choice) -> Result<Option<Signer>>
                 setup.raw_format
             ),
             vec![
-                "git config gpg.format ssh".into(),
-                "git config --unset commit.gpgsign".into(),
+                "git config --show-origin --get gpg.format".into(),
+                "ff explain sign/unknown-format".into(),
             ],
         ));
     };
@@ -218,8 +218,8 @@ pub fn resolve(repo: &gix::Repository, choice: Choice) -> Result<Option<Signer>>
             "sign/no-key",
             "ssh signing needs a key: set user.signingkey to the key to sign with",
             vec![
-                "git config user.signingkey ~/.ssh/id_ed25519.pub".into(),
-                "ff commit --no-sign".into(),
+                "git config user.signingkey <key-path>".into(),
+                "ff explain sign/no-key".into(),
             ],
         ));
     }
@@ -375,10 +375,7 @@ fn no_program(program: &str) -> Error {
     Error::coded(
         "sign/no-program",
         format!("{program} is not on PATH, and fufu spawns it to sign commits"),
-        vec![
-            "ff doctor".into(),
-            "git config --unset commit.gpgsign".into(),
-        ],
+        vec!["ff doctor".into(), "ff explain sign/no-program".into()],
     )
 }
 
@@ -399,6 +396,6 @@ fn failed(program: &str, run: &Run) -> Error {
     Error::coded(
         "sign/failed",
         message,
-        vec!["ff doctor".into(), "ff commit --no-sign".into()],
+        vec!["ff doctor".into(), "ff explain sign/failed".into()],
     )
 }

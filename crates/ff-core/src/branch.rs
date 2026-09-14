@@ -85,7 +85,7 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch".into(), format!("ff switch {new}")],
         ));
     }
     guard_other_worktrees(repo, old)?;
@@ -382,7 +382,7 @@ pub fn rename_current(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {new_name} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch".into(), format!("ff switch {new_name}")],
         ));
     }
     guard_other_worktrees(repo, &current)?;
@@ -595,7 +595,7 @@ pub fn create(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {name} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch".into(), format!("ff switch {name}")],
         ));
     }
     let head = crate::head::head_state(repo)?;
@@ -926,7 +926,7 @@ pub fn create_at(
         return Err(Error::coded(
             "branch/exists",
             format!("a branch named {branch} already exists"),
-            vec!["ff branch".into()],
+            vec!["ff branch".into(), format!("ff switch {branch}")],
         ));
     }
     refs::write_ref(

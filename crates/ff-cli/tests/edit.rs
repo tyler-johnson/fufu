@@ -517,7 +517,7 @@ fn explain_knows_the_new_ids() {
     assert!(none.status.success(), "{}", out(&none));
     let text = stdout(&none);
     assert!(
-        text.contains("there is no editing session to finish"),
+        text.contains("the current branch is not an editing session to finish or abandon"),
         "{text}"
     );
 
@@ -525,7 +525,7 @@ fn explain_knows_the_new_ids() {
     assert!(open.status.success(), "{}", out(&open));
     let text = stdout(&open);
     assert!(
-        text.contains("you are already inside an editing session"),
+        text.contains("an editing session blocks the requested operation"),
         "{text}"
     );
 
@@ -533,7 +533,7 @@ fn explain_knows_the_new_ids() {
     assert!(moved.status.success(), "{}", out(&moved));
     let text = stdout(&moved);
     assert!(
-        text.contains("the session branch has commits of its own now"),
+        text.contains("the editing session branch no longer has its expected commit structure"),
         "{text}"
     );
 
@@ -541,7 +541,7 @@ fn explain_knows_the_new_ids() {
     assert!(unreachable.status.success(), "{}", out(&unreachable));
     let text = stdout(&unreachable);
     assert!(
-        text.contains("the edited commit has left the branch the session lands on"),
+        text.contains("the edited commit is no longer in the destination branch's history"),
         "{text}"
     );
 
@@ -549,7 +549,7 @@ fn explain_knows_the_new_ids() {
     assert!(not_in_history.status.success(), "{}", out(&not_in_history));
     let text = stdout(&not_in_history);
     assert!(
-        text.contains("that commit is not in the branch you are standing on"),
+        text.contains("the commit to edit is not in the current branch's history"),
         "{text}"
     );
 }

@@ -98,15 +98,9 @@ impl Ctx {
             (Some(_), Some(_)) => {
                 return Err(Error::coded(
                     "usage/bad-flags",
-                    "--at-op takes an operation id and --at takes a time: they are one \
-                     reach with two doors, so naming both says nothing more than either",
-                    // After the verb, not before it: the pair is declared per
-                    // verb (the `Past` group), so bare `ff --at-op …` is an
-                    // unknown flag before this refusal is ever reached.
-                    vec![
-                        format!("ff {name} --at-op <op>"),
-                        format!("ff {name} --at 2h"),
-                    ],
+                    "choose --at-op for an operation ID or --at for a time, not both; \
+                     only restore and op log/show/diff implement past-state flags",
+                    vec!["ff help".into(), "ff op show <op>".into()],
                 ));
             }
             (Some(op), None) => Some(At::Op(op.to_string())),
@@ -137,13 +131,13 @@ impl Ctx {
         Err(Error::coded(
             "usage/at-op-unsupported",
             format!(
-                "{verb} does not read a past state yet, so {flag} has nothing to place it \
-                 against; the verbs that resolve a target rather than render a view take it today"
+                "{verb} does not read a past state yet: remove {flag} to read current state; \
+                 only restore and op log/show/diff implement past-state flags"
             ),
             vec![
                 "ff op show <op>".into(),
                 "ff op log".into(),
-                "ff restore <path> --at-op <op>".into(),
+                "ff op diff <a> <b>".into(),
             ],
         ))
     }

@@ -114,7 +114,7 @@ pub fn head_branch(repo: &gix::Repository, verb: Verb) -> Result<String> {
         return Err(Error::coded(
             "repo/mid-operation",
             format!(
-                "a {op:?} is in progress: finish it with git (git rebase --abort / git merge --abort); fufu owns merges in a later phase"
+                "a {op:?} is in progress: use git status, then finish or abort that operation with Git"
             ),
             vec![],
         ));
@@ -213,10 +213,7 @@ pub fn preflight_branch(
                 format!(
                     "{branch} already answers to {existing}: pushing to {name} as well would open a second shared copy"
                 ),
-                vec![
-                    "ff push".into(),
-                    "ff git branch --set-upstream-to <remote>/<branch>".into(),
-                ],
+                vec!["ff branch".into(), "ff explain push/retarget".into()],
             ));
         }
         Some(name.to_string())
@@ -232,9 +229,8 @@ pub fn preflight_branch(
                         count
                     ),
                     vec![
-                        "ff push --to <remote>".into(),
                         "ff remote".into(),
-                        "ff git branch --set-upstream-to <remote>/<branch>".into(),
+                        "ff explain pull/ambiguous-remote".into(),
                     ],
                 ));
             }

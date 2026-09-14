@@ -64,9 +64,8 @@ fn run_env(cwd: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> Result
         .map_err(|_| {
             Error::coded(
                 "push/no-git",
-                "git is not on PATH, and fufu still spawns it to push — \
-                 fetching no longer needs it",
-                vec!["ff git push".into()],
+                "could not start git: install it and check git --version in this environment",
+                vec!["git --version".into()],
             )
         })?;
     Ok(Run {
@@ -547,7 +546,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
                 "could not reach {remote}: {}",
                 first_useful_line(&run.stderr)
             ),
-            vec![format!("ff git push {remote}"), "ff status".into()],
+            vec![format!("ff git ls-remote {remote}"), "ff status".into()],
         ));
     }
     if run.stderr.contains("stale info") {
@@ -573,7 +572,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
                 "{remote} refused the push: {}",
                 first_useful_line(&run.stderr)
             ),
-            vec![format!("ff git push {remote}"), "ff status".into()],
+            vec![format!("ff git ls-remote {remote}"), "ff status".into()],
         ));
     }
     Err(Error::coded(
@@ -582,7 +581,7 @@ pub fn push(cwd: &std::path::Path, local_branch: &str, plan: &Push) -> Result<()
             "git push to {remote} failed: {}",
             first_useful_line(&run.stderr)
         ),
-        vec![format!("ff git push {remote}"), "ff status".into()],
+        vec![format!("ff git ls-remote {remote}"), "ff status".into()],
     ))
 }
 
@@ -613,7 +612,7 @@ pub fn push_delete(
                 "could not reach {remote}: {}",
                 first_useful_line(&run.stderr)
             ),
-            vec![format!("ff git push {remote}"), "ff status".into()],
+            vec![format!("ff git ls-remote {remote}"), "ff status".into()],
         ));
     }
     if run.stderr.contains("stale info") {
@@ -633,7 +632,7 @@ pub fn push_delete(
                 "{remote} refused the push: {}",
                 first_useful_line(&run.stderr)
             ),
-            vec![format!("ff git push {remote}"), "ff status".into()],
+            vec![format!("ff git ls-remote {remote}"), "ff status".into()],
         ));
     }
     Err(Error::coded(
@@ -642,7 +641,7 @@ pub fn push_delete(
             "git push to {remote} failed: {}",
             first_useful_line(&run.stderr)
         ),
-        vec![format!("ff git push {remote}"), "ff status".into()],
+        vec![format!("ff git ls-remote {remote}"), "ff status".into()],
     ))
 }
 

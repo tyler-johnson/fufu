@@ -430,7 +430,7 @@ pub fn switch(
             return Err(Error::coded(
                 "branch/exists",
                 format!("a branch named {name} already exists"),
-                vec!["ff branch".into()],
+                vec!["ff branch".into(), format!("ff switch {name}")],
             ));
         }
     }
@@ -452,7 +452,7 @@ pub fn switch(
                 "-m describes the change a switch opens, and switching to {name} opens nothing: \
                  it resumes what is there"
             ),
-            vec!["ff describe -m <msg>".into()],
+            vec![format!("ff switch {name}"), "ff help describe".into()],
         ));
     }
 

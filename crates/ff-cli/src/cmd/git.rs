@@ -80,17 +80,18 @@ pub fn run(ctx: &Ctx, args: Vec<OsString>) -> Result<()> {
     super::git_exec::exec("git", args)
 }
 
-/// What strict says instead of running it. The fufu spelling is the first
-/// exit, because it is the command to type next; the tier is the second,
-/// because a policy that cannot be found is a policy that reads as a bug.
+/// Explain the classifier's scope before suggesting a policy change. A word's generic counterpart may not handle the requested arguments, including tag pushes.
 fn refusal(word: &'static Word) -> Error {
     Error::coded(
         "usage/git-policy",
         format!(
-            "fufu.gitPolicy is strict, and fufu has a verb for git {}: {} — {}",
-            word.git, word.ff, word.why
+            "fufu.gitPolicy is strict and refused git {}; review {} and the policy's scope before retrying",
+            word.git, word.ff
         ),
-        vec![word.ff.to_string(), "ff config gitPolicy coach".into()],
+        vec![
+            "ff explain usage/git-policy".into(),
+            "ff config gitPolicy coach".into(),
+        ],
     )
 }
 

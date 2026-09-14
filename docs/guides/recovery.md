@@ -201,7 +201,7 @@ $ ff redo
 ff: nothing to redo: work has landed since the last undo, so the log forked rather than rewound
   try:
     ff op log
-    ff undo
+    ff history
 
 $ ff op log --at-op 8998b750f354 -n 3
 8998b750f354   0s ago  op      feature       commit on feature: app: feature
@@ -293,10 +293,10 @@ d32b79740f3e   0s ago  capture feature       pre: ff commit -m app: later
 4773f6b29e1d   0s ago  capture feature       pre: ff commit -m app: first
 
 $ ff op revert 25435854cfc5
-ff: inverting 25435854cfc5f958b4e7dc89b7973c6064cbabd1 conflicts with work done since; nothing was changed: refs/heads/feature: the operation left it at 29b1e91f75bd2b09ec92558c019a1611cf13e1d5, and it now stands at c1f070ecc32116a680b03760d8ae0edbcc1e7085
+ff: inverting 25435854cfc5f958b4e7dc89b7973c6064cbabd1 conflicts with work done since; no ref inversion was applied: refs/heads/feature: the operation left it at 29b1e91f75bd2b09ec92558c019a1611cf13e1d5, and it now stands at c1f070ecc32116a680b03760d8ae0edbcc1e7085
   try:
-    ff op show <op>
-    ff op restore <op>
+    ff op show 25435854cfc5f958b4e7dc89b7973c6064cbabd1
+    ff explain held/op-revert
     ff op log
 
 ```

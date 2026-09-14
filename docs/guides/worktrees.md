@@ -89,7 +89,7 @@ $ ff switch feature
 ff: 'feature' is already used by worktree at '/tmp/opencode/fufu-guide-ZPWYHN/resume/review'
   try:
     ff worktree
-    git worktree list
+    ff -C <path> status
 
 $ ff -C ../review switch review
 parked the open change on feature (8519b9d2)

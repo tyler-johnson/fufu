@@ -127,7 +127,7 @@ pub fn run(ctx: &Ctx, dir: Option<String>, bare: bool) -> Result<()> {
             "init/bare",
             "a bare repository has no working copy, so there is no floor for ff undo to \
              land on and nothing for a capture to hold",
-            vec!["ff git init --bare".into()],
+            vec!["git init --bare <directory>".into()],
         ));
     }
 

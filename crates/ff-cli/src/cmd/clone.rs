@@ -39,7 +39,7 @@ pub fn run(
         return Err(Error::coded(
             "clone/target-exists",
             format!("{} already exists and is not empty", dir.display()),
-            vec![format!("ff clone {url} <dir>"), "ff init".into()],
+            vec![format!("ff clone {url} <dir>"), "ff help init".into()],
         ));
     }
 

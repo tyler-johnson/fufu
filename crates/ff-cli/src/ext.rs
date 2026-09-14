@@ -181,7 +181,7 @@ pub fn dispatch(name: &str, argv: Vec<OsString>) -> ! {
             &ff_core::Error::coded(
                 "usage/no-such-directory",
                 format!("-C {}: {err}", dir.display()),
-                vec!["ff status".into(), "ff worktree".into()],
+                vec!["ff explain usage/no-such-directory".into()],
             ),
         );
     }

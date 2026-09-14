@@ -251,7 +251,7 @@ fn run_editor(repo: &gix::Repository, seed: &str, comment: &str) -> Result<Strin
             Error::coded(
                 "editor/failed",
                 format!("could not run editor {editor}: {err}"),
-                vec!["ff describe -m <msg>".into()],
+                vec!["ff help describe".into()],
             )
         })?;
     if !status.success() {
@@ -259,7 +259,7 @@ fn run_editor(repo: &gix::Repository, seed: &str, comment: &str) -> Result<Strin
         return Err(Error::coded(
             "editor/failed",
             "editor exited non-zero; description unchanged",
-            vec!["ff describe -m <msg>".into()],
+            vec!["ff help describe".into()],
         ));
     }
     let raw = std::fs::read_to_string(&path).map_err(Error::repo)?;

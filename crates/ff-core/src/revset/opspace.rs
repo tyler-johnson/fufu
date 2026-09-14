@@ -485,7 +485,7 @@ fn unknown_function(name: &str) -> Error {
     Error::coded(
         "usage/revset-unknown-function",
         format!(
-            "no revset function named `{name}`; operations have base, on_branch, session, \
+            "no revset function named `{name}`; operations have on_branch, session, \
              kind, plus latest, heads and roots"
         ),
         vec![

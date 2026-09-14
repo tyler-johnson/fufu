@@ -611,9 +611,9 @@ fn open_suffix(rest: &str) -> Error {
 /// whose ranges are its own.
 fn range_shorthand(base: &str, shorthand: &'static str) -> Error {
     let exits = if shorthand == "^!" {
-        vec![format!("ff log -r \"{base}^..{base}\"")]
+        vec![format!("ff log -r \"{base}\"")]
     } else {
-        vec![format!("ff log -r \"{base}^ | {base}^2\"")]
+        vec!["ff explain usage/revset-range-suffix".into()]
     };
     Error::coded(
         "usage/revset-range-suffix",

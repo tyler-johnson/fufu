@@ -886,7 +886,7 @@ fn forward_target(repo: &gix::Repository, tip: OpId) -> Result<OpId> {
         Error::coded(
             "op/nothing-to-redo",
             format!("nothing to redo: {why}"),
-            vec!["ff op log".into(), "ff undo".into()],
+            vec!["ff op log".into(), "ff history".into()],
         )
     })
 }

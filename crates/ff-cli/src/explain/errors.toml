@@ -1,1430 +1,764 @@
-# The curated error ids: what each means and how to leave it. One table per
-# id, in the order `ff explain --list` shows them. `detail` is wrapped to
-# the terminal at render time, so a line break here is only for reading.
+# Curated error IDs, in the order `ff explain --list` displays them.
+# Details are wrapped for the terminal at render time. Keep IDs and field names stable; edit prose and repair commands here, then run make docs-gen.
 
 [[entry]]
 id = "branch/exists"
-summary = "a branch of that name already exists"
-detail = """\
-    fufu never reuses a branch name implicitly. A name that is already taken \
-    could be someone's work, and quietly landing on top of it is the one guess \
-    worth refusing. Pick another name, or switch to that branch if it was the \
-    one you meant."""
-exits = ["ff branch", "ff describe -b <name>"]
+summary = "a branch with that name already exists"
+detail = "Choose an unused name and retry the create or rename. If you meant to work on the existing branch, use ff switch <branch>. Switching resumes that branch's parked change; it does not rename the current branch or move your current edits into the destination. ff branch lists the available names."
+exits = ["ff branch", "ff switch <branch>"]
 
 [[entry]]
 id = "branch/not-found"
-summary = "no branch of that name, here or on a remote"
-detail = """\
-    A name is looked up as a branch here, then as a branch a remote holds — \
-    bare, or qualified as <remote>/<branch> — and then as a revision, and this \
-    one is none of the three. A branch a remote holds is a target: ff switch \
-    <branch> switches there, minting the local branch tracking it, and ff branch \
-    lists what the remotes hold under remote only, spelled exactly as ff switch \
-    takes it, so the name to type is on the screen rather than reconstructed. A \
-    name nobody holds is usually a typo; ff branch says what exists, and ff \
-    remote says what the remotes are called."""
+summary = "the requested branch or ref was not found"
+detail = "Check the name with ff branch and retry with an existing branch. Some commands require a local branch even when a remote copy exists. ff switch can create a local tracking branch from a remote-only name such as origin/topic; ff remote lists configured remotes. Listings use locally available refs unless a fetch refreshes them. If a session's destination branch was deleted, inspect ff op log for its retained state before deciding how to recover it."
 exits = ["ff branch", "ff remote"]
 
 [[entry]]
 id = "branch/ambiguous"
 summary = "that name matches more than one branch"
-detail = """\
-    A prefix has to name one branch, and this one names several. Every candidate \
-    is listed so you can pick; typing one more character is usually enough. The \
-    same refusal meets a bare name that two remotes hold: origin/spike and \
-    upstream/spike are two branches, and the qualified spelling picks one. ff \
-    branch says what is local and what each remote holds."""
+detail = "Use a full name from the candidates in the error. A local prefix must identify one branch. When the same branch name exists on multiple remotes, qualify it as <remote>/<branch>, such as origin/topic. ff branch lists local and remote-only names."
 exits = ["ff branch"]
 
 [[entry]]
 id = "branch/invalid-name"
-summary = "git would not accept that branch name"
-detail = """\
-    Branch names are validated by round-tripping them through git's own ref name \
-    rules rather than by a list fufu keeps, so anything git refuses is refused \
-    here in the same words. Spaces, a leading dash, `..`, and a trailing `.lock` \
-    are the usual causes."""
+summary = "that branch name is not a valid Git ref name"
+detail = "Change the name and retry. The error identifies the rejected spelling; spaces, repeated dots, and a component ending in .lock are common causes. Fufu validates the full refs/heads/<name> form using Git ref-name rules. Quoting a name for the shell does not make an invalid ref name valid."
 exits = []
 
 [[entry]]
 id = "branch/is-current"
-summary = "that is the branch you are on"
-detail = """\
-    Deleting the branch you are standing on would leave HEAD pointing at \
-    nothing, so fufu asks you to move first. Switching away takes the open \
-    change with it — the tree belongs to its branch, and it will be here when \
-    you come back."""
-exits = ["ff switch <branch>"]
+summary = "the branch to delete is the current branch"
+detail = "Switch to a different branch, then retry the deletion. Switching parks eligible uncommitted work with the branch you leave and resumes the destination's work. Deleting a branch afterward also removes its active parked state; retained snapshots are the recovery source. Copy ignored or uncaptured files separately if you need to preserve them."
+exits = ["ff switch <other-branch>", "ff branch"]
 
 [[entry]]
 id = "branch/checked-out-elsewhere"
 summary = "another worktree has that branch checked out"
-detail = """\
-    git refuses to rename or delete a branch that a linked worktree is sitting \
-    on, because that worktree's HEAD would stop resolving. gix has no such \
-    check, so fufu carries its own and reports which worktree holds it. Switch \
-    that worktree away, or remove it, and try again."""
-exits = ["ff worktree", "git worktree list"]
+detail = "Use ff worktree to locate the checkout named in the error. Work on the branch there with ff -C <path>, or switch that checkout to a different branch before retrying here. For a fold into a branch checked out elsewhere, --stay can update it there while keeping the source branch here; inspect ff help fold for its file effects. Removing a checkout also frees the branch, but first preserve anything its snapshots cannot capture."
+exits = ["ff worktree", "ff -C <path> status"]
 
 [[entry]]
 id = "branch/shared-lease-refused"
-summary = "the shared copy moved since you last looked, so it was not deleted"
-detail = """\
-    Every push fufu makes is leased: it says what it last saw the remote \
-    standing at, and the remote refuses when that is no longer true. Somebody \
-    pushed to the shared copy between fufu's own check and the wire, so it is \
-    still there and holding commits you have not seen — which is exactly the \
-    case where deleting it would lose work. The local half of the delete did \
-    happen and is undoable, so ff undo brings the branch back; look at what \
-    arrived before deciding the copy should go."""
+summary = "the remote refused the deletion lease after the local branch was deleted"
+detail = "Use ff undo to recover the local deletion, then inspect the remote copy before retrying. The remote ref did not match the deletion's expected value, so that remote deletion was refused. The local deletion already happened and can be recovered while its undo state remains available. After restoring the branch, ff pull <branch> fetches and reports its remote state; review the result before asking for a shared deletion again."
 exits = ["ff undo", "ff branch"]
 
 [[entry]]
 id = "branch/shared-moved"
-summary = "the shared copy is not where fufu last showed it, so nothing was deleted"
-detail = """\
-    The lease a shared delete goes out under is fufu's record of the tip you \
-    last looked at, not the tracking ref, which any fetch moves — an editor's, \
-    ff git fetch, ff pull --dry-run. The tracking ref stands somewhere else, so \
-    the copy holds commits nobody here has looked at, and deleting it would take \
-    them. This is checked before the local delete, so the branch is still here \
-    and the copy is intact. ff pull takes in what arrived; then ask again."""
-exits = ["ff pull <branch>", "ff branch -d <branch> --shared"]
+summary = "the remote-tracking tip differs from the seen record; deletion was refused"
+detail = "Run ff pull <branch> and inspect what arrived before retrying ff branch -d <branch> --shared. The local branch and remote copy have not been deleted by this request. Shared deletion requires the cached remote-tracking tip to match fufu's seen record. A fetch can move the tracking ref without updating that record; a reporting pull updates what fufu records as seen. Resolve any resulting hold before continuing."
+exits = ["ff pull <branch>", "ff branch"]
 
 [[entry]]
 id = "branch/shared-unseen"
-summary = "fufu has no record of looking at the shared copy, so nothing was deleted"
-detail = """\
-    A shared delete is leased against the tip fufu last showed you the copy \
-    standing at, and there is no such record for this branch: it is from before \
-    fufu kept one, or its upstream was set by git. Without one there is nothing \
-    to vouch that the copy holds only what you have seen. Nothing was deleted, \
-    here or there. ff pull reads the copy and records it; then ask again."""
-exits = ["ff pull <branch>", "ff branch -d <branch> --shared"]
+summary = "there is no seen record for the remote copy; deletion was refused"
+detail = "Run ff pull <branch> to fetch and report the remote copy, then review it before retrying the shared deletion. Fufu has no recorded seen tip to use for this deletion's lease, for example after an upstream was configured through Git. This request has deleted neither the local branch nor the remote copy. A fetch alone does not establish the seen record."
+exits = ["ff pull <branch>", "ff branch"]
 
 [[entry]]
 id = "repo/bare"
-summary = "this is a bare repository, and the verb needs a working copy"
-detail = """\
-    A bare repository has no working copy, so there is nothing to snapshot, \
-    commit, restore into, or switch. Read-only verbs still work here; anything \
-    that touches files does not. Run the command from a clone that has a working \
-    copy."""
+summary = "this is a bare repository, and the command needs a working copy"
+detail = "Run the command in a non-bare clone or an existing working checkout. A bare repository has Git objects and refs but no working files to snapshot, inspect with ff status, edit, or restore. Commands that need those files refuse here. ff explain works without a working copy."
 exits = []
 
 [[entry]]
 id = "repo/detached"
-summary = "HEAD is not on a branch"
-detail = """\
-    fufu keeps HEAD attached — every head is a real branch ref from the moment \
-    it exists — and the verbs that describe or record work need to know which \
-    branch the work belongs to. A detached HEAD usually means a raw git checkout \
-    of a commit; switching to a branch reattaches it."""
-exits = ["ff switch <branch>"]
+summary = "the command needs a branch with a usable current state"
+detail = "If HEAD is detached, switch to an existing branch or create one at the commit you want to keep with ff switch HEAD -b <name>. The command needs a branch to describe, record, or rewrite. The message may instead say that nothing is committed yet: ff resolve also uses this ID on an unborn branch. In that case, make the first nonempty commit before attempting work that needs committed history."
+exits = ["ff status", "ff switch <branch>"]
 
 [[entry]]
 id = "identity/missing"
-summary = "git has no name and email to sign work with"
-detail = """\
-    Every commit fufu writes carries an author, including the snapshots the \
-    capture floor takes on your behalf, so there is nothing sensible to do \
-    without an identity. Set it once globally, or per repository when this work \
-    belongs to a different one."""
+summary = "the commit author name or email is not configured"
+detail = "Set user.name and user.email in Git configuration, then retry. Add --global to the config commands to use that identity across repositories. Snapshots and internal open-change objects need an identity as well as commits recorded in branch history. Fufu uses Git's resolved committer identity for both author and committer on new work; GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL can override the configuration. These are identity fields, not cryptographic signing keys."
 exits = ["git config user.name <name>", "git config user.email <email>"]
 
 [[entry]]
 id = "repo/mid-operation"
-summary = "git is in the middle of something"
-detail = """\
-    A rebase, a merge, a cherry-pick or a bisect leaves the repository in a \
-    state only that operation knows how to finish, and a verb that moved refs or \
-    the working copy underneath it would strand it. Finish or abort it with git \
-    — fufu owns merges in a later phase — and the verb will run."""
-exits = ["git rebase --abort", "git merge --abort"]
+summary = "an unfinished Git operation blocks this command"
+detail = "Run git status in the checkout named in the error and finish or abort that operation there. After fixing and staging its conflicts, use git rebase --continue, git merge --continue, git cherry-pick --continue, git revert --continue, or git am --continue as appropriate. Each has a matching --abort. For a bisect, continue with git bisect good/bad or end it with git bisect reset. ApplyMailbox means git am; ApplyMailboxRebase belongs to a rebase. Retry the fufu command after Git has left that state."
+exits = ["git status"]
 
 [[entry]]
 id = "usage/absorb-into-open"
-summary = "absorb was aimed at the open change with nothing else to move"
-detail = """\
-    Absorb's default sources are the open change, so --into @ with no --from \
-    asks to move the open change into itself: it is already where your changes \
-    are. Name a commit that has closed — ff log says which ones sit under you — \
-    name the sources with --from, or close the change first with ff commit and \
-    absorb into the commit that lands."""
-exits = ["ff absorb", "ff absorb --from <revset> --into @", "ff commit -m <msg>"]
+summary = "absorb's default source and the requested target are both the open change"
+detail = "Choose a committed target with --into, or name committed sources with --from when the target should be @. Absorb defaults to taking content from the open change, so ff absorb --into @ alone tries to move that content into itself. ff log shows committed targets. A target must belong to the history being rewritten."
+exits = ["ff log", "ff absorb --into <rev>", "ff absorb --from <revset> --into @"]
 
 [[entry]]
 id = "usage/move-into-self"
 summary = "the move's only source is its target"
-detail = """\
-    absorb and lift move content out of a run of commits and into one commit, \
-    and the target is dropped from the sources — a target inside the run takes \
-    both sides. When that leaves no source at all, the move is a commit into \
-    itself, which changes nothing. Name a different target with --into, or more \
-    sources with --from."""
+detail = "Choose a different --into target or include other --from sources. Absorb and lift exclude the target itself from the source set. After that exclusion, this request has no source content to move. Use ff log to check the selected commits before retrying."
 exits = ["ff absorb --from <revset> --into <rev>", "ff lift --from <revset> --into <rev>", "ff log"]
 
 [[entry]]
 id = "usage/move-gap"
-summary = "the sources are not one run of commits"
-detail = """\
-    A move takes its sources as one contiguous run on the branch's line, the \
-    open change allowed on top, and everything between and above replays without \
-    what moved. The set named has commits between two of its members that were \
-    not named, and the move will not guess whether they were meant. The exit \
-    spells the whole run from the lowest source to the highest; drop what does \
-    not belong, or move in two steps."""
-exits = ["ff absorb --from <lo>~..<hi>", "ff lift --from <lo>~..<hi>", "ff log"]
+summary = "the sources are not one contiguous run of commits"
+detail = "Select the full first-parent run between the lowest and highest source, or move separate runs in separate commands. The open change may be included above the committed sources. The suggested range includes intermediate commits you omitted, so inspect it before using it. For committed endpoints, <lo>~..<hi> includes both endpoints when <lo> has a parent; <lo>::<hi> also includes a root endpoint. Use bounded endpoints to avoid selecting unrelated visible history."
+exits = ["ff log -r '<lo>::<hi>'", "ff absorb --from '<lo>::<hi>' --into <target>", "ff lift --from '<lo>::<hi>'"]
 
 [[entry]]
 id = "absorb/into-trunk"
-summary = "the default target sits on trunk"
-detail = """\
-    Without --into, absorb moves into the commit under the lowest source. The \
-    sources named reach the bottom of the branch, so that commit is trunk's, and \
-    a bare word does not rewrite trunk. The exit folds the run into its own \
-    lowest commit instead; name any other commit on the branch with --into."""
-exits = ["ff absorb --from <lo>..<hi> --into <lo>", "ff absorb --into <rev>", "ff log"]
+summary = "absorb's implicit target would rewrite a trunk commit"
+detail = "Name the intended target with --into. When committed sources reach the bottom of a branch, absorb's default target, the commit below the lowest source, can be on trunk. That implicit committed-source rewrite is refused. To combine the run within the feature branch, select the commits above its lowest commit and target that lowest commit. Adding only open-change content to the current trunk tip is allowed; this guard is not a general ban on rewriting trunk."
+exits = ["ff log", "ff absorb --from '<lo>..<hi>' --into <lo>"]
 
 [[entry]]
 id = "usage/bad-restore-target"
-summary = "--at was given something that is neither an age nor a date"
-detail = """\
-    --at takes a time and only a time: a compact age like 90s/15m/2h/3d/1w, or \
-    any date git itself can parse. It resolves to the operation that was current \
-    at that moment. Nothing here has to out-guess an id, which is the point of \
-    splitting the flag — an operation is named by --at-op, a revision by --from."""
-exits = ["ff restore --all --at 2h", "ff restore --all --at-op <op>", "ff op log"]
+summary = "--at could not parse the requested age or date"
+detail = "Use a compact age such as 90s, 15m, 2h, 3d, or 1w, or a supported date such as '2026-09-13 12:00:00 +0000'. --at selects the latest retained operation at or before that time. Use --at-op for a hexadecimal operation ID and restore's --from for a revision. A valid time may still have no retained operation to select."
+exits = ["ff op log", "ff restore <path> --at 2h", "ff restore <path> --at-op <op>"]
 
 [[entry]]
 id = "restore/nothing-selected"
-summary = "restore was given nothing to restore"
-detail = """\
-    Restore is deliberately explicit: it takes the paths you name, or --all for \
-    the whole tree, and never guesses a selection on your behalf. Either form \
-    pairs with one source flag — --from for a revision, --at-op for an \
-    operation, --at for a time — and without one the source is the commit under \
-    the open change."""
-exits = ["ff restore --all", "ff restore <path> --from <rev>", "ff restore <path> --at-op <op>"]
+summary = "restore needs paths or --all"
+detail = "Name the files or directories to restore, or pass --all for the whole captured tree. Without a source flag, restore reads HEAD, the commit under the open change. Choose --from <rev>, --at-op <op>, or --at <time> for another source. Restore replaces selected working files and preserves HEAD and the index; its pre-command snapshot can recover only content that was successfully captured and retained."
+exits = ["ff restore <path>", "ff restore --all", "ff restore <path> --at-op <op>"]
 
 [[entry]]
 id = "undo/nothing"
-summary = "the operation log has nothing left to undo"
-detail = """\
-    Undo walks fufu's operation log. Either nothing has been recorded yet, or \
-    everything recorded is a note — a marker for something that happened rather \
-    than something that was done, which has no state behind it to put back. ff \
-    op log shows what the log still holds."""
-exits = ["ff op log"]
+summary = "the current worktree's operation log has no undo step"
+detail = "Inspect ff history or ff op log to see what this worktree has recorded. There may be no operations yet, or only notes that undo skips. Undo cannot reconstruct work from before snapshots were enabled, uncaptured file content, or another worktree's independent history. A retained snapshot can still be used for selected file recovery with ff restore <path> --at-op <op>."
+exits = ["ff history", "ff op log"]
 
 [[entry]]
 id = "undo/not-undoable"
-summary = "that operation has nothing in it to invert"
-detail = """\
-    ff op revert inverts the ref transitions an operation made, so it has \
-    nothing to do with the two kinds that made none. A capture only records the \
-    working copy — that invariant is what keeps the log small — and a note marks \
-    something that happened rather than something that was done. To go back to \
-    what a capture holds, restore to it: that is a worktree question, not a \
-    rollback. Note that ff undo does not land here, because it steps over runs \
-    of captures on purpose."""
-exits = ["ff op log", "ff restore --all --at-op <op>"]
+summary = "op revert cannot invert a capture or note"
+detail = "Use ff restore with a retained snapshot to recover files, or inspect ff history for a whole-state undo step. ff op revert only inverts recorded user-ref transitions. Captures store working-copy state without those transitions, and notes record events such as a push rather than an invertible local ref update. Undoing local history cannot reverse a remote push."
+exits = ["ff op show <op>", "ff restore <path> --at-op <op>", "ff history"]
 
 [[entry]]
 id = "undo/trimmed"
-summary = "the state that undo would put back has been trimmed away"
-detail = """\
-    Undo restores the complete state an operation's predecessor recorded, and \
-    trim has dropped part of it past the keep window (fufu.keep, 90 days by \
-    default). ff op restore --force lands on whatever remains and names each \
-    missing piece instead of refusing; a longer keep window prevents the next \
-    one. Bare ff undo has no --force by design: a run whose state was trimmed is \
-    a run undo should decline rather than half-apply. Nothing was changed."""
-exits = ["ff op restore <op> --force", "ff config keep <duration>"]
+summary = "some objects needed for the requested state are missing"
+detail = "Inspect the missing pieces named in the error and choose an intact retained state if possible. ff op restore <op> --force attempts the available parts and reports what is missing; it cannot recreate missing objects. Ordinary undo refuses this incomplete restoration. Retention defaults to 90 days through fufu.keep, but increasing it now does not restore already removed state. Pre-command capture or reconciliation may already have run."
+exits = ["ff op log", "ff op restore <op> --force", "ff config keep <duration>"]
 
 [[entry]]
 id = "op/not-found"
-summary = "no operation goes by that id"
-detail = """\
-    Operation ids are hex like commit ids, and the slot says which space a \
-    prefix is read in: --at-op and the ff op verbs read operations, -r and \
-    --from read revisions. This prefix matched no operation. Letters are a \
-    change id and are refused here by name instead. ff op log prints ids in \
-    exactly the form these verbs accept."""
+summary = "the requested operation or recovery source was not found"
+detail = "Use ff op log to choose a retained operation. Operation IDs are hexadecimal, and @ names the live operation tip; --at-op reads this address space, while --from reads revisions. This ID also covers an invalid address, a time before the retained log, or a target with no shared operation history. If restore says the unborn branch has no HEAD source, select a retained snapshot with --at-op instead. Change IDs use k-z letters and belong in revision positions."
 exits = ["ff op log"]
 
 [[entry]]
 id = "op/ambiguous"
-summary = "that id prefix matches more than one operation"
-detail = """\
-    A prefix has to name one operation, and this one names several. Every \
-    candidate is listed so you can pick; typing one more letter is usually \
-    enough. ff op log bolds the shortest prefix that is unique, so an id copied \
-    from there never lands here."""
-exits = ["ff op log"]
+summary = "that hexadecimal prefix matches more than one retained operation"
+detail = "Use more hexadecimal characters or the full operation ID. Prefix uniqueness is checked across retained live and abandoned history, including other worktrees, rather than just the rows currently displayed. The candidates in the error are shortened for display; ff op log --json provides full IDs for its selected history."
+exits = ["ff op log --json"]
 
 [[entry]]
 id = "op/trimmed"
-summary = "that operation is no longer on the log"
-detail = """\
-    Trim drops operations past the keep window (fufu.keep, 90 days by default), \
-    so an id from an old transcript can name something real that is simply gone. \
-    The operation may still be readable as an object even when moving to it is \
-    not — restoring to something trim dropped is a different answer from \
-    restoring to something merely old. A longer keep window prevents the next \
-    one."""
+summary = "that operation is outside retained live history"
+detail = "Choose a retained operation from ff op log. A trimmed operation's object may still decode while the object remains on disk, but ordinary whole-state restoration requires retained history. ff op restore <op> --force can attempt an explicitly selected surviving object and report missing state; it does not recover objects already removed. A longer fufu.keep protects future history, not history already trimmed."
 exits = ["ff op log", "ff config keep <duration>"]
 
 [[entry]]
 id = "op/floor"
-summary = "there is nothing recorded before that operation"
-detail = """\
-    Undo steps back to the state before a run, and the oldest operation on the \
-    log has nothing before it — it is the floor. That happens at a fresh \
-    repository, or after trim removed everything earlier. Nothing was changed."""
+summary = "the request steps before the earliest retained operation"
+detail = "Use ff op log to find the earliest available recovery point and choose a target at or after it. Undo needs a predecessor to restore the state before a step; the oldest retained operation has none. An address such as @~100 also fails when it asks for more predecessors than remain. Earlier state may never have been captured or may have been removed by retention."
 exits = ["ff op log"]
 
 [[entry]]
 id = "op/unreadable"
-summary = "an operation on the log could not be decoded"
-detail = """\
-    Operations are ordinary git commits carrying a small record, and this one \
-    does not parse — a truncated write, a partial transfer, or a hand-edited \
-    ref. fufu refuses to guess at damaged state rather than acting on half of \
-    it. ff doctor checks the log's structure; the objects themselves are \
-    readable with plain git."""
-exits = ["ff doctor", "ff op log"]
+summary = "required operation or ref data is unavailable or unusable"
+detail = "Read the specific message before choosing a repair. This ID covers malformed records, missing ref tables, failed ref iteration, and op revert selecting an operation that moved no refs. For the last case, inspect ff op show <op> and choose file restoration or a whole-state undo instead. For damaged records or refs, ff doctor can report findings and git fsck can inspect objects, but doctor --fix does not reconstruct missing operation data. Preserve any remaining history and report reproducible decoding failures."
+exits = ["ff doctor", "git fsck"]
 
 [[entry]]
 id = "commit/empty"
-summary = "there is nothing to close: the tree matches HEAD"
-detail = """\
-    The working copy is the open change, so a tree that matches HEAD is a change \
-    that does not exist — and a description does not make one, because a commit \
-    that says something while changing nothing is exactly the placeholder state \
-    fufu refuses to keep. Nothing was written, so a pending description is still \
-    there, and ff describe -m will park one for the next close. Naming paths \
-    narrows the question to those paths, so a clean slice refuses the same way a \
-    clean tree does — the same rule, a narrower scope."""
-exits = ["ff status", "ff describe -m <message>"]
+summary = "there are no selected changes to commit"
+detail = "Edit files or choose paths that differ from HEAD, then retry. The open change exists but its selected content is empty; a partial commit can refuse even when other paths have changes. No branch-history commit is created. A previously saved pending message remains, but -m supplied only to this failed commit is not saved. Use ff describe -m <message> to save it for later. Capture or reconciliation may have run before the refusal."
+exits = ["ff status", "ff diff", "ff describe -m <message>"]
 
 [[entry]]
 id = "ref/contended"
-summary = "another process is holding that ref"
-detail = """\
-    Two things tried to move the same ref at once — often a second fufu command, \
-    an editor's git integration, or a hook. Nothing was changed, and no decision \
-    is needed. This exits 4, the one code that means run the same command again. \
-    A lock file nobody clears makes the answer the same every time, so a script \
-    caps its retries."""
+summary = "a ref update lost a race or could not acquire its lock"
+detail = "Wait for the other writer and retry, with a bounded retry count in scripts. Read the specific message first: contention can occur during capture, during a later ref update, or after files and refs have been restored but before the operation pointer moves. Earlier writes are not rolled back merely because the exit is 4. For a state-changing command, inspect ff status and ff op log before retrying if the message reports partial progress; preserve explicit target IDs because relative addresses may now resolve differently. Persistent contention needs investigation of the named lock or writer."
 exits = []
 
 [[entry]]
 id = "hook/declined"
-summary = "one of your git hooks refused the commit"
-detail = """\
-    fufu runs git's four commit-time hooks itself — pre-commit, \
-    prepare-commit-msg, commit-msg and post-commit — so a hook that exits \
-    non-zero stops the verb exactly as it would under git. The hook's own output \
-    says why. pre-commit runs wherever worktree content becomes commit content: \
-    ff commit, ff absorb, and both of ff done's landings. The message hooks run \
-    wherever a message is authored for a commit: ff commit, ff describe <rev>, \
-    and an ff done whose session carries a new description. post-commit runs on \
-    ff commit alone, and cannot fail anything. The index is populated before the \
-    hooks run, so runners keyed on staged files see what is landing, and it is \
-    put back exactly as it was when the verb does not land. --no-verify skips \
-    pre-commit and commit-msg, with the usual caveat that they were there for a \
-    reason; git documents prepare-commit-msg as not skipped by it, and fufu \
-    follows."""
-exits = ["ff commit --no-verify", "ff absorb --no-verify", "ff done --no-verify", "ff describe --no-verify"]
+summary = "a commit-time Git hook exited unsuccessfully"
+detail = "Read the named hook's output, fix its reported problem, and rerun the same command with its original targets, paths, and message. Hooks may have edited working files even though the commit did not land. Fufu restores a temporary hook index when the operation does not land. --no-verify skips pre-commit and commit-msg if you choose to bypass them; it does not skip prepare-commit-msg, which must be fixed. Post-commit is notification-only and cannot cause this refusal. Hook execution depends on the command and whether it commits open content or authors a message."
+exits = ["ff status", "ff help commit"]
 
 [[entry]]
 id = "sign/unknown-format"
-summary = "gpg.format names a signing format fufu does not know"
-detail = """\
-    git signs in three formats and fufu implements all three: openpgp (gpg), \
-    x509 (gpgsm), and ssh (ssh-keygen). Anything else in gpg.format is a typo or \
-    a format from a future git, and either way there is no program to run. The \
-    check happens before the first object is written, so nothing was \
-    half-committed to learn it. Fix the spelling, or turn signing off."""
-exits = ["git config gpg.format ssh", "git config --unset commit.gpgsign"]
+summary = "gpg.format is not openpgp, x509, or ssh"
+detail = "Set gpg.format to the format of your signing key: openpgp uses gpg, x509 uses gpgsm, and ssh uses ssh-keygen. Check inherited Git configuration before changing it. To proceed unsigned, remove an explicit --sign/-S and use --no-sign on the same command where supported, or set commit.gpgsign false for the intended scope. Unsetting a local value can expose an enabled global value. Earlier snapshots or object writes may already exist."
+exits = ["git config --show-origin --get gpg.format", "ff help commit"]
 
 [[entry]]
 id = "sign/no-key"
-summary = "ssh signing needs a key and user.signingkey is empty"
-detail = """\
-    gpg and gpgsm fall back to a default key of their own; ssh-keygen has \
-    nothing to fall back to, so the ssh format needs user.signingkey set — to a \
-    path (the public half is enough, ssh-keygen finds the private one beside it) \
-    or to the key itself. gpg.ssh.defaultKeyCommand satisfies this too, when it \
-    produces a key. Nothing was written: the key is resolved before the commit \
-    object is built."""
-exits = ["git config user.signingkey ~/.ssh/id_ed25519.pub", "ff commit --no-sign"]
+summary = "SSH signing has no configured or default key"
+detail = "Set user.signingkey to your SSH signing key, or configure gpg.ssh.defaultKeyCommand to return one. The example path must exist on your machine. A public key can be used when ssh-keygen can access its private key, including through an SSH agent. To proceed unsigned, retry the original command with --no-sign where supported and without --sign/-S. Fufu has not produced the requested signature; pre-command snapshots may already exist."
+exits = ["git config user.signingkey <key-path>", "ff doctor"]
 
 [[entry]]
 id = "sign/no-program"
-summary = "the signing program is not on PATH"
-detail = """\
-    fufu spawns the signer itself — gix implements no signing — so the program \
-    gpg.format names has to be findable: gpg, gpgsm, or ssh-keygen, or whatever \
-    gpg.program, gpg.<format>.program overrides it with. This is the one signing \
-    failure that is usually about the machine rather than the repository: the \
-    same configuration works elsewhere. `ff doctor` reports the same thing \
-    without needing a commit to fail first."""
-exits = ["ff doctor", "git config --unset commit.gpgsign"]
+summary = "the configured signing program could not be started"
+detail = "Install or repair the program named in the error and make it executable on PATH, or correct its configured path. Defaults are gpg, gpgsm, and ssh-keygen; gpg.program and gpg.<format>.program can override them. ff doctor checks the signing configuration and simple program availability, not whether your key can sign. If you choose unsigned output, retry the original command with --no-sign where supported and without --sign/-S."
+exits = ["ff doctor", "git config --show-origin --get-regexp '^gpg\\.'"]
 
 [[entry]]
 id = "sign/failed"
-summary = "the signing program ran and refused"
-detail = """\
-    The signer's own words are in the message: a passphrase not given, a key \
-    that is not there, an agent that is not running. fufu captures the signer's \
-    stderr rather than letting it through, so the reason survives to the error — \
-    a pinentry prompt still reaches your terminal, because gpg-agent opens the \
-    tty itself. Nothing landed: the commit object is written before any ref \
-    moves, so a refusal leaves the branch exactly where it was."""
-exits = ["ff doctor", "ff commit --no-sign"]
+summary = "the signer failed or did not produce a signature"
+detail = "Use the signer's diagnostic to check key access, passphrase entry, agent availability, and program configuration, then retry the original command. ff doctor can check configuration but cannot prove that a key is accessible. Signing failure prevents that signed commit from landing; it does not imply the entire invocation made no earlier writes or updates. If unsigned output is intended, retry with --no-sign where supported and without --sign/-S."
+exits = ["ff doctor", "ff status"]
 
 [[entry]]
 id = "editor/failed"
-summary = "the editor did not produce a description"
-detail = """\
-    The bare form of describe seeds a temporary file and opens $EDITOR on it. \
-    When the editor cannot be launched, or exits non-zero, the description is \
-    left exactly as it was rather than half-written. Passing -m skips the editor \
-    entirely."""
-exits = ["ff describe -m <msg>"]
+summary = "the description editor could not start or exited unsuccessfully"
+detail = "Fix VISUAL or EDITOR, or pass the message with -m to the same describe command. Fufu tries VISUAL, then EDITOR, then vi. The failed editor result does not replace the description. If you were describing a recorded commit, retain its revision argument when retrying; ff describe -m alone changes the open change's pending message."
+exits = ["ff help describe"]
 
 [[entry]]
 id = "target/unresolvable"
-summary = "that target resolves, but not to something this verb can use"
-detail = """\
-    The spelling was understood — a target that denotes nothing raises a \
-    usage/revset- refusal naming the spelling instead. What it resolved to is \
-    the problem. On ff start and ff branch that is @ on an unborn branch: the \
-    fork lands at the commit under the open change, and an unborn branch has \
-    none yet. Close the change first, and the branch has a commit to fork at."""
-exits = ["ff commit", "ff log"]
+summary = "the command has no usable committed target"
+detail = "Choose a target appropriate to the command. An unborn branch needs its first nonempty commit before branching from @ or rewriting history. ff edit @ and ff restore --from @ refuse because @ is already the open change; use HEAD to edit or restore from the commit beneath it. A root commit has no parent for absorb's implicit target, so name --into explicitly. If the message names a missing trunk target, inspect ff branch and the trunk setting."
+exits = ["ff log", "ff branch"]
 
 [[entry]]
 id = "switch/nothing-opened"
-summary = "-m describes a change the switch opens, and this switch opens none"
-detail = """\
-    A switch that mints a branch opens a change on it, and -m is that change's \
-    pending description, written at birth. A switch to a branch that is already \
-    here opens nothing: it resumes whatever is parked there, description and \
-    all, so there is no new change for the message to describe. Switch first, \
-    then ff describe -m says what the change you landed on is."""
-exits = ["ff describe -m <msg>"]
+summary = "-m cannot describe a new change when switching to an existing branch"
+detail = "Switch to the existing branch without -m, then run ff describe -m <msg> there if you want to replace its pending message. This refused switch has not taken you to the destination. A switch to an existing branch resumes its parked change and description. The switch -m option is for a change on a newly created branch."
+exits = ["ff switch <branch>", "ff help describe"]
 
 [[entry]]
 id = "usage/revset-adjacent-operands"
-summary = "two revisions stand side by side with no operator between them"
-detail = """\
-    Most often this is jj's infix difference: fufu does not have one, because `a \
-    & ~b` already says it and a second spelling would be a second thing to \
-    learn. Git requires ~ to be followed by digits or nothing, so `a ~ b` lexes \
-    as two operands rather than an operator. The same error covers plain \
-    juxtaposition, where an operator was simply left out."""
-exits = ["ff log -r '<a> & ~<b>'"]
+summary = "two revision expressions need an operator between them"
+detail = "Insert | for union, & for intersection, or & ~ for set difference, and quote the whole expression for your shell. Fufu does not accept jj's infix a ~ b spelling; use a & ~b. Without an operator, adjacent names do not form a revision set."
+exits = ["ff log -r '<a> & ~<b>'", "ff log -r '<a> | <b>'"]
 
 [[entry]]
 id = "usage/revset-parent-shorthand"
-summary = "there is no `x-` suffix; git already spells it `x^`"
-detail = """\
-    fufu takes gitrevisions whole, so the parent of a revision is `x^` and jj's \
-    `x-` would be a second way to say it. `@-` goes the same way, and the rule \
-    catches it twice over: naming a commit it is `HEAD`, since the open change \
-    sits on HEAD's commit, and naming an operation it is `@^`, since an \
-    operation's first parent is the operation before it — which makes `@-3` \
-    exactly `@~3`. None of this touches ordinary names: a branch called \
-    my-branch is just a branch."""
+summary = "use ^ or ~n for parents, not the x- shorthand"
+detail = "Replace x- with x^ and a numbered first-parent walk with x~n. In revision space @^ is HEAD and @~2 is HEAD~. In operation space @^ is the preceding operation and @~3 follows three predecessor links. A dash inside an ordinary branch name such as my-branch is still valid."
 exits = ["ff log -r '<x>^'", "ff log -r HEAD", "ff op show @^"]
 
 [[entry]]
 id = "revset/deferred-descendants"
-summary = "descendants are not available yet"
-detail = """\
-    Walking forward needs a child index, which git does not keep — every walk it \
-    offers runs from a tip backwards. Rather than scan all of history and call \
-    it a query, `x+` and descendants() are left out until they can be answered \
-    within the cost fufu promises. `x::` is the unbounded descendant form that \
-    does exist today."""
-exits = ["ff log -r '<x>::'"]
+summary = "x+ and descendants() are not implemented"
+detail = "Use x:: to request x and its visible descendants, or x::y to bound the selection by a committed endpoint. These are not depth-limited children queries. Fufu currently refuses x+ and descendants(), including depth arguments. Inspect the resulting set before using it in a rewrite; the revisions reference documents current open-change and equal-time traversal limits."
+exits = ["ff log -r '<x>::'", "ff log -r '<x>::<y>'"]
 
 [[entry]]
 id = "usage/revset-no-symmetric-difference"
-summary = "there is no `a...b`; the set language already says it"
-detail = """\
-    What fufu inherits whole is gitrevisions' revision grammar — its symbols and \
-    suffixes. Ranges are its own set algebra, and in a set language `a...b` is \
-    exactly `(a..b) | (b..a)`, so it stays out for the same reason `x-` does. \
-    Inheriting a spelling is not the same as inheriting a meaning."""
+summary = "the a...b range syntax is not supported"
+detail = "Use (a..b) | (b..a) to select commits reachable from either endpoint but not both. Quote the expression so the shell passes its operators unchanged. Fufu's range operators are .. and ::; it does not accept Git's three-dot shorthand. Use committed endpoints when you need the ordinary set identities; @ has separately documented range limits."
 exits = ["ff log -r '(<a>..<b>) | (<b>..<a>)'"]
 
 [[entry]]
 id = "usage/revset-expected-expression"
-summary = "an operator or a call is missing the expression it needs"
-detail = """\
-    Something that takes an operand did not get one — a trailing & or |, a ~ \
-    with nothing after it, or a dangling comma in a call. Note that complement \
-    is `~x`; `^x` is not a prefix operator in this grammar, since ^ belongs to \
-    git's suffixes."""
+summary = "an operator or function call is missing an expression"
+detail = "Complete the expression named in the error. Common causes are a trailing & or |, a complement ~ without an operand, or a trailing comma in a function call. Use ~x for complement; ^ is a suffix on a revision, not a prefix operator. Quote the complete expression when passing it through a shell."
 exits = ["ff log -r '~<x>'"]
 
 [[entry]]
 id = "usage/revset-unbalanced-parens"
-summary = "the parentheses in that expression do not pair up"
-detail = """\
-    An opening paren with no closer, a closer with nothing open, or a comma \
-    outside any call. Quoting the whole expression keeps a shell from eating \
-    parens before fufu sees them, which is the usual cause when the text looked \
-    balanced as typed."""
+summary = "the expression has unmatched parentheses or a misplaced comma"
+detail = "Pair every opening parenthesis with a closing one and use commas only between function arguments. Quote the whole expression so the shell passes the parentheses and operators to fufu unchanged. The error names the unmatched part."
 exits = ["ff log -r '(<a> | <b>) & <c>'"]
 
 [[entry]]
 id = "usage/revset-unterminated-brace"
-summary = "a git suffix opened a brace and never closed it"
-detail = """\
-    Forms like `@{2 days ago}`, `^{tree}`, and `^{/regex}` run to their closing \
-    brace, and braces nest, so an unclosed one swallows the rest of the \
-    expression. The error quotes the run that never ended."""
+summary = "a revision suffix has an opening brace without its closing brace"
+detail = "Close the brace in the suffix named in the error, and quote expressions containing spaces. Examples include main@{1}, main@{2 days ago}, and HEAD^{commit}. Message-search suffixes such as HEAD^{/fix} search literal text in the current implementation. Closing a brace fixes the syntax; the suffix must still resolve to a supported object or commit."
 exits = ["ff log -r '<branch>@{1}'"]
 
 [[entry]]
 id = "usage/revset-unterminated-quote"
-summary = "a pattern value opened a quote and never closed it"
-detail = """\
-    Pattern values may be quoted so they can carry characters the grammar \
-    otherwise reads as operators — `regex:\"^fix\"`, `substring:\"fix bug\"`. Inside \
-    the quotes only \\\" and \\\\ are escapes; everything else is literal, which is \
-    what keeps a regex's own backslashes intact."""
+summary = "a quoted pattern value is missing its closing quote"
+detail = '''Close the double quote around the pattern and preserve it inside the shell argument. For example, ff log -r 'description(substring:"fix bug")' passes one expression containing a quoted pattern. Within pattern quotes, only \" and \\ are escapes; other backslashes remain literal. A regex: pattern still refuses after its quoting is fixed because regex matching is not implemented.'''
 exits = ["ff log -r 'description(substring:\"<text>\")'"]
 
 [[entry]]
 id = "usage/revset-empty"
-summary = "the revset is empty"
-detail = """\
-    -r was given nothing, or only whitespace. An empty expression has no obvious \
-    reading — the whole history and no commits are both defensible — so fufu \
-    asks rather than picking one. `::@` is every ancestor of the open change."""
-exits = ["ff log -r '::@'"]
+summary = "the revision expression contains no text"
+detail = "Supply an expression such as @, HEAD, or ::HEAD, or omit -r to use ff log's default view. An empty or whitespace-only argument is invalid syntax. This differs from a valid expression whose evaluated set has no members, which a single-target command reports as usage/revset-empty-set."
+exits = ["ff log", "ff log -r @"]
 
 [[entry]]
 id = "usage/revset-open-suffix"
-summary = "`@` is the open change, and has no reflog"
-detail = """\
-    git's `@` means HEAD; fufu's means the open change sitting on top of it. Its \
-    parent suffixes step onto HEAD — `@^` is `HEAD`, `@~2` is `HEAD~` — but it \
-    is not a ref and has no reflog, so `@@{1}` names nothing; `@{1}` alone is \
-    HEAD's, as it is in git. The other suffixes, `^{tree}` and the like, are \
-    refused the same way rather than quietly translated."""
+summary = "that suffix is not supported on the open change @"
+detail = "Use HEAD for suffixes that need a committed ref. In revision space @ is the open change; its parent suffixes step onto HEAD, so @^ is HEAD and @~2 is HEAD~. The open change has no reflog: @{1} reads HEAD's reflog, while @@{1} is refused. Tree-peeling and other non-parent suffixes on @ are also refused."
 exits = ["ff log -r '@{1}'", "ff log -r HEAD"]
 
 [[entry]]
 id = "usage/revset-range-suffix"
-summary = "`x^!` and `x^@` are rev-list ranges, not revisions"
-detail = """\
-    Both are git shorthands that expand to more than one revision — `x^!` is x \
-    without its parents, `x^@` is x's parents without x — so neither names a \
-    single revision the way every other suffix does. fufu has its own set \
-    algebra for ranges, which says the same things without borrowing a spelling \
-    that only reads as a suffix."""
-exits = ["ff log -r '<x>^..<x>'", "ff log -r '<x>^ | <x>^2'"]
+summary = "x^! and x^@ are not supported revision suffixes"
+detail = "Use an explicit revision set. To select only x, name x directly. To select a commit's parents, name x^ and, for a merge, x^2 and any additional parents, joined with |. Git's x^! and x^@ expand into revision-list selections rather than a single revision, and fufu does not accept those shorthands."
+exits = ["ff log -r <x>", "ff log -r '<x>^'", "ff log -r '<x>^ | <x>^2'"]
 
 [[entry]]
 id = "usage/revset-ambiguous"
-summary = "that name reads more than one way, and fufu will not pick one"
-detail = """\
-    Every lookup runs for every name — a ref, an object prefix, a change id \
-    prefix, the open change's id — and none wins by precedence. Tools that rank \
-    them resolve a name to a branch even when a commit of the same spelling \
-    exists, and say nothing about the one they dropped — which is the failure \
-    this refusal exists to prevent. Spell the full ref path, the full sha, or \
-    more of the change id; the error names every reading so you can pick. A \
-    prefix that is unique on the page `ff log` printed can still be a prefix of \
-    two changes in the repository, and that is this refusal too."""
+summary = "that name or prefix has multiple revision matches"
+detail = "Use a full ref path, a full commit SHA, or more of the change ID to select the intended match. A name may match a ref and an object or change ID at once, or a prefix may match several objects or changes. The error lists alternatives when available. Highlighting in ff log is local to the displayed page and is not proof that a short prefix resolves uniquely across the repository."
 exits = ["ff log -r refs/heads/<name>", "ff log -r <full-sha>"]
 
 [[entry]]
 id = "usage/revset-divergent"
-summary = "that change stands on more than one visible commit"
-detail = """\
-    A change id is the identity a commit keeps through rewrites, so a rewrite \
-    beside a ref that still holds the copy it rewrote — a branch or tag someone \
-    pointed at the old commit, an `ff op restore` beside a later rewrite, a \
-    cherry-pick fufu made — leaves one id on two visible commits. jj marks that \
-    id divergent and refuses the bare prefix; fufu refuses it by name. The error \
-    lists every commit the change stands on. Name the one you mean by its sha, \
-    or move the ref that holds the stale copy."""
+summary = "one change ID identifies multiple visible commits"
+detail = "Select the desired copy by its commit SHA from the candidates in the error. Rewrites preserve a surviving change's ID while changing its SHA; another ref can keep an older copy visible. Extending the change-ID prefix, even to the full ID, cannot choose between copies of the same change. Inspect the copies before moving or deleting refs that keep them visible."
 exits = ["ff show <sha>", "ff log"]
 
 [[entry]]
 id = "usage/revset-unknown-revision"
-summary = "nothing in revision space answers to that name"
-detail = """\
-    The name is not a ref, not an object prefix long enough for git to accept, \
-    and not one of fufu's own symbols. Object prefixes have to be at least four \
-    characters — git's own minimum, borrowed rather than restated — so a shorter \
-    one reads as an ordinary name and finds nothing."""
+summary = "no revision matches that name or prefix"
+detail = "Check ff log and ff branch, then correct the name or use a longer ID. Commit-SHA and change-ID prefixes need at least four characters. Change lookup searches local history first and uses remote history as a fallback, with a 10,000-commit search limit. An operation ID belongs to ff op show or --at-op, not a revision argument. A commit absent from this repository may need to be fetched before it can resolve."
 exits = ["ff log", "ff branch"]
 
 [[entry]]
 id = "usage/revset-not-a-commit"
-summary = "that names an object, but not a commit"
-detail = """\
-    A revset denotes a set of commits, so a spelling that peels to a tree or a \
-    blob has nothing to contribute to one. This is usually `^{tree}` or a \
-    `<rev>:<path>` spelling, both of which are legal gitrevisions naming a legal \
-    object — just not the kind a set of commits can hold."""
-exits = ["ff log"]
+summary = "the revision names a tree or blob rather than a commit"
+detail = "Use the commit that contains the object. A spelling such as HEAD^{tree} or HEAD:path names stored content, while this command needs a commit or revision set. For file history, pass the path as ff log's positional argument and put the commit selection behind -r."
+exits = ["ff log", "ff log <path> -r <rev>"]
 
 [[entry]]
 id = "usage/op-in-rev-position"
-summary = "that is an operation, and this position takes a revision"
-detail = """\
-    History has revisions; the log of what fufu did has operations. They never \
-    mix in one argument. Both are hex, so the slot decides which space a prefix \
-    is read in: a revision slot reads a commit, an operation slot reads an \
-    operation. Letters are always a change id. An operation id typed here is \
-    usually the right id and the wrong verb: `ff op show` reads one, `--at-op` \
-    runs a read-only command as of one, and `ff op log` takes whole expressions \
-    over them."""
-exits = ["ff op show <op>", "ff op log '<expr>'"]
+summary = "an operation ID was used where a revision is required"
+detail = "Use ff op show <op> to inspect the operation, or restore's --at-op to recover files from its snapshot. Commit SHAs and operation IDs are both hexadecimal, but the argument position selects their meaning. Change IDs use k-z letters and identify revisions. To query the commits operations ran on, use base(<operation-expression>) in revision space. Only restore and op log/show/diff implement past-state flags."
+exits = ["ff op show <op>", "ff log -r 'base(<op>)'"]
 
 [[entry]]
 id = "usage/rev-in-op-position"
-summary = "that names a commit, and this position takes an operation"
-detail = """\
-    The mirror of usage/op-in-rev-position. It turns up on `@^2` — an \
-    operation's first parent is the operation before it, which is why git's own \
-    suffixes work here at all, but every parent past the first leaves the log: \
-    slot 2 is the commit the operation ran on, and the rest are the shas it \
-    pinned. It also turns up on a branch name inside an ff op log expression, \
-    where one log spans every branch, so narrowing to one is the on_branch() \
-    predicate rather than a name, and on a change id, which is letters and is \
-    read in revision slots only. Either way the crossing back to history is \
-    spelled base(), so that it is something you asked for rather than something \
-    a suffix did quietly."""
-exits = ["ff op show @", "ff op log 'on_branch(<name>)'", "ff log -r 'base(@)'"]
+summary = "a revision or non-operation parent was used in operation space"
+detail = "Use an operation ID from ff op log, or move the revision to ff log -r or ff show. In an operation expression, on_branch(<name>) filters the log for a branch. Operation ^ and ~n follow predecessor links; parent slots above 1 are refused because they do not select preceding operations. Use base(<operations>) in revision space to select the recorded base commits explicitly."
+exits = ["ff op log", "ff op log 'on_branch(<name>)'", "ff log -r 'base(@)'"]
 
 [[entry]]
 id = "usage/revset-unknown-function"
-summary = "no revset function goes by that name"
-detail = """\
-    The registry holds every function the language has, and the error lists the \
-    ones that exist. Revision space has latest, heads, roots, description and \
-    author; operation space has on_branch, session and kind, plus the same three \
-    set functions. base() belongs to revision space and takes operations, \
-    because it is the crossing between them."""
-exits = ["ff log -r 'latest(main)'", "ff op log 'kind(op)'"]
+summary = "that function is not available in this address space"
+detail = "Check the function name and whether you are selecting revisions or operations. Both spaces support latest, heads, and roots. Revision predicates are description and author; operation predicates are on_branch, session, and kind. base takes an operation expression and returns commits, so it belongs in revision space. All implemented functions take one argument."
+exits = ["ff log -r 'latest(HEAD)'", "ff op log 'kind(op)'"]
 
 [[entry]]
 id = "usage/revset-arity"
-summary = "that function was called with the wrong arguments"
-detail = """\
-    Every function declares how many arguments it takes and what kind each one \
-    is: a set, or a pattern. A set where a pattern belongs is refused rather \
-    than coerced, because guessing would make description(main) mean the branch \
-    on one day and the word on another. The error names the signature."""
-exits = ["ff log -r 'description(substring:\"<text>\")'"]
+summary = "a function received the wrong argument count, kind, or value"
+detail = "Match the signature named in the error. Implemented functions take one set or pattern argument. latest(HEAD) takes a set; description(substring:fix) takes a text pattern, and description(fix) treats the bare word as substring text. A compound set such as a | b is not a text pattern. kind accepts only capture, op, foreign, or note."
+exits = ["ff log -r 'description(substring:\"<text>\")'", "ff op log 'kind(op)'"]
 
 [[entry]]
 id = "usage/revset-wrong-space"
-summary = "that function reads operations, and this position takes revisions"
-detail = """\
-    One grammar spans both address spaces — the same operators and the same \
-    functions over operations instead of over history — but the vocabularies \
-    differ, because each space can only name what it has. on_branch(), session() \
-    and kind() are questions about operations, so they belong in an ff op log \
-    expression. base() goes the other way: it takes operations and returns the \
-    commits they ran on, which makes it a revision-space function with an \
-    op-space argument — and the only crossing between the two."""
+summary = "that function belongs in the other address space"
+detail = "Put on_branch, session, and kind in an operation expression, such as ff op log 'kind(op)'. Put base(<operations>) in a revision expression, such as ff log -r 'base(@)'. base returns the commits recorded as operation bases and cannot itself be selected as a set of operations."
 exits = ["ff op log 'kind(op)'", "ff log -r 'base(@)'"]
 
 [[entry]]
 id = "usage/revset-empty-set"
-summary = "the expression is valid and matches nothing"
-detail = """\
-    Every name in it resolved, so this is not a typo in the usual sense — it is \
-    a set that came out empty. The common causes are a range whose endpoints are \
-    the wrong way round, an intersection of two sets that never overlap, and a \
-    predicate no commit satisfies."""
-exits = ["ff log", "ff branch"]
+summary = "the expression is valid but selects no target"
+detail = "Inspect the expression with ff log -r before retrying the command that needs a target. Check range direction, intersections, and predicates that may match nothing. This is an evaluated empty result, not an empty argument or unknown revision name. Readers can display empty sets; a command needing one or more targets refuses them."
+exits = ["ff log -r '<expr>'", "ff branch"]
 
 [[entry]]
 id = "usage/revset-not-a-point"
-summary = "the expression matches more than one revision, and this takes exactly one"
-detail = """\
-    Verbs that act on a revision need exactly one, and fufu will not pick for \
-    you — which of several commits you meant is not something a tool can know. \
-    Narrowing is a spelling you choose: latest() takes the newest member, and \
-    heads() takes the members nothing else in the set descends from."""
-exits = ["ff log -r 'latest(<expr>)'", "ff log -r 'heads(<expr>)'"]
+summary = "the expression selects multiple revisions where one is required"
+detail = "Inspect the set, then name one commit SHA, change ID, or branch tip. latest(<expr>) selects its newest member if that is the choice you intend. heads(<expr>) narrows to members with no descendants in the set but can still return several, so inspect its result before using it as a single target."
+exits = ["ff log -r '<expr>'", "ff log -r 'latest(<expr>)'"]
 
 [[entry]]
 id = "revset/regex-unavailable"
-summary = "regex patterns are recognized but not available yet"
-detail = """\
-    A regex engine is a megabyte and a half of dependency, and fufu will not \
-    carry it before a caller needs it. The prefix is recognized anyway so that \
-    typing it is answered rather than mistaken for a ref name — glob: and \
-    substring: cover most of what regex: gets reached for."""
+summary = "regex patterns are recognized but not implemented"
+detail = "Use glob: for * and ? wildcards, substring: for literal text anywhere in a field, or exact: for an exact match. regex: is recognized and refused rather than evaluated. These pattern forms are not interchangeable with a regular expression, so check the selected results before using them to rewrite history."
 exits = ["ff log -r 'description(glob:\"fix*\")'", "ff log -r 'description(substring:\"fix\")'"]
 
 [[entry]]
 id = "usage/unknown-key"
-summary = "no fufu setting goes by that name"
-detail = """\
-    Settings live in a typed registry, so a name that is not in it would \
-    silently do nothing if it were written. Bare ff config lists every setting \
-    with its value, its meaning, and whether it is still at its default."""
+summary = "that name is not a supported fufu setting"
+detail = "Use ff config to list supported keys, then retry with one of those names. The short form and fufu.<key> form select the same setting. Git settings such as user.name belong to git config. An unknown key is not written by ff config."
 exits = ["ff config"]
 
 [[entry]]
 id = "usage/bad-value"
-summary = "the value did not parse as this setting's type"
-detail = """\
-    Every setting is validated through the same parser its readers use, before \
-    anything touches disk — a value that would be ignored at read time is \
-    refused at write time instead. ff config <key> shows the current value and \
-    the shape expected."""
-exits = ["ff config <key>"]
+summary = "the value is not valid for this setting or option"
+detail = "Use the type or accepted values named in the error. For configuration, ff config <key> shows the setting's value and description; the rejected value has not been saved. For ff watch --kind, choose capture, op, foreign, or note. A value valid for one setting or option may not be valid for another."
+exits = ["ff config", "ff help watch"]
 
 [[entry]]
 id = "usage/bad-flags"
-summary = "those flags do not go together"
-detail = """\
-    The message names the combination. Flags that would contradict each other \
-    are refused rather than quietly resolved by precedence, so the command you \
-    get is always the command you wrote."""
-exits = []
+summary = "an option is missing, retired, misplaced, or incompatible with another"
+detail = "Follow the specific message and inspect ff help <command> for the supported form. Some cases require choosing one of conflicting options; others replace an old spelling or supply a required argument. --at and --at-op are mutually exclusive, and accepting their syntax does not mean every command implements past-state reads. On restore, name paths or --all as well as the source."
+exits = ["ff help"]
 
 [[entry]]
 id = "usage/unknown-slug"
-summary = "that is not a slug ff hook knows"
-detail = """\
-    `ff hook` and `ff unhook` take flat, permanent slugs — claude, codex, \
-    cursor, gemini, bash, zsh, fish, powershell — because they end up written \
-    inside config files fufu does not own and cannot rename afterward. These two \
-    verbs are for people, so an unknown name is a real error here; `ff trigger`, \
-    which clients call, exits 0 on one instead. `ff hook -l` lists every slug \
-    with what is on this machine and what is already wired."""
-exits = ["ff hook -l", "ff hook claude", "ff hook --all"]
+summary = "the hook integration name is unknown or could not be inferred"
+detail = "Choose a name from ff hook -l: claude, codex, cursor, gemini, bash, zsh, fish, or powershell. Pass it directly to ff hook or ff unhook. If SHELL does not identify a supported shell, name that shell explicitly. Installation still needs client activation: restart or reload shell configuration, and complete any client hook approval. An unknown client-trigger name is handled quietly instead of using this interactive refusal."
+exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]
 id = "usage/no-such-directory"
-summary = "-C names a directory that is not there"
-detail = """\
-    -C (--cwd) runs the command as if fufu had been started somewhere else, so \
-    the directory has to exist before anything else can happen — it is a chdir, \
-    and the message carries what the operating system said about it. Nothing was \
-    captured: the move lands before the pre-command snapshot precisely so a \
-    snapshot is never taken against the wrong repository. The path may name any \
-    directory inside the repository you mean, a linked worktree included, and a \
-    relative one is read from where you typed it."""
-exits = ["ff worktree"]
+summary = "fufu could not enter the directory given to -C"
+detail = "Correct the path or its permissions, then retry with -C pointing to an existing directory. The operating-system diagnostic distinguishes a missing path, a non-directory, and access failure. Relative paths start at the invoking directory. This change of directory happens before command capture, so a failed -C has not captured the intended checkout. Use ff -C <existing-checkout> worktree to locate linked checkouts from a known repository."
+exits = ["ff -C <existing-checkout> worktree"]
 
 [[entry]]
 id = "usage/no-such-path"
-summary = "that path names nothing here"
-detail = """\
-    A path has to name something the repository can see — a file or directory on \
-    disk, or an entry in the last commit. Neither, and it is a typo, so the \
-    command is refused rather than answered with an empty log: an empty log for \
-    a misspelled path is the worst kind of wrong answer, because it looks like \
-    an answer. Paths go in the positional and revisions go behind -r, so no `--` \
-    separator is needed and none is accepted — `ff log main` is a question about \
-    the path main, even where a branch called main exists. A whole sentence in \
-    the path slot is usually a forgotten -m, which is why the exits say so when \
-    the token has spaces in it."""
+summary = "the path is absent from the working copy and HEAD"
+detail = "Correct the file or directory path and retry. Commit and log validate paths against disk and HEAD, so a path deleted from both may not be accepted even if it existed in older history. ff log's positional arguments are paths; select revisions with -r. If a commit message was parsed as a path, pass it with -m. Inspect ff status for the paths in the open change."
 exits = ["ff status", "ff log"]
 
 [[entry]]
 id = "usage/git-policy"
-summary = "fufu.gitPolicy is strict, and this git word has a fufu verb"
-detail = """\
-    fufu.gitPolicy governs what fufu says when git is reached for directly — \
-    through ff git, or in an agent's own shell. observe records it and stays \
-    quiet; coach, the default, names the fufu verb once per word; strict \
-    refuses. Refusing is the only tier that stops anything, and it is still not \
-    a translation: fufu names an alternative and never composes one, so the \
-    write that runs is the one that was typed or none at all. The set it refuses \
-    is exactly the git words fufu has a verb for, which is what keeps the \
-    passthrough honest — apply, bisect, gc and everything else fufu has no \
-    answer for run capture-first under every tier."""
-exits = ["ff config gitPolicy coach", "ff config gitPolicy"]
+summary = "strict Git policy refused this passthrough command"
+detail = "Use the suggested fufu command when it matches your task. If you need Git's behavior, inspect ff config gitPolicy and explicitly choose coach or observe for the intended scope before retrying. Strict passthrough refusal happens before capture and Git execution but records the policy tally. The classifier is command-based: it currently refuses tag pushes too, although ff push sends branches only. There is no exact fufu replacement for a tag push. Agent policy replies also depend on the client; only the Claude adapter emits pre-tool denial replies."
+exits = ["ff config gitPolicy", "ff config gitPolicy coach"]
 
 [[entry]]
 id = "usage/foreign-verb"
-summary = "that is a git or jj verb fufu answers rather than runs"
-detail = """\
-    A handful of git's and jj's words name something fufu does differently, so \
-    typing one is a question rather than a typo and it gets an answer instead of \
-    a parse error. checkout was two jobs and is two verbs here; stash describes \
-    a state fufu keeps rather than a command you run. merge is the position \
-    rather than the gap: fufu replays instead, and a merge commit is what a \
-    forge makes when work lands. blame and tag stay git's, and each is answered \
-    for the half git has not got — the operations behind a file since you last \
-    committed, and putting back a tag that was deleted. rebase is not on this \
-    list: it is ff restack's alias, jj's word and the git habit landing on the \
-    verb that replays. jj's abandon and split are answered with the moves that \
-    cover them — restore, done --abandon and lift for one, commit <paths> and \
-    lift for the other. The passthrough still runs the real thing, \
-    capture-first, when you want git's own behavior instead."""
-exits = ["ff status", "ff git <args>"]
+summary = "this Git or jj spelling needs a different fufu command"
+detail = "Read the task-specific alternatives in the message. Checkout separates into switch and restore; open work is parked on switching rather than through a stash command; splitting uses partial commits or lift. Fufu does not implement every Git or jj operation. ff git runs installed Git with its own arguments and streams, but strict policy can refuse classified writes, so check ff config gitPolicy before choosing that route. ff rebase is already an alias for restack."
+exits = ["ff help", "ff config gitPolicy"]
 
 [[entry]]
 id = "usage/collide-same-branch"
-summary = "collide was given one branch twice"
-detail = """\
-    A branch never conflicts with itself, so the answer would be clear no matter \
-    what either side held — a true answer to a question nobody meant to ask. \
-    Name the other branch. The one-name form already means the branch you are on \
-    against the one you named, so it is the same mistake when you are standing \
-    on the name you passed."""
-exits = ["ff collide <a> <b>", "ff branch"]
+summary = "collide resolved both sides to the same branch"
+detail = "Name two different local branches. With one argument, collide compares the current branch against the named branch, so naming the current branch repeats the same side. ff branch lists the names you can select."
+exits = ["ff branch", "ff collide <a> <b>"]
 
 [[entry]]
 id = "usage/lift-from-open"
-summary = "lift was told to take from the open change with nowhere else to land"
-detail = """\
-    Lift's default target is the open change, so --from @ with no --into asks to \
-    move the open change into itself, and it has nothing committed to take back \
-    out. Name a commit that has closed — ff log says which ones sit under you — \
-    or name where it lands with --into, which is an absorb spelled the other \
-    way."""
-exits = ["ff lift", "ff lift --from @ --into <rev>", "ff log"]
+summary = "lift's requested source and default target are both the open change"
+detail = "Name committed sources with --from, or a committed destination with --into when moving open-change content. Lift defaults to moving content into @; --from @ alone therefore asks to move the open change into itself. Bare ff lift takes content from HEAD when committed history exists."
+exits = ["ff log", "ff lift --from <revset>", "ff lift --from @ --into <rev>"]
 
 [[entry]]
 id = "usage/needs-message"
-summary = "a description was needed and there was no terminal to ask on"
-detail = """\
-    The bare form of describe opens an editor, which needs a terminal; in a \
-    script, a hook, or anything running non-interactively there is nobody to \
-    answer it. Pass the text with -m instead. FF_NONINTERACTIVE forces this \
-    behavior even on a terminal."""
-exits = ["ff describe -m <msg>"]
+summary = "a required commit description is missing or empty"
+detail = "Supply a nonempty message with -m on the original command, retaining its revision, source, and target arguments. Bare describe needs an interactive terminal to open an editor; FF_NONINTERACTIVE disables that route. A reword also refuses an empty description, including one emptied by commit-msg, so inspect the hook if your supplied message was nonempty. ff describe -m alone saves a pending message for the open change."
+exits = ["ff help describe"]
 
 [[entry]]
 id = "op/nothing-to-redo"
-summary = "there is no forward step to take"
-detail = """\
-    Redo walks forward along the branch of the log an undo stepped off, and \
-    reads where the pointer has been out of the ref's own reflog to find it. \
-    Either no undo has been recorded, or work has landed since one — and work \
-    after an undo forks the log rather than truncating it, so redo stops \
-    offering a path it can no longer take instead of stepping over something \
-    nobody asked it to abandon. Nothing is lost either way: the operations are \
-    still there, and ff op restore still lands on them by id."""
-exits = ["ff op log", "ff undo"]
+summary = "there is no available redo step from the current operation tip"
+detail = "Inspect ff history and ff op log rather than assuming redo can skip newer work. Redo follows a retained undo path; a new operation after undo forks that history and can end the available redo path. Retained operations on an abandoned path can still be selected by ID with ff op restore. Trimming can remove that recovery state, and ff undo is a separate backward move, not a repair for an unavailable redo."
+exits = ["ff history", "ff op log"]
 
 [[entry]]
 id = "usage/at-op-unsupported"
-summary = "that verb does not read a past state yet"
-detail = """\
-    --at-op and --at ride every verb that reads, and for most of them that means \
-    resolving a target the verb already resolves. For ff status, ff log, ff \
-    evolog and ff branch it means something larger — rendering a whole view \
-    against an operation's recorded ref table instead of against the refs on \
-    disk — and that is not built. Saying so beats an unknown-argument error, \
-    which would teach that the flags do not exist."""
-exits = ["ff op show <op>", "ff op log", "ff restore <path> --at-op <op>"]
+summary = "this command accepts past-state flags but does not implement them"
+detail = "Remove --at-op or --at to inspect the current state. Status, log, evolog, branch listings, and worktree listings declare these flags but refuse past-state views. Only restore and op log/show/diff implement them; show, map, remote, and collide do not declare them. Use ff op show <op> for a recorded snapshot and ref transitions, or ff op diff for file differences. Restore writes selected working files, so it is not a substitute for a past-state reader when you only want to inspect."
+exits = ["ff op show <op>", "ff op diff <a> <b>", "ff op log"]
 
 [[entry]]
 id = "edit/not-in-history"
-summary = "that commit is not in the branch you are standing on"
-detail = """\
-    An editing session ends by replaying the branch's commits onto the edited \
-    one, so the commit has to be in that branch's history — one it is not in has \
-    nowhere to land, because the session would end with the branch you left and \
-    the commit you edited unable to meet. It sits on another line of work, or \
-    below a fork you have since left. ff log says what is under you, and ff \
-    switch brings a branch that contains it into reach."""
+summary = "the commit to edit is not in the current branch's history"
+detail = "Switch to a branch containing the commit, then retry ff edit <rev>, or choose a commit from the current branch's history. Finishing an edit rewrites that branch from the edited commit onward, so the commit must be an ancestor of its tip. ff log shows the history available from the current branch."
 exits = ["ff log", "ff switch <branch>"]
 
 [[entry]]
 id = "held/op-revert"
-summary = "the inversion conflicts with work done since"
-detail = """\
-    ff op revert takes one change back out while later work stands, which it can \
-    only do where the refs it would move still hold what that operation left \
-    them at. One of them has moved since, so inverting would quietly take the \
-    later work with it. Nothing was changed. ff op show says what the operation \
-    did, and ff op restore rewinds to it wholesale if that is what you meant."""
-exits = ["ff op show <op>", "ff op restore <op>", "ff op log"]
+summary = "refs no longer have the values required to invert this operation"
+detail = "Inspect ff op show <op> and the refs named in the error. Op revert only inverts recorded ref transitions whose current values still equal what the selected operation left. This refusal creates no held rewrite or resolution session, and ff resolve cannot repair it. Choose another applicable operation, restore selected files, or deliberately restore a whole recorded state. Restoring to <op> selects its after-state; <op>^ selects its predecessor when retained. Capture or reconciliation may already have run before the inversion was refused."
+exits = ["ff op show <op>", "ff op log", "ff help op restore"]
 
 [[entry]]
 id = "held/rewrite-conflict"
-summary = "the rewrite stops at a commit it cannot replay"
-detail = """\
-    The replay reached a commit whose changes cannot be reapplied over the \
-    rewrite, so nothing was written. A verb asks this question before it plans \
-    and records a hold instead, so this is the engine answering someone who did \
-    not ask first — which, from the command line, should not happen."""
-exits = ["ff status", "ff resolve"]
+summary = "a commit could not be replayed over the requested rewrite"
+detail = "Inspect the named commit and paths with ff status and ff log. This is a replay refusal; the ID alone does not establish that a hold or resolution session was recorded. Ordinary conflict-aware commands usually report a held rewrite instead. Use ff resolve only on a branch whose status shows a hold. If the command repeatedly returns this error without a recorded hold, preserve the diagnostic and report the replay path. Earlier captures or objects may already have been written."
+exits = ["ff status", "ff log"]
 
 [[entry]]
 id = "held/expired"
-summary = "the held rewrite no longer has a question to answer"
-detail = """\
-    A hold records what you asked for, not the plan it could not finish \
-    computing, so it is asked again against the repository as it stands rather \
-    than replayed from what it stored. This time there was no answer: the base \
-    branch is gone, or the commit it aimed at has left the branch's history, or \
-    the editing session it was going to land was ended by hand. Nothing was \
-    written and the hold is still there — dropping it is a decision, and this is \
-    only the report that it has outlived its meaning."""
-exits = ["ff resolve --abandon", "ff status", "ff log"]
+summary = "the held request or its resolution state can no longer be used"
+detail = "Inspect the nested reason and current branch state. A base or target may have disappeared, a session may have been removed, or an old resolution may predate session branches. The refusal does not clear the hold. After preserving any wanted fixes, ff resolve --abandon on the held branch drops the hold and its associated resolution session. Reissue the original rewrite with current targets if it is still wanted. Legacy in-place markers may remain in working files and need separate editing or restoration."
+exits = ["ff status", "ff resolve --abandon", "ff log"]
 
 [[entry]]
 id = "held/already-held"
-summary = "a rewrite is already held on this branch"
-detail = """\
-    One hold per branch. Several holds on one stack would have to agree an order \
-    — which queues behind which, and what the second one is even replaying over \
-    — and fufu has not answered that, so a second conflicting rewrite refuses \
-    rather than guessing. Resolve or drop the one standing and the branch is \
-    free again. A rewrite that would land cleanly is not refused: it is not \
-    competing for anything, and the hold re-derives itself the next time it is \
-    asked."""
-exits = ["ff resolve", "ff resolve --abandon", "ff status"]
+summary = "the named branch already has a held rewrite blocking this request"
+detail = "Switch to the branch named in the error, inspect its hold, and resolve or abandon it before retrying. Fufu stores one held request per branch. Some clean rewrites can proceed while a hold exists, but a competing conflict and commands such as folding a held source are refused. A multi-branch operation may already have updated other branches; inspect its per-branch report. Abandoning removes the request rather than leaving it queued."
+exits = ["ff status", "ff switch <held-branch>", "ff help resolve"]
 
 [[entry]]
 id = "held/none"
-summary = "nothing is held on this branch"
-detail = """\
-    ff resolve deals with a held rewrite — a conflict one of the verbs recorded \
-    instead of interrupting you — and this branch has no such record. It either \
-    never happened, or was already dealt with: re-running the verb that recorded \
-    it will land it, and ff status says what is actually open on the branch."""
+summary = "the current branch has no held request to resolve or abandon"
+detail = "Check ff status and switch to the branch whose hold you intended to resolve. Do not infer a hold from exit 3 alone: op-revert applicability refusals create none. A parked-change arrival resolved in place has also already cleared its hold; edit its remaining markers directly without ff done. If resolve previously released a now-clean rewrite, rerun the original rewrite command to apply it."
 exits = ["ff status", "ff log"]
 
 [[entry]]
 id = "held/resolving"
-summary = "a resolution of this hold is already open"
-detail = """\
-    Re-running ff resolve would materialize the same conflicts again over the \
-    very edits the open session is collecting, so it refuses instead. The \
-    session is a branch, minted at a commit carrying the markers the way ff edit \
-    mints one. Standing on it, the markers are in your working copy: fix them \
-    and ff done lands the rewrite. Standing on the branch the hold is recorded \
-    on, ff switch <session> takes you to them. Either way ff resolve --abandon \
-    drops the session and the hold together."""
-exits = ["ff done", "ff switch <session>", "ff resolve --abandon", "ff status"]
+summary = "a resolution session for this hold is already open"
+detail = "Switch to the session branch named in the message if you are not already there, edit its conflict markers, and run ff done. A second ff resolve refuses while the session is open. To discard the request instead, ff resolve --abandon from either the session or its held branch removes both the session and the hold; preserve wanted fixes first. A held parked-change arrival uses in-place resolution and does not open this kind of session."
+exits = ["ff status", "ff switch <session>", "ff help done"]
 
 [[entry]]
 id = "held/moved"
-summary = "the repository changed while the resolution was open"
-detail = """\
-    A resolution session is built on the conflicts it was given, and ff done \
-    re-derives them before it lands anything. This time they came out different: \
-    a commit landed, a branch moved, or the base changed while the markers were \
-    in your working copy, so the fixes would land in the wrong place. Nothing \
-    moved. Re-resolve to look at the conflicts as they stand now, or abandon to \
-    drop the session and the hold together."""
-exits = ["ff resolve", "ff resolve --abandon", "ff status"]
+summary = "the current rewrite no longer produces the conflicts this session was opened for"
+detail = "Preserve any fixes you want to reuse, then abandon the stale resolution with ff resolve --abandon. That removes both session and hold and returns from the session to its destination branch. Reissue the original rewrite against the current state, then use ff resolve if it records a new hold. Running ff resolve before abandoning only returns held/resolving. This failed done has not landed the resolution; pre-command capture or reconciliation may already have recorded your edits."
+exits = ["ff status", "ff diff", "ff resolve --abandon"]
 
 [[entry]]
 id = "held/unresolved"
-summary = "conflict markers are still standing in the working copy"
-detail = """\
-    ff done attributes your fixes to the commits that owned each region, and a \
-    region still carrying its markers is a fix that is not finished — or a fix \
-    that created a conflict further up the stack. Nothing moved: the branch, the \
-    hold and the session all stand exactly as they did. Fix what remains, then \
-    ff done again, or ff resolve --abandon to start from the hold."""
-exits = ["ff status", "ff resolve --abandon"]
+summary = "the resolution still has markers or produces another replay conflict"
+detail = "Edit the named files on the resolution session branch and run ff done again. The original branch has not received this resolution, and the hold and session remain open. The error may describe markers still present or a fix that creates a later conflict during replay. To discard the entire request, preserve wanted fixes and use ff resolve --abandon; that drops the hold too, so starting again requires reissuing the original rewrite."
+exits = ["ff status", "ff done", "ff resolve --abandon"]
 
 [[entry]]
 id = "held/unsupported"
-summary = "the held rewrite selected paths, and the open change reaches beyond them"
-detail = """\
-    A filtered absorb or lift rewrites only the paths it selected, so the \
-    markers it lays down would overwrite open changes standing outside that \
-    filter — work lost, which fufu does not do silently. Commit the change you \
-    want kept (ff commit), or drop the hold (ff resolve --abandon) and re-run \
-    the verb with the paths it should actually select."""
-exits = ["ff commit -m <msg>", "ff resolve --abandon", "ff status"]
+summary = "the current open change prevents this hold from being resolved"
+detail = "Preserve or commit the blocking open work, then retry resolution. For a path-filtered absorb or lift, the error names changed paths outside the saved selection. For a parked arrival, the destination already has an open change, and the held arrival needs it clean. Switching away and back merely parks and resumes that change; it does not clear the blocker. You can instead abandon the hold and reissue the intended operation with an appropriate selection. Abandoning a held arrival drops that saved arrival, so retain its snapshot if its content is wanted."
+exits = ["ff status", "ff commit -m <msg>", "ff help resolve"]
 
 [[entry]]
 id = "rewrite/merge-in-range"
-summary = "a merge commit sits in the range being replayed"
-detail = """\
-    Re-parenting a merge is unambiguous, and a reword does it happily, but \
-    replaying a merge is not — the same change can come out of either side. A \
-    rewrite that would move a tree over it refuses rather than picking a side."""
-exits = ["ff log"]
+summary = "the requested content replay includes a merge commit"
+detail = "Inspect the range and choose a supported linear range if that matches your task. Fufu refuses content replay through a merge instead of choosing one parent as its patch base. Message-only rewording can re-parent merges without replaying their content. If preserving or rewriting the merge itself is required, use an appropriate Git workflow after reviewing strict policy and saving the current work."
+exits = ["ff log", "ff config gitPolicy"]
 
 [[entry]]
 id = "rewrite/not-in-history"
-summary = "that commit is not in the history under you"
-detail = """\
-    A rewrite re-parents everything between the commit you named and the branch \
-    tip, so the commit has to be an ancestor of that tip. This one is not: it \
-    sits on another line of work, or below a fork you have since left. ff log \
-    says what is under you, and ff log -r <rev> says where a revision actually \
-    sits."""
+summary = "a selected commit is outside the history this rewrite can use"
+detail = "Inspect ff log and the selected revision, then switch to the branch containing the intended history or choose different sources and target. A replay target must be an ancestor of the branch tip. Absorb and lift additionally require their committed sources on that branch's first-parent line, so a commit reachable only through a merge's other parent may still be unsuitable."
 exits = ["ff log", "ff log -r <rev>"]
 
 [[entry]]
 id = "restack/no-base"
-summary = "there is no base to replay this branch onto"
-detail = """\
-    A restack replays a branch onto the base it sits on — the parent recorded \
-    when it was forked, falling back to trunk. Standing on trunk itself there is \
-    no base, since trunk sits on nothing. Name one with --onto to say where it \
-    goes instead."""
-exits = ["ff restack <branch> --onto <base>", "ff status"]
+summary = "no base branch was found for this restack"
+detail = "Name an appropriate base with ff restack <branch> --onto <base>. The default follows the recorded parent and falls back to trunk; trunk itself may have no distinct base. Choose a different branch with shared history, not the branch's own remote copy. Use pull for reconciliation with that copy."
+exits = ["ff restack <branch> --onto <base>", "ff branch"]
 
 [[entry]]
 id = "restack/own-remote"
-summary = "a branch cannot be restacked onto its own shared copy"
-detail = """\
-    A branch's shared copy is not a base it sits on — it is the same branch \
-    somewhere else, and replaying onto it is reconciling with the remote, which \
-    is what ff pull does: it fetches, takes in what arrived, and replays. --onto \
-    is for naming a different branch to sit on."""
-exits = ["ff pull", "ff restack <branch> --onto <base>"]
+summary = "restack cannot target the branch's own remote copy"
+detail = "Use ff pull <branch> to reconcile that branch with its remote copy. Pull fetches by default, reports incoming state, and replays local work when needed. Restack --onto selects a different base branch. If you meant another base, name it explicitly and inspect the resulting stack."
+exits = ["ff pull <branch>", "ff restack <branch> --onto <base>"]
 
 [[entry]]
 id = "restack/unrelated"
-summary = "the branch and its base share no history"
-detail = """\
-    A replay measures its range from a common ancestor, and two histories that \
-    share none have no range to replay. ff log says what each line of work sits \
-    on, so the two can be compared against each other."""
-exits = ["ff log", "ff restack <branch> --onto <base>"]
+summary = "the branch and requested base have no common ancestor"
+detail = "Check both histories and choose a base that shares an ancestor with the branch. A restack needs a common ancestor to determine which commits belong to the replay. In a shallow clone, missing ancestry may be the cause; deepen or unshallow the relevant remote history with Git if appropriate, then retry. Fufu does not merge unrelated histories through restack."
+exits = ["ff log", "ff log -r <base>", "ff restack <branch> --onto <base>"]
 
 [[entry]]
 id = "fold/trunk-source"
-summary = "trunk is what branches fold into, and folds into nothing"
-detail = """\
-    ff fold lands the branch you are standing on into another one and takes the \
-    branch away, and trunk is the branch everything else lands on: there is \
-    nothing beneath it to land on, and no line of work that should lose the \
-    name. Stand on the branch you meant to fold and run it from there."""
-exits = ["ff switch <branch>", "ff status"]
+summary = "fold cannot remove trunk as its source branch"
+detail = "Switch to the feature branch you intend to fold and run fold there. Fold incorporates that source into a local target and normally deletes the source branch. The configured trunk is refused as the source, including when you explicitly name another target. Check ff config trunk if the wrong branch is being identified as trunk."
+exits = ["ff switch <branch>", "ff config trunk", "ff status"]
 
 [[entry]]
 id = "fold/remote-target"
-summary = "the target lives on a remote, and fold lands into a local branch only"
-detail = """\
-    A fold moves the target's ref to the result, and a ref under a remote is not \
-    this repository's to move: the remote's copy moves when something is pushed \
-    to it. The default target is trunk, and a clone whose trunk is only origin's \
-    — no local branch of that name — has no local branch to land on, which is \
-    what this refusal is usually saying. ff switch <branch> makes the local \
-    branch from the remote's, tracking it; ff push is how a branch reaches a \
-    remote."""
-exits = ["ff switch <branch>", "ff branch", "ff push"]
+summary = "fold requires a local target branch"
+detail = "Create or select a local branch for the target before folding. If only origin/main exists, ff switch origin/main creates its local tracking branch; then switch back to the source and fold into the local name. ff branch lists the resulting names. A fold changes local history; sending the result to the remote is a separate push from the target branch."
+exits = ["ff branch", "ff switch <remote>/<branch>"]
 
 [[entry]]
 id = "fold/conflict"
-summary = "the replay would conflict, so nothing was folded"
-detail = """\
-    A fold replays the branch's commits onto the target's tip before the target \
-    moves, and a replay that would conflict is refused with nothing changed — no \
-    ref, no file, no hold. That is a choice, and the reason is that a fold ends \
-    with the branch gone and you standing on the target, which is no place to \
-    leave a conflict waiting. ff restack --onto the same target performs the \
-    same replay as a held rewrite, so ff resolve can pick it up and ff done land \
-    it; once the branch sits clean on the target, ff fold fast-forwards it."""
+summary = "the source cannot replay cleanly onto the fold target"
+detail = "Run ff restack --onto <target> from the source branch to perform the replay with held-conflict support. If it holds, resolve the markers through ff resolve and ff done, then retry fold. This failed fold has not folded or deleted the source and creates no fold hold. Pre-command snapshots or reconciliation may already have been recorded."
 exits = ["ff restack --onto <target>", "ff status"]
 
 [[entry]]
 id = "fold/other-tree-conflict"
-summary = "the target's open change in the other worktree would conflict with the fold"
-detail = """\
-    ff fold --stay advances the target in the worktree that holds it, and that \
-    tree's uncommitted work rides over the new tip the way your own open change \
-    rides a restack. Here it would not: the files named are edited there and \
-    changed by the commits landing, so carrying the change over would leave \
-    conflict markers in a tree nobody is looking at. Nothing was written on \
-    either chain. Commit or restore the change in that worktree, or switch it \
-    off the target so a plain ff fold can land here."""
-exits = ["ff fold <target>", "ff worktree", "ff status"]
+summary = "the target worktree's open change conflicts with the fold result"
+detail = "Use ff worktree to locate the target checkout and inspect its files with ff -C <path> status. Commit its wanted open work or restore selected files there after preserving anything needed, then retry the fold. Alternatively, switch that checkout off the target so a normal fold can land it here. Neither branch has received this fold, but both worktrees may already have been captured. Retrying a plain fold while the target remains checked out elsewhere produces branch/checked-out-elsewhere."
+exits = ["ff worktree", "ff -C <path> status"]
 
 [[entry]]
 id = "session/none"
-summary = "there is no editing session to finish"
-detail = """\
-    An editing session is what ff edit opens: a branch minted at a commit and \
-    switched to, so the commit's content can be edited with your whole \
-    toolchain, and the session is recorded so ff done knows where to land it. \
-    You are not standing on one right now, so there is nothing to finish or to \
-    abandon. ff status says whether a session is running, and ff edit <rev> \
-    opens one on the commit you mean."""
-exits = ["ff edit <rev>", "ff status"]
+summary = "the current branch is not an editing session to finish or abandon"
+detail = "Switch to the session branch if an edit or rewrite resolution is open elsewhere. ff status identifies the current branch's session state. To start a new edit, use ff edit <rev> on a commit in the current branch's history. A parked-change arrival resolved in place is ordinary open work and has no session for ff done to finish."
+exits = ["ff status", "ff branch", "ff help edit"]
 
 [[entry]]
 id = "session/open"
-summary = "you are already inside an editing session"
-detail = """\
-    Sessions do not nest: two at once would each record the other as the branch \
-    to replay onto, and there is no ordering to say which lands first. The one \
-    running has to be dealt with first — ff done lands it, ff done --abandon \
-    drops it, or ff switch moves away and defers it, where it waits until you \
-    come back."""
-exits = ["ff done", "ff done --abandon", "ff switch <branch>"]
+summary = "an editing session blocks the requested operation"
+detail = "Switch to the session branch named in the error, then use ff done to land its work or ff done --abandon to discard the session. Preserve wanted edits before abandoning. Commit, nested edit, and operations that would move a session branch are refused while it is active. Switching away defers the session without ending it; when the error names a target session on another branch, choose a different target or finish that session there."
+exits = ["ff status", "ff switch <session>", "ff help done"]
 
 [[entry]]
 id = "session/moved"
-summary = "the session branch has commits of its own now"
-detail = """\
-    Only a foreign git commit can add one, and landing the session would fold it \
-    into the amended commit. Its content is already in the working copy and \
-    would survive the amend, but its message would not, and dropping a message \
-    nobody asked to lose is the guess fufu will not make. ff done --abandon \
-    drops the session without landing it, and ff restack is the move to make \
-    once you have decided what the branch becomes."""
-exits = ["ff done --abandon", "ff restack"]
+summary = "the editing session branch no longer has its expected commit structure"
+detail = "Inspect the session's history before choosing how to preserve it. An outside Git commit or other history change can move the session away from its original anchor, and done refuses to fold those extra commits into one edited commit. Save wanted commits under another ordinary branch and preserve uncommitted files before ff done --abandon, which removes the session branch and returns without landing it. A retained undo step may instead undo the outside move; inspect ff history before selecting it."
+exits = ["ff log", "ff history", "ff help done"]
 
 [[entry]]
 id = "session/unreachable"
-summary = "the edited commit has left the branch the session lands on"
-detail = """\
-    A session ends by replaying the branch's commits onto the commit it was \
-    opened on, so that commit has to still be in the branch's history. It is not \
-    — something moved the branch while the session was open, and landing would \
-    have nothing to land onto. ff done --abandon drops the session without \
-    landing it, and ff log says where the branch stands now."""
-exits = ["ff done --abandon", "ff log"]
+summary = "the edited commit is no longer in the destination branch's history"
+detail = "Inspect the destination branch and session before retrying. Something moved the destination while the edit was open, so done cannot replay it from the original anchor. Preserve any wanted session work, then ff done --abandon returns without landing it. You can open a new edit on the destination's current history, or use a retained recovery point if the destination move itself was unintended."
+exits = ["ff log", "ff history", "ff done --abandon"]
 
 [[entry]]
 id = "usage/restack-onto-self"
 summary = "a branch cannot be restacked onto itself"
-detail = """\
-    --onto names the branch to replay onto, and that has to be a different one — \
-    a branch replayed onto itself is the same history it already is. Name the \
-    base you want it to sit on, or drop the flag to use the one recorded."""
+detail = "Name a different base with --onto, or omit --onto to use the recorded base when one exists. The resolved base and branch must differ, even if you spelled the same branch two different ways. Use ff branch to inspect the available names."
 exits = ["ff restack <branch> --onto <base>", "ff branch"]
 
 [[entry]]
 id = "usage/fold-into-self"
 summary = "a branch cannot be folded into itself"
-detail = """\
-    The target names the branch to land on, and that has to be a different one — \
-    a branch folded into itself is the same history it already is, minus the \
-    name. Name the branch you want it to land on, or leave the target off to \
-    land on trunk."""
-exits = ["ff fold <branch>", "ff branch"]
+detail = "Choose a different local target branch. With no target, fold uses trunk; the current source must still be a different, non-trunk branch. ff branch lists the names, and ff status confirms which source you are on."
+exits = ["ff fold <target>", "ff branch"]
 
 [[entry]]
 id = "usage/bad-session"
-summary = "that is not a usable session name"
-detail = """\
-    A session name can be any text — spaces, punctuation, and unicode are all \
-    fine. The only limits are the ones storing it as a commit-message trailer \
-    imposes: no control characters or line breaks, and 128 bytes at most. Names \
-    are compared exactly as given, so nothing is silently rewritten to fit."""
+summary = "the session label is empty, too long, or contains control characters"
+detail = "Use a nonempty label of at most 128 UTF-8 bytes after leading and trailing whitespace is trimmed. Spaces inside the label, punctuation, and Unicode are accepted; control characters and internal line breaks are not. Quote labels containing spaces. This is the --session provenance label for new records, not the name of an ff edit or ff resolve branch."
 exits = []
 
 [[entry]]
 id = "push/no-git"
-summary = "git is not on PATH, and pushing still needs it"
-detail = """\
-    Reads, rewrites, and now the fetch behind ff pull all run in this process. \
-    The push behind ff push does not: gix speaks the half of the git protocol \
-    that receives a pack and nothing that sends one, so there is no native push \
-    to use yet. Everything else works without git on PATH — your commits are \
-    safe here either way, and they are what a later push sends."""
-exits = ["ff git push", "ff doctor"]
+summary = "fufu could not start Git for the network operation"
+detail = "Install Git, ensure its executable is on this process's PATH, and verify git --version in the same terminal or agent environment before retrying the original command. An installed but unlaunchable executable can also produce this ID. Push and remote deletion use Git; a narrow fetch fallback also invokes it. ff git push cannot repair a missing Git executable and may itself be refused by strict policy. Local capture or upstream configuration may already have happened before this launch failure."
+exits = ["git --version"]
 
 [[entry]]
 id = "pull/fetch-failed"
-summary = "git could not fetch from the remote"
-detail = """\
-    The fetch ran and git refused; its own message is quoted. Nothing was \
-    reconciled and nothing moved, because pull will not decide whose divergence \
-    is whose against a fetch that did not happen. The passthrough runs the same \
-    fetch by hand when you want git's full output, and --no-fetch reconciles \
-    with the tracking refs already here."""
-exits = ["ff git fetch <remote>", "ff pull --no-fetch"]
+summary = "the remote fetch or its repository setup failed"
+detail = "Inspect the fetch diagnostic and remote URL, then repair authentication, connectivity, repository administration, or configuration as indicated. Fetch normally uses fufu's native backend, which does not honor Git's http.proxy; ff git fetch <remote> uses installed Git's transport and can help diagnose that difference. After a successful Git fetch, ff pull --no-fetch uses the updated tracking refs. Without a successful refresh, --no-fetch deliberately uses cached state. Failed fetches can leave received objects or partial tracking updates; the pull's history reconciliation has not proceeded past this fetch failure."
+exits = ["ff remote", "ff git fetch <remote>", "ff help pull"]
 
 [[entry]]
 id = "fetch/not-here"
-summary = "--fetch on a verb that reads nothing from the remote"
-detail = """\
-    Every verb that reads the remote's copies — status, the map, branch, switch, \
-    push and the rest — fetches on fufu.autoFetch's cadence before it runs, and \
-    --fetch runs that fetch now. The verb you gave it carries no such lane: \
-    undo, redo and op read the operation log, config and remote read files, and \
-    there is nothing a fetch would change in their answer. The flag is refused \
-    rather than ignored, so it never teaches that it did something. pull is the \
-    verb that fetches on its own, and takes --fetch as what it does anyway."""
+summary = "this command does not support the --fetch preflight"
+detail = "Remove --fetch from this command. To refresh remote state, run ff pull or ff status --fetch separately. Commands that support automatic fetching follow fufu.autoFetch's cadence; pull performs its own foreground fetch unless --no-fetch is given. This error does not mean all commands are offline or that removing --fetch disables other maintenance."
 exits = ["ff pull", "ff status --fetch"]
 
 [[entry]]
 id = "push/unreachable"
-summary = "the remote never answered"
-detail = """\
-    git exited 128, which is how it says it did not get as far as talking to the \
-    other side: a bad URL, a host that will not resolve, or credentials it could \
-    not supply. Nothing was pushed. This is the one failure push cannot tell \
-    apart from a network that is simply down, so it reports what git said rather \
-    than guessing which one it was."""
-exits = ["ff git push <remote>", "ff status"]
+summary = "Git reported a connection, authentication, or repository failure"
+detail = "Check the remote URL and Git diagnostic, then repair connectivity, credentials, or repository access. This classification is based on Git exiting 128 and does not prove the remote never answered. ff git ls-remote <remote> checks advertised refs using Git without sending an update. Earlier branches in a multi-branch push may already have succeeded. On a shared branch deletion, the local deletion may already have happened; inspect ff status and ff op log."
+exits = ["ff remote", "ff git ls-remote <remote>", "ff status"]
 
 [[entry]]
 id = "push/lease-refused"
-summary = "the remote moved since you last looked at it"
-detail = """\
-    Every push carries a lease: the tip fufu last showed you the shared copy \
-    standing at, offered to the remote as what it expects to find there. That is \
-    fufu's own record, not the tracking ref, so a fetch behind fufu's back \
-    cannot refresh it to a tip you never looked at. Either the tracking ref \
-    already stands off the record and push refused before the wire, or somebody \
-    pushed in between and the remote declined. Nothing was overwritten, which is \
-    the lease working, not failing, and your commits are still here. Run ff pull \
-    first: it takes in what arrived, replays on top of it, and records the tip \
-    it read, and the push afterwards offers a lease that is current."""
-exits = ["ff pull", "ff push", "ff status"]
+summary = "the expected remote tip no longer permits this push"
+detail = "Run ff pull <branch>, review incoming work and any hold, then retry the push when the branch is ready. A replacing push requires its seen record to agree with the tracking tip; a fast-forward may proceed without that agreement. The send also checks the expected tracking tip at the remote, with an empty expectation for a new copy. Either a local mismatch or a remote race can refuse this branch. Other branches may already have been sent; a lease is not a team-policy or ownership check."
+exits = ["ff pull <branch>", "ff status"]
 
 [[entry]]
 id = "push/unseen"
-summary = "fufu has no record of looking at the shared copy, and it holds commits you lack"
-detail = """\
-    The lease is the tip fufu last showed you the shared copy standing at, and \
-    there is no such record for this branch: it is from before fufu kept one, or \
-    its upstream was set by git. A push that only adds commits to the tracking \
-    tip goes anyway and writes the record, since no lease value could take \
-    anything off the copy. This one would replace commits the copy holds and \
-    nobody here has looked at, so nothing was sent. ff pull takes them in and \
-    records the tip; then push."""
-exits = ["ff pull", "ff push", "ff status"]
+summary = "replacing remote commits requires a seen record that is missing"
+detail = "Run ff pull <branch> to fetch and report its remote copy, inspect the result, and resolve any hold before pushing. A fetch alone does not establish the seen record. A fast-forward of the cached tracking tip is allowed without one, but this push would replace commits outside the local branch's history. This branch was refused before its send; a multi-branch run may still send other branches."
+exits = ["ff pull <branch>", "ff status"]
 
 [[entry]]
 id = "push/rejected"
-summary = "the remote refused the push"
-detail = """\
-    The remote answered and said no — a protected branch, a pre-receive hook, or \
-    a permission you do not have. That is a decision on the far side rather than \
-    anything wrong here, so its message is passed along whole. Nothing local \
-    changed: push only ever writes to the other side."""
-exits = ["ff git push <remote>", "ff status"]
+summary = "the remote rejected the requested ref update"
+detail = "Read the remote's reason and address its permissions, protected-branch rules, or receive-hook requirements before retrying the same intended update. Repeating it through ff git push does not bypass those rules and can be refused locally under strict policy. Other branches in a multi-branch push may already have succeeded. Upstream configuration or capture can also have changed locally; for a shared deletion, the local branch was deleted before the remote request."
+exits = ["ff status", "ff remote"]
 
 [[entry]]
 id = "push/failed"
-summary = "the push did not go through"
-detail = """\
-    git failed in a way push could not classify as unreachable, leased out, or \
-    refused, so its own message is passed along unedited. Nothing local changed. \
-    Running the push by hand through the passthrough usually says more, since \
-    git prints a fuller transcript when it owns the terminal."""
-exits = ["ff git push <remote>", "ff status"]
+summary = "Git failed to complete the requested remote update"
+detail = "Read the Git diagnostic, inspect the remote with ff git ls-remote <remote>, and correct the reported problem before retrying the original command. This ID covers failures not classified as a lease mismatch, remote rejection, or Git exit 128; do not infer an unchanged remote solely from this classification. Earlier sends, local captures, and upstream configuration may already have happened. For shared deletion, inspect the local deletion too."
+exits = ["ff git ls-remote <remote>", "ff status", "ff op log"]
 
 [[entry]]
 id = "push/unrecorded"
-summary = "the push went through and the log could not write it down"
-detail = """\
-    The commits are on the remote. What failed is the note push appends \
-    afterwards — the row that lets ff pull and ff status tell your own published \
-    tip apart from work somebody else pushed. Nothing is lost either way: \
-    without the row the next pull reads the shared copy as theirs and replays \
-    onto it, which never drops a commit. Pushing again once the log is writable \
-    records it, and a contended log usually means another fufu process is \
-    mid-operation."""
-exits = ["ff op log", "ff status"]
+summary = "the remote update succeeded but local push bookkeeping failed"
+detail = "Inspect the remote ref and ff op log before any further rewrite or push. The reported send succeeded; a later note, published pointer, or seen pointer could not be written, and some of those local writes may already exist. Undo cannot reverse the remote update. Fix the reported local write problem, but do not assume another ff push repairs the record: when the tracking tip already equals the local tip, it reports nothing to push without recording again. A reporting pull refreshes seen state but does not reconstruct a missing push note or published pointer, and may replay history. Preserve the diagnostic for repair follow-up."
+exits = ["ff git ls-remote <remote>", "ff op log", "ff status"]
 
 [[entry]]
 id = "push/unknown-remote"
-summary = "--to named a remote this repository does not have"
-detail = """\
-    --to says which of the remotes you already have a branch answers to, and \
-    nothing more — it does not add one, because a name and a URL are two \
-    different facts and only one of them was given. A typo is the usual cause, \
-    and ff remote is the list the name was checked against — the same config \
-    fufu read to refuse. A remote that is genuinely missing gets added once, by \
-    name and URL, and then there is something for --to to name."""
+summary = "--to named a remote that is not configured"
+detail = "Choose a configured remote from ff remote, or add the intended name and URL with ff git remote add <name> <url>, then retry --to with that name. --to chooses a destination; it does not interpret its argument as a URL or create remote configuration by itself. The Git passthrough requires Git installed."
 exits = ["ff remote", "ff git remote add <name> <url>"]
 
 [[entry]]
 id = "push/retarget"
-summary = "the branch already answers to a different remote"
-detail = """\
-    A branch has one shared copy, and everything fufu knows about pushing is \
-    keyed to that: the lease is the tracking ref as you last saw it, and the \
-    record of where this repository last left the copy names the branch rather \
-    than the remote. Sending the same branch to a second remote would leave two \
-    copies drifting apart with one memory between them, and the next lease would \
-    be offered against a tip the other remote never held. So --to gives a branch \
-    an upstream and will not move one it already has. ff push sends to the \
-    remote it answers to now; re-pointing it is a deliberate act, and git's own \
-    set-upstream is where that lives until fufu has a verb for it."""
-exits = ["ff push", "ff git branch --set-upstream-to <remote>/<branch>"]
+summary = "--to conflicts with the branch's configured remote"
+detail = "Omit --to to send to the existing remote. To change the upstream deliberately, first fetch the intended remote and confirm its branch exists, then use git branch --set-upstream-to=<remote>/<branch> <local-branch>. This is Git configuration work; ff git branch can be refused under strict policy. Review the new copy with ff pull <local-branch> before pushing a replacement. Fufu maintains one configured remote copy per branch, not independent push records for several destinations."
+exits = ["ff remote", "ff branch", "ff config gitPolicy"]
 
 [[entry]]
 id = "pull/ambiguous-remote"
-summary = "more than one remote, and nothing says which one this branch answers to"
-detail = """\
-    With several remotes configured and none of them named origin there is no \
-    honest default, and picking one would decide where your work goes on a coin \
-    flip. Setting the branch's upstream once settles it for every later pull and \
-    every push, and ff push --to <remote> is how to set it and send in the same \
-    breath. ff remote is the list to pick that name from. A repository with one \
-    remote, or with one called origin, never reaches this."""
-exits = ["ff push --to <remote>", "ff remote", "ff git branch --set-upstream-to <remote>/<branch>"]
+summary = "multiple remotes are configured and this branch has no selected remote"
+detail = "Choose the intended remote from ff remote. If its branch exists, fetch it and set the local branch's upstream with git branch --set-upstream-to=<remote>/<branch> <local-branch>, then retry. If you intend to create a remote copy by sending local commits, ff push --to <remote> can select and send in one command; it is not a read-only repair. A branch with an upstream, a sole remote, or a remote named origin supplies a default."
+exits = ["ff remote", "ff branch", "ff help push"]
 
 [[entry]]
 id = "init/bare"
-summary = "ff init was asked for a bare repository"
-detail = """\
-    A bare repository has no working copy, which is the thing fufu captures — so \
-    there would be no floor for ff undo to land on and nothing for a capture to \
-    hold. That is not a repository fufu has anything to add to, so it does not \
-    pretend otherwise: git makes bare repositories, and ff git init --bare runs \
-    exactly that."""
-exits = ["ff git init --bare"]
+summary = "ff init does not create bare repositories"
+detail = "Use ff init <directory> for a repository with working files. If you need a bare Git repository, use git init --bare <directory>; it has no working copy for fufu snapshots. An ff git init passthrough from inside a strict-policy repository can be refused, so inspect that policy before using the passthrough form."
+exits = ["git init --bare <directory>"]
 
 [[entry]]
 id = "init/failed"
-summary = "the repository could not be created there"
-detail = """\
-    gix creates the directory and everything under .git, so a failure here is \
-    the filesystem's: a path that is a file, a directory that cannot be written, \
-    a volume that is full. The message carries what was actually refused. \
-    Nothing was half-written — fufu arms a repository only once it exists."""
+summary = "the repository could not be created at that path"
+detail = "Check the filesystem reason in the error: the path may be a file, permissions may prevent creation, or the volume may be full. Correct that problem or choose another directory, inspect any partial directory before reusing it, and retry ff init. Snapshot setup happens only after repository creation succeeds; this error is not evidence that no directories or files were created."
 exits = []
 
 [[entry]]
 id = "clone/target-exists"
-summary = "the directory to clone into already has something in it"
-detail = """\
-    A clone that failed halfway removes the directory it built, so cloning into \
-    a directory somebody already put files in would put those files at risk of a \
-    cleanup nobody asked for. git refuses the same case for the same reason. \
-    Name a different directory, or clone beside it and move what you meant to \
-    keep."""
-exits = []
+summary = "the clone destination is not empty"
+detail = "Choose a new or empty destination directory with ff clone <url> <directory>. Move existing files somewhere appropriate if you intended to reuse this location. Fufu refuses to clone over them. If you intended to initialize or adopt the existing directory instead, run ff init in that directory; initialization does not download the requested remote."
+exits = ["ff clone <url> <directory>"]
 
 [[entry]]
 id = "clone/bad-url"
-summary = "that is not a URL fufu can address"
-detail = """\
-    fufu speaks the git protocol itself, so the URL is parsed here rather than \
-    handed to git to complain about: https://, ssh://, git://, file paths, and \
-    the scp-style user@host:path all work. This also covers a target directory \
-    that cannot be worked out from the URL, which is what a URL ending in a \
-    slash and nothing else leaves — name the directory yourself."""
-exits = []
+summary = "the clone URL, name, or destination setup is invalid"
+detail = "Correct the item named in the diagnostic. This ID covers URL and destination setup failures, invalid --branch or --origin names, and a URL from which no destination name can be inferred. Use an explicit destination when necessary. Supported address forms include HTTPS, SSH, git://, local paths, and user@host:path. A valid-looking URL alone does not establish that the repository is reachable or accessible."
+exits = ["ff help clone"]
 
 [[entry]]
 id = "clone/unreachable"
-summary = "the remote never answered"
-detail = """\
-    Nothing came back from the far side: no DNS, no route, no listener, a proxy \
-    that dropped it. Nothing was written and there is nothing to clean up. If \
-    the URL works in git but not here, the difference is usually installation \
-    config fufu reads through git — check ff doctor, and ff git ls-remote \
-    against the same URL says whether git can reach it either."""
-exits = ["ff doctor"]
+summary = "the clone transport could not establish a connection"
+detail = "Check the address, local path, network, and SSH or credential-helper setup named in the diagnostic, then retry. With Git installed, ff git ls-remote <url> can compare Git's ability to reach it. Native HTTP clone does not honor Git's http.proxy, so Git succeeding does not prove the transports have identical configuration. Failed-clone cleanup is attempted by the clone backend; inspect the destination before reusing it."
+exits = ["ff help clone"]
 
 [[entry]]
 id = "clone/refused"
-summary = "the remote answered, and said no"
-detail = """\
-    The far side is there and declined: authentication it would not accept, a \
-    repository that is not there or not yours, or a branch name that matched \
-    nothing (or matched several). Credentials come from git's own helpers, which \
-    fufu inherits rather than reimplements, so a clone that git can do and fufu \
-    cannot is worth reporting."""
-exits = []
+summary = "clone could not fetch the requested repository or branch"
+detail = "Check the diagnostic for authentication, permissions, a missing or ambiguous --branch, protocol failure, or another fetch-stage error. With Git installed, ff git ls-remote <url> shows advertised names and helps check access; retry with the intended branch spelling and credentials. This is the fetch-stage fallback classification, so it does not always mean a server policy rejected the request. Inspect the destination if cleanup did not complete."
+exits = ["ff help clone"]
 
 [[entry]]
 id = "clone/failed"
-summary = "the pack arrived and the working copy could not be written"
-detail = """\
-    The download finished and the checkout did not: a path the filesystem would \
-    not take, a name that collides case-insensitively, a disk that filled. The \
-    half-built directory is removed, so this is a clone to run again rather than \
-    one to repair."""
-exits = []
+summary = "objects arrived but the working-copy checkout failed"
+detail = "Correct the checkout problem named in the error, such as an unsupported filename, permissions, interruption, or disk space. The clone backend attempts to remove a destination it verified as empty or absent before creation; it preserves the directory if it could not verify emptiness. Cleanup failures are not reported separately, so inspect any remaining files before retrying into a new or empty destination. This error happens before fufu finishes snapshot setup for the checkout."
+exits = ["ff help clone"]
 
 [[entry]]
 id = "worktree/exists"
-summary = "that path is already taken"
-detail = """\
-    fufu checks a worktree out into a directory that does not exist or is empty, \
-    and will not write into one holding anything, because the checkout would mix \
-    with what is already there. Name an empty directory, or remove what is in \
-    this one."""
-exits = ["ff worktree"]
+summary = "the worktree destination is occupied or cannot be named"
+detail = "Choose a normal directory path that does not exist or is empty. A file, symlink, nonempty directory, or path without a usable final component can be refused. A new branch may already have been created before the destination check; inspect ff branch before retrying. Preserve existing contents before moving them out of the way. When restoring a removed worktree, free its recorded path before retrying recovery; otherwise restore selected captured files into an existing checkout."
+exits = ["ff worktree", "ff help worktree"]
 
 [[entry]]
 id = "worktree/not-found"
-summary = "no linked worktree by that name"
-detail = """\
-    fufu names linked worktrees by the id git files them under, which is the \
-    checkout directory's basename. An id can outlive its worktree: the \
-    administrative directory and its operation chain stand after the checkout is \
-    gone, and a chain whose worktree is gone is not itself a worktree, so it is \
-    not named here."""
+summary = "no linked worktree matches that ID or path"
+detail = "Use ff worktree to find the current ID and path, then retry with one of those values. IDs usually derive from the checkout basename but can have a suffix to avoid collisions. A missing checkout may still have an administrative entry to remove, while a retained operation chain alone is not a live worktree. Use retained operation IDs for recovery of an already removed checkout."
 exits = ["ff worktree"]
 
 [[entry]]
 id = "worktree/is-main"
-summary = "the main worktree is not removable"
-detail = """\
-    Every linked worktree's administrative directory lives inside the main \
-    worktree's git directory, so removing the main one would take the others \
-    with it. git refuses the same thing for the same reason."""
+summary = "the main worktree cannot be removed by this command"
+detail = "Choose a linked worktree from ff worktree instead. The main worktree contains the shared Git administration used by linked checkouts, and ff worktree -d does not remove it. If the whole repository is no longer needed, first preserve wanted files and retained history before managing its directory outside this command."
 exits = ["ff worktree"]
 
 [[entry]]
 id = "worktree/unborn"
-summary = "no commits to check out yet"
-detail = """\
-    A worktree is a checkout of a commit, and a repository with no commits has \
-    none to check out. The first commit is what gives it something to stand on; \
-    make it, and the worktree can be made."""
-exits = ["ff worktree"]
+summary = "the worktree needs a committed checkout target"
+detail = "Create the first nonempty commit in the existing working copy, then retry adding the worktree. A new worktree needs a commit to check out; an unborn branch has none. Add or edit a file before ff commit if the current open change is empty."
+exits = ["ff status", "ff commit -m <message>"]
 
 [[entry]]
 id = "worktree/is-current"
-summary = "that is the worktree you are standing in"
-detail = """\
-    Removing it would delete the directory the command is running from. Run it \
-    from another worktree, and the one you are in becomes a target like any \
-    other."""
-exits = ["ff worktree"]
+summary = "the checkout to remove is the command's current worktree"
+detail = "Run removal from another checkout, for example ff -C <other-checkout> worktree -d <id>. ff worktree shows the paths. Before removing it, preserve ignored, oversized, or otherwise uncaptured content separately; removal captures eligible on-disk content but cannot save excluded bytes or unsaved editor buffers. The removed worktree's retained operation chain is the file-recovery source."
+exits = ["ff worktree", "ff worktree -C <other-checkout> -d <id>"]
 
 [[entry]]
 id = "worktree/busy"
-summary = "something is running in that worktree"
-detail = """\
-    fufu captures a worktree before removing it, so the work survives the \
-    removal. A locked operation log means another fufu command is mid-flight \
-    there, and capturing under it would race. Nothing was removed; wait for the \
-    other command to finish and try again."""
+summary = "the target worktree's snapshot could not acquire its operation-log lock"
+detail = "Wait for the writer in the named checkout, then retry from another worktree. If the lock remains without a live writer, investigate it before another removal attempt. The blocked checkout has not been removed by this attempt, but the invoking checkout may already have been captured or earlier recovery effects applied. A successful removal captures only eligible content: copy ignored, oversized, uncaptured, or unsaved work separately before removing the checkout."
 exits = ["ff worktree"]
 
 [[entry]]
 id = "usage/unknown-error-id"
-summary = "no error goes by that id"
-detail = """\
-    Error ids are stable and namespaced — usage/ for a command line that was \
-    wrong, held/ for work that stopped waiting on a decision, and a bare name \
-    for everything else. ff explain --list prints every id fufu can raise."""
-exits = ["ff explain --list"]
+summary = "this binary has no catalog entry for that error ID"
+detail = "Copy the ID exactly from the failure or select one from ff explain --list. The catalog belongs to the installed binary; IDs and payloads have changed across releases even when the envelope stayed at ff: 1. If diagnosing output from another version, use that version's catalog. Scripts should pin and test supported versions rather than parse message prose."
+exits = ["ff explain --list", "ff version"]
 
 [[entry]]
 id = "repo/not-found"
-summary = "no git repository here, or in any parent directory"
-detail = """\
-    fufu works inside a git repository, and searches upward from the current \
-    directory to find one. Either this is not a working copy, or you are outside \
-    the one you meant to be in. If there is no repository yet, ff init makes one \
-    with the safety net already on, and ff clone brings one down the same way."""
-exits = ["ff init", "ff clone <url>"]
+summary = "a Git repository could not be discovered from this directory"
+detail = "Run the command inside the intended checkout or use ff -C <path>. Fufu searches the current directory and its parents; the diagnostic may also identify discovery or access problems. If no repository exists yet, ff init creates one with snapshots enabled, and ff clone <url> creates a checkout from an existing repository. Neither is a repair for merely being in the wrong directory."
+exits = ["ff -C <path> status", "ff help init", "ff help clone"]
 
 [[entry]]
 id = "internal"
 summary = "an unclassified failure"
-detail = """\
-    This error has no curated id yet: it is a failure passed through from git, \
-    the filesystem, or fufu's own internals rather than a decision waiting on \
-    you. The message is the whole of what is known. If it reproduces, it is \
-    worth reporting."""
+detail = "Read the underlying diagnostic and inspect any reported partial result before retrying. This fallback covers filesystem, Git-library, and fufu failures without a more specific catalog ID; it does not establish whether state changed. Correct a concrete access, disk-space, or configuration problem when named. For a reproducible unexplained failure, report the command, ff version, diagnostic, and relevant repository state without including credentials or private file contents."
 exits = []

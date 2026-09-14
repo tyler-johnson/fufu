@@ -142,8 +142,11 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, dry_run: bool, to: Option<&str>) ->
             ff_core::push::record(&repo, pre, &report, verb_ctx, &prov).map_err(|err| {
                 ff_core::Error::coded(
                     "push/unrecorded",
-                    format!("the push landed and the operation log could not record it: {err}"),
-                    vec!["ff op log".into(), "ff status".into()],
+                    format!(
+                        "the push of {} landed but local push bookkeeping failed: {err}",
+                        pre.branch
+                    ),
+                    vec!["ff op log".into(), "ff explain push/unrecorded".into()],
                 )
             })?;
         }

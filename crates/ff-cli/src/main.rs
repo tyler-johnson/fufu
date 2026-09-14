@@ -59,10 +59,11 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
     if args.message.is_some() {
         return Err(ff_core::Error::coded(
             "usage/bad-flags",
-            "-m is gone: bare ff is the map now, and capture is automatic — every \
-             verb captures first, so there is no snapshot to name",
+            "-m is gone from bare ff, which is the map; use ff trigger -m to label a capture \
+             or ff describe -m to save a pending commit message",
             vec![
                 "ff".into(),
+                "ff trigger -m <msg>".into(),
                 "ff describe -m <msg>".into(),
                 "ff commit -m <msg>".into(),
             ],
@@ -132,7 +133,7 @@ fn relocate(args: &cli::Cli) -> ff_core::Result<()> {
         ff_core::Error::coded(
             "usage/no-such-directory",
             format!("-C {}: {err}", dir.display()),
-            vec!["ff status".into(), "ff worktree".into()],
+            vec!["ff explain usage/no-such-directory".into()],
         )
     })
 }

@@ -360,7 +360,7 @@ fn explain_knows_the_new_ids() {
     assert!(no_base.status.success(), "{}", out(&no_base));
     let text = stdout(&no_base);
     assert!(
-        text.contains("there is no base to replay this branch onto"),
+        text.contains("no base branch was found for this restack"),
         "{text}"
     );
 
@@ -368,7 +368,7 @@ fn explain_knows_the_new_ids() {
     assert!(unrelated.status.success(), "{}", out(&unrelated));
     let text = stdout(&unrelated);
     assert!(
-        text.contains("the branch and its base share no history"),
+        text.contains("the branch and requested base have no common ancestor"),
         "{text}"
     );
 

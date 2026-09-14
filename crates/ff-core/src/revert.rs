@@ -96,12 +96,12 @@ pub fn revert(
         return Err(Error::coded(
             "held/op-revert",
             format!(
-                "inverting {id} conflicts with work done since; nothing was changed: {}",
+                "inverting {id} conflicts with work done since; no ref inversion was applied: {}",
                 held.join("; ")
             ),
             vec![
-                "ff op show <op>".into(),
-                "ff op restore <op>".into(),
+                format!("ff op show {id}"),
+                "ff explain held/op-revert".into(),
                 "ff op log".into(),
             ],
         ));

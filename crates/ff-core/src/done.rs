@@ -217,9 +217,9 @@ fn finish_resolution(
                  the ones you were given"
             ),
             vec![
-                "ff resolve".into(),
-                "ff resolve --abandon".into(),
                 "ff status".into(),
+                "ff explain held/moved".into(),
+                "ff resolve --abandon".into(),
             ],
         ));
     }
@@ -693,8 +693,7 @@ pub fn done_with(
         return Err(Error::coded(
             "repo/mid-operation",
             format!(
-                "a {op:?} is in progress: finish it with git (git rebase --abort / git merge \
-                 --abort); fufu owns merges in a later phase"
+                "a {op:?} is in progress: use git status, then finish or abort that operation with Git"
             ),
             vec![],
         ));

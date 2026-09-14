@@ -167,7 +167,10 @@ fn bare_is_refused_and_names_the_git_form() {
     assert!(!out.status.success(), "--bare is refused");
     let err = stderr(&out);
     assert!(err.contains("no working copy"), "{err}");
-    assert!(err.contains("ff git init --bare"), "the way out: {err}");
+    assert!(
+        err.contains("git init --bare <directory>"),
+        "the way out: {err}"
+    );
     assert!(
         !tmp.path().join(".git").exists() && !tmp.path().join("HEAD").exists(),
         "the refusal wrote nothing"
@@ -233,6 +236,6 @@ fn being_outside_a_repository_names_init_and_clone() {
     let out = ff(tmp.path(), &["status"]);
     assert!(!out.status.success());
     let err = stderr(&out);
-    assert!(err.contains("ff init"), "{err}");
-    assert!(err.contains("ff clone"), "{err}");
+    assert!(err.contains("ff help init"), "{err}");
+    assert!(err.contains("ff help clone"), "{err}");
 }
