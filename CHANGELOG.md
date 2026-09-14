@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- [`ff push`](docs/reference/cli/push.md) records named off-branch pushes on the invoking checkout's timeline, preserving the target branches' open changes and saved timelines. Previously affected parked edits still require recovery from retained pre-push captures.
+- [`ff push`](docs/reference/cli/push.md) of a branch that is not checked out no longer overwrites that branch's parked work with the current checkout's tree. Work already affected is recovered from a retained pre-push capture.
 
 ## v0.16.0 — 2026-09-14
 
