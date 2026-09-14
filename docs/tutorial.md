@@ -248,11 +248,9 @@ Every push carries a lease: the remote ref must match the expected tip when it i
 Back in your practice clone, try recovering from a mistake. The preceding fufu commands recorded your two commits and their files. With no new edits since that capture, reset the `parser-stream` branch by two commits — the sort of thing an overeager agent, or you at 4pm on a Friday, might do by accident:
 
 ```console
-$ command git reset --hard HEAD~2
+$ git reset --hard HEAD~2
 HEAD is now at 0ad8617 docs: a line from a teammate
 ```
-
-`command git` runs raw Git even if you have a shell alias. The recovery point here comes from the **preceding fufu commands**, not from Git taking a fresh snapshot. Your reset will name a different commit if you skipped the collaboration demonstration.
 
 The parser note is gone. One `ff undo` brings refs and working copy back together:
 

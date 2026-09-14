@@ -158,7 +158,7 @@ step_line_up_then_send() {
 step_undo_anything() {
   printf '%s\n' \
     "note|# the preceding ff commands recorded the state to recover" \
-    "run|command git reset --hard HEAD~2" \
+    "run|git reset --hard HEAD~2" \
     "run|ff undo" \
     "run|ff history"
 }
