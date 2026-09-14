@@ -1,83 +1,81 @@
 # Command table
 
-Every row maps a git habit to the fufu verb that replaces it. One difference is shared by all of them and not repeated below: every fufu verb captures the working copy before it acts, and lands on the operation log where [`ff undo`](../reference/cli/undo.md) can take it back.
+Find a task, then use the linked command page for its defaults and options. These are workflow mappings; the commands do not necessarily change the same state. Git examples use the [Git 2.50.1 manuals](https://github.com/git/git/tree/v2.50.1/Documentation).
 
-Where fufu has no verb, [`ff git <args>`](../reference/cli/git.md) runs your git command verbatim after the snapshot, so no habit is left without a home. [The two regimes](../concepts/two-regimes.md) is the full account of that boundary.
+Repository commands normally attempt a snapshot before acting, subject to their guards and [capture limits](../concepts/snapshots-and-undo.md#coverage-and-limits). Recovery requires retained records. [`ff git <args>`](../reference/cli/git.md) runs Git verbatim after policy checks and a capture attempt; see [Using fufu alongside Git](../concepts/two-regimes.md).
 
-Almost no mapping is exact, because a fufu verb exists only where it does something git's version does not. The numbered notes after the table say where each row's two sides part; the vocabulary they use — the open [change](../concepts/changes.md) you are in the middle of, parking, the [lease](../concepts/push-boundary.md) that guards a push, [trunk](../concepts/glossary.md) as your main line of development, minted names, [held rewrites](../concepts/held-rewrites.md) — is defined in the concepts pages.
+## Set up and inspect
 
-| you'd type in git | in fufu | the difference |
-| --- | --- | --- |
-| `git init` | [`ff init`](../reference/cli/init.md) | armed before your first commit: the gc guard and the log's floor ¹ |
-| `git clone` | [`ff clone`](../reference/cli/clone.md) | armed on arrival; fufu speaks the protocol itself ² |
-| `git status` | [`ff status`](../reference/cli/status.md) | futures included: what pull would do, and any held rewrite ³ |
-| `git diff` | [`ff diff`](../reference/cli/diff.md) | sees untracked files, with their content ⁴ |
-| `git log` | [`ff log`](../reference/cli/log.md) | the open change is a row; operation ids attached ⁵ |
-| `git log --follow -p -- <file>` | `ff log <file>` | no `--`; renames followed by default ⁶ |
-| `git show` | [`ff show`](../reference/cli/show.md) | bare shows the open change; one renderer with `ff diff` ⁷ |
-| `git branch -v` + `git stash list` + remembering | bare `ff` ([`ff map`](../reference/cli/map.md)) | the map: recent work across every branch, parked changes included ⁸ |
-| `git add` + `git commit -m` | [`ff commit -m`](../reference/cli/commit.md) | no staging; the tree is the change ⁹ |
-| `git add -p` + `git commit` | `ff commit <paths>` | a slice: selection at the moment of the close, not a staging area ¹⁰ |
-| `git checkout -b` | [`ff switch <branch> -b`](../reference/cli/switch.md), or `ff start` | a fork of the branch named, or of trunk; the name can come later ¹¹ |
-| `git switch` + the stash dance | `ff switch` | parking is automatic, per branch; a remote's branch by name ¹² |
-| `git stash` + `git stash pop` | `ff switch` away, and back | nothing to remember to pop; the park rides the branch ¹³ |
-| `git commit --amend --no-edit` / `fixup!` + autosquash | [`ff absorb`](../reference/cli/absorb.md) | folds and restacks above the target in one operation ¹⁴ |
-| `git rebase -i`, `squash` / `fixup` | `ff absorb --from <lo>..<hi>` | a run of commits folds into the one under it; the emptied ones are dropped and named ¹⁴ᵃ |
-| `git commit --amend -m` / `rebase -i`, `reword` | [`ff describe <rev> -m`](../reference/cli/describe.md) | one verb, automatic restack ¹⁵ |
-| `git rebase -i`, `edit` | [`ff edit <rev>`](../reference/cli/edit.md) … [`ff done`](../reference/cli/done.md) | a real branch, your whole toolchain; one operation to land ¹⁶ |
-| `git reset --soft HEAD~` | [`ff lift`](../reference/cli/lift.md) | contents return to the open change; an emptied commit is dropped ¹⁷ |
-| `git reset --hard` | [`ff restore --all`](../reference/cli/restore.md) | worktree only; refs never move by hash ¹⁸ |
-| `git restore <path>` / `git checkout <rev> -- <path>` | `ff restore <path>` / `ff restore --from <rev> <path>` | one verb for every source: revision, operation, time ¹⁹ |
-| `git rebase` | [`ff restack`](../reference/cli/restack.md) | replays in memory; lands only if clean ²⁰ |
-| `git rebase --onto <base>` | `ff restack --onto <base>` | records the new base — this is how a branch is re-aimed ²¹ |
-| `git rebase` + `switch` + `merge --ff-only` + `branch -d` | [`ff fold`](../reference/cli/fold.md) | one operation lands the branch and takes it away; `--stay` advances a target another worktree holds ²¹ᵃ |
-| the `git rebase --continue` loop | [`ff resolve`](../reference/cli/resolve.md) … `ff done` | all conflicts at once, on your schedule ²² |
-| `git fetch` + `git rebase origin/main`, `git pull --rebase` | [`ff pull`](../reference/cli/pull.md) | one replay for base and remote; nothing leaves the machine ²³ |
-| `git push` / `--force-with-lease` / `-u` | [`ff push`](../reference/cli/push.md) | leased; the four push shapes distinguished by `--dry-run` ²⁴ |
-| `git branch` | [`ff branch`](../reference/cli/branch.md) | named and anonymous kept apart; remote-only branches follow ²⁵ |
-| `git branch <name>` | `ff branch <name>` | at trunk unless a revision says otherwise; stays put, one undoable operation ²⁵ᵃ |
-| `git branch -m` | `ff describe -b` | the rename carries everything the branch owns ²⁶ |
-| `git branch -d` / `-D` | `ff branch -d` | trash, undoable; no merged-check to argue with ²⁷ |
-| `git worktree add` | [`ff worktree <path>`](../reference/cli/worktree.md) | undo works there from the first command ²⁸ |
-| `git remote -v` | [`ff remote`](../reference/cli/remote.md) | a read; fufu's own verbs check names against it ²⁹ |
-| `git reflog` + archaeology | [`ff history`](../reference/cli/history.md), `ff undo` | whole-repo: refs and tree together ³⁰ |
-| `git cherry-pick` / `git merge` / `git revert` | `ff git cherry-pick` … | no fufu verb; snapshot first, then git verbatim ³¹ |
-| anything else | `ff git <args>` | snapshot first, then git verbatim ³² |
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| Create or adopt a repository | `git init` | [`ff init`](../reference/cli/init.md) | Also enables snapshots and creates the earliest recovery point; can adopt an existing checkout. |
+| Clone | `git clone <url>` | [`ff clone <url>`](../reference/cli/clone.md) | Enables snapshots on arrival. Native HTTP fetch does not honor `http.proxy`; see [network settings](../reference/config.md#what-fufu-reads-from-gits-config). |
+| Inspect current work | `git status` | [`ff status`](../reference/cli/status.md) | Shows the open change, held rewrites, and replay predictions against the base and remote copy. |
+| Read a patch | `git diff` | [`ff diff`](../reference/cli/diff.md) | Shows the open change, including eligible untracked content. Use `ff git diff <a> <b>` for two revisions. |
+| Read commit history | `git log` | [`ff log`](../reference/cli/log.md) | Includes an open-change row. The letters column is a **change ID**, not an operation ID; the hexadecimal column is a commit SHA. |
+| Follow a file | `git log --follow -- <file>` | `ff log <file>` | Follows renames by default; revisions go after `-r`, and narrowing with `-r` disables rename following. |
+| Inspect a commit | `git show <rev>` | [`ff show <rev>`](../reference/cli/show.md) | Bare shows the open change. Operations use [`ff op show`](../reference/cli/op-show.md); syntax belongs to [Revisions and IDs](../reference/revisions.md). |
+| Find recent branches and parked work | `git branch -v`, `git stash list` | Bare `ff`, or [`ff map`](../reference/cli/map.md) | Draws a compact branch graph and parked changes; fufu parks are not Git stash-list entries. |
 
-## Notes
+## Commit and switch work
 
-- ¹ Run inside a repository that already exists, `ff init` means turn fufu on here — the way to adopt a repository git created, or one cloned before fufu was on the machine.
-- ² `ff clone` negotiates the pack itself rather than running `git clone`, while inheriting git's configuration and credential surface whole; because the clone arrives armed, `ff undo` works from the first command.
-- ³ The files are a diffstat, not content — `ff diff` is the same change read down to the line — and status also reports what pulling would cost against the base and the remote copy, any held rewrite, and any work done behind fufu's back, which stays loud until absorbed into the operation log.
-- ⁴ `ff diff` is the open change only, and its body is git's unified diff, so `git apply` reads it back; comparing two revisions stays `ff git diff`, and comparing the worktrees two operations carry is [`ff op diff`](../reference/cli/op-diff.md).
-- ⁵ `-r` takes gitrevisions' whole grammar plus a set algebra, `--commits` drops to plain history, and each commit wears its change id — jj's `change-id` header, the identity a commit keeps through rewrites, the column [`ff evolog`](../reference/cli/evolog.md) drills into.
-- ⁶ Positional arguments are only ever paths — `ff log main` asks about the path `main` even where that branch exists, and revisions go to `-r` — so the `--` disambiguator has nothing to do; a file is followed through renames unless `-r` narrows the set.
-- ⁷ `ff show <op>` is refused toward [`ff op show`](../reference/cli/op-show.md), since an operation id names an operation wherever it is typed, while a letters token in a revision slot is a change id — `ff show <change id>` shows that commit — and blobs stay git's: `ff git show HEAD:file.txt`.
-- ⁸ The map draws only the commits that relate the branches shown and contracts the runs between them; parked changes appear on it, which is what makes it the `git stash list` replacement too — nothing goes to the stash list itself.
-- ⁹ There is no staging area to add into: closing the tree is the commit, `-m` wins over the pending description left by `ff describe`, and `-b` lands the close on a branch — claiming the anonymous one underfoot, or forking a fresh one from here.
-- ¹⁰ Paths close a slice — a file or a directory prefix, no globs and no hunks — chosen once at the moment of the close rather than maintained in an index; the rest stays open, still the change you are in the middle of. `ff git commit -p` is git's own hunk picker over the worktree, capture-first, and `fufu.gitPolicy strict` refuses it with every other `git commit`.
-- ¹¹ `ff start` and `ff new` are spellings of `ff switch`, whose rule is find the branch, else mint it: bare, it forks from trunk rather than from where you stand and mints an anonymous branch under a petname; `-b` forks the branch named instead of continuing it, or names the mint at birth; a revision forks there; nothing ever creates a commit.
-- ¹² The open change parks with the branch you leave and whatever was parked at the target resumes — same files, same edits, same pending description; the target can be any unique prefix of a branch name, and one `ff undo` rolls the park and the move back together.
-- ¹³ A park is the branch's open commit, one ordinary commit every git tool can show; to shelve work without a destination branch, `ff start` parks the open change and opens a clean one.
-- ¹⁴ `ff absorb` folds the open change into the commit beneath it — `--into <rev>` reaches deeper — and everything above the target re-parents in the same operation; the change is the unit, so paths select files and there is no hunk attribution. Absorb and lift are one move: `--from <revset>` and `--into <rev>` ride both verbs, and each verb's word is only its defaults.
-- ¹⁴ᵃ The sources are one contiguous run on the branch's line, and the target is any commit on it — below the run, above it, or inside it — or the open change; `-m` rewords the target as it lands.
-- ¹⁵ Naming a revision rewords a commit that has closed and restacks above it; bare `ff describe` rewrites the internal open commit's pending description without adding a commit to branch history.
-- ¹⁶ `ff edit` opens a session branch at the commit. `ff done` amends, replays, and returns in one operation, so one `ff undo` restores the session before landing. A conflicting primary replay does not land; captures and metadata may still be written.
-- ¹⁷ `ff lift` takes whole files out of the commit under the change — `--from <rev>` reaches deeper, and `--from <lo>..<hi>` takes a run — back into the open change, restacking what sat above; a commit lifted empty is dropped. `--into <rev>` lands it in a closed commit instead: the same move absorb makes, spelled from the source's side.
-- ¹⁸ `ff restore --all` writes the worktree alone — index, HEAD, and branches stay put — and deletes files created since, so it is closer to `git reset --hard` plus `git clean -fd`; moving a branch pointer back is not a restore but an undo of the operation that moved it, `ff undo` or [`ff op restore`](../reference/cli/op-restore.md).
-- ¹⁹ Two more sources join `--from <rev>`: `--at-op <op>` reads from an operation and `--at <time>` from the operation current at that time; restore takes a mandatory capture first, so any restore is undone by another restore, or by `ff undo`.
-- ²⁰ The base is the branch's recorded parent, trunk when none was recorded. Restacking another branch leaves this worktree's files alone unless the cascade reaches it. The CLI can auto-fetch and run maintenance; conflicting replays hold without landing that branch's replay.
-- ²¹ `--onto` records the new base before replaying, so the next bare `ff restack` needs no flag; a base on a remote, `origin/main`, records like any other.
-- ²¹ᵃ The branch you stand on replays onto the target — trunk when none is named — the target fast-forwards to the result, the branch is deleted with its timeline parked under trash, and you end up standing on the target with the open change still open; nothing is merged, a replay that would conflict refuses with nothing changed, and one `ff undo` takes all of it back.
-- ²² `ff resolve` opens a held rewrite on a session branch with conflict markers. Opening it takes two operations: one undo returns from the session, a second removes it. Landing with `ff done` or abandoning is one operation; undo restores that session. A held parked-change arrival instead resolves in place.
-- ²³ `ff pull` fetches and lines up local branches without pushing. `--dry-run` previews replays but still fetches objects, tracking refs, and tags unless `--no-fetch` is given. Successful invocations can still run maintenance. `--fetch` forces fetching on commands that support the fetch lane; other verbs refuse it. `ff git fetch` is the Git passthrough.
-- ²⁴ Every push requires the remote ref to match its expected tip. Replacing commits also checks fufu's seen record; fast-forwards can proceed without that agreement. `--dry-run` previews without sending, though auto-fetch and maintenance can still run. `--to <remote>` records the remote, standing in for `-u`.
-- ²⁵ Each row carries the tip, any parked change, the pending description, and how the branch stands against its upstream; a remote-only branch becomes a local one, tracking it, with `ff switch <name>`.
-- ²⁵ᵃ `ff branch <name> [<rev>]` mints the branch and leaves you where you stand; a branch name as `<rev>` is recorded as its parent, `@` is the commit under the open change, and `ff start` is the verb that also moves there.
-- ²⁶ There is no separate rename command: `ff describe -b` names the branch you are on — a petname earning a real name, or a chosen name replaced — and the capture chain, the open commit, and the pending description come along, the parts a bare `git branch -m` would orphan.
-- ²⁷ The branch's pointer moves to trash and `ff undo` brings it back with its timeline, so no merged-check argues with you; the copy on the remote stays unless you pass `--shared`, which deletes it under a lease — the half undo cannot reach.
-- ²⁸ The chain floor is laid as the worktree is made; the branch defaults to one named after the directory, and a branch open in another worktree is refused rather than checked out twice.
-- ²⁹ Adding a remote is still git's: `ff git remote add <name> <url>`.
-- ³⁰ `ff history` shows one row per undo step, a run of captures collapsed into the keystroke it undoes as, with the redo path above; [`ff op log`](../reference/cli/op-log.md) is the other question — everything that happened, not just where you can go back to — and `ff undo` restores refs and tree together.
-- ³¹ fufu has no verb for these, so they run through the passthrough, snapshotted and then verbatim; note that [`ff op revert`](../reference/cli/op-revert.md) inverts an operation on the log, not a commit, so `git revert` remains the way to invert a commit.
-- ³² Nothing is ever translated — the command that runs is the one you typed — and `fufu.gitPolicy` decides only what fufu says about a git word it has a verb for: observe stays quiet, coach (the default) names the fufu verb once, strict refuses the word; words with no fufu verb are never touched.
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| Commit current work | `git add` then `git commit -m <msg>` | [`ff commit -m <msg>`](../reference/cli/commit.md) | Records the working copy, not a hand-staged index. |
+| Commit selected files | `git add <paths>` then `git commit` | `ff commit <paths>` | Files or directory prefixes only; no globs or hunks. The remainder stays open. |
+| Commit selected hunks | `git add -p` then `git commit` | `ff git commit -p` | No native fufu hunk picker. Git's interactive commit requires `coach` or `observe` policy; `ff git add -p` followed by `ff commit` does not preserve the selection. |
+| Create a branch and switch | `git switch -c <new> [<base>]` | [`ff switch <base> -b <new>`](../reference/cli/switch.md) | Bare `ff switch` creates an automatically named branch at trunk. `ff start` and `ff new` are aliases. |
+| Switch branches | `git switch <branch>` | `ff switch <branch>` | Parks the open change with the branch left and resumes the target's. A remote-only branch can be created locally and tracked. |
+| Save work for later | `git stash push -u`, then `git stash pop` | `ff switch` away, then back | One parked change per branch. Staged distinctions do not survive parking; [parking and resuming](../concepts/changes.md#parking-and-resuming) covers moved tips and conflicts. |
+
+## Rewrite and combine commits
+
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| Add working changes to a commit | `git commit --amend`, or fixup plus autosquash | [`ff absorb`](../reference/cli/absorb.md) | Defaults to the commit below the open change; `--into <rev>` selects another target. Paths select files, not attributed hunks. |
+| Squash a run | `git rebase -i` with squash/fixup | `ff absorb --from HEAD~2..HEAD` | Moves the last two commits into their predecessor. If that target is on trunk, name it explicitly with `--into`. Sources must form a contiguous first-parent run; emptied sources are reported. |
+| Reword a commit | `git commit --amend -m`, or rebase reword | [`ff describe <rev> -m <msg>`](../reference/cli/describe.md) | Reparents descendants. Without a revision, edits the pending message instead of branch history. |
+| Edit an earlier commit | `git rebase -i` with edit | [`ff edit <rev>`](../reference/cli/edit.md), then [`ff done`](../reference/cli/done.md) | Opens an attached session branch; done amends, replays, and returns. |
+| Return committed content to current work | `git reset --soft HEAD~` | [`ff lift`](../reference/cli/lift.md) | Moves content into the open change and leaves files in place, but rebuilds the index and may replay descendants. It is not a soft-reset equivalent. |
+| Move content between commits | Interactive rebase and patch editing | `ff lift --from <rev> --into <target>` | Absorb and lift share `--from`, `--into`, paths, and `-m`; their defaults differ. See [rewriting recipes](../guides/rewriting-history.md). |
+| Replay onto a base | `git rebase <base>` | [`ff restack`](../reference/cli/restack.md) | Uses the recorded base, otherwise trunk; descendants follow with [cascade exceptions](../concepts/branches.md#the-cascade). May auto-fetch first. |
+| Change the base | `git rebase --onto <base> …` | `ff restack --onto <base>` | Records the new base for later restacks. A conflicting branch holds; earlier successful branches can already have moved. |
+| Land a feature locally | Rebase, switch, fast-forward merge, branch delete | [`ff fold [<target>]`](../reference/cli/fold.md) | Replays onto the target (default trunk), advances it, deletes the source, and switches there. `--stay` keeps the source checkout. |
+| Resolve a deferred replay | `git rebase --continue` | [`ff resolve`](../reference/cli/resolve.md), edit markers, `ff done` | A rewrite resolution uses a session; overlapping conflicts can require another round. A [parked-change arrival](../concepts/held-rewrites.md#parked-change-arrival) resolves in place without done. |
+
+## Fetch and push
+
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| Fetch without replaying local branches | `git fetch` | `ff git fetch` | Runs Git's transport. Updating tracking refs does not update fufu's seen record. |
+| Fetch and update current work | `git pull --rebase` | [`ff pull`](../reference/cli/pull.md) | Reconciles the current branch with its remote copy and required local bases; names or `--all` widen selection. Not just a fetch. |
+| Preview a pull | Fetch, then inspect | `ff pull --dry-run` | Skips local replay but still fetches objects, tracking refs, and tags unless `--no-fetch`; [dry-run effects](../concepts/push-boundary.md#fetching-and-dry-runs) include maintenance. |
+| Send a branch | `git push`, `--force-with-lease`, `-u` | [`ff push`](../reference/cli/push.md) | Current branch by default; `--to <remote>` records the destination. Replacements require seen/tracking agreement and an expected remote-tip lease. No branch-ownership check. |
+| Send named branches | `git push <remote> <refspec>…` | `ff push <branch>…` | Each send has its own result. Review the current [off-branch open-state issue](../guides/stacked-changes.md#inspect-local-work-after-a-named-push) before using this form. |
+
+## Manage branches, worktrees, and remotes
+
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| List branches | `git branch` | [`ff branch`](../reference/cli/branch.md) | Includes parked work and remote-only branches; `--all` removes display limits. |
+| Create without switching | `git branch <name> [<rev>]` | `ff branch <name> [<rev>]` | Defaults to trunk, not HEAD. `@` uses HEAD and copies the open change. |
+| Rename current branch | `git branch -m <name>` | `ff describe -b <name>` | Carries branch metadata and fufu pointers along with the name. |
+| Delete a branch | `git branch -d` / `-D` | `ff branch -d <name>` | No merged-history check; records local recovery. `--shared` also deletes the remote copy under a lease, which undo cannot reverse. |
+| Add another checkout | `git worktree add <path>` | [`ff worktree <path>`](../reference/cli/worktree.md) | Creates its recovery log; default branch name comes from the directory. Refuses a branch checked out elsewhere. |
+| List remotes | `git remote -v` | [`ff remote`](../reference/cli/remote.md) | Add one with `ff git remote add <name> <url>`. |
+
+## Restore and recover
+
+| Task | Git | fufu | Qualification |
+| --- | --- | --- | --- |
+| Discard current file edits | `git restore <path>` | [`ff restore <path>`](../reference/cli/restore.md) | Defaults to HEAD, whereas Git restore defaults to the index. Only working files change; the index and branch stay put. |
+| Restore another version | `git restore --source=<rev> <path>` | `ff restore --from <rev> <path>` | Also accepts retained operation/time sources with `--at-op` or `--at`. |
+| Discard all current edits | `git reset --hard` | `ff restore --all` | Restores working files to HEAD and removes eligible newly created files. Does **not** reset refs or the index; not a replacement for `git reset --hard <rev>`. |
+| Recover a recorded local state | Reflog plus reset/restore | [`ff history`](../reference/cli/history.md), [`ff undo`](../reference/cli/undo.md) | Follows the current worktree's undo steps, restoring recorded refs, index, and files within [recovery limits](../guides/recovery.md#what-undo-cannot-reach). |
+| Select a particular recorded state | Reflog lookup | [`ff op restore <op>`](../reference/cli/op-restore.md) | Operation IDs are retained hexadecimal addresses. [`ff op log`](../reference/cli/op-log.md) lists them; [`ff op diff`](../reference/cli/op-diff.md) compares their file trees. |
+| Invert one commit | `git revert <rev>` | `ff git revert <rev>` | [`ff op revert`](../reference/cli/op-revert.md) instead inverts still-applicable **ref transitions of an operation**, preserving files/index and HEAD selection. |
+| Other Git work | Cherry-pick, merge, bisect, plumbing | `ff git <args>` | Git supplies the behavior and streams; policy may refuse recognized writes. |
+
+<span id="notes"></span>
+
+See [Revisions and IDs](../reference/revisions.md) for syntax, [recovery](../guides/recovery.md) for choosing a restore command, and [configuration](../reference/config.md#gitpolicy) for passthrough policy.

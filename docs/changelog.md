@@ -1,5 +1,7 @@
 # Changelog
 
-Release notes for every tagged release, included verbatim from [`CHANGELOG.md`](https://github.com/tyler-johnson/fufu/blob/main/CHANGELOG.md) at the repository root — that file is the single home, and this page is its rendering.
+Changes are grouped by release. **Unreleased** describes work on the development branch. Older entries describe their release's commands and behavior; use the [current command reference](reference/cli/index.md) for today's syntax and [Project](project.md#stability-and-releases) for support policy.
+
+<!-- Edit CHANGELOG.md at the repository root; this page includes it below. Preserve historical release semantics. -->
 
 {% include-markdown "../CHANGELOG.md" start="# Changelog" %}

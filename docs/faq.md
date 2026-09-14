@@ -1,140 +1,83 @@
 # FAQ
 
-Short answers, with a link to the page that owns each full story.
-
 ## Is my repository still a normal git repository?
 
-Yes, always. At every instant it is a boring git repository: HEAD attached, ordinary commits, `git status` reading the way it always reads, and nothing a teammate, GUI, or CI job can tell apart from careful plain git.
-
-fufu never creates a state plain git cannot represent. It only automates the moves between states git already has. This is [the invariant](concepts/invariant.md), and every other design question in the tool is settled by asking what preserves it.
+Yes. fufu uses Git objects, attached branches, and worktrees. It also adds internal refs and metadata that tools listing all refs can see. Raw Git can still leave a detached HEAD or unfinished operation; fufu reports those states. See [Git storage model](concepts/invariant.md).
 
 ## Can I stop using fufu? Can I use it on one machine and not another?
 
-Both, freely. Everything fufu writes is ordinary git — snapshots are refs outside the visible graph, parked changes are commits under `refs/fufu/open/` — so deleting fufu loses convenience and never data. The stash dance comes back and the manual rebase comes back, but no commit, branch, or file state is lost.
-
-Leaving does not have to be total or permanent either. A machine without fufu, a weekend of raw git, or a GUI session are all absorbed when you return: the first fufu operation back compares what it remembered against what it finds, and says out loud anything that changed.
-
-[Adopting fufu](adopting.md) covers trying it and leaving; [the two regimes](concepts/two-regimes.md) covers coming back.
+Yes. Ordinary branches and commits remain usable through Git. Keep fufu's refs and metadata if you want its parked work and recovery history later: deleting those records can remove the last references to data that Git may then garbage-collect. [Leaving and coming back](concepts/two-regimes.md#leaving-and-coming-back) covers both cases.
 
 ## What happens when a teammate force-pushes or rewrites history I've built on?
 
-Nothing is lost, and nothing is sent by accident. Every [`ff push`](reference/cli/push.md) carries a lease, so if the shared copy moved since you last saw it, the push is refused and your commits stay put.
-
-[`ff pull`](reference/cli/pull.md) then reconciles by whose divergence it is. Divergence the fetch just revealed is somebody else's work, so their commits are taken in and yours replay on top. A commit of yours the rewrite already contains replays empty and is dropped, with pull saying which.
-
-The whole pull is one operation that one [`ff undo`](reference/cli/undo.md) takes back. The walkthrough with real output is in [recovery](guides/recovery.md#someone-force-pushed-over-my-branch); the divergence rules live in [the push boundary](concepts/push-boundary.md).
+[`ff push`](reference/cli/push.md) checks an expected remote-tip lease. Replacing remote commits also requires seen/tracking agreement. [`ff pull`](reference/cli/pull.md) then follows or replays onto the remote according to the recorded divergence; replay can drop superseded or empty commits and reports them. See [pulling and pushing](concepts/push-boundary.md) and the [force-push recovery example](guides/recovery.md#someone-force-pushed-over-my-branch).
 
 ## Does fufu work with GitHub, GitLab, and other forges?
 
-Yes, with any forge that serves the git protocol. There is nothing forge-specific to support: a remote is a git remote, a push is a git push under force-with-lease, and nothing server-side knows fufu exists.
+It uses Git remotes without a forge-specific integration. Native clone/fetch reads credential helpers and `url.insteadOf`, but does not honor `http.proxy`; push uses Git's transport. See [network settings](reference/config.md#what-fufu-reads-from-gits-config).
 
-The native clone/fetch transport reads credential helpers and `url.insteadOf` rewrites, but its HTTP backend does not honor `http.proxy`. Push uses Git's transport. [Configuration](reference/config.md#what-fufu-reads-from-gits-config) covers the settings and the Git passthrough for proxy-dependent fetches.
-
-Gerrit's review flow is the one caveat. fufu has no verb for pushing to a magic ref like `refs/for/main`, so that flow stays [`ff git push`](reference/cli/git.md), and it is untested. See [what stays git](comparisons/vs-git.md#what-stays-git) and [configuration](reference/config.md#what-fufu-reads-from-gits-config).
+Special review refspecs, such as Gerrit's `refs/for/main`, require [`ff git push`](reference/cli/git.md) under `coach` or `observe` policy. That review flow is untested.
 
 ## Does fufu work with git LFS?
 
-Not yet, honestly. fufu's native substrate does not implement the LFS contract, and no part of the tool is tested against it. The [substrate](internals/substrate.md) page lists filters and LFS in the long tail of git ecosystem contracts that follows as the substrate matures.
+LFS-dependent repositories are unsupported. fufu's native snapshot and checkout paths do not implement a tested LFS workflow. [Substrate limits](internals/substrate.md#the-git-free-destination) describe the boundary.
 
-If your repository depends on LFS today, treat fufu as unsupported there rather than hoping.
-
-Relatedly, snapshots skip new files larger than `fufu.maxFileSize` (50 MiB by default) and say so, which bounds what capture will carry in large-asset repositories. See [configuration](reference/config.md#maxfilesize).
+Separately, snapshots skip oversized content under `fufu.maxFileSize` (50 MiB by default), including oversized modifications to tracked files. Older index/base content may remain in the snapshot. See [capture limits](concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ## Does fufu work with submodules?
 
-fufu has no verbs for submodules. They stay git's, reached through `ff git submodule …`, which snapshots first and then runs git verbatim. Those commands pass untouched even under strict mode, because fufu only refuses git words it has a verb for.
-
-Beyond that passthrough, submodule repositories are untested territory. The [substrate](internals/substrate.md) page places them in the same not-yet long tail as LFS. See [what stays git](comparisons/vs-git.md#what-stays-git).
+There are no native submodule commands, and submodule workflows are untested. `ff git submodule …` runs Git, but does not establish that fufu snapshots or restores nested working changes. See [substrate limits](internals/substrate.md#the-git-free-destination).
 
 ## Where does fufu keep its state, and how big does it get? What does `ff op trim` do?
 
-Everything fufu writes lives in two places inside the repository. Refs under `refs/fufu/` hold the operation log, snapshot pointers, open commits, and published-tip records. Plain files under `<common-dir>/fufu/` hold caches and branch metadata. None of it is pushed, and all of it is a cache over git rather than an authority.
+Repository recovery records live under `refs/fufu/`; caches and branch metadata live under `<common-dir>/fufu/`. Normal branch pushes do not send these refs. [Architecture](internals/architecture.md#where-fufus-state-lives) maps the paths and distinguishes rebuildable caches from retained records.
 
-Size is bounded by retention. `ff op trim` drops operations past the `fufu.keep` window (90 days by default), rides an ordinary command at most once per `fufu.autoTrim` (daily by default), and nudges git's own gc when it dropped something. The last trim is itself recoverable from a trash ref.
-
-[Architecture](internals/architecture.md#where-fufus-state-lives) maps the layout; [`ff op trim`](reference/cli/op-trim.md) and [configuration](reference/config.md) cover the knobs.
+[`ff op trim`](reference/cli/op-trim.md) shortens the current and orphan removed-worktree logs according to `fufu.keep` (90 days by default). Automatic trim runs at most daily by default; manual trim also attempts `git gc --auto`, even when it drops nothing. Retention is an age policy, not a fixed disk-size bound, and the last pre-trim chain stays in trash. See [retention](guides/recovery.md#retention-and-the-earliest-recovery-point).
 
 ## Why is there no staging area? I liked the staging area.
 
-Because the working copy is the change. There is no object to assemble before committing: fufu keeps the open change as a commit under `refs/fufu/open/<branch>`, rewritten as you work, and [`ff commit`](reference/cli/commit.md) moves the branch to it in one step.
-
-What the index gave you survives as an argument instead of a state. `ff commit <paths>` closes a slice and leaves the rest open — selection made once at the moment of the close, with nothing to maintain between commits.
-
-The index still exists underneath, and hook-runners still see it staged correctly. You just never curate it by hand. [Changes](concepts/changes.md) is the model; [fufu vs git](comparisons/vs-git.md#what-disappears) is the argument.
+fufu uses the working copy as the open change. [`ff commit <paths>`](reference/cli/commit.md) selects files or directories when recording a commit and leaves the remainder open. Git's index still exists for interoperability and hooks, but its staged selection does not control ff commit. See [partial commits](concepts/changes.md#partial-commits).
 
 ## Can I commit some hunks of a file and leave the rest?
 
-Not through fufu's own verbs. A partial commit selects by path — a file, or a directory — and there is no hunk-level selection.
-
-When one file holds two changes, the escape hatch is `ff git commit -p`, which snapshots first and then lets git build that commit interactively from the worktree. It is exactly the `-p` you know.
-
-Two things bound that hatch:
-
-- Under `fufu.gitPolicy strict` the command is refused along with every other `git commit`, so a hunk commit needs the policy set to `coach` or `observe` instead. See [what strict refuses](#what-does-strict-mode-refuse).
-- `ff git add -p` followed by `ff commit` does not work. `ff commit` closes the worktree rather than the index, so a hand-staged selection would be overwritten instead of honored.
-
-Hunk-level selection through a fufu verb is a genuine capability gap today, not a workflow the docs are steering you around. [Changes](concepts/changes.md) is the model partial commits do follow.
+Not with a native fufu command. Use `ff git commit -p` for Git's interactive picker under `coach` or `observe` policy. Do not follow `ff git add -p` with ff commit: that commits working-copy content rather than the staged selection. See [same-file splitting](guides/rewriting-history.md#split-at-the-close) for a complete recipe.
 
 ## Why can't `ff undo` take back a push?
 
-Because a push is the one act that leaves the machine. Other clones can fetch it, CI runs on it, webhooks fire, and no operation log on your machine reaches any of that.
-
-So undo is honest about its reach, and rollback is a different, still-guarded act. `ff undo` moves your local branch back, and the next `ff push` rolls the shared copy back to match, under a lease that stops if somebody pushed in the meantime.
-
-Rollback is not erasure — commits that reached the world stay reached — but the shared copy is yours to move. [The push boundary](concepts/push-boundary.md) is the full story.
+[`ff undo`](reference/cli/undo.md) restores recorded local state. It cannot reverse remote updates, another clone's fetch, CI, or webhooks. A subsequent push is a new remote update, checked against a lease and server policy. See [rolling back a push](concepts/push-boundary.md#rollback-is-undo-then-push).
 
 ## What does strict mode refuse?
 
-`fufu.gitPolicy strict` refuses exactly the git writes fufu has a verb for — `git commit`, `commit -p` included, `git stash push`, `git reset`, and their kin — and names the fufu verb to run instead. It never silently runs something in the refused command's place.
+Through ff git, `fufu.gitPolicy=strict` refuses recognized Git writes such as commit, reset, stash, rebase, and push, including tag pushes. It runs no replacement command. Reads and commands such as merge, bisect, and submodule pass through. [Git policy](reference/config.md#gitpolicy) owns the rules and exceptions.
 
-Reads pass untouched at every level. So do writes with no fufu answer, such as `apply`, `am`, `bisect`, and `submodule`, and so do `tag` and `merge`, whose answer is `ff git` itself. Ambiguous compound shell strings fail open rather than guessing.
-
-The capture already happened before the command ran either way, so the policy is a nudge with teeth rather than the safety net itself. See [plain-git teammates](guides/plain-git-teammates.md#the-alias-and-gitpolicy) and [why agents](agents/why.md).
+The passthrough checks policy before capture, while agent hooks attempt capture first. Only Claude Code emits pre-tool denial replies; the other installed agent adapters capture and tally without denying tools. See [agent policy](agents/setup.md#pick-a-git-policy).
 
 ## How far back can undo reach? What about before I ran `ff init`?
 
-Undo reaches back to the floor: the operation log's first entry, taken from observed state at the moment fufu was armed.
-
-Everything before fufu's arrival is git's history rather than fufu's timeline. It is still reachable with git's own tools, but it is not a place `ff undo` can land, and nothing becomes undoable retroactively.
-
-The same bound applies day to day. Work done around fufu is protected only as far back as the last capture, so a raw `git restore <file>` can discard edits fufu never saw. [Snapshots and undo](concepts/snapshots-and-undo.md#the-floor) covers the floor; [recovery](guides/recovery.md#what-undo-cannot-reach) shows it in practice.
+Undo reaches the earliest retained recovery point on the current worktree's log. [`ff init`](reference/cli/init.md) starts that log from observed state; it cannot reconstruct earlier editing sessions. Retention can move the earliest point forward. See [coverage and limits](concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ## Does fufu run my git hooks?
 
-Yes — git's four commit-time hooks, from every verb where git's equivalent operation would run them. fufu runs them itself, resolving through `core.hooksPath` and aborting the verb on a non-zero exit, exactly as git does.
+Yes. fufu resolves the four commit-time hooks through `core.hooksPath` and runs them itself. The table describes a nonempty operation reaching its hook phase; initial refusals and no-ops may stop earlier.
 
-Hook-runners like lefthook, lint-staged, and husky work too. fufu writes the index to the tree it is about to commit before the first hook fires, so a runner that asks git what is staged sees the right answer.
+| Operation | pre-commit | prepare-commit-msg / commit-msg | post-commit |
+| --- | --- | --- | --- |
+| ff commit, including a path selection | Yes | Yes | Yes |
+| [`ff absorb`](reference/cli/absorb.md) or [`ff lift`](reference/cli/lift.md), open change included in `--from` | Yes, when selected open content differs from HEAD | Only with `-m` targeting a closed commit | No |
+| Absorb or lift, closed sources only | No | Only with `-m` targeting a closed commit | No |
+| Absorb or lift into the open change | No new worktree content is committed | No; `-m` sets its pending message | No |
+| [`ff done`](reference/cli/done.md), edit-session landing | Yes | When landing a changed description | No |
+| ff done, resolution landing | Yes, once before applying the resolution | A resumed done intent can still run message hooks for its changed description; absorb/lift resolution does not rerun its message hooks | No |
+| [`ff describe <rev>`](reference/cli/describe.md) | No | Yes | No |
+| ff describe, open-change message | No | No; hooks wait until commit | No |
+| [`ff restack`](reference/cli/restack.md), ff pull, [`ff fold`](reference/cli/fold.md) | No | No | No |
 
-One rule decides the table: the tree hook runs where worktree content becomes commit content, and the message hooks run where a message is authored for a commit.
-
-| verb | pre-commit | prepare-commit-msg | commit-msg | post-commit |
-|---|---|---|---|---|
-| `ff commit` | yes | yes | yes | yes |
-| [`ff absorb`](reference/cli/absorb.md) | yes | no — it inherits the target's message untouched | no | no |
-| [`ff done`](reference/cli/done.md) (edit session) | yes | only when the session carries a new description | same condition | no |
-| `ff done` (resolution landing) | yes | no | no | no |
-| [`ff describe <rev>`](reference/cli/describe.md) | no — no tree moves | yes | yes | no |
-| `ff describe` (open change) | no | no — the description rewrites the open commit under `refs/fufu/open/`, and the hooks fire when it closes | no | no |
-| [`ff lift`](reference/cli/lift.md) | no — no worktree content enters a commit | no | no | no |
-| [`ff restack`](reference/cli/restack.md), `ff pull` | no — `git rebase` runs none either | no | no | no |
-| [`ff fold`](reference/cli/fold.md) | no — a replay, like restack | no | no | no |
-
-`post-commit` stays on `ff commit` alone, because git fires it from `git commit` and not from `rebase`, and absorb, done and describe are rebases.
-
-`--no-verify` skips `pre-commit` and `commit-msg` on every verb that can be declined. git documents `prepare-commit-msg` as not skipped by it, and fufu follows.
-
-`pre-merge-commit` does not apply, since fufu never writes a merge commit, and `applypatch-*` belong to `git am`. [Substrate](internals/substrate.md#behavioral-compatibility) has the details, including the one deliberate divergence around formatter fixes.
+`--no-verify` skips `pre-commit` and `commit-msg`, but not `prepare-commit-msg`. A failing gate aborts the operation; `post-commit` is a notification and its failure does not undo a commit. For a pre-commit hook, fufu stages the selected content provisionally and re-scans formatter edits afterward. [Hook implementation details](internals/substrate.md#behavioral-compatibility) cover the index and message file; the command references cover each mode.
 
 ## Do I need git installed?
 
-Mostly no, eventually not at all. The daily surface — status, commit, switch, pull's fetch, undo, log, restore, and the rest — runs in-process with no git on the machine.
-
-Four things still want git on PATH: the push (until gix can send a pack), credential helpers and ssh where a remote needs them, trim's best-effort `gc --auto` (skipped silently without it), and the `ff git` escape hatch. [Substrate](internals/substrate.md#the-git-free-destination) tracks the line as it moves.
+Install Git for a complete setup. Local core operations are native, but push, Git passthrough, filesystem-remote upload-pack, and a narrow fetch fallback require Git programs. Network authentication, signing, and hooks may require additional helpers. No minimum Git version is declared. See [installation dependencies](install.md) and the [execution table](internals/substrate.md#the-execution-ladder-as-it-stands).
 
 ## What's the name about?
 
-jj is short for Jujutsu, the martial art of redirecting force instead of opposing it, and fufu answers from the same dojo. "fu" is the syllable hacker culture borrowed for tool mastery — git-fu, shell-fu — doubled.
-
-In Japanese, fūfu (夫婦) is a married couple: two who operate as one, which is the architecture. fufu and git, one household. It is also a West African dish of starch pounded until smooth, which is roughly what fufu does to git.
-
-The binary is `ff`, the left hand's mirror of `jj`. The [design document](internals/design.md) tells it in the founders' words.
+“Fu” refers to tool mastery, doubled in the style of jj. `ff` mirrors `jj` on the keyboard. The [founding design](internals/design.md) also connects the name to Japanese fūfu (a married couple) and the West African dish.

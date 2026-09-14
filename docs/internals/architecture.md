@@ -1,123 +1,118 @@
 # Architecture
 
-**fufu is three floors, and each floor is what licenses the one above it.** Capture makes loss impossible, futures make outcomes knowable before anything is spent, and the verbs move the repository between ordinary git states.
+fufu has three main layers: capture and recovery records, replay prediction, and operations that update Git state. This contributor guide maps those layers to code and storage. Start with [Changes](../concepts/changes.md) for the user model; the [founding design](design.md) is historical and includes unshipped proposals.
 
-This page is the contributor's tour of how that stands in the code and on disk. The reader-facing story lives in the [concepts section](../concepts/invariant.md), and the argumentative founding text is the [design document](design.md) — where the two disagree, this page follows the code.
+```text
+ff-cli: command parsing, preflight lanes, transport, rendering, integrations
+   │
+   ├─ ff-core: snapshot/ + ops/       capture and recovery
+   ├─ ff-core: futures.rs            replay predictions
+   └─ ff-core: rewrite.rs + verbs    planned local transitions
+                  │
+           gix objects, refs, index, trees
+```
 
-In the source, the floors map roughly to modules in `crates/ff-core/src`: capture is `snapshot/` and `ops/`, futures is `futures.rs`, and the verb floor is `rewrite.rs`, `restack.rs`, and the per-verb modules around them.
+<span id="floor-1-capture"></span>
 
-## Floor 1 — capture
+## Layer 1 — capture and recovery
 
-Every working-copy state is snapshotted before anything acts on it. Every ff verb rides a pre-command capture lane before its own work, and [`ff git`](../reference/cli/git.md) captures before handing the arguments to git verbatim.
+`crates/ff-cli/src/cli.rs` declares each command's preflight behavior; `lanes.rs` runs capture, fetch, and maintenance where enabled. Repository readers normally attempt capture, while mutators capture after initial guards in core verb setup. [`ff git`](../reference/cli/git.md) checks policy before attempting capture and invoking Git.
 
-The hooks [`ff hook`](../reference/cli/hook.md) installs make capture ambient rather than something anyone remembers: before every tool call a wired agent makes, before every git command typed through the shell alias, and at every shell prompt. All of them arrive through [`ff trigger`](../reference/cli/trigger.md) with the source named.
-
-[Snapshots and undo](../concepts/snapshots-and-undo.md) is the reader-facing account of what this buys.
+Shell and agent adapters call [`ff trigger`](../reference/cli/trigger.md) at the events their [installed hooks](../reference/hooks/index.md) support. These are capture opportunities, not continuous filesystem observation. Skipped files, contention, missing identity, inactive hooks, and retention affect [recovery coverage](../concepts/snapshots-and-undo.md#coverage-and-limits).
 
 ### The operation-log commit
 
-A snapshot is not a second concept with its own log: **a snapshot is what an operation carries.** Each worktree has one operation log, a chain of commits at `refs/fufu/wt/<id>/ops`, and every capture and every mutating verb appends to it.
+`ops/append.rs` writes operations; `ops/message.rs` encodes their trailers; `ops/walk.rs` decodes them. Each worktree has a chain at `refs/fufu/wt/<id>/ops`.
 
-- **The tree** is the worktree at the end of the operation.
-- **The first parent** is the previous operation, so a first-parent walk is the log.
-- **The second parent** is the commit HEAD stood on. That keeps the user's real history reachable from the chain, and it is the whole of fufu's gc pin.
-- **A verb's operation** also hangs a parentless record commit off itself — `op.json`, the full ref table, and the index tree — plus extra parents pinning every sha its ref transitions touch.
-- **A capture** carries no record at all, because a capture changes no ref by invariant. That invariant is what keeps the highest-volume path in the tool storage-neutral rather than storage-doubling.
+| Component | Meaning |
+| --- | --- |
+| Operation tree | Recorded working-copy tree, or the planned result of a write-ahead verb. Capture exclusions apply. |
+| `fufu-prev` | Previous operation; its parent edge is present only when a predecessor exists. The initial operation has no predecessor. |
+| `fufu-base` | HEAD's commit at recording, when one exists; a parent edge keeps it reachable. |
+| Record commit | Non-capture operations carry `op.json`, a ref table, and an index tree where applicable, with extra parents pinning transition objects. |
+| `fufu-open` | Internal open commit, or no open commit; its parent edge pins the object. Older records may lack this trailer. |
+| Skip links | `fufu-prev-branch`, `fufu-prev-segment`, and `fufu-prev-verb` support branch-local and filtered walks. Missing legacy links differ from an explicit `none`. |
 
-Verb operations are written write-ahead. The operation records its planned end state on all four axes — refs, tree, index, HEAD — before the mutation runs. That is why undo is one lookup rather than three, and why re-running after a crash converges: the plan is a state, not a script.
+A capture inherits its predecessor's tracked-ref table and has no separate record commit. It still updates fufu's chain, branch snapshot pointer, and open ref. “Capture changes no refs” in older design prose meant no tracked user-ref transitions, not no ref writes.
 
-[`ff undo`](../reference/cli/undo.md) itself is a pointer move along the chain, never an append, because the log records work and never navigation.
+`ops/verb.rs` records planned local transitions before applying them. Records describe refs, tree, index, and HEAD so recovery can restore state rather than rerun commands. Push records are written after the remote update; undo cannot reverse that update. Initial guards, object writes, and metadata updates mean a refusal is not a universal no-write guarantee.
 
-What the pointer steps off stays reachable through the ref's own reflog, which fufu guards by writing `reflogExpire=never` for `refs/fufu/*` into the repository config once.
+[`ff undo`](../reference/cli/undo.md) moves the worktree's chain pointer rather than appending a navigation operation. Reflogs retain paths left behind. The repository's `gc` configuration protects fufu reflogs from automatic expiration until [retention](../guides/recovery.md#retention-and-the-earliest-recovery-point) deliberately releases history. Other live worktrees have their own chains and restoration constraints.
 
-### Absorption
+<span id="absorption"></span>
 
-Absorption is the floor's third job. Every mutating verb's preamble reconciles first and captures second. Motion that happened around fufu — raw git, a GUI, an IDE — is absorbed as a foreign operation before the verb records "the state before this verb", so that state is one fufu actually agreed to.
+### Reconciliation after outside changes
 
-A gap of foreign motion collapses into a single operation with restore points at its endpoints, because git's reflogs record where refs moved but never what the tree held between moves. [The two regimes](../concepts/two-regimes.md) covers that boundary from the user's side.
+Verb setup compares the remembered ref state with the repository and records observed outside changes as a foreign operation before capture. Readers can also reconcile through their preflight. One gap becomes one foreign operation; Git reflogs cannot supply intermediate working-copy bytes. [Using fufu alongside Git](../concepts/two-regimes.md#returning-after-outside-changes) owns the user-facing explanation.
 
-## Floor 2 — futures
+<span id="floor-2-futures"></span>
 
-The second floor answers what an operation would cost before anyone spends it. A rebase is a replay, so `futures::probe` simulates one: every commit of `base..tip` is re-applied onto a moving cursor as an in-memory three-way tree merge.
+## Layer 2 — replay predictions
 
-When the branch is the one underfoot, the open change replays as a final step. A rebase that would conflict in uncommitted work is therefore caught one step further out than the commits.
+`futures::probe` reapplies a commit range onto a moving cursor through in-memory three-way tree merges. For the current branch it also considers the open change as a final step, so a prediction can report a conflict in uncommitted work.
 
-The whole replay runs inside one object-memory clone of the repository, dropped with the answer, so a probe writes nothing. A repository that has never run one is byte-identical to one that has run a thousand.
+The probe uses a memory-backed object store and discards the temporary merge objects. That pure computation is distinct from the CLI command around it: capture, cache writes, fetching, and maintenance can change disk state.
 
 ### The verdict set
 
-The verdict set is closed. A replay comes back up-to-date, fast-forward, clean (counting the commits that would be dropped as emptied), or conflicting — naming the commit that breaks and the paths it breaks in.
+The base-axis verdicts include up-to-date, fast-forward, clean replay, and conflict. Unsupported or over-budget cases report unknown, including unrelated histories, merges in a replay range, and the `fufu.futuresDepth` cap (200 by default). An explicitly requested replay is not limited by the prediction cap.
 
-Where a wrong answer is possible, the answer is an honest unknown instead. That covers unrelated histories, merge commits in the range (rebase semantics for a merge are ambiguous, and fufu declines to pick a side), and a range past `fufu.futuresDepth`, which defaults to 200. That cap exists because status probes at prompt rate, and a verb somebody typed pays the real cost instead.
-
-The remote axis adds three shapes of its own: gone, never published, and undone — the shared copy standing exactly where this repository last left it, with the branch since stepped back.
-
-A branch answers to two things, measured as two independent axes: the base beneath it — an explicitly recorded parent branch, else trunk — and the remote copy of itself. Both are futures over the same probe; only the wording differs.
+Remote reporting also distinguishes a missing copy, never-published work, and local rollback relative to the last published tip. Base and remote are separate axes using the same replay machinery. See [pulling and pushing](../concepts/push-boundary.md) for their user-facing decisions.
 
 ### The cache
 
-The cache is one plain JSON file per branch at `<common-dir>/fufu/futures/<branch>`, holding one slot per axis. Each slot is keyed by its own four inputs: the ref measured against, that ref's tip, the branch tip, and the open change's tree.
-
-The key is the invalidation, since a stale entry is by definition one that will not be used. There is no eviction policy and no staleness clock, and deleting the file changes no answer — only the cost of getting one.
-
-(The design document's substrate section describes the cache as keyed by `(base, ours, theirs)` and recomputing only when a ref moves. The shipped key is the four inputs above, so a probe also recomputes when only the open change moved.)
+Each branch's file at `<common-dir>/fufu/futures/<branch>` contains a slot per axis. The key includes the reference being compared, its tip, the local branch tip, and the open-change tree. A changed input invalidates that slot; deleting the file causes recomputation. This is a pure cache.
 
 ### Where the answer is spent
 
-[`ff status`](../reference/cli/status.md) reports futures, not just facts — "main moved — rebases cleanly (3 commits replayed)" before anything moves, or the commit and files a rebase would break on. The bare `ff` map and [`ff branch`](../reference/cli/branch.md) deliberately do not pay a merge simulation per row: verdicts belong to status, and the most-typed commands must stay flat.
+[`ff status`](../reference/cli/status.md) displays replay predictions. The bare map and [`ff branch`](../reference/cli/branch.md) avoid running a merge simulation for every displayed branch; their cheaper counts and labels do not prove a replay will succeed.
 
-## Floor 3 — the verbs
+<span id="floor-3-the-verbs"></span>
 
-Every verb is a transition between boring git states — that is [the invariant](../concepts/invariant.md) stated as an implementation rule. A verb's shape is the same everywhere: reconcile, capture, write the operation ahead, then move refs. HEAD stays attached throughout; nothing a verb produces requires knowing fufu exists to read.
+## Layer 3 — local operations
 
-The floor's theme is land-if-clean: operations attempt themselves speculatively with the same simulation floor 2 exposes. Clean means refs move and status says what happened; not clean means nothing is touched and the operation becomes a [held rewrite](../concepts/held-rewrites.md) — announced at creation, pinned in status until resolved, and released through [`ff resolve`](../reference/cli/resolve.md) or by undoing the operation that held.
+Per-verb modules build and apply transitions using shared capture, index, ref, and rewrite code. Branch creation and editing sessions keep HEAD attached. Held rewrites record a pending request against ordinary Git inputs rather than advancing the affected branch to a logical conflicted commit.
+
+A conflicting branch can hold after other branches in a cascade have landed. The [cascade](../concepts/branches.md#the-cascade) documents skips, and [conflict reports](../concepts/held-rewrites.md#reading-conflict-reports) document per-verb exit distinctions. [`ff resolve`](../reference/cli/resolve.md) and [`ff done`](../reference/cli/done.md) apply user resolutions through the same rewrite machinery.
 
 ### The rewrite engine
 
-One rewrite engine (`rewrite.rs`) serves every rewrite verb, rather than each forking its own commit-writing logic. A rewrite that moves no tree — a reword — re-parents commits without replaying them. A rewrite that moves a tree replays by three-way merge, the writing half of exactly what the probe simulates.
+`rewrite.rs` handles commit rewriting. Rewording reparents descendants without replaying trees. Content-changing rewrites perform three-way merges and record old-to-new mappings in the operation.
 
-- Every rewrite records its old→new map as a field on the operation, so the log's pins and [`ff op trim`](../reference/cli/op-trim.md)'s retention cover the map for free.
-- No empty commit survives a replay. A commit whose replayed tree matches its new first parent introduces nothing, is not written, and is announced rather than silently dropped.
-
-[`ff restack`](../reference/cli/restack.md) is the primitive under the floor: replay these commits onto that base, hold on conflict. The other verbs are aims for it. [`ff pull`](../reference/cli/pull.md) runs it against both of a branch's axes with the network in front, and [`ff done`](../reference/cli/done.md) is restack pointed at an edit session's parent.
-
-The one act automation never chains into is the push. A push leaves the machine, so [`ff push`](../reference/cli/push.md) is always a verb a person types. That is [the push boundary](../concepts/push-boundary.md) from the mechanism's side.
+- Replays drop and report non-root, non-merge commits that become empty; reword-only operations do not apply that rule.
+- Replays can also drop changes already represented by a surviving change ID in the base, reporting them as superseded.
+- Surviving changes keep their change IDs, while rewritten commit SHAs change. [Revisions and IDs](../reference/revisions.md) owns addressing and lookup limits.
+- [`ff restack`](../reference/cli/restack.md) replays onto a base; [`ff pull`](../reference/cli/pull.md) adds remote reconciliation and fetching. [`ff push`](../reference/cli/push.md) remains an explicit send, callable by a person or script.
 
 ## Where fufu's state lives
 
-Everything fufu writes lives in two places: refs under `refs/fufu/`, and plain files under `<common-dir>/fufu/`.
-
-The refs:
+Repository records live in shared Git refs and under `<common-dir>/fufu/`. For the main checkout the common directory is normally `.git`; linked worktrees share it. User-level hook configuration and the update cache live outside this layout.
 
 | Ref | What it holds |
 | --- | --- |
-| `refs/fufu/wt/<id>/ops` | One worktree's operation chain — the log itself. `<id>` is the gitdir basename git files the worktree under; the main worktree's is `main`. |
-| `refs/fufu/wt/<id>/trash/@ops` | That chain's pre-trim tip — the last trim's own undo. |
-| `refs/fufu/snap/<branch>` | A pointer to the newest operation on that branch, moved in the same transaction as the chain tip. |
-| `refs/fufu/open/<branch>` | The branch's open commit — the open change as a commit, the sha on the `@` row, the one `ff commit` moves the branch to. Moved in the same transaction as the two above, deleted when the tree is clean, and never a tracked ref: it is derived, so it can never read as foreign motion. |
-| `refs/fufu/parked/<branch>` | Legacy: the sha of a park made before the open commit was the park, an ordinary git stash entry. Folded into the branch's open commit on the first arrival and deleted. |
-| `refs/fufu/published/<branch>` | The tip this repository last left the shared copy standing at. Deliberately a ref rather than a log entry, because `ff undo` is a pointer move and must not rewind the one fact it cannot reverse — where the wire was left. |
-| `refs/fufu/trash/<branch>` | A deleted branch's tip, kept by retention. |
-| `refs/fufu/legacy/*` | Pre-cutover logs, parked as a receipt when fufu takes over a repository that still holds them. |
+| `refs/fufu/wt/<id>/ops` | A worktree's operation chain. The main ID is `main`; a linked worktree uses its Git admin-directory basename. |
+| `refs/fufu/wt/<id>/trash/@ops` | That chain's pre-trim tip, retained for recovery of the last trim. |
+| `refs/fufu/snap/<branch>` | The newest operation recorded on the branch. |
+| `refs/fufu/open/<branch>` | The internal open commit, including parked work. A clean state removes the ref; retained operations can still pin previous versions. Committing may reuse or replace this object. |
+| `refs/fufu/seen/<branch>` | The remote tip recorded by a reporting pull, successful push, remote-branch creation through switch, or clone. Fetch alone and pull dry-run do not advance it. |
+| `refs/fufu/published/<branch>` | The tip this repository last successfully sent for that branch. A pull may change seen without changing published. |
+| `refs/fufu/trash/<branch>` | A deleted branch's snapshot timeline pointer; operation records retain its branch-tip transition. |
+| `refs/fufu/parked/<branch>` | Legacy stash-based park, converted to an open commit on arrival. Current parking does not create these. |
+| `refs/fufu/legacy/*` | Older snapshot/journal chains retained during migration. |
 
-Operation chains live in the shared ref namespace rather than under `refs/worktree/`, and that is a measurement rather than a preference. `git gc` run from the main worktree collects objects pinned only by a linked worktree's worktree-local refs, and reachability is fufu's entire gc pin.
+Seen and published refs are outside the tracked-ref restoration set: undo does not un-see or un-send a remote tip. `seen.rs`, `published.rs`, and `push.rs` implement that distinction and the [push lease](../concepts/push-boundary.md#push-carries-a-lease).
 
-The same fact is what lets a chain outlive the worktree it belonged to, which is the point: a deleted worktree's work stays addressable through the same [`ff op`](../reference/cli/op.md) verbs as anything else.
+Chains use the shared namespace so Git garbage collection can reach retained objects from the main repository and so a chain can outlive a removed worktree. Recovery after removal still depends on capture and retention; see [worktree recovery](../guides/worktrees.md).
 
-The files:
-
-| Path | What it holds |
+| Path | Role |
 | --- | --- |
-| `<common-dir>/fufu/futures/<branch>` | The futures cache described above. |
-| `<common-dir>/fufu/branch/<branch>` | Branch metadata: the pending description, the explicitly recorded parent branch, the fork point, an open edit session, a held rewrite, an open resolution. Empty metadata deletes the file. |
-| `<common-dir>/fufu/ops/<chain>/live`, `…/trash` | The operation id index — a sorted file of op ids per domain, derived from the chain. |
-| `<common-dir>/fufu/oplog-<chain>.lock` | The write lock on one chain. |
+| `<common-dir>/fufu/futures/<branch>` | Rebuildable replay-prediction cache. |
+| `<common-dir>/fufu/branch/<branch>` | Pending message, recorded base/fork point, edit session, held rewrite, and resolution metadata. Empty metadata removes the file. |
+| `<common-dir>/fufu/ops/<chain>/live`, `…/trash` | Sorted operation-ID indexes derived from retained chains. |
+| `<common-dir>/fufu/oplog-<chain>.lock` | Serializes writes to a worktree's operation chain. |
 
-Every piece is disposable, in one of two grades.
+### Caches and retained records
 
-- **Pure caches** — the futures cache and the id index. Deleting them changes no answer, only the cost of the next one.
-- **fufu's memory** — the chains, the pointers, the metadata files. Deleting them loses fufu conveniences and never repository content: undo's reach, a pending description, a parked change's ref. Every commit, branch, snapshot tree, and open commit is ordinary git and stays reachable with ordinary git commands.
+Futures caches and operation-ID indexes can be rebuilt from their inputs. Operation chains, open refs, seen/published records, and branch metadata retain information that the current branch tips alone cannot reconstruct. Deleting them can lose recovery history, pending requests, and access to parked work; once the last reference is gone, Git may garbage-collect the objects.
 
-No record is ever authority over the repository. When a record disagrees with what the repository actually contains — a legacy park popped by hand, a branch moved by raw git — the repository wins, and reconciliation demotes the record and says so out loud.
-
-That rule is [the invariant's](../concepts/invariant.md#a-cache-over-git-never-an-authority) strong form. The whole layout is designed so that abandoning fufu costs automation, and returning to it is reconciliation rather than recovery.
+Removing the fufu executable leaves these records and ordinary Git history in place. Returning after outside Git changes invokes reconciliation, not reconstruction of deleted records. [Leaving and coming back](../concepts/two-regimes.md#leaving-and-coming-back) covers the practical procedure. Only fufu should write its internal refs and metadata.

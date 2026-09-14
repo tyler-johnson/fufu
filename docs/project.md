@@ -1,6 +1,6 @@
 # Project
 
-The facts a first visit checks: the license, the security contact, what a release promises, and how the tool is tested.
+fufu is an MIT-licensed, pre-1.0 Git interface. This page covers support, dependencies, and testing.
 
 ## License
 
@@ -8,22 +8,22 @@ fufu is [MIT-licensed](https://github.com/tyler-johnson/fufu/blob/main/LICENSE).
 
 ## Security
 
-Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/tyler-johnson/fufu/security/advisories/new): a private channel to the maintainer, with no public issue until a fix ships. Please do not file security reports as public issues. The same policy lives in [SECURITY.md](https://github.com/tyler-johnson/fufu/blob/main/SECURITY.md) in the repository.
+Report vulnerabilities privately to the maintainer through [GitHub private vulnerability reporting](https://github.com/tyler-johnson/fufu/security/advisories/new). Please do not file public security issues. [SECURITY.md](https://github.com/tyler-johnson/fufu/blob/main/SECURITY.md) states the support policy.
 
 ## Stability and releases
 
-fufu is pre-1.0: the command surface is settling, and a minor version may change flags, output, or configuration. Every breaking change is named in the [changelog](changelog.md), never slipped in silently.
+Minor releases may change commands, flags, output, configuration, and error IDs. Read the [changelog](changelog.md) when upgrading. Scripts should pin and test supported binary versions and check the [JSON envelope version](agents/machine-surface.md); the current contract number is not a blanket cross-release payload guarantee.
 
-The latest release is the supported release; fixes land at the tip rather than being backported. Releases are cut from tags and built in CI for six targets — Linux, macOS, and Windows, each on amd64 and arm64 — and published with checksums; [install](install.md#pin-and-verify) covers pinning and verifying one.
+Only the latest release is supported. Fixes are included in new releases and are not backported. Tagged releases are built in CI for Linux, macOS, and Windows, each on amd64 and arm64, and published with checksums. [Installation](install.md#pin-and-verify) covers pinning and verification.
 
 ## What fufu needs from git
 
-No declared minimum version. The daily surface — status, commit, switch, undo, log, restore — runs in-process and spawns no git at all; git on PATH is reached for the push, credential helpers, the [`ff git`](reference/cli/git.md) passthrough, and trim's best-effort `gc --auto`, and those calls lean only on long-stable git behavior. The [substrate](internals/substrate.md#the-git-free-destination) page tracks that line as it moves.
+Install Git for a complete setup; there is no declared minimum Git version. Local core operations run in-process. Push and the [`ff git`](reference/cli/git.md) passthrough use Git; filesystem remotes require upload-pack, and a narrow native-fetch failure uses a Git fallback. Network configuration, authentication, signing, hooks, and maintenance may also invoke helpers. See the [execution table](internals/substrate.md#the-execution-ladder-as-it-stands) and [installation requirements](install.md).
 
 ## How it is tested
 
-fufu's one non-negotiable promise — the repository stays a boring git repository — is tested differentially. A permanent harness (`crates/ff-testsupport`) runs fufu and the real git binary side by side across 22 differential suites and asserts they agree on what is left on disk, covering the close, switch, pull, stash, signing, the index, the revset grammar, and the rest.
+The differential harness in `crates/ff-testsupport` compares fufu with Git on the state left by local operations. Suites cover committing, switching, pulling, restacking, recovery, signing, index writing, and revision queries. CLI integration tests cover command behavior, output, hooks, and installers.
 
-The sharpest of those is the index contract: after fufu writes `.git/index`, real git must see exactly the intended content staged and accept the file for its own next operation. CI runs the suite on Linux, macOS, and Windows for every code change. The Windows leg is sharded four ways for wall-clock time, not reduced coverage.
+For example, after fufu writes an index, Git must see the intended staged content and accept it for subsequent operations. CI runs the Rust test workflow on Linux, macOS, and Windows for code changes, with Windows split across four shards.
 
-Four integration suites run on Unix only: Git passthrough, extensions, the zero-spawn proof, and commit signing. The remaining suites, including the differential suites, run on all three operating systems. The PowerShell hook's profile is dot-sourced by a real `pwsh` on each platform. [Platforms](install.md#platforms) lists the released binaries.
+Git passthrough, extensions, zero-spawn, and CLI signing suites are Unix-only. Some runtime checks are conditional: the PowerShell profile test runs only where `pwsh` is available. Installer tests do not prove a user's running client has loaded or trusted its hooks. [Platforms](install.md#platforms) lists the released binaries; [performance](performance.md) identifies the benchmark versions and fixture limits.

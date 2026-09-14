@@ -19,9 +19,13 @@ No code changes ride a release commit, so trust CI on the base rather than runni
 
 Terse bullets under Keep a Changelog headings — Added, Changed, Removed, Fixed, Known issues. Each bullet names the surface it affects. A removed setting and a shipped regression each get their own entry.
 
+Edit current/unreleased prose against observed behavior, including defaults, capture and network effects, and recovery limits. Keep historical release entries and tagged release notes in their release's terms; do not update old commands or claims to sound current. Label proposed behavior explicitly and keep it separate from shipped changes.
+
 ### Release notes
 
 Two or three sentences saying what the release adds, then plain headings and short prose. No comparison to the previous release, no argument for each change, no diffstats. Minor items go in a `## Miscellaneous` bullet list. Shorter is better.
+
+State capabilities and limits for the version being released. Link current usage to its owning concept or reference page. Performance claims require an actual recorded run with fixture, version, machine, and comparison direction; a benchmark plan is not evidence. Keep generator-maintenance instructions in comments or contributor guidance, not reader introductions.
 
 ## Docs
 

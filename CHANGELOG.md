@@ -4,26 +4,28 @@
 
 ### Added
 
-- The fetch lane and `fufu.autoFetch`: every verb that reads the tracking refs fetches first, at most once per cadence (`10m` by default), under a three-second deadline and with every prompt off. `false` leaves fetching to `ff pull` and `--fetch`; `CI` set skips the lane. `ff doctor`'s `auto-fetch` row says when the refs were last refreshed.
-- `--fetch` and `--no-fetch` on every verb; `--fetch` on a verb that reads nothing from the remote is `fetch/not-here`.
-- `ff branch --prune`: one operation deleting every local branch whose shared copy is gone, keeping and naming any that holds commits its copy never held, is underfoot, is checked out elsewhere, or holds a rewrite; branches stacked on a pruned one are re-aimed. `--dry-run` (`-n`) plans and writes nothing. Bare `ff branch` and `ff doctor`'s `tracking` row count the branches it would take.
-- `fufu.pruneGone`: when true, `ff pull` prunes the same branches inside its run. `false` today; the default flips in a later release.
-- The seen record, `refs/fufu/seen/<branch>`: the tip of the shared copy a foreground verb last showed you, written by `ff push`, `ff pull`, `ff switch` onto a remote's branch, and `ff clone`. `ff push` and `ff branch -d --shared` lease against it and refuse before the wire — `push/unseen`, `branch/shared-moved`, `branch/shared-unseen` — when the tracking ref stands off it.
+- `fufu.autoFetch`: eligible commands refresh tracking refs at most once per cadence (`10m` by default), with a three-second fetch deadline and terminal prompts disabled. External helpers can still prompt, and some transport handshakes can exceed the deadline. `false` or `CI` disables automatic fetch; [`ff pull`](docs/reference/cli/pull.md) and explicit `--fetch` remain available. [`ff doctor`](docs/reference/cli/doctor.md) reports the last refresh.
+- Global `--fetch` and `--no-fetch`: force or skip a supported fetch; unsupported `--fetch` returns `fetch/not-here`.
+- [`ff branch --prune`](docs/reference/cli/branch.md): deletes local branches whose remote copy is gone, preserving branches with unique work, the current branch, branches checked out elsewhere, and held rewrites. Child branches are redirected to the deleted branch's base. `--dry-run` previews deletion; capture, auto-fetch, and maintenance can still run.
+- `fufu.pruneGone`: enables the same pruning during ff pull; defaults to `false`.
+- Seen records at `refs/fufu/seen/<branch>`: reporting pulls, successful [`ff push`](docs/reference/cli/push.md) sends, [`ff switch`](docs/reference/cli/switch.md) creating a remote-tracking branch, and [`ff clone`](docs/reference/cli/clone.md) record the observed remote tip. Replacing or deleting remote history requires seen/tracking agreement; fast-forward pushes can proceed without it.
 
 ### Changed
 
-- `ff trim` is `ff op trim`, the family's delete. The old spelling still works and is not listed, and its envelope reads `op trim`.
-- `ff pull --no-fetch` is the global flag, with the same meaning.
-- Every fetch prunes the tracking refs of copies the remote no longer has, and `ff doctor` fetches on every run.
-- `ff undo` after `ff branch -d` restores the branch's timeline pointer, the way it does after `ff fold`.
+- [`ff op trim`](docs/reference/cli/op-trim.md) replaces `ff trim`; the old spelling remains an unlisted alias and reports `op trim` in JSON.
+- ff pull uses the global `--no-fetch` flag with its existing meaning.
+- Fetches prune deleted remote-tracking refs. Doctor requests a fetch on every run when fetching is enabled.
+- [`ff undo`](docs/reference/cli/undo.md) after ff branch -d restores the branch's timeline pointer, matching [`ff fold`](docs/reference/cli/fold.md).
+- Documentation and command help explain defaults, recovery scope, IDs, hooks, and network side effects; a dedicated revisions reference covers addressing. Historical design and performance evidence are labeled separately from current usage.
 
 ### Fixed
 
-- `ff push` and `ff branch -d --shared` leased against the tracking ref, so a fetch behind fufu's back — an editor's, `ff git fetch`, `ff pull --dry-run` — could move the lease to a tip never looked at and let a force-with-lease take a teammate's push off the shared copy.
+- Remote-history replacement checks use the seen record so an editor fetch, [`ff git fetch`](docs/reference/cli/git.md), or ff pull --dry-run cannot silently authorize overwriting newly fetched work.
 
 ### Known issues
 
-- A repository from an earlier fufu has no seen records. The first push of a branch that only adds commits writes one silently; one whose copy holds commits not yet looked at is refused with `push/unseen` once, and `ff pull` records the tip.
+- Seen records are absent in older repositories. A first fast-forward push records one; a replacement push without one returns `push/unseen`. A reporting pull records the observed tip.
+- Named off-branch pushes send the requested tips but can record the current checkout's tree as the target branches' open state. Switching there can resume unintended deletions; see the [stacked-branch guide](docs/guides/stacked-changes.md#inspect-local-work-after-a-named-push) for recovery and the current-branch workaround.
 
 ## v0.15.0 — 2026-09-12
 

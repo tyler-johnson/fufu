@@ -9,8 +9,8 @@ the gate judged -- there is no second implementation of the arithmetic here.
     make bench        measure again
     make bench-docs   rewrite the region between the bench markers
 
-Milliseconds are this machine's; the ratios are what port. Both go on the
-page, with the host that produced them named above the tables.
+Times and ratios describe the recorded machine and fixture conditions. Both
+go on the page, with the host that produced them named above the tables.
 """
 
 import json
@@ -32,11 +32,11 @@ END = "<!-- bench:end -->"
 AXES = {
     "chain-depth": (
         "Snapshot chain depth",
-        "Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working copy.",
+        "n is the number of captures behind the working copy; the fixture varies that count while keeping the working tree small.",
     ),
     "history-depth": (
         "Commit history depth",
-        "n is the number of commits on the branch — the axis git itself is measured on.",
+        "n is the number of commits on the branch; this measures a bounded log query over increasing history depth.",
     ),
 }
 TOOLS = ("ff", "git", "jj")

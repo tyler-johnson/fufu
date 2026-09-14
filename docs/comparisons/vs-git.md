@@ -1,59 +1,53 @@
 # fufu vs git
 
-**fufu replaces git's daily rituals, and nothing underneath them.** The repository stays an ordinary git repository at every instant — [the invariant](../concepts/invariant.md) — so adopting fufu changes what you type, never what your teammates, your forge, or your tools see. This page covers the trade from your chair: the commands that disappear, what stands in for each, the opinions you are accepting, what stays git's, and what the trade honestly costs.
+fufu replaces staging, manual stashing, and common history-editing sequences with commands that record local recovery state. It uses ordinary Git objects and branches, so teammates can keep using Git. The main costs are learning different command defaults, relying on snapshot coverage, and giving up a native hunk picker.
+
+Use the [command table](command-table.md) to translate a task. [Using fufu alongside Git](../concepts/two-regimes.md) covers practical compatibility. The Git behaviors compared here are documented in the [Git 2.50.1 manuals](https://github.com/git/git/tree/v2.50.1/Documentation).
 
 ## What disappears
 
-The commands fufu retires are the dangerous-but-daily ones — the rituals that exist to move state by hand that git could have moved for you.
+- **Staging before a fufu commit.** [`ff commit`](../reference/cli/commit.md) records the working copy. Path arguments select files or directories at commit time; other edits stay open. Git's index still exists, but a staged selection does not control a fufu commit. See [partial commits](../concepts/changes.md#partial-commits).
+- **Manual stashing when switching through fufu.** [`ff switch`](../reference/cli/switch.md) parks current work with its branch and resumes the target's work. This includes eligible untracked files, subject to [capture limits](../concepts/snapshots-and-undo.md#coverage-and-limits). Staged distinctions become ordinary working-copy edits on return.
+- **Interactive-rebase instructions for common edits.** [`ff describe <rev>`](../reference/cli/describe.md) rewords; [`ff absorb`](../reference/cli/absorb.md) moves content into a commit; [`ff edit <rev>`](../reference/cli/edit.md) opens a session branch and [`ff done`](../reference/cli/done.md) lands it. Descendants replay automatically, subject to [cascade skips and holds](../concepts/branches.md#the-cascade).
+- **Separate base and remote reconciliation commands.** [`ff pull`](../reference/cli/pull.md) fetches and updates the selected branches. [`ff restack`](../reference/cli/restack.md) replays onto the recorded base and can auto-fetch first; `--no-fetch` disables that fetch.
+- **Reconstructing routine recovery from individual reflogs.** [`ff history`](../reference/cli/history.md) lists undo steps; [`ff undo`](../reference/cli/undo.md) restores recorded local state along the current worktree's log. Git's reflogs remain available for history outside that log.
 
-- **`add` and the staging area.** There is no index to maintain between commits. [The working copy is the change](../concepts/changes.md): [`ff commit`](../reference/cli/commit.md) closes it into a commit in one step, and a partial commit is a slice picked at the moment of the close — path arguments naming files or directories — with nothing persisting afterward.
-- **The stash dance.** [`ff switch`](../reference/cli/switch.md) parks whatever is open with the branch you leave and reopens whatever was parked where you arrive, untracked files included. A parked change is the branch's open commit, one ordinary commit `git log --all` shows above the branch, so the two-step dance, and remembering which entry belonged to which branch, is gone — and so is the stash panel's row.
-- **Detached HEAD.** Editing a commit mid-stack is [`ff edit <rev>`](../reference/cli/edit.md), which mints an anonymous branch at that commit and switches to it; [`ff done`](../reference/cli/done.md) amends, replays the commits that were ahead, and returns you to the tip. HEAD stays attached to a branch throughout, because a detached HEAD is a state fufu never creates.
-- **`rebase -i`.** Its jobs split into verbs that each do one thing: [`ff describe <rev>`](../reference/cli/describe.md) rewords any commit, [`ff absorb`](../reference/cli/absorb.md) folds working changes into a past commit — which also retires the `fixup!`-plus-`--autosquash` ritual — and `ff edit` covers the `edit` stop. Descendants restack automatically and the replay runs in memory, landing only when clean; a conflicting replay becomes a [held rewrite](../concepts/held-rewrites.md) you resolve on your schedule, so the stop-fix-continue treadmill goes too.
-- **The rebase itself.** [`ff pull`](../reference/cli/pull.md) lines the branch up with its base and its remote in one verb, fetch included, and [`ff restack`](../reference/cli/restack.md) replays a branch onto its base. Restack can auto-fetch first; `--no-fetch` skips it. Both record local branch and file changes that one `ff undo` takes back.
-- **The reflog as a recovery tool.** Every operation — every automatic snapshot included — lands on [one operation log](../concepts/snapshots-and-undo.md) that records refs and tree together. [`ff undo`](../reference/cli/undo.md) steps the whole repository back, and [`ff history`](../reference/cli/history.md) shows exactly where each press would land. The reflog still exists and still fills; you stop needing to read it.
+<span id="what-your-aliases-cannot-do"></span>
 
-The reflex-by-reflex mapping — what you would have typed in git, and what to type now — is the [command table](command-table.md).
+## What fufu records for you
 
-## What your aliases cannot do
+Aliases and scripts can automate Git commands, including snapshots. fufu supplies a shared operation record and recovery interface across its commands and installed hooks, so you do not have to maintain that integration yourself.
 
-A git veteran's first response to the list above is that aliases and scripts already cover it. For the typing, they can: an alias can spell `commit -am`, and a script can stash, rebase, and pop.
+<span id="it-cannot-act-before-you-type"></span>
 
-### It cannot act before you type
+### Capture timing
 
-fufu's mutating verbs capture before their local changes, after initial guards; the Git passthrough attempts capture before running a permitted command. Recovery depends on a successful capture that included the relevant files and is still retained.
+Repository readers normally attempt capture; mutators capture after initial guards. Active shell and agent hooks add capture opportunities at their supported events. [`ff trigger -m "before refactor"`](../reference/cli/trigger.md) requests a manual snapshot. None of these can recover bytes that were never captured or are no longer retained. See [when snapshots run](../concepts/snapshots-and-undo.md#when-snapshots-run).
 
-Capture is automatic on the normal command and hook paths. [`ff trigger -m "before refactor"`](../reference/cli/trigger.md) also takes a manual snapshot. [Snapshots and undo](../concepts/snapshots-and-undo.md) explains coverage, retention, and the limits of recovering uncaptured work.
+<span id="it-cannot-give-one-account-of-what-happened"></span>
 
-### It cannot give one account of what happened
+### One recovery log per worktree
 
-Wrappers leave their records where each underlying command left them — some motion in the reflog, some files in the stash, some state nowhere at all — and reconstructing an afternoon means reading all three.
-
-Every fufu operation, captures and raw-git motion included, lands on [one log](../concepts/snapshots-and-undo.md). So `ff history` is the whole account, and one `ff undo` steps the repository back through it, refs and tree together.
+The operation log records captured files and local operations. On returning after outside Git changes, fufu reconciles observed ref movements into a foreign operation. It cannot reconstruct intermediate file contents that no capture saw. [Returning after outside changes](../concepts/two-regimes.md#returning-after-outside-changes) explains this boundary.
 
 ## The opinions, and where they stop
 
-Adopting fufu is partly a workflow shift, not a transparent overlay. Its verbs encode positions, and using them is accepting the positions:
+fufu's update commands replay feature work onto its base rather than merging the base into it. Rewriting commits is routine, including commits already pushed. [`ff push`](../reference/cli/push.md) is a separate explicit command; a lease checks the expected remote tip, and replacing commits also requires fufu's seen record to agree with the tracking tip.
 
-- **Branches rebase onto main rather than merging it in.** `ff pull` replays your commits onto the moved base; there is no verb that merges trunk into a feature branch.
-- **Unpublished commits are malleable by default.** Rewording, absorbing into, and reshaping commits that only you hold is routine, and every rewriting verb keeps descendants following automatically.
-- **Leased force-pushes to your own branches are routine.** [`ff push`](../reference/cli/push.md) always sends under a lease, so replacing the shared copy of your own branch after a restack is the normal case — guarded, not exceptional.
-
-The invariant promises compatibility, never neutrality: the repository stays legible to every tool and teammate, and fufu still has opinions about how you work inside it.
-
-The [push boundary](../concepts/push-boundary.md) separates local rewriting from sending it. Pushed commits can still be rewritten locally and sent under a lease. fufu does not enforce branch ownership or append-only shared history; team policy and server-side branch protections do. How work lands on the shared branch remains the team's choice.
+These checks do not establish who owns a branch or make published history append-only. Teams choose their [shared-history policy](../concepts/push-boundary.md#shared-history-policy) and server-side protections. A clean textual replay still needs the project's normal verification.
 
 ## What stays git
 
-- **The repository format.** Objects, refs, config, worktrees — everything on disk is git's own, written the way git writes it. fufu's records — the operation log, snapshot refs, open commits — live in ordinary refs, and they are a cache over the repository, never an authority over it.
-- **Remotes and forges.** A remote is a git remote, a push is a git push, and GitHub or any other forge sees ordinary branches and ordinary force-with-lease updates. Nothing server-side knows fufu exists.
-- **Hooks.** Your `pre-commit` and `commit-msg` hooks still run — fufu execs them itself — and hook-runners like lefthook and husky see a staged index matching what is about to land, because fufu writes the index before the first hook fires.
-- **How work lands.** The merge queue, the squash button, rebase-and-merge — the landing policy is untouched, per the push boundary above.
-- **Everything else.** Bisect, submodules, plumbing, forensics stay git's, reached through [`ff git <args>`](../reference/cli/git.md), which snapshots first and then runs git verbatim.
+- **Storage and tooling.** Commits, refs, configuration, and worktrees use Git formats. fufu adds refs and metadata; tools that list all refs can see them. [Git storage model](../concepts/invariant.md) explains what those records mean.
+- **Remotes and forges.** Branch updates use Git's protocol and obey the server's rules. Native clone/fetch and Git-backed push have different [transport dependencies](../internals/substrate.md#the-execution-ladder-as-it-stands).
+- **Commit hooks.** fufu runs the supported commit hooks itself. Which hooks run depends on the operation and options; see the [hook table](../faq.md#does-fufu-run-my-git-hooks).
+- **Team landing workflow.** Merge queues, squash buttons, and review rules stay with the team and forge.
+- **Other commands.** [`ff git <args>`](../reference/cli/git.md) runs Git for merge, cherry-pick, bisect, and plumbing. LFS and submodules remain [unsupported or untested](../faq.md#does-fufu-work-with-git-lfs); passthrough availability is not a compatibility guarantee.
 
 ## The honest costs
 
-- **Undo is a new mental model.** Trained git reflexes reach for `reset --hard`, `checkout -- <file>`, `stash pop`, and reflog spelunking — each a different tool with a different blast radius. fufu replaces them all with one log and a few verbs, which is simpler once it is reflex and disorienting until then. For the first stretch you will know git's incantation and have to look up fufu's.
-- **Verbs do not map one-to-one.** `rebase -i` alone splits across several verbs, and `checkout`'s jobs scatter to `switch`, `restore`, and `edit`. The [command table](command-table.md) shortens the search, but most of its rows carry a footnote because most mappings are inexact, and retraining muscle memory takes real days.
-- **You are trusting automatic capture.** There is no checkpoint verb: the net is the snapshots fufu takes on its own, and only as strong as its wiring. Capture fires on fufu commands, and at shell prompts and around agent tool calls only where the [hooks](../reference/cli/hook.md) are installed. Protection reaches back only to the last capture — a raw `git restore <file>` can discard edits fufu never saw. [`ff doctor`](../reference/cli/doctor.md) reports the net's state.
-- **The opinions are not optional.** If your team's habit is merging main into feature branches, or your workflow leans on a hand-maintained staging area, fufu will not meet you halfway — the verbs for those workflows do not exist. `ff git` keeps every git command reachable, but working against the grain of the opinions costs more than either tool alone would.
+- **Different selection model.** fufu selects paths, not hunks. Git's interactive commit remains available under `coach` or `observe` policy, but mixing a hand-staged index with a subsequent fufu commit does not work.
+- **Different defaults.** Bare switch starts at trunk; restore changes files without resetting the index or branch. The command table gives these qualifications beside each task.
+- **Capture and retention need attention.** Hooks must be installed and active. Ignored untracked files, oversized capture content, and unsaved buffers have [coverage limits](../concepts/snapshots-and-undo.md#coverage-and-limits). [`ff doctor`](../reference/cli/doctor.md) checks configuration and records, not every live client's activation.
+- **Local records consume storage and time.** File scanning grows with the working tree. Recovery refs retain objects until retention releases them; [performance](../performance.md) states the scope of the existing measurements.
+- **Recovery has a boundary.** Removing the binary leaves Git usable. Deleting fufu's recovery refs or metadata can lose access to parked work and past states, and later garbage collection can delete unreferenced objects. See [leaving and coming back](../concepts/two-regimes.md#leaving-and-coming-back).

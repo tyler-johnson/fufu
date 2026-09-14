@@ -2,6 +2,23 @@
 
 *Founding draft, August 2026.*
 
+## Historical status
+
+This document began as the founding draft and was expanded during implementation. It preserves design arguments, proposals, and descriptions from different stages; it is not a current command contract. The founding text below this note remains unchanged. Current usage is documented in [Changes](https://tyler-johnson.github.io/fufu/concepts/changes/), [Revisions and IDs](https://tyler-johnson.github.io/fufu/reference/revisions/), and the [command reference](https://tyler-johnson.github.io/fufu/reference/cli/).
+
+| Status of passages below | Current reading |
+| --- | --- |
+| Historical goals: total capture, everything undoable, lossless deletion of all fufu state | Recovery requires successful retained captures. Unsaved buffers, ignored untracked files, and oversized capture content are excluded. Removing recovery refs or metadata can lose history and access to parked work. See [snapshot limits](https://tyler-johnson.github.io/fufu/concepts/snapshots-and-undo/#coverage-and-limits). |
+| Obsolete command and ID descriptions: sync/publish, branch/worktree subcommands, letters-only operation IDs, operation columns on log | Current commands use pull/push and flag-based branch/worktree forms. Operation IDs are hexadecimal; change IDs use k–z. The revisions reference owns current syntax and supported past-state reads. |
+| Obsolete or overbroad rules: published history is append-only, every hold exits 3, a refusal changes nothing, doctor is read-only | Local published commits can be rewritten and sent separately under a lease. Holds and partial cascades have per-verb effects and exits; capture, metadata, fetch, and maintenance can write before a refusal or report. [Pulling and pushing](https://tyler-johnson.github.io/fufu/concepts/push-boundary/), [conflict reports](https://tyler-johnson.github.io/fufu/concepts/held-rewrites/#reading-conflict-reports), and [doctor](https://tyler-johnson.github.io/fufu/reference/doctor/) state current behavior. |
+| Unshipped proposals: native interactive hunk selection, prev/next navigation, automatic edit-session completion, FF_READONLY, and broader past-state queries | Do not use these passages as instructions. The live command/configuration references list what is implemented; a proposal here is not a release commitment. |
+| Obsolete implementation claims: every setting falls back on invalid input, native HTTP honors http.proxy, all state is rebuildable, fixed spawn timings | [Configuration](https://tyler-johnson.github.io/fufu/reference/config/), [Architecture](https://tyler-johnson.github.io/fufu/internals/architecture/), and [Substrate](https://tyler-johnson.github.io/fufu/internals/substrate/) describe the current paths and exceptions. |
+| Obsolete capture and update descriptions: no manual snapshot, automatic binary replacement | [`ff trigger -m`](https://tyler-johnson.github.io/fufu/reference/cli/trigger/) supports a labeled manual snapshot. Passive update checks only refresh a cache; [`ff update`](https://tyler-johnson.github.io/fufu/reference/cli/update/) follows the installed binary's update channel. |
+| Historical performance goals and comparisons with other tools | [Performance](https://tyler-johnson.github.io/fufu/performance/) identifies actual measured versions and fixtures. [Comparisons](https://tyler-johnson.github.io/fufu/comparisons/vs-jj/) uses explicit external sources; the arguments below are not current compatibility claims. |
+| Proposed machine-surface stability and universal hook behavior | The current JSON envelope does not guarantee unchanged payloads or error IDs across releases. Hook events and denial replies differ by client. See [JSON output and scripting](https://tyler-johnson.github.io/fufu/agents/machine-surface/) and [hooks](https://tyler-johnson.github.io/fufu/reference/hooks/). |
+
+## Founding text
+
 **fufu** (`ff`) is a version control interface built on the belief that jj got the
 workflow right and git got the repository right — and that you can have both.
 

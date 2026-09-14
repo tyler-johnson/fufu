@@ -1,119 +1,95 @@
 # fufu vs jj
 
-fufu exists because jj proved the workflow. This page is the argument for why fufu is not jj, and it is the honest place to start if you have used either tool.
+Both tools snapshot working changes, support history editing, and provide operation-based recovery. fufu keeps a current Git branch and parks work per branch. jj works with a working-copy commit and bookmarks, and can record unresolved conflicts in commits. Those differences matter most when switching work, using Git tools, and continuing past a conflict.
 
-## What jj got right, taken wholesale
+The jj claims below use **jj v0.45.0** documentation: [Git compatibility](https://github.com/jj-vcs/jj/blob/v0.45.0/docs/git-compatibility.md), [bookmarks](https://github.com/jj-vcs/jj/blob/v0.45.0/docs/bookmarks.md), and [first-class conflicts](https://github.com/jj-vcs/jj/blob/v0.45.0/docs/conflicts.md). The comparison uses a colocated Git-backed jj workspace, the documented default for that version. The [performance page](../performance.md) records its own, different benchmark version.
 
-jj demonstrates a better daily workflow than git's, and fufu takes it without argument:
+<span id="what-jj-got-right-taken-wholesale"></span>
 
-- All work is automatically saved, always. There is no dirty state, no stash, no lost file.
-- You can switch between lines of work at will and everything is simply ready.
-- Editing any commit in a stack automatically rebases its descendants.
-- Every operation is undoable.
+## Shared workflow ideas
 
-If you already live in jj, nothing in that list will feel new in fufu. The disagreement is entirely about what those properties cost.
+fufu draws on jj's working-copy snapshots, change identity, descendant rewrites, and operation log. These do not mean every byte is always saved or every external effect can be undone. fufu's [snapshot coverage and retention](../concepts/snapshots-and-undo.md#coverage-and-limits) define its recovery scope.
 
 ## The architectural difference
 
-jj achieves its workflow by being a **new VCS that treats git as a storage backend**. Its own store is authoritative, and the git-visible repository is a projection of it.
+In a colocated jj workspace, `.jj` and `.git` share a working directory. jj automatically imports and exports Git refs on commands; its operation store and conflict model add state beyond ordinary Git branch tips. Mixing jj and Git commands is supported, and imported Git ref changes can be undone through jj.
 
-In a bare jj repository — one with no git worktree beside it — that single decision is the source of everything uncomfortable about jj for a git-fluent user:
-
-- a detached HEAD as the normal state
-- branches that sit still until you move them, rather than following your work
-- commits carrying machine-generated `.jjconflict-*` trees
-- git commands demoted to second class
-
-A bare repository is not how most people run jj. The usual answer is colocation, a `.jj` beside the `.git`, which keeps the git picture close: commits land in the git object store as jj makes them, bookmarks export to git branches, and raw git stays legal.
-
-What it leaves is a seam with its own etiquette, and that seam — not the bare case — is the fair comparison with fufu. The [side by side](#side-by-side) and [what the inversion buys](#what-the-inversion-buys) below treat the colocated case specifically.
-
-None of the workflow benefits require that decision. fufu inverts it:
-
-> **git remains the VCS. fufu is the pilot.**
-
-fufu is a daily interface layered on an ordinary git repository. It owns the ephemeral and the automatic — capture, movement, history rewriting, undo — and leaves the durable graph entirely to git. The consequence is [the invariant](../concepts/invariant.md): at every instant, the repository is a boring git repository, and fufu's own state is a cache over it, never an authority.
+fufu stores its operation chains and open commits under `refs/fufu/`, with branch metadata and caches under the common Git directory. Git branches remain the checked-out lines of work. The [storage model](../concepts/invariant.md) and [architecture](../internals/architecture.md#where-fufus-state-lives) describe the added records, including what cannot be rebuilt after deletion.
 
 ## Side by side
 
-| | jj | fufu |
+| Task or state | jj v0.45.0, colocated | fufu |
 | --- | --- | --- |
-| authority | jj's store; the git repo is a projection | git; fufu's state is a disposable cache |
-| HEAD | detached, by design | attached to a branch, always |
-| branches | bookmarks that sit still until you move them | real refs that move as you work; anonymous ones are still refs from birth |
-| a conflict | an object in the graph — a commit holding a merge expression | an operation held pending — the *absence* of the new commit |
-| your other tools | see the projection, plus states plain git can't comprehend | see an ordinary git repository, always |
-| raw git commands | legal in a colocated repo, then imported: the motion is settled once jj re-reads the git refs at its next command | first class: absorbed into the operation log, loudly, and undoable |
-| change identity | a `change-id` header on every commit jj makes, derived from the sha where there is none | the same header on every commit fufu closes, the same derivation for the rest; op ids are hex like jj's |
-| leaving | colocated: delete `.jj` and the commits and bookmarks stay, change ids in their headers; the op log and any unresolved conflict go with it | walk away any moment; return and reconcile |
+| Current work | A working-copy commit; Git HEAD is usually detached. | An open change above the current branch; a dirty capture writes an internal open commit without advancing branch history. |
+| Names | Bookmarks follow rewrites of their target but there is no current bookmark that advances with each new commit. | The current Git branch advances on commit; automatically named branches are real refs from creation. |
+| A conflicting replay | Records a logical conflict in the resulting commit; descendants can build on it. | Records a held rewrite for that branch; work can continue at its existing tip until resolution. |
+| Other Git tools | Supported colocation, with documented limits for conflict representation, staging, and unfinished Git operations. | Ordinary attached branches and Git trees; fufu metadata and internal refs are additional visible state. |
+| Outside Git changes | Automatically imports/exports refs; imports appear in the operation log. | Reconciles observed changes into foreign operations; uncaptured intermediate file states remain unavailable. |
+| Change identity | Writes a `change-id` Git header by default; not all Git rewrites preserve it. | Uses the same header and derives IDs from SHAs for commits without it; [revision rules](../reference/revisions.md#commit-shas-and-change-ids) cover lookup and divergence. |
+| Leaving the tool | Exported branches and ordinary commits remain usable in a colocated Git repository. jj-specific operation/conflict state still needs jj. | Ordinary branches remain usable in Git. Retain fufu refs and metadata to keep its recovery and parked-work records. |
 
-## What the inversion buys
+<span id="what-the-inversion-buys"></span>
 
-### Legibility
+## Working with other tools
 
-A colocated jj repo keeps the git-visible picture close — commits land in the git object store as jj makes them, and bookmarks export to git branches — but a seam remains, with its own etiquette: a detached git HEAD as the normal state, anonymous working-copy commits a GUI shows without explanation, and the rule that motion made with raw git is only settled once jj has imported it.
+<span id="legibility"></span>
 
-fufu has no seam to keep settled. There is one store, so collaborators, CI, IDEs, GUIs, and every plain-git tool see an attached HEAD and ordinary branches, always. fufu's open commit — its working-copy commit — lives under `refs/fufu/`, and no GUI branch list shows it.
+### Git views
 
-### Abandonability
+fufu creates attached branches for normal switching and edit sessions. Its internal open commit is separate from the current branch tip, so Git status shows working edits while fufu can address the captured version. Tools that enumerate all refs can see the internal commits too.
 
-Deleting fufu loses convenience, never data or comprehension. The strong form: fufu is abandonable and returnable at any moment — a GUI session, a teammate's raw git, a weekend on a machine without fufu are all legitimate, all absorbed. When fufu's records disagree with the repository, the repository wins and fufu rebuilds its picture, loudly.
+jj's compatibility page documents the usual detached HEAD and the special storage of conflicted trees. These are workflow considerations, not a claim that Git tools are unusable with jj.
 
-Colocation narrows jj's version of this gap without closing it. The commits and exported bookmarks are already in the git repository, and so are the change ids, in a header both tools read — so walking away strands no branch and forgets no identity — but the op log and undo and any unresolved conflict live in `.jj` and nowhere else. Deleting `.jj` is accepting those losses, and a weekend of raw git is a desync to import on return rather than a shrug.
+<span id="abandonability"></span>
 
-### git fluency keeps paying
+### Leaving and returning
 
-Your reflexes, your team's review habits, and twenty years of git tooling all still apply. fufu asks for a workflow shift — rebase-onto-main, malleable unpublished commits, leased force-pushes as routine — but never a translation layer over what a repository *is*.
+Removing a tool's executable differs from deleting its repository records. Neither tool's ordinary exported Git commits require that executable to read them. Deleting recovery records loses the recovery they provide. For fufu, removing refs may also leave snapshot or parked objects eligible for Git garbage collection. See [leaving and coming back](../concepts/two-regimes.md#leaving-and-coming-back).
+
+<span id="git-fluency-keeps-paying"></span>
+
+### Git habits
+
+fufu retains current-branch behavior and Git-style revision suffixes, but changes defaults and selection rules. jj has its own revision language and bookmark workflow. Familiar command names do not imply equivalent behavior; use the [revision differences](../reference/revisions.md#differences-from-git-and-jj) and mappings below.
 
 ## What fufu gives up
 
-The inversion has real costs, and DESIGN.md names them rather than hiding them:
+- **Building on an unresolved replay result.** jj can rebase, merge, or back out commits that contain logical conflicts. fufu holds the requested rewrite instead, so the post-rewrite branch is unavailable until it can land.
+- **Logical conflict propagation.** jj stores expressions rather than marker text. fufu's resolution replay carries markers; overlapping regions can stop a round and leave another hold.
+- **Hunk-level selection.** fufu's commit and move commands select whole paths. It has no native interactive hunk picker or automatic hunk attribution; see the [FAQ](../faq.md#can-i-commit-some-hunks-of-a-file-and-leave-the-rest).
 
-- **You cannot build on a post-rewrite state before its conflicts are resolved.** jj lets you keep stacking on top of a conflicted commit; in fufu the rewrite is held, and you keep working at the existing tip while the pending rewrite replays over whatever you add.
-- **Conflicted commits cannot be shipped around.** In jj a conflict is an object you could in principle push; fufu never creates one — which you would never want to push anyway, but the capability is genuinely absent.
-- **jj's conflicts simplify as they propagate**, because they are expressions; fufu carries conflicts forward as literal marker text, and text does not simplify itself. A later commit can leave a mark alone, not dissolve it.
-- **The operation log has a floor.** jj is present from a repository's birth in a way an adopted overlay is not: [`ff undo`](../reference/cli/undo.md) reaches back to the moment fufu was armed in the repository — switched on, with its log floor laid — and no further.
+Both tools' operation recovery starts from records they actually made and retained. Adopting fufu does not make earlier editing sessions undoable.
 
 ## Two answers to conflicts
 
-This is the deepest divergence, and it deserves its own sentence-length summary: jj stores an unresolved conflict *inside* the resulting commit; fufu stores it as the *absence* of the resulting commit.
+jj records a conflict in a resulting commit and lets you resolve it later. In fufu, a branch whose replay conflicts keeps its previous tip and receives a held-rewrite record. Earlier branches in a cascade may already have moved; capture, metadata, and fetch effects can also occur.
 
-fufu's observation is that for a person, conflicts are operation-shaped rather than edit-shaped. The user-visible benefit of jj's model is scheduling: the conflict does not interrupt you, and you resolve it when you choose. That benefit survives translation: when a rewrite would conflict, nothing is touched — the rewrite is held, recorded as an intent waiting to be applied, and both inputs stay ordinary git commits.
+[`ff resolve`](../reference/cli/resolve.md) opens a resolution session with labeled markers, and [`ff done`](../reference/cli/done.md) lands a successful resolution. A parked-change arrival instead resolves in the working copy without done. The [conflict guide](../concepts/held-rewrites.md) covers both forms and undo counts.
 
-[`ff resolve`](../reference/cli/resolve.md) then materializes the whole thing on your schedule: every standing region in one editing session, each side labeled with the step that wrote it, and the entire rebased stack landing at once when you finish. No conflicted state ever exists in the graph.
-
-Deferral only works because jj paired it with relentless disclosure, and held rewrites inherit all three of its disciplines:
-
-- announced at creation
-- pinned in every status until it is gone
-- blocking the exit: [`ff push`](../reference/cli/push.md) refuses a branch with a held rewrite, the way jj refuses to push conflicted commits
-
-[Held rewrites](../concepts/held-rewrites.md) has the full model.
+[`ff push`](../reference/cli/push.md) blocks branches with held rewrites. jj v0.45.0 normally rejects outgoing conflicted commits but offers an explicit `--allow-conflicts` option, as its [push implementation](https://github.com/jj-vcs/jj/blob/v0.45.0/cli/src/commands/git/push.rs) documents. fufu has no equivalent logical-conflict object to send.
 
 ## Typing jj's words
 
-Most of jj's vocabulary types as it is. [`ff log`](../reference/cli/log.md), [`ff show`](../reference/cli/show.md), [`ff diff`](../reference/cli/diff.md), [`ff describe`](../reference/cli/describe.md), [`ff edit`](../reference/cli/edit.md), [`ff restore`](../reference/cli/restore.md), [`ff resolve`](../reference/cli/resolve.md), [`ff undo`](../reference/cli/undo.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op`](../reference/cli/op.md) are the same words for the same things, and the short spellings `st`, `ci`, and `desc` are shared too.
+These fufu aliases accept **fufu's** arguments and defaults:
 
-Where a fufu verb is what jj's means under another name, jj's name is an alias, visible on the verb's row in `ff --help`:
+| jj command | fufu command or alias | Important difference |
+| --- | --- | --- |
+| `jj new` | [`ff switch`](../reference/cli/switch.md), aliases `ff start`, `ff new` | Creates or continues a branch; bare starts at trunk and creates no empty history commit. |
+| `jj bookmark` | [`ff branch`](../reference/cli/branch.md), alias `ff bookmark` | Manages Git branches; no bookmark subcommands. |
+| `jj workspace` | [`ff worktree`](../reference/cli/worktree.md), alias `ff workspace` | Manages Git worktrees, each with a recovery log. |
+| `jj squash` | [`ff absorb`](../reference/cli/absorb.md), alias `ff squash` | Defaults to moving open work into HEAD; selects paths, not hunks. |
+| `jj rebase` | [`ff restack`](../reference/cli/restack.md), alias `ff rebase` | Uses the branch's recorded base; `--onto` changes it. |
 
-| jj | fufu |
-| --- | --- |
-| `jj new` | [`ff start`](../reference/cli/switch.md), or `ff new` |
-| `jj bookmark` | [`ff branch`](../reference/cli/branch.md), or `ff bookmark` |
-| `jj workspace` | [`ff worktree`](../reference/cli/worktree.md), or `ff workspace` |
-| `jj squash` | [`ff absorb`](../reference/cli/absorb.md), or `ff squash` |
-| `jj rebase` | [`ff restack`](../reference/cli/restack.md), or `ff rebase` |
+[`ff log`](../reference/cli/log.md), [`ff show`](../reference/cli/show.md), [`ff diff`](../reference/cli/diff.md), [`ff describe`](../reference/cli/describe.md), [`ff edit`](../reference/cli/edit.md), [`ff restore`](../reference/cli/restore.md), [`ff undo`](../reference/cli/undo.md), [`ff evolog`](../reference/cli/evolog.md), and [`ff op`](../reference/cli/op.md) share names with jj. Read their help before translating a command: open-change, operation, and revision arguments differ.
 
-Two of jj's words have no one verb here, because fufu spreads the act over verbs it already has, so typing either is answered rather than run. `ff abandon` points at what drops a change at each stage: `ff restore --all` for the open change, [`ff done`](../reference/cli/done.md) `--abandon` for an editing session or a held rewrite, and [`ff lift`](../reference/cli/lift.md) `--from <rev>` for a commit that has closed. `ff split` points at closing in slices: [`ff commit`](../reference/cli/commit.md) `<paths>` closes part of the open change, and `ff lift --from <rev> <paths>` brings part of a closed commit back to close again.
+`ff abandon` and `ff split` print guidance rather than performing an operation. Discard open work with `ff restore --all`, abandon a session with `ff done --abandon`, or use [`ff lift`](../reference/cli/lift.md) to return committed paths to the open change. [`ff commit <paths>`](../reference/cli/commit.md) records part and leaves the rest open. [Rewriting history](../guides/rewriting-history.md) supplies complete splitting recipes.
 
-`jj git fetch` and `jj git push` are [`ff pull`](../reference/cli/pull.md) and `ff push`. [`ff git`](../reference/cli/git.md) is not their spelling: it is the passthrough, and runs git itself, capture-first.
+[`ff pull`](../reference/cli/pull.md) fetches **and reconciles local branches**, so it is not an exact equivalent of `jj git fetch`. [`ff git fetch`](../reference/cli/git.md) is Git passthrough. Sending with ff push also follows fufu's own [lease and seen-record rules](../concepts/push-boundary.md#push-carries-a-lease).
 
 ## Choosing
 
-Choose jj if you want conflicts as first-class mergeable objects, you are happy to let a new VCS be the authority, and the people and tools around you can live with the projection. It is the more radical design, executed with taste, and fufu's debt to it is total.
-
-Choose fufu if the repository must stay legible to every git tool and teammate at every instant, if you want the option of walking away without an export, or if agents work in your repository and you want their raw git commands captured and undoable rather than fenced off.
+Choose based on the workflow you want: jj offers logical conflicts and work organized around commits and bookmarks; fufu offers current Git branches, per-branch parked work, and capture hooks for shells and agents. Try the [tutorial](../tutorial.md) and check [compatibility gaps](../faq.md) against your repository before adopting either workflow.
 
 ## The name
 
-jj is short for Jujutsu, the martial art of redirecting force instead of opposing it. fufu answers from the same dojo — "fu" is the syllable hacker culture borrowed for tool mastery, doubled. The binary is `ff`: the left hand's mirror of `jj`, a double-tap on the index finger's home key. The lineage is on purpose; so is the inversion.
+Jujutsu supplied both workflow ideas and naming inspiration. `ff` mirrors `jj` on the keyboard; “fu” refers to tool mastery. The [founding design](../internals/design.md) preserves the original account.

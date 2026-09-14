@@ -1,8 +1,8 @@
 # Performance
 
-fufu's claim is not that it is fast. It is that nothing it adds grows: a verb that costs 7 ms against a hundred snapshots costs 7 ms against ten thousand. Snapshots are what fufu puts into a git repository that git does not, so a chain that made [`ff status`](reference/cli/status.md) a little slower every day would be the honest reason not to use it. That is the number this project gates on.
+The tables below measure selected commands as snapshot-chain depth or commit-history depth increases from 100 to 10,000. They are **recorded results for fufu 0.12.0 (`f9bce73`, September 4, 2026)**, not measurements of the current release. Within these fixtures, the displayed fufu times change little as depth grows; that does not establish constant cost for every command or repository shape.
 
-The claim is measured rather than asserted. `make bench` builds fixtures at 100, 1 000 and 10 000, runs every row of `scripts/bench/rows.tsv` through hyperfine, subtracts a measured process-start floor, and fails when a row declared flat grows more than 1.5× per decade of n. A reduced version of the same matrix runs in CI on every push, so the gate does not depend on anyone remembering to run it.
+The existing suite uses hyperfine and a floor-subtracted growth check on fufu rows declared `flat`. Its current default threshold is 1.5× per tenfold increase in the varied count, with noise and below-floor handling in `scripts/bench/report.py`. CI runs a reduced fufu-only matrix at 100 and 1,000 when the Rust workflow runs. This gate checks growth across fixtures; it is not a cross-tool speed gate or an absolute latency budget.
 
 ## What it costs
 
@@ -12,7 +12,7 @@ Measured on Cortex-A76 (aarch64, 4 cores, linux) with hyperfine 1.19.0, against 
 
 ### Snapshot chain depth
 
-Snapshots are what fufu adds to a git repository, so this is the axis that would sink it: n is the number of captures behind the working copy.
+n is the number of captures behind the working copy; the fixture varies that count while keeping the working tree small.
 
 | operation | fufu runs | n = 100 | n = 1 000 | n = 10 000 | per decade |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ At n = 10 000, against git and jj:
 
 ### Commit history depth
 
-n is the number of commits on the branch — the axis git itself is measured on.
+n is the number of commits on the branch; this measures a bounded log query over increasing history depth.
 
 | operation | fufu runs | n = 100 | n = 1 000 | n = 10 000 | per decade |
 |---|---|---|---|---|---|
@@ -52,24 +52,26 @@ At n = 10 000, against git and jj:
 
 ## How to read it
 
-The milliseconds are this machine's and mean nothing on yours. Ratios are what port between machines, and the ratio is what the suite gates on: the `per decade` column is the floor-subtracted growth per 10× of n, so flat is about 1.0 and linear would be about 10.
+The millisecond cells are **raw mean wall-clock times**, including startup. They estimate command latency on the named machine under this run's conditions. The `per decade` column instead compares endpoint means after subtracting separately measured startup floors, normalized to a tenfold increase in n. About 1.0 means little adjusted growth over this range; about 10 would indicate proportional growth. Small differences near the floor are sensitive to noise.
 
-git is faster on a plain read, and that is the shape of the trade rather than a defect. [`ff status`](reference/cli/status.md) reads the operation log and the snapshot chain as well as the working copy, and `git status` reads the tree; the tables say the difference is a small constant that does not open up as a repository ages. Against jj, which snapshots the working copy on every command the way fufu does, the same operations run three to eight times slower on this box.
+At n = 10,000, **fufu's displayed mean is lower than jj's on every row with both measurements**, while Git's mean is lower than fufu's wherever Git has a column. For example, snapshot-depth status is 6.8 ms for fufu, 19.5 ms for jj, and 2.0 ms for Git. The tools perform different work: [`ff status`](reference/cli/status.md) includes capture and fufu state, and the output formats differ. These observations apply to the listed commands and versions, not to all workloads. Neither raw times nor ratios are guaranteed to transfer across machines, storage, or cache conditions.
 
-A capture is not a commit, though it writes one. The `capture` row is fufu's snapshot of the working copy — the thing that happens before every operation and every agent tool call — and on a dirty tree it writes one small commit object beyond the tree: the open commit, the one the close will move the branch to. It is measured against `git add -A && git commit`, which is the closest git has.
+The historical `capture` row runs **bare `ff`**, including its map rendering. Its Git comparison is `git add -A && git commit -m x`, while jj runs `jj status`, which snapshots as part of that command. These are capture-related workloads, not equivalent history updates: a fufu snapshot is an internal operation, while Git's command advances branch history. The current [open-commit model](concepts/changes.md#internal-storage-and-branch-history) arrived after the measured fufu version and should not be used to explain that run's object count.
 
 ## What is not flat, and why
 
-Scanning the working copy is O(files), for fufu exactly as for git: [`ff status`](reference/cli/status.md) on a tree of fifty thousand files costs more than on a tree of five hundred, and nothing in the design pretends otherwise. `scripts/bench/rows.tsv` declares those rows `linear` rather than `flat`, and they are measured for visibility, never gated. The first capture of a repository is the same story — it reads every file once, because it has to.
+Working-copy scanning depends on file count, changed content, and stat-cache validity. The current file-count rows are declared `linear` and reported without the growth gate. History-depth log is also declared `linear`; only the fufu `flat` rows on snapshot-chain depth are growth-gated in the displayed axes.
 
-What is gated is everything that could have been made to scale with the history: reading the log, reading the operation log, restoring a file from an old operation, and taking the snapshot itself.
+The published fixtures use a warmed stat cache. Their snapshot chain has one branch and an unchanged base, so it does not exercise realistic segment transitions or a many-branch map. The chain objects are loose; a mixed loose/packed store can have different lookup costs. The table does not measure cold rehashing, a combined large-file/large-history workload, network latency, hooks, signing, every daily verb, or a current-version regression against a rebuilt baseline.
+
+The benchmark rebuild is planned to separate regression checks, cross-tool comparisons, and an absolute wall-clock budget, with realistic chain segments, loose/packed objects, and cold-cache preparation. Its proposed one-second target for bare ff and ff status on a Pi 5 with one million commits, ten million snapshots, and 100,000 files has **not been verified by these tables**. The existing growth gate remains in place until that rebuild ships.
 
 ## Reproducing it
 
 ```sh
-make bench          # the two gated axes, then the report
+make bench          # default chain/history sweeps, then the growth report
 make bench-report   # re-analyze the last run without measuring again
 make bench-real     # the same commands against a real public repository
 ```
 
-`scripts/bench/rows.tsv` is the declared table: every row names the operation, the axis it varies, whether it is gated, and the command each of the three tools runs. A `-` in a column means that tool has no honest equivalent for that row, not that measuring it was forgotten. `make bench-docs` regenerates the tables above from the last run.
+These commands measure the current checkout and installed comparison tools; they do not recreate the historical binaries automatically. `scripts/bench/rows.tsv` declares commands, fixture axes, preparation, and expectations. A `-` means the suite defines no comparison for that row. `make bench-docs` renders the saved `bench-results/raw.json` through the report's arithmetic and records its tool/host provenance; it performs no timing run. Keep the raw results with any claimed measurement.
