@@ -389,11 +389,52 @@ pub const GROUPS: &[Group] = &[
     },
 ];
 
+/// Select the root help layout without treating option values as commands.
+/// Clap still owns parsing; this only chooses the grouped list in its template.
+pub fn root_is_long(cmd: &clap::Command, argv: &[std::ffi::OsString]) -> bool {
+    let mut args = argv.iter().skip(1);
+    while let Some(arg) = args.next() {
+        let arg = arg.to_string_lossy();
+        if arg == "--help" || arg == "help" {
+            return true;
+        }
+        if arg == "--" || !arg.starts_with('-') {
+            break;
+        }
+        if let Some(long) = arg.strip_prefix("--") {
+            if !long.contains('=')
+                && cmd
+                    .get_arguments()
+                    .any(|a| a.get_long() == Some(long) && a.get_action().takes_values())
+            {
+                args.next();
+            }
+        } else {
+            let mut shorts = arg[1..].chars().peekable();
+            while let Some(short) = shorts.next() {
+                if short == 'h' {
+                    return false;
+                }
+                if cmd
+                    .get_arguments()
+                    .any(|a| a.get_short() == Some(short) && a.get_action().takes_values())
+                {
+                    if shorts.peek().is_none() {
+                        args.next();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// The `help_template` for the root page: clap's own frame, with the grouped
 /// list where its flat `Commands:` section would have been.
 ///
 /// `long` is the `-h`/`--help` spelling, which clap decides for itself and
-/// does not expose to the template — main reads it from argv instead. Short
+/// does not expose to the template — [`root_is_long`] reads argv instead. Short
 /// help shows only the common verbs, and closes with a line naming the long
 /// spelling.
 ///

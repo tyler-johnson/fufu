@@ -339,6 +339,7 @@ The [retention recipe](recovery.md#retention-and-the-earliest-recovery-point) no
 
 When `commit.gpgsign` is enabled, rewritten history commits are signed again, including replays. Otherwise an old signature does not carry over. [Commit signing](../reference/signing.md) owns configuration, signer costs, and the distinction between history commits and unsigned internal objects.
 
+<a id="the-append-only-boundary"></a>
 ## Rewriting pushed work
 
 Prerequisite: the team permits rewriting the branch and the server allows it. Rewrite verbs accept pushed commits; they only change local history. This recipe uses a disposable same-machine origin.

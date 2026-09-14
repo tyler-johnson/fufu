@@ -41,6 +41,8 @@ Pull's recorded local branch and file updates form one [undoable operation](snap
 
 Bare `ff push` sends the current branch. `ff push parser-fix parser-tests` sends only those branches, each to its own remote copy. Bases and children are not included automatically, and there is no `--all` option. No other fufu command pushes as a default side effect.
 
+Current off-branch pushes can replace a named target's open state with the current checkout's tree. Prefer pushing each branch while current; [the named-push recipe](../guides/stacked-changes.md#inspect-local-work-after-a-named-push) shows the effect and capture-based recovery.
+
 | Remote copy | What push does |
 | --- | --- |
 | None yet | Creates it and sets tracking. |
@@ -72,6 +74,7 @@ The new push can move the remote copy back to the local tip because fufu records
 
 A successful rollback makes the remote branch point at the selected local commit. It does not erase commits from other clones or reverse CI runs and webhooks. The remote update is a new action, not an undo of those effects.
 
+<a id="published-history-is-append-only"></a>
 ## Shared-history policy
 
 Local rewrite commands accept already-pushed commits and report them. Sending that rewrite requires a separate push.

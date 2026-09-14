@@ -290,7 +290,7 @@ fn explain_knows_the_new_ids() {
     assert!(conflict.status.success(), "{}", out(&conflict));
     let text = stdout(&conflict);
     assert!(
-        text.contains("the rewrite stops at a commit it cannot replay"),
+        text.contains("a commit could not be replayed over the requested rewrite"),
         "{text}"
     );
 
@@ -298,14 +298,14 @@ fn explain_knows_the_new_ids() {
     assert!(merge.status.success(), "{}", out(&merge));
     let text = stdout(&merge);
     assert!(
-        text.contains("a merge commit sits in the range being replayed"),
+        text.contains("the requested content replay includes a merge commit"),
         "{text}"
     );
 
     for (id, summary) in [
-        ("usage/move-gap", "not one run of commits"),
+        ("usage/move-gap", "not one contiguous run of commits"),
         ("usage/move-into-self", "only source is its target"),
-        ("absorb/into-trunk", "default target sits on trunk"),
+        ("absorb/into-trunk", "implicit target would rewrite a trunk"),
     ] {
         let explained = ff(&fx, &["explain", id]);
         assert!(explained.status.success(), "{}", out(&explained));

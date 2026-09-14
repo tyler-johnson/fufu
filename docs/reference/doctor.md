@@ -20,6 +20,7 @@ A completed report exits **0** with no findings and **1** with findings. JSON co
 
 An `ok` hook row means configuration was found. It does not prove a running shell loaded it, a client activated it, or Codex approved it. Follow the [hook activation steps](hooks/index.md#activate) and the [agent capture-and-recovery check](../agents/setup.md#verify).
 
+<a id="the-one-write-fix"></a>
 ## Repairs: --fix
 
 `--fix` performs these repairs:

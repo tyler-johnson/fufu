@@ -46,7 +46,7 @@ A **held arrival** happens when `ff switch` cannot replay parked work over a bra
 
 Here `ff resolve` lays the parked change into the current working copy with markers. It does not create a resolution-session branch: the result is an open change. Edit the markers, then continue working or use [`ff commit`](../reference/cli/commit.md) when ready to record it. There is no session to finish with `ff done`.
 
-If the branch already has another open change, resolve refuses to overwrite it. Commit that work or switch away to set it aside before retrying. `ff resolve --abandon` drops a still-held arrival and reports the saved parked commit; it does not apply that work.
+If the branch already has another open change, resolve refuses to overwrite it. Commit that work before retrying; switching away only parks it on the same branch, so returning resumes the blocker. `ff resolve --abandon` drops a still-held arrival and reports the saved parked commit; it does not apply that work.
 
 <a id="deferred-requires-loud"></a>
 

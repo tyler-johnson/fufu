@@ -61,4 +61,4 @@ Other sources are integration entry points, usually invoked by installed hooks: 
 
 Client triggers exit 0 even on pipeline errors; failures are silent unless `FF_DEBUG` is set. Successful agent triggers can emit client-protocol replies containing a briefing, advice, or a strict Git-policy denial request. They are not always silent, and `--json` does not replace that protocol with the manual envelope. Unknown sources exit 0 silently.
 
-Capture precedes agent Git-policy evaluation. Strict policy asks the client to deny covered raw Git actions through its protocol, rather than through the trigger's exit code; enforcement depends on the client.
+Capture precedes agent Git-policy evaluation. Only Claude Code emits pre-tool coaching or strict-policy denial replies; enforcement depends on the client. Codex, Cursor, and Gemini capture and tally recognized writes but emit no policy reply, including under strict.

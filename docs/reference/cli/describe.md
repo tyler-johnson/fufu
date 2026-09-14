@@ -32,7 +32,7 @@ Options:
           Rename the current branch instead of editing a message
 
       --no-verify
-          Skip pre-commit and commit-msg hooks
+          Skip commit-msg when rewording a recorded commit
 
       --json
           Emit machine-readable JSON

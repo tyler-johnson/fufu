@@ -179,9 +179,8 @@ fn pages() -> Vec<Page> {
     let mut index = String::from(
         "# CLI reference\n\n\
          Every command, grouped the way `ff --help` groups them. Each page is the same text \
-         `ff help <command>` prints: purpose, usage, examples, options, and details. This \
-         directory is generated from `crates/ff-cli/src/help/` by a test — edit there, \
-         then `make docs-gen`.\n",
+         `ff help <command>` prints: purpose, usage, examples, options, and details.\n\n\
+         <!-- Generated from crates/ff-cli/src/help/ by docsgen.rs; edit the sources, then make docs-gen. -->\n",
     );
     let mut out = Vec::new();
 

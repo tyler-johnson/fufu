@@ -58,10 +58,9 @@ pub fn trailer(lanes: &crate::cli::Lanes, repo: Option<&ff_core::gix::Repository
         crate::autotrim::maybe_trim(repo);
     }
     if lanes.update {
-        // Both halves of the passive lane live in `pending`: the auto-install
-        // always fires, and `notice` decides only whether this invocation is
-        // handed a line to say. A release announces at most once, ever, so
-        // a line that is printed is marked spent in the same breath.
+        // `pending` reads cached availability; `notice` controls whether this
+        // invocation announces it. Mark the printed release in the cache so
+        // later invocations do not repeat it. No installer runs here.
         let notices =
             crate::selfupdate::notify::pending(repo, env!("CARGO_PKG_VERSION"), lanes.notice);
         if !notices.is_empty() {

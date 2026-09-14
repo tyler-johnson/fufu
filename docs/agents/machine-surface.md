@@ -35,6 +35,7 @@ In a repository this prints the changed paths. Outside one, it reports `repo/not
 
 `error` carries `id`, `message`, and `exits` (suggested next commands). Branch on the ID rather than message prose. [`ff explain <id>`](../reference/cli/explain.md) explains a refusal, and the [error reference](../reference/errors.md) lists the catalog. Failures before a report can be produced, such as a missing executable or an early argument-parser error, also need normal process-error handling.
 
+<a id="what-is-promised"></a>
 ### Compatibility in current releases
 
 `ff: 1` identifies the current envelope format; it does not establish cross-release payload or error-ID stability. With that same version, v0.13.0 renamed sync/publish errors, v0.14.0 removed `id_letters`, and v0.15.0 renamed arrival fields and removed operation `route`.
@@ -55,9 +56,11 @@ For error envelopes, `usage/*` maps to 2, `held/*` to 3, `ref/contended` to 4, a
 
 | Command | Held and partial-success behavior |
 | --- | --- |
-| [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md) | Exit 3 for held replays, including predicted holds in dry runs. Successful updates elsewhere stand. |
+| [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md) | Exit 3 for held replays. Pull also exits 3 for predicted holds in its dry run; restack has no dry-run flag. Successful updates elsewhere stand. |
 | [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), [`ff done`](../reference/cli/done.md) | Primary held replay exits 3. A successful primary landing with downstream cascade holds currently exits 0. |
 | [`ff describe`](../reference/cli/describe.md) | Reword can exit 0 with nonempty `reword.cascade.held`. |
+| [`ff fold`](../reference/cli/fold.md) | A primary conflict refuses at 1 without a fold hold; downstream cascade holds exit 3 after the fold lands. |
+| [`ff switch`](../reference/cli/switch.md) | A parked-arrival hold exits 3 after completing the branch switch; resolve handles that arrival in place. |
 | [`ff push`](../reference/cli/push.md) | Existing holds block the affected branches. Holds alone exit 3; any refused send makes the run exit 1, even alongside successful sends or held branches. |
 
 A hold is a requested replay waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere, already held, or containing merges. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).

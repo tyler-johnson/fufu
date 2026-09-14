@@ -16,6 +16,8 @@ ff push --to upstream           # Choose and remember a remote
 
 Names accept unique local branch prefixes. Bases and dependents are not sent automatically; name every branch you want to send. There is no `--all`.
 
+Current off-branch push notes can replace a named target's open state with this checkout's tree. Prefer pushing each branch while current. If already affected, inspect retained pre-push captures before recovering parked edits; see the [stack guide](../../guides/stacked-changes.md).
+
 A branch without a remote copy gets one with tracking configured. An upstream named after another branch, such as feature tracking origin/main, is treated as its base: push creates origin/feature and records origin/main as the base. A previously deleted copy is recreated with a lease requiring that it remain absent.
 
 `--to <remote>` chooses a remote for an unassigned branch and remembers it for later commands. A branch already assigned elsewhere refuses it. With one remote, or a remote named origin, the flag is usually unnecessary.
@@ -39,3 +41,5 @@ To reverse a remote branch update, restore the desired local history and push ag
 ### Report and JSON
 
 The current branch is reported first when selected, then each other named branch and its result. JSON's `branches` array includes each branch's `push`, `pushed`, and `error`. Top-level `push` and `pushed` describe the current branch; they are `NotNamed` and false when it was not selected.
+
+`push/unrecorded` means a remote send succeeded but local bookkeeping failed. The command can stop before its final multi-branch report. A retry that finds nothing to push does not reconstruct a missing push note or published pointer; inspect the remote and operation log, and use `ff explain push/unrecorded` for the repair limits.

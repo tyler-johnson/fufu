@@ -82,7 +82,7 @@ An explicit revision creates the branch there. A branch target also records that
 
 `-d <name>` deletes a local branch and saves its timeline pointer in trash. Its tip and parked work remain pinned by retained operations; [`ff undo`](undo.md) restores the branch and timeline. Deletion does not require a merged check and creates no Git stash.
 
-A plain delete leaves the remote copy, tracking ref, and upstream in place. Add `--shared` to delete them too. The remote deletion uses fufu's seen value as its lease, rather than trusting a newer background fetch. If that copy moved, deletion is refused before the local branch is removed. Undo restores the local branch but cannot recreate the remote copy.
+A plain delete leaves the remote copy, tracking ref, and upstream in place. Add `--shared` to delete them too. A seen/tracking mismatch refuses before local deletion. The remote send then checks the seen value as its lease; a remote race or rejection can leave the local branch deleted while the remote copy survives. Inspect the error and use `ff undo` to recover the local deletion. Undo cannot recreate a successfully deleted remote copy.
 
 ## Pruning deleted remote copies
 

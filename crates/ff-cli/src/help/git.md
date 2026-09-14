@@ -22,10 +22,10 @@ All arguments after `git` pass to Git verbatim, including flags such as `--help`
 - `coach` (default) adds advice naming the fufu command, once per word.
 - `strict` refuses the covered command and names the alternative. It still records the policy tally.
 
-Commands with no covered alternative, such as apply, bisect, and gc, run in every mode. Tag and merge passthroughs also run in every mode. Git commit and rebase are refused under strict policy.
+Commands with no covered alternative, such as apply, bisect, and gc, run in every mode. Git tag and merge also run in every mode. Git commit and rebase are refused under strict policy. Git push is classified by command, so strict also refuses tag pushes even though fufu's push sends branches only.
 
 ### Shell and agent integration
 
 The active shell alias `alias git='ff git'`, installed by `ff hook <shell>`, routes typed Git commands here. Activate that configuration as instructed; editing an rc file alone does not change the current shell.
 
-Agent hooks use the same policy for received raw Git calls. They attempt capture before policy evaluation. Coach supplies context, while strict asks the client to deny the action through its protocol; client enforcement is separate from a passthrough refusal.
+Agent hooks attempt capture before evaluating policy for received raw Git calls. Only Claude Code emits pre-tool coaching or denial replies; its client must enforce the denial. Codex, Cursor, and Gemini capture and tally recognized writes but emit no policy reply, including under strict.

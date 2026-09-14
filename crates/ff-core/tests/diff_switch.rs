@@ -644,7 +644,7 @@ fn dash_m_on_a_continue_is_refused() {
         "-m describes the change a switch opens, and switching to feature opens nothing: it \
          resumes what is there"
     );
-    assert_eq!(err.exits(), &["ff describe -m <msg>"]);
+    assert_eq!(err.exits(), &["ff switch feature", "ff help describe"]);
     assert_eq!(fx.git(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
     assert_eq!(
         ff_core::ops::OpLog::open(&repo).unwrap().tip().unwrap(),

@@ -16,7 +16,7 @@ ff init                         # Enable fufu in an existing checkout
 
 ### Destination and history
 
-A nonempty destination directory is refused. `--depth <n>` limits downloaded history; fufu operations work within that available history. An interrupted, incomplete clone removes its partial destination.
+A nonempty destination directory is refused. `--depth <n>` limits downloaded history; fufu operations work within that available history. On a fetch or checkout failure, the backend attempts to remove a destination verified empty or absent before cloning. Cleanup can fail; inspect remaining files before retrying. Later fufu initialization failures can leave the completed checkout in place.
 
 The clone establishes the operation log's earliest recovery point and the garbage-collection guard. Shell and agent hooks are separate machine setup through `ff hook`.
 

@@ -40,7 +40,7 @@ fufu uses the working copy as the open change. [`ff commit <paths>`](reference/c
 
 ## Can I commit some hunks of a file and leave the rest?
 
-Not with a native fufu command. Use `ff git commit -p` for Git's interactive picker under `coach` or `observe` policy. Do not follow `ff git add -p` with ff commit: that commits working-copy content rather than the staged selection. See [same-file splitting](guides/rewriting-history.md#split-at-the-close) for a complete recipe.
+Not with a native fufu command. Use `ff git commit -p` for Git's interactive picker under `coach` or `observe` policy. Do not follow `ff git add -p` with ff commit: that commits working-copy content rather than the staged selection. See [same-file splitting](guides/rewriting-history.md#paths-and-hunk-limits) for a complete recipe.
 
 ## Why can't `ff undo` take back a push?
 

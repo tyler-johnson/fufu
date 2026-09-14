@@ -49,6 +49,32 @@ fn bare_help_prints_the_root_page() {
 }
 
 #[test]
+fn root_help_keeps_its_shape_after_global_options() {
+    let long = ff(&["--help"]);
+    for args in [
+        vec!["--json", "help"],
+        vec!["--session", "review", "help"],
+        vec!["--session=review", "help"],
+        vec!["-C", ".", "help"],
+        vec!["-C.", "help"],
+    ] {
+        let out = ff(&args);
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        assert_eq!(stdout(&out), stdout(&long), "{args:?} lost long help");
+    }
+    let short = ff(&["-h"]);
+    for args in [
+        vec!["--session", "help", "-h"],
+        vec!["-Chelp", "-h"],
+        vec!["-vh"],
+    ] {
+        let out = ff(&args);
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        assert_eq!(stdout(&out), stdout(&short), "{args:?} expanded short help");
+    }
+}
+
+#[test]
 fn help_command_equals_the_long_flag() {
     for cmd in ["status", "restore", "commit", "config"] {
         let help_out = ff(&["help", cmd]);

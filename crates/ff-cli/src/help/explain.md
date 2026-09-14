@@ -15,3 +15,5 @@ ff explain held/op-revert --json  # Read it as structured fields
 Error IDs such as `held/op-revert` name refusals, not commits, changes, or operations. Copy the ID from the error output. An unknown ID is refused with lookup advice; no ID without `--list` is a usage error. If both are supplied, `--list` takes precedence.
 
 The explanation describes the error and next commands. It does not retry the failed operation or change repository state.
+
+The catalog lookup needs no network. Inside a repository, the CLI can still launch a passive update check and print a cached update notice; `fufu.updateCheck=false` disables those.

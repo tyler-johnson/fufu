@@ -5,7 +5,7 @@ description: Advanced fufu (ff) for recovering files or whole state, undoing or 
 
 # fufu
 
-Use `ff` for version-control writes; reading with Git is fine. The briefing covers everyday commands. Start here with the task you need:
+Use `ff` for version-control writes; reading with Git is fine. Start with your task:
 
 - Lost edits or a bad operation: **Recovery** below.
 - Split uncommitted work: **Committing**. Move content between recorded commits: **Rewriting**.
@@ -79,13 +79,13 @@ Follow the project's commit-message convention.
 - `ff lift` moves HEAD's changes into the open change. `ff lift --from <rev>` selects another source; `--into <rev>` targets a recorded commit instead.
 - `-m` gives the target a message, including a pending description when the target is open.
 - `ff edit <rev>` creates and switches to an editing-session branch at a recorded commit. Edit and test its real files, then `ff done` amends it, replays waiting descendants, and returns. Prior open work parks and resumes on return.
-- `ff done --abandon` removes the session without applying its edits. Captured edits remain in the operation log, not a stash. Opening an edit session is one undo step; landing or abandoning is one more.
+- `ff done --abandon` removes the session without applying its edits. Captured edits remain in the operation log, not a stash. Opening an edit session takes two undo steps: return, then remove it. Landing or abandoning takes one.
 - `ff restack` replays the current branch onto its recorded base. `ff restack <branch>` targets another branch; local files change only if the replay or cascade reaches this worktree.
 - `ff restack --onto <branch>` records a new base and replays onto it; origin/main is accepted. `--no-fetch` skips auto-fetch.
 
 Dependent local branches replay parent before child after a successful rewrite. The primary rewrite and its cascade form one undoable operation. A conflicting primary replay records a hold without landing that rewrite; captures and metadata can still be written. Earlier successful cascade updates stand.
 
-**Inspect cascade reports even on exit 0.** Pull and restack exit 3 for reported holds, including predicted holds in dry runs. Done and absorb/lift exit 3 for a primary hold, but currently exit 0 after a successful landing with downstream holds. Describe also exits 0 with a held reword cascade. Skipped branches are named: checked out elsewhere, already held, or containing merges. Descendants of a held or skipped branch are left alone.
+**Inspect cascade reports even on exit 0.** Pull and restack exit 3 for holds; pull also predicts holds in dry runs. Done and absorb/lift exit 3 for a primary hold, but exit 0 after landing with downstream holds. Describe exits 0 with a held cascade. Fold's primary conflict exits 1 without a hold; downstream holds exit 3. Skips name branches checked out elsewhere, already held, or containing merges. Descendants of held or skipped branches stay put.
 
 ## Held rewrites and conflicts
 

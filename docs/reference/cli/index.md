@@ -1,6 +1,8 @@
 # CLI reference
 
-Every command, grouped the way `ff --help` groups them. Each page is the same text `ff help <command>` prints: purpose, usage, examples, options, and details. This directory is generated from `crates/ff-cli/src/help/` by a test — edit there, then `make docs-gen`.
+Every command, grouped the way `ff --help` groups them. Each page is the same text `ff help <command>` prints: purpose, usage, examples, options, and details.
+
+<!-- Generated from crates/ff-cli/src/help/ by docsgen.rs; edit the sources, then make docs-gen. -->
 
 ## Getting started
 

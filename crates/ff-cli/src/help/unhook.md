@@ -13,6 +13,6 @@ ff hook -l                      # Inspect the remaining setup
 
 ### What is removed
 
-Fufu removes its marked settings and shell entries, managed Claude plugin, and installed skills. Other settings and hand-written integration lines remain and are reported. Old fufu-managed MCP registrations are removed with their hooks; hand-written registrations remain.
+Fufu removes managed JSON commands, marked shell lines, the owned Claude plugin directory, and installed skill directories. JSON commands matching current or retired fufu spellings are managed even when pasted by hand. Unrelated settings and hand-written shell equivalents remain. Old managed MCP registrations are removed; unrelated commands and unmarked Codex TOML entries remain.
 
 Restart the affected client or shell so its active configuration reflects the removal. Removing hooks does not remove repository history; fufu commands can still take snapshots when invoked.

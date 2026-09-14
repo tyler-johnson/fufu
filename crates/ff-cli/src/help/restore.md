@@ -26,4 +26,4 @@ Paths are files or directory prefixes, without globs. Recovery can only use reta
 
 ### Effects and recovery
 
-Restore writes worktree files only. It leaves the index, HEAD, and branch refs in place. If its pre-restore capture fails, it writes no files. `ff undo` takes the restore back; another restore can also recover from that pre-operation snapshot. Use `ff op restore` to restore branch state and the index together with files.
+Restore writes worktree files only. It leaves the index, HEAD, and branch refs in place. If its pre-restore capture fails, it writes no files. For precise recovery, find the pre-restore snapshot with `ff op log` and restore from its ID. `ff undo` groups consecutive captures and can step past the individual file state you want. Use `ff op restore` to restore branch state and the index together with files.

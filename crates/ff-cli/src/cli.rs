@@ -27,7 +27,7 @@ pub const VERSION: &str = concat!(
 
 /// Bare `ff` is the map (jj-style): the local branches as a skeleton —
 /// tips, merges, forks — the answer to "where did I leave that idea?".
-/// Capture is automatic and every verb takes it first, so `-m` is declared
+/// Repository readers normally attempt capture, so bare `-m` is declared
 /// only to stay hidden — typing it is answered in main rather than met with
 /// clap's bare "unexpected argument", the same reason `--ops` is still
 /// declared at log's `-r`.
@@ -156,7 +156,7 @@ pub enum Command {
         /// Retired: the operation log is `ff op log`
         #[arg(long, hide = true, conflicts_with = "commits")]
         ops: bool,
-        /// Verify signatures and show verdict words; one signer run per signed row
+        /// Verify signatures and show verdicts; invokes external verifiers
         #[arg(long, conflicts_with = "commits")]
         signatures: bool,
         /// Files or directories to limit the log to; all of them when omitted
@@ -312,7 +312,7 @@ pub enum Command {
         /// Rename the current branch instead of editing a message
         #[arg(short = 'b', value_name = "branch", conflicts_with = "message")]
         branch: Option<String>,
-        /// Skip pre-commit and commit-msg hooks
+        /// Skip commit-msg when rewording a recorded commit
         #[arg(long)]
         no_verify: bool,
     },
@@ -825,8 +825,8 @@ pub enum Fetch {
 }
 
 /// The ambient lanes: what rides an invocation besides the verb itself —
-/// the pre-command capture, the passive update lane (cache refresh,
-/// auto-install, the one-line notice), the daily auto-trim, and the fetch
+/// the pre-command capture, the passive update lane (cache refresh and
+/// the one-line notice), the daily auto-trim, and the fetch
 /// on `fufu.autoFetch`'s cadence. One table on `Command` decides them all,
 /// so a verb is in it by construction rather than by somebody remembering
 /// to call four functions at the bottom of its `run`.
@@ -834,7 +834,7 @@ pub enum Fetch {
 pub struct Lanes {
     /// Take the pre-command snapshot at the CLI.
     pub capture: bool,
-    /// Refresh the update cache in the background, and let an auto-install fire.
+    /// Refresh the update cache in the background.
     pub update: bool,
     /// Print the "vX.Y.Z available" line on stderr when one is pending.
     pub notice: bool,

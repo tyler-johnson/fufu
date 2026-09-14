@@ -1,7 +1,6 @@
-//! Doctor verifies the net — read-only by design (it must never absorb the
-//! foreign drift it reports), one consented write behind `--fix`. The fetch
-//! that refreshes the remote floor it reports is the lane's, run in
-//! `lanes::preflight` before doctor starts, and not doctor's own.
+//! Doctor checks operation history, configuration, and installed integrations.
+//! CLI preflight attempts capture/reconciliation and can fetch before these
+//! checks; maintenance can run afterward. `--fix` applies supported repairs.
 
 mod extensions;
 mod render;
@@ -64,8 +63,8 @@ impl Row {
 }
 
 pub fn run(ctx: &Ctx, fix: bool) -> Result<()> {
-    // No capture call — doctor observes; capturing would absorb the very drift
-    // the journal check reports.
+    // CLI preflight already attempted capture/reconciliation; the drift row
+    // reports any outside ref changes that remain at check time.
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

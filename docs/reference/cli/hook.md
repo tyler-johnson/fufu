@@ -72,8 +72,8 @@ Follow the printed activation steps: load the shell configuration, or restart an
 
 ## Files installed
 
-Claude Code receives a managed plugin directory. Other clients receive entries merged into their settings; shells receive marked rc-file blocks. Existing hand-written integrations are detected and reported without replacement.
+Claude Code receives a managed plugin directory. Other clients receive entries merged into their settings; shells receive marked rc-file blocks. Recognized hand-written shell equivalents are left alone. JSON commands matching fufu's current or retired spellings are managed even when pasted by hand; unrelated commands survive.
 
-Claude Code and Codex also receive the shipped skill. Claude's `--settings` mode installs settings-based capture instead of the plugin and does not install its skill. An old fufu-managed MCP registration is removed on installation; hand-written registrations remain.
+Claude Code and Codex also receive the shipped skill. Claude's `--settings` mode installs settings-based capture instead of the plugin and does not install its skill. Owned plugin and skill directories are replaced as managed content. Old managed MCP registrations are removed; unrelated commands and unmarked Codex TOML entries remain.
 
 Use [`ff unhook`](unhook.md) to remove managed integrations.
