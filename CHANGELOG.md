@@ -4,10 +4,11 @@
 
 ### Added
 
+- [`ff hook opencode`](docs/reference/hooks/opencode.md): OpenCode, wired by one plugin module fufu writes whole at `<config>/opencode/plugins/fufu.js` with the skill beside it. `tool.execute.before` captures before every tool call; the system-prompt transform sends `SessionStart` on every model call, so the briefing is standing; `shell.env` sets `OPENCODE_SESSION_ID`. A `fufu.js` fufu did not write is reported as hand-written and never touched.
 - [`ff hook qwen`](docs/reference/hooks/qwen.md): Qwen Code, wired through `~/.qwen/settings.json` with the family's five events (`PreToolUse` on `run_shell_command|write_file|replace|edit`, `UserPromptSubmit`, `SessionStart`, `Stop`, `SessionEnd`); the briefing arrives as `hookSpecificOutput.additionalContext`. No skill.
 - Codex's plugin manifest carries a version of `<fufu version>+ff.<8 hex of the hooks file's SHA-256>`, so a rewritten hooks table or a moved binary is a new plugin version to Codex's cache.
 - `ff hook` names `hook/failed` for a client file or plugin directory that could not be written or did not read back, and `hook/malformed` for a client file that is not the JSON object its client reads. Both leave the file untouched.
-- A shell verb under Codex, Qwen Code, or Cursor stamps that client's session (`CODEX_SESSION_ID`, `QWEN_CODE_SESSION_ID`, `CURSOR_CONVERSATION_ID`) the way it already did under Claude Code.
+- A shell verb under Codex, Qwen Code, OpenCode, or Cursor stamps that client's session (`CODEX_SESSION_ID`, `QWEN_CODE_SESSION_ID`, `OPENCODE_SESSION_ID`, `CURSOR_CONVERSATION_ID`) the way it already did under Claude Code.
 
 ### Changed
 

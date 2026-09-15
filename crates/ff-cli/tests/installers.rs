@@ -22,7 +22,8 @@ fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("FF_CODEX", "/nonexistent");
+        .env("FF_CODEX", "/nonexistent")
+        .env("FF_OPENCODE", "/nonexistent");
     // env_clear() strips vars Windows processes cannot live without.
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
@@ -632,7 +633,7 @@ fn the_report_is_a_json_envelope() {
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(value["cmd"], "hook");
     let rows = value["data"]["integrations"].as_array().unwrap();
-    assert_eq!(rows.len(), 8, "one row per slug: {rows:?}");
+    assert_eq!(rows.len(), 9, "one row per slug: {rows:?}");
     assert_eq!(rows[0]["slug"], "claude");
     assert_eq!(rows[0]["wiring"]["state"], "not-wired");
 }
@@ -1223,6 +1224,284 @@ fn the_migration_strips_the_old_codex_wiring() {
     assert!(!again.contains("moved off"), "{again:?}");
     assert!(!again.contains("removed ~/.codex"), "{again:?}");
     assert!(!again.contains("MCP server"), "{again:?}");
+}
+
+// ---- the opencode plugin ---------------------------------------------------
+
+/// The plugin module OpenCode loads from its config directory: one file
+/// fufu owns whole, the binary's path baked in as a string literal, the
+/// three hooks, and the skill beside it; idempotent, stale when a byte
+/// differs under fufu's header, refreshed by `-u`, refused when the file
+/// is someone else's, and removed whole with nothing else in either
+/// directory touched.
+#[test]
+fn the_opencode_plugin_round_trips() {
+    let home = tempfile::TempDir::new().unwrap();
+    let xdg = home.path().join("xdg");
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+    ];
+    let config = xdg.join("opencode");
+    let plugin = config.join("plugins").join("fufu.js");
+    let skill = config.join("skills").join("fufu").join("SKILL.md");
+
+    let out = ff_env(home.path(), &["hook", "opencode"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let said = text(&out);
+    assert!(said.contains("plugin written to"), "{said:?}");
+    assert!(said.contains("skill written to"), "{said:?}");
+    assert!(said.contains("the briefing is standing"), "{said:?}");
+    assert!(said.contains("restart OpenCode to load it"), "{said:?}");
+
+    let body = std::fs::read_to_string(&plugin).expect("the plugin file");
+    assert!(
+        body.starts_with("// Written by `ff hook opencode`."),
+        "{body}"
+    );
+    let exe = serde_json::Value::String(env!("CARGO_BIN_EXE_ff").to_string()).to_string();
+    assert!(
+        body.contains(&format!("const FF = {exe};")),
+        "the binary's path as a JS string literal: {body}"
+    );
+    for needle in [
+        "trigger opencode",
+        "OPENCODE_SESSION_ID",
+        "\"shell.env\"",
+        "\"experimental.chat.system.transform\"",
+        "\"tool.execute.before\"",
+        "export const FufuPlugin",
+    ] {
+        assert!(body.contains(needle), "{needle} in {body}");
+    }
+    assert!(!body.contains("__FF__"), "{body}");
+    assert!(
+        std::fs::read_to_string(&skill)
+            .expect("the skill lands beside it")
+            .starts_with("---\nname: fufu\n")
+    );
+
+    // Idempotent, and reported as already wired.
+    let again = text(&ff_env(home.path(), &["hook", "opencode"], &env));
+    assert!(again.contains("already wired in"), "{again:?}");
+    assert!(!again.contains("restart OpenCode"), "{again:?}");
+    let value = envelope(&ff_env(home.path(), &["--json", "hook", "opencode"], &env));
+    assert_eq!(value["data"]["changed"], serde_json::json!([]));
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("opencode")).unwrap();
+    assert!(row.contains("wired (plugin)"), "{row:?}");
+    assert!(row.contains(", skill"), "{row:?}");
+    assert!(
+        listing.contains("the briefing is standing"),
+        "the standing briefing is on the row: {listing:?}"
+    );
+
+    // -u over a current plugin moves nothing.
+    let said = text(&ff_env(home.path(), &["hook", "-u"], &env));
+    assert!(said.contains("already wired in"), "{said:?}");
+
+    // A byte changed under fufu's header is stale, and -u restores it.
+    std::fs::write(&plugin, format!("{body}\n// one more byte\n")).unwrap();
+    let rows =
+        envelope(&ff_env(home.path(), &["--json", "hook", "-l"], &env))["data"]["integrations"]
+            .clone();
+    assert_eq!(rows[3]["slug"], "opencode");
+    assert_eq!(rows[3]["wiring"]["state"], "wired", "{rows}");
+    assert_eq!(rows[3]["stale"], true, "{rows}");
+    let said = text(&ff_env(home.path(), &["hook", "-u"], &env));
+    assert!(said.contains("plugin written to"), "{said:?}");
+    assert_eq!(std::fs::read_to_string(&plugin).unwrap(), body);
+
+    // A fufu.js without the header is someone else's: reported, the
+    // install refused, and unhook leaves it.
+    let foreign = "export const Mine = async () => ({});\n";
+    std::fs::write(&plugin, foreign).unwrap();
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("opencode")).unwrap();
+    assert!(row.contains("hand-written"), "{row:?}");
+    let out = ff_env(home.path(), &["--json", "hook", "opencode"], &env);
+    assert_eq!(out.status.code(), Some(1));
+    let value = envelope(&out);
+    assert_eq!(value["error"]["id"], "hook/failed");
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not fufu's file"),
+        "{value}"
+    );
+    assert_eq!(std::fs::read_to_string(&plugin).unwrap(), foreign);
+    let said = text(&ff_env(home.path(), &["unhook", "opencode"], &env));
+    assert!(said.contains("is not fufu's — left alone"), "{said:?}");
+    assert_eq!(
+        std::fs::read_to_string(&plugin).unwrap(),
+        foreign,
+        "unhook leaves what fufu did not write"
+    );
+    // The -u pass skips it: not wired, nothing to rewrite.
+    let said = text(&ff_env(home.path(), &["hook", "-u"], &env));
+    assert!(!said.contains("opencode"), "{said:?}");
+    assert_eq!(std::fs::read_to_string(&plugin).unwrap(), foreign);
+    assert!(
+        !skill.exists(),
+        "the skill is fufu's whatever sits under the plugin's name, and unhook took it"
+    );
+
+    // Back to fufu's — the plugin file restored, the skill rewritten by
+    // the install — with a neighbor in each directory: unhook takes
+    // exactly the two paths.
+    std::fs::write(&plugin, &body).unwrap();
+    let said = text(&ff_env(home.path(), &["hook", "opencode"], &env));
+    assert!(said.contains("plugin written to"), "{said:?}");
+    assert!(skill.is_file());
+    let other = config.join("plugins").join("other.js");
+    std::fs::write(&other, "export const Other = async () => ({});\n").unwrap();
+    let mine = config.join("skills").join("mine").join("SKILL.md");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::write(&mine, "---\nname: mine\n---\n").unwrap();
+    let said = text(&ff_env(home.path(), &["unhook", "opencode"], &env));
+    assert!(
+        said.contains(&format!("removed {}", plugin.display())),
+        "{said:?}"
+    );
+    assert!(
+        said.contains(&format!(
+            "removed {}",
+            config.join("skills").join("fufu").display()
+        )),
+        "{said:?}"
+    );
+    assert!(!plugin.exists());
+    assert!(!config.join("skills").join("fufu").exists());
+    assert!(other.is_file(), "a neighbor plugin stays");
+    assert!(mine.is_file(), "a neighbor skill stays");
+    let said = text(&ff_env(home.path(), &["unhook", "opencode"], &env));
+    assert!(said.contains("no fufu plugin installed"), "{said:?}");
+}
+
+/// OpenCode is present when its config directory is, or when the binary
+/// is — `FF_OPENCODE` names it, the seam the harness closes with a path
+/// that is not a file.
+#[test]
+fn opencode_is_detected_by_its_directory_or_its_binary() {
+    let home = tempfile::TempDir::new().unwrap();
+    let xdg = home.path().join("xdg");
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+    ];
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("opencode")).unwrap();
+    assert!(row.contains("not on this machine"), "{row:?}");
+
+    let binary = home.path().join("bin").join("opencode");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(&binary, "#!/bin/sh\n").unwrap();
+    let rows = envelope(&ff_env(
+        home.path(),
+        &["--json", "hook", "-l"],
+        &[
+            ("HOME", home.path().to_str().unwrap()),
+            ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+            ("FF_OPENCODE", binary.to_str().unwrap()),
+        ],
+    ))["data"]["integrations"]
+        .clone();
+    assert_eq!(rows[3]["slug"], "opencode");
+    assert_eq!(rows[3]["presence"]["state"], "present", "{rows}");
+    assert_eq!(
+        rows[3]["presence"]["evidence"],
+        binary.to_str().unwrap(),
+        "{rows}"
+    );
+
+    std::fs::create_dir_all(xdg.join("opencode")).unwrap();
+    let rows =
+        envelope(&ff_env(home.path(), &["--json", "hook", "-l"], &env))["data"]["integrations"]
+            .clone();
+    assert_eq!(rows[3]["presence"]["state"], "present", "{rows}");
+    assert_eq!(
+        rows[3]["presence"]["evidence"],
+        xdg.join("opencode").to_str().unwrap(),
+        "the directory is the evidence when it is there: {rows}"
+    );
+}
+
+/// Doctor reads the OpenCode plugin the way it reads the others: an ok
+/// row naming the file, a fixable warning when a byte drifted under
+/// fufu's header, and an info row for a file that is not fufu's.
+#[test]
+fn doctor_reads_the_opencode_plugin() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let home = tempfile::TempDir::new().unwrap();
+    let xdg = home.path().join("xdg");
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", xdg.to_str().unwrap()),
+        ("XDG_CACHE_HOME", home.path().to_str().unwrap()),
+    ];
+    let plugin = xdg.join("opencode").join("plugins").join("fufu.js");
+    std::fs::create_dir_all(xdg.join("opencode")).unwrap();
+    let row = || -> serde_json::Value {
+        let out = ff_env(&fx.path(), &["doctor", "--json"], &env);
+        envelope(&out)["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == "opencode")
+            .cloned()
+            .unwrap_or_else(|| panic!("an opencode row"))
+    };
+    let found = row();
+    assert_eq!(found["level"], "info", "{found}");
+    assert!(
+        found["detail"]
+            .as_str()
+            .unwrap()
+            .contains("ff hook opencode"),
+        "{found}"
+    );
+    assert!(
+        ff_env(home.path(), &["hook", "opencode"], &env)
+            .status
+            .success()
+    );
+    let found = row();
+    assert_eq!(found["level"], "ok", "{found}");
+    assert!(
+        found["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("plugin wired in {}", plugin.display())),
+        "{found}"
+    );
+
+    let body = std::fs::read_to_string(&plugin).unwrap();
+    std::fs::write(&plugin, format!("{body}// drift\n")).unwrap();
+    let found = row();
+    assert_eq!(found["level"], "warn", "{found}");
+    assert!(
+        found["detail"]
+            .as_str()
+            .unwrap()
+            .contains("`ff hook opencode` repairs"),
+        "{found}"
+    );
+
+    std::fs::write(&plugin, "export const Mine = async () => ({});\n").unwrap();
+    let found = row();
+    assert_eq!(found["level"], "info", "{found}");
+    assert_eq!(
+        found["detail"],
+        format!("{} is not fufu's — left alone", plugin.display()),
+        "{found}"
+    );
 }
 
 // ---- gemini and qwen -------------------------------------------------------

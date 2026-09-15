@@ -12,8 +12,9 @@ Run the matching [`ff hook`](../reference/cli/hook.md) command in your terminal:
 | [Codex](../reference/hooks/codex.md) | `ff hook codex` | **Run `/hooks` inside Codex and review and accept the hook.** New or changed hooks are skipped until approved by hash. The installer runs `codex plugin add fufu@fufu` when `codex` is on `PATH`; otherwise run it yourself. |
 | [Cursor agent](../reference/hooks/cursor.md) | `ff hook cursor` | Start a new agent session to check the loaded configuration. Cloud agents lack the session-start briefing; use project instructions below. |
 | [Qwen Code](../reference/hooks/qwen.md) | `ff hook qwen` | Start a new session to check the loaded configuration. |
+| [OpenCode](../reference/hooks/opencode.md) | `ff hook opencode` | **Restart OpenCode** to load the plugin. |
 
-Claude Code and Codex installations include the shipped skill. Cursor and Qwen Code installations provide hooks but do not install a skill. The linked client references describe managed files, removal, and migration. Integrations are installed per machine; repeat setup on each machine where the agent runs.
+Claude Code, Codex, and OpenCode installations include the shipped skill. Cursor and Qwen Code installations provide hooks but do not install a skill. The linked client references describe managed files, removal, and migration. Integrations are installed per machine; repeat setup on each machine where the agent runs.
 
 `ff hook --all` installs integrations for detected clients and shells without asking. Follow each reported activation step. It does not add instructions to your project's `CLAUDE.md` or `AGENTS.md`. Shell hooks need their own activation; see the [shell references](../reference/hooks/index.md).
 
@@ -60,6 +61,7 @@ Snapshots and briefings serve different purposes. Tool events attempt a snapshot
 | Claude Code | `Bash`, `Edit`, `Write`, `NotebookEdit` | `UserPromptSubmit` briefs once; `SessionStart` rebriefs on startup, resume, clear, compact, or fork. `Stop`, `SubagentStop`, `SubagentStart`, and `CwdChanged` widen capture. Pre-tool replies can brief subagents and newly entered repositories. |
 | Codex | `Bash`, `apply_patch` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs on startup, resume, clear, or compact. `Stop` and `SessionEnd` widen capture. No subagent events; pre-tool replies are silent. |
 | Cursor agent | `Shell`, `Write`, `Delete` | `sessionStart` captures and briefs. It does not fire for cloud agents; pre-tool capture still runs when received, but supplies no briefing. |
+| OpenCode | every tool | The system-prompt transform sends `SessionStart` on every model call, so the briefing is standing. Pre-tool output is discarded by OpenCode; no reply reaches the model. |
 | Qwen Code | `run_shell_command`, `write_file`, `replace`, `edit` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs. `Stop` and `SessionEnd` widen capture. Pre-tool replies are silent. |
 
 Claude Code's, Codex's, and Qwen Code's stop events can capture the final edit of a turn. Cursor has no turn-end capture event, so a final edit there waits for the next received event or repository command. Every hook capture is best-effort: unchanged content adds no capture, and contention or failure can skip one. A skipped capture is not proof that another writer saved those same bytes.
@@ -82,7 +84,7 @@ Set a repository override with [`ff config`](../reference/cli/config.md):
 ff config gitPolicy strict
 ```
 
-**Only the current Claude Code adapter emits pre-tool coaching and denial replies.** Codex, Cursor, and Qwen Code adapters capture and record the policy tally but emit no tool reply, including under `strict`. The Claude Code denial also depends on the client enforcing its response. Use `ff git` for passthrough policy enforcement in any client.
+**Only the current Claude Code adapter emits pre-tool coaching and denial replies.** Codex, Qwen Code, OpenCode, and Cursor adapters capture and record the policy tally but emit no tool reply, including under `strict`. The Claude Code denial also depends on the client enforcing its response. Use `ff git` for passthrough policy enforcement in any client.
 
 A strict passthrough refusal exits 2 before capture or Git execution, while still recording the policy tally. An allowed passthrough attempts capture and runs Git even if that capture fails with a warning. Agent hooks attempt capture before evaluating policy. Unmapped Git commands and ambiguous shell strings are allowed; [Using fufu alongside Git](../concepts/two-regimes.md#which-program-ran) describes aliases and the policy's limits.
 

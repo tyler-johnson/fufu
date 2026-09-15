@@ -84,6 +84,7 @@ nav:
           - Claude Code: reference/hooks/claude.md
           - Codex: reference/hooks/codex.md
           - Qwen Code: reference/hooks/qwen.md
+          - OpenCode: reference/hooks/opencode.md
           - Cursor: reference/hooks/cursor.md
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md

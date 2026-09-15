@@ -67,9 +67,12 @@ fn client_row(status: &crate::integ::Status, fix: bool) -> Option<Row> {
             );
             fixed_or_fixable(status, detail, &repair, fix)
         }
-        Wiring::HandWritten { .. } => {
-            Row::info(slug, with_note("hand-written — not fufu-managed".into()))
-        }
+        // A client's file under fufu's name that fufu did not write: news,
+        // never a finding, and never rewritten.
+        Wiring::HandWritten { at } => Row::info(
+            slug,
+            with_note(format!("{} is not fufu's — left alone", at.display())),
+        ),
         Wiring::Wired { mechanism, at } => {
             let detail = format!("{} wired in {}", mechanism.word(), at.display());
             if status.stale {

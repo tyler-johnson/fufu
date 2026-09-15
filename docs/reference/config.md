@@ -110,7 +110,7 @@ Output colors: muted uses desaturated 256-color shades; vivid uses saturated sha
 
 `fufu.gitPolicy` — choice of `observe`, `coach`, `strict`; default `coach`
 
-Policy for covered Git writes through ff git and Claude Code hooks: observe stays quiet; coach suggests a fufu command; strict refuses. Codex, Qwen Code, and Cursor hooks tally writes but send no policy reply. Commands are never silently translated.
+Policy for covered Git writes through ff git and Claude Code hooks: observe stays quiet; coach suggests a fufu command; strict refuses. Codex, Qwen Code, OpenCode, and Cursor hooks tally writes but send no policy reply. Commands are never silently translated.
 
 ### futuresDepth
 

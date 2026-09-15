@@ -115,14 +115,14 @@ For ambiguous selection, choose a remote with [`ff push --to <remote>`](cli/push
 
 ### Raw git
 
-`raw git` summarizes recognized Git writes and policy decisions counted in this worktree. It is absent when nothing has been counted. These are observations and requested denials, not proof a client prevented a command: Codex, Cursor, and Qwen Code do not emit policy replies. See [Git policy](../agents/setup.md#pick-a-git-policy).
+`raw git` summarizes recognized Git writes and policy decisions counted in this worktree. It is absent when nothing has been counted. These are observations and requested denials, not proof a client prevented a command: Codex, Qwen Code, OpenCode, and Cursor do not emit policy replies. See [Git policy](../agents/setup.md#pick-a-git-policy).
 
 <a id="the-wiring"></a>
 ### Installed hooks and skills
 
 These checks use the same installed-file status as [`ff hook -l`](cli/hook.md). The [hook reference](hooks/index.md) lists files and activation commands.
 
-- **Client names** (`claude`, `codex`, `qwen`, `cursor`): installed managed configuration is `ok`; partial or stale managed configuration is a repairable warning. A detected but unconfigured client is optional information. A client neither detected nor installed has no row.
+- **Client names** (`claude`, `codex`, `qwen`, `opencode`, `cursor`): installed managed configuration is `ok`; partial or stale managed configuration is a repairable warning. A detected but unconfigured client is optional information. A client neither detected nor installed has no row.
 - **Shell names:** retired managed shell spellings produce a repairable warning under the shell's name.
 - **`alias` and `ambient`:** alias/function and prompt hook are reported separately, across all supported shell files. One installed shell can satisfy each row. Hand-written matches are heuristic information; check the actual shell.
 - **`skill`:** shipped skills are aggregated across clients. Absence is optional information; stale content is a repairable warning named for the affected client.

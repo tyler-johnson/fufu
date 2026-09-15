@@ -19,7 +19,9 @@ fn doctor_env(dir: &Path, args: &[&str], home: &Path) -> Output {
         .env("XDG_CACHE_HOME", home.join(".cache"))
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
-        .env("GIT_CONFIG_NOSYSTEM", "1");
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("FF_CODEX", "/nonexistent")
+        .env("FF_OPENCODE", "/nonexistent");
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
         if let Some(value) = std::env::var_os(key) {

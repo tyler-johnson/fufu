@@ -537,6 +537,42 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
     }
 }
 
+/// OpenCode's plugin spells two payloads. The system-prompt transform
+/// sends `SessionStart` on every model call, which briefs unconditionally
+/// and captures; `tool.execute.before` sends `PreToolUse` with the tool's
+/// name and its arguments, which lands `bash(<cmd>)` and says nothing —
+/// OpenCode discards the output, so no marker is stamped for it.
+#[test]
+fn the_opencode_boundary_and_activity_payloads() {
+    let fx = repo();
+    let body = payload("SessionStart", "ses_abc", &fx.path(), "");
+    let out = ff_stdin(&fx.path(), &["trigger", "opencode"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.starts_with("fufu (`ff`) takes snapshots"),
+        "plain text for the system prompt: {text:?}"
+    );
+    assert_eq!(chain_subject(&fx), "opencode[ses_abc]: event SessionStart");
+
+    // Every model call is a boundary: the second one briefs again.
+    dirty(&fx, "again\n");
+    let out = ff_stdin(&fx.path(), &["trigger", "opencode"], &body);
+    assert!(!out.stdout.is_empty(), "the briefing is standing");
+
+    dirty(&fx, "tool\n");
+    let body = payload(
+        "PreToolUse",
+        "ses_abc",
+        &fx.path(),
+        r#""tool_name":"bash","tool_input":{"command":"cargo test","description":"run"}"#,
+    );
+    let out = ff_stdin(&fx.path(), &["trigger", "opencode"], &body);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "nothing on a tool");
+    assert_eq!(chain_subject(&fx), "opencode[ses_abc]: bash(cargo test)");
+}
+
 /// The four capture-only events. Nothing is injected on any of them —
 /// `reply_envelope` has no channel for those kinds and the reply is empty
 /// anyway — and each one lands the snapshot that is the whole reason it is

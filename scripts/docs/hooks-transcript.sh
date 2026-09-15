@@ -27,7 +27,7 @@ export GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
 export GIT_CONFIG_KEY_1=fufu.autoFetch GIT_CONFIG_VALUE_1=false
 export GIT_CONFIG_KEY_2=fufu.autoTrim GIT_CONFIG_VALUE_2=false
 unset ZDOTDIR XDG_CONFIG_HOME
-export FF_CODEX=/nonexistent
+export FF_CODEX=/nonexistent FF_OPENCODE=/nonexistent
 # `ff hook claude` peeks at a non-terminal stdin for a legacy hook payload;
 # a closed stdin is the hermetic answer.
 exec < /dev/null
@@ -36,7 +36,7 @@ SCENE=$(mktemp -d)
 trap 'rm -rf "$SCENE"' EXIT
 
 export HOME="$SCENE/home"
-mkdir -p "$HOME/.config/fish" "$HOME/.config/powershell" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.qwen"
+mkdir -p "$HOME/.config/fish" "$HOME/.config/powershell" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.qwen" "$HOME/.config/opencode"
 : > "$HOME/.bashrc"
 : > "$HOME/.zshrc"
 : > "$HOME/.config/fish/config.fish"
@@ -121,6 +121,14 @@ cat_file "$HOME/.agents/plugins/marketplace.json"
 show "$FF" unhook codex
 list_files "$HOME/.agents"
 cat_file "$HOME/.agents/plugins/marketplace.json"
+
+# --- opencode: one plugin module, and the skill beside it ---
+mark opencode
+show "$FF" hook opencode
+list_files "$HOME/.config/opencode"
+cat_file "$HOME/.config/opencode/plugins/fufu.js"
+show "$FF" unhook opencode
+list_files "$HOME/.config/opencode"
 
 # --- cursor, qwen: entries merged into a settings file ---
 mark cursor
