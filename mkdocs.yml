@@ -83,8 +83,8 @@ nav:
           - PowerShell: reference/hooks/powershell.md
           - Claude Code: reference/hooks/claude.md
           - Codex: reference/hooks/codex.md
+          - Qwen Code: reference/hooks/qwen.md
           - Cursor: reference/hooks/cursor.md
-          - Gemini CLI: reference/hooks/gemini.md
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md
       - Doctor: reference/doctor.md

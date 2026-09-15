@@ -59,7 +59,7 @@ pub fn resolve(
     if let Some(raw) = flag {
         return Ok(Some(parse(raw)?));
     }
-    Ok(ambient("FF_SESSION", env).or_else(|| ambient(crate::integ::claude::SESSION_VAR, client)))
+    Ok(ambient("FF_SESSION", env).or_else(|| ambient("the client's session variable", client)))
 }
 
 /// An ambient source: the environment rather than this command line, so an

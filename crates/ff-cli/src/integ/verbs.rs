@@ -132,15 +132,7 @@ fn targets(
         }
         return slugs
             .iter()
-            .map(|slug| {
-                super::by_slug(slug).ok_or_else(|| {
-                    Error::coded(
-                        "usage/unknown-slug",
-                        format!("unknown slug {slug:?} (known: {})", super::slugs()),
-                        vec![format!("ff {verb} -l")],
-                    )
-                })
-            })
+            .map(|slug| super::by_slug(slug).ok_or_else(|| unknown_slug(slug, verb)))
             .collect();
     }
 
@@ -172,6 +164,16 @@ fn targets(
         println!("{}", nothing_hooked(&detected, verb));
         Ok(Vec::new())
     }
+}
+
+/// The refusal a name that is not a slug earns — a typo, or a retired
+/// source, whose spelling is answered by the trigger and never the hook.
+pub(super) fn unknown_slug(slug: &str, verb: &str) -> Error {
+    Error::coded(
+        "usage/unknown-slug",
+        format!("unknown slug {slug:?} (known: {})", super::slugs()),
+        vec![format!("ff {verb} -l")],
+    )
 }
 
 /// Declining prints the explicit form, so the slugs are teachable rather

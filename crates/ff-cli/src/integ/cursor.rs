@@ -169,7 +169,7 @@ impl AgentProtocol for Cursor {
         }))
     }
 
-    /// Cursor takes injected context as a JSON field, the way Gemini does,
+    /// Cursor takes injected context as a JSON field, the way Qwen does,
     /// under its own name — and documents no channel on a tool, so nothing
     /// is said there.
     fn reply_envelope(&self, reply: &Reply) -> Option<String> {

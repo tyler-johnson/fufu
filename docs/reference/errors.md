@@ -76,6 +76,8 @@ The table lists all 127 catalog entries with their structured-error exit codes. 
 | `held/unresolved` | 3 | the resolution still has markers or produces another replay conflict |
 | `held/unsupported` | 3 | the current open change prevents this hold from being resolved |
 | `hook/declined` | 1 | a commit-time Git hook exited unsuccessfully |
+| `hook/failed` | 1 | a client's hook file or plugin directory could not be written, or did not read back |
+| `hook/malformed` | 1 | a client's config file is not the JSON object its client reads |
 | `identity/missing` | 1 | the commit author name or email is not configured |
 | `init/bare` | 1 | ff init does not create bare repositories |
 | `init/failed` | 1 | the repository could not be created at that path |

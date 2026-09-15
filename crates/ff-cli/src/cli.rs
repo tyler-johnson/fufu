@@ -504,7 +504,7 @@ pub enum Command {
     /// Install shell and agent integrations on this machine
     #[command(long_about = help::term(help::HOOK), after_long_help = help::term_examples(help::HOOK_EXAMPLES))]
     Hook {
-        /// Slugs to hook: claude, codex, cursor, gemini, bash, zsh, fish, powershell
+        /// Slugs to hook: claude, codex, qwen, cursor, bash, zsh, fish, powershell
         #[arg(value_name = "slug")]
         slugs: Vec<String>,
         /// Everything detected, without asking

@@ -1,11 +1,11 @@
-//! The payload shape three of the four clients share, and the tool-label
-//! rendering all four do.
+//! The payload shape most of the clients share, and the tool-label
+//! rendering all of them do.
 //!
 //! Claude Code and Codex are field-for-field compatible — Codex even
-//! aliases `CLAUDE_PLUGIN_ROOT` — so they parse through one struct. Gemini
-//! CLI names the same fields and differs only in its event and tool
-//! vocabulary, which the neutral `EventKind` already absorbs. Cursor is the
-//! one that needs a struct of its own.
+//! aliases `CLAUDE_PLUGIN_ROOT` — so they parse through one struct. Qwen
+//! Code names the same fields and differs only in its tool vocabulary,
+//! which the neutral `EventKind` already absorbs. Cursor is the one that
+//! needs a struct of its own.
 //!
 //! Labels are derived from what the tool input *holds* rather than from the
 //! tool's name, because the names are the part that differs per vendor and
@@ -44,7 +44,7 @@ pub struct ToolInput {
     pub command: String,
     pub file_path: String,
     pub notebook_path: String,
-    /// Gemini's `replace` and Cursor's file tools spell it this way.
+    /// Qwen's `replace` and Cursor's file tools spell it this way.
     pub path: String,
 }
 

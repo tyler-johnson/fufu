@@ -2,15 +2,16 @@
 # The source of truth for every console and file block in
 # docs/reference/hooks/*.md: builds a throwaway home with an empty rc file
 # per shell and an empty config directory per agent client, then runs
-# `ff hook <slug>` and `ff unhook <slug>` for each of the eight slugs and
+# `ff hook <slug>` and `ff unhook <slug>` for each slug and
 # prints what each one said and what the files held afterward. When a
 # slug's output or wiring changes, run this and paste the new blocks rather
 # than hand-editing them. The `-- slug --` marker lines separate slugs for
 # pasting; they are not console blocks.
 #
-# The temp home prints as `~`, and the claude plugin's baked binary path
-# (whatever binary ran `ff hook`) prints as /usr/local/bin/ff, so the blocks
-# read the same on every machine.
+# The temp home prints as `~`, and a plugin's baked binary path (whatever
+# binary ran `ff hook`) prints as /usr/local/bin/ff, so the blocks read the
+# same on every machine. Every client binary seam points at nothing, so a
+# client on this machine's PATH is never spawned.
 #
 # FF names the binary under test; default is `ff` on PATH.
 set -euo pipefail
@@ -26,6 +27,7 @@ export GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
 export GIT_CONFIG_KEY_1=fufu.autoFetch GIT_CONFIG_VALUE_1=false
 export GIT_CONFIG_KEY_2=fufu.autoTrim GIT_CONFIG_VALUE_2=false
 unset ZDOTDIR XDG_CONFIG_HOME
+export FF_CODEX=/nonexistent
 # `ff hook claude` peeks at a non-terminal stdin for a legacy hook payload;
 # a closed stdin is the hermetic answer.
 exec < /dev/null
@@ -34,7 +36,7 @@ SCENE=$(mktemp -d)
 trap 'rm -rf "$SCENE"' EXIT
 
 export HOME="$SCENE/home"
-mkdir -p "$HOME/.config/fish" "$HOME/.config/powershell" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.gemini"
+mkdir -p "$HOME/.config/fish" "$HOME/.config/powershell" "$HOME/.claude" "$HOME/.codex" "$HOME/.cursor" "$HOME/.qwen"
 : > "$HOME/.bashrc"
 : > "$HOME/.zshrc"
 : > "$HOME/.config/fish/config.fish"
@@ -110,23 +112,25 @@ cat_file "$HOME/.claude/skills/fufu/hooks/hooks.json"
 show "$FF" unhook claude
 list_files "$HOME/.claude"
 
-# --- codex, cursor, gemini: entries merged into a settings file ---
+# --- codex: a plugin directory, and an entry in the personal marketplace ---
 mark codex
 show "$FF" hook codex
-cat_file "$HOME/.codex/hooks.json"
-list_files "$HOME/.codex"
+list_files "$HOME/.agents"
+cat_file "$HOME/.agents/plugins/fufu/hooks/hooks.json"
+cat_file "$HOME/.agents/plugins/marketplace.json"
 show "$FF" unhook codex
-cat_file "$HOME/.codex/hooks.json"
-list_files "$HOME/.codex"
+list_files "$HOME/.agents"
+cat_file "$HOME/.agents/plugins/marketplace.json"
 
+# --- cursor, qwen: entries merged into a settings file ---
 mark cursor
 show "$FF" hook cursor
 cat_file "$HOME/.cursor/hooks.json"
 show "$FF" unhook cursor
 cat_file "$HOME/.cursor/hooks.json"
 
-mark gemini
-show "$FF" hook gemini
-cat_file "$HOME/.gemini/settings.json"
-show "$FF" unhook gemini
-cat_file "$HOME/.gemini/settings.json"
+mark qwen
+show "$FF" hook qwen
+cat_file "$HOME/.qwen/settings.json"
+show "$FF" unhook qwen
+cat_file "$HOME/.qwen/settings.json"

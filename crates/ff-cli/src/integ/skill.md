@@ -122,7 +122,7 @@ Only fufu writes `refs/fufu/*`; never hand-edit them. Extensions read state and 
 
 `fufu.gitPolicy` has observe (record only), coach (default, suggest equivalents), and strict (refuse mapped writes). Set it with `ff config gitPolicy <tier>`. `ff git <args…>` attempts capture before permitted Git commands; a strict refusal exits 2 before capture or execution, but records the policy tally. Capture failure on an allowed passthrough warns and Git still runs.
 
-Active agent hooks attempt capture before policy evaluation. Only the current Claude Code adapter emits pre-tool coaching or denial; the client must enforce the denial. Codex, Cursor, and Gemini adapters record the tally but emit no tool reply. Unmapped commands and ambiguous shell strings remain allowed. Hooks must be active; Claude Code needs a restart after installation, and Codex requires /hooks approval of new or changed hooks.
+Active agent hooks attempt capture before policy evaluation. Only the current Claude Code adapter emits pre-tool coaching or denial; the client must enforce the denial. Codex, Qwen Code, and Cursor adapters record the tally but emit no tool reply. Unmapped commands and ambiguous shell strings remain allowed. Hooks must be active; Claude Code needs a restart after installation, and Codex requires /hooks approval of new or changed hooks.
 
 ## JSON output and scripting
 
@@ -132,7 +132,7 @@ Git passthrough uses Git's streams/status; update prints instructions or install
 
 - Exit 1 means failure or a negative check; 2 is usage; 3 is held/blocked; 4 is ref/contended. Bound contention retries, inspect partial results, and do not retry holds blindly. Cascade exit-0 exceptions are above.
 - Set FF_NONINTERACTIVE=1 and supply messages/answers through flags. Built-in prompts and editors are disabled with nonterminal stdin; Git, extensions, hooks, and external tools keep their own interaction rules. Piped output and JSON do not page.
-- `ff op log` polls retained records. `ff watch` streams them in the foreground; `--all` follows all worktrees. Watch's --session filters events; the global --session on other commands tags newly recorded operations. Filter op log with its session() expression, not that flag. FF_SESSION is the environment tag, followed by CLAUDE_CODE_SESSION_ID as fallback; a valid hook payload session takes precedence for that capture.
+- `ff op log` polls retained records. `ff watch` streams them in the foreground; `--all` follows all worktrees. Watch's --session filters events; the global --session on other commands tags newly recorded operations. Filter op log with its session() expression, not that flag. FF_SESSION is the environment tag, followed by the client's own session variable as fallback; a valid hook payload session takes precedence for that capture.
 - Operations are write-ahead records, not proof that the described mutation finished. A watch chain rewrite emits rewritten and exits 1 in single-worktree mode; --all re-anchors that chain and continues. Reconnect or refresh affected anchors.
 - `ff explain <id>` explains refusals; `ff explain --list` lists them. `ff config` reports settings. `ff doctor` exits 1 on findings; capture/reconciliation, fetch, and maintenance can run. `--fix` repairs supported gc, branch-config, hook, and skill findings.
 - Unknown verbs run ff-<name> from PATH when available. Extensions inherit the environment with FF_REPO, FF_CONTRACT, and FF_SESSION supplied by fufu. They own their arguments, output, and exit codes.

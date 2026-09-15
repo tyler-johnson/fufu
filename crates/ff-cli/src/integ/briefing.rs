@@ -1,7 +1,7 @@
 //! The once-per-session briefing, and the guards that keep it true.
 //!
 //! One text feeds every client. What differs per vendor is only how it is
-//! delivered — plain stdout for Claude and Codex, a JSON field for Gemini
+//! delivered — plain stdout for Claude and Codex, a JSON field for Qwen
 //! and Cursor — which is why the envelope is the adapter's job and this is
 //! not.
 //!

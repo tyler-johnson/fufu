@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- [`ff hook qwen`](docs/reference/hooks/qwen.md): Qwen Code, wired through `~/.qwen/settings.json` with the family's five events (`PreToolUse` on `run_shell_command|write_file|replace|edit`, `UserPromptSubmit`, `SessionStart`, `Stop`, `SessionEnd`); the briefing arrives as `hookSpecificOutput.additionalContext`. No skill.
+- Codex's plugin manifest carries a version of `<fufu version>+ff.<8 hex of the hooks file's SHA-256>`, so a rewritten hooks table or a moved binary is a new plugin version to Codex's cache.
+- `ff hook` names `hook/failed` for a client file or plugin directory that could not be written or did not read back, and `hook/malformed` for a client file that is not the JSON object its client reads. Both leave the file untouched.
+- A shell verb under Codex, Qwen Code, or Cursor stamps that client's session (`CODEX_SESSION_ID`, `QWEN_CODE_SESSION_ID`, `CURSOR_CONVERSATION_ID`) the way it already did under Claude Code.
+
+### Changed
+
+- [`ff hook codex`](docs/reference/hooks/codex.md) writes a plugin at `~/.agents/plugins/fufu/` — the legacy `.codex-plugin/plugin.json` manifest, `hooks/hooks.json`, and the skill — and merges one entry into `~/.agents/plugins/marketplace.json`, keeping the file's own name and other entries. It runs `codex plugin add fufu@<marketplace name>` when `codex` is on `PATH` and prints the command otherwise. Codex gains `SessionStart`, `Stop`, and `SessionEnd`. Once the plugin verifies, the install strips what an earlier fufu wrote under `~/.codex/`: its `hooks.json` entries, `skills/fufu/`, and the marked `config.toml` block, each best-effort. The old settings entries no longer read as wired.
+- `ff unhook codex` removes the plugin directory and the marketplace entry, and no longer opens `~/.codex/config.toml`.
+- `ff hook -l --json` reports an unreadable client file as `{"state":"unavailable","complaint":…}` and a hand-written shell line as `{"state":"hand-written","at":…}`.
+
+### Removed
+
+- `ff hook gemini` and `ff unhook gemini`: Gemini CLI's adapter is gone, as its hook names diverged from the family; `~/.gemini/settings.json` is never touched. `ff trigger gemini` still captures and briefs under the source `gemini` for entries an earlier fufu wrote there.
+
 ### Fixed
 
 - [`ff hook claude`](docs/reference/cli/hook.md) on Windows wrote the binary's path unquoted, and Git Bash — which Claude Code runs hook commands through — collapsed the backslashes so every wired event exited 127 while `ff hook -l` still said wired. The path is always quoted now; ff hook claude or `ff hook -u` rewrites an existing install.

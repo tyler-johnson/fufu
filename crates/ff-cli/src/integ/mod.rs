@@ -3,26 +3,29 @@
 //!
 //! Two namespaces, deliberately not the same one.
 //!
-//! **Slugs** are what `ff hook` and `ff unhook` take — `claude`, `codex`,
-//! `cursor`, `gemini`, `bash`, `zsh`, `fish`, `powershell`. They are flat and permanent,
-//! because they end up written inside config files fufu does not own. These
-//! two verbs are for humans: an unknown slug is a real error, a failure is
-//! loud, and `--json` emits a report envelope.
+//! **Slugs** are what `ff hook` and `ff unhook` take — the clients,
+//! `claude`, `codex`, `qwen`, `opencode`, `copilot`, `cursor`, and the
+//! shells, `bash`, `zsh`, `fish`, `powershell`. They are flat and
+//! permanent, because they end up written inside config files fufu does
+//! not own. These two verbs are for humans: an unknown slug is a real
+//! error, a failure is loud, and `--json` emits a report envelope.
 //!
 //! **Sources** are what `ff trigger` takes — an event source, which is
 //! finer-grained than a thing you integrate with. Every shell slug
 //! installs rc lines calling one `ff trigger shell`; `manual` is a source
-//! and not a slug, because there is nothing to install. `ff trigger` is
-//! machine surface with one absolute contract: it always exits 0, it says
-//! nothing about a failure unless `FF_DEBUG=1`, and it never vetoes on its
-//! own judgment — a veto is `fufu.gitPolicy strict` and nothing else, and
-//! it arrives as JSON the client is free to ignore rather than as an exit
-//! code.
+//! and not a slug, because there is nothing to install; and a source once
+//! written is answered forever — `retired.rs` keeps `gemini`, the
+//! spelling of an adapter that went, as a source and never a slug. `ff
+//! trigger` is machine surface with one absolute contract: it always
+//! exits 0, it says nothing about a failure unless `FF_DEBUG=1`, and it
+//! never vetoes on its own judgment — a veto is `fufu.gitPolicy strict`
+//! and nothing else, and it arrives as JSON the client is free to ignore
+//! rather than as an exit code.
 //!
 //! Nothing can collide across the two namespaces, which is what makes it
 //! safe for them to be different.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ff_core::{Error, Result};
 use serde::Serialize;
@@ -34,11 +37,12 @@ pub mod claude;
 pub mod codex;
 pub mod cursor;
 pub mod event;
-pub mod gemini;
 pub mod manual;
 pub mod mcp;
 pub mod payload;
 pub mod plugin;
+pub mod qwen;
+pub mod retired;
 pub mod runtime;
 pub mod settings;
 pub mod shell;
@@ -336,7 +340,7 @@ pub trait AgentProtocol: Sync {
     fn parse(&self, stdin: &[u8], forced: Option<EventKind>) -> Result<Option<AgentEvent>>;
 
     /// One reply, wrapped however this client accepts it on this event.
-    /// Claude Code and Codex read plain stdout on a context kind; Gemini
+    /// Claude Code and Codex read plain stdout on a context kind; Qwen
     /// and Cursor need JSON; only Claude Code has a documented channel on
     /// `BeforeTool`.
     ///
@@ -362,8 +366,8 @@ pub trait AgentProtocol: Sync {
 
 static CLAUDE: claude::Claude = claude::Claude;
 static CODEX: codex::Codex = codex::Codex;
+static QWEN: qwen::Qwen = qwen::Qwen;
 static CURSOR: cursor::Cursor = cursor::Cursor;
-static GEMINI: gemini::Gemini = gemini::Gemini;
 static BASH: shell::Shell = shell::Shell { slug: "bash" };
 static ZSH: shell::Shell = shell::Shell { slug: "zsh" };
 static FISH: shell::Shell = shell::Shell { slug: "fish" };
@@ -375,8 +379,8 @@ pub fn all() -> [&'static dyn Integration; 8] {
     [
         &CLAUDE,
         &CODEX,
+        &QWEN,
         &CURSOR,
-        &GEMINI,
         &BASH,
         &ZSH,
         &FISH,
@@ -386,6 +390,16 @@ pub fn all() -> [&'static dyn Integration; 8] {
 
 pub fn by_slug(slug: &str) -> Option<&'static dyn Integration> {
     all().into_iter().find(|i| i.slug() == slug)
+}
+
+/// The integration a trigger source names: the first whose `source`
+/// matches, which for the shells is bash; else a retired source, since a
+/// spelling once written into a config file is answered forever.
+pub fn by_source(source: &str) -> Option<&'static dyn Integration> {
+    all()
+        .into_iter()
+        .find(|i| i.source() == source)
+        .or_else(|| retired::by_source(source))
 }
 
 /// Every slug's name, for the error a wrong one earns.
@@ -426,15 +440,76 @@ pub fn resolve_trigger(name: Option<&str>) -> Option<Source> {
     if name == manual::SOURCE {
         return Some(Source::Manual);
     }
-    if let Some(integration) = all().into_iter().find(|i| i.source() == name) {
+    if let Some(integration) = by_source(name) {
         return Some(Source::Registered(integration, None));
     }
     // `<vendor>-<event>`: split on the first `-`, require a known vendor,
     // and treat the tail as the event hint. A known vendor with a tail
     // nothing recognizes is still that vendor — the payload decides.
     let (vendor, event) = name.split_once('-')?;
-    let integration = all().into_iter().find(|i| i.source() == vendor)?;
+    let integration = by_source(vendor)?;
     Some(Source::Registered(integration, EventKind::from_hint(event)))
+}
+
+// ---- the client's session ----------------------------------------------------
+
+/// What each client sets in the environment of the processes it starts:
+/// the session that launched them, and the source that session's hook
+/// captures under. `/clear` hands the hook a new id and leaves such a
+/// process, and its variable, as they were. Read by `Ctx` for the session
+/// trailer a shell verb under an agent carries.
+pub const SESSION_VARS: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_SESSION_ID", "claude"),
+    ("CODEX_SESSION_ID", "codex"),
+    ("QWEN_CODE_SESSION_ID", "qwen"),
+    ("CURSOR_CONVERSATION_ID", "cursor"),
+];
+
+/// The client this process runs under, and its session: the first of
+/// [`SESSION_VARS`] that is set and not empty.
+pub fn client_session() -> Option<(&'static str, String)> {
+    SESSION_VARS.into_iter().find_map(|(var, source)| {
+        std::env::var_os(var)
+            .filter(|v| !v.is_empty())
+            .map(|v| (source, v.to_string_lossy().into_owned()))
+    })
+}
+
+// ---- a client's binary -------------------------------------------------------
+
+/// The client's own binary, for the adapters that spawn it or detect it
+/// by it: `var` when set, the test seam — a path that does not exist
+/// means no client — else the first of `names` found on `PATH`.
+pub fn client_binary(var: &str, names: &[&str]) -> Option<PathBuf> {
+    if let Some(named) = std::env::var_os(var).filter(|v| !v.is_empty()) {
+        let named = PathBuf::from(named);
+        return named.is_file().then_some(named);
+    }
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths).find_map(|dir| {
+        names
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
+// ---- the two failures ------------------------------------------------------
+
+/// An IO failure on a client's file or directory, with the path and the
+/// cause. One raise site for every adapter, so the id is spelled once.
+pub(super) fn failed(path: &Path, why: impl std::fmt::Display) -> Error {
+    Error::coded("hook/failed", format!("{}: {why}", path.display()), vec![])
+}
+
+/// A client file that is not the JSON object its client reads. fufu
+/// leaves it untouched; the message names the file and the shape.
+pub(super) fn malformed(path: &Path, why: impl std::fmt::Display) -> Error {
+    Error::coded(
+        "hook/malformed",
+        format!("{}: {why}; file untouched", path.display()),
+        vec![],
+    )
 }
 
 // ---- HOME ------------------------------------------------------------------
@@ -514,6 +589,43 @@ mod tests {
         ));
         // And the shell slugs are not trigger names.
         assert!(resolve_trigger(Some("bash")).is_none());
+    }
+
+    /// A retired source answers the trigger and never the hook: the
+    /// spelling is stored somewhere fufu may never rewrite.
+    #[test]
+    fn a_retired_source_is_a_source_and_not_a_slug() {
+        for retired in retired::all() {
+            let name = retired.slug();
+            assert!(by_source(name).is_some(), "{name} answers the trigger");
+            assert!(by_slug(name).is_none(), "{name} is not a slug");
+            assert!(matches!(
+                resolve_trigger(Some(name)),
+                Some(Source::Registered(..))
+            ));
+            let Some(Source::Registered(integration, forced)) =
+                resolve_trigger(Some(&format!("{name}-sessionstart")))
+            else {
+                panic!("{name}-sessionstart resolves through the retired source");
+            };
+            assert_eq!(integration.source(), name);
+            assert_eq!(forced, Some(EventKind::SessionStart));
+        }
+        assert_eq!(all().len(), 8);
+    }
+
+    /// The source a client's session variable resolves to is a word `ff
+    /// hook` wires it under — a slug, or a retired source, since a client
+    /// whose adapter went keeps its word on the events it wrote — so the
+    /// two lists cannot drift.
+    #[test]
+    fn every_session_variable_names_a_slug_or_a_retired_source() {
+        for (variable, source) in SESSION_VARS {
+            assert!(
+                by_slug(source).is_some() || retired::by_source(source).is_some(),
+                "{variable} names `{source}`, which is neither a slug nor a retired source"
+            );
+        }
     }
 
     #[test]

@@ -58,4 +58,4 @@ Commands with no covered alternative, such as apply, bisect, and gc, run in ever
 
 The active shell alias `alias git='ff git'`, installed by [`ff hook <shell>`](hook.md), routes typed Git commands here. Activate that configuration as instructed; editing an rc file alone does not change the current shell.
 
-Agent hooks attempt capture before evaluating policy for received raw Git calls. Only Claude Code emits pre-tool coaching or denial replies; its client must enforce the denial. Codex, Cursor, and Gemini capture and tally recognized writes but emit no policy reply, including under strict.
+Agent hooks attempt capture before evaluating policy for received raw Git calls. Only Claude Code emits pre-tool coaching or denial replies; its client must enforce the denial. Codex, Qwen Code, and Cursor capture and tally recognized writes but emit no policy reply, including under strict.

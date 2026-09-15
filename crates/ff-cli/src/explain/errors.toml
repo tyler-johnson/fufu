@@ -176,6 +176,18 @@ detail = "Wait for the other writer and retry, with a bounded retry count in scr
 exits = []
 
 [[entry]]
+id = "hook/failed"
+summary = "a client's hook file or plugin directory could not be written, or did not read back"
+detail = "Read the named path and the operating-system diagnostic. ff hook writes a plugin directory or settings entries and then reads them back the way the client does; a write that fails or a plugin that does not verify leaves any older wiring in place, so capture through that client is whatever it was before. Fix permissions or the path, then rerun ff hook <slug>. ff hook -l shows the current wiring."
+exits = ["ff hook -l", "ff help hook"]
+
+[[entry]]
+id = "hook/malformed"
+summary = "a client's config file is not the JSON object its client reads"
+detail = "The named file is not valid JSON, or its top level or one of the keys ff hook merges into is not the shape the client documents. The file is untouched: fufu never rewrites a file it cannot read into something the client cannot read either. Repair the file by hand or restore it from the client, then rerun ff hook <slug>. For Codex the file may be the personal marketplace at ~/.agents/plugins/marketplace.json, which the plugin install merges an entry into."
+exits = ["ff hook -l", "ff help hook"]
+
+[[entry]]
 id = "hook/declined"
 summary = "a commit-time Git hook exited unsuccessfully"
 detail = "Read the named hook's output, fix its reported problem, and rerun the same command with its original targets, paths, and message. Hooks may have edited working files even though the commit did not land. Fufu restores a temporary hook index when the operation does not land. --no-verify skips pre-commit and commit-msg if you choose to bypass them; it does not skip prepare-commit-msg, which must be fixed. Post-commit is notification-only and cannot cause this refusal. Hook execution depends on the command and whether it commits open content or authors a message."
@@ -382,7 +394,7 @@ exits = ["ff help"]
 [[entry]]
 id = "usage/unknown-slug"
 summary = "the hook integration name is unknown or could not be inferred"
-detail = "Choose a name from ff hook -l: claude, codex, cursor, gemini, bash, zsh, fish, or powershell. Pass it directly to ff hook or ff unhook. If SHELL does not identify a supported shell, name that shell explicitly. Installation still needs client activation: restart or reload shell configuration, and complete any client hook approval. An unknown client-trigger name is handled quietly instead of using this interactive refusal."
+detail = "Choose a name from ff hook -l: claude, codex, qwen, cursor, bash, zsh, fish, or powershell. Pass it directly to ff hook or ff unhook. If SHELL does not identify a supported shell, name that shell explicitly. Installation still needs client activation: restart or reload shell configuration, and complete any client hook approval. gemini is a retired source: ff trigger gemini still captures from a settings file an earlier fufu wrote, but ff hook and ff unhook no longer touch ~/.gemini. An unknown client-trigger name is handled quietly instead of using this interactive refusal."
 exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]

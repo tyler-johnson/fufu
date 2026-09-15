@@ -1,10 +1,11 @@
 //! Installer behavior for `ff hook` and `ff unhook`: rc-file editing, the
-//! settings merge for the three clients that take one, and the Claude
-//! plugin directory that replaces it.
+//! settings merge for the clients that take one, and the plugin
+//! directories fufu owns for the rest.
 //!
 //! Every path here is env-redirected (HOME, ZDOTDIR, XDG_CONFIG_HOME,
 //! SHELL, and FF_DOCUMENTS_DIR for PowerShell's profile on Windows) so the
-//! suite never touches a real config file.
+//! suite never touches a real config file, and every client binary seam
+//! points at nothing, so a client on the developer's PATH never runs.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -20,7 +21,8 @@ fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
-        .env("GIT_CONFIG_NOSYSTEM", "1");
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("FF_CODEX", "/nonexistent");
     // env_clear() strips vars Windows processes cannot live without.
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
@@ -41,6 +43,19 @@ fn text(out: &Output) -> String {
 fn json_at(path: &Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
+
+fn envelope(out: &Output) -> serde_json::Value {
+    serde_json::from_slice(&out.stdout).expect("an envelope")
+}
+
+/// Codex's table, in the order it is written; Qwen names the same five.
+const FAMILY_EVENTS: [&str; 5] = [
+    "PreToolUse",
+    "UserPromptSubmit",
+    "SessionStart",
+    "Stop",
+    "SessionEnd",
+];
 
 // ---- the shells ------------------------------------------------------------
 
@@ -624,7 +639,9 @@ fn the_report_is_a_json_envelope() {
 
 // ---- the settings clients --------------------------------------------------
 
-/// One config file per vendor, each in the shape that vendor documents.
+/// One file per vendor, each in the shape that vendor documents: a plugin
+/// hooks file for Codex, nested settings entries for Qwen, and Cursor's
+/// flat file with its schema version.
 #[test]
 fn each_client_is_wired_in_its_own_schema() {
     let home = tempfile::TempDir::new().unwrap();
@@ -635,27 +652,39 @@ fn each_client_is_wired_in_its_own_schema() {
             .status
             .success()
     );
-    let v = json_at(&home.path().join(".codex/hooks.json"));
-    assert_eq!(v["hooks"]["PreToolUse"][0]["matcher"], "Bash|apply_patch");
-    assert_eq!(
-        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-        "ff trigger codex"
+    let v = json_at(
+        &home
+            .path()
+            .join(".agents")
+            .join("plugins")
+            .join("fufu")
+            .join("hooks")
+            .join("hooks.json"),
     );
+    assert_eq!(v["hooks"]["PreToolUse"][0]["matcher"], "Bash|apply_patch");
+    let command = v["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap();
+    assert!(command.ends_with("\" trigger codex"), "{command:?}");
     assert_eq!(v["hooks"]["PreToolUse"][0]["hooks"][0]["type"], "command");
+    assert!(
+        !home.path().join(".codex").join("hooks.json").exists(),
+        "nothing is written to the old settings file"
+    );
 
     assert!(
-        ff_env(home.path(), &["hook", "gemini"], &env)
+        ff_env(home.path(), &["hook", "qwen"], &env)
             .status
             .success()
     );
-    let v = json_at(&home.path().join(".gemini/settings.json"));
+    let v = json_at(&home.path().join(".qwen").join("settings.json"));
     assert_eq!(
-        v["hooks"]["BeforeTool"][0]["matcher"],
-        "run_shell_command|write_file|replace"
+        v["hooks"]["PreToolUse"][0]["matcher"],
+        "run_shell_command|write_file|replace|edit"
     );
     assert_eq!(
-        v["hooks"]["BeforeTool"][0]["hooks"][0]["command"],
-        "ff trigger gemini"
+        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+        "ff trigger qwen"
     );
     assert!(v["hooks"]["SessionStart"][0].get("matcher").is_none());
 
@@ -692,7 +721,7 @@ fn the_codex_trust_step_is_reported() {
 fn install_preserves_foreign_content() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    let settings = home.path().join(".codex/hooks.json");
+    let settings = home.path().join(".qwen").join("settings.json");
     std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
     let foreign = serde_json::json!({
         "model": "opus",
@@ -709,7 +738,7 @@ fn install_preserves_foreign_content() {
     std::fs::write(&settings, serde_json::to_string_pretty(&foreign).unwrap()).unwrap();
 
     assert!(
-        ff_env(home.path(), &["hook", "codex"], &env)
+        ff_env(home.path(), &["hook", "qwen"], &env)
             .status
             .success()
     );
@@ -725,13 +754,15 @@ fn install_preserves_foreign_content() {
         "notify-send done"
     );
     assert_eq!(
-        v["hooks"]["PreToolUse"][1]["hooks"][0]["command"], "ff trigger codex",
+        v["hooks"]["PreToolUse"][1]["hooks"][0]["command"], "ff trigger qwen",
         "our entry appended after foreign ones"
     );
+    // A foreign `Stop` entry and ours share the event.
+    assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 2, "{v}");
 
     // Uninstall removes only ours.
     assert!(
-        ff_env(home.path(), &["unhook", "codex"], &env)
+        ff_env(home.path(), &["unhook", "qwen"], &env)
             .status
             .success()
     );
@@ -741,6 +772,7 @@ fn install_preserves_foreign_content() {
         v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
         "my-linter"
     );
+    assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
     assert_eq!(
         v["hooks"]["Stop"][0]["hooks"][0]["command"],
         "notify-send done"
@@ -756,7 +788,7 @@ fn install_preserves_foreign_content() {
 fn install_refuses_malformed_files_untouched() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    let settings = home.path().join(".codex/hooks.json");
+    let settings = home.path().join(".qwen").join("settings.json");
     std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
 
     for bad in [
@@ -766,8 +798,9 @@ fn install_refuses_malformed_files_untouched() {
         r#"{ "hooks": { "PreToolUse": "not an array" } }"#,
     ] {
         std::fs::write(&settings, bad).unwrap();
-        let out = ff_env(home.path(), &["hook", "codex"], &env);
+        let out = ff_env(home.path(), &["--json", "hook", "qwen"], &env);
         assert_eq!(out.status.code(), Some(1), "must refuse: {bad}");
+        assert_eq!(envelope(&out)["error"]["id"], "hook/malformed", "{bad}");
         assert_eq!(
             std::fs::read_to_string(&settings).unwrap(),
             bad,
@@ -792,18 +825,18 @@ fn install_refuses_malformed_files_untouched() {
         String::from_utf8_lossy(&out.stderr)
     );
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    let codex = value["data"]["integrations"]
+    let qwen = value["data"]["integrations"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|row| row["slug"] == "codex")
-        .expect("a codex row");
-    assert_eq!(codex["wiring"]["state"], "unavailable");
+        .find(|row| row["slug"] == "qwen")
+        .expect("a qwen row");
+    assert_eq!(qwen["wiring"]["state"], "unavailable");
     assert!(
-        codex["wiring"]["complaint"]
+        qwen["wiring"]["complaint"]
             .as_str()
             .is_some_and(|c| c.contains("not valid JSON")),
-        "{codex}"
+        "{qwen}"
     );
 }
 
@@ -897,40 +930,384 @@ fn the_settings_hatch_wires_capture_and_no_skill() {
     assert!(!skill.exists(), "the plugin went, and the skill with it");
 }
 
-/// Codex's two mechanisms are independent: entries merged into a settings
-/// file it owns, and a skill directory fufu owns outright.
+// ---- the codex plugin ------------------------------------------------------
+
+/// The plugin fufu owns under `~/.agents/plugins/fufu/`: the legacy
+/// manifest with a hash-suffixed version, the five events with the tool
+/// matcher on `PreToolUse`, the skill inside, and one entry merged into
+/// the personal marketplace beside it. Idempotent, stale when an extra
+/// event is missing, refreshed by `-u`, and removed whole.
 #[test]
-fn the_codex_skill_is_its_own_directory() {
+fn the_codex_plugin_round_trips() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
-    let hooks = home.path().join(".codex/hooks.json");
-    let skill = home.path().join(".codex/skills/fufu/SKILL.md");
+    let plugin = home.path().join(".agents").join("plugins").join("fufu");
+    let marketplace = home
+        .path()
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
 
+    let out = ff_env(home.path(), &["hook", "codex"], &env);
     assert!(
-        ff_env(home.path(), &["hook", "codex"], &env)
-            .status
-            .success()
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    assert!(skill.exists(), "the skill lands beside the wiring");
+    let said = text(&out);
+    assert!(said.contains("plugin written to"), "{said:?}");
+    assert!(said.contains("marketplace entry written to"), "{said:?}");
     assert!(
-        std::fs::read_to_string(&skill)
+        said.contains("Codex is not on PATH — run: codex plugin add fufu@fufu"),
+        "{said:?}"
+    );
+    assert!(said.contains("Codex trusts a hook by its hash"), "{said:?}");
+
+    // The legacy manifest, and no root one: Codex loads a plugin's hooks
+    // from the legacy manifest alone, and a root `$schema` manifest beside
+    // it would win and drop them.
+    let manifest = json_at(&plugin.join(".codex-plugin").join("plugin.json"));
+    assert!(!plugin.join("plugin.json").exists(), "no root manifest");
+    assert!(manifest.get("$schema").is_none(), "{manifest}");
+    assert_eq!(manifest["name"], "fufu");
+    assert_eq!(manifest.as_object().unwrap().len(), 4, "{manifest}");
+    let version = manifest["version"].as_str().unwrap();
+    let (_, suffix) = version.split_once("+ff.").expect("a hash suffix");
+    assert_eq!(suffix.len(), 8, "{version}");
+    assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()), "{version}");
+
+    let hooks_path = plugin.join("hooks").join("hooks.json");
+    let hooks = json_at(&hooks_path);
+    assert_eq!(
+        hooks["hooks"]
+            .as_object()
             .unwrap()
-            .starts_with("---\nname: fufu\n")
+            .keys()
+            .collect::<Vec<_>>(),
+        FAMILY_EVENTS.to_vec(),
+        "the five events, in order: {hooks}"
+    );
+    for event in FAMILY_EVENTS {
+        let entry = &hooks["hooks"][event][0];
+        let command = entry["hooks"][0]["command"].as_str().unwrap();
+        assert!(
+            command.ends_with("\" trigger codex"),
+            "{event}: {command:?}"
+        );
+        assert!(command.starts_with('"'), "quoted: {command:?}");
+    }
+    assert_eq!(
+        hooks["hooks"]["PreToolUse"][0]["matcher"],
+        "Bash|apply_patch"
+    );
+    assert!(hooks["hooks"]["Stop"][0].get("matcher").is_none());
+    assert!(!plugin.join("mcp.json").exists(), "no server rides along");
+    let skill = plugin.join("skills").join("fufu").join("SKILL.md");
+    let on_disk = std::fs::read_to_string(&skill).expect("the skill lands with the plugin");
+    assert!(
+        on_disk.starts_with("---\nname: fufu\n"),
+        "frontmatter first"
     );
 
-    // Removing the wiring removes the skill, because unhook takes back
-    // exactly what hook added — both halves of it.
+    let market = json_at(&marketplace);
+    assert_eq!(market["name"], "fufu");
+    let plugins = market["plugins"].as_array().unwrap();
+    assert_eq!(plugins.len(), 1);
+    assert_eq!(plugins[0]["name"], "fufu");
+    assert_eq!(plugins[0]["source"]["source"], "local");
+    assert_eq!(plugins[0]["source"]["path"], "./.agents/plugins/fufu");
+    assert_eq!(plugins[0]["policy"]["installation"], "INSTALLED_BY_DEFAULT");
+    assert_eq!(plugins[0]["policy"]["authentication"], "ON_INSTALL");
+
+    // Idempotent, and reported as already wired.
+    let again = text(&ff_env(home.path(), &["hook", "codex"], &env));
+    assert!(again.contains("already wired in"), "{again:?}");
+    assert!(!again.contains("marketplace entry written"), "{again:?}");
+    let value = envelope(&ff_env(home.path(), &["--json", "hook", "codex"], &env));
+    assert_eq!(value["data"]["changed"], serde_json::json!([]));
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("codex")).unwrap();
+    assert!(row.contains("wired (plugin)"), "{row:?}");
+    assert!(row.contains(", skill"), "{row:?}");
+    assert!(
+        listing.contains("Codex trusts a hook by its hash"),
+        "the trust step is on the row: {listing:?}"
+    );
+
+    // -u over a current plugin moves nothing.
+    let said = text(&ff_env(home.path(), &["hook", "-u"], &env));
+    assert!(said.contains("already wired in"), "{said:?}");
+
+    // An extra event missing reads as stale, and -u restores the bytes.
+    let current = std::fs::read_to_string(&hooks_path).unwrap();
+    let mut fewer: serde_json::Value = serde_json::from_str(&current).unwrap();
+    fewer["hooks"].as_object_mut().unwrap().remove("SessionEnd");
+    std::fs::write(&hooks_path, serde_json::to_string_pretty(&fewer).unwrap()).unwrap();
+    let value = envelope(&ff_env(home.path(), &["--json", "hook", "-l"], &env));
+    let row = value["data"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["slug"] == "codex")
+        .unwrap();
+    assert_eq!(row["wiring"]["state"], "wired", "{row}");
+    assert_eq!(row["stale"], true, "{row}");
+    let said = text(&ff_env(home.path(), &["hook", "-u"], &env));
+    assert!(said.contains("plugin written to"), "{said:?}");
+    assert_eq!(std::fs::read_to_string(&hooks_path).unwrap(), current);
+
+    let said = text(&ff_env(home.path(), &["unhook", "codex"], &env));
+    assert!(said.contains("removed the fufu entry from"), "{said:?}");
+    assert!(said.contains("codex plugin remove fufu@fufu"), "{said:?}");
+    assert!(!plugin.exists(), "the directory fufu owns goes whole");
+    assert!(!skill.exists(), "…and the skill inside it with it");
+    let market = json_at(&marketplace);
+    assert_eq!(market["name"], "fufu", "the file keeps its name");
+    assert_eq!(market["plugins"], serde_json::json!([]));
+    let said = text(&ff_env(home.path(), &["unhook", "codex"], &env));
+    assert!(said.contains("no fufu plugin installed"), "{said:?}");
+}
+
+/// The marketplace is a file fufu does not own: a foreign plugin, the
+/// file's own name, and its key order all survive hook and unhook, with
+/// fufu's entry appended then removed — and the selector Codex is told
+/// takes the file's name.
+#[test]
+fn a_foreign_marketplace_survives() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let marketplace = home
+        .path()
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
+    std::fs::create_dir_all(marketplace.parent().unwrap()).unwrap();
+    let seed = serde_json::json!({
+        "plugins": [{
+            "name": "theirs",
+            "source": { "source": "local", "path": "./.agents/plugins/theirs" },
+            "policy": { "installation": "AVAILABLE" }
+        }],
+        "name": "mine",
+        "metadata": { "description": "my plugins" }
+    });
+    std::fs::write(&marketplace, serde_json::to_string_pretty(&seed).unwrap()).unwrap();
+
+    let out = ff_env(home.path(), &["hook", "codex"], &env);
+    assert!(out.status.success());
+    assert!(
+        text(&out).contains("codex plugin add fufu@mine"),
+        "{:?}",
+        text(&out)
+    );
+    let v = json_at(&marketplace);
+    assert_eq!(v["name"], "mine");
+    assert_eq!(v["metadata"]["description"], "my plugins");
+    let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+    assert_eq!(keys, vec!["plugins", "name", "metadata"], "{v}");
+    let plugins = v["plugins"].as_array().unwrap();
+    assert_eq!(plugins.len(), 2);
+    assert_eq!(
+        plugins[0], seed["plugins"][0],
+        "the foreign entry, value for value"
+    );
+    assert_eq!(plugins[1]["name"], "fufu");
+
     assert!(
         ff_env(home.path(), &["unhook", "codex"], &env)
             .status
             .success()
     );
-    assert!(!home.path().join(".codex/skills/fufu").exists());
-    let v = json_at(&hooks);
-    assert!(v.get("hooks").is_none(), "the entries went too: {v}");
+    let v = json_at(&marketplace);
+    assert_eq!(v["name"], "mine");
+    let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+    assert_eq!(keys, vec!["plugins", "name", "metadata"], "{v}");
+    assert_eq!(v["plugins"], seed["plugins"]);
 }
 
-/// The print route. Cursor and Gemini read no skills directory, and a
+/// A marketplace that will not parse is refused, the plugin already
+/// written — since the plugin captures and the file is not fufu's to guess
+/// at.
+#[test]
+fn a_malformed_marketplace_is_refused_untouched() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let marketplace = home
+        .path()
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
+    std::fs::create_dir_all(marketplace.parent().unwrap()).unwrap();
+    std::fs::write(&marketplace, "{ not json").unwrap();
+    let out = ff_env(home.path(), &["--json", "hook", "codex"], &env);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(envelope(&out)["error"]["id"], "hook/malformed");
+    assert_eq!(std::fs::read_to_string(&marketplace).unwrap(), "{ not json");
+}
+
+/// Add-then-remove: once the plugin has verified, what an older fufu wrote
+/// into Codex's settings file goes — fufu's entries and nothing beside
+/// them — with the skill directory and the `config.toml` block beside it;
+/// a foreign entry and a skill of the user's own under `~/.codex/skills`
+/// stay.
+#[test]
+fn the_migration_strips_the_old_codex_wiring() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let codex = home.path().join(".codex").join("hooks.json");
+    std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+    let mut events = serde_json::Map::new();
+    for event in ["PreToolUse", "UserPromptSubmit"] {
+        events.insert(
+            event.into(),
+            serde_json::json!([
+                { "hooks": [{ "type": "command", "command": "my-linter" }] },
+                { "hooks": [{ "type": "command", "command": "ff trigger codex" }] }
+            ]),
+        );
+    }
+    std::fs::write(
+        &codex,
+        serde_json::to_string_pretty(&serde_json::json!({ "hooks": events })).unwrap(),
+    )
+    .unwrap();
+    let old_skill = home
+        .path()
+        .join(".codex")
+        .join("skills")
+        .join("fufu")
+        .join("SKILL.md");
+    std::fs::create_dir_all(old_skill.parent().unwrap()).unwrap();
+    std::fs::write(&old_skill, "---\nname: fufu\ndescription: old\n---\n").unwrap();
+    let theirs = home
+        .path()
+        .join(".codex")
+        .join("skills")
+        .join("theirs")
+        .join("SKILL.md");
+    std::fs::create_dir_all(theirs.parent().unwrap()).unwrap();
+    std::fs::write(&theirs, "---\nname: theirs\n---\n").unwrap();
+    let config = home.path().join(".codex").join("config.toml");
+    let mine = "model = \"o3\"\n";
+    std::fs::write(
+        &config,
+        format!(
+            "{mine}# >>> fufu (ff hook codex) >>>\n[mcp_servers.fufu]\ncommand = \"/old/place/ff\"\nargs = [\"mcp\"]\n# <<< fufu <<<\n"
+        ),
+    )
+    .unwrap();
+
+    // Before the plugin, the settings entries are not wiring the plugin
+    // adapter reports — they capture, and `ff hook codex` is the move.
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("codex")).unwrap();
+    assert!(row.ends_with("not wired"), "{row:?}");
+
+    let said = text(&ff_env(home.path(), &["hook", "codex"], &env));
+    assert!(said.contains("moved off ~/.codex/hooks.json"), "{said:?}");
+    assert!(said.contains("removed ~/.codex/skills/fufu"), "{said:?}");
+    assert!(said.contains("MCP server removed from"), "{said:?}");
+
+    let v = json_at(&codex);
+    for event in ["PreToolUse", "UserPromptSubmit"] {
+        let entries = v["hooks"][event].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "{event}: only the foreign one stays: {v}");
+        assert_eq!(entries[0]["hooks"][0]["command"], "my-linter");
+    }
+    assert!(!old_skill.exists(), "the old skill directory goes");
+    assert!(theirs.exists(), "a skill of the user's own stays");
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), mine);
+
+    // The second run has nothing left to strip and says so by silence.
+    let again = text(&ff_env(home.path(), &["hook", "codex"], &env));
+    assert!(!again.contains("moved off"), "{again:?}");
+    assert!(!again.contains("removed ~/.codex"), "{again:?}");
+    assert!(!again.contains("MCP server"), "{again:?}");
+}
+
+// ---- gemini and qwen -------------------------------------------------------
+
+/// Gemini CLI's adapter went: `ff hook gemini` and `ff unhook gemini` are
+/// the unknown-slug refusal, `--all` never touches `~/.gemini`, and the
+/// listing has no row for it. The stored trigger spelling keeps capturing
+/// — `hook.rs` proves that half.
+#[test]
+fn gemini_is_an_unknown_slug_and_its_file_is_left() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let gemini = home.path().join(".gemini").join("settings.json");
+    std::fs::create_dir_all(gemini.parent().unwrap()).unwrap();
+    let seed = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"ff trigger gemini"}]}]}}"#;
+    std::fs::write(&gemini, seed).unwrap();
+
+    for verb in ["hook", "unhook"] {
+        let out = ff_env(home.path(), &["--json", verb, "gemini"], &env);
+        assert_eq!(out.status.code(), Some(2), "{verb} gemini");
+        let value = envelope(&out);
+        assert_eq!(value["error"]["id"], "usage/unknown-slug");
+        let message = value["error"]["message"].as_str().unwrap();
+        assert!(message.contains("unknown slug"), "{message}");
+        assert!(message.contains("qwen"), "names the known: {message}");
+    }
+    std::fs::create_dir_all(home.path().join(".codex")).unwrap();
+    assert!(
+        ff_env(home.path(), &["hook", "--all"], &env)
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read_to_string(&gemini).unwrap(), seed);
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    assert!(!listing.contains("gemini"), "{listing:?}");
+}
+
+/// Qwen Code takes the family's five events in its own settings file, the
+/// tool matcher on `PreToolUse`, no skills directory.
+#[test]
+fn qwen_is_wired_in_its_settings_file() {
+    let home = tempfile::TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    assert!(
+        ff_env(home.path(), &["hook", "qwen"], &env)
+            .status
+            .success()
+    );
+    let settings = home.path().join(".qwen").join("settings.json");
+    let qwen = json_at(&settings);
+    assert_eq!(
+        qwen["hooks"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        FAMILY_EVENTS.to_vec(),
+        "Qwen names the family's five: {qwen}"
+    );
+    for event in FAMILY_EVENTS {
+        let entry = &qwen["hooks"][event][0];
+        assert_eq!(entry["hooks"][0]["command"], "ff trigger qwen", "{event}");
+        assert_eq!(entry["hooks"][0]["type"], "command");
+    }
+    assert_eq!(
+        qwen["hooks"]["PreToolUse"][0]["matcher"],
+        "run_shell_command|write_file|replace|edit"
+    );
+    assert!(qwen["hooks"]["Stop"][0].get("matcher").is_none());
+    assert!(!home.path().join(".qwen").join("skills").exists());
+    let listing = text(&ff_env(home.path(), &["hook", "-l"], &env));
+    let row = listing.lines().find(|l| l.starts_with("qwen")).unwrap();
+    assert!(row.contains("wired (settings)"), "{row:?}");
+    assert!(!row.contains(", skill"), "{row:?}");
+
+    assert!(
+        ff_env(home.path(), &["unhook", "qwen"], &env)
+            .status
+            .success()
+    );
+    let v = json_at(&settings);
+    assert!(v.get("hooks").is_none(), "the entries went: {v}");
+}
+
+/// The print route. Cursor and Qwen read no skills directory, and a
 /// client fufu has never heard of reads nothing fufu knows about — so the
 /// manual has to be reachable without an install. What it prints is the
 /// same bytes an install writes, which is what makes redirecting it into a
@@ -1352,19 +1729,13 @@ fn hook_strips_the_registration_an_earlier_fufu_wrote() {
     let home = tempfile::TempDir::new().unwrap();
     let env = [("HOME", home.path().to_str().unwrap())];
     let cursor = home.path().join(".cursor/mcp.json");
-    let gemini = home.path().join(".gemini/settings.json");
     let codex = home.path().join(".codex/config.toml");
-    for dir in [".cursor", ".gemini", ".codex"] {
+    for dir in [".cursor", ".codex"] {
         std::fs::create_dir_all(home.path().join(dir)).unwrap();
     }
     std::fs::write(
         &cursor,
         r#"{"mcpServers":{"fufu":{"type":"stdio","command":"/old/place/ff","args":["mcp"]},"other":{"command":"x"}}}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        &gemini,
-        r#"{"theme":"dark","mcpServers":{"fufu":{"command":"/old/place/ff","args":["mcp"]},"other":{"command":"x"}}}"#,
     )
     .unwrap();
     let theirs = "model = \"o3\"\n\n[mcp_servers.other]\ncommand = \"x\"\nargs = [\"y\"]\n";
@@ -1376,7 +1747,7 @@ fn hook_strips_the_registration_an_earlier_fufu_wrote() {
     )
     .unwrap();
 
-    for slug in ["cursor", "gemini", "codex"] {
+    for slug in ["cursor", "codex"] {
         let out = ff_env(home.path(), &["hook", slug], &env);
         assert!(
             out.status.success(),
@@ -1392,16 +1763,11 @@ fn hook_strips_the_registration_an_earlier_fufu_wrote() {
     let v = json_at(&cursor);
     assert!(v["mcpServers"].get("fufu").is_none(), "{v}");
     assert_eq!(v["mcpServers"]["other"]["command"], "x");
-    let v = json_at(&gemini);
-    assert!(v["mcpServers"].get("fufu").is_none(), "{v}");
-    assert_eq!(v["mcpServers"]["other"]["command"], "x");
-    assert_eq!(v["theme"], "dark");
-    assert!(v["hooks"].is_object(), "the hook landed beside it: {v}");
     let after = std::fs::read_to_string(&codex).unwrap();
     assert_eq!(after, theirs);
 
     // A second run is silent about it.
-    for slug in ["cursor", "gemini", "codex"] {
+    for slug in ["cursor", "codex"] {
         let out = ff_env(home.path(), &["hook", slug], &env);
         assert!(out.status.success());
         assert!(
@@ -1411,7 +1777,9 @@ fn hook_strips_the_registration_an_earlier_fufu_wrote() {
         );
     }
 
-    // A hand-written entry under the same name is somebody's own.
+    // A hand-written entry under the same name is somebody's own. Codex's
+    // unhook removes the plugin and never opens `config.toml`; its hook
+    // reads the block and leaves one that is not fufu's.
     let mine_json = r#"{"mcpServers":{"fufu":{"command":"/my/wrapper.sh","args":["serve"]}}}"#;
     std::fs::write(&cursor, mine_json).unwrap();
     let mine_toml = "[mcp_servers.fufu]\ncommand = \"/my/wrapper.sh\"\n";

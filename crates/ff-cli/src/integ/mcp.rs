@@ -9,11 +9,12 @@
 //! wired before v0.15. Once such machines can be assumed rehooked — v0.17
 //! is a fair horizon — this module can leave.
 //!
-//! Two shapes cover the three clients that carried one. Cursor and Gemini
-//! take a JSON file with an `mcpServers` object, and the entry is the one
-//! key `fufu` in it. Codex takes TOML, and fufu carries no TOML parser: the
-//! registration was a block between two marker comments, and the markers
-//! are what let it go whole.
+//! Two shapes cover the clients that carried one. Cursor takes a JSON file
+//! with an `mcpServers` object, and the entry is the one key `fufu` in it.
+//! Codex takes TOML, and fufu carries no TOML parser: the registration was
+//! a block between two marker comments, and the markers are what let it go
+//! whole. Gemini CLI carried one too, and went with its adapter: a
+//! `~/.gemini/settings.json` is never touched now.
 //!
 //! Ownership is recognized by the command's binary name and its arguments
 //! — a binary called `ff` with the one argument `mcp` — rather than by the

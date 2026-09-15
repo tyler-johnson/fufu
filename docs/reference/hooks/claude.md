@@ -48,7 +48,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -58,7 +58,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -69,7 +69,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -79,7 +79,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -89,7 +89,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -99,7 +99,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -109,7 +109,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/bin/ff trigger claude"
+            "command": "\"/usr/local/bin/ff\" trigger claude"
           }
         ]
       }
@@ -118,7 +118,7 @@ $ cat ~/.claude/skills/fufu/hooks/hooks.json
 }
 ```
 
-The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`. A plugin's hooks do not go looking on `PATH`, so the path is baked in.
+The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger claude`. A plugin's hooks do not go looking on `PATH`, so the path is baked in. The path is always double-quoted: Claude Code runs the command through Git Bash on Windows, where an unquoted `C:\Users\…\ff.exe` collapses to `C:Users…ff.exe`.
 
 ### The seven events
 

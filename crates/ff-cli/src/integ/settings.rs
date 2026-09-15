@@ -7,10 +7,10 @@
 //! whose shape is not what the schema says, is refused with the file
 //! untouched rather than rewritten into something the client cannot read.
 //!
-//! Two shapes cover the four clients. `Shape::Nested` is the one Claude
-//! Code, Codex, and Gemini CLI share — an event maps to entries, and an
-//! entry holds a matcher and a list of commands. `Shape::Flat` is Cursor's
-//! — an entry *is* a command.
+//! Two shapes cover the clients. `Shape::Nested` is the one Claude Code's
+//! settings hatch and Qwen Code share, and the plugin hooks files carry —
+//! an event maps to entries, and an entry holds a matcher and a list of
+//! commands. `Shape::Flat` is Cursor's old file — an entry *is* a command.
 
 use std::path::{Path, PathBuf};
 
@@ -135,20 +135,13 @@ pub(super) fn load(path: &Path) -> Result<Map<String, Value>> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::from("{}"),
-        Err(err) => return Err(Error::repo(err)),
+        Err(err) => return Err(super::failed(path, err)),
     };
-    let value: Value = serde_json::from_str(&text).map_err(|err| {
-        Error::msg(format!(
-            "{}: not valid JSON ({err}); file untouched",
-            path.display()
-        ))
-    })?;
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|err| super::malformed(path, format!("not valid JSON ({err})")))?;
     match value {
         Value::Object(map) => Ok(map),
-        _ => Err(Error::msg(format!(
-            "{}: top level is not an object; file untouched",
-            path.display()
-        ))),
+        _ => Err(super::malformed(path, "top level is not an object")),
     }
 }
 
@@ -270,22 +263,16 @@ pub fn install(spec: &Spec) -> Result<Change> {
     let hooks = settings
         .entry("hooks".to_string())
         .or_insert_with(|| Value::Object(Map::new()));
-    let hooks = hooks.as_object_mut().ok_or_else(|| {
-        Error::msg(format!(
-            "{}: \"hooks\" is not an object; file untouched",
-            spec.path.display()
-        ))
-    })?;
+    let hooks = hooks
+        .as_object_mut()
+        .ok_or_else(|| super::malformed(&spec.path, "\"hooks\" is not an object"))?;
 
     for (event, matcher, _) in spec.events {
         let entries = hooks
             .entry((*event).to_string())
             .or_insert_with(|| Value::Array(Vec::new()));
         let entries = entries.as_array_mut().ok_or_else(|| {
-            Error::msg(format!(
-                "{}: hooks.{event} is not an array; file untouched",
-                spec.path.display()
-            ))
+            super::malformed(&spec.path, format!("hooks.{event} is not an array"))
         })?;
         // Upgrade any legacy spelling before the idempotence check, so an
         // old entry is rewritten rather than joined by a second one.

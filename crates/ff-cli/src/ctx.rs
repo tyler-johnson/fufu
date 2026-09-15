@@ -50,8 +50,7 @@ impl Ctx {
     /// at once.
     pub fn new(args: &Cli) -> Result<Self> {
         let env = std::env::var_os("FF_SESSION").map(|raw| raw.to_string_lossy().into_owned());
-        let client = std::env::var_os(crate::integ::claude::SESSION_VAR)
-            .map(|raw| raw.to_string_lossy().into_owned());
+        let client = crate::integ::client_session().map(|(_, session)| session);
         // `ff -v` is the version verb spelled as a flag, so it settles as that
         // verb and not as the map.
         let synthesized = (args.version && args.command.is_none()).then_some(Command::Version);

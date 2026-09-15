@@ -9,8 +9,8 @@ use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
 
 fn ff_at(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ff"))
-        .current_dir(dir)
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ff"));
+    cmd.current_dir(dir)
         .args(args)
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_CONFIG_SYSTEM", null_device())
@@ -22,10 +22,11 @@ fn ff_at(dir: &Path, args: &[&str]) -> Output {
         .env_remove("GIT_COMMITTER_EMAIL")
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
-        .env_remove("FF_SESSION")
-        .env_remove("CLAUDE_CODE_SESSION_ID")
-        .output()
-        .expect("spawn ff")
+        .env_remove("FF_SESSION");
+    for var in CLIENT_VARS {
+        cmd.env_remove(var);
+    }
+    cmd.output().expect("spawn ff")
 }
 
 fn ff(fx: &Fixture, args: &[&str]) -> Output {
@@ -54,8 +55,10 @@ fn ff_env(fx: &Fixture, envs: &[(&str, &str)], args: &[&str]) -> Output {
         .env_remove("GIT_COMMITTER_EMAIL")
         .env_remove("GIT_COMMITTER_DATE")
         .env_remove("EMAIL")
-        .env_remove("FF_SESSION")
-        .env_remove("CLAUDE_CODE_SESSION_ID");
+        .env_remove("FF_SESSION");
+    for var in CLIENT_VARS {
+        cmd.env_remove(var);
+    }
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -392,26 +395,38 @@ fn env_provides_session_for_snapshot() {
 
 const CLIENT: &str = "95b36d9d-efdc-4564-9b06-91842f51ef6b";
 
+/// Every variable a client sets in the processes it starts, and the
+/// scrub `ff_env` applies so a suite run under one client sees only what a
+/// test names.
+const CLIENT_VARS: [&str; 4] = [
+    "CLAUDE_CODE_SESSION_ID",
+    "CODEX_SESSION_ID",
+    "QWEN_CODE_SESSION_ID",
+    "CURSOR_CONVERSATION_ID",
+];
+
 /// With neither `--session` nor `FF_SESSION`, the session the client that
 /// launched this `ff` is running is the tag, so a shell verb under an agent
-/// carries the session its hook captures do.
+/// carries the session its hook captures do — whichever client it is.
 #[test]
 fn the_clients_session_is_read_when_fufu_names_none() {
-    let fx = Fixture::new();
-    fx.write("a.txt", "initial\n");
-    fx.commit("init");
+    for var in CLIENT_VARS {
+        let fx = Fixture::new();
+        fx.write("a.txt", "initial\n");
+        fx.commit("init");
 
-    fx.write("a.txt", "changed\n");
-    let out = ff_env(&fx, &[("CLAUDE_CODE_SESSION_ID", CLIENT)], &[]);
-    assert!(out.status.success(), "stderr: {}", stderr(&out));
+        fx.write("a.txt", "changed\n");
+        let out = ff_env(&fx, &[(var, CLIENT)], &[]);
+        assert!(out.status.success(), "{var}: stderr: {}", stderr(&out));
 
-    let repo = fx.path();
-    let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
-    let msg = git_cat_file_commit(&repo, &snap_ref);
-    assert!(
-        msg.contains(&format!("fufu-session: {CLIENT}")),
-        "the client's session is stamped on the snapshot: {msg}"
-    );
+        let repo = fx.path();
+        let snap_ref = read_ref(&repo, "refs/fufu/snap/main");
+        let msg = git_cat_file_commit(&repo, &snap_ref);
+        assert!(
+            msg.contains(&format!("fufu-session: {CLIENT}")),
+            "{var}: the client's session is stamped on the snapshot: {msg}"
+        );
+    }
 }
 
 /// The client's session is the lowest of the three sources: `FF_SESSION`

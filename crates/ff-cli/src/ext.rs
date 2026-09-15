@@ -188,7 +188,7 @@ pub fn dispatch(name: &str, argv: Vec<OsString>) -> ! {
 
     let flag = session_flag();
     let env = std::env::var("FF_SESSION").ok();
-    let client = std::env::var(crate::integ::claude::SESSION_VAR).ok();
+    let client = crate::integ::client_session().map(|(_, session)| session);
     // The command line already failed to parse; refusing it twice helps
     // nobody, so an unresolvable session falls back to none.
     let session =

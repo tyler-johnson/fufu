@@ -467,16 +467,32 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
             speaks_on_a_tool: false,
         },
         Vendor {
-            source: "gemini",
+            source: "qwen",
             payload: |cwd| {
                 payload(
-                    "BeforeTool",
+                    "PreToolUse",
                     "s3",
                     cwd,
                     r#""tool_name":"run_shell_command","tool_input":{"command":"cargo test"}"#,
                 )
             },
-            subject: "gemini[s3]: run_shell_command(cargo test)",
+            subject: "qwen[s3]: run_shell_command(cargo test)",
+            speaks_on_a_tool: false,
+        },
+        // A retired source: the adapter went, and the spelling an old
+        // `~/.gemini/settings.json` stores keeps capturing under its own
+        // name.
+        Vendor {
+            source: "gemini",
+            payload: |cwd| {
+                payload(
+                    "BeforeTool",
+                    "s5",
+                    cwd,
+                    r#""tool_name":"run_shell_command","tool_input":{"command":"cargo test"}"#,
+                )
+            },
+            subject: "gemini[s5]: run_shell_command(cargo test)",
             speaks_on_a_tool: false,
         },
         Vendor {
@@ -500,8 +516,8 @@ fn every_vendor_lands_a_snapshot_under_its_own_name() {
         assert_eq!(out.status.code(), Some(0), "{source} exits 0");
         assert_eq!(chain_subject(&fx), vendor.subject, "{source} provenance");
 
-        // Three of the four have no channel on a tool, so nothing is said
-        // there — and the marker is proof of the rule that makes that
+        // Only Claude Code has a channel on a tool, so nothing is said
+        // elsewhere — and the marker is proof of the rule that makes that
         // safe: it is stamped only when something actually printed, so a
         // briefing that had nowhere to go is not recorded as delivered.
         let marker = fx.path().join(".git/fufu/session").join(source);
@@ -680,13 +696,16 @@ fn a_briefing_and_a_denial_arrive_as_one_object() {
     assert_eq!(chain_subject(&fx), "claude[s]: Bash(git commit -m x)");
 }
 
-/// The briefing is one text and four envelopes: plain for Claude and Codex,
-/// JSON for Gemini and Cursor, which cannot read anything else.
+/// The briefing is one text and a few envelopes: plain for Claude and
+/// Codex, JSON for Qwen and Cursor, which cannot read anything else — and
+/// the retired Gemini source still answers in the envelope it was written
+/// with.
 #[test]
 fn the_briefing_is_wrapped_the_way_each_client_reads_it() {
     for (source, event, plain) in [
         ("claude", "UserPromptSubmit", true),
         ("codex", "UserPromptSubmit", true),
+        ("qwen", "UserPromptSubmit", false),
         ("gemini", "SessionStart", false),
         ("cursor", "sessionStart", false),
     ] {
@@ -704,10 +723,10 @@ fn the_briefing_is_wrapped_the_way_each_client_reads_it() {
         } else {
             let value: serde_json::Value = serde_json::from_str(text.trim())
                 .unwrap_or_else(|err| panic!("{source} must emit JSON ({err}): {text:?}"));
-            let field = if source == "gemini" {
-                value["hookSpecificOutput"]["additionalContext"].clone()
-            } else {
+            let field = if source == "cursor" {
                 value["additional_context"].clone()
+            } else {
+                value["hookSpecificOutput"]["additionalContext"].clone()
             };
             assert!(
                 field.as_str().is_some_and(|t| t.contains("ff restore")),
