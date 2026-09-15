@@ -38,6 +38,7 @@ pub mod gemini;
 pub mod manual;
 pub mod mcp;
 pub mod payload;
+pub mod plugin;
 pub mod runtime;
 pub mod settings;
 pub mod shell;

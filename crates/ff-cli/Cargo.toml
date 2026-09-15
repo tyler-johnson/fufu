@@ -32,6 +32,10 @@ anstyle.workspace = true
 anstream.workspace = true
 ureq.workspace = true
 reqwest.workspace = true
+# The plugin manifests Codex and Copilot read carry a version fufu derives
+# from the hooks file's digest, so a rewritten hooks file reads as a new
+# plugin version to the client's cache.
+sha2 = "0.10"
 
 # PowerShell's profile lives under the Documents known folder, which
 # OneDrive can redirect; `ff hook powershell` asks the shell API where that

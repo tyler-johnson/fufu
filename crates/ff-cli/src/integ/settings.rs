@@ -36,6 +36,10 @@ pub enum Need {
     Extra,
 }
 
+/// One event fufu hooks: the client's name for it, the matcher it takes
+/// (if any), and whether capture depends on it.
+pub type Event = (&'static str, Option<&'static str>, Need);
+
 /// How a client spells one hook entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
@@ -49,9 +53,8 @@ pub enum Shape {
 pub struct Spec {
     pub path: PathBuf,
     pub shape: Shape,
-    /// The events fufu hooks: the name, the matcher it takes (if any), and
-    /// whether capture depends on it.
-    pub events: &'static [(&'static str, Option<&'static str>, Need)],
+    /// The events fufu hooks.
+    pub events: &'static [Event],
     /// The command the client is told to run.
     pub command: String,
     /// Spellings older installs may still carry. Recognized as ours — so

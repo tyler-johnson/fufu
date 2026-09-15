@@ -30,7 +30,7 @@ use ff_core::{Error, Result};
 
 use super::{
     AgentEvent, AgentProtocol, Change, EventKind, InstallOptions, Integration, Mechanism, Presence,
-    Reply, Status, Wiring, payload, settings, skill,
+    Reply, Status, Wiring, payload, plugin, settings, skill,
 };
 use settings::Need;
 
@@ -96,15 +96,15 @@ fn config_dir() -> Result<PathBuf> {
 }
 
 fn plugin_dir() -> Result<PathBuf> {
-    Ok(config_dir()?.join("skills/fufu"))
+    Ok(config_dir()?.join("skills").join("fufu"))
 }
 
 fn manifest_path() -> Result<PathBuf> {
-    Ok(plugin_dir()?.join(".claude-plugin/plugin.json"))
+    Ok(plugin_dir()?.join(".claude-plugin").join("plugin.json"))
 }
 
 fn hooks_path() -> Result<PathBuf> {
-    Ok(plugin_dir()?.join("hooks/hooks.json"))
+    Ok(plugin_dir()?.join("hooks").join("hooks.json"))
 }
 
 /// Where a plugin's own skills live, which is where Claude Code looks for
@@ -144,109 +144,36 @@ fn is_ours(command: &str) -> bool {
 
 // ---- the plugin ------------------------------------------------------------
 
+/// The manifest and the hooks file. The reading of the hooks file is
+/// `plugin.rs`, shared with the other plugin adapters; the manifest and
+/// the `.claude-plugin/` layout are this client's own.
 fn plugin_body() -> (String, String) {
-    let command = super::exe_command("trigger claude");
     let manifest = serde_json::json!({
         "name": "fufu",
         "version": env!("CARGO_PKG_VERSION"),
         "description": "fufu (ff) snapshots the working copy before every tool action",
         "homepage": env!("CARGO_PKG_REPOSITORY"),
     });
-    let mut events = serde_json::Map::new();
-    for (event, matcher, _) in EVENTS {
-        let mut entry = serde_json::Map::new();
-        if let Some(matcher) = matcher {
-            entry.insert("matcher".into(), matcher.into());
-        }
-        entry.insert(
-            "hooks".into(),
-            serde_json::json!([{ "type": "command", "command": command }]),
-        );
-        events.insert(
-            event.to_string(),
-            serde_json::Value::Array(vec![serde_json::Value::Object(entry)]),
-        );
-    }
-    let hooks = serde_json::json!({ "hooks": serde_json::Value::Object(events) });
-    (pretty(&manifest), pretty(&hooks))
-}
-
-fn pretty(value: &serde_json::Value) -> String {
-    let mut body = serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string());
-    body.push('\n');
-    body
-}
-
-/// Which of `EVENTS` this hooks.json does not carry, in `EVENTS` order.
-fn plugin_missing(value: &serde_json::Value) -> Vec<(&'static str, Need)> {
-    EVENTS
-        .iter()
-        .filter(|(event, ..)| {
-            !value["hooks"][*event].as_array().is_some_and(|entries| {
-                entries.iter().any(|entry| {
-                    entry["hooks"].as_array().is_some_and(|cmds| {
-                        cmds.iter()
-                            .any(|c| c["command"].as_str().is_some_and(is_ours))
-                    })
-                })
-            })
-        })
-        .map(|(event, _, need)| (*event, *need))
-        .collect()
-}
-
-/// The plugin's hooks.json, when there is one that parses.
-fn plugin_hooks() -> Option<serde_json::Value> {
-    let text = std::fs::read_to_string(hooks_path().ok()?).ok()?;
-    serde_json::from_str(&text).ok()
+    let hooks = plugin::hooks_body(&EVENTS, &super::exe_command(TAIL));
+    (plugin::pretty(&manifest), hooks)
 }
 
 /// Whether the plugin on disk is wired, read the way the client reads it.
 fn plugin_wiring() -> Wiring {
-    let Ok(path) = hooks_path() else {
+    let (Ok(path), Ok(dir)) = (hooks_path(), plugin_dir()) else {
         return Wiring::NotWired;
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Wiring::NotWired;
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Wiring::Unavailable {
-            complaint: format!("{}: not valid JSON", path.display()),
-        };
-    };
-    let missing = plugin_missing(&value);
-    let plugin = plugin_dir().unwrap_or_default();
-    if missing.len() == EVENTS.len() {
-        return Wiring::NotWired;
-    }
-    // Only a required event's absence is partial capture; an extra one
-    // missing is an older install, which `plugin_stale` reports instead.
-    let required: Vec<&str> = missing
-        .iter()
-        .filter(|(_, need)| *need == Need::Required)
-        .map(|(event, _)| *event)
-        .collect();
-    if required.is_empty() {
-        return Wiring::Wired {
-            mechanism: Mechanism::Plugin,
-            at: plugin,
-        };
-    }
-    Wiring::Partial {
-        missing: required.join(", "),
-        at: plugin,
-    }
+    plugin::wiring(&path, &dir, &EVENTS, is_ours)
 }
 
 /// Whether the plugin is missing an event a current install would write.
 /// Capture is whole without one — that is what `Need::Extra` means — so
 /// this is a repair to offer and never an outage to report.
 fn plugin_stale() -> bool {
-    let Some(value) = plugin_hooks() else {
+    let Ok(path) = hooks_path() else {
         return false;
     };
-    let missing = plugin_missing(&value);
-    missing.len() < EVENTS.len() && missing.iter().any(|(_, need)| *need == Need::Extra)
+    plugin::stale(&path, &EVENTS, is_ours, |command| LEGACY.contains(&command))
 }
 
 /// Where the plugin's skills live: fufu's own under `skills/fufu`.
@@ -276,20 +203,18 @@ fn sweep_skills() -> Result<()> {
     Ok(())
 }
 
-/// Writes the plugin whole, and answers the one line a stripped
-/// `.mcp.json` earns.
-fn write_plugin() -> Result<Change> {
+/// Writes the plugin whole: manifest, hooks, and the skill. Answers
+/// whether any byte moved, so a second install can say so instead of
+/// claiming a write, and the one line a stripped `.mcp.json` earns.
+fn write_plugin() -> Result<(bool, Change)> {
     let (manifest, hooks) = plugin_body();
-    let manifest_path = manifest_path()?;
-    let hooks_path = hooks_path()?;
-    for path in [&manifest_path, &hooks_path] {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(ff_core::Error::repo)?;
-        }
+    let mut changed = plugin::write_if_changed(&manifest_path()?, &manifest)?;
+    changed |= plugin::write_if_changed(&hooks_path()?, &hooks)?;
+    let dir = skill_dir()?;
+    if !matches!(skill::wiring(&dir), Wiring::Wired { .. }) {
+        skill::write(&dir)?;
+        changed = true;
     }
-    std::fs::write(&manifest_path, manifest).map_err(ff_core::Error::repo)?;
-    std::fs::write(&hooks_path, hooks).map_err(ff_core::Error::repo)?;
-    skill::write(&skill_dir()?)?;
     sweep_skills()?;
     let mcp_path = mcp_path()?;
     let stripped = match std::fs::remove_file(&mcp_path) {
@@ -298,9 +223,9 @@ fn write_plugin() -> Result<Change> {
             changed: false,
             lines: Vec::new(),
         },
-        Err(err) => return Err(ff_core::Error::repo(err)),
+        Err(err) => return Err(Error::repo(err)),
     };
-    Ok(stripped)
+    Ok((changed, stripped))
 }
 
 fn remove_plugin() -> Result<bool> {
@@ -379,7 +304,7 @@ impl Integration for Claude {
             return Ok(change);
         }
 
-        let stripped_mcp = write_plugin()?;
+        let (written, stripped_mcp) = write_plugin()?;
         // Verify before removing the other wiring: a plugin that did not
         // land must not take the settings entries down with it.
         let verified = plugin_wiring();
@@ -390,7 +315,11 @@ impl Integration for Claude {
                 verified.word()
             )));
         }
-        let mut change = Change::changed(format!("plugin written to {}", plugin_dir()?.display()));
+        let mut change = if written {
+            Change::changed(format!("plugin written to {}", plugin_dir()?.display()))
+        } else {
+            Change::unchanged(format!("already wired in {}", plugin_dir()?.display()))
+        };
         // Now, and only now, the old wiring goes.
         let stripped = settings::uninstall(&spec()?)?;
         if stripped.changed {
@@ -398,14 +327,16 @@ impl Integration for Claude {
                 "moved off the settings entries it used to use",
             ));
         }
-        change
-            .lines
-            .push(format!("skill written to {}", skill_dir()?.display()));
-        change.lines.extend(stripped_mcp.lines);
-        change.lines.push(
-            "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
-                .into(),
-        );
+        change.absorb(stripped_mcp);
+        if written {
+            change
+                .lines
+                .push(format!("skill written to {}", skill_dir()?.display()));
+            change.lines.push(
+                "restart Claude Code to load it (`claude plugin list` shows it as fufu@skills-dir)"
+                    .into(),
+            );
+        }
         Ok(change)
     }
 
@@ -618,5 +549,6 @@ mod tests {
                 "{event} matcher"
             );
         }
+        assert!(plugin::missing(&value, &EVENTS, is_ours).is_empty());
     }
 }
