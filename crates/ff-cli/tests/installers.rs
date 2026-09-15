@@ -1965,11 +1965,12 @@ fn the_copilot_plugin_round_trips_beside_codex_and_foreign_settings() {
     assert_eq!(envelope(&out)["data"]["changed"], serde_json::json!([]));
 }
 
-/// The marketplace root is shared with tower. A file tower created keeps
-/// its name and its entry; fufu's entry joins the list, the selector
-/// follows the file's name, and unhook takes fufu's entry and its
-/// `enabledPlugins` key while the file and the marketplace registration
-/// stay for tower.
+/// The marketplace root is shared with tower. tower's plugin alone reads
+/// as not wired. A file tower created keeps its name and its entry;
+/// fufu's entry joins the list, the selector follows the file's name, and
+/// unhook takes fufu's entry and its `enabledPlugins` key while the file
+/// and the marketplace registration stay for tower — and it reads as not
+/// wired again.
 #[test]
 fn copilot_shares_a_marketplace_tower_created() {
     let home = tempfile::TempDir::new().unwrap();
@@ -1994,6 +1995,8 @@ fn copilot_shares_a_marketplace_tower_created() {
         .to_string(),
     )
     .unwrap();
+    let status = copilot_status(home, &env);
+    assert_eq!(status["wiring"]["state"], "not-wired", "{status}");
 
     let said = text(&ff_env(home, &["hook", "copilot"], &env));
     assert!(
@@ -2038,6 +2041,8 @@ fn copilot_shares_a_marketplace_tower_created() {
         "the marketplace registration is tower's too: {registration}"
     );
     assert!(!root.join("fufu").exists());
+    let status = copilot_status(home, &env);
+    assert_eq!(status["wiring"]["state"], "not-wired", "{status}");
 }
 
 /// Copilot's settings file is refused whole when it is not the object

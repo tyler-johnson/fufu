@@ -17,7 +17,9 @@
 //! when another tool created it, so the selector follows the file:
 //! `fufu@fufu-ff` in a marketplace fufu wrote, `fufu@tower-atc` in one
 //! tower did. Uninstall drops fufu's entry and removes the file and the
-//! marketplace registration only when nothing else is listed.
+//! marketplace registration only when nothing else is listed. Only fufu's
+//! plugin directory, its entry, and its selector read as its presence; the
+//! file and the marketplace registration are tower's too.
 //!
 //! Copilot's payload carries `sessionId` and `cwd` and names no event; each
 //! hook entry sets `FF_HOOK_EVENT` in its environment instead, and the
@@ -256,15 +258,13 @@ fn registered(settings: &Map<String, Value>, root: &Path, name: &str) -> bool {
             .is_some_and(|v| v["source"] == registration(root)["source"])
 }
 
+/// Whether the settings name fufu's selector at all. The marketplace
+/// registration does not count: tower registers the same one.
 fn mentions(settings: &Map<String, Value>, name: &str) -> bool {
     settings
         .get("enabledPlugins")
         .and_then(|v| v.get(selector(name)))
         .is_some()
-        || settings
-            .get("extraKnownMarketplaces")
-            .and_then(|v| v.get(name))
-            .is_some()
 }
 
 // ---- wiring ----------------------------------------------------------------
@@ -274,7 +274,9 @@ fn wiring(root: &Path) -> Result<Wiring> {
     let settings = load_settings(&settings_path()?)?;
     let market_path = marketplace_path(root);
     let name = market_name(root);
-    if !dir.exists() && !market_path.exists() && !mentions(&settings, &name) {
+    // The file alone is not fufu's presence: tower's plugin shares it.
+    let listed = settings::load(&market_path).is_ok_and(|m| has_entry(&Value::Object(m)));
+    if !dir.exists() && !listed && !mentions(&settings, &name) {
         return Ok(Wiring::NotWired);
     }
     let manifest = read_json(&dir.join("plugin.json"))?;

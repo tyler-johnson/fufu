@@ -126,7 +126,7 @@ $ cat ~/.copilot/settings.json
 
 Each hook entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, double-quoted, and sets `FF_HOOK_EVENT` in its environment, because Copilot's payload names no event. `preToolUse` attempts capture before every tool call; `userPromptSubmitted` captures and delivers the briefing; `sessionStart` rebriefs; `agentStop` captures the final edit of a turn; `sessionEnd` captures once more at the end. The briefing arrives as `additionalContext` JSON. Copilot captures and tallies recognized Git writes only where the pre-tool payload carries a recognizable tool and command; it returns no pre-tool coaching or denial reply, including under strict policy. The manifest's version is the fufu version plus `+ff.` and eight hex digits of the hooks file's SHA-256.
 
-The marketplace root is shared with tower. When tower created the file, fufu keeps its name and owner, appends its own entry, and registers as `fufu@<that name>`; the installer's last line says which selector to expect.
+The marketplace root is shared with tower. When tower created the file, fufu keeps its name and owner, appends its own entry, and registers as `fufu@<that name>`; the installer's last line says which selector to expect. With only tower's plugin under the root, `ff hook -l` reports `not wired`.
 
 <a id="what-ff-unhook-copilot-removes"></a>
 ## Remove
