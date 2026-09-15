@@ -802,11 +802,14 @@ fn the_claude_plugin_round_trips() {
     let command = hooks["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap();
-    assert!(command.ends_with("trigger claude"), "{command:?}");
+    assert!(command.ends_with("\" trigger claude"), "{command:?}");
     assert!(
-        command.len() > "ff trigger claude".len(),
+        command.len() > "\"ff\" trigger claude".len(),
         "absolute path baked in: {command:?}"
     );
+    // Always quoted: Git Bash on Windows runs the string, and an unquoted
+    // `C:\Users\…` collapses to `C:Users…` there.
+    assert!(command.starts_with('"'), "{command:?}");
 
     // The shipped skill rides inside the plugin, under the layout a
     // plugin's own skills take.

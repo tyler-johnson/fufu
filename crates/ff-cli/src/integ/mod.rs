@@ -451,20 +451,31 @@ pub fn exe_path() -> String {
         .unwrap_or_else(|| "ff".to_string())
 }
 
-/// [`exe_path`] with arguments, quoted if the path needs to be, for a
-/// client that takes one command string.
+/// [`exe_path`] with arguments, the path always double-quoted, for a
+/// client that takes one command string. The quotes are for Windows:
+/// Claude Code and its peers run the string through a POSIX shell (Git
+/// Bash), where an unquoted backslash is an escape and
+/// `C:\Users\...\ff.exe` collapses to `C:Users...ff.exe`. Inside double
+/// quotes sh keeps `\` literal except before `$`, `` ` ``, `"`, `\`, and
+/// newline, none of which a path carries, and cmd.exe and PowerShell take
+/// a quoted path as well. A path with whitespace is the same case.
 pub fn exe_command(args: &str) -> String {
-    let exe = exe_path();
-    if exe.contains(char::is_whitespace) {
-        format!("\"{exe}\" {args}")
-    } else {
-        format!("{exe} {args}")
-    }
+    format!("\"{}\" {args}", exe_path())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The path is always quoted: Git Bash on Windows eats an unquoted
+    /// backslash, and quoting costs nothing elsewhere.
+    #[test]
+    fn the_exe_command_quotes_the_path() {
+        let command = exe_command("trigger test");
+        assert!(command.starts_with('"'), "{command}");
+        assert!(command.ends_with("\" trigger test"), "{command}");
+        assert_eq!(command, format!("\"{}\" trigger test", exe_path()));
+    }
 
     #[test]
     fn every_slug_is_unique_and_resolves() {

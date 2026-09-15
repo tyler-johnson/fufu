@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [`ff hook claude`](docs/reference/cli/hook.md) on Windows wrote the binary's path unquoted, and Git Bash — which Claude Code runs hook commands through — collapsed the backslashes so every wired event exited 127 while `ff hook -l` still said wired. The path is always quoted now; ff hook claude or `ff hook -u` rewrites an existing install.
+
 ## v0.16.1 — 2026-09-14
 
 ### Fixed
