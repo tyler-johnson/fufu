@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use ff_core::{Error, Result};
+use ff_core::Result;
 use serde_json::Value;
 
 use super::{Mechanism, Wiring, settings};
@@ -140,9 +140,9 @@ pub fn write_if_changed(path: &Path, body: &str) -> Result<bool> {
         return Ok(false);
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(Error::repo)?;
+        std::fs::create_dir_all(parent).map_err(|err| super::failed(parent, err))?;
     }
-    std::fs::write(path, body).map_err(Error::repo)?;
+    std::fs::write(path, body).map_err(|err| super::failed(path, err))?;
     Ok(true)
 }
 

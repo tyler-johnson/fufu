@@ -24,7 +24,8 @@ fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("FF_CODEX", "/nonexistent")
         .env("FF_OPENCODE", "/nonexistent")
-        .env("FF_COPILOT", "/nonexistent");
+        .env("FF_COPILOT", "/nonexistent")
+        .env("FF_CURSOR", "/nonexistent");
     // env_clear() strips vars Windows processes cannot live without.
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
@@ -690,17 +691,31 @@ fn each_client_is_wired_in_its_own_schema() {
     );
     assert!(v["hooks"]["SessionStart"][0].get("matcher").is_none());
 
-    // Cursor's file is flatter, and carries a schema version.
+    // Cursor's plugin hooks file is flatter, and carries a schema version.
     assert!(
         ff_env(home.path(), &["hook", "cursor"], &env)
             .status
             .success()
     );
-    let v = json_at(&home.path().join(".cursor/hooks.json"));
+    let v = json_at(
+        &home
+            .path()
+            .join(".cursor")
+            .join("plugins")
+            .join("local")
+            .join("fufu")
+            .join("hooks")
+            .join("hooks.json"),
+    );
     assert_eq!(v["version"], 1);
     assert_eq!(v["hooks"]["preToolUse"][0]["matcher"], "Shell|Write|Delete");
-    assert_eq!(v["hooks"]["preToolUse"][0]["command"], "ff trigger cursor");
+    let command = v["hooks"]["preToolUse"][0]["command"].as_str().unwrap();
+    assert!(command.ends_with("\" trigger cursor"), "{command:?}");
     assert!(v["hooks"]["preToolUse"][0].get("hooks").is_none());
+    assert!(
+        !home.path().join(".cursor").join("hooks.json").exists(),
+        "nothing is written to the old settings file"
+    );
 }
 
 /// Codex skips a hook it has not been asked to trust, so an install that
@@ -1503,6 +1518,295 @@ fn doctor_reads_the_opencode_plugin() {
         format!("{} is not fufu's — left alone", plugin.display()),
         "{found}"
     );
+}
+
+// ---- the cursor plugin -----------------------------------------------------
+
+/// Cursor's row from the JSON listing.
+fn cursor_status(home: &Path, env: &[(&str, &str)]) -> serde_json::Value {
+    let out = ff_env(home, &["--json", "hook", "-l"], env);
+    assert!(out.status.success());
+    envelope(&out)["data"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["slug"] == "cursor")
+        .unwrap()
+        .clone()
+}
+
+/// The user-local plugin under `~/.cursor/plugins/local/fufu/`: the native
+/// manifest, the flat hooks file with the three events, and the skill;
+/// written beside a foreign plugin, a foreign hooks file, Cursor's own
+/// settings, and Codex's marketplace without touching any of them.
+#[test]
+fn cursor_round_trips_without_changing_foreign_hooks_plugins_or_settings() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    let dir = home
+        .join(".cursor")
+        .join("plugins")
+        .join("local")
+        .join("fufu");
+    let foreign = [
+        (
+            ".cursor/hooks.json",
+            r#"{"version":1,"hooks":{"sessionStart":[{"command":"foreign"}]},"extra":true}"#,
+        ),
+        (".cursor/cli-config.json", r#"{"theme":"dark"}"#),
+        (
+            ".cursor/plugins/local/other/plugin.json",
+            r#"{"name":"other"}"#,
+        ),
+        (
+            ".agents/plugins/marketplace.json",
+            r#"{"name":"mine","plugins":[]}"#,
+        ),
+    ];
+    for (path, body) in foreign {
+        let path = home.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+    let out = ff_env(home, &["--json", "hook", "cursor"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        envelope(&out)["data"]["changed"],
+        serde_json::json!(["cursor"])
+    );
+    let row = cursor_status(home, &env);
+    assert_eq!(row["wiring"]["state"], "wired", "{row}");
+    assert_eq!(row["wiring"]["mechanism"], "plugin");
+    assert_eq!(row["skill"]["state"], "wired");
+    assert!(row["note"].as_str().unwrap().contains("cloud agents"));
+    assert!(row.get("stale").is_none(), "{row}");
+    assert_eq!(
+        json_at(&dir.join(".cursor-plugin").join("plugin.json"))["name"],
+        "fufu"
+    );
+    assert!(!dir.join("plugin.json").exists());
+    let hooks = json_at(&dir.join("hooks").join("hooks.json"));
+    assert_eq!(hooks["version"], 1);
+    assert_eq!(hooks["hooks"].as_object().unwrap().len(), 3);
+    for event in ["sessionStart", "preToolUse", "sessionEnd"] {
+        let entries = hooks["hooks"][event].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        let command = entries[0]["command"].as_str().unwrap();
+        assert!(command.ends_with("\" trigger cursor"), "{command}");
+        assert!(command.starts_with('"'), "quoted: {command}");
+        assert!(entries[0].get("hooks").is_none());
+    }
+    assert_eq!(
+        hooks["hooks"]["preToolUse"][0]["matcher"],
+        "Shell|Write|Delete"
+    );
+    assert!(
+        std::fs::read_to_string(dir.join("skills").join("fufu").join("SKILL.md"))
+            .unwrap()
+            .starts_with("---\nname: fufu\n")
+    );
+    let hook_path = dir.join("hooks").join("hooks.json");
+    let before = std::fs::metadata(&hook_path).unwrap().modified().unwrap();
+    let out = ff_env(home, &["--json", "hook", "cursor"], &env);
+    assert!(out.status.success());
+    assert_eq!(envelope(&out)["data"]["changed"], serde_json::json!([]));
+    assert_eq!(
+        std::fs::metadata(&hook_path).unwrap().modified().unwrap(),
+        before
+    );
+    assert!(ff_env(home, &["unhook", "cursor"], &env).status.success());
+    assert!(!dir.exists());
+    assert_eq!(cursor_status(home, &env)["wiring"]["state"], "not-wired");
+    let out = ff_env(home, &["--json", "unhook", "cursor"], &env);
+    assert!(out.status.success());
+    assert_eq!(envelope(&out)["data"]["changed"], serde_json::json!([]));
+    for (path, body) in foreign {
+        assert_eq!(std::fs::read_to_string(home.join(path)).unwrap(), body);
+    }
+}
+
+/// An install an earlier fufu merged into `~/.cursor/hooks.json` still
+/// reads as wired, on the settings mechanism and stale, so `ff hook -u`
+/// migrates it: the plugin lands, fufu's entries go, and the foreign
+/// entries beside them stay.
+#[test]
+fn cursor_refresh_migrates_the_old_settings_install() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    let path = home.join(".cursor").join("hooks.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let seed = serde_json::json!({"version":1,"hooks":{
+        "preToolUse":[{"matcher":"Shell|Write|Delete","command":"ff trigger cursor"},{"command":"foreign"}],
+        "sessionStart":[{"command":"ff trigger cursor"}],
+        "afterFileEdit":[{"command":"formatter"}]
+    },"extra":true});
+    std::fs::write(&path, seed.to_string()).unwrap();
+    let row = cursor_status(home, &env);
+    assert_eq!(row["wiring"]["mechanism"], "settings", "{row}");
+    assert_eq!(row["stale"], true, "{row}");
+    let said = text(&ff_env(home, &["hook", "-u"], &env));
+    assert!(said.contains("removed from"), "{said:?}");
+    assert_eq!(cursor_status(home, &env)["wiring"]["mechanism"], "plugin");
+    let remaining = json_at(&path);
+    assert_eq!(
+        remaining["hooks"]["preToolUse"],
+        serde_json::json!([{"command":"foreign"}])
+    );
+    assert!(remaining["hooks"].get("sessionStart").is_none());
+    assert_eq!(
+        remaining["hooks"]["afterFileEdit"],
+        seed["hooks"]["afterFileEdit"]
+    );
+    assert_eq!(remaining["extra"], true);
+    assert_eq!(remaining["version"], 1);
+}
+
+/// A plugin that cannot be written leaves the old wiring in place; an old
+/// file that will not parse is reported and left, on hook and unhook
+/// alike, with the plugin still written or removed.
+#[test]
+fn cursor_keeps_old_wiring_on_write_failure_and_reports_malformed_migration() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    let dir = home
+        .join(".cursor")
+        .join("plugins")
+        .join("local")
+        .join("fufu");
+    std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+    std::fs::write(&dir, "blocks plugin creation").unwrap();
+    let old = home.join(".cursor").join("hooks.json");
+    let seed = r#"{"version":1,"hooks":{"preToolUse":[{"matcher":"Shell|Write|Delete","command":"ff trigger cursor"}],"sessionStart":[{"command":"ff trigger cursor"}]}}"#;
+    std::fs::write(&old, seed).unwrap();
+    let out = ff_env(home, &["--json", "hook", "cursor"], &env);
+    assert!(!out.status.success());
+    assert_eq!(envelope(&out)["error"]["id"], "hook/failed");
+    assert_eq!(std::fs::read_to_string(&old).unwrap(), seed);
+    std::fs::remove_file(&dir).unwrap();
+    for bad in ["{ broken", "[]", r#"{"hooks":false}"#] {
+        std::fs::write(&old, bad).unwrap();
+        let said = text(&ff_env(home, &["hook", "cursor"], &env));
+        assert!(
+            said.contains("left ~/.cursor/hooks.json as found"),
+            "{said}"
+        );
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), bad);
+        assert_eq!(cursor_status(home, &env)["wiring"]["state"], "wired");
+        let said = text(&ff_env(home, &["unhook", "cursor"], &env));
+        assert!(
+            said.contains("left ~/.cursor/hooks.json as found"),
+            "{said}"
+        );
+        assert!(!dir.exists());
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), bad);
+    }
+    std::fs::write(&old, seed).unwrap();
+    assert!(ff_env(home, &["unhook", "cursor"], &env).status.success());
+    assert_eq!(
+        cursor_status(home, &env)["wiring"]["state"],
+        "not-wired",
+        "unhook also removes an unmigrated settings install"
+    );
+}
+
+/// Every piece install writes is one `-u` puts back, and doctor agrees
+/// at each step: a missing extra event is stale, a missing required one
+/// or a missing manifest is partial, a drifted or missing skill is its
+/// own finding, and a hooks file that will not parse is unavailable
+/// until `ff hook cursor` rewrites it.
+#[test]
+fn cursor_repairs_missing_events_manifest_and_skill_and_doctor_agrees() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [
+        ("HOME", home.to_str().unwrap()),
+        ("XDG_CACHE_HOME", home.to_str().unwrap()),
+    ];
+    let dir = home
+        .join(".cursor")
+        .join("plugins")
+        .join("local")
+        .join("fufu");
+    assert!(ff_env(home, &["hook", "cursor"], &env).status.success());
+    let path = dir.join("hooks").join("hooks.json");
+    let hooks = json_at(&path);
+    let doctor = || -> Vec<String> {
+        envelope(&ff_env(&fx.path(), &["doctor", "--json"], &env))["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["name"] == "cursor")
+            .map(|r| r["level"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(doctor(), vec!["ok"]);
+    for event in ["sessionEnd", "preToolUse", "sessionStart"] {
+        let mut damaged = hooks.clone();
+        damaged["hooks"].as_object_mut().unwrap().remove(event);
+        std::fs::write(&path, damaged.to_string()).unwrap();
+        let row = cursor_status(home, &env);
+        assert_eq!(
+            row["wiring"]["state"],
+            if event == "sessionEnd" {
+                "wired"
+            } else {
+                "partial"
+            },
+            "{event}: {row}"
+        );
+        assert_eq!(doctor(), vec!["warn"], "{event}");
+        assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+        assert_eq!(json_at(&path), hooks);
+        assert_eq!(doctor(), vec!["ok"], "{event}");
+    }
+    std::fs::remove_file(dir.join(".cursor-plugin").join("plugin.json")).unwrap();
+    assert_eq!(cursor_status(home, &env)["wiring"]["state"], "partial");
+    assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+    let skill = dir.join("skills").join("fufu").join("SKILL.md");
+    std::fs::write(&skill, "old manual").unwrap();
+    assert!(doctor().iter().any(|l| l == "warn"));
+    assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+    assert_eq!(doctor(), vec!["ok"]);
+    std::fs::write(&path, "{ broken").unwrap();
+    assert_eq!(cursor_status(home, &env)["wiring"]["state"], "unavailable");
+    assert!(ff_env(home, &["hook", "cursor"], &env).status.success());
+    assert_eq!(doctor(), vec!["ok"]);
+    std::fs::remove_file(&skill).unwrap();
+    assert_eq!(cursor_status(home, &env)["skill"]["state"], "not-wired");
+    assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+    assert_eq!(cursor_status(home, &env)["skill"]["state"], "wired");
+    assert_eq!(doctor(), vec!["ok"]);
+}
+
+#[test]
+fn cursor_is_detected_by_directory_or_binary() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    assert_eq!(cursor_status(home, &env)["presence"]["state"], "absent");
+    let binary = home.join("cursor-agent");
+    std::fs::write(&binary, "fake").unwrap();
+    let row = cursor_status(
+        home,
+        &[
+            ("HOME", home.to_str().unwrap()),
+            ("FF_CURSOR", binary.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(row["presence"]["state"], "present");
+    assert_eq!(row["presence"]["evidence"], binary.to_str().unwrap());
+    std::fs::create_dir(home.join(".cursor")).unwrap();
+    assert_eq!(cursor_status(home, &env)["presence"]["state"], "present");
 }
 
 // ---- the copilot plugin ----------------------------------------------------

@@ -10,12 +10,12 @@ Run the matching [`ff hook`](../reference/cli/hook.md) command in your terminal:
 | --- | --- | --- |
 | [Claude Code](../reference/hooks/claude.md) | `ff hook claude` | **Restart Claude Code** to load the plugin. `claude plugin list` should show `fufu@skills-dir`. |
 | [Codex](../reference/hooks/codex.md) | `ff hook codex` | **Run `/hooks` inside Codex and review and accept the hook.** New or changed hooks are skipped until approved by hash. The installer runs `codex plugin add fufu@fufu` when `codex` is on `PATH`; otherwise run it yourself. |
-| [Cursor agent](../reference/hooks/cursor.md) | `ff hook cursor` | Start a new agent session to check the loaded configuration. Cloud agents lack the session-start briefing; use project instructions below. |
+| [Cursor agent](../reference/hooks/cursor.md) | `ff hook cursor` | Start a new agent session in a trusted workspace; Cursor discovers the user-local plugin on session start. Cloud agents get no user-local hooks; use project instructions below. |
 | [Qwen Code](../reference/hooks/qwen.md) | `ff hook qwen` | Start a new session to check the loaded configuration. |
 | [OpenCode](../reference/hooks/opencode.md) | `ff hook opencode` | **Restart OpenCode** to load the plugin. |
 | [Copilot CLI](../reference/hooks/copilot.md) | `ff hook copilot` | Start a new session; `copilot plugin list` should show `fufu@fufu-ff (enabled)`. |
 
-Claude Code, Codex, OpenCode, and Copilot CLI installations include the shipped skill. Cursor and Qwen Code installations provide hooks but do not install a skill. The linked client references describe managed files, removal, and migration. Integrations are installed per machine; repeat setup on each machine where the agent runs.
+Every installation but Qwen Code's includes the shipped skill. The linked client references describe managed files, removal, and migration. Integrations are installed per machine; repeat setup on each machine where the agent runs.
 
 `ff hook --all` installs integrations for detected clients and shells without asking. Follow each reported activation step. It does not add instructions to your project's `CLAUDE.md` or `AGENTS.md`. Shell hooks need their own activation; see the [shell references](../reference/hooks/index.md).
 
@@ -61,12 +61,12 @@ Snapshots and briefings serve different purposes. Tool events attempt a snapshot
 | --- | --- | --- |
 | Claude Code | `Bash`, `Edit`, `Write`, `NotebookEdit` | `UserPromptSubmit` briefs once; `SessionStart` rebriefs on startup, resume, clear, compact, or fork. `Stop`, `SubagentStop`, `SubagentStart`, and `CwdChanged` widen capture. Pre-tool replies can brief subagents and newly entered repositories. |
 | Codex | `Bash`, `apply_patch` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs on startup, resume, clear, or compact. `Stop` and `SessionEnd` widen capture. No subagent events; pre-tool replies are silent. |
-| Cursor agent | `Shell`, `Write`, `Delete` | `sessionStart` captures and briefs. It does not fire for cloud agents; pre-tool capture still runs when received, but supplies no briefing. |
+| Cursor agent | `Shell`, `Write`, `Delete` | `sessionStart` captures and briefs; `sessionEnd` widens capture. No prompt or stop events: Cursor CLI gates them on user settings. Cloud agents get no user-local hooks. |
 | OpenCode | every tool | The system-prompt transform sends `SessionStart` on every model call, so the briefing is standing. Pre-tool output is discarded by OpenCode; no reply reaches the model. |
 | Copilot CLI | every tool | `userPromptSubmitted` captures and briefs; `sessionStart` rebriefs. `agentStop` and `sessionEnd` widen capture. Pre-tool replies are silent. |
 | Qwen Code | `run_shell_command`, `write_file`, `replace`, `edit` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs. `Stop` and `SessionEnd` widen capture. Pre-tool replies are silent. |
 
-Claude Code's, Codex's, Qwen Code's, and Copilot CLI's stop events can capture the final edit of a turn. Cursor has no turn-end capture event, so a final edit there waits for the next received event or repository command. Every hook capture is best-effort: unchanged content adds no capture, and contention or failure can skip one. A skipped capture is not proof that another writer saved those same bytes.
+Claude Code's, Codex's, Qwen Code's, and Copilot CLI's stop events can capture the final edit of a turn. Cursor has none, so a final edit there waits for `sessionEnd` or the next repository command. Every hook capture is best-effort: unchanged content adds no capture, and contention or failure can skip one. A skipped capture is not proof that another writer saved those same bytes.
 
 [`ff trigger <client>`](../reference/cli/trigger.md) reads client payloads on stdin. Runtime failures exit 0 quietly unless `FF_DEBUG` is set; successful replies use the client's protocol. Scripts should use the [JSON output and scripting](machine-surface.md) interface instead.
 

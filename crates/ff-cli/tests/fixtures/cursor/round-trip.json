@@ -1,0 +1,20 @@
+{
+  "client_version": "2026.09.10-fd3934a",
+  "command": "cursor-agent --trust --force --print --output-format json 'Quote the fufu briefing injected at session start verbatim, then run ff op log --json -n 1 exactly once and include its unmodified JSON output. Do not edit files or use other tools.'",
+  "subtype": "success",
+  "is_error": false,
+  "quoted_notice_head": "fufu (`ff`) takes snapshots",
+  "reported_op_log": {
+    "ff": 1,
+    "cmd": "op log",
+    "data": {
+      "ops": [
+        {
+          "summary": "cursor[<first 8 of the conversation id>]: Shell(ff op log --json -n 1)"
+        }
+      ]
+    }
+  },
+  "unhook_stdout": "cursor removed ~/.cursor/plugins/local/fufu\n",
+  "loader_after_unhook": { "plugins": [], "failures": [], "sourceUnavailable": false }
+}

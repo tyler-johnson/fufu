@@ -659,6 +659,68 @@ fn copilot_dispatches_the_environment_event_and_keys_the_camelcase_session() {
     assert!(out.stdout.is_empty(), "a tool under Codex has no channel");
 }
 
+/// The payloads Cursor CLI 2026.09.10 recorded (`fixtures/cursor/`),
+/// replayed from a directory that is not a repository: the hook runs from
+/// the plugin directory, so `workspace_roots` is what finds the
+/// repository, and the conversation id keys every capture.
+#[test]
+fn cursor_uses_the_captured_workspace_session_and_event() {
+    let fx = repo();
+    let elsewhere = tempfile::TempDir::new().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("cursor")
+        .join("capture.jsonl");
+    let records: Vec<serde_json::Value> = std::fs::read_to_string(&fixture)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let hooks: Vec<&serde_json::Value> = records.iter().filter(|r| r["kind"] == "hook").collect();
+    assert_eq!(hooks.len(), 3, "sessionStart, preToolUse, sessionEnd");
+    let workspace = fx.path().display().to_string();
+    let mut subjects = Vec::new();
+    for (n, record) in hooks.iter().enumerate() {
+        let mut stdin = record["stdin"].clone();
+        stdin["workspace_roots"] = serde_json::json!([workspace]);
+        // The shell probe the capture ran becomes a Git write, so the
+        // label carries what the tally would read.
+        if stdin["hook_event_name"] == "preToolUse" {
+            stdin["tool_input"]["command"] = "git status".into();
+        }
+        dirty(&fx, &format!("step {n}\n"));
+        let out = ff_stdin(elsewhere.path(), &["trigger", "cursor"], &stdin.to_string());
+        assert_eq!(out.status.code(), Some(0), "{}", stdin["hook_event_name"]);
+        let text = String::from_utf8(out.stdout).unwrap();
+        if stdin["hook_event_name"] == "sessionStart" {
+            let value: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+            assert!(
+                value["additional_context"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("fufu (`ff`) takes snapshots"),
+                "{value}"
+            );
+        } else {
+            assert!(text.is_empty(), "{}: {text:?}", stdin["hook_event_name"]);
+        }
+        subjects.push(chain_subject(&fx));
+    }
+    assert_eq!(
+        subjects,
+        vec![
+            "cursor[64c76817]: event sessionStart",
+            "cursor[64c76817]: Shell(git status)",
+            "cursor[64c76817]: event sessionEnd",
+        ]
+    );
+    assert!(
+        !elsewhere.path().join(".git").exists(),
+        "nothing was discovered from the hook's own directory"
+    );
+}
+
 /// The four capture-only events. Nothing is injected on any of them —
 /// `reply_envelope` has no channel for those kinds and the reply is empty
 /// anyway — and each one lands the snapshot that is the whole reason it is

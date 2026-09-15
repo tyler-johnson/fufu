@@ -173,7 +173,7 @@ pub struct Status {
     pub presence: Presence,
     pub wiring: Wiring,
     /// Something true about this integration that a person needs told —
-    /// Codex's trust step, Cursor's missing session start for cloud agents.
+    /// Codex's trust step, Cursor's absent hooks for cloud agents.
     /// Without it, capture can silently never happen with nothing saying why.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,

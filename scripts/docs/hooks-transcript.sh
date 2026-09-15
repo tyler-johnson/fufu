@@ -27,7 +27,7 @@ export GIT_CONFIG_KEY_0=fufu.updateCheck GIT_CONFIG_VALUE_0=false
 export GIT_CONFIG_KEY_1=fufu.autoFetch GIT_CONFIG_VALUE_1=false
 export GIT_CONFIG_KEY_2=fufu.autoTrim GIT_CONFIG_VALUE_2=false
 unset ZDOTDIR XDG_CONFIG_HOME
-export FF_CODEX=/nonexistent FF_OPENCODE=/nonexistent FF_COPILOT=/nonexistent
+export FF_CODEX=/nonexistent FF_OPENCODE=/nonexistent FF_COPILOT=/nonexistent FF_CURSOR=/nonexistent
 # `ff hook claude` peeks at a non-terminal stdin for a legacy hook payload;
 # a closed stdin is the hermetic answer.
 exec < /dev/null
@@ -141,13 +141,15 @@ show "$FF" unhook copilot
 list_files "$HOME/.agents/plugins/copilot"
 cat_file "$HOME/.copilot/settings.json"
 
-# --- cursor, qwen: entries merged into a settings file ---
+# --- cursor: a user-local plugin directory ---
 mark cursor
 show "$FF" hook cursor
-cat_file "$HOME/.cursor/hooks.json"
+list_files "$HOME/.cursor"
+cat_file "$HOME/.cursor/plugins/local/fufu/hooks/hooks.json"
 show "$FF" unhook cursor
-cat_file "$HOME/.cursor/hooks.json"
+list_files "$HOME/.cursor"
 
+# --- qwen: entries merged into a settings file ---
 mark qwen
 show "$FF" hook qwen
 cat_file "$HOME/.qwen/settings.json"

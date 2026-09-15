@@ -1,7 +1,7 @@
 <a id="ff-hook-cursor"></a>
 # Cursor
 
-[`ff hook cursor`](../cli/hook.md) installs snapshot hooks for the Cursor agent client. **Cloud agents do not fire `sessionStart`, so they receive no fufu briefing.** Their matching `preToolUse` events can still capture.
+[`ff hook cursor`](../cli/hook.md) installs a snapshot plugin and the shipped skill for the Cursor agent client. **Cloud agents get no user-local hooks, so nothing captures there.**
 
 ## Install
 
@@ -11,7 +11,7 @@ ff hook cursor
 
 ## Activate
 
-Restart the Cursor agent client to load the configuration. Ensure `ff` is on the client's PATH.
+Start a new agent session in a trusted workspace; Cursor CLI discovers user-local plugins on session start, with no marketplace registration and no install command. Team policy must allow local plugin imports. A resumed chat keeps its context and fires no `sessionStart`.
 
 ## Verify
 
@@ -25,52 +25,59 @@ ff doctor --no-fetch
 <a id="what-it-writes"></a>
 ## Files changed
 
-The installer merges two flat event entries into `~/.cursor/hooks.json` and adds `"version": 1` if absent. Unrelated settings and commands survive under the [shared ownership rules](index.md#files-changed). This installer supplies no skill.
+The installer writes the owned plugin directory `~/.cursor/plugins/local/fufu/` — the native `.cursor-plugin/plugin.json` manifest, `hooks/hooks.json` in Cursor's flat shape, and the skill under `skills/fufu/`. Other plugins under `plugins/local/`, `~/.cursor/hooks.json`, and Cursor's own settings are left alone. Personal files should stay outside the plugin directory.
 
 ```console
 $ ff hook cursor
-cursor wired into ~/.cursor/hooks.json
-  Cursor does not fire sessionStart for cloud agents, so the briefing is absent there — capture still rides preToolUse
+cursor plugin and skill written in ~/.cursor/plugins/local/fufu; Cursor discovers it on the next session
+  Cursor loads local plugins in trusted workspaces, and team policy must allow local plugin imports; cloud agents get no user-local hooks, so nothing captures there
 
-$ cat ~/.cursor/hooks.json
+$ find ~/.cursor -type f | sort
+~/.cursor/plugins/local/fufu/.cursor-plugin/plugin.json
+~/.cursor/plugins/local/fufu/hooks/hooks.json
+~/.cursor/plugins/local/fufu/skills/fufu/SKILL.md
+
+$ cat ~/.cursor/plugins/local/fufu/hooks/hooks.json
 {
   "version": 1,
   "hooks": {
     "preToolUse": [
       {
         "matcher": "Shell|Write|Delete",
-        "command": "ff trigger cursor"
+        "command": "\"/usr/local/bin/ff\" trigger cursor"
       }
     ],
     "sessionStart": [
       {
-        "command": "ff trigger cursor"
+        "command": "\"/usr/local/bin/ff\" trigger cursor"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "\"/usr/local/bin/ff\" trigger cursor"
       }
     ]
   }
 }
 ```
 
-`preToolUse` attempts capture before Shell, Write, or Delete calls; `sessionStart` delivers the briefing. There is no installed turn-end event, so a final edit waits for another event or repository command. Cursor captures and tallies recognized Git writes but returns no pre-tool coaching or denial reply, including under strict policy.
+The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, double-quoted. `preToolUse` attempts capture before Shell, Write, or Delete calls; `sessionStart` captures and delivers the briefing as `additional_context`; `sessionEnd` captures once more at the end. Cursor CLI 2026.09.10 gates `beforeSubmitPrompt` and `stop` on user or project hook settings even when a plugin declares them, so they are not wired; a final edit waits for `sessionEnd` or the next repository command. Hooks run from the plugin directory and name the workspace in `workspace_roots`, which is where the repository is discovered when the payload has no `cwd`. Cursor captures and tallies recognized Git writes but returns no pre-tool coaching or denial reply, including under strict policy.
 
 <a id="what-ff-unhook-cursor-removes"></a>
 ## Remove
 
-[`ff unhook cursor`](../cli/unhook.md) removes the two managed entries. The `version` field stays. Restart the client afterward.
+[`ff unhook cursor`](../cli/unhook.md) removes the plugin directory, and strips the entries an earlier fufu merged into `~/.cursor/hooks.json` if any are still there. Start a new session afterward.
 
 ```console
 $ ff unhook cursor
-cursor removed from ~/.cursor/hooks.json
+cursor removed ~/.cursor/plugins/local/fufu
 
-$ cat ~/.cursor/hooks.json
-{
-  "version": 1
-}
+$ find ~/.cursor -type f | sort
 ```
 
 <a id="notes"></a>
 ## Troubleshooting and migration
 
-If capture is absent, check PATH, restart the agent client, and run the verification recipe. Missing briefings on cloud agents are an event limitation; reinstalling does not add `sessionStart` there. `ff doctor --fix` repairs partial or stale managed entries.
+If capture is absent, check that the workspace is trusted and that team policy allows local plugin imports, then run the verification recipe. `ff hook -u` restores a plugin missing an event; `ff doctor --fix` repairs partial or stale managed configuration and a drifted skill.
 
-Before v0.15, fufu registered its MCP command as `mcpServers.fufu` in `~/.cursor/mcp.json`. Installation, refresh, or removal deletes that managed registration. An entry running an unrelated command survives.
+Before this plugin, fufu merged two flat entries into `~/.cursor/hooks.json`. That file still reads as wired, on the settings mechanism and stale, so `ff hook -u` migrates it: the plugin is written and verified first, then fufu's entries go and foreign entries beside them stay. A file that will not parse is reported and left. Before v0.15, fufu also registered an MCP server in `~/.cursor/mcp.json`; installation, refresh, or removal deletes that entry and leaves a hand-written one alone.
