@@ -184,7 +184,7 @@ exits = ["ff hook -l", "ff help hook"]
 [[entry]]
 id = "hook/malformed"
 summary = "a client's config file is not the JSON object its client reads"
-detail = "The named file is not valid JSON, or its top level or one of the keys ff hook merges into is not the shape the client documents. The file is untouched: fufu never rewrites a file it cannot read into something the client cannot read either. Repair the file by hand or restore it from the client, then rerun ff hook <slug>. For Codex the file may be the personal marketplace at ~/.agents/plugins/marketplace.json, which the plugin install merges an entry into. hook/failed is also what ff hook opencode raises for a plugins/fufu.js fufu did not write: move it aside."
+detail = "The named file is not valid JSON, or its top level or one of the keys ff hook merges into is not the shape the client documents (for Copilot CLI, enabledPlugins and extraKnownMarketplaces must be objects). The file is untouched: fufu never rewrites a file it cannot read into something the client cannot read either. Repair the file by hand or restore it from the client, then rerun ff hook <slug>. For Codex the file may be the personal marketplace at ~/.agents/plugins/marketplace.json, which the plugin install merges an entry into. hook/failed is also what ff hook opencode raises for a plugins/fufu.js fufu did not write: move it aside."
 exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]
@@ -394,7 +394,7 @@ exits = ["ff help"]
 [[entry]]
 id = "usage/unknown-slug"
 summary = "the hook integration name is unknown or could not be inferred"
-detail = "Choose a name from ff hook -l: claude, codex, qwen, opencode, cursor, bash, zsh, fish, or powershell. Pass it directly to ff hook or ff unhook. If SHELL does not identify a supported shell, name that shell explicitly. Installation still needs client activation: restart or reload shell configuration, and complete any client hook approval. gemini is a retired source: ff trigger gemini still captures from a settings file an earlier fufu wrote, but ff hook and ff unhook no longer touch ~/.gemini. An unknown client-trigger name is handled quietly instead of using this interactive refusal."
+detail = "Choose a name from ff hook -l: claude, codex, qwen, opencode, copilot, cursor, bash, zsh, fish, or powershell. Pass it directly to ff hook or ff unhook. If SHELL does not identify a supported shell, name that shell explicitly. Installation still needs client activation: restart or reload shell configuration, and complete any client hook approval. gemini is a retired source: ff trigger gemini still captures from a settings file an earlier fufu wrote, but ff hook and ff unhook no longer touch ~/.gemini. An unknown client-trigger name is handled quietly instead of using this interactive refusal."
 exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]

@@ -35,6 +35,7 @@ use crate::ctx::Ctx;
 pub mod briefing;
 pub mod claude;
 pub mod codex;
+pub mod copilot;
 pub mod cursor;
 pub mod event;
 pub mod manual;
@@ -369,6 +370,7 @@ static CLAUDE: claude::Claude = claude::Claude;
 static CODEX: codex::Codex = codex::Codex;
 static QWEN: qwen::Qwen = qwen::Qwen;
 static OPENCODE: opencode::Opencode = opencode::Opencode;
+static COPILOT: copilot::Copilot = copilot::Copilot;
 static CURSOR: cursor::Cursor = cursor::Cursor;
 static BASH: shell::Shell = shell::Shell { slug: "bash" };
 static ZSH: shell::Shell = shell::Shell { slug: "zsh" };
@@ -377,12 +379,13 @@ static POWERSHELL: shell::Shell = shell::Shell { slug: "powershell" };
 
 /// Every slug, in the order `ff hook -l` and `ff hook --all` walk them:
 /// agent clients first, then shells.
-pub fn all() -> [&'static dyn Integration; 9] {
+pub fn all() -> [&'static dyn Integration; 10] {
     [
         &CLAUDE,
         &CODEX,
         &QWEN,
         &OPENCODE,
+        &COPILOT,
         &CURSOR,
         &BASH,
         &ZSH,
@@ -461,11 +464,12 @@ pub fn resolve_trigger(name: Option<&str>) -> Option<Source> {
 /// captures under. `/clear` hands the hook a new id and leaves such a
 /// process, and its variable, as they were. Read by `Ctx` for the session
 /// trailer a shell verb under an agent carries.
-pub const SESSION_VARS: [(&str, &str); 5] = [
+pub const SESSION_VARS: [(&str, &str); 6] = [
     ("CLAUDE_CODE_SESSION_ID", "claude"),
     ("CODEX_SESSION_ID", "codex"),
     ("QWEN_CODE_SESSION_ID", "qwen"),
     ("OPENCODE_SESSION_ID", "opencode"),
+    ("COPILOT_AGENT_SESSION_ID", "copilot"),
     ("CURSOR_CONVERSATION_ID", "cursor"),
 ];
 
@@ -615,7 +619,7 @@ mod tests {
             assert_eq!(integration.source(), name);
             assert_eq!(forced, Some(EventKind::SessionStart));
         }
-        assert_eq!(all().len(), 9);
+        assert_eq!(all().len(), 10);
     }
 
     /// The source a client's session variable resolves to is a word `ff

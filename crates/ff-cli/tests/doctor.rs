@@ -21,7 +21,8 @@ fn doctor_env(dir: &Path, args: &[&str], home: &Path) -> Output {
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("FF_CODEX", "/nonexistent")
-        .env("FF_OPENCODE", "/nonexistent");
+        .env("FF_OPENCODE", "/nonexistent")
+        .env("FF_COPILOT", "/nonexistent");
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
         if let Some(value) = std::env::var_os(key) {

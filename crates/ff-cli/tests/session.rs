@@ -398,11 +398,12 @@ const CLIENT: &str = "95b36d9d-efdc-4564-9b06-91842f51ef6b";
 /// Every variable a client sets in the processes it starts, and the
 /// scrub `ff_env` applies so a suite run under one client sees only what a
 /// test names.
-const CLIENT_VARS: [&str; 5] = [
+const CLIENT_VARS: [&str; 6] = [
     "CLAUDE_CODE_SESSION_ID",
     "CODEX_SESSION_ID",
     "QWEN_CODE_SESSION_ID",
     "OPENCODE_SESSION_ID",
+    "COPILOT_AGENT_SESSION_ID",
     "CURSOR_CONVERSATION_ID",
 ];
 

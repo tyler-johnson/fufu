@@ -11,15 +11,15 @@ ff hook -l               # List installed configuration
 ```
 
 - Shells: [Bash](bash.md), [Zsh](zsh.md), [Fish](fish.md), [PowerShell](powershell.md).
-- Agent clients: [Claude Code](claude.md), [Codex](codex.md), [Qwen Code](qwen.md), [OpenCode](opencode.md), [Cursor](cursor.md).
+- Agent clients: [Claude Code](claude.md), [Codex](codex.md), [Qwen Code](qwen.md), [OpenCode](opencode.md), [Copilot CLI](copilot.md), [Cursor](cursor.md).
 
 Hook installation changes local files and makes no network request.
 
 ## Activate
 
-Restart the shell or source the file named by the installer; each shell page gives the exact command. Restart Claude Code after installing its plugin. For Codex, the installer runs `codex plugin add fufu@fufu` when `codex` is on `PATH` and names the command otherwise; then run `/hooks` and review and approve the hook by hash after installation or changes. Restart OpenCode, Cursor, or Qwen Code before testing their new configuration.
+Restart the shell or source the file named by the installer; each shell page gives the exact command. Restart Claude Code after installing its plugin. For Codex, the installer runs `codex plugin add fufu@fufu` when `codex` is on `PATH` and names the command otherwise; then run `/hooks` and review and approve the hook by hash after installation or changes. Copilot CLI loads the plugin live on its next session. Restart OpenCode, Cursor, or Qwen Code before testing their new configuration.
 
-Cursor cloud agents do not fire `sessionStart`, so they receive no fufu briefing; their `preToolUse` event can still capture. Cursor has no installed turn-end capture event, so a final edit there waits for the next matching event or repository command; Codex and Qwen Code install `Stop` and `SessionEnd`. See [agent setup](../../agents/setup.md#what-the-hook-captures-and-what-it-tells-the-agent) for each client's events and replies.
+Cursor cloud agents do not fire `sessionStart`, so they receive no fufu briefing; their `preToolUse` event can still capture. Cursor has no installed turn-end capture event, so a final edit there waits for the next matching event or repository command; Codex and Qwen Code install `Stop` and `SessionEnd`, and Copilot CLI `agentStop` and `sessionEnd`. See [agent setup](../../agents/setup.md#what-the-hook-captures-and-what-it-tells-the-agent) for each client's events and replies.
 
 ## Verify
 
@@ -31,7 +31,7 @@ Shell hooks add a `git` alias or function that routes through [`ff git`](../cli/
 
 - **Shells:** marked lines in the shell's startup file. Alias and prompt hook are managed independently. Recognized hand-written equivalents are reported and left alone; the missing piece can still be installed.
 - **Agent settings:** fufu merges recognized hook commands into JSON. Unrelated settings and commands survive, although formatting can change. Invalid JSON is refused without rewriting that file. A command matching fufu's current or retired spelling is treated as managed even if you pasted it by hand.
-- **Owned directories:** the Claude Code and Codex plugin directories are written and removed as fufu-managed content, the skill inside each; OpenCode gets one plugin file and a skill directory under its config directory, and a `fufu.js` fufu did not write is reported and left alone. Keep personal files elsewhere. Codex also merges one entry into `~/.agents/plugins/marketplace.json`, which follows the agent-settings rules above. Cursor and Qwen Code receive no skill from these installers.
+- **Owned directories:** the Claude Code and Codex plugin directories are written and removed as fufu-managed content, the skill inside each; OpenCode gets one plugin file and a skill directory under its config directory, and a `fufu.js` fufu did not write is reported and left alone. Keep personal files elsewhere. Codex also merges one entry into `~/.agents/plugins/marketplace.json`, and Copilot CLI one into `~/.agents/plugins/copilot/marketplace.json` plus a registration in `~/.copilot/settings.json`; those files follow the agent-settings rules above. Cursor and Qwen Code receive no skill from these installers.
 
 Re-running an installer repairs missing or stale managed entries and refreshes shipped content. `ff hook -u` refreshes already installed integrations without adding new clients.
 

@@ -85,6 +85,7 @@ nav:
           - Codex: reference/hooks/codex.md
           - Qwen Code: reference/hooks/qwen.md
           - OpenCode: reference/hooks/opencode.md
+          - Copilot CLI: reference/hooks/copilot.md
           - Cursor: reference/hooks/cursor.md
       - Configuration: reference/config.md
       - Commit signing: reference/signing.md

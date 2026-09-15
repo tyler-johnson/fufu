@@ -27,13 +27,20 @@ const MAX_PROMPT: usize = 60;
 #[serde(default)]
 pub struct Payload {
     pub hook_event_name: String,
+    /// Copilot spells it `sessionId`.
+    #[serde(alias = "sessionId")]
     pub session_id: String,
     /// The subagent making this call, when one is. Empty is the main
     /// thread — and a subagent carries the parent's `session_id`, which is
     /// exactly why the audience needs a field of its own.
     pub agent_id: String,
     pub cwd: String,
+    /// Copilot's pre-tool keys are read best-effort under their likely
+    /// camelCase spellings; a shape none of these match still captures
+    /// under the honest `event <name>` label.
+    #[serde(alias = "toolName")]
     pub tool_name: String,
+    #[serde(alias = "toolArgs", alias = "toolInput")]
     pub tool_input: ToolInput,
     pub prompt: String,
 }
@@ -140,8 +147,12 @@ pub fn to_event(payload: &Payload, forced: Option<EventKind>) -> Result<Option<A
     let kind = forced
         .or_else(|| EventKind::from_hint(&payload.hook_event_name))
         .unwrap_or(EventKind::Other);
+    // A tool event whose payload names no tool at all — Copilot's shape
+    // is unverified — is labeled by the event, which is what is known.
     let label = match kind {
-        EventKind::BeforeTool => tool_label(&payload.tool_name, &payload.tool_input),
+        EventKind::BeforeTool if !payload.tool_name.is_empty() => {
+            tool_label(&payload.tool_name, &payload.tool_input)
+        }
         _ => event_label(kind, &payload.hook_event_name, &payload.prompt),
     };
     Ok(Some(AgentEvent {

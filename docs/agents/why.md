@@ -53,7 +53,7 @@ Separate [worktrees](../guides/worktrees.md#two-writers-one-repository) give age
 <a id="strict-mode-as-a-leash"></a>
 ## Guide Git usage with policy
 
-The default `fufu.gitPolicy=coach` suggests fufu equivalents for recognized Git writes. `strict` refuses mapped writes through `ff git` and requests denial through the Claude Code hook. The current Codex, Qwen Code, OpenCode, and Cursor adapters emit no pre-tool policy reply. [Agent setup](setup.md#pick-a-git-policy) explains the client differences and refusal timing.
+The default `fufu.gitPolicy=coach` suggests fufu equivalents for recognized Git writes. `strict` refuses mapped writes through `ff git` and requests denial through the Claude Code hook. The current Codex, Qwen Code, OpenCode, Copilot CLI, and Cursor adapters emit no pre-tool policy reply. [Agent setup](setup.md#pick-a-git-policy) explains the client differences and refusal timing.
 
 Unmapped commands and ambiguous shell strings remain allowed. Policy guides version-control commands; it does not isolate an agent's process or replace snapshot verification.
 

@@ -148,7 +148,7 @@ pub(crate) fn registry() -> &'static [Setting] {
             desc: &[
                 "Policy for covered Git writes through ff git and Claude Code hooks:",
                 "observe stays quiet; coach suggests a fufu command; strict refuses.",
-                "Codex, Qwen Code, OpenCode, and Cursor hooks tally writes but send no policy reply.",
+                "Codex, Qwen Code, OpenCode, Copilot CLI, and Cursor hooks tally writes but send no policy reply.",
                 "Commands are never silently translated.",
             ],
         },

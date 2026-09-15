@@ -23,7 +23,8 @@ fn ff_env(dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .env("GIT_CONFIG_SYSTEM", null_device())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("FF_CODEX", "/nonexistent")
-        .env("FF_OPENCODE", "/nonexistent");
+        .env("FF_OPENCODE", "/nonexistent")
+        .env("FF_COPILOT", "/nonexistent");
     // env_clear() strips vars Windows processes cannot live without.
     #[cfg(windows)]
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"] {
@@ -633,7 +634,7 @@ fn the_report_is_a_json_envelope() {
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(value["cmd"], "hook");
     let rows = value["data"]["integrations"].as_array().unwrap();
-    assert_eq!(rows.len(), 9, "one row per slug: {rows:?}");
+    assert_eq!(rows.len(), 10, "one row per slug: {rows:?}");
     assert_eq!(rows[0]["slug"], "claude");
     assert_eq!(rows[0]["wiring"]["state"], "not-wired");
 }
@@ -1502,6 +1503,385 @@ fn doctor_reads_the_opencode_plugin() {
         format!("{} is not fufu's — left alone", plugin.display()),
         "{found}"
     );
+}
+
+// ---- the copilot plugin ----------------------------------------------------
+
+/// Copilot's row from the JSON listing.
+fn copilot_status(home: &Path, env: &[(&str, &str)]) -> serde_json::Value {
+    let out = ff_env(home, &["--json", "hook", "-l"], env);
+    assert!(out.status.success());
+    envelope(&out)["data"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["slug"] == "copilot")
+        .unwrap()
+        .clone()
+}
+
+const COPILOT_EVENTS: [&str; 5] = [
+    "preToolUse",
+    "userPromptSubmitted",
+    "sessionStart",
+    "agentStop",
+    "sessionEnd",
+];
+
+/// The Agent Plugins 1.0 plugin under `~/.agents/plugins/copilot/fufu/`,
+/// its marketplace beside it, and the registration merged into Copilot's
+/// settings: written beside Codex's plugin without touching it, foreign
+/// settings kept value for value, idempotent without rewriting the
+/// settings file, and removed whole.
+#[test]
+fn the_copilot_plugin_round_trips_beside_codex_and_foreign_settings() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    let root = home.join(".agents").join("plugins").join("copilot");
+    let dir = root.join("fufu");
+    let settings = home.join(".copilot").join("settings.json");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    let foreign = serde_json::json!({
+        "theme": "dark", "enabledPlugins": {"other@mine": true},
+        "extraKnownMarketplaces": {"mine": {"source": {"source": "directory", "path": "/mine"}}}
+    });
+    std::fs::write(&settings, foreign.to_string()).unwrap();
+    assert!(ff_env(home, &["hook", "codex"], &env).status.success());
+    let codex_market = home
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
+    let codex_manifest = home
+        .join(".agents")
+        .join("plugins")
+        .join("fufu")
+        .join(".codex-plugin")
+        .join("plugin.json");
+    let codex_before = (
+        std::fs::read(&codex_market).unwrap(),
+        std::fs::read(&codex_manifest).unwrap(),
+    );
+
+    let out = ff_env(home, &["--json", "hook", "copilot"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        envelope(&out)["data"]["changed"],
+        serde_json::json!(["copilot"])
+    );
+    let status = copilot_status(home, &env);
+    assert_eq!(status["wiring"]["state"], "wired", "{status}");
+    assert_eq!(status["wiring"]["mechanism"], "plugin");
+    assert_eq!(status["skill"]["state"], "wired");
+    assert!(status.get("note").is_none(), "no trust step: {status}");
+    let manifest = json_at(&dir.join("plugin.json"));
+    assert_eq!(
+        manifest["$schema"],
+        "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+    );
+    assert_eq!(manifest["name"], "fufu");
+    let version = manifest["version"].as_str().unwrap();
+    let (_, hash) = version.split_once("+ff.").unwrap();
+    assert_eq!(hash.len(), 8);
+    assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    assert!(!dir.join(".codex-plugin").exists());
+    assert!(
+        std::fs::read_to_string(dir.join("skills").join("fufu").join("SKILL.md"))
+            .unwrap()
+            .starts_with("---\nname: fufu\n")
+    );
+    let hooks = json_at(
+        &dir.join("com.github.copilot")
+            .join("hooks")
+            .join("hooks.json"),
+    );
+    assert_eq!(hooks["version"], 1);
+    assert_eq!(hooks["hooks"].as_object().unwrap().len(), 5);
+    for event in COPILOT_EVENTS {
+        let entries = hooks["hooks"][event].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["type"], "command");
+        let bash = entries[0]["bash"].as_str().unwrap();
+        assert!(bash.ends_with("\" trigger copilot"), "{bash:?}");
+        assert!(bash.starts_with('"'), "quoted: {bash:?}");
+        assert_eq!(entries[0]["env"]["FF_HOOK_EVENT"], event);
+        assert_eq!(entries[0]["timeoutSec"], 30);
+        assert!(entries[0].get("hooks").is_none());
+    }
+    let market = json_at(&root.join("marketplace.json"));
+    assert_eq!(market["name"], "fufu-ff");
+    assert_eq!(market["owner"]["name"], "fufu");
+    assert_eq!(market["plugins"][0]["name"], "fufu");
+    assert_eq!(market["plugins"][0]["source"], "./fufu");
+    let registration = json_at(&settings);
+    assert_eq!(registration["theme"], "dark");
+    assert_eq!(registration["enabledPlugins"]["other@mine"], true);
+    assert_eq!(registration["enabledPlugins"]["fufu@fufu-ff"], true);
+    assert_eq!(
+        registration["extraKnownMarketplaces"]["fufu-ff"]["source"]["source"],
+        "directory"
+    );
+    assert_eq!(
+        registration["extraKnownMarketplaces"]["fufu-ff"]["source"]["path"],
+        root.display().to_string()
+    );
+    assert_eq!(
+        registration["extraKnownMarketplaces"]["mine"]["source"]["path"],
+        "/mine"
+    );
+
+    // Idempotent, and the settings file is not rewritten for nothing.
+    let before = std::fs::metadata(&settings).unwrap().modified().unwrap();
+    let out = ff_env(home, &["--json", "hook", "copilot"], &env);
+    assert!(out.status.success());
+    assert_eq!(envelope(&out)["data"]["changed"], serde_json::json!([]));
+    assert_eq!(
+        std::fs::metadata(&settings).unwrap().modified().unwrap(),
+        before
+    );
+    let said = text(&ff_env(home, &["hook", "copilot"], &env));
+    assert!(
+        said.contains("already wired in") && said.contains("registered live as fufu@fufu-ff"),
+        "{said:?}"
+    );
+
+    assert!(ff_env(home, &["unhook", "copilot"], &env).status.success());
+    assert!(!dir.exists());
+    assert!(!root.join("marketplace.json").exists());
+    assert_eq!(json_at(&settings), foreign);
+    assert_eq!(std::fs::read(&codex_market).unwrap(), codex_before.0);
+    assert_eq!(std::fs::read(&codex_manifest).unwrap(), codex_before.1);
+    assert_eq!(copilot_status(home, &env)["wiring"]["state"], "not-wired");
+    let out = ff_env(home, &["--json", "unhook", "copilot"], &env);
+    assert!(out.status.success());
+    assert_eq!(envelope(&out)["data"]["changed"], serde_json::json!([]));
+}
+
+/// The marketplace root is shared with tower. A file tower created keeps
+/// its name and its entry; fufu's entry joins the list, the selector
+/// follows the file's name, and unhook takes fufu's entry and its
+/// `enabledPlugins` key while the file and the marketplace registration
+/// stay for tower.
+#[test]
+fn copilot_shares_a_marketplace_tower_created() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    let root = home.join(".agents").join("plugins").join("copilot");
+    let market = root.join("marketplace.json");
+    std::fs::create_dir_all(&root).unwrap();
+    let seed = serde_json::json!({
+        "name": "tower-atc", "owner": { "name": "tower" },
+        "plugins": [{ "name": "tower", "source": "./tower" }]
+    });
+    std::fs::write(&market, serde_json::to_string_pretty(&seed).unwrap()).unwrap();
+    let settings = home.join(".copilot").join("settings.json");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    std::fs::write(
+        &settings,
+        serde_json::json!({
+            "enabledPlugins": { "tower@tower-atc": true },
+            "extraKnownMarketplaces": { "tower-atc": { "source": { "source": "directory", "path": root } } }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let said = text(&ff_env(home, &["hook", "copilot"], &env));
+    assert!(
+        said.contains("registered live as fufu@tower-atc"),
+        "{said:?}"
+    );
+    let v = json_at(&market);
+    assert_eq!(v["name"], "tower-atc");
+    assert_eq!(v["owner"]["name"], "tower");
+    let plugins = v["plugins"].as_array().unwrap();
+    assert_eq!(plugins.len(), 2);
+    assert_eq!(plugins[0], seed["plugins"][0]);
+    assert_eq!(plugins[1]["source"], "./fufu");
+    let registration = json_at(&settings);
+    assert_eq!(registration["enabledPlugins"]["tower@tower-atc"], true);
+    assert_eq!(registration["enabledPlugins"]["fufu@tower-atc"], true);
+    assert_eq!(copilot_status(home, &env)["wiring"]["state"], "wired");
+
+    // tower rewriting the file whole reads as partial, and -u repairs.
+    std::fs::write(&market, serde_json::to_string_pretty(&seed).unwrap()).unwrap();
+    let status = copilot_status(home, &env);
+    assert_eq!(status["wiring"]["state"], "partial", "{status}");
+    assert_eq!(status["wiring"]["missing"], "marketplace entry", "{status}");
+    assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+    assert_eq!(copilot_status(home, &env)["wiring"]["state"], "wired");
+
+    let said = text(&ff_env(home, &["unhook", "copilot"], &env));
+    assert!(said.contains("registration fufu@tower-atc"), "{said:?}");
+    let v = json_at(&market);
+    assert_eq!(v["plugins"], seed["plugins"], "tower's entry stays");
+    assert_eq!(v["name"], "tower-atc");
+    let registration = json_at(&settings);
+    assert_eq!(registration["enabledPlugins"]["tower@tower-atc"], true);
+    assert!(
+        registration["enabledPlugins"]
+            .get("fufu@tower-atc")
+            .is_none(),
+        "{registration}"
+    );
+    assert!(
+        registration["extraKnownMarketplaces"]["tower-atc"].is_object(),
+        "the marketplace registration is tower's too: {registration}"
+    );
+    assert!(!root.join("fufu").exists());
+}
+
+/// Copilot's settings file is refused whole when it is not the object
+/// Copilot reads, before anything is written or removed.
+#[test]
+fn copilot_refuses_malformed_settings_before_writing_or_removing_files() {
+    for bad in [
+        "{ broken",
+        "[]",
+        r#"{"enabledPlugins":false}"#,
+        r#"{"extraKnownMarketplaces":[]}"#,
+    ] {
+        let home = tempfile::TempDir::new().unwrap();
+        let home = home.path();
+        let env = [("HOME", home.to_str().unwrap())];
+        let settings = home.join(".copilot").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, bad).unwrap();
+        let out = ff_env(home, &["--json", "hook", "copilot"], &env);
+        assert_eq!(out.status.code(), Some(1), "{bad}");
+        assert_eq!(envelope(&out)["error"]["id"], "hook/malformed", "{bad}");
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), bad);
+        assert!(
+            !home
+                .join(".agents")
+                .join("plugins")
+                .join("copilot")
+                .exists()
+        );
+
+        std::fs::write(&settings, "{}").unwrap();
+        assert!(ff_env(home, &["hook", "copilot"], &env).status.success());
+        std::fs::write(&settings, bad).unwrap();
+        assert_eq!(
+            copilot_status(home, &env)["wiring"]["state"],
+            "unavailable",
+            "{bad}"
+        );
+        let out = ff_env(home, &["--json", "unhook", "copilot"], &env);
+        assert_eq!(envelope(&out)["error"]["id"], "hook/malformed", "{bad}");
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), bad);
+        assert!(
+            home.join(".agents")
+                .join("plugins")
+                .join("copilot")
+                .join("fufu")
+                .join("plugin.json")
+                .exists()
+        );
+    }
+}
+
+/// Every piece install writes is one `-u` puts back: a missing extra
+/// event is stale, and a wrong event environment, a missing manifest, a
+/// missing marketplace, a registration set false, or a drifted skill is a
+/// finding doctor names and the refresh repairs.
+#[test]
+fn copilot_repairs_missing_events_manifest_registration_and_skill() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [
+        ("HOME", home.to_str().unwrap()),
+        ("XDG_CACHE_HOME", home.to_str().unwrap()),
+    ];
+    let root = home.join(".agents").join("plugins").join("copilot");
+    let dir = root.join("fufu");
+    assert!(ff_env(home, &["hook", "copilot"], &env).status.success());
+    let path = dir
+        .join("com.github.copilot")
+        .join("hooks")
+        .join("hooks.json");
+    let hooks = json_at(&path);
+    // Every level doctor gives a row named for the slug: the wiring row,
+    // and the skill row when the skill has drifted, which is named for
+    // the slug whose installer repairs it.
+    let doctor = || -> Vec<String> {
+        envelope(&ff_env(&fx.path(), &["doctor", "--json"], &env))["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["name"] == "copilot")
+            .map(|r| r["level"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(doctor(), vec!["ok"]);
+    let mut old = hooks.clone();
+    old["hooks"].as_object_mut().unwrap().remove("agentStop");
+    std::fs::write(&path, old.to_string()).unwrap();
+    let status = copilot_status(home, &env);
+    assert_eq!(status["wiring"]["state"], "wired");
+    assert_eq!(status["stale"], true);
+    assert_eq!(doctor(), vec!["warn"]);
+    assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+    assert_eq!(json_at(&path), hooks);
+
+    for damage in ["event", "manifest", "marketplace", "registration", "skill"] {
+        match damage {
+            "event" => {
+                let mut wrong = hooks.clone();
+                wrong["hooks"]["preToolUse"][0]["env"]["FF_HOOK_EVENT"] = "agentStop".into();
+                std::fs::write(&path, wrong.to_string()).unwrap();
+            }
+            "manifest" => std::fs::remove_file(dir.join("plugin.json")).unwrap(),
+            "marketplace" => std::fs::remove_file(root.join("marketplace.json")).unwrap(),
+            "registration" => std::fs::write(
+                home.join(".copilot").join("settings.json"),
+                r#"{"enabledPlugins":{"fufu@fufu-ff":false}}"#,
+            )
+            .unwrap(),
+            "skill" => {
+                std::fs::write(dir.join("skills").join("fufu").join("SKILL.md"), "old").unwrap()
+            }
+            _ => unreachable!(),
+        }
+        let status = copilot_status(home, &env);
+        if damage != "skill" {
+            assert_eq!(status["wiring"]["state"], "partial", "{damage}: {status}");
+        } else {
+            assert_eq!(status["skill"]["state"], "partial", "{damage}: {status}");
+        }
+        assert!(doctor().iter().any(|l| l == "warn"), "{damage}");
+        assert!(ff_env(home, &["hook", "-u"], &env).status.success());
+        assert_eq!(doctor(), vec!["ok"], "{damage}");
+    }
+}
+
+#[test]
+fn copilot_is_detected_by_directory_or_binary() {
+    let home = tempfile::TempDir::new().unwrap();
+    let home = home.path();
+    let env = [("HOME", home.to_str().unwrap())];
+    assert_eq!(copilot_status(home, &env)["presence"]["state"], "absent");
+    let binary = home.join("copilot");
+    std::fs::write(&binary, "fake").unwrap();
+    let row = copilot_status(
+        home,
+        &[
+            ("HOME", home.to_str().unwrap()),
+            ("FF_COPILOT", binary.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(row["presence"]["state"], "present");
+    assert_eq!(row["presence"]["evidence"], binary.to_str().unwrap());
+    std::fs::create_dir(home.join(".copilot")).unwrap();
+    assert_eq!(copilot_status(home, &env)["presence"]["state"], "present");
 }
 
 // ---- gemini and qwen -------------------------------------------------------

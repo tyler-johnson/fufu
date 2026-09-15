@@ -60,10 +60,12 @@ impl EventKind {
             .collect();
         Some(match key.as_str() {
             "sessionstart" => EventKind::SessionStart,
-            "contextstart" | "userpromptsubmit" | "beforesubmitprompt" => EventKind::ContextStart,
+            "contextstart" | "userpromptsubmit" | "userpromptsubmitted" | "beforesubmitprompt" => {
+                EventKind::ContextStart
+            }
             "beforetool" | "pretooluse" | "beforeshellexecution" => EventKind::BeforeTool,
             "subagentstart" | "presubagent" => EventKind::SubagentStart,
-            "turnend" | "stop" | "subagentstop" | "posttooluse" => EventKind::TurnEnd,
+            "turnend" | "stop" | "subagentstop" | "agentstop" | "posttooluse" => EventKind::TurnEnd,
             "sessionend" => EventKind::SessionEnd,
             _ => return None,
         })
@@ -175,7 +177,12 @@ mod tests {
         for spelling in ["PreToolUse", "BeforeTool", "preToolUse"] {
             assert_eq!(EventKind::from_hint(spelling), Some(EventKind::BeforeTool));
         }
-        for spelling in ["UserPromptSubmit", "BeforeSubmitPrompt", "contextStart"] {
+        for spelling in [
+            "UserPromptSubmit",
+            "userPromptSubmitted",
+            "BeforeSubmitPrompt",
+            "contextStart",
+        ] {
             assert_eq!(
                 EventKind::from_hint(spelling),
                 Some(EventKind::ContextStart)
@@ -189,7 +196,7 @@ mod tests {
                 Some(EventKind::SessionStart)
             );
         }
-        for spelling in ["Stop", "SubagentStop", "PostToolUse"] {
+        for spelling in ["Stop", "SubagentStop", "agentStop", "PostToolUse"] {
             assert_eq!(EventKind::from_hint(spelling), Some(EventKind::TurnEnd));
         }
     }

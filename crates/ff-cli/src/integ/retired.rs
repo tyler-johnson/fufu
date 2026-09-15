@@ -140,7 +140,9 @@ mod tests {
         reply.context.push("hello".into());
         assert!(proto.reply_envelope(&reply).is_none());
 
-        for live in ["claude", "codex", "cursor", "qwen", "opencode", "shell"] {
+        for live in [
+            "claude", "codex", "cursor", "qwen", "opencode", "copilot", "shell",
+        ] {
             assert!(by_source(live).is_none(), "{live} is a live source");
         }
     }

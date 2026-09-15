@@ -122,7 +122,7 @@ Only fufu writes `refs/fufu/*`; never hand-edit them. Extensions read state and 
 
 `fufu.gitPolicy` has observe (record only), coach (default, suggest equivalents), and strict (refuse mapped writes). Set it with `ff config gitPolicy <tier>`. `ff git <args…>` attempts capture before permitted Git commands; a strict refusal exits 2 before capture or execution, but records the policy tally. Capture failure on an allowed passthrough warns and Git still runs.
 
-Active agent hooks attempt capture before policy evaluation. Only the current Claude Code adapter emits pre-tool coaching or denial; the client must enforce the denial. Codex, Qwen Code, OpenCode, and Cursor adapters record the tally but emit no tool reply. Unmapped commands and ambiguous shell strings remain allowed. Hooks must be active; Claude Code needs a restart after installation, and Codex requires /hooks approval of new or changed hooks.
+Active agent hooks attempt capture before policy evaluation. Only the current Claude Code adapter emits pre-tool coaching or denial; the client must enforce the denial. The other adapters record the tally but emit no tool reply. Unmapped commands and ambiguous shell strings remain allowed. Hooks must be active; Claude Code needs a restart after installation, and Codex requires /hooks approval of new or changed hooks.
 
 ## JSON output and scripting
 

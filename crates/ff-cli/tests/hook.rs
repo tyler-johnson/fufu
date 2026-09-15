@@ -573,6 +573,92 @@ fn the_opencode_boundary_and_activity_payloads() {
     assert_eq!(chain_subject(&fx), "opencode[ses_abc]: bash(cargo test)");
 }
 
+/// Copilot's payload carries `sessionId` and no event name; each hook entry
+/// sets `FF_HOOK_EVENT` instead. The adapter reads it: `sessionStart` and
+/// `userPromptSubmitted` brief in Copilot's field, `preToolUse` captures
+/// and says nothing, and an unrecognized name still captures under an
+/// honest label. The variable means nothing to another source.
+#[test]
+fn copilot_dispatches_the_environment_event_and_keys_the_camelcase_session() {
+    let fx = repo();
+    let payload = format!(
+        r#"{{"sessionId":"copilot-session","cwd":{},"timestamp":1}}"#,
+        json_path(&fx.path())
+    );
+    let fire = |event: &str, fx: &Fixture| {
+        ff_stdin_with(
+            &fx.path(),
+            &["trigger", "copilot"],
+            &payload,
+            scratch_home(),
+            &[("FF_HOOK_EVENT", event), ("COPILOT_CLI", "1")],
+        )
+    };
+    let out = fire("sessionStart", &fx);
+    assert_eq!(out.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).expect("Copilot takes JSON");
+    assert!(
+        value["additionalContext"]
+            .as_str()
+            .unwrap()
+            .starts_with("fufu (`ff`) takes snapshots"),
+        "{value}"
+    );
+    assert_eq!(value.as_object().unwrap().len(), 1);
+    assert_eq!(
+        chain_subject(&fx),
+        "copilot[copilot-]: event sessionStart",
+        "the camelCase session keys the capture"
+    );
+
+    dirty(&fx, "turn\n");
+    let out = fire("userPromptSubmitted", &fx);
+    assert!(
+        out.stdout.is_empty(),
+        "the session was briefed at its start: {:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(
+        chain_subject(&fx),
+        "copilot[copilot-]: event userPromptSubmitted"
+    );
+
+    dirty(&fx, "tool\n");
+    let out = fire("preToolUse", &fx);
+    assert!(out.stdout.is_empty(), "nothing on a tool");
+    assert_eq!(chain_subject(&fx), "copilot[copilot-]: event preToolUse");
+
+    dirty(&fx, "stop\n");
+    assert!(fire("agentStop", &fx).stdout.is_empty());
+    assert_eq!(chain_subject(&fx), "copilot[copilot-]: event agentStop");
+
+    dirty(&fx, "unknown\n");
+    let out = fire("somethingNew", &fx);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty());
+    assert_eq!(chain_subject(&fx), "copilot[copilot-]: event somethingNew");
+
+    // The variable is Copilot's: under another source the payload's own
+    // event stands, and a prompt event with no channel says nothing.
+    dirty(&fx, "claude\n");
+    let body = self::payload(
+        "PreToolUse",
+        "s",
+        &fx.path(),
+        r#""tool_name":"Bash","tool_input":{"command":"cargo test"}"#,
+    );
+    let out = ff_stdin_with(
+        &fx.path(),
+        &["trigger", "codex"],
+        &body,
+        scratch_home(),
+        &[("FF_HOOK_EVENT", "sessionStart")],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(chain_subject(&fx), "codex[s]: Bash(cargo test)");
+    assert!(out.stdout.is_empty(), "a tool under Codex has no channel");
+}
+
 /// The four capture-only events. Nothing is injected on any of them —
 /// `reply_envelope` has no channel for those kinds and the reply is empty
 /// anyway — and each one lands the snapshot that is the whole reason it is
