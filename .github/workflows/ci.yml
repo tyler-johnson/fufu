@@ -116,6 +116,64 @@ jobs:
           [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errs)
           if ($errs) { $errs; exit 1 }
 
+  # One job per agent client fufu wires, running that client's live suite
+  # against the real binary: `tests/live_<client>.rs`, which asks the
+  # client what it loaded after `ff hook` and runs a headless session
+  # against the scripted mock model. Linux only -- the client is the
+  # variable, not the OS. Each client is pinned so a bump is a deliberate
+  # commit and the matrix names what it broke. `FF_LIVE` turns a missing
+  # binary from a skip into a failure, so an install that failed cannot
+  # pass by skipping; `--nocapture` puts the client's own output in the
+  # log when it fails. The `test` job still compiles these suites and
+  # skips them: no binary, no `FF_LIVE`. Copilot and Cursor check the
+  # loader layer without a model session.
+  live:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { client: codex, package: "@openai/codex@0.154.0" }
+          - { client: claude, package: "@anthropic-ai/claude-code@2.1.270" }
+          - { client: qwen, package: "@qwen-code/qwen-code@0.23.3" }
+          - { client: opencode, package: "opencode-ai@1.18.30" }
+          - { client: copilot, package: "@github/copilot@1.0.83" }
+          - { client: cursor, version: "2026.09.10-fd3934a" }
+    name: live (${{ matrix.client }})
+    runs-on: ubuntu-latest
+    env:
+      FF_LIVE: 1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The rows build the same target directory; one saves it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: live
+          save-if: ${{ matrix.client == 'codex' }}
+      - name: install ${{ matrix.client }}
+        if: matrix.client != 'cursor'
+        run: |
+          npm i -g ${{ matrix.package }}
+          ${{ matrix.client }} --version
+      - name: install Cursor CLI
+        if: matrix.client == 'cursor'
+        # The curl installer's versioned payload, pinned instead of
+        # following latest.
+        run: |
+          mkdir -p "$RUNNER_TEMP/cursor" "$HOME/.local/bin"
+          curl -fsSL "https://downloads.cursor.com/lab/${{ matrix.version }}/linux/x64/agent-cli-package.tar.gz" | tar --strip-components=1 -xzf - -C "$RUNNER_TEMP/cursor"
+          ln -s "$RUNNER_TEMP/cursor/cursor-agent" "$HOME/.local/bin/cursor-agent"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/cursor/cursor-agent" --version
+      # Codex runs the shell tool under bubblewrap, which needs an
+      # unprivileged user namespace; Ubuntu 24.04 gates those behind
+      # AppArmor, and the runner image ships the gate closed.
+      - if: matrix.client == 'codex'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: cargo test -p ff-cli --test live_${{ matrix.client }} -- --nocapture
+
   # The release profile is fat-LTO and single-codegen-unit, so it is built
   # once, here, rather than on all three platforms in the test matrix: the
   # Windows copy alone cost 228s and produced nothing anyone downloads.
