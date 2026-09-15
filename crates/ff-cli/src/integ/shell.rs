@@ -253,7 +253,9 @@ fn alias_wiring(contents: &str, rc: &Path) -> Wiring {
         if (trimmed.starts_with("alias git") || trimmed.starts_with("function git"))
             && trimmed.contains("ff git")
         {
-            return Wiring::HandWritten;
+            return Wiring::HandWritten {
+                at: rc.to_path_buf(),
+            };
         }
     }
     Wiring::NotWired
@@ -274,7 +276,9 @@ fn ambient_wiring(contents: &str, rc: &Path) -> Wiring {
     }
     for line in contents.lines() {
         if !is_marked(line) && names_trigger(line) {
-            return Wiring::HandWritten;
+            return Wiring::HandWritten {
+                at: rc.to_path_buf(),
+            };
         }
     }
     Wiring::NotWired
@@ -299,7 +303,9 @@ impl Shell {
 
     fn pieces(&self) -> (Wiring, Wiring, Option<PathBuf>) {
         let Ok(rc) = self.rc() else {
-            let complaint = Wiring::Unavailable("HOME is not set".into());
+            let complaint = Wiring::Unavailable {
+                complaint: "HOME is not set".into(),
+            };
             return (complaint.clone(), complaint, None);
         };
         let contents = std::fs::read_to_string(&rc).unwrap_or_default();
@@ -394,7 +400,7 @@ impl Integration for Shell {
             Wiring::Wired { .. } => change
                 .lines
                 .push(format!("alias already wired in {}", rc.display())),
-            Wiring::HandWritten => change.lines.push(format!(
+            Wiring::HandWritten { .. } => change.lines.push(format!(
                 "{} already aliases git to ff by hand — leaving it alone",
                 rc.display()
             )),
@@ -405,7 +411,7 @@ impl Integration for Shell {
             Wiring::Wired { .. } => change
                 .lines
                 .push(format!("prompt hook already wired in {}", rc.display())),
-            Wiring::HandWritten => change.lines.push(format!(
+            Wiring::HandWritten { .. } => change.lines.push(format!(
                 "{} already calls {TRIGGER} by hand — leaving it alone",
                 rc.display()
             )),
@@ -452,13 +458,13 @@ impl Integration for Shell {
 
         if !alias_wired && !ambient_wired {
             let mut change = Change::unchanged(format!("nothing wired in {}", rc.display()));
-            if alias == Wiring::HandWritten {
+            if matches!(alias, Wiring::HandWritten { .. }) {
                 change.lines.push(format!(
                     "the alias in {} was written by hand — not touching it",
                     rc.display()
                 ));
             }
-            if ambient == Wiring::HandWritten {
+            if matches!(ambient, Wiring::HandWritten { .. }) {
                 change.lines.push(format!(
                     "the prompt hook in {} was written by hand — not touching it",
                     rc.display()
@@ -562,7 +568,9 @@ fn is_outdated(line: &str) -> bool {
 /// One answer for a slug that wires two independent pieces.
 fn combine(alias: &Wiring, ambient: &Wiring) -> Wiring {
     match (alias, ambient) {
-        (Wiring::Unavailable(complaint), _) => Wiring::Unavailable(complaint.clone()),
+        (Wiring::Unavailable { complaint }, _) => Wiring::Unavailable {
+            complaint: complaint.clone(),
+        },
         (Wiring::Wired { mechanism, at }, Wiring::Wired { .. }) => Wiring::Wired {
             mechanism: *mechanism,
             at: at.clone(),
@@ -575,7 +583,9 @@ fn combine(alias: &Wiring, ambient: &Wiring) -> Wiring {
             missing: "alias".into(),
             at: at.clone(),
         },
-        (Wiring::HandWritten, _) | (_, Wiring::HandWritten) => Wiring::HandWritten,
+        (Wiring::HandWritten { at }, _) | (_, Wiring::HandWritten { at }) => {
+            Wiring::HandWritten { at: at.clone() }
+        }
         _ => Wiring::NotWired,
     }
 }
@@ -614,11 +624,11 @@ mod tests {
     fn a_hand_written_line_is_never_claimed() {
         assert_eq!(
             alias_wiring("alias git='ff git' # mine\n", rc()),
-            Wiring::HandWritten
+            Wiring::HandWritten { at: RC.into() }
         );
         assert_eq!(
             ambient_wiring(&format!("{TRIGGER}\n"), rc()),
-            Wiring::HandWritten
+            Wiring::HandWritten { at: RC.into() }
         );
     }
 
@@ -632,7 +642,7 @@ mod tests {
         assert!(matches!(alias_wiring(&marked, rc()), Wiring::Wired { .. }));
         assert_eq!(
             alias_wiring("function git { ff git @args }  # mine\n", rc()),
-            Wiring::HandWritten
+            Wiring::HandWritten { at: RC.into() }
         );
         assert_eq!(
             alias_wiring("function git { jog git @args }\n", rc()),
@@ -759,9 +769,7 @@ mod tests {
             combine(&Wiring::NotWired, &Wiring::NotWired),
             Wiring::NotWired
         );
-        assert_eq!(
-            combine(&Wiring::HandWritten, &Wiring::NotWired),
-            Wiring::HandWritten
-        );
+        let hand = Wiring::HandWritten { at: RC.into() };
+        assert_eq!(combine(&hand, &Wiring::NotWired), hand);
     }
 }

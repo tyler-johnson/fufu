@@ -210,7 +210,9 @@ fn plugin_wiring() -> Wiring {
         return Wiring::NotWired;
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Wiring::Unavailable(format!("{}: not valid JSON", path.display()));
+        return Wiring::Unavailable {
+            complaint: format!("{}: not valid JSON", path.display()),
+        };
     };
     let missing = plugin_missing(&value);
     let plugin = plugin_dir().unwrap_or_default();
@@ -331,7 +333,9 @@ impl Integration for Claude {
         let wiring = match plugin_wiring() {
             Wiring::NotWired => match spec() {
                 Ok(spec) => settings::wiring(&spec),
-                Err(err) => Wiring::Unavailable(err.to_string()),
+                Err(err) => Wiring::Unavailable {
+                    complaint: err.to_string(),
+                },
             },
             other => other,
         };

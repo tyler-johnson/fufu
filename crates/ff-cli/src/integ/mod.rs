@@ -101,11 +101,18 @@ pub enum Wiring {
         missing: String,
         at: PathBuf,
     },
-    /// Somebody wrote this themselves. fufu reports it and never touches it.
-    HandWritten,
+    /// Somebody wrote this themselves — a shell's rc file with `ff trigger
+    /// shell` in it under no marker. fufu reports it and never touches it:
+    /// it is theirs, and `unhook` would otherwise remove what it did not
+    /// add.
+    HandWritten {
+        at: PathBuf,
+    },
     /// The wiring cannot be read at all: no HOME, or a file that is not
     /// valid JSON. Carries the complaint.
-    Unavailable(String),
+    Unavailable {
+        complaint: String,
+    },
 }
 
 impl Wiring {
@@ -116,7 +123,7 @@ impl Wiring {
     pub fn feeds_capture(&self) -> bool {
         matches!(
             self,
-            Wiring::Wired { .. } | Wiring::Partial { .. } | Wiring::HandWritten
+            Wiring::Wired { .. } | Wiring::Partial { .. } | Wiring::HandWritten { .. }
         )
     }
 
@@ -125,15 +132,17 @@ impl Wiring {
             Wiring::NotWired => "not wired".into(),
             Wiring::Wired { mechanism, .. } => format!("wired ({})", mechanism.word()),
             Wiring::Partial { missing, .. } => format!("partial — {missing} missing"),
-            Wiring::HandWritten => "hand-written (not fufu-managed)".into(),
-            Wiring::Unavailable(complaint) => complaint.clone(),
+            Wiring::HandWritten { .. } => "hand-written (not fufu-managed)".into(),
+            Wiring::Unavailable { complaint } => complaint.clone(),
         }
     }
 
     /// Where the wiring lives, when that is known.
     pub fn at(&self) -> Option<&std::path::Path> {
         match self {
-            Wiring::Wired { at, .. } | Wiring::Partial { at, .. } => Some(at),
+            Wiring::Wired { at, .. } | Wiring::Partial { at, .. } | Wiring::HandWritten { at } => {
+                Some(at)
+            }
             _ => None,
         }
     }

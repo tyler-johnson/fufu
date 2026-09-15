@@ -92,7 +92,9 @@ impl Integration for Codex {
     fn status(&self) -> Status {
         let wiring = match spec() {
             Ok(spec) => settings::wiring(&spec),
-            Err(err) => Wiring::Unavailable(err.to_string()),
+            Err(err) => Wiring::Unavailable {
+                complaint: err.to_string(),
+            },
         };
         let stale = spec().map(|spec| settings::stale(&spec)).unwrap_or(false);
         Status {

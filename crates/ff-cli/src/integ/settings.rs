@@ -180,7 +180,11 @@ fn wired_events(spec: &Spec, settings: &Map<String, Value>) -> Vec<bool> {
 pub fn wiring(spec: &Spec) -> Wiring {
     let settings = match load(&spec.path) {
         Ok(settings) => settings,
-        Err(err) => return Wiring::Unavailable(err.to_string()),
+        Err(err) => {
+            return Wiring::Unavailable {
+                complaint: err.to_string(),
+            };
+        }
     };
     let wired = wired_events(spec, &settings);
     if wired.iter().all(|w| !*w) {
@@ -466,6 +470,6 @@ mod tests {
         std::fs::write(&spec.path, "{ not json").unwrap();
         assert!(install(&spec).is_err());
         assert_eq!(std::fs::read_to_string(&spec.path).unwrap(), "{ not json");
-        assert!(matches!(wiring(&spec), Wiring::Unavailable(_)));
+        assert!(matches!(wiring(&spec), Wiring::Unavailable { .. }));
     }
 }

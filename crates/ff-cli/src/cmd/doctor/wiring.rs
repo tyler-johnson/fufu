@@ -57,7 +57,7 @@ fn client_row(status: &crate::integ::Status, fix: bool) -> Option<Row> {
     };
 
     Some(match &status.wiring {
-        Wiring::Unavailable(complaint) => Row::info(slug, complaint.clone()),
+        Wiring::Unavailable { complaint } => Row::info(slug, complaint.clone()),
         Wiring::NotWired if !status.presence.is_present() => return None,
         Wiring::NotWired => Row::info(slug, format!("not wired (optional — {repair})")),
         Wiring::Partial { missing, at } => {
@@ -67,7 +67,9 @@ fn client_row(status: &crate::integ::Status, fix: bool) -> Option<Row> {
             );
             fixed_or_fixable(status, detail, &repair, fix)
         }
-        Wiring::HandWritten => Row::info(slug, with_note("hand-written — not fufu-managed".into())),
+        Wiring::HandWritten { .. } => {
+            Row::info(slug, with_note("hand-written — not fufu-managed".into()))
+        }
         Wiring::Wired { mechanism, at } => {
             let detail = format!("{} wired in {}", mechanism.word(), at.display());
             if status.stale {
@@ -211,7 +213,7 @@ fn piece_row(
                     ),
                 );
             }
-            Wiring::HandWritten => hand = hand.or(Some(slug)),
+            Wiring::HandWritten { .. } => hand = hand.or(Some(slug)),
             _ => {}
         }
     }
@@ -309,6 +311,12 @@ mod tests {
         }
     }
 
+    fn hand() -> Wiring {
+        Wiring::HandWritten {
+            at: std::path::PathBuf::from("/home/u/.bashrc"),
+        }
+    }
+
     fn rc_wired() -> Wiring {
         Wiring::Wired {
             mechanism: Mechanism::Rc,
@@ -378,7 +386,7 @@ mod tests {
     #[test]
     fn the_alias_row_prefers_wired_over_hand_written() {
         let statuses = vec![
-            shell_status(Wiring::HandWritten, Wiring::NotWired),
+            shell_status(hand(), Wiring::NotWired),
             shell_status(rc_wired(), Wiring::NotWired),
         ];
         let row = alias_row(&statuses);
@@ -388,7 +396,7 @@ mod tests {
 
     #[test]
     fn a_hand_written_alias_is_news_and_not_a_finding() {
-        let statuses = vec![shell_status(Wiring::HandWritten, Wiring::NotWired)];
+        let statuses = vec![shell_status(hand(), Wiring::NotWired)];
         let row = alias_row(&statuses);
         assert!(matches!(row.level, Level::Info));
         assert!(row.detail.contains("heuristic"), "{}", row.detail);
@@ -417,7 +425,7 @@ mod tests {
         // Anything at all feeding capture silences it — including a
         // hand-written line and a half-finished install.
         assert!(triggers_row(&[status("claude", wired())]).is_none());
-        assert!(triggers_row(&[shell_status(Wiring::HandWritten, Wiring::NotWired)]).is_none());
+        assert!(triggers_row(&[shell_status(hand(), Wiring::NotWired)]).is_none());
         assert!(
             triggers_row(&[status(
                 "claude",

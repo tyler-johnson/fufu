@@ -774,6 +774,37 @@ fn install_refuses_malformed_files_untouched() {
             "file untouched on refusal"
         );
     }
+
+    // The report still renders, in both forms: a file that will not parse
+    // is a complaint in the row, never a crash of the listing.
+    std::fs::write(&settings, "{ not json").unwrap();
+    let listing = ff_env(home.path(), &["hook", "-l"], &env);
+    assert!(listing.status.success());
+    assert!(
+        text(&listing).contains("not valid JSON"),
+        "{:?}",
+        text(&listing)
+    );
+    let out = ff_env(home.path(), &["--json", "hook", "-l"], &env);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let codex = value["data"]["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["slug"] == "codex")
+        .expect("a codex row");
+    assert_eq!(codex["wiring"]["state"], "unavailable");
+    assert!(
+        codex["wiring"]["complaint"]
+            .as_str()
+            .is_some_and(|c| c.contains("not valid JSON")),
+        "{codex}"
+    );
 }
 
 // ---- the claude plugin -----------------------------------------------------
