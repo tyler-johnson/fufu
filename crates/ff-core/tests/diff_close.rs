@@ -764,9 +764,8 @@ fn a_plain_close_lands_the_open_commit() {
             ..default_opts()
         },
     );
-    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    let CommitOutcome::Closed { id, .. } = outcome;
     assert_eq!(id, shown, "the branch moved onto the open commit");
-    assert_eq!(reminted, None);
     assert_eq!(fx.git(&["rev-parse", "HEAD"]).trim(), id);
     assert_eq!(open_ref(&fx), None, "nothing is open after the close");
     assert_eq!(
@@ -778,8 +777,7 @@ fn a_plain_close_lands_the_open_commit() {
 }
 
 /// A `-m` that differs from the pending description is a different commit:
-/// the close mints one, authored at the birth, and names no re-mint reason
-/// because the message is the user's own choice.
+/// the close mints one, authored at the birth.
 #[test]
 fn a_close_with_a_new_message_mints_at_the_birth() {
     let fx = Fixture::new();
@@ -791,9 +789,8 @@ fn a_close_with_a_new_message_mints_at_the_birth() {
     let shown = ff_core::open_change(&fx.repo()).unwrap().pending.unwrap();
 
     let (outcome, _) = close_with(&fx, default_opts());
-    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    let CommitOutcome::Closed { id, .. } = outcome;
     assert_ne!(id, shown, "a different message is a different commit");
-    assert_eq!(reminted, None, "no hook ran: -m is the user's own choice");
     assert_eq!(
         fx.git(&["log", "-1", "--format=%at %ct", &id]).trim(),
         format!("{} {NOW}", NOW - 100),
@@ -802,7 +799,7 @@ fn a_close_with_a_new_message_mints_at_the_birth() {
 }
 
 #[test]
-fn a_hook_that_changes_the_tree_reminted() {
+fn a_hook_that_changes_the_tree_mints_a_commit() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -831,14 +828,13 @@ fn a_hook_that_changes_the_tree_reminted() {
             ..default_opts()
         },
     );
-    let CommitOutcome::Closed { id, reminted, .. } = outcome;
-    assert_eq!(reminted, Some(ff_core::Remint::HookTree));
+    let CommitOutcome::Closed { id, .. } = outcome;
     assert_ne!(id, shown);
     assert_eq!(fx.git(&["show", &format!("{id}:a.txt")]), "formatted\n");
 }
 
 #[test]
-fn a_hook_that_changes_the_message_reminted() {
+fn a_hook_that_changes_the_message_mints_a_commit() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.commit("init");
@@ -865,15 +861,12 @@ fn a_hook_that_changes_the_message_reminted() {
             ..default_opts()
         },
     );
-    let CommitOutcome::Closed {
-        subject, reminted, ..
-    } = outcome;
-    assert_eq!(reminted, Some(ff_core::Remint::HookMessage));
+    let CommitOutcome::Closed { subject, .. } = outcome;
     assert_eq!(subject, "rewritten: close message");
 }
 
 #[test]
-fn a_partial_close_reminted_and_the_remainder_is_born_now() {
+fn a_partial_close_mints_a_commit_and_the_remainder_is_born_now() {
     let fx = Fixture::new();
     fx.write("a.txt", "a\n");
     fx.write("b.txt", "b\n");
@@ -900,8 +893,7 @@ fn a_partial_close_reminted_and_the_remainder_is_born_now() {
             ..default_opts()
         },
     );
-    let CommitOutcome::Closed { id, reminted, .. } = outcome;
-    assert_eq!(reminted, Some(ff_core::Remint::Partial));
+    let CommitOutcome::Closed { id, .. } = outcome;
     assert_ne!(id, shown);
 
     // The remainder is a change of its own, born at the close, and its open

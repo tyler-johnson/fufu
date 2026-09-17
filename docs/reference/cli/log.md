@@ -83,7 +83,7 @@ A fufu commit stores a stable `change-id` header, also used by jj. Surviving cha
 
 The bold change-ID prefix is unique only on the displayed page. Resolution needs at least four characters and a unique repository match. Use more letters for an ambiguous prefix, or a commit SHA for divergent copies of one change. The [prefix reference](../revisions.md#prefixes-and-divergent-copies) describes lookup limits.
 
-The `@` row's SHA identifies an internal open object, not a commit already recorded in branch history. A different message, partial commit, signing, or hook can change the SHA when [`ff commit`](commit.md) records it. The SHA is blank on a clean tree and when signing is enabled.
+The `@` row's SHA identifies an internal open object, not a commit already recorded in branch history. A different message, partial commit, signing, or hook can change the SHA when [`ff commit`](commit.md) records it. The SHA is blank on a clean tree.
 
 ## Signatures and paging
 

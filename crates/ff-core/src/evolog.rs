@@ -151,23 +151,20 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
         None => (None, None),
     };
 
-    // The open commit's sha, when the ref still describes the branch. Under
-    // signing the column stays blank: the object and the ref exist, but the
-    // close signs, and the sha it lands is not this one. Advisory, like the
-    // description: a read that cannot answer is a blank, never a failure.
-    let pending = if crate::sign::enabled(repo) {
-        None
-    } else {
-        tip_tree
-            .and_then(|tree| {
-                let head_commit = base
-                    .as_deref()
-                    .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok());
-                crate::open::current(repo, &branch, tree, head_commit).ok()
-            })
-            .flatten()
-            .map(|id| id.to_string())
-    };
+    // The open commit's sha, when the ref still describes the branch. The
+    // close may land a different sha — signing, a message, a partial close —
+    // but the open commit is the object here now, and the row names it.
+    // Advisory, like the description: a read that cannot answer is a blank,
+    // never a failure.
+    let pending = tip_tree
+        .and_then(|tree| {
+            let head_commit = base
+                .as_deref()
+                .and_then(|b| gix::ObjectId::from_hex(b.as_bytes()).ok());
+            crate::open::current(repo, &branch, tree, head_commit).ok()
+        })
+        .flatten()
+        .map(|id| id.to_string());
 
     Ok(OpenChange {
         branch,

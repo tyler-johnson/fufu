@@ -105,7 +105,7 @@ Internal open-change objects, including [parked changes](../concepts/changes.md#
 
 Fufu stores the open change as an unsigned internal commit under `refs/fufu/open/<branch>`. Without signing, recording the change can reuse that object when the other [commit conditions](cli/commit.md) allow it. A signature changes the object's bytes and therefore its hash.
 
-With `commit.gpgsign` enabled, `ff log` and `ff status` leave the open `@` row's SHA column blank even though the internal object exists. The commit output says `re-minted: signing is on` when signing creates the final object. Use the recorded commit's SHA afterward; see [commit SHAs and change IDs](revisions.md#commit-shas-and-change-ids).
+With `commit.gpgsign` enabled, `ff log` and `ff status` still show the unsigned internal object's SHA on the open `@` row; the recorded commit's SHA differs. Use the recorded commit's SHA afterward; see [commit SHAs and change IDs](revisions.md#commit-shas-and-change-ids).
 
 ## Signing and verification processes
 

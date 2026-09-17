@@ -17,9 +17,11 @@
 - [`ff hook codex`](docs/reference/hooks/codex.md) writes a plugin at `~/.agents/plugins/fufu/` — the legacy `.codex-plugin/plugin.json` manifest, `hooks/hooks.json`, and the skill — and merges one entry into `~/.agents/plugins/marketplace.json`, keeping the file's own name and other entries. It runs `codex plugin add fufu@<marketplace name>` when `codex` is on `PATH` and prints the command otherwise. Codex gains `SessionStart`, `Stop`, and `SessionEnd`. Once the plugin verifies, the install strips what an earlier fufu wrote under `~/.codex/`: its `hooks.json` entries, `skills/fufu/`, and the marked `config.toml` block, each best-effort. The old settings entries no longer read as wired.
 - `ff unhook codex` removes the plugin directory and the marketplace entry, and no longer opens `~/.codex/config.toml`.
 - `ff hook -l --json` reports an unreadable client file as `{"state":"unavailable","complaint":…}` and a hand-written shell line as `{"state":"hand-written","at":…}`.
+- With signing enabled, the `@` row on `ff status`, `ff log`, and `ff show` shows the open commit's sha again, and `@` resolves to it; the close signs and lands a different sha, as it does for a message set with `ff commit -m` or a partial close. `open.pending` in `--json` follows.
 
 ### Removed
 
+- `ff commit`'s `re-minted:` line and the `reminted` field in its `--json`. A close that lands a commit other than the open one — signing, a partial close, a hook, a different message — is the ordinary case and says nothing about it.
 - `ff hook gemini` and `ff unhook gemini`: Gemini CLI's adapter is gone, as its hook names diverged from the family; `~/.gemini/settings.json` is never touched. `ff trigger gemini` still captures and briefs under the source `gemini` for entries an earlier fufu wrote there.
 
 ### Fixed

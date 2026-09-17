@@ -54,8 +54,8 @@ use crate::ops::CommitId;
 pub enum Rev {
     /// The open change, carrying its open commit's sha when one is shown —
     /// the sha on the `@` row, which the close lands. `None` when the tree
-    /// is clean, nothing is stated, or signing is on; the member is the open
-    /// change either way, and no verb reads the sha as a commit to act on.
+    /// is clean or nothing is stated; the member is the open change either
+    /// way, and no verb reads the sha as a commit to act on.
     Open(Option<CommitId>),
     Commit(CommitId),
 }

@@ -874,9 +874,8 @@ fn undo_of_a_close_restores_the_open_commit() {
         &prov(),
     )
     .unwrap();
-    let CommitOutcome::Closed { id, reminted, .. } = outcome;
+    let CommitOutcome::Closed { id, .. } = outcome;
     assert_eq!(id, before, "the close landed the open commit");
-    assert_eq!(reminted, None);
     let open_ref = || {
         fx.try_git_in(
             &fx.path(),

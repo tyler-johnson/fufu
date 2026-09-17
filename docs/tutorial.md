@@ -62,7 +62,7 @@ Now edit. Add `notes/parser.md` in your editor and jot down a few lines about a 
 ```console
 $ ff status
 on ff/bold-hawk · nothing to pull
-@  urrumwkl            0s ago
+@  urrumwkl 3c9e71d4   0s ago
 │  (no description)
 │  A notes/parser.md +3  -0  ++++++++++++++++++++
 │    1 file          +3  -0
@@ -92,18 +92,16 @@ Closing the change records it in branch history. [`ff commit`](reference/cli/com
 ```console
 $ ff commit
 closed f12fbdec on ff/bold-hawk: notes: parser skeleton and char stream (1 file(s))
-re-minted: signing is on
 undo: ff undo
 ```
 
-This run signs its commits, hence the `re-minted` line. Your signing settings may differ. Either way, your first commit is recorded and the next open change is ready.
+Your first commit is recorded and the next open change is ready.
 
 Or say it at the close. Add a line at the end of your note saying that the stream drops whitespace before the lexer sees it, then commit that second edit:
 
 ```console
 $ ff commit -m "notes: drop whitespace from the stream"
 closed bb595ed7 on ff/bold-hawk: notes: drop whitespace from the stream (1 file(s))
-re-minted: signing is on
 undo: ff undo
 ```
 

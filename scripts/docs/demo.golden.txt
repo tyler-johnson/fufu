@@ -1,7 +1,7 @@
 
 $ ff st
 on main · 1 to pull
-@  <id>            <age> ago
+@  <id> <sha>   <age> ago
 │  (no description)
 │  M README.md +2  -0  ++++++++++++++++++++
 │    1 file    +2  -0
@@ -11,7 +11,7 @@ on main · 1 to pull
 $ # a dirty working copy, but I need to switch branches
 
 $ ff
-@  <id>            <age> ago  ▸ [main]
+@  <id> <sha>   <age> ago  ▸ [main]
 │  (no description)
 ●  <id> <sha>   <age> ago  ▸ [unicode-escapes]  (+ parked change, 2 files)
 │  lexer: a token at a time
@@ -25,7 +25,7 @@ undo: ff undo
 
 $ ff st
 on unicode-escapes · base moved — fast-forwards
-@  <id>            <age> ago
+@  <id> <sha>   <age> ago
 │  lexer: handle unicode escapes
 │  M src/lexer.rs   +1  -0  +++++++
 │  A src/unicode.rs +3  -0  ++++++++++++++++++++
@@ -39,7 +39,6 @@ $ # looks like it's ready to commit
 
 $ ff commit
 closed <sha> on unicode-escapes: lexer: handle unicode escapes (2 file(s))
-re-minted: signing is on
 undo: ff undo
 
 $ # oops, forgot to add one thing

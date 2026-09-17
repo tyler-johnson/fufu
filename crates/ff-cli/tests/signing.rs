@@ -203,42 +203,38 @@ fn an_unknown_gpg_format_is_a_coded_refusal() {
     assert!(stdout(&explained).contains("gpg.format"));
 }
 
-/// The open commit is unsigned and the close signs, so once signing is on
-/// the sha the close lands is not the open commit's, and the `@` row shows
-/// none: the column goes blank, the same one a clean tree shows, though the
-/// object and its ref are still there.
+/// The open commit is unsigned and the close signs, so the sha the close
+/// lands is not the open commit's — the way a message set at the close, or
+/// a partial close, lands a different one. The `@` row still names the open
+/// commit: it is the object under `refs/fufu/open/<branch>` now, signing or
+/// not.
 #[test]
-fn signing_removes_the_open_commits_sha_from_the_at_row() {
+fn signing_keeps_the_open_commits_sha_on_the_at_row() {
     let signer = good_signer();
     let fx = repo_with(&signer);
     fx.write("a.txt", "one\n");
 
     let before = json(&ff(&fx, &["--json", "log"]));
-    assert!(
-        before["data"]["open"]["pending"].is_string(),
-        "an unsigned repository shows the open commit: {before}"
-    );
+    let pending = before["data"]["open"]["pending"]
+        .as_str()
+        .expect("an unsigned repository shows the open commit")
+        .to_string();
 
     fx.set_config("commit.gpgsign", "true");
     let after = json(&ff(&fx, &["--json", "log"]));
-    assert!(
-        after["data"]["open"]["pending"].is_null(),
-        "a signing repository must not claim to know the sha: {after}"
+    assert_eq!(
+        after["data"]["open"]["pending"].as_str(),
+        Some(pending.as_str()),
+        "a signing repository shows the same open commit: {after}"
     );
     let open = fx.git(&["rev-parse", "refs/fufu/open/main"]);
-    assert_eq!(
-        open.trim(),
-        before["data"]["open"]["pending"].as_str().unwrap()
-    );
+    assert_eq!(open.trim(), pending);
 
-    // The close signs a commit of its own, and says so.
+    // The close signs a commit of its own, quietly.
     let out = ff(&fx, &["commit", "-m", "signed close"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
-    assert!(
-        stdout(&out).contains("re-minted: signing is on"),
-        "{}",
-        stdout(&out)
-    );
+    assert!(!stdout(&out).contains("re-minted"), "{}", stdout(&out));
+    assert_ne!(fx.git(&["rev-parse", "HEAD"]).trim(), pending);
 }
 
 /// `ff doctor` reports the setup without running it: off, working, and

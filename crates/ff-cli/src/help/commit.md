@@ -31,6 +31,6 @@ Commit runs the configured commit hooks. `--no-verify` skips `pre-commit` and `c
 
 ### Internal objects and timestamps
 
-The open change already has an internal Git commit object under `refs/fufu/open/<branch>`. Its SHA is not proof that it has entered branch history. A full commit can reuse that object when it advances the branch. Signing, partial selection, or a hook changing the tree or message requires a new object and a `re-minted:` report. A different `-m` message also creates a new object, without that report.
+The open change already has an internal Git commit object under `refs/fufu/open/<branch>`. Its SHA is not proof that it has entered branch history. A full commit can reuse that object when it advances the branch. Signing, partial selection, a different `-m` message, or a hook changing the tree or message creates a new object.
 
-The author time is when the change began; the committer time is when it closed. With signing enabled, the open `@` row hides its SHA because the unsigned open object cannot be the final signed commit.
+The author time is when the change began; the committer time is when it closed. With signing enabled, the open `@` row still shows the unsigned open object's SHA; the signed commit lands a different one.

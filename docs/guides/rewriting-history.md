@@ -117,7 +117,6 @@ $ printf 'documentation\n' > notes.txt
 
 $ ff commit app.txt -m "app: feature"
 closed a624ba49 on feature: app: feature (1 file(s))
-re-minted: partial close
 undo: ff undo
 
 $ ff status
@@ -231,12 +230,10 @@ undo: ff undo
 
 $ ff commit app.txt -m "app: feature"
 closed 41a66e6b on feature: app: feature (1 file(s))
-re-minted: partial close
 undo: ff undo
 
 $ ff commit notes.txt -m "docs: feature notes"
 closed b27ec2ec on feature: docs: feature notes (1 file(s))
-re-minted: partial close
 undo: ff undo
 
 ```

@@ -18,7 +18,7 @@ use crate::branchmeta;
 use crate::changeid;
 use crate::error::{Error, Result};
 use crate::hooks;
-use crate::model::{CommitOutcome, HeadState, Remint};
+use crate::model::{CommitOutcome, HeadState};
 use crate::open;
 use crate::ops::record::observe_refs;
 use crate::ops::{
@@ -179,8 +179,6 @@ pub fn close(
         "commit",
     )?;
     let message = normalize_message(&message);
-    let hook_changed_message =
-        message != normalize_message(supplied.as_deref().unwrap_or_default());
     let subject = message
         .lines()
         .next()
@@ -196,11 +194,11 @@ pub fn close(
     // The commit that lands: the open commit, when it is exactly what this
     // close would write — the pre-verb capture wrote it over this tree with
     // this message and this id, and the branch just moves onto it. Anything
-    // that makes the landing commit differ is named, and the close mints one
-    // of its own: the object is written up front because the plan needs its
+    // that makes the landing commit differ, and the close mints one of its
+    // own: the object is written up front because the plan needs its
     // sha.
     let sig = refs::user_signature(repo, now)?;
-    let (commit_id, reminted) = landing_commit(
+    let commit_id = landing_commit(
         repo,
         &ctx,
         LandingCommit {
@@ -212,7 +210,6 @@ pub fn close(
             partial: !opts.paths.is_empty(),
             commit_tree,
             message: &message,
-            hook_changed_message,
             sig: &sig,
         },
     )?;
@@ -413,7 +410,6 @@ pub fn close(
             files_changed,
             claimed_from: claim_from,
             pre_op: ctx.pre_op.map(|id| id.to_string()),
-            reminted,
         },
         ctx,
     ))
@@ -648,24 +644,21 @@ struct LandingCommit<'a> {
     partial: bool,
     commit_tree: gix::ObjectId,
     message: &'a str,
-    /// A hook changed the message, so a differing one is fufu's to explain.
-    hook_changed_message: bool,
     sig: &'a gix::actor::Signature,
 }
 
 /// The commit that lands: the open commit, when it is exactly what this
 /// close would write — the pre-verb capture wrote it over this tree with
 /// this message and this id, and the branch just moves onto it. Anything
-/// that makes the landing commit differ is named, and the close mints one
-/// of its own: the object is written up front because the plan needs its
-/// sha. The second value is why the open commit did not land, when the
-/// reason is fufu's to explain; a `-m` that differs from the description is
-/// the user's own choice and gets no line.
+/// that makes the landing commit differ — signing, a partial close, a `-m`
+/// or a hook that changed the message, a hook that changed the tree — and
+/// the close mints one of its own: the object is written up front because
+/// the plan needs its sha.
 fn landing_commit(
     repo: &gix::Repository,
     ctx: &verb::VerbContext,
     landing: LandingCommit<'_>,
-) -> Result<(gix::ObjectId, Option<Remint>)> {
+) -> Result<gix::ObjectId> {
     let LandingCommit {
         current_branch,
         head_commit,
@@ -675,7 +668,6 @@ fn landing_commit(
         partial,
         commit_tree,
         message,
-        hook_changed_message,
         sig,
     } = landing;
     let now = ctx.now;
@@ -685,21 +677,13 @@ fn landing_commit(
                 .ok()
                 .is_some_and(|c| changeid::header_of(&c.data) == Some(change_id))
         });
-    // `reuse` is whether the open commit lands; `reminted` is why not.
-    let (reuse, reminted) = match open_commit {
-        None => (false, None),
-        Some(_) if signer.is_some() => (false, Some(Remint::Signed)),
-        Some(_) if partial => (false, Some(Remint::Partial)),
+    let reuse = match open_commit {
+        None => false,
+        Some(_) if signer.is_some() || partial => false,
         Some(id) => {
             let commit = repo.find_commit(id).map_err(Error::repo)?;
             let tree = commit.tree_id().map_err(Error::repo)?.detach();
-            if tree != commit_tree {
-                (false, Some(Remint::HookTree))
-            } else if commit.message_raw_sloppy() != message.as_bytes() {
-                (false, hook_changed_message.then_some(Remint::HookMessage))
-            } else {
-                (true, None)
-            }
+            tree == commit_tree && commit.message_raw_sloppy() == message.as_bytes()
         }
     };
     let commit_id = match (open_commit, reuse) {
@@ -727,7 +711,7 @@ fn landing_commit(
         }
     };
 
-    Ok((commit_id, reminted))
+    Ok(commit_id)
 }
 
 /// The CAS advance: the target branch moves onto the commit, as the user's

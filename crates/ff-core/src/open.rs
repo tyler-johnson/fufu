@@ -237,10 +237,9 @@ pub fn current(
 }
 
 /// The open commit on HEAD's branch, as the `@` row shows it: `None` when
-/// the tree is clean, HEAD is detached, nothing is stated — or signing is
-/// on, since the close then signs and the sha it lands is not this one.
+/// the tree is clean, HEAD is detached, or nothing is stated.
 pub fn of_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {
-    if repo.workdir().is_none() || crate::sign::enabled(repo) {
+    if repo.workdir().is_none() {
         return Ok(None);
     }
     let head = crate::head::head_state(repo)?;

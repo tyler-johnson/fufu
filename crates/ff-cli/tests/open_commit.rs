@@ -3,8 +3,8 @@
 //! The acceptance sequence: edit on a branch, read the sha the `@` row
 //! shows, `ff commit` — and the `●` row wears that exact sha. Around it, the
 //! surfaces the open commit shows through: `refs/fufu/open/<branch>`,
-//! `git log --all`, `ff show @`, the `re-minted` line when the close could
-//! not land it, and `ff undo` bringing it back.
+//! `git log --all`, `ff show @`, the closes that land a commit of their own
+//! instead, and `ff undo` bringing it back.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -126,7 +126,7 @@ fn ff_show_names_the_open_commit() {
 }
 
 #[test]
-fn a_hook_that_changes_the_tree_says_so() {
+fn a_hook_that_changes_the_tree_mints_a_commit() {
     let fx = repo();
     install_hook(
         &fx,
@@ -139,34 +139,21 @@ fn a_hook_that_changes_the_tree_says_so() {
 
     let out = ok(ff(&fx, &["commit"]));
     let text = stdout(&out);
-    assert!(
-        text.contains("re-minted: a hook changed the tree"),
-        "{text}"
-    );
+    assert!(!text.contains("re-minted"), "{text}");
     assert_ne!(fx.git(&["rev-parse", "HEAD"]).trim(), shown);
-
-    // The JSON carries the reason.
-    fx.write("a.txt", "again\n");
-    ok(ff(&fx, &["describe", "-m", "more work"]));
-    let payload = json(&ok(ff(&fx, &["--json", "commit"])));
-    assert_eq!(
-        payload["data"]["commit"]["reminted"], "hook_tree",
-        "{payload}"
-    );
+    assert_eq!(fx.git(&["show", "HEAD:a.txt"]), "unformatted\nformatted\n");
 }
 
 #[test]
-fn a_partial_close_says_so() {
+fn a_partial_close_mints_a_commit() {
     let fx = repo();
     fx.write("a.txt", "a2\n");
     fx.write("b.txt", "b\n");
     ok(ff(&fx, &["describe", "-m", "both"]));
+    let shown = at_sha(&fx).expect("the open commit");
     let out = ok(ff(&fx, &["commit", "a.txt"]));
-    assert!(
-        stdout(&out).contains("re-minted: partial close"),
-        "{}",
-        stdout(&out)
-    );
+    assert!(!stdout(&out).contains("re-minted"), "{}", stdout(&out));
+    assert_ne!(fx.git(&["rev-parse", "HEAD"]).trim(), shown);
     // The remainder is open, with its own commit on the new HEAD.
     let remainder = open_ref(&fx).expect("the remainder is open");
     assert_eq!(
@@ -175,8 +162,7 @@ fn a_partial_close_says_so() {
     );
 }
 
-/// A `-m` that differs from what the open commit carries mints a commit
-/// without a re-mint line: the message is the user's own choice.
+/// A `-m` that differs from what the open commit carries mints a commit.
 #[test]
 fn a_dash_m_mints_quietly() {
     let fx = repo();
