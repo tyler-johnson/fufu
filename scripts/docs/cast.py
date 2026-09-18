@@ -18,6 +18,13 @@ dwell once the prompt is back. The dwell counts from the prompt rather than
 from Enter, so a slow verb and a fast one both leave the same beat of
 silence for the viewer to read.
 
+The pacing is the cast's clock, not the recorder's. Typing delays, pauses
+and dwells are skipped over on a virtual clock rather than slept through,
+and each event is stamped at that clock; only the shell is waited on for
+real — for a keystroke's echo, and for the prompt after Enter — so a
+command's own latency is recorded as it happened. A recording takes as
+long as its commands run, and plays back as long as it is paced.
+
 Before the clock starts, a preamble makes the shell hermetic, cds into the
 scene, sets the prompt and clears the screen. The first event of the cast
 is that prompt, so the recording opens on an empty terminal with `$ ` on
@@ -68,6 +75,8 @@ DWELL = {"run": 2.5, "video": 2.5, "edit": 0.5, "cont": 0.3, "note": 0.9}
 LEAD_IN = 1.0
 TAIL = 2.0
 PROMPT_TIMEOUT = 30.0
+# Silence on the pty that says the shell has finished reacting to a key.
+ECHO_QUIET = 0.003
 
 
 class Recorder:
@@ -75,7 +84,12 @@ class Recorder:
         self.cols, self.rows = cols, rows
         self.out = out
         self.events = []
-        self.t0 = None
+        # The cast's clock: `clock` is virtual seconds at `anchor`, a
+        # monotonic instant, and now on the cast is `clock` plus whatever
+        # real time has passed since. `skip` moves `clock` without waiting;
+        # real waits move it as they pass. `None` until the clock starts.
+        self.clock = None
+        self.anchor = None
         self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         # Output since the last Enter that expects a prompt, for detection.
         self.since_enter = bytearray()
@@ -100,24 +114,34 @@ class Recorder:
             self.alive = False
             return
         self.since_enter += data
-        if self.t0 is not None:
+        if self.clock is not None:
             self._emit(data)
 
     def _emit(self, data):
         text = self.decoder.decode(data)
         if text:
-            self.events.append((time.monotonic() - self.t0, text))
+            self.events.append((self.now(), text))
 
-    def pump(self, seconds):
-        """Read output for `seconds`, recording whatever arrives."""
-        deadline = time.monotonic() + seconds
+    # --- the clock ---
+
+    def now(self):
+        return self.clock + (time.monotonic() - self.anchor)
+
+    def start_clock(self):
+        self.clock, self.anchor = 0.0, time.monotonic()
+
+    def skip(self, seconds):
+        """Let `seconds` pass on the cast without waiting for them."""
+        self.settle()
+        self.clock, self.anchor = self.now() + seconds, time.monotonic()
+
+    def settle(self, quiet=ECHO_QUIET):
+        """Read until the pty has been silent for `quiet` seconds."""
         while self.alive:
-            left = deadline - time.monotonic()
-            if left <= 0:
+            ready, _, _ = select.select([self.fd], [], [], quiet)
+            if not ready:
                 break
-            ready, _, _ = select.select([self.fd], [], [], left)
-            if ready:
-                self._read()
+            self._read()
 
     def wait_prompt(self, what):
         deadline = time.monotonic() + PROMPT_TIMEOUT
@@ -137,7 +161,7 @@ class Recorder:
     def type_line(self, text):
         for ch in text:
             self.send(ch)
-            self.pump(TYPING_DELAY)
+            self.skip(TYPING_DELAY)
 
     def enter(self):
         self.since_enter = bytearray()
@@ -147,7 +171,7 @@ class Recorder:
 
     def preamble(self):
         # The shell's own first prompt, before anything is typed at it.
-        self.pump(0.3)
+        self.settle(0.3)
         self.send(
             "export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null"
             " GIT_CONFIG_NOSYSTEM=1 GIT_EDITOR=false EDITOR=false FF_PAGER=cat"
@@ -162,25 +186,25 @@ class Recorder:
         # that came before it is not recorded because the cast opens on an
         # empty screen anyway.
         idx = self.since_enter.index(PROMPT)
-        self.t0 = time.monotonic()
+        self.start_clock()
         self.events.append((0.0, self.decoder.decode(b"\r\n" + bytes(self.since_enter[idx:]))))
 
     def record(self, lines):
-        self.pump(LEAD_IN)
+        self.skip(LEAD_IN)
         n = len(lines)
         for i, (tag, text) in enumerate(lines):
             self.type_line(text)
-            self.pump(PAUSE[tag])
+            self.skip(PAUSE[tag])
             self.enter()
             # A line with a continuation under it leaves the shell at its
             # secondary prompt: no primary prompt is coming until the last
             # line of the heredoc.
             if i + 1 < n and lines[i + 1][0] == "cont":
-                self.pump(DWELL[tag])
+                self.skip(DWELL[tag])
                 continue
             self.wait_prompt(text)
-            self.pump(DWELL[tag])
-        self.pump(TAIL)
+            self.skip(DWELL[tag])
+        self.skip(TAIL)
 
     def finish(self):
         os.close(self.fd)
