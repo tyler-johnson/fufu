@@ -74,7 +74,7 @@ The message prints whole: the subject, then a blank line and the body when there
 
 ## Patches and signatures
 
-A non-merge commit's patch is measured against its first parent. A merge reports why no single patch is shown and points to Git's per-parent view.
+A commit's patch is measured against its parent. A merge is measured against the auto-merge of its parents, so a clean merge shows `(a clean merge: nothing beyond its parents)` and the two `ff diff --from` commands for the per-parent view, and a merge that resolved a conflict or carried an edit of its own shows that. Parents with no merge base, or an auto-merge that conflicts, are measured against the first parent, and the header says so. JSON carries `against`: `parent`, `auto-merge`, or `first-parent`.
 
 `--stat`, `--name-only`, and `--no-patch` shorten the patch to the diffstat, the paths with their kind letters, or nothing, one at a time; two together are refused with `usage/bad-flags`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, `--stat` drops each file's `hunks`, `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and drops the counts, and `--no-patch` drops `changes`, `insertions`, and `deletions`.
 

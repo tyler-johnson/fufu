@@ -9,6 +9,7 @@
 use gix::object::tree::diff::{Action, Change};
 
 use crate::error::{Error, Result};
+use crate::measure::{Against, measure};
 use crate::model::{ChangeKind, ChangeStat, FileStat};
 
 /// Classify the entry mode's type class for type-change detection.
@@ -183,35 +184,38 @@ pub fn change_diff(repo: &gix::Repository, opts: &DiffOptions) -> Result<ChangeS
     tree_diff(repo, head_tree_id, open_tree_id(repo)?, opts)
 }
 
-/// What one commit did: its tree against its first parent's, or against the
-/// empty tree for a root commit. The measurement `ff show` and `ff log -p`
-/// share, so the two verbs cannot disagree about a commit's patch.
-///
-/// `None` for a merge. A merge has no single "what it did": which parent to
-/// measure against is a choice, and making it silently would report a diff
-/// nobody asked for. The caller says so in its own words.
+/// A commit's own change and what it was measured against.
+#[derive(Debug, Clone)]
+pub struct CommitDiff {
+    pub stat: ChangeStat,
+    pub against: Against,
+}
+
+/// What one commit did, the measurement `ff show`, `ff log -p`, and `ff diff
+/// -r` share, so the three cannot disagree about a commit's patch. A commit
+/// with one parent is its tree against that parent's, a root commit against
+/// the empty tree, and a merge against the auto-merge of its parents: what
+/// it did beyond them. [`measure`] holds the rule and its fallback, and
+/// `against` carries which one applied. The auto-merge is made through a
+/// memory handle, so nothing reaches the object store.
 pub fn commit_diff(
     repo: &gix::Repository,
     id: gix::ObjectId,
     opts: &DiffOptions,
-) -> Result<Option<ChangeStat>> {
-    let commit = repo.find_commit(id).map_err(Error::repo)?;
-    let mut parents = commit.parent_ids();
-    let first = parents.next();
-    if parents.next().is_some() {
-        return Ok(None);
-    }
-    let before = match first {
-        Some(parent) => repo
-            .find_commit(parent.detach())
-            .map_err(Error::repo)?
-            .tree_id()
-            .map_err(Error::repo)?
-            .detach(),
-        None => gix::ObjectId::empty_tree(repo.object_hash()),
-    };
-    let after = commit.tree_id().map_err(Error::repo)?.detach();
-    tree_diff(repo, before, after, opts).map(Some)
+) -> Result<CommitDiff> {
+    let memory = repo.clone().with_object_memory();
+    let m = measure(&memory, id)?;
+    let after = memory
+        .find_commit(id)
+        .map_err(Error::repo)?
+        .tree_id()
+        .map_err(Error::repo)?
+        .detach();
+    let stat = tree_diff(&memory, m.tree, after, opts)?;
+    Ok(CommitDiff {
+        stat,
+        against: m.against,
+    })
 }
 
 /// The diff between two arbitrary trees. `change_diff` drives this with

@@ -72,9 +72,9 @@ Options:
 
 ## Choosing what to compare
 
-`-r` takes a revset and shows its total patch, measured from the root's first parent to the head, so `-r @` is the default, `-r HEAD` is one commit, and `-r 'trunk..@'` is git's `main...HEAD` with the working copy included. A set with more than one head or root, a gap, or a merge at its root is refused with `usage/revset-not-a-range`; [`ff log -r`](log.md) shows the members.
+`-r` takes a revset and shows its total patch, measured from the root's parent to the head, so `-r @` is the default, `-r HEAD` is one commit, and `-r 'trunk..@'` is git's `main...HEAD` with the working copy included. A merge at the root is measured against the auto-merge of its parents as [`ff show`](show.md) measures it; when that falls back to the first parent, one `ff:` line on stderr says so. JSON under `-r` carries `against`: `parent`, `auto-merge`, or `first-parent`. A set with more than one head or root, or a gap, is refused with `usage/revset-not-a-range`; [`ff log -r`](log.md) shows the members.
 
-`--from` and `--to` name two points, git's `git diff a b`. `--to` defaults to `@` and `--from` to `@^`, so `--from main` is what the branch plus open work changes against main. `@` reads the open change's tree. `-r` with either is refused with `usage/bad-flags`. Positional arguments are paths, never revisions; [`ff show`](show.md) reads one revision with its identity and message above the patch.
+`--from` and `--to` name two points, git's `git diff a b`. `--to` defaults to `@` and `--from` to `@^`, so `--from main` is what the branch plus open work changes against main. `@` reads the open change's tree. `-r` with either is refused with `usage/bad-flags`. Positional arguments are paths, never revisions; `ff show` reads one revision with its identity and message above the patch.
 
 ## Paths and output
 

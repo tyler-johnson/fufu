@@ -22,7 +22,7 @@
 use std::io::Write as _;
 
 use ff_core::revset::{Rev, Revset};
-use ff_core::{ChangeStat, Error, Result};
+use ff_core::{Against, ChangeStat, Error, Result};
 
 use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
@@ -60,22 +60,33 @@ pub fn run(ctx: &Ctx, rev: Option<String>, flags: Flags, paths: Vec<String>) -> 
 /// stands apart. The patch keeps its one blank line either way, and the
 /// rail rows of `--stat` and `--name-only` hang directly under a one-line
 /// message the way `ff status` hangs them under `@`.
+///
+/// `note` is the lines that stand in the note slot before the files: how a
+/// merge was measured. They take the slot's gap; the rows follow directly
+/// under them, and a patch keeps its blank line.
 fn write_files(
     out: &mut impl std::io::Write,
     stat: &ChangeStat,
     view: FileView,
     body: &str,
     colored: bool,
-    empty_note: &str,
+    note: &[String],
+    empty_note: &[String],
 ) -> std::io::Result<()> {
     let note_gap = !body.is_empty();
-    if stat.files.is_empty() {
-        if note_gap {
-            writeln!(out)?;
-        }
-        return writeln!(out, "  {empty_note}");
+    if note_gap && (!note.is_empty() || stat.files.is_empty()) {
+        writeln!(out)?;
     }
-    if view.depth == Depth::Patch || note_gap {
+    for line in note {
+        writeln!(out, "  {line}")?;
+    }
+    if stat.files.is_empty() {
+        for line in empty_note {
+            writeln!(out, "  {line}")?;
+        }
+        return Ok(());
+    }
+    if view.depth == Depth::Patch || (note_gap && note.is_empty()) {
         writeln!(out)?;
     }
     write!(out, "{}", fileview::text(stat, view.depth, colored))
@@ -111,6 +122,7 @@ fn open(
             "merge": false,
         });
         if let (Some(stat), serde_json::Value::Object(map)) = (&stat, &mut payload) {
+            map.insert("against".into(), serde_json::json!(Against::Parent.word()));
             for (key, value) in fileview::json_keys(stat, view.depth) {
                 map.insert(key.into(), value);
             }
@@ -155,7 +167,8 @@ fn open(
                 view,
                 &change.body,
                 colored,
-                "(nothing is open)",
+                &[],
+                &["(nothing is open)".to_string()],
             ),
         }
     })();
@@ -163,8 +176,9 @@ fn open(
     result.map_err(Error::repo)
 }
 
-/// One commit: its furniture, then what it did — its tree against its first
-/// parent's.
+/// One commit: its furniture, then what it did — its tree against what
+/// `measure` says it is measured against: its parent, or for a merge the
+/// auto-merge of its parents.
 fn commit(
     ctx: &Ctx,
     repo: &ff_core::gix::Repository,
@@ -185,15 +199,15 @@ fn commit(
     // commit costs no spawn — the header is not there to read.
     let signature = ff_core::sign::verify::verify(repo, id)?;
 
-    // `commit_diff` is `None` for a merge: it has no single "what it did",
-    // since which parent to measure against is a choice, and making it
-    // silently would report a diff nobody asked for. git prints nothing
-    // here either — the text at least says why. Under `--no-patch` the
-    // question is not asked at all, and the keys are absent.
-    let stat = if view.depth == Depth::Skip {
+    // A merge is measured against the auto-merge of its parents, so a clean
+    // merge shows nothing and a merge that resolved a conflict or carried an
+    // edit shows that; `diff.against` says which measure applied. Under
+    // `--no-patch` the question is not asked at all, and the keys are
+    // absent, `against` with them.
+    let diff = if view.depth == Depth::Skip {
         None
     } else {
-        ff_core::commit_diff(repo, id, &view.diff_options(paths))?
+        Some(ff_core::commit_diff(repo, id, &view.diff_options(paths))?)
     };
 
     if ctx.json {
@@ -211,22 +225,11 @@ fn commit(
             "merge": merge,
         });
         if let serde_json::Value::Object(map) = &mut payload {
-            // A merge under a view keeps the three keys, empty and zero:
-            // the shape a consumer had before the view set existed.
-            let pairs = match &stat {
-                Some(stat) => fileview::json_keys(stat, view.depth),
-                None if view.depth == Depth::Skip => Vec::new(),
-                None => {
-                    let empty = ChangeStat {
-                        files: Vec::new(),
-                        insertions: 0,
-                        deletions: 0,
-                    };
-                    fileview::json_keys(&empty, view.depth)
+            if let Some(diff) = &diff {
+                map.insert("against".into(), serde_json::json!(diff.against.word()));
+                for (key, value) in fileview::json_keys(&diff.stat, view.depth) {
+                    map.insert(key.into(), value);
                 }
-            };
-            for (key, value) in pairs {
-                map.insert(key.into(), value);
             }
             map.insert("signature".into(), serde_json::json!(signature));
         }
@@ -268,35 +271,47 @@ fn commit(
         }
         writeln!(out, "  {subject}")?;
         write_body(&mut out, &body)?;
-        match &stat {
-            // Nothing was asked, so nothing is said — not even the merge
-            // note.
-            None if view.depth == Depth::Skip => Ok(()),
-            None => {
-                // The note follows a one-line message directly; after a
-                // body, which ended on a blank line, it stands apart.
-                if !body.is_empty() {
-                    writeln!(out)?;
-                }
-                writeln!(
-                    out,
-                    "  (a merge — which parent to diff against is a choice)"
-                )?;
-                writeln!(
-                    out,
-                    "  ff git show -m {} shows it against each",
-                    ff_core::sha::short(&id.to_string())
-                )
-            }
-            Some(stat) => write_files(
-                &mut out,
-                stat,
-                view,
-                &body,
-                colored,
-                "(it changed no files)",
+        let Some(diff) = &diff else {
+            // Nothing was asked, so nothing is said.
+            return Ok(());
+        };
+        let short = ff_core::sha::short_oid(id);
+        // A merge says how it was measured. Against its first parent: the
+        // reason, then its files as any commit's. A clean auto-merge: that
+        // it did nothing of its own, and the two commands for the
+        // per-parent view. An auto-merge with files, or a plain commit:
+        // the files, no note.
+        let (note, empty_note): (Vec<String>, Vec<String>) = match &diff.against {
+            Against::FirstParent(why) => (
+                vec![format!(
+                    "(a merge {}: measured against its first parent {})",
+                    crate::cmd::diff::fallback_words(why),
+                    parents
+                        .first()
+                        .map(|p| ff_core::sha::short_oid(*p))
+                        .unwrap_or_default()
+                )],
+                vec!["(it changed no files)".to_string()],
             ),
-        }
+            Against::AutoMerge => (
+                Vec::new(),
+                vec![
+                    "(a clean merge: nothing beyond its parents)".to_string(),
+                    format!("ff diff --from {short}^ --to {short}"),
+                    format!("ff diff --from {short}^2 --to {short}"),
+                ],
+            ),
+            Against::Parent => (Vec::new(), vec!["(it changed no files)".to_string()]),
+        };
+        write_files(
+            &mut out,
+            &diff.stat,
+            view,
+            &body,
+            colored,
+            &note,
+            &empty_note,
+        )
     })();
     out.finish();
     result.map_err(Error::repo)

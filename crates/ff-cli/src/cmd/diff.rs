@@ -1,8 +1,10 @@
 //! `ff diff` — the patch layer's set half.
 //!
 //! One verb, three questions, one tree diff: bare, what the open change
-//! will land; `-r`, a connected set's total patch, from its root's first
-//! parent to its head; `--from`/`--to`, the difference between two points.
+//! will land; `-r`, a connected set's total patch, from what its root is
+//! measured against to its head, where a merge at the root is measured the
+//! way `ff show` measures it; `--from`/`--to`, the difference between two
+//! points.
 //! `ff show` is the other half — one revision, with its identity and
 //! message as furniture above the patch. Every route here ends in
 //! `tree_diff` with the same `DiffOptions`, so paths filter and hunks keep
@@ -16,7 +18,7 @@ use std::io::Write as _;
 
 use ff_core::gix::ObjectId;
 use ff_core::revset::{Rev, Revset};
-use ff_core::{Error, Result};
+use ff_core::{Against, Error, Fallback, Result};
 
 use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
@@ -66,6 +68,14 @@ pub fn run(
 
     let view = FileView::resolve(flags, Depth::Patch)?;
     let opts = view.diff_options(paths);
+    // The `-r` route measures its root through a memory handle: a merge at
+    // the root is diffed from the auto-merge of its parents, and that tree
+    // exists only in memory. The diff runs through the same handle so the
+    // tree resolves; blobs still come from the real store.
+    let memory = repo.clone().with_object_memory();
+    // Only `-r` answers what the root was measured against: the bare form
+    // and two points name their own ends.
+    let mut against: Option<(Rev, Against)> = None;
     let (stat, from_id, to_rev) = match (revisions, from, to) {
         // The default is `change_diff` verbatim rather than the two-tree
         // route with `@^` and `@` filled in: `ff show`'s bare patch is
@@ -77,10 +87,11 @@ pub fn run(
         ),
         (Some(src), _, _) => {
             let range = Revset::parse(&src)?.range(&repo)?;
-            let (from_tree, from_id) = parent_of(&repo, range.root)?;
+            let (from_tree, from_id, measured) = parent_of(&memory, range.root)?;
             let to_tree = tree_of(&repo, range.head)?;
+            against = Some((range.root, measured));
             (
-                ff_core::tree_diff(&repo, from_tree, to_tree, &opts)?,
+                ff_core::tree_diff(&memory, from_tree, to_tree, &opts)?,
                 from_id,
                 range.head,
             )
@@ -120,10 +131,28 @@ pub fn run(
             serde_json::json!(from_id.map(|id| id.to_string())),
         );
         payload.insert("to".into(), end(to_rev));
+        if let Some((_, against)) = &against {
+            payload.insert("against".into(), serde_json::json!(against.word()));
+        }
         for (key, value) in fileview::json_keys(&stat, view.depth) {
             payload.insert(key.into(), value);
         }
         return crate::machine::emit("diff", &serde_json::Value::Object(payload));
+    }
+
+    // A root measured against its first parent because the auto-merge could
+    // not be made: one line on stderr, so the patch stays a patch and the
+    // reader still learns what it was measured from. `ff show` says the same
+    // in its header.
+    if let (Some((Rev::Commit(root), Against::FirstParent(why))), Some(parent)) =
+        (&against, from_id)
+    {
+        eprintln!(
+            "ff: {} is a merge {}; measured against its first parent {}",
+            ff_core::sha::short_oid(root.object_id()),
+            fallback_words(why),
+            ff_core::sha::short_oid(parent)
+        );
     }
 
     crate::render::init_palette(&repo);
@@ -153,30 +182,38 @@ fn tree_of(repo: &ff_core::gix::Repository, rev: Rev) -> Result<ObjectId> {
     }
 }
 
-/// The tree below a range's root, and the commit that tree belongs to: HEAD
-/// under the open change, the first parent under a commit, the empty tree
-/// and no commit under a root commit.
-fn parent_of(repo: &ff_core::gix::Repository, root: Rev) -> Result<(ObjectId, Option<ObjectId>)> {
+/// Why a merge was measured against its first parent, as the notice and
+/// `ff show`'s header say it.
+pub(crate) fn fallback_words(why: &Fallback) -> String {
+    match why {
+        Fallback::NoBase => "with no merge base between its parents".into(),
+        Fallback::Conflicts(paths) => format!(
+            "whose auto-merge conflicts in {} file{}",
+            paths.len(),
+            if paths.len() == 1 { "" } else { "s" }
+        ),
+    }
+}
+
+/// The tree below a range's root, the commit that tree belongs to, and what
+/// the root was measured against: HEAD under the open change; under a
+/// commit, `measure`'s rule, the one parent, the auto-merge of several, or
+/// the first parent when the auto-merge could not be made, and the empty
+/// tree with no commit under a root commit. An auto-merge tree is written
+/// through `repo`, so a memory handle keeps it out of the store.
+fn parent_of(
+    repo: &ff_core::gix::Repository,
+    root: Rev,
+) -> Result<(ObjectId, Option<ObjectId>, Against)> {
     match root {
         Rev::Open(_) => Ok((
             repo.head_tree_id_or_empty().map_err(Error::repo)?.detach(),
             ff_core::revset::resolve::open_commit(repo)?,
+            Against::Parent,
         )),
         Rev::Commit(id) => {
-            let commit = repo.find_commit(id.object_id()).map_err(Error::repo)?;
-            match commit.parent_ids().next() {
-                Some(parent) => {
-                    let parent = parent.detach();
-                    let tree = repo
-                        .find_commit(parent)
-                        .map_err(Error::repo)?
-                        .tree_id()
-                        .map_err(Error::repo)?
-                        .detach();
-                    Ok((tree, Some(parent)))
-                }
-                None => Ok((ObjectId::empty_tree(repo.object_hash()), None)),
-            }
+            let m = ff_core::measure(repo, id.object_id())?;
+            Ok((m.tree, m.commit, m.against))
         }
     }
 }

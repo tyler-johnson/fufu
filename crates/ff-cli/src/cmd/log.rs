@@ -1,4 +1,4 @@
-use ff_core::{ChangeStat, Error, LogOptions, Result, revset::Revset};
+use ff_core::{ChangeStat, CommitDiff, Error, LogOptions, Result, revset::Revset};
 
 use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
@@ -142,13 +142,14 @@ pub fn run_inner(
             !stat.files.is_empty()
         });
     // What hangs under each row for its files, in the view's depth: each
-    // commit measured against its first parent the way `ff show` measures
-    // it, `None` for a merge, and the open change against HEAD. Nothing is
-    // read under the default depth, so the compact log costs what it did.
+    // commit measured the way `ff show` measures it, against its parent or
+    // for a merge against the auto-merge of its parents, and the open
+    // change against HEAD. `None` only under the default depth, where
+    // nothing is read, so the compact log costs what it did.
     // The path-membership read above stays its own stat read rather than
     // being folded in here: under a view it is one extra pass, and not
     // worth entangling the membership rule with the depth.
-    let row_stats: Vec<Option<ChangeStat>> = if files.depth == Depth::Skip {
+    let row_stats: Vec<Option<CommitDiff>> = if files.depth == Depth::Skip {
         vec![None; commits.len()]
     } else {
         let opts = files.diff_options(paths.clone());
@@ -157,7 +158,7 @@ pub fn run_inner(
             .map(|entry| {
                 let id =
                     ff_core::gix::ObjectId::from_hex(entry.id.as_bytes()).map_err(Error::repo)?;
-                ff_core::commit_diff(&repo, id, &opts)
+                ff_core::commit_diff(&repo, id, &opts).map(Some)
             })
             .collect::<Result<_>>()?
     };
@@ -238,21 +239,13 @@ pub fn run_inner(
                         serde_json::to_value(sig).map_err(Error::repo)?,
                     );
                 }
-                // Only under a file view, and null on a merge row: the
-                // statement `ff show` makes in prose, that a merge has no
-                // single patch. Absent would say the view was never asked.
-                match stat {
-                    Some(stat) => {
-                        for (key, value) in fileview::json_keys(stat, files.depth) {
-                            map.insert(key.into(), value);
-                        }
+                // Only under a file view, with `against` beside the three:
+                // what the row was measured against, `ff show`'s word.
+                if let Some(diff) = stat {
+                    map.insert("against".into(), serde_json::json!(diff.against.word()));
+                    for (key, value) in fileview::json_keys(&diff.stat, files.depth) {
+                        map.insert(key.into(), value);
                     }
-                    None if files.depth != Depth::Skip => {
-                        for key in ["changes", "insertions", "deletions"] {
-                            map.insert(key.into(), serde_json::Value::Null);
-                        }
-                    }
-                    None => {}
                 }
             }
             commit_values.push(value);
@@ -308,8 +301,9 @@ pub fn run_inner(
     // The files under a row. A patch ends on a blank line, evolog's layout:
     // git's format has no rail, so the gap is what hands the eye back to the
     // next row. The diffstat and name-only rows carry the rail and hang
-    // directly under the row, the way `ff status` hangs them under `@`. A
-    // merge row and an empty stat print nothing.
+    // directly under the row, the way `ff status` hangs them under `@`. An
+    // empty stat prints nothing, a clean merge among them: the row form has
+    // no slot for a note, and JSON carries `against`.
     let write_files =
         |out: &mut dyn std::io::Write, stat: Option<&ChangeStat>| -> std::io::Result<()> {
             let Some(stat) = stat else { return Ok(()) };
@@ -371,7 +365,7 @@ pub fn run_inner(
                 "{}",
                 crate::render::commit_row(&commit_display, &lens, now, colored)
             )?;
-            write_files(&mut out, stat.as_ref())?;
+            write_files(&mut out, stat.as_ref().map(|d| &d.stat))?;
         }
         Ok(())
     })();

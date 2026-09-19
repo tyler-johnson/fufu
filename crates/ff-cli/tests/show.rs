@@ -46,6 +46,52 @@ fn repo() -> Fixture {
     Fixture::new()
 }
 
+/// A base, then `side` adding its own file and `main` adding its own: two
+/// branches that merge cleanly. Leaves HEAD on `main`.
+fn fork(fx: &Fixture) {
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-c", "side", "-q"]);
+    fx.write("side.txt", "side\n");
+    fx.commit("side work");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("main.txt", "main\n");
+    fx.commit("main work");
+}
+
+/// Both sides edit line 2 of `a.txt`, and the merge resolves it.
+fn resolved_conflict(fx: &Fixture) {
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("base");
+    fx.git(&["switch", "-c", "side", "-q"]);
+    fx.write("a.txt", "1\nside\n3\n");
+    fx.commit("side work");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("a.txt", "1\nmain\n3\n");
+    fx.commit("main work");
+    let out = fx.try_git(&["merge", "side"]);
+    assert!(!out.status.success(), "the merge conflicts");
+    fx.write("a.txt", "1\nresolved\n3\n");
+    fx.git(&["commit", "-qam", "resolve"]);
+}
+
+/// `main` and an orphan branch, merged with `--allow-unrelated-histories`.
+fn unrelated_histories(fx: &Fixture) {
+    fx.write("main.txt", "main\n");
+    fx.commit("main root");
+    fx.git(&["switch", "--orphan", "other", "-q"]);
+    fx.write("other.txt", "other\n");
+    fx.commit("other root");
+    fx.git(&["switch", "main", "-q"]);
+    fx.git(&[
+        "merge",
+        "--allow-unrelated-histories",
+        "-m",
+        "merge other",
+        "other",
+    ]);
+}
+
 /// A commit's furniture, then what it did — measured against its first
 /// parent, not against nothing.
 #[test]
@@ -118,38 +164,161 @@ fn paths_narrow_the_patch() {
     assert!(!dir.contains("root.txt"), "only that directory: {dir}");
 }
 
-/// A merge names the ambiguity rather than picking a parent silently. git
-/// prints no diff here either; saying why beats printing nothing.
+/// A merge is measured against the auto-merge of its parents. A clean one
+/// did nothing of its own, so the text says so and points at the two
+/// per-parent views, and JSON says which measure applied.
 #[test]
-fn a_merge_names_the_ambiguity() {
+fn a_clean_merge_shows_nothing_beyond_its_parents() {
     let fx = repo();
-    fx.write("base.txt", "base\n");
-    fx.commit("base");
-    fx.git(&["switch", "-c", "side", "-q"]);
-    fx.write("side.txt", "side\n");
-    fx.commit("side work");
-    fx.git(&["switch", "main", "-q"]);
-    fx.write("main.txt", "main\n");
-    fx.commit("main work");
+    fork(&fx);
     fx.git(&["merge", "--no-ff", "-m", "merge side", "side"]);
+    let short = fx.git(&["rev-parse", "HEAD"]).trim()[..8].to_string();
 
     let out = ff(&fx, &["show", "HEAD"]);
     assert!(out.status.success(), "stderr: {}", stderr(&out));
     let body = stdout(&out);
     assert!(body.contains("merge side"), "the subject: {body}");
     assert!(
-        body.contains("a merge — which parent to diff against is a choice"),
-        "the ambiguity, named: {body}"
+        body.contains("(a clean merge: nothing beyond its parents)"),
+        "{body}"
     );
     assert!(
-        body.contains("ff git show -m"),
-        "and where the per-parent view is: {body}"
+        body.contains(&format!("ff diff --from {short}^ --to {short}")),
+        "{body}"
     );
-    assert!(!body.contains("@@"), "no diff was picked for you: {body}");
+    assert!(
+        body.contains(&format!("ff diff --from {short}^2 --to {short}")),
+        "{body}"
+    );
+    assert!(!body.contains("@@"), "nothing beyond its parents: {body}");
+    assert!(!body.contains("ff git"), "no pointer to git: {body}");
 
     let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
     assert_eq!(v["data"]["merge"].as_bool(), Some(true));
     assert_eq!(v["data"]["parents"].as_array().map(Vec::len), Some(2));
+    assert_eq!(v["data"]["against"].as_str(), Some("auto-merge"), "{v}");
+    assert_eq!(
+        v["data"]["changes"].as_array().map(Vec::len),
+        Some(0),
+        "{v}"
+    );
+
+    // `--no-patch` asks no question, so neither the note nor `against`.
+    let body = stdout(&ff(&fx, &["show", "HEAD", "--no-patch"]));
+    assert!(!body.contains("clean merge"), "{body}");
+    let v = json(&ff(&fx, &["show", "HEAD", "--no-patch", "--json"]));
+    assert!(v["data"].get("against").is_none(), "{v}");
+}
+
+/// A merge whose auto-merge conflicts is measured against its first
+/// parent, the header says so, and the patch is the resolution.
+#[test]
+fn a_resolved_conflict_shows_its_resolution_against_the_first_parent() {
+    let fx = repo();
+    resolved_conflict(&fx);
+    let p1 = fx.git(&["rev-parse", "HEAD^1"]).trim()[..8].to_string();
+
+    let out = ff(&fx, &["show", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(
+        body.contains(&format!(
+            "(a merge whose auto-merge conflicts in 1 file: measured against its first parent {p1})"
+        )),
+        "{body}"
+    );
+    assert!(
+        body.contains(
+            "-main
++resolved
+"
+        ),
+        "the resolution: {body}"
+    );
+    assert!(
+        !body.contains(
+            "+side
+"
+        ),
+        "not the other side: {body}"
+    );
+
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["against"].as_str(), Some("first-parent"), "{v}");
+    assert_eq!(v["data"]["changes"][0]["path"].as_str(), Some("a.txt"));
+
+    // The note stands in the note slot under `--stat` too, then the rows.
+    let body = stdout(&ff(&fx, &["show", "HEAD", "--stat"]));
+    assert!(body.contains("measured against its first parent"), "{body}");
+    assert!(body.contains("a.txt"), "{body}");
+}
+
+/// Parents with no merge base cannot be auto-merged; the first parent
+/// stands in and the patch adds the other side whole.
+#[test]
+fn unrelated_histories_fall_back_to_the_first_parent() {
+    let fx = repo();
+    unrelated_histories(&fx);
+
+    let out = ff(&fx, &["show", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(
+        body.contains(
+            "(a merge with no merge base between its parents: measured against its first parent"
+        ),
+        "{body}"
+    );
+    assert!(
+        body.contains(
+            "+other
+"
+        ),
+        "the other side's files: {body}"
+    );
+    assert!(
+        !body.contains(
+            "+main
+"
+        ),
+        "{body}"
+    );
+
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["against"].as_str(), Some("first-parent"), "{v}");
+}
+
+/// A merge that carried an edit of its own shows exactly that edit and no
+/// note: the auto-merge held, and this is what the merge did beyond it.
+#[test]
+fn an_extra_edit_is_the_merges_own_change() {
+    let fx = repo();
+    fork(&fx);
+    fx.git(&["merge", "--no-ff", "--no-commit", "side"]);
+    fx.write("extra.txt", "carried\n");
+    fx.commit("merge side with an extra edit");
+
+    let out = ff(&fx, &["show", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(
+        body.contains("diff --git a/extra.txt b/extra.txt"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("side.txt"),
+        "the auto-merge carried it: {body}"
+    );
+    assert!(!body.contains("main.txt"), "{body}");
+    assert!(!body.contains("(a "), "no note: {body}");
+
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["against"].as_str(), Some("auto-merge"), "{v}");
+    assert_eq!(
+        v["data"]["changes"].as_array().map(Vec::len),
+        Some(1),
+        "{v}"
+    );
 }
 
 /// The two address spaces do not mix, and the refusal says which verb the

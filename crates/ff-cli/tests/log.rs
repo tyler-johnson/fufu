@@ -1009,10 +1009,11 @@ fn stat_outranks_patch() {
     assert!(!body.contains("@@"), "{body}");
 }
 
-/// A merge row carries no patch, the statement `ff show` makes in prose:
-/// null keys in JSON, and nothing between its subject and the next row.
+/// A merge row carries what the merge did beyond its parents' auto-merge,
+/// `ff show`'s rule: nothing for a clean merge, the resolution for one that
+/// resolved a conflict. JSON says which measure applied.
 #[test]
-fn a_merge_row_carries_no_patch() {
+fn a_merge_row_carries_its_own_change() {
     let fx = repo();
     fx.write("base.txt", "base\n");
     fx.commit("base");
@@ -1027,14 +1028,40 @@ fn a_merge_row_carries_no_patch() {
     let v = json(&ff(&fx, &["log", "-p", "--json"]));
     let rows = v["data"]["commits"].as_array().expect("rows");
     assert_eq!(rows[0]["subject"].as_str(), Some("merge side"));
-    assert!(rows[0]["changes"].is_null(), "{v}");
-    assert!(rows[0]["insertions"].is_null(), "{v}");
-    assert!(rows[1]["changes"].is_array(), "{v}");
+    assert_eq!(rows[0]["against"].as_str(), Some("auto-merge"), "{v}");
+    assert_eq!(rows[0]["changes"].as_array().map(Vec::len), Some(0), "{v}");
+    assert_eq!(rows[0]["insertions"].as_i64(), Some(0), "{v}");
+    assert_eq!(rows[1]["against"].as_str(), Some("parent"), "{v}");
+    assert_eq!(rows[1]["changes"].as_array().map(Vec::len), Some(1), "{v}");
 
     let body = stdout(&ff(&fx, &["log", "-p"]));
     let after = body.split("merge side\n").nth(1).expect("the merge row");
     let between = after.split('●').next().expect("up to the next row");
     assert!(!between.contains("diff --git"), "{body}");
+
+    // Both sides edit line 2; the merge resolves it, and that is its patch.
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("a");
+    fx.git(&["switch", "-c", "two", "-q"]);
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.commit("two");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("a.txt", "1\nmain\n3\n");
+    fx.commit("main again");
+    let out = fx.try_git(&["merge", "two"]);
+    assert!(!out.status.success(), "the merge conflicts");
+    fx.write("a.txt", "1\nresolved\n3\n");
+    fx.git(&["commit", "-qam", "resolve"]);
+
+    let body = stdout(&ff(&fx, &["log", "-p", "-n", "1"]));
+    assert!(body.contains("resolve\n"), "{body}");
+    assert!(body.contains("-main\n+resolved\n"), "{body}");
+    let v = json(&ff(&fx, &["log", "-p", "-n", "1", "--json"]));
+    assert_eq!(
+        v["data"]["commits"][0]["against"].as_str(),
+        Some("first-parent"),
+        "{v}"
+    );
 }
 
 /// The `--commits` row has no rail to hang anything from.

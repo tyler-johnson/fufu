@@ -24,6 +24,7 @@ pub mod letters;
 pub mod linked;
 mod log;
 pub mod map;
+pub mod measure;
 pub mod message;
 pub mod model;
 pub mod open;
@@ -66,7 +67,8 @@ pub use gix;
 
 pub use accounted::accounted_for;
 pub use changestat::{
-    DiffOptions, change_diff, change_stat, commit_diff, open_tree_id, tree_diff, tree_diff_stat,
+    CommitDiff, DiffOptions, change_diff, change_stat, commit_diff, open_tree_id, tree_diff,
+    tree_diff_stat,
 };
 pub use close::{CloseOptions, close};
 pub use collide::{Collision, Pairing, Side, collide};
@@ -80,6 +82,7 @@ pub use linked::remove::remove_worktree;
 pub use linked::survey::survey;
 pub use log::{Log, LogOptions, log};
 pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};
+pub use measure::{Against, Fallback, Measure, measure};
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 pub use published::{ever_published, published_tip};

@@ -1,10 +1,10 @@
 //! A set read as one range: what `ff diff -r` measures.
 //!
-//! jj's rule for `jj diff -r`: a set's patch runs from its root's first
-//! parent to its head, so the set has to be connected with exactly one of
-//! each. Connectivity is read off the members and their parent links in one
-//! pass — no second walk, since the members are already in hand and the
-//! parent edges are the only edges git stores.
+//! jj's rule for `jj diff -r`: a set's patch runs from what its root is
+//! measured against, `measure`'s rule, to its head, so the set has to be
+//! connected with exactly one of each. Connectivity is read off the members
+//! and their parent links in one pass — no second walk, since the members
+//! are already in hand and the parent edges are the only edges git stores.
 //!
 //! The open change is the one member without a commit of its own. The
 //! evaluator does not hang it below HEAD, so `heads(HEAD~2..@)` is two rows,
@@ -18,7 +18,8 @@ use crate::error::{Error, Result};
 use super::{Rev, Revset, resolve};
 
 /// A connected set with one head and one root: what `ff diff -r` measures,
-/// from the root's first parent to the head, jj's rule for `jj diff -r`.
+/// from what the root is measured against, `measure`'s rule, to the head,
+/// jj's rule for `jj diff -r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {
     pub root: Rev,
@@ -102,28 +103,10 @@ impl Revset {
                 roots.len()
             )));
         }
-        let (root, head) = (roots[0], heads[0]);
-        if let Rev::Commit(id) = root
-            && parents[&id.object_id()].len() > 1
-        {
-            let root_short = crate::sha::short_oid(id.object_id());
-            let head_spelled = match head {
-                Rev::Open(_) => "@".to_string(),
-                Rev::Commit(h) => crate::sha::short_oid(h.object_id()),
-            };
-            return Err(Error::coded(
-                "usage/revset-not-a-range",
-                format!(
-                    "`{}` starts at {root_short}, a merge, and which parent to measure from is a choice",
-                    self.src
-                ),
-                vec![
-                    format!("ff diff --from {root_short}^ --to {head_spelled}"),
-                    format!("ff diff --from {root_short}^2 --to {head_spelled}"),
-                ],
-            ));
-        }
-        Ok(Range { root, head })
+        Ok(Range {
+            root: roots[0],
+            head: heads[0],
+        })
     }
 
     fn not_a_range(&self, message: String) -> Error {

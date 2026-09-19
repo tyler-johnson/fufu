@@ -4,9 +4,13 @@
 
 ### Added
 
-- [`ff diff`](docs/reference/cli/diff.md) takes revisions: `-r <revset>` shows a connected set's total patch from the root's first parent to the head, and `--from <rev>`/`--to <rev>` two points, with `--to` defaulting to `@` and `--from` to `@^`. A gapped, forked, two-headed, or merge-rooted set is refused with `usage/revset-not-a-range`. JSON gains `from` and `to`.
+- [`ff diff`](docs/reference/cli/diff.md) takes revisions: `-r <revset>` shows a connected set's total patch from the root's parent to the head, and `--from <rev>`/`--to <rev>` two points, with `--to` defaulting to `@` and `--from` to `@^`. A gapped, forked, or two-headed set is refused with `usage/revset-not-a-range`. JSON gains `from` and `to`.
 - [`ff log --body`](docs/reference/cli/log.md) prints each row's message body under its subject, the open change's pending description included. `ff log --json` rows and the open block carry `body`, empty for a one-line message.
 - One view set on [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), and [`ff log`](docs/reference/cli/log.md): `--stat` prints the diffstat in place of the patch, `--name-only` one path per line with its kind letter, `-U <n>` sets the context lines, `ff log -p` hangs each row's patch under it, and `ff show --no-patch` stops at the message. The three views exclude one another with `usage/bad-flags`. JSON drops keys per view and renames none: `hunks` under `--stat`, the counts under `--name-only`, `changes` and the totals under `--no-patch`.
+
+### Changed
+
+- [`ff show`](docs/reference/cli/show.md), [`ff log -p`](docs/reference/cli/log.md), and [`ff diff -r`](docs/reference/cli/diff.md) measure a merge against the auto-merge of its parents, so a clean merge is empty and a merge that resolved a conflict or carried an edit shows that. Parents with no merge base, or an auto-merge that conflicts, fall back to the first parent and say so: `ff show` in its header, `ff diff -r` with one `ff:` line on stderr. `ff show` no longer points at `ff git show -m`. JSON gains `against` (`parent`, `auto-merge`, `first-parent`) on `ff show`, on `ff log` rows under a view, and on `ff diff -r`.
 
 ### Fixed
 

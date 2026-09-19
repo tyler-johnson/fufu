@@ -549,10 +549,12 @@ fn a_two_headed_set_is_refused() {
     );
 }
 
-/// A merge at the root has two parents to measure from, and the exits
-/// spell both so the reader picks.
+/// A merge at the root is measured the way `ff show` measures it: against
+/// the auto-merge of its parents, so a clean merge is an empty patch, and
+/// against its first parent with one line on stderr when the auto-merge
+/// cannot be made. Only `-r` carries `against`.
 #[test]
-fn a_merge_rooted_set_is_refused() {
+fn a_merge_rooted_set_measures_from_the_auto_merge() {
     let fx = repo();
     fx.write("base.txt", "base\n");
     fx.commit("base");
@@ -566,17 +568,64 @@ fn a_merge_rooted_set_is_refused() {
     let merge = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
 
     let out = ff(&fx, &["diff", "-r", &merge]);
-    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
-    let err = stderr(&out);
-    assert!(err.contains("a merge"), "{err}");
-    assert!(err.contains("^2"), "the second parent is offered: {err}");
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "", "a clean merge did nothing of its own");
+    assert_eq!(stderr(&out), "", "no fallback, no notice");
 
     let v = json(&ff(&fx, &["--json", "diff", "-r", &merge]));
-    assert_eq!(
-        v["error"]["id"].as_str(),
-        Some("usage/revset-not-a-range"),
-        "{v}"
+    assert_eq!(v["data"]["against"].as_str(), Some("auto-merge"), "{v}");
+    assert!(
+        v["data"]["from"].is_null(),
+        "an auto-merge is no commit: {v}"
     );
+    assert_eq!(v["data"]["to"].as_str(), Some(merge.as_str()));
+    assert_eq!(v["data"]["changes"].as_array().map(Vec::len), Some(0));
+
+    // Bare and two points name their own ends: no `against`.
+    let v = json(&ff(&fx, &["--json", "diff"]));
+    assert!(v["data"].get("against").is_none(), "{v}");
+    let v = json(&ff(
+        &fx,
+        &["--json", "diff", "--from", "HEAD^", "--to", "HEAD"],
+    ));
+    assert!(v["data"].get("against").is_none(), "{v}");
+}
+
+#[test]
+fn unrelated_histories_fall_back_to_the_first_parent() {
+    let fx = repo();
+    fx.write("main.txt", "main\n");
+    fx.commit("main root");
+    fx.git(&["switch", "--orphan", "other", "-q"]);
+    fx.write("other.txt", "other\n");
+    fx.commit("other root");
+    fx.git(&["switch", "main", "-q"]);
+    fx.git(&[
+        "merge",
+        "--allow-unrelated-histories",
+        "-m",
+        "merge other",
+        "other",
+    ]);
+    let merge = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    let p1 = fx.git(&["rev-parse", "HEAD^1"]).trim().to_string();
+
+    let out = ff(&fx, &["diff", "-r", &merge]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.starts_with("ff: "), "{err}");
+    assert!(err.contains("no merge base"), "{err}");
+    assert!(err.contains("measured against its first parent"), "{err}");
+    assert_eq!(err.lines().count(), 1, "{err}");
+    let body = stdout(&out);
+    assert!(body.contains("+other\n"), "{body}");
+    assert!(!body.contains("+main\n"), "{body}");
+
+    let out = ff(&fx, &["--json", "diff", "-r", &merge]);
+    assert_eq!(stderr(&out), "", "nothing on stderr under --json");
+    let v = json(&out);
+    assert_eq!(v["data"]["against"].as_str(), Some("first-parent"), "{v}");
+    assert_eq!(v["data"]["from"].as_str(), Some(p1.as_str()), "{v}");
 }
 
 /// Two points are `git diff a b`, and the differential oracle is git itself:

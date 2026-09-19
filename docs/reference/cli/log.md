@@ -97,7 +97,7 @@ Positional arguments are paths, never revisions: `ff log main` filters the path 
 
 ## Patches under rows
 
-`-p` (`--patch`) prints each row's patch under it, measured against the commit's first parent as [`ff show`](show.md) measures it, and the open row's against HEAD. A merge row carries none. `--stat` and `--name-only` are the shorter forms, the diffstat block and one path per line with its kind letter, and `--stat` outranks `-p`. None of the three combine with `--commits`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, rows and the open block gain `changes`, `insertions`, and `deletions` under any of the three, with the same drops as [`ff diff`](diff.md): `hunks` under `--stat`, the counts under `--name-only`. A merge row's three are null.
+`-p` (`--patch`) prints each row's patch under it, measured against the commit's parent as [`ff show`](show.md) measures it, and the open row's against HEAD. A merge row carries what it did beyond its parents' auto-merge, `ff show`'s rule. `--stat` and `--name-only` are the shorter forms, the diffstat block and one path per line with its kind letter, and `--stat` outranks `-p`. None of the three combine with `--commits`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, rows and the open block gain `changes`, `insertions`, and `deletions` under any of the three, with the same drops as [`ff diff`](diff.md): `hunks` under `--stat`, the counts under `--name-only`. Rows carry `against`, `ff show`'s word for what the row was measured against.
 
 ## Change IDs and commit objects
 

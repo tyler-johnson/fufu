@@ -216,7 +216,7 @@ $ ff log -n 1 --json | jq '.data | {commits, open: (.open | {id, change_id, pend
 
 A commit's `id` is its SHA; `change_id` is the identity it retains across surviving fufu rewrites. `body` is the message after its subject, empty for a one-line message. The open block's `id` is a capture operation, not a commit SHA. Its `pending` object has not yet entered branch history. A commit's `session` identifies the tag under which it was recorded. [`ff show`](../reference/cli/show.md) also reports change identity.
 
-Under `-p`, `--stat`, or `--name-only`, each `ff log --json` row and the open block gain `changes`, `insertions`, and `deletions`, the shape `ff diff --json` and `ff show --json` carry. `--stat` drops each file's `hunks`; `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and drops the counts; `ff show --no-patch` drops the three keys. Keys are dropped, never renamed or set to null, except a merge row's three under `ff log -p`, which are null because a merge has no single patch.
+Under `-p`, `--stat`, or `--name-only`, each `ff log --json` row and the open block gain `changes`, `insertions`, and `deletions`, the shape `ff diff --json` and `ff show --json` carry. `--stat` drops each file's `hunks`; `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and drops the counts; `ff show --no-patch` drops the three keys. Keys are dropped, never renamed or set to null. Rows under a view carry `against`, the word `ff show --json` carries for what the row was measured against: `parent`, `auto-merge`, or `first-parent`.
 
 ## `ff evolog --json`
 
