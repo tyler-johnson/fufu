@@ -126,9 +126,9 @@ Active agent hooks attempt capture before policy evaluation. Only the current Cl
 
 ## JSON output and scripting
 
-Reporting commands use a one-line envelope: `{"ff":1,"cmd":"status","data":{}}` illustrates its shape. Failures replace data with error (id, message, exits). Read the exit code too: data can accompany nonzero exits and partial success. Contract 1 is current, not a cross-release payload/error-ID guarantee. Pin/test binary versions, assert the envelope version, and tolerate unknown fields.
+Reporting commands use a one-line envelope shaped `{"ff":1,"cmd":"status","data":{}}`. Failures replace data with error (id, message, exits). `--fields <list>` keeps named dotted paths of data; a path that matches nothing is refused. Read the exit code too: data can accompany nonzero exits and partial success. Contract 1 is current, not a cross-release payload/error-ID guarantee. Pin/test binary versions, assert the envelope version, and tolerate unknown fields.
 
-Git passthrough uses Git's streams/status; update prints instructions or installer output; client triggers use client protocols and quietly exit 0 on runtime failure; extensions own their output. `ff watch` always emits newline-delimited event envelopes rather than one command report. Do not assume --json makes these uniform.
+Git passthrough uses Git's streams/status; update prints instructions or installer output; client triggers use client protocols and quietly exit 0 on runtime failure; extensions own their output. `ff watch` always emits newline-delimited event envelopes rather than one command report.
 
 - Exit 1 means failure or a negative check; 2 is usage; 3 is held/blocked; 4 is ref/contended. Bound contention retries, inspect partial results, and do not retry holds blindly. Cascade exit-0 exceptions are above.
 - Set FF_NONINTERACTIVE=1 and supply messages/answers through flags. Built-in prompts and editors are disabled with nonterminal stdin; Git, extensions, hooks, and external tools keep their own interaction rules. Piped output and JSON do not page.

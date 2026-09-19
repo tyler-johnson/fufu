@@ -90,6 +90,12 @@ pub struct Cli {
     /// Session name for this invocation
     #[arg(long, value_name = "name", global = true)]
     pub session: Option<String>,
+    // Rides `--json` the way `--json` rides any verb: where the flag is
+    // inert, so is the projection. Without `--json` it is refused in
+    // `settle`, since the pair is a cross-flag rule and those are hand-checked.
+    /// Keep only these dotted paths of the JSON data, comma-separated
+    #[arg(long, value_name = "list", global = true)]
+    pub fields: Option<String>,
     // The second short letter above the verbs, and git's spelling of it. The
     // long-only rule for shared flags buys verbs a free letter apiece; this
     // one is bought back because the habit is already in everybody's fingers

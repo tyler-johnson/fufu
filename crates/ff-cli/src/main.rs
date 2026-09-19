@@ -10,6 +10,7 @@ mod docsgen;
 mod exit;
 mod explain;
 mod ext;
+mod fields;
 mod gitpolicy;
 mod graph;
 mod help;
@@ -50,7 +51,7 @@ fn verify(no_verify: bool) -> ff_core::Verify {
 /// <op> status` one too. The map's retired `-m` and branch scope were the
 /// only real conflicts it ever caught, so they are named here instead and
 /// the globals go free.
-fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
+fn settle(args: &cli::Cli) -> ff_core::Result<(ctx::Ctx, Option<fields::Fields>)> {
     // Before every refusal below and before `Ctx::new`, because it has to
     // land before anything discovers.
     relocate(args)?;
@@ -108,7 +109,22 @@ fn settle(args: &cli::Cli) -> ff_core::Result<ctx::Ctx> {
             vec!["ff -n 5".into(), "ff map -n 5".into(), "ff log -n 5".into()],
         ));
     }
-    ctx::Ctx::new(args)
+    // `--fields` shapes JSON and nothing else, so without `--json` it would
+    // be a flag that silently does nothing. The list is parsed here too, so
+    // a malformed one is refused before any verb does work.
+    if args.fields.is_some() && !args.json {
+        return Err(ff_core::Error::coded(
+            "usage/bad-flags",
+            "--fields projects JSON output and needs --json",
+            vec![],
+        ));
+    }
+    let fields = args
+        .fields
+        .as_deref()
+        .map(fields::Fields::parse)
+        .transpose()?;
+    Ok((ctx::Ctx::new(args)?, fields))
 }
 
 /// `-C <dir>`: run as if fufu had been started there.
@@ -212,11 +228,18 @@ fn main() {
     // no longer refuses, and the invocation context every verb reads.
     // The envelope says "map" because a command line this broken has no
     // verb to name, and bare ff is the map.
-    let ctx = match settle(&args) {
-        Ok(ctx) => ctx,
+    let (ctx, fields) = match settle(&args) {
+        Ok(settled) => settled,
         // No verb survived parsing, so the raw flag decides the rendering.
         Err(err) => report(args.json, "map", &err),
     };
+    // Installed only where `--json` took: a verb that ignores the flag
+    // ignores the projection with it, and watch's stream is left alone.
+    if ctx.json
+        && let Some(fields) = fields
+    {
+        machine::project_with(fields);
+    }
 
     // The lanes are decided from the command line, before anything
     // dispatches, so every verb is in the table by construction. Bare `ff`

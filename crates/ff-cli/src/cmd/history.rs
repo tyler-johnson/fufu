@@ -54,7 +54,10 @@ pub fn run(ctx: &Ctx, count: usize) -> Result<()> {
         Ok(())
     })();
     out.finish();
-    result.map_err(Error::repo)
+    // `machine::write`'s own refusal, a `--fields` path that matched nothing,
+    // rode through `io::Error::other` to fit the closure; it comes back out
+    // with its id. A plain io error is the repo error it always was.
+    result.map_err(|err| err.downcast::<Error>().unwrap_or_else(Error::repo))
 }
 
 fn now_secs() -> i64 {

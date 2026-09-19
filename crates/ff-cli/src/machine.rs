@@ -1,11 +1,31 @@
 //! Versioned JSON envelope for all `--json` output. Every emission — success
 //! or failure — is shaped here, so the two forms cannot drift apart.
 
+use std::sync::OnceLock;
+
 use ff_core::{Error, Result};
 use serde::Serialize;
 
+use crate::fields::Fields;
+
 /// The current JSON contract version.
 pub const CONTRACT: u32 = 1;
+
+/// The `--fields` projection, installed once by `main` after the flags are
+/// settled and only when `--json` took.
+///
+/// A static rather than a parameter: it is output shaping of an
+/// already-produced value, read in exactly one function ([`write`]), and the
+/// alternative is a parameter on the sixty-odd `emit` and `write` call
+/// sites. Unlike `--at-op`, nothing a verb computes depends on it, so
+/// nothing but the envelope needs to know it exists.
+static PROJECTION: OnceLock<Fields> = OnceLock::new();
+
+/// Install the `--fields` projection every `data` envelope is cut down by.
+/// A second install is ignored: the first one is the command line's.
+pub fn project_with(fields: Fields) {
+    let _ = PROJECTION.set(fields);
+}
 
 /// Serialize `data` inside the versioned envelope and write one line to stdout.
 pub fn emit<T: Serialize>(cmd: &str, data: &T) -> Result<()> {
@@ -15,6 +35,10 @@ pub fn emit<T: Serialize>(cmd: &str, data: &T) -> Result<()> {
 /// Same, writing to an arbitrary sink (used by the log family, which writes
 /// through the pager's writer rather than stdout).
 pub fn write<W: std::io::Write, T: Serialize>(out: &mut W, cmd: &str, data: &T) -> Result<()> {
+    let mut data = serde_json::to_value(data).map_err(Error::repo)?;
+    if let Some(fields) = PROJECTION.get() {
+        data = fields.project(data)?;
+    }
     write_line(
         out,
         &serde_json::json!({ "ff": CONTRACT, "cmd": cmd, "data": data }),

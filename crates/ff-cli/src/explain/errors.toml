@@ -416,6 +416,12 @@ detail = "Correct the file or directory path and retry. Commit, log, diff, and s
 exits = ["ff status", "ff log", "ff show <rev>"]
 
 [[entry]]
+id = "usage/no-such-field"
+summary = "a --fields path names a key the JSON payload does not carry"
+detail = "The message names the deepest key the path reached and the keys available there. Correct the path, or run the command with --json alone to read the whole payload. The check runs against the payload actually produced, so a key a view flag dropped, such as changes under --no-patch, counts as missing, and it runs when the report is written, after the command's work: on a command that changes the repository the work stands and only the report was refused."
+exits = ["ff explain usage/no-such-field"]
+
+[[entry]]
 id = "usage/git-policy"
 summary = "strict Git policy refused this passthrough command"
 detail = "Use the suggested fufu command when it matches your task. If you need Git's behavior, inspect ff config gitPolicy and explicitly choose coach or observe for the intended scope before retrying. Strict passthrough refusal happens before capture and Git execution but records the policy tally. The classifier is command-based: it currently refuses tag pushes too, although ff push sends branches only. There is no exact fufu replacement for a tag push. Agent policy replies also depend on the client; only the Claude adapter emits pre-tool denial replies."

@@ -71,14 +71,17 @@ Options:
       --session <name>
           Session name for this invocation
 
-  -C, --cwd <dir>
-          Run as if fufu had been started in <dir>
+      --fields <list>
+          Keep only these dotted paths of the JSON data, comma-separated
 
   -U, --unified <n>
           Context lines around each change; 3 when omitted
 
       --at-op <op>
           Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
+
+  -C, --cwd <dir>
+          Run as if fufu had been started in <dir>
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)

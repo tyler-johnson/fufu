@@ -35,6 +35,17 @@ In a repository this prints the changed paths. Outside one, it reports `repo/not
 
 `error` carries `id`, `message`, and `exits` (suggested next commands). Branch on the ID rather than message prose. [`ff explain <id>`](../reference/cli/explain.md) explains a refusal, and the [error reference](../reference/errors.md) lists the catalog. Failures before a report can be produced, such as a missing executable or an early argument-parser error, also need normal process-error handling.
 
+## Projecting with `--fields`
+
+`--fields <list>` keeps only the named parts of `data`: comma-separated dotted paths, applied inside the envelope. A path walks objects by key and maps over arrays, so `commits.subject` keeps `subject` on every row of `commits` and drops the rest. Kept keys keep their nesting, a key named whole keeps everything under it, and the envelope's `ff`, `cmd`, and `error` are never touched. There is no template language, renaming, or computed value; the envelope is the shape, and this trims it.
+
+```console
+$ ff log -n 1 --json --fields commits.subject,commits.body
+{"ff":1,"cmd":"log","data":{"commits":[{"subject":"parser: skeleton","body":""}]}}
+```
+
+A path that matches nothing is refused with `usage/no-such-field` at exit 2, naming the deepest key it reached and the keys available there, so a typo cannot yield an empty object. The check runs against the payload actually produced: a key a view flag dropped, such as `changes` under `ff show --no-patch`, counts as missing. It also runs when the report is written, after the command's work, so on a command that changes the repository the work stands and only the report was refused. `--fields` without `--json` is refused with `usage/bad-flags`, and where `--json` is ignored, such as Git passthrough, `--fields` is ignored with it.
+
 <a id="what-is-promised"></a>
 ### Compatibility in current releases
 
@@ -136,7 +147,7 @@ Inside a directory, `ff status --json` reports `repo/not-found` at exit 1 if no 
 
 ## Report fields and examples
 
-The examples below are **valid JSON projections** produced by the displayed `jq` filters, not complete envelopes. `scripts/docs/machine-surface-transcript.sh` creates their scratch repository, commits a parser skeleton, edits it, and takes two captures tagged `flight-3`. IDs, times, and paths vary. Remove the filter to inspect the complete report; no omitted fields are represented by an invalid `[...]` placeholder.
+The examples below are **valid JSON projections**: by `--fields`, which shows the whole envelope, indented by `jq .`, or by the displayed `jq` filter, which shows `data` alone. `scripts/docs/machine-surface-transcript.sh` creates their scratch repository, commits a parser skeleton, edits it, and takes two captures tagged `flight-3`. IDs, times, and paths vary. Remove the filter to inspect the complete report; no omitted fields are represented by an invalid `[...]` placeholder.
 
 Commit SHAs and operation IDs are hexadecimal; `change_id` uses k–z for identity across surviving rewrites. The argument position determines which address space an ID belongs to. `time` fields in these history reports are Unix seconds; other reports can use other timestamp names. [Revisions and IDs](../reference/revisions.md) owns prefix rules, expressions, and past-state reads.
 
@@ -185,30 +196,34 @@ Other useful fields in `data`:
 
 ## `ff log --json`
 
-[`ff log`](../reference/cli/log.md) returns recorded commits plus a separate open block. This projection retains the one-commit list and three open-state identifiers:
+[`ff log`](../reference/cli/log.md) returns recorded commits plus a separate open block. This projection keeps the one-commit list whole and three open-state identifiers; `jq .` only indents the line:
 
 <!-- transcript:log -->
 ```console
-$ ff log -n 1 --json | jq '.data | {commits, open: (.open | {id, change_id, pending})}'
+$ ff log -n 1 --json --fields commits,open.id,open.change_id,open.pending | jq .
 {
-  "commits": [
-    {
-      "id": "afb81aa6ea08a7e62808b608e2da7b34fd221f87",
-      "short_id": "afb81aa6",
-      "change_id": "wzyzppxmrnmosplkvqqzmrxxwnsvwnlr",
-      "subject": "parser: skeleton",
-      "body": "",
-      "author_name": "Ada Lovelace",
-      "author_email": "ada@example.com",
-      "time": 1789342058,
-      "signed": false,
-      "session": null
+  "ff": 1,
+  "cmd": "log",
+  "data": {
+    "commits": [
+      {
+        "id": "50562eaedd69e7745ec985f1645cf96ffd8c0d37",
+        "short_id": "50562eae",
+        "change_id": "urxppurnzxvuwnukttzwlxtsurkywqmt",
+        "subject": "parser: skeleton",
+        "body": "",
+        "author_name": "Ada Lovelace",
+        "author_email": "ada@example.com",
+        "time": 1789860930,
+        "signed": false,
+        "session": null
+      }
+    ],
+    "open": {
+      "id": "3f90f4078f0b1c0c3263f7f32f2d163b846f806f",
+      "change_id": "wrrrsrpyymttzvqqtktqrompytsqpwmn",
+      "pending": "4c83f4ed9c04ddd783c292ed8c5fbeac9a0a6d71"
     }
-  ],
-  "open": {
-    "id": "0acd0a75e7636e687942d6338c7d00447f842c75",
-    "change_id": "okxorxuovysykxnowokkplmqnotvrqnr",
-    "pending": "b92338cba26d38ca3a8cccf11636f624a9a45f72"
   }
 }
 ```

@@ -31,6 +31,7 @@ Recovery requires a successful, retained capture. Ignored untracked files, unsav
 - Commands that read remote copies can fetch on `fufu.autoFetch`'s cadence (ten minutes by default). `--fetch` requests a fetch now on commands that support it; `--no-fetch` skips fetching. Neither flag disables update maintenance. `ff pull` updates local branches.
 - `-C <dir>` (`--cwd`) runs the entire command from that directory, including relative path arguments. Use `ff -C ../review status` to inspect another worktree.
 - `--json` requests JSON output where supported. Git passthrough, client triggers, update, and watch have their own output protocols.
+- `--fields <list>` keeps only the named dotted paths of the JSON data, comma-separated; needs `--json`. A path that matches nothing is refused.
 
 ### Extensions and agent instructions
 

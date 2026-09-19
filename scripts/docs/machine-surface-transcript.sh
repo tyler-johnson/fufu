@@ -30,8 +30,18 @@ show() {
   printf '```\n<!-- /transcript -->\n\n'
 }
 
+# The same block cut by --fields rather than jq; jq only indents the line.
+show_fields() {
+  local key=$1 list=$2
+  shift 2
+  printf '<!-- transcript:%s -->\n```console\n' "$key"
+  printf '$ ff %s --json --fields %s | jq .\n' "$*" "$list"
+  "$FF" "$@" --json --fields "$list" | jq .
+  printf '```\n<!-- /transcript -->\n\n'
+}
+
 show status '.data | {head, changes, held, resolving}' status
-show log '.data | {commits, open: (.open | {id, change_id, pending})}' log -n 1
+show_fields log 'commits,open.id,open.change_id,open.pending' log -n 1
 show evolog '.data' evolog -n 1
 show closed-evolog '.data | {change_id, commit, operations}' evolog HEAD
 printf '// first pass\n' >> main.rs

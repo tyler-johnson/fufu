@@ -48,6 +48,9 @@ Options:
       --session <name>
           Session name for this invocation
 
+      --fields <list>
+          Keep only these dotted paths of the JSON data, comma-separated
+
   -C, --cwd <dir>
           Run as if fufu had been started in <dir>
 

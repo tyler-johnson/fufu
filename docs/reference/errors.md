@@ -37,7 +37,7 @@ For a structured error, the code follows its ID: `usage/*` exits 2, `held/*` exi
 
 ## The index
 
-The table lists all 127 catalog entries with their structured-error exit codes. `internal` is the fallback for unclassified failures. `repo/not-found` covers repository-discovery failures. The installed binary's `ff explain --list` is the catalog to use when it differs from this page.
+The table lists all 128 catalog entries with their structured-error exit codes. `internal` is the fallback for unclassified failures. `repo/not-found` covers repository-discovery failures. The installed binary's `ff explain --list` is the catalog to use when it differs from this page.
 
 <!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a test; edit there, then make docs-gen -->
 
@@ -140,6 +140,7 @@ The table lists all 127 catalog entries with their structured-error exit codes. 
 | `usage/move-into-self` | 2 | the move's only source is its target |
 | `usage/needs-message` | 2 | a required commit description is missing or empty |
 | `usage/no-such-directory` | 2 | fufu could not enter the directory given to -C |
+| `usage/no-such-field` | 2 | a --fields path names a key the JSON payload does not carry |
 | `usage/no-such-path` | 2 | the path is absent from the working copy and HEAD |
 | `usage/op-in-rev-position` | 2 | an operation ID was used where a revision is required |
 | `usage/restack-onto-self` | 2 | a branch cannot be restacked onto itself |

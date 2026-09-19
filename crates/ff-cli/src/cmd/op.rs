@@ -154,7 +154,10 @@ fn log(
         Ok(())
     })();
     out.finish();
-    result.map_err(Error::repo)
+    // `machine::write`'s own refusal, a `--fields` path that matched nothing,
+    // rode through `io::Error::other` to fit the closure; it comes back out
+    // with its id. A plain io error is the repo error it always was.
+    result.map_err(|err| err.downcast::<Error>().unwrap_or_else(Error::repo))
 }
 
 /// The log reports what happened, and it now reports all of it.
