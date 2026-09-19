@@ -15,6 +15,7 @@ fn patched(fx: &Fixture, paths: &[&str]) -> Vec<FileStat> {
         &DiffOptions {
             hunks: true,
             paths: paths.iter().map(|p| p.to_string()).collect(),
+            ..Default::default()
         },
     )
     .expect("change_diff")
@@ -291,4 +292,65 @@ fn the_executable_bit_reaches_the_header() {
     let file = only(&fx, "run.sh");
     let expected = if cfg!(unix) { "100755" } else { "100644" };
     assert_eq!(file.new_mode.as_deref(), Some(expected));
+}
+
+/// The context width is a dial, not a constant: at zero the hunk is the
+/// changed lines alone and the header numbers a one-line side without a
+/// count, git's `-U0`; wide enough, two distant changes share one hunk.
+#[test]
+fn context_is_a_dial() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "1\n2\n3\n4\n5\n");
+    fx.commit("init");
+    fx.write("a.txt", "1\n2\nthree\n4\n5\n");
+    take(&fx);
+    let at = |context: u32| {
+        ff_core::change_diff(
+            &fx.repo(),
+            &DiffOptions {
+                hunks: true,
+                context,
+                paths: Vec::new(),
+            },
+        )
+        .expect("change_diff")
+        .files
+        .remove(0)
+        .hunks
+        .expect("hunks")
+    };
+    let zero = at(0);
+    assert_eq!(zero.len(), 1);
+    assert_eq!(zero[0].header, "@@ -3 +3 @@");
+    assert_eq!(zero[0].lines.len(), 2, "no context lines at all");
+    assert_eq!(at(1)[0].header, "@@ -2,3 +2,3 @@");
+
+    // The 30-lines-apart edit that splits at the default width joins at 15.
+    let body: String = (1..=30).map(|n| format!("{n}\n")).collect();
+    let fx = Fixture::new();
+    fx.write("a.txt", &body);
+    fx.commit("init");
+    let edited: String = (1..=30)
+        .map(|n| match n {
+            2 => "two\n".to_string(),
+            25 => "twentyfive\n".to_string(),
+            _ => format!("{n}\n"),
+        })
+        .collect();
+    fx.write("a.txt", &edited);
+    take(&fx);
+    let wide = ff_core::change_diff(
+        &fx.repo(),
+        &DiffOptions {
+            hunks: true,
+            context: 15,
+            paths: Vec::new(),
+        },
+    )
+    .expect("change_diff")
+    .files
+    .remove(0)
+    .hunks
+    .expect("hunks");
+    assert_eq!(wide.len(), 1, "wide context runs the two changes together");
 }

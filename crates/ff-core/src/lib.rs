@@ -66,7 +66,7 @@ pub use gix;
 
 pub use accounted::accounted_for;
 pub use changestat::{
-    DiffOptions, change_diff, change_stat, open_tree_id, tree_diff, tree_diff_stat,
+    DiffOptions, change_diff, change_stat, commit_diff, open_tree_id, tree_diff, tree_diff_stat,
 };
 pub use close::{CloseOptions, close};
 pub use collide::{Collision, Pairing, Side, collide};

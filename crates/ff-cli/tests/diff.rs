@@ -663,3 +663,122 @@ fn paths_narrow_a_revision_patch() {
     assert!(dir.contains("src/one.txt"), "{dir}");
     assert!(!dir.contains("root.txt"), "only that directory: {dir}");
 }
+
+/// `--stat` is the diffstat block in the patch's place: the same rows
+/// `ff status` prints, and JSON keeps the counts and drops `hunks`.
+#[test]
+fn stat_prints_the_diffstat_in_place_of_the_patch() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+
+    let out = ff(&fx, &["diff", "--stat"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(body.contains("M a.txt"), "{body}");
+    assert!(body.contains("1 file"), "the summary row: {body}");
+    assert!(!body.contains("@@"), "no patch: {body}");
+
+    let v = json(&ff(&fx, &["diff", "--stat", "--json"]));
+    let data = &v["data"];
+    assert!(data["changes"][0]["insertions"].is_number(), "{v}");
+    assert!(data["changes"][0].get("hunks").is_none(), "{v}");
+    assert!(data["insertions"].is_number(), "the totals stay: {v}");
+}
+
+/// `--name-only` is the kind letter and the path, one file per line, and
+/// JSON keeps exactly the four keys that name a file.
+#[test]
+fn name_only_lists_paths_with_kind_letters() {
+    let fx = repo();
+    fx.write("a.txt", "1\n");
+    fx.write("gone.txt", "bye\n");
+    fx.commit("one");
+    fx.write("a.txt", "2\n");
+    fx.write("new.txt", "new\n");
+    fx.remove("gone.txt");
+
+    let out = ff(&fx, &["diff", "--name-only"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert_eq!(body, "│  M a.txt\n│  D gone.txt\n│  A new.txt\n");
+    assert!(!body.contains("+1"), "no counts: {body}");
+
+    let v = json(&ff(&fx, &["diff", "--name-only", "--json"]));
+    let data = &v["data"];
+    for file in data["changes"].as_array().expect("changes") {
+        let mut keys: Vec<&str> = file
+            .as_object()
+            .expect("file")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["binary", "from", "kind", "path"], "{v}");
+    }
+    assert!(data.get("insertions").is_none(), "no totals: {v}");
+    assert!(data.get("deletions").is_none(), "no totals: {v}");
+}
+
+/// A clean tree is an empty patch under every depth: the diffstat's summary
+/// row would be prose in a stream meant for `git apply`.
+#[test]
+fn a_clean_tree_prints_nothing_under_every_view() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    for flag in ["--stat", "--name-only"] {
+        let out = ff(&fx, &["diff", flag]);
+        assert!(out.status.success(), "stderr: {}", stderr(&out));
+        assert_eq!(stdout(&out), "", "{flag} on a clean tree");
+    }
+}
+
+/// The two views each pick one form of the files, so together they are
+/// refused with the coded id rather than clap's bare conflict.
+#[test]
+fn stat_and_name_only_do_not_combine() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    let out = ff(&fx, &["diff", "--stat", "--name-only"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    let v = json(&ff(&fx, &["--json", "diff", "--stat", "--name-only"]));
+    assert_eq!(v["error"]["id"].as_str(), Some("usage/bad-flags"), "{v}");
+}
+
+/// `-U` is git's dial, and git is the oracle: the same two commits at the
+/// same width, byte for byte past the `index` lines.
+#[test]
+fn context_lines_follow_git() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.write("gone.txt", "bye\n");
+    let c1 = fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.remove("gone.txt");
+    fx.commit("two");
+    fx.write("b.txt", "new\n");
+    fx.write("a.txt", "1\ntwo\n3\n4\n");
+    let c3 = fx.commit("three");
+
+    let strip = |patch: &str| -> String {
+        patch
+            .lines()
+            .filter(|l| !l.starts_with("index "))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    for n in ["0", "1", "10"] {
+        let out = ff(&fx, &["diff", "-U", n, "--from", &c1, "--to", &c3]);
+        assert!(out.status.success(), "stderr: {}", stderr(&out));
+        let ours = strip(&stdout(&out));
+        let theirs = strip(&fx.git(&["diff", &format!("-U{n}"), &c1, &c3]));
+        assert_eq!(ours, theirs, "fufu and git disagree at -U{n}");
+    }
+
+    // Without a patch the dial turns nothing, and is not refused.
+    let out = ff(&fx, &["diff", "--stat", "-U", "5"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+}

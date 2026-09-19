@@ -162,6 +162,18 @@ pub enum Command {
         /// Print each row's message body under its subject
         #[arg(long, conflicts_with = "commits")]
         body: bool,
+        /// Print each row's patch under it
+        #[arg(short = 'p', long = "patch", conflicts_with = "commits")]
+        patch: bool,
+        /// Print the diffstat under each row instead of the patch
+        #[arg(long, conflicts_with = "commits")]
+        stat: bool,
+        /// Print one path per line with its kind letter under each row instead of the patch
+        #[arg(long, conflicts_with = "commits")]
+        name_only: bool,
+        /// Context lines around each change; 3 when omitted
+        #[arg(short = 'U', long = "unified", value_name = "n")]
+        unified: Option<u32>,
         /// Files or directories to limit the log to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,
@@ -181,6 +193,15 @@ pub enum Command {
         /// Newer end of a two-point patch; `@`, the open change, when omitted
         #[arg(long, value_name = "rev")]
         to: Option<String>,
+        /// Print the diffstat instead of the patch
+        #[arg(long)]
+        stat: bool,
+        /// Print one path per line with its kind letter instead of the patch
+        #[arg(long)]
+        name_only: bool,
+        /// Context lines around each change; 3 when omitted
+        #[arg(short = 'U', long = "unified", value_name = "n")]
+        unified: Option<u32>,
         /// Files or directories to limit the patch to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,
@@ -191,6 +212,18 @@ pub enum Command {
         /// The revision; `@`, the open change, when omitted
         #[arg(value_name = "rev")]
         rev: Option<String>,
+        /// Print the diffstat instead of the patch
+        #[arg(long)]
+        stat: bool,
+        /// Print one path per line with its kind letter instead of the patch
+        #[arg(long)]
+        name_only: bool,
+        /// Print the header and message only
+        #[arg(long)]
+        no_patch: bool,
+        /// Context lines around each change; 3 when omitted
+        #[arg(short = 'U', long = "unified", value_name = "n")]
+        unified: Option<u32>,
         /// Files or directories to limit the patch to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,

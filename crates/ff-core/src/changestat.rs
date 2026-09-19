@@ -55,14 +55,31 @@ fn classify(change: &Change) -> ChangeKind {
 /// One options struct rather than a second entry point per depth: the walk,
 /// the classification and the path rule are the same work either way, and
 /// only the question of whether to open each blob differs.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DiffOptions {
     /// Fill each file's `hunks` — the patch body, not just its size.
     pub hunks: bool,
+    /// Symmetrical context lines around each change in `hunks`,
+    /// [`crate::patch::DEFAULT_CONTEXT`] by default. Ignored when `hunks` is
+    /// false: there is no patch for it to widen.
+    pub context: u32,
     /// Restrict the report to these paths. Empty means every file. The rule
     /// is [`crate::restore::path_selected`]'s — a file path or a directory
     /// prefix — so `ff diff src/` selects what `ff restore src/` writes.
     pub paths: Vec<String>,
+}
+
+// By hand rather than derived: a derived default would make `context` zero,
+// and `..Default::default()` at a call site that only meant to say "every
+// path" would quietly produce a patch with no context lines.
+impl Default for DiffOptions {
+    fn default() -> Self {
+        Self {
+            hunks: false,
+            context: crate::patch::DEFAULT_CONTEXT,
+            paths: Vec::new(),
+        }
+    }
 }
 
 /// The diffstat of the open change. The stat-only spelling of
@@ -166,6 +183,37 @@ pub fn change_diff(repo: &gix::Repository, opts: &DiffOptions) -> Result<ChangeS
     tree_diff(repo, head_tree_id, open_tree_id(repo)?, opts)
 }
 
+/// What one commit did: its tree against its first parent's, or against the
+/// empty tree for a root commit. The measurement `ff show` and `ff log -p`
+/// share, so the two verbs cannot disagree about a commit's patch.
+///
+/// `None` for a merge. A merge has no single "what it did": which parent to
+/// measure against is a choice, and making it silently would report a diff
+/// nobody asked for. The caller says so in its own words.
+pub fn commit_diff(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+    opts: &DiffOptions,
+) -> Result<Option<ChangeStat>> {
+    let commit = repo.find_commit(id).map_err(Error::repo)?;
+    let mut parents = commit.parent_ids();
+    let first = parents.next();
+    if parents.next().is_some() {
+        return Ok(None);
+    }
+    let before = match first {
+        Some(parent) => repo
+            .find_commit(parent.detach())
+            .map_err(Error::repo)?
+            .tree_id()
+            .map_err(Error::repo)?
+            .detach(),
+        None => gix::ObjectId::empty_tree(repo.object_hash()),
+    };
+    let after = commit.tree_id().map_err(Error::repo)?.detach();
+    tree_diff(repo, before, after, opts).map(Some)
+}
+
 /// The diff between two arbitrary trees. `change_diff` drives this with
 /// (HEAD tree, newest operation's tree); `ff op diff` drives it with the trees
 /// of two operations, so the tree-diff engine lives in exactly one place
@@ -232,7 +280,7 @@ pub fn tree_diff(
                         }
                     };
                     if opts.hunks && error.is_none() {
-                        match crate::patch::hunks_of(&mut platform) {
+                        match crate::patch::hunks_of(&mut platform, opts.context) {
                             // Binary: asked for, and there is no text to
                             // show. The empty vec says so; `None` would say
                             // nobody asked.

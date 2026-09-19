@@ -8,16 +8,17 @@
 //! `tree_diff` with the same `DiffOptions`, so paths filter and hunks keep
 //! their shape whichever two trees are in question.
 //!
-//! Output is the patch and nothing else. The diffstat already has a home in
-//! `ff status`, and two verbs printing the same block is a second dialect
-//! for one fact.
+//! The depth is the view set's, shared with `ff show` and `ff log`: the
+//! patch by default, `--stat` and `--name-only` the shorter forms, and `-U`
+//! the context width around each change.
 
 use std::io::Write as _;
 
 use ff_core::gix::ObjectId;
 use ff_core::revset::{Rev, Revset};
-use ff_core::{DiffOptions, Error, Result};
+use ff_core::{Error, Result};
 
+use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
 
 pub fn run(
@@ -25,6 +26,7 @@ pub fn run(
     revisions: Option<String>,
     from: Option<String>,
     to: Option<String>,
+    flags: Flags,
     paths: Vec<String>,
 ) -> Result<()> {
     // Load-bearing, not ceremonial: the open change is HEAD's tree against
@@ -62,7 +64,8 @@ pub fn run(
         ));
     }
 
-    let opts = DiffOptions { hunks: true, paths };
+    let view = FileView::resolve(flags, Depth::Patch)?;
+    let opts = view.diff_options(paths);
     let (stat, from_id, to_rev) = match (revisions, from, to) {
         // The default is `change_diff` verbatim rather than the two-tree
         // route with `@^` and `@` filled in: `ff show`'s bare patch is
@@ -111,25 +114,27 @@ pub fn run(
             Rev::Open(_) => serde_json::Value::String("@".into()),
             Rev::Commit(id) => serde_json::Value::String(id.object_id().to_string()),
         };
-        let payload = serde_json::json!({
-            "from": from_id.map(|id| id.to_string()),
-            "to": end(to_rev),
-            "changes": stat.files,
-            "insertions": stat.insertions,
-            "deletions": stat.deletions,
-        });
-        return crate::machine::emit("diff", &payload);
+        let mut payload = serde_json::Map::new();
+        payload.insert(
+            "from".into(),
+            serde_json::json!(from_id.map(|id| id.to_string())),
+        );
+        payload.insert("to".into(), end(to_rev));
+        for (key, value) in fileview::json_keys(&stat, view.depth) {
+            payload.insert(key.into(), value);
+        }
+        return crate::machine::emit("diff", &serde_json::Value::Object(payload));
     }
 
     crate::render::init_palette(&repo);
     let mut out = crate::pager::LogOut::new(&repo, ctx.json);
     let colored = out.colored();
-    // A clean tree prints nothing, git's convention, and so does an
-    // identical pair of trees: this verb's output is meant to be piped into
-    // `git apply`, and prose in that stream is a bug for whatever reads it.
-    // A path that exists but has no changes is the same empty patch, exit 0:
-    // only a path that names nothing is refused.
-    let result = write!(out, "{}", crate::render::patch_block(&stat.files, colored));
+    // A clean tree prints nothing under every depth, git's convention, and
+    // so does an identical pair of trees: this verb's output is meant to be
+    // piped into `git apply`, and prose in that stream is a bug for whatever
+    // reads it. A path that exists but has no changes is the same empty
+    // patch, exit 0: only a path that names nothing is refused.
+    let result = write!(out, "{}", fileview::text(&stat, view.depth, colored));
     out.finish();
     result.map_err(Error::repo)
 }

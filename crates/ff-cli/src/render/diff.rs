@@ -154,6 +154,21 @@ pub(crate) fn render_diffstat(stat: &ChangeStat, colored: bool) -> String {
     lines.join("\n")
 }
 
+/// The name-only block: the diffstat's first two columns, the kind letter
+/// and the path, one file per line and nothing else — no counts, no bar, no
+/// summary row. What `--name-only` prints on the three verbs that take it.
+pub(crate) fn name_only_block(files: &[FileStat], colored: bool) -> String {
+    let rail = paint("│", DIM, colored);
+    files
+        .iter()
+        .map(|f| {
+            let kind = paint(&format!("{}", kind_letter(f.kind)), DIM, colored);
+            format!("{rail}  {kind} {}", file_path_for_stat(f))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The patch block: every file that carries hunks, in git's unified diff.
 ///
 /// The body is git's format verbatim — `diff --git`, `index`, `---`/`+++`,

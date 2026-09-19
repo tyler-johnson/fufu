@@ -8,6 +8,10 @@
 //! open change again — so the two verbs share one renderer rather than
 //! wording the same body twice.
 //!
+//! The file view is the set `ff diff` and `ff log` share: `--stat`,
+//! `--name-only`, and `--no-patch` shorten the patch to the diffstat, the
+//! paths, or nothing, and `-U` sets its context.
+//!
 //! Resolution goes through `Revset::parse(raw)?.point(repo)?`, the same
 //! single-member resolver `ff restore --from` uses, which means the
 //! address-space refusal is already written: an operation id typed in a
@@ -18,11 +22,12 @@
 use std::io::Write as _;
 
 use ff_core::revset::{Rev, Revset};
-use ff_core::{DiffOptions, Error, Result};
+use ff_core::{ChangeStat, Error, Result};
 
+use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, rev: Option<String>, paths: Vec<String>) -> Result<()> {
+pub fn run(ctx: &Ctx, rev: Option<String>, flags: Flags, paths: Vec<String>) -> Result<()> {
     // `@` reads the open change against the branch's newest operation, so it
     // needs the same capture `ff diff` needs. A commit read does not, but it
     // is the same verb and a capture-first floor that depended on which
@@ -42,23 +47,60 @@ pub fn run(ctx: &Ctx, rev: Option<String>, paths: Vec<String>) -> Result<()> {
         &paths,
         |_| vec!["ff show <rev>".into(), "ff log -r <revset>".into()],
     )?;
-    let opts = DiffOptions { hunks: true, paths };
+    let view = FileView::resolve(flags, Depth::Patch)?;
 
     match point.rev {
-        Rev::Open(_) => open(ctx, &repo, &opts),
-        Rev::Commit(id) => commit(ctx, &repo, id.object_id(), &opts),
+        Rev::Open(_) => open(ctx, &repo, view, paths),
+        Rev::Commit(id) => commit(ctx, &repo, id.object_id(), view, paths),
     }
+}
+
+/// The files under the message, in the view's form. A note follows a
+/// one-line message directly; after a body, which ended on a blank line, it
+/// stands apart. The patch keeps its one blank line either way, and the
+/// rail rows of `--stat` and `--name-only` hang directly under a one-line
+/// message the way `ff status` hangs them under `@`.
+fn write_files(
+    out: &mut impl std::io::Write,
+    stat: &ChangeStat,
+    view: FileView,
+    body: &str,
+    colored: bool,
+    empty_note: &str,
+) -> std::io::Result<()> {
+    let note_gap = !body.is_empty();
+    if stat.files.is_empty() {
+        if note_gap {
+            writeln!(out)?;
+        }
+        return writeln!(out, "  {empty_note}");
+    }
+    if view.depth == Depth::Patch || note_gap {
+        writeln!(out)?;
+    }
+    write!(out, "{}", fileview::text(stat, view.depth, colored))
 }
 
 /// The open change: the same body `ff diff` prints, under a header that says
 /// what it is. The sha it names is the open commit's — the one the close
 /// lands — when there is one; blank on a clean tree, or under signing.
-fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Result<()> {
+fn open(
+    ctx: &Ctx,
+    repo: &ff_core::gix::Repository,
+    view: FileView,
+    paths: Vec<String>,
+) -> Result<()> {
     let change = ff_core::open_change(repo)?;
-    let stat = ff_core::change_diff(repo, opts)?;
+    // Under `--no-patch` the question is not asked, so the keys are absent
+    // rather than empty: absent says nobody looked, empty would say clean.
+    let stat = if view.depth == Depth::Skip {
+        None
+    } else {
+        Some(ff_core::change_diff(repo, &view.diff_options(paths))?)
+    };
 
     if ctx.json {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "kind": "open",
             "branch": change.branch,
             "subject": change.subject,
@@ -67,10 +109,12 @@ fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Resul
             "base": change.base,
             "time": change.time,
             "merge": false,
-            "changes": stat.files,
-            "insertions": stat.insertions,
-            "deletions": stat.deletions,
         });
+        if let (Some(stat), serde_json::Value::Object(map)) = (&stat, &mut payload) {
+            for (key, value) in fileview::json_keys(stat, view.depth) {
+                map.insert(key.into(), value);
+            }
+        }
         return crate::machine::emit("show", &payload);
     }
 
@@ -103,17 +147,17 @@ fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Resul
                 .unwrap_or("(no description yet — ff describe -m)")
         )?;
         write_body(&mut out, &change.body)?;
-        if stat.files.is_empty() {
-            // Directly under a one-line message; a body already ended on a
-            // blank line, and the note stands apart from it.
-            if !change.body.is_empty() {
-                writeln!(out)?;
-            }
-            writeln!(out, "  (nothing is open)")?;
-            return Ok(());
+        match &stat {
+            None => Ok(()),
+            Some(stat) => write_files(
+                &mut out,
+                stat,
+                view,
+                &change.body,
+                colored,
+                "(nothing is open)",
+            ),
         }
-        writeln!(out)?;
-        write!(out, "{}", crate::render::patch_block(&stat.files, colored))
     })();
     out.finish();
     result.map_err(Error::repo)
@@ -125,7 +169,8 @@ fn commit(
     ctx: &Ctx,
     repo: &ff_core::gix::Repository,
     id: ff_core::gix::ObjectId,
-    opts: &DiffOptions,
+    view: FileView,
+    paths: Vec<String>,
 ) -> Result<()> {
     let commit = repo.find_commit(id).map_err(Error::repo)?;
     let parents: Vec<ff_core::gix::ObjectId> = commit.parent_ids().map(|p| p.detach()).collect();
@@ -140,31 +185,19 @@ fn commit(
     // commit costs no spawn — the header is not there to read.
     let signature = ff_core::sign::verify::verify(repo, id)?;
 
-    // A merge has no single "what it did": which parent to measure against
-    // is a choice, and making it silently would report a diff nobody asked
-    // for. git prints nothing here either — this at least says why.
-    let stat = if merge {
+    // `commit_diff` is `None` for a merge: it has no single "what it did",
+    // since which parent to measure against is a choice, and making it
+    // silently would report a diff nobody asked for. git prints nothing
+    // here either — the text at least says why. Under `--no-patch` the
+    // question is not asked at all, and the keys are absent.
+    let stat = if view.depth == Depth::Skip {
         None
     } else {
-        let before = match parents.first() {
-            Some(parent) => repo
-                .find_commit(*parent)
-                .map_err(Error::repo)?
-                .tree_id()
-                .map_err(Error::repo)?
-                .detach(),
-            None => ff_core::gix::ObjectId::empty_tree(repo.object_hash()),
-        };
-        Some(ff_core::tree_diff(
-            repo,
-            before,
-            commit.tree_id().map_err(Error::repo)?.detach(),
-            opts,
-        )?)
+        ff_core::commit_diff(repo, id, &view.diff_options(paths))?
     };
 
     if ctx.json {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "kind": "commit",
             "id": id.to_string(),
             "short_id": ff_core::sha::short(&id.to_string()),
@@ -176,11 +209,27 @@ fn commit(
             "time": time,
             "parents": parents.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
             "merge": merge,
-            "changes": stat.as_ref().map(|s| s.files.clone()).unwrap_or_default(),
-            "insertions": stat.as_ref().map(|s| s.insertions).unwrap_or(0),
-            "deletions": stat.as_ref().map(|s| s.deletions).unwrap_or(0),
-            "signature": signature,
         });
+        if let serde_json::Value::Object(map) = &mut payload {
+            // A merge under a view keeps the three keys, empty and zero:
+            // the shape a consumer had before the view set existed.
+            let pairs = match &stat {
+                Some(stat) => fileview::json_keys(stat, view.depth),
+                None if view.depth == Depth::Skip => Vec::new(),
+                None => {
+                    let empty = ChangeStat {
+                        files: Vec::new(),
+                        insertions: 0,
+                        deletions: 0,
+                    };
+                    fileview::json_keys(&empty, view.depth)
+                }
+            };
+            for (key, value) in pairs {
+                map.insert(key.into(), value);
+            }
+            map.insert("signature".into(), serde_json::json!(signature));
+        }
         return crate::machine::emit("show", &payload);
     }
 
@@ -219,13 +268,14 @@ fn commit(
         }
         writeln!(out, "  {subject}")?;
         write_body(&mut out, &body)?;
-        // A note follows a one-line message directly. After a body, which
-        // ended on a blank line, it stands apart. The patch keeps its one
-        // blank line either way.
-        let note_gap = !body.is_empty();
         match &stat {
+            // Nothing was asked, so nothing is said — not even the merge
+            // note.
+            None if view.depth == Depth::Skip => Ok(()),
             None => {
-                if note_gap {
+                // The note follows a one-line message directly; after a
+                // body, which ended on a blank line, it stands apart.
+                if !body.is_empty() {
                     writeln!(out)?;
                 }
                 writeln!(
@@ -238,16 +288,14 @@ fn commit(
                     ff_core::sha::short(&id.to_string())
                 )
             }
-            Some(stat) if stat.files.is_empty() => {
-                if note_gap {
-                    writeln!(out)?;
-                }
-                writeln!(out, "  (it changed no files)")
-            }
-            Some(stat) => {
-                writeln!(out)?;
-                write!(out, "{}", crate::render::patch_block(&stat.files, colored))
-            }
+            Some(stat) => write_files(
+                &mut out,
+                stat,
+                view,
+                &body,
+                colored,
+                "(it changed no files)",
+            ),
         }
     })();
     out.finish();

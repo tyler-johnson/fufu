@@ -6,6 +6,8 @@ Show one revision's identity, author, age, message, and patch. With no revision,
 ff show                         # Open change with its header
 ff show HEAD                    # Latest recorded commit
 ff show HEAD~2 src/             # An earlier commit, filtered by path
+ff show --stat HEAD             # File counts instead of a patch
+ff show --no-patch HEAD~3       # Header and message only
 ff show --json                  # Header and patch as fields
 ff git show HEAD:file.txt       # Read a blob through Git
 ```
@@ -25,5 +27,7 @@ The message prints whole: the subject, then a blank line and the body when there
 ### Patches and signatures
 
 A non-merge commit's patch is measured against its first parent. A merge reports why no single patch is shown and points to Git's per-parent view.
+
+`--stat`, `--name-only`, and `--no-patch` shorten the patch to the diffstat, the paths with their kind letters, or nothing, one at a time; two together are refused with `usage/bad-flags`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, `--stat` drops each file's `hunks`, `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and drops the counts, and `--no-patch` drops `changes`, `insertions`, and `deletions`.
 
 A signed commit is verified and receives a signature line with the verdict and signer. An unsigned commit has no signature line and runs no signer. JSON includes the result in `signature`.

@@ -221,7 +221,7 @@ fn show(ctx: &Ctx, spec: Option<String>, patch: bool) -> Result<()> {
         op.tree(),
         &ff_core::DiffOptions {
             hunks: patch,
-            paths: Vec::new(),
+            ..Default::default()
         },
     )?;
     let refs: Vec<_> = op
@@ -315,7 +315,7 @@ fn diff(ctx: &Ctx, a: String, b: Option<String>, patch: bool) -> Result<()> {
         log.get(b_id)?.tree(),
         &ff_core::DiffOptions {
             hunks: patch,
-            paths: Vec::new(),
+            ..Default::default()
         },
     )?;
 

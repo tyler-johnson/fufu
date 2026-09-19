@@ -936,3 +936,125 @@ fn body_and_commits_do_not_combine() {
     let out = ff(&fx, &["log", "--body", "--commits"]);
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
 }
+
+/// Nothing hangs under a row until asked. `-p` hangs each row's patch, the
+/// open row's included, and a blank line closes it; `--stat` and
+/// `--name-only` hang the rail rows directly. JSON gains the keys per view
+/// and drops the ones the view has no use for.
+#[test]
+fn patches_hang_under_the_rows_when_asked() {
+    let fx = bodied();
+
+    let plain = stdout(&ff(&fx, &["log"]));
+    assert!(!plain.contains("@@"), "compact by default: {plain}");
+    let v = json(&ff(&fx, &["log", "--json"]));
+    assert!(v["data"]["commits"][0].get("changes").is_none(), "{v}");
+    assert!(v["data"]["open"].get("changes").is_none(), "{v}");
+
+    let patched = stdout(&ff(&fx, &["log", "-p"]));
+    assert!(
+        patched.contains("-b\n+c\n\n●"),
+        "the open row's patch, closed by a blank line: {patched}"
+    );
+    assert!(
+        patched.contains("-a\n+b\n\n●"),
+        "the second row's: {patched}"
+    );
+    assert!(patched.contains("+a\n\n"), "the first row's: {patched}");
+    let v = json(&ff(&fx, &["log", "-p", "--json"]));
+    assert!(
+        v["data"]["commits"][0]["changes"][0]["hunks"].is_array(),
+        "{v}"
+    );
+    assert!(
+        v["data"]["commits"][1]["changes"][0]["hunks"].is_array(),
+        "{v}"
+    );
+    assert!(v["data"]["open"]["changes"][0]["hunks"].is_array(), "{v}");
+    assert!(v["data"]["open"]["insertions"].is_number(), "{v}");
+
+    let stat = stdout(&ff(&fx, &["log", "--stat"]));
+    assert!(
+        stat.contains("│  two\n│  M a.txt"),
+        "rows hang directly: {stat}"
+    );
+    assert!(stat.contains("1 file"), "{stat}");
+    assert!(!stat.contains("@@"), "{stat}");
+    let v = json(&ff(&fx, &["log", "--stat", "--json"]));
+    assert!(
+        v["data"]["commits"][0]["changes"][0]["insertions"].is_number(),
+        "{v}"
+    );
+    assert!(
+        v["data"]["commits"][0]["changes"][0].get("hunks").is_none(),
+        "{v}"
+    );
+
+    let v = json(&ff(&fx, &["log", "--name-only", "--json"]));
+    let file = &v["data"]["commits"][0]["changes"][0];
+    assert_eq!(file.as_object().map(|m| m.len()), Some(4), "{v}");
+    assert!(v["data"]["commits"][0].get("insertions").is_none(), "{v}");
+    let names = stdout(&ff(&fx, &["log", "--name-only"]));
+    assert!(names.contains("│  two\n│  M a.txt\n●"), "{names}");
+}
+
+/// git's rule: `--stat` wins over `-p`.
+#[test]
+fn stat_outranks_patch() {
+    let fx = bodied();
+    let out = ff(&fx, &["log", "-p", "--stat"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(body.contains("1 file"), "{body}");
+    assert!(!body.contains("@@"), "{body}");
+}
+
+/// A merge row carries no patch, the statement `ff show` makes in prose:
+/// null keys in JSON, and nothing between its subject and the next row.
+#[test]
+fn a_merge_row_carries_no_patch() {
+    let fx = repo();
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-c", "side", "-q"]);
+    fx.write("side.txt", "side\n");
+    fx.commit("side work");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("main.txt", "main\n");
+    fx.commit("main work");
+    fx.git(&["merge", "--no-ff", "-m", "merge side", "side"]);
+
+    let v = json(&ff(&fx, &["log", "-p", "--json"]));
+    let rows = v["data"]["commits"].as_array().expect("rows");
+    assert_eq!(rows[0]["subject"].as_str(), Some("merge side"));
+    assert!(rows[0]["changes"].is_null(), "{v}");
+    assert!(rows[0]["insertions"].is_null(), "{v}");
+    assert!(rows[1]["changes"].is_array(), "{v}");
+
+    let body = stdout(&ff(&fx, &["log", "-p"]));
+    let after = body.split("merge side\n").nth(1).expect("the merge row");
+    let between = after.split('●').next().expect("up to the next row");
+    assert!(!between.contains("diff --git"), "{body}");
+}
+
+/// The `--commits` row has no rail to hang anything from.
+#[test]
+fn file_views_do_not_ride_commits() {
+    let fx = bodied();
+    for flag in ["-p", "--stat", "--name-only"] {
+        let out = ff(&fx, &["log", flag, "--commits"]);
+        assert_eq!(out.status.code(), Some(2), "{flag}: {}", stderr(&out));
+    }
+}
+
+/// `-U` reaches each row's patch.
+#[test]
+fn context_lines_reach_log() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.commit("two");
+    let body = stdout(&ff(&fx, &["log", "-p", "-U", "0"]));
+    assert!(body.contains("@@ -2 +2 @@"), "{body}");
+}

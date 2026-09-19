@@ -23,7 +23,9 @@ use crate::error::{Error, Result};
 
 /// Symmetrical context lines around each change — git's default, and the
 /// number `git apply` assumes when it looks for where a hunk goes.
-const CONTEXT: u32 = 3;
+/// [`crate::DiffOptions::context`] dials it; this is what it reads when the
+/// caller says nothing.
+pub const DEFAULT_CONTEXT: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -65,8 +67,10 @@ pub struct Hunk {
 /// The hunks between the two blobs a tree-diff change resolved to, or `None`
 /// when either side is binary — the same signal `line_counts()` gives, so a
 /// caller that already knows how to say "binary" has nothing new to learn.
+/// `context` is the width of unchanged lines printed around each change.
 pub(crate) fn hunks_of(
     platform: &mut gix::object::blob::diff::Platform<'_>,
+    context: u32,
 ) -> Result<Option<Vec<Hunk>>> {
     use gix::diff::blob::platform::prepare_diff::Operation;
 
@@ -105,7 +109,7 @@ pub(crate) fn hunks_of(
         .map(|hunk| (hunk.before, hunk.after))
         .collect();
 
-    Ok(Some(assemble(&input, &changes)))
+    Ok(Some(assemble(&input, &changes, context)))
 }
 
 /// Group changes into hunks and fill in the lines between them.
@@ -116,6 +120,7 @@ pub(crate) fn hunks_of(
 fn assemble(
     input: &gix::diff::blob::InternedInput<&[u8]>,
     changes: &[(Range<u32>, Range<u32>)],
+    context: u32,
 ) -> Vec<Hunk> {
     let old_len = input.before.len() as u32;
     let line = |tokens: &[gix::diff::blob::Token], at: u32, kind: LineKind| -> PatchLine {
@@ -137,15 +142,15 @@ fn assemble(
                 .0
                 .start
                 .saturating_sub(changes[last].0.end)
-                <= 2 * CONTEXT
+                <= 2 * context
         {
             last += 1;
         }
 
         let head = &changes[first];
         let tail = &changes[last];
-        let old_start = head.0.start.saturating_sub(CONTEXT);
-        let old_end = (tail.0.end + CONTEXT).min(old_len);
+        let old_start = head.0.start.saturating_sub(context);
+        let old_end = (tail.0.end + context).min(old_len);
         // Context regions run in lockstep, so the leading and trailing
         // context widths carry straight over to the new side.
         let new_start = head.1.start - (head.0.start - old_start);

@@ -6,6 +6,7 @@
 
 - [`ff diff`](docs/reference/cli/diff.md) takes revisions: `-r <revset>` shows a connected set's total patch from the root's first parent to the head, and `--from <rev>`/`--to <rev>` two points, with `--to` defaulting to `@` and `--from` to `@^`. A gapped, forked, two-headed, or merge-rooted set is refused with `usage/revset-not-a-range`. JSON gains `from` and `to`.
 - [`ff log --body`](docs/reference/cli/log.md) prints each row's message body under its subject, the open change's pending description included. `ff log --json` rows and the open block carry `body`, empty for a one-line message.
+- One view set on [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), and [`ff log`](docs/reference/cli/log.md): `--stat` prints the diffstat in place of the patch, `--name-only` one path per line with its kind letter, `-U <n>` sets the context lines, `ff log -p` hangs each row's patch under it, and `ff show --no-patch` stops at the message. The three views exclude one another with `usage/bad-flags`. JSON drops keys per view and renames none: `hunks` under `--stat`, the counts under `--name-only`, `changes` and the totals under `--no-patch`.
 
 ### Fixed
 

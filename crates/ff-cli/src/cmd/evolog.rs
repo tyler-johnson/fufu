@@ -217,7 +217,7 @@ fn row_patch(
         tree(&row.id)?,
         &ff_core::DiffOptions {
             hunks: true,
-            paths: Vec::new(),
+            ..Default::default()
         },
     )
 }

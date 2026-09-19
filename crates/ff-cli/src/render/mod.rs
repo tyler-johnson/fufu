@@ -8,7 +8,7 @@ mod rows;
 mod status;
 
 pub use age::relative_age;
-pub(crate) use diff::{patch_block, render_diffstat};
+pub(crate) use diff::{name_only_block, patch_block, render_diffstat};
 pub use palette::{
     col, init_palette, paint_dim, paint_id, paint_ok, paint_sha, paint_warn, styled_id,
 };

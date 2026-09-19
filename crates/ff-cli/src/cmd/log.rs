@@ -1,5 +1,6 @@
-use ff_core::{Error, LogOptions, Result, revset::Revset};
+use ff_core::{ChangeStat, Error, LogOptions, Result, revset::Revset};
 
+use crate::cmd::fileview::{self, Depth, FileView, Flags};
 use crate::ctx::Ctx;
 
 /// `revisions` is `-r`: the set the rows come from. It replaces the source of
@@ -22,15 +23,9 @@ pub fn run(
     // The past-state view is what `--at-op` would need here, and it does not
     // exist yet.
     ctx.refuse_past("ff log")?;
-    run_inner(
-        ctx,
-        count,
-        revisions,
-        view.commits,
-        view.signatures,
-        view.body,
-        paths,
-    )
+    // Nothing under a row unless asked: the compact log is the default.
+    let files = FileView::resolve(view.files, Depth::Skip)?;
+    run_inner(ctx, count, revisions, &view, files, paths)
 }
 
 /// The view flags, gathered so the entry point stays under clippy's argument
@@ -45,6 +40,9 @@ pub struct View {
     pub signatures: bool,
     /// `--body`: each row's message body under its subject.
     pub body: bool,
+    /// `-p`, `--stat`, `--name-only`, and `-U`: what hangs under each row
+    /// for the files it changed.
+    pub files: Flags,
 }
 
 /// A removal, not a rename: `ff op log` is a different command with a
@@ -67,11 +65,16 @@ pub fn run_inner(
     ctx: &Ctx,
     count: usize,
     revisions: Option<String>,
-    commits_only: bool,
-    signatures: bool,
-    body: bool,
+    view: &View,
+    files: FileView,
     paths: Vec<String>,
 ) -> Result<()> {
+    let View {
+        commits: commits_only,
+        signatures,
+        body,
+        ..
+    } = *view;
     // Parsed before the repository is even opened: the grammar is pure, so a
     // misspelled revset fails the same way in a repo and out of one.
     let revs = match &revisions {
@@ -133,10 +136,39 @@ pub fn run_inner(
                 &ff_core::DiffOptions {
                     hunks: false,
                     paths: paths.clone(),
+                    ..Default::default()
                 },
             )?;
             !stat.files.is_empty()
         });
+    // What hangs under each row for its files, in the view's depth: each
+    // commit measured against its first parent the way `ff show` measures
+    // it, `None` for a merge, and the open change against HEAD. Nothing is
+    // read under the default depth, so the compact log costs what it did.
+    // The path-membership read above stays its own stat read rather than
+    // being folded in here: under a view it is one extra pass, and not
+    // worth entangling the membership rule with the depth.
+    let row_stats: Vec<Option<ChangeStat>> = if files.depth == Depth::Skip {
+        vec![None; commits.len()]
+    } else {
+        let opts = files.diff_options(paths.clone());
+        commits
+            .iter()
+            .map(|entry| {
+                let id =
+                    ff_core::gix::ObjectId::from_hex(entry.id.as_bytes()).map_err(Error::repo)?;
+                ff_core::commit_diff(&repo, id, &opts)
+            })
+            .collect::<Result<_>>()?
+    };
+    let open_stat: Option<ChangeStat> = if open_in_set && files.depth != Depth::Skip {
+        Some(ff_core::change_diff(
+            &repo,
+            &files.diff_options(paths.clone()),
+        )?)
+    } else {
+        None
+    };
     // The op anchor survives only on the machine surface, as each row's
     // `session`: the human render's letters column is the change id, read
     // off the commit, so it no longer walks the chain.
@@ -189,7 +221,12 @@ pub fn run_inner(
         // `commits` key contract preserved. Every row also carries
         // `session`, null when the anchor operation wore no tag.
         let mut commit_values = Vec::with_capacity(commits.len());
-        for ((entry, sess), sig) in commits.iter().zip(&row_sessions).zip(&row_signatures) {
+        for (((entry, sess), sig), stat) in commits
+            .iter()
+            .zip(&row_sessions)
+            .zip(&row_signatures)
+            .zip(&row_stats)
+        {
             let mut value = serde_json::to_value(entry).map_err(Error::repo)?;
             if let serde_json::Value::Object(ref mut map) = value {
                 map.insert("session".into(), serde_json::json!(sess));
@@ -201,6 +238,22 @@ pub fn run_inner(
                         serde_json::to_value(sig).map_err(Error::repo)?,
                     );
                 }
+                // Only under a file view, and null on a merge row: the
+                // statement `ff show` makes in prose, that a merge has no
+                // single patch. Absent would say the view was never asked.
+                match stat {
+                    Some(stat) => {
+                        for (key, value) in fileview::json_keys(stat, files.depth) {
+                            map.insert(key.into(), value);
+                        }
+                    }
+                    None if files.depth != Depth::Skip => {
+                        for key in ["changes", "insertions", "deletions"] {
+                            map.insert(key.into(), serde_json::Value::Null);
+                        }
+                    }
+                    None => {}
+                }
             }
             commit_values.push(value);
         }
@@ -209,7 +262,7 @@ pub fn run_inner(
         // would make a consumer's `data.open` mean "old fufu" one moment and
         // "@ is not in this set" the next.
         let open_value = if open_in_set {
-            serde_json::json!({
+            let mut value = serde_json::json!({
                 "branch": open.branch,
                 "id": open.id,
                 "change_id": open.change_id,
@@ -220,7 +273,13 @@ pub fn run_inner(
                 "clean": open.clean,
                 "pending": open.pending,
                 "pending_short": open.pending.as_deref().map(ff_core::sha::short),
-            })
+            });
+            if let (Some(stat), serde_json::Value::Object(map)) = (&open_stat, &mut value) {
+                for (key, value) in fileview::json_keys(stat, files.depth) {
+                    map.insert(key.into(), value);
+                }
+            }
+            value
         } else {
             serde_json::Value::Null
         };
@@ -246,6 +305,24 @@ pub fn run_inner(
     let now = now_secs();
     let mut out = crate::pager::LogOut::new(&repo, false);
     let colored = out.colored();
+    // The files under a row. A patch ends on a blank line, evolog's layout:
+    // git's format has no rail, so the gap is what hands the eye back to the
+    // next row. The diffstat and name-only rows carry the rail and hang
+    // directly under the row, the way `ff status` hangs them under `@`. A
+    // merge row and an empty stat print nothing.
+    let write_files =
+        |out: &mut dyn std::io::Write, stat: Option<&ChangeStat>| -> std::io::Result<()> {
+            let Some(stat) = stat else { return Ok(()) };
+            let block = fileview::text(stat, files.depth, colored);
+            if block.is_empty() {
+                return Ok(());
+            }
+            write!(out, "{block}")?;
+            if files.depth == Depth::Patch {
+                writeln!(out)?;
+            }
+            Ok(())
+        };
     let result = (|| -> std::io::Result<()> {
         // The `@` row is printed iff the open change is a member of the set.
         // Without `-r` that is always, exactly as before; with `-r` it is the
@@ -266,9 +343,10 @@ pub fn run_inner(
                 "{}",
                 crate::render::change_row(&change_display, &lens, now, colored)
             )?;
+            write_files(&mut out, open_stat.as_ref())?;
         }
 
-        for (entry, sig) in commits.iter().zip(&row_signatures) {
+        for ((entry, sig), stat) in commits.iter().zip(&row_signatures).zip(&row_stats) {
             let commit_display = crate::render::CommitRowDisplay {
                 id: &entry.id,
                 change_id: &entry.change_id,
@@ -293,6 +371,7 @@ pub fn run_inner(
                 "{}",
                 crate::render::commit_row(&commit_display, &lens, now, colored)
             )?;
+            write_files(&mut out, stat.as_ref())?;
         }
         Ok(())
     })();

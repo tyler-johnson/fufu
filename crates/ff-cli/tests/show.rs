@@ -409,3 +409,106 @@ fn the_open_change_prints_its_description_whole() {
     assert_eq!(v["data"]["subject"].as_str(), Some("subject"));
     assert_eq!(v["data"]["body"].as_str(), Some("body"));
 }
+
+/// `--stat` and `--name-only` shorten the patch to the diffstat and to the
+/// paths, under the same header, and JSON drops the keys each view has no
+/// use for. The rail rows hang directly under a one-line message the way
+/// `ff status` hangs them under `@`.
+#[test]
+fn stat_and_name_only_replace_the_patch() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.commit("two");
+
+    let out = ff(&fx, &["show", "--stat", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(
+        body.contains("  two\n│  M a.txt"),
+        "rows under the subject: {body}"
+    );
+    assert!(body.contains("1 file"), "{body}");
+    assert!(!body.contains("@@"), "no patch: {body}");
+
+    let names = stdout(&ff(&fx, &["show", "--name-only", "HEAD"]));
+    assert!(names.contains("│  M a.txt\n"), "{names}");
+    assert!(!names.contains("+1"), "no counts: {names}");
+
+    let v = json(&ff(&fx, &["show", "--stat", "HEAD", "--json"]));
+    assert!(v["data"]["changes"][0]["insertions"].is_number(), "{v}");
+    assert!(v["data"]["changes"][0].get("hunks").is_none(), "{v}");
+    let v = json(&ff(&fx, &["show", "--name-only", "HEAD", "--json"]));
+    assert!(v["data"]["changes"][0].get("insertions").is_none(), "{v}");
+    assert!(v["data"].get("insertions").is_none(), "{v}");
+    assert_eq!(v["data"]["changes"][0]["kind"].as_str(), Some("modified"));
+
+    // The open change hangs its rows under the description the same way.
+    fx.write("a.txt", "1\ntwo\n3\n4\n");
+    let out = ff(&fx, &["describe", "-m", "open work"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let open = stdout(&ff(&fx, &["show", "--stat"]));
+    assert!(open.contains("  open work\n│  M a.txt"), "{open}");
+}
+
+/// `--no-patch` stops at the message: no patch, no note about the files,
+/// and JSON without the three keys the files would fill.
+#[test]
+fn no_patch_stops_at_the_message() {
+    let fx = repo();
+    fx.write("a.txt", "1\n");
+    fx.commit("one");
+    fx.write("a.txt", "2\n");
+    fx.commit("two\n\nwhy two\n");
+
+    let out = ff(&fx, &["show", "--no-patch", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(body.contains("  two\n\n  why two\n"), "{body}");
+    assert!(!body.contains("@@"), "{body}");
+    assert!(!body.contains("it changed no files"), "{body}");
+    assert!(!body.contains("a.txt"), "{body}");
+
+    let v = json(&ff(&fx, &["show", "--no-patch", "HEAD", "--json"]));
+    let data = &v["data"];
+    assert!(data.get("changes").is_none(), "{v}");
+    assert!(data.get("insertions").is_none(), "{v}");
+    assert!(data.get("deletions").is_none(), "{v}");
+    assert_eq!(data["subject"].as_str(), Some("two"));
+    assert_eq!(data["body"].as_str(), Some("why two"));
+    assert_eq!(data["merge"].as_bool(), Some(false));
+}
+
+/// Three views, one at a time: any two together are refused with the coded
+/// id under both surfaces.
+#[test]
+fn the_file_views_exclude_one_another() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    for pair in [
+        ["--stat", "--no-patch"],
+        ["--name-only", "--no-patch"],
+        ["--stat", "--name-only"],
+    ] {
+        let out = ff(&fx, &["show", pair[0], pair[1], "HEAD"]);
+        assert_eq!(out.status.code(), Some(2), "{pair:?}: {}", stderr(&out));
+        let v = json(&ff(&fx, &["--json", "show", pair[0], pair[1], "HEAD"]));
+        assert_eq!(v["error"]["id"].as_str(), Some("usage/bad-flags"), "{v}");
+    }
+}
+
+/// `-U` reaches the commit's patch through the same dial `ff diff` turns.
+#[test]
+fn context_lines_reach_show() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.commit("two");
+    let zero = stdout(&ff(&fx, &["show", "-U", "0", "HEAD"]));
+    assert!(zero.contains("@@ -2 +2 @@"), "{zero}");
+    let one = stdout(&ff(&fx, &["show", "-U", "1", "HEAD"]));
+    assert!(one.contains("@@ -1,3 +1,3 @@"), "{one}");
+}

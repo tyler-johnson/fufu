@@ -9,9 +9,11 @@ ff diff -r HEAD                 # What HEAD did
 ff diff -r 'trunk..@'           # The branch plus open work, against trunk
 ff diff --from main             # main to the open change
 ff diff --from v1 --to v2       # Two points
+ff diff --stat                  # File counts instead of a patch
+ff diff --name-only             # Changed paths with kind letters
+ff diff -U0 -r HEAD             # No context lines
 ff diff --json                  # Hunks and lines as fields
 ff diff > fix.patch             # Save a patch for git apply
-ff status                       # File counts instead of a patch
 ff op diff '@^' @               # Compare two recorded file trees
 ```
 
@@ -27,4 +29,4 @@ ff op diff '@^' @               # Compare two recorded file trees
 
 Paths select files or directory prefixes, without globs. Snapshot exclusions apply, including ignored untracked files and content above `fufu.maxFileSize`. A positional that names no path on disk or in HEAD is refused with `usage/no-such-path`, so a revision such as `main..HEAD` in the path slot is an error rather than an empty patch; revisions go behind `-r`, `--from`, and `--to`. A path that exists but has no changes prints an empty patch and exits 0.
 
-Text output is a unified diff suitable for `git apply`. It does not repeat the diffstat from `ff status`. `ff show` adds the revision's identity and message to the patch; `ff commit` records eligible working changes in branch history.
+Text output is a unified diff suitable for `git apply`. `--stat` prints the diffstat block in place of the patch, and `--name-only` one path per line with its kind letter; the two do not combine and are refused together with `usage/bad-flags`. `-U <n>` sets the context lines around each change, 3 by default; without a patch it is accepted and changes nothing. In JSON, `--stat` drops each file's `hunks`, and `--name-only` keeps `path`, `from`, `kind`, and `binary` and drops the counts. `ff show` adds the revision's identity and message to the patch; `ff commit` records eligible working changes in branch history.

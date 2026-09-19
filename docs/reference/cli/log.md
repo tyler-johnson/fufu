@@ -16,6 +16,8 @@ ff log -n 0                     # Unlimited rows
 ff log --commits                # Commit history without change IDs
 ff log --signatures             # Verify signatures and show verdicts
 ff log --body                   # Messages whole, bodies under subjects
+ff log -p                       # Each row's patch under it
+ff log --stat -n 5              # File counts under the last five rows
 ff log -r main                  # Only main's tip
 ff log -r 'trunk..@'            # Work beyond trunk, including @
 ff log -r '@~3..@'              # Two commits and the open change
@@ -57,17 +59,29 @@ Options:
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
 
-      --at-op <op>
-          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
+  -p, --patch
+          Print each row's patch under it
 
-      --at <time>
-          Read as of the operation current at this time (30m/2h/3d, or a date)
+      --stat
+          Print the diffstat under each row instead of the patch
+
+      --name-only
+          Print one path per line with its kind letter under each row instead of the patch
 
       --session <name>
           Session name for this invocation
 
   -C, --cwd <dir>
           Run as if fufu had been started in <dir>
+
+  -U, --unified <n>
+          Context lines around each change; 3 when omitted
+
+      --at-op <op>
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
+
+      --at <time>
+          Read as of the operation current at this time (30m/2h/3d, or a date)
 
   -h, --help
           Print help (see a summary with '-h')
@@ -80,6 +94,10 @@ Options:
 Positional arguments are paths, never revisions: `ff log main` filters the path main. Paths select files or directory prefixes, without globs. The open row appears only when it touches a selected path. A file is followed through renames by default; a directory is not. With `-r`, paths filter the selected commits without rename following.
 
 `--commits` omits change IDs. `--body` prints each row's body under its subject, the open row's pending description included, and does not combine with `--commits`. Rows stay compact without it; JSON rows carry `body` always. `--at` and `--at-op` are declared but currently refused for log. [`ff op log`](op-log.md) lists recorded operations, and [`ff history`](history.md) lists undo steps.
+
+## Patches under rows
+
+`-p` (`--patch`) prints each row's patch under it, measured against the commit's first parent as [`ff show`](show.md) measures it, and the open row's against HEAD. A merge row carries none. `--stat` and `--name-only` are the shorter forms, the diffstat block and one path per line with its kind letter, and `--stat` outranks `-p`. None of the three combine with `--commits`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, rows and the open block gain `changes`, `insertions`, and `deletions` under any of the three, with the same drops as [`ff diff`](diff.md): `hunks` under `--stat`, the counts under `--name-only`. A merge row's three are null.
 
 ## Change IDs and commit objects
 
