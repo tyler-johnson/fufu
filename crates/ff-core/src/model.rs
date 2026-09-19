@@ -149,6 +149,9 @@ pub struct LogEntry {
     /// already decoded, like `signed`.
     pub change_id: String,
     pub subject: String,
+    /// The message after its subject, empty for a one-line message. Read
+    /// off the object the walk already decoded, like `signed`.
+    pub body: String,
     pub author_name: String,
     pub author_email: String,
     /// Author time, seconds since the unix epoch.
@@ -249,8 +252,11 @@ pub struct OpenChange {
     /// The HEAD commit (hex); `None` when unborn.
     pub base: Option<String>,
     pub base_short: Option<String>,
-    /// The pending description, when one is set.
+    /// The pending description's subject, when one is set.
     pub subject: Option<String>,
+    /// The pending description after its first paragraph, empty without
+    /// one.
+    pub body: String,
     /// Chain tip committer time, seconds since the unix epoch.
     pub time: Option<i64>,
     /// The tip tree equals the HEAD tree (or no chain exists yet).

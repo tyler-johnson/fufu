@@ -7,6 +7,7 @@ ff log                          # Last 25 rows, including open work
 ff log -n 0                     # Unlimited rows
 ff log --commits                # Commit history without change IDs
 ff log --signatures             # Verify signatures and show verdicts
+ff log --body                   # Messages whole, bodies under subjects
 ff log -r main                  # Only main's tip
 ff log -r 'trunk..@'            # Work beyond trunk, including @
 ff log -r '@~3..@'              # Two commits and the open change
@@ -22,7 +23,7 @@ ff log -r 'trunk..@' src/       # Filter a revision set by path
 
 Positional arguments are paths, never revisions: `ff log main` filters the path main. Paths select files or directory prefixes, without globs. The open row appears only when it touches a selected path. A file is followed through renames by default; a directory is not. With `-r`, paths filter the selected commits without rename following.
 
-`--commits` omits change IDs. `--at` and `--at-op` are declared but currently refused for log. `ff op log` lists recorded operations, and `ff history` lists undo steps.
+`--commits` omits change IDs. `--body` prints each row's body under its subject, the open row's pending description included, and does not combine with `--commits`. Rows stay compact without it; JSON rows carry `body` always. `--at` and `--at-op` are declared but currently refused for log. `ff op log` lists recorded operations, and `ff history` lists undo steps.
 
 ### Change IDs and commit objects
 

@@ -54,6 +54,10 @@ The first argument is a [revision expression](../revisions.md#revision-names-and
 
 Commit SHAs and operation IDs are both hexadecimal, but this position reads revisions. Use [`ff op show`](op-show.md) for operations. Blobs and trees use Git's syntax through [`ff git show`](git.md).
 
+## Message
+
+The message prints whole: the subject, then a blank line and the body when there is one, each line indented two spaces. The open change's pending description prints the same way. JSON carries `subject` and `body`; `body` is empty for a one-line message.
+
 ## Patches and signatures
 
 A non-merge commit's patch is measured against its first parent. A merge reports why no single patch is shown and points to Git's per-parent view.

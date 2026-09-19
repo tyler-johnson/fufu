@@ -321,3 +321,91 @@ fn a_bad_revision_still_wins_over_a_bad_path() {
         "the revision's own error: {id}"
     );
 }
+
+/// The message prints whole: the subject, a blank line, then the body with
+/// its paragraphs intact, each line indented like the subject. JSON carries
+/// the two halves as fields.
+#[test]
+fn a_multi_paragraph_message_prints_whole() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "b\n");
+    fx.commit("subject\n\nfirst para\nsecond line\n\nsecond para\n");
+
+    let out = ff(&fx, &["show", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("  subject\n\n  first para\n  second line\n\n  second para\n\ndiff --git"),
+        "subject, blank line, body, blank line, patch: {text}"
+    );
+
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["subject"].as_str(), Some("subject"));
+    assert_eq!(
+        v["data"]["body"].as_str(),
+        Some("first para\nsecond line\n\nsecond para")
+    );
+}
+
+/// A one-line message has no body: nothing between the subject and the
+/// patch but the one blank line, and an empty string on the machine surface.
+#[test]
+fn a_one_line_message_has_an_empty_body() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let text = stdout(&ff(&fx, &["show", "HEAD"]));
+    assert!(text.contains("  one\n\ndiff --git"), "{text}");
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["body"].as_str(), Some(""));
+}
+
+/// Trailing newlines on the stored message are the message's, not the
+/// layout's: the body is trimmed, so the note after it sits one blank line
+/// down rather than two.
+#[test]
+fn a_trailing_newline_adds_no_blank_line() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.git(&[
+        "commit",
+        "--cleanup=verbatim",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "s\n\nb\n\n",
+    ]);
+
+    let text = stdout(&ff(&fx, &["show", "HEAD"]));
+    assert!(
+        text.contains("  s\n\n  b\n\n  (it changed no files)\n"),
+        "{text}"
+    );
+    assert!(!text.contains("\n\n\n"), "no doubled blank line: {text}");
+    let v = json(&ff(&fx, &["show", "HEAD", "--json"]));
+    assert_eq!(v["data"]["body"].as_str(), Some("b"));
+}
+
+/// The pending description is stored whole and prints the way the commit
+/// it becomes will: subject, blank line, body.
+#[test]
+fn the_open_change_prints_its_description_whole() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "b\n");
+    let out = ff(&fx, &["describe", "-m", "subject\n\nbody"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let text = stdout(&ff(&fx, &["show"]));
+    assert!(text.contains("  subject\n\n  body\n\ndiff --git"), "{text}");
+
+    let v = json(&ff(&fx, &["show", "--json"]));
+    assert_eq!(v["data"]["kind"].as_str(), Some("open"));
+    assert_eq!(v["data"]["subject"].as_str(), Some("subject"));
+    assert_eq!(v["data"]["body"].as_str(), Some("body"));
+}

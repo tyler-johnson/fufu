@@ -866,3 +866,73 @@ fn the_log_never_builds_the_id_index() {
         "evolog abbreviates op ids through the index, and builds it"
     );
 }
+
+/// Two commits, one with a body, and the open change dirty and undescribed.
+fn bodied() -> Fixture {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "b\n");
+    fx.commit("two\n\nwhy two\n");
+    fx.write("a.txt", "c\n");
+    fx
+}
+
+/// The walk decoded the object anyway, so the body rides every JSON row,
+/// both views, and the open block carries its description's body the same
+/// way.
+#[test]
+fn json_rows_carry_the_body() {
+    let fx = bodied();
+
+    let v = json(&ff(&fx, &["log", "--json"]));
+    let commits = v["data"]["commits"].as_array().expect("rows");
+    assert_eq!(commits[0]["subject"].as_str(), Some("two"));
+    assert_eq!(commits[0]["body"].as_str(), Some("why two"));
+    assert_eq!(commits[1]["body"].as_str(), Some(""));
+    assert_eq!(v["data"]["open"]["body"].as_str(), Some(""), "{v}");
+
+    let v = json(&ff(&fx, &["log", "--commits", "--json"]));
+    let commits = v["data"]["commits"].as_array().expect("rows");
+    assert_eq!(commits[0]["body"].as_str(), Some("why two"));
+    assert_eq!(commits[1]["body"].as_str(), Some(""));
+
+    let out = ff(&fx, &["describe", "-m", "s\n\npara"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let v = json(&ff(&fx, &["log", "--json"]));
+    assert_eq!(v["data"]["open"]["subject"].as_str(), Some("s"));
+    assert_eq!(v["data"]["open"]["body"].as_str(), Some("para"));
+}
+
+/// The text row stays compact until asked: no body without `--body`, and the
+/// `@` row shows its description's subject alone. With it, each body hangs
+/// on the rail under a bare rail line, and a bare rail closes it; a
+/// one-line row gains nothing.
+#[test]
+fn body_prints_under_the_rail_only_when_asked() {
+    let fx = bodied();
+    let out = ff(&fx, &["describe", "-m", "s\n\npara"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+
+    let plain = stdout(&ff(&fx, &["log"]));
+    assert!(!plain.contains("why two"), "compact by default: {plain}");
+    assert!(!plain.contains("para"), "the description too: {plain}");
+    assert!(plain.contains("│  s\n"), "the subject alone: {plain}");
+
+    let full = stdout(&ff(&fx, &["log", "--body"]));
+    assert!(full.contains("│  two\n│\n│  why two\n│\n"), "{full}");
+    assert!(full.contains("│  s\n│\n│  para\n│\n"), "{full}");
+    assert!(full.contains("│  one\n"), "{full}");
+    assert!(
+        !full.contains("│  one\n│\n"),
+        "a one-line row grows no rail: {full}"
+    );
+}
+
+/// `--commits` is a one-line row with no rail to hang a body from.
+#[test]
+fn body_and_commits_do_not_combine() {
+    let fx = bodied();
+    let out = ff(&fx, &["log", "--body", "--commits"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}

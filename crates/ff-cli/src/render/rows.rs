@@ -10,6 +10,9 @@ use super::status::{pull_parts, to_pull, to_push};
 /// (the status model or an ff-core \`OpenChange\`).
 pub struct ChangeRowDisplay<'a> {
     pub subject: Option<&'a str>,
+    /// The description's body, `Some` when the caller asked for it under
+    /// `--body`; `None` keeps the row to its two lines.
+    pub body: Option<&'a str>,
     pub born: bool,
     pub clean: bool,
     /// The open change's id in letters, once something minted it.
@@ -44,6 +47,9 @@ pub struct CommitRowDisplay<'a> {
     /// The change id in letters, the header's or derived.
     pub change_id: &'a str,
     pub subject: &'a str,
+    /// The message's body, `Some` when the caller asked for it under
+    /// `--body`; `None` keeps the row to its two lines.
+    pub body: Option<&'a str>,
     pub time: i64,
     pub signature: SigMark,
 }
@@ -446,7 +452,11 @@ pub fn change_row(
     // Born + clean + no description: collapsed "no changes" line.
     if open_is_quiet(open.born, open.clean, open.subject) {
         let head = format!("{sym}  {}", paint("no changes", DIM, colored));
-        return format!("{}\n{rail}  {subject}", head.trim_end());
+        return format!(
+            "{}\n{}",
+            head.trim_end(),
+            subject_lines(&rail, &subject, open.body)
+        );
     }
 
     // Full layout: letters + pending sha + age + optional marker.
@@ -465,7 +475,11 @@ pub fn change_row(
         String::new()
     };
     let head = format!("{sym}  {letters} {sha} {age}{marker}");
-    format!("{}\n{rail}  {subject}", head.trim_end())
+    format!(
+        "{}\n{}",
+        head.trim_end(),
+        subject_lines(&rail, &subject, open.body)
+    )
 }
 
 /// One `●` commit row (two lines). The letters column is the commit's change
@@ -514,7 +528,34 @@ pub fn commit_row(
         }
     };
     let head = format!("{sym}  {letters} {sha} {age}{marker}");
-    format!("{}\n{rail}  {}", head.trim_end(), entry.subject)
+    format!(
+        "{}\n{}",
+        head.trim_end(),
+        subject_lines(&rail, entry.subject, entry.body)
+    )
+}
+
+/// The lines under a row's header: the subject on the rail, and under
+/// `--body` the body after a bare rail, each line on the rail like the
+/// subject, and a bare rail after it so the next row's header stands apart.
+/// Body lines are unpainted, like the subject.
+fn subject_lines(rail: &str, subject: &str, body: Option<&str>) -> String {
+    let mut out = format!("{rail}  {subject}");
+    match body {
+        Some(body) if !body.is_empty() => {
+            out.push_str(&format!("\n{rail}"));
+            for line in body.lines() {
+                if line.is_empty() {
+                    out.push_str(&format!("\n{rail}"));
+                } else {
+                    out.push_str(&format!("\n{rail}  {line}"));
+                }
+            }
+            out.push_str(&format!("\n{rail}"));
+        }
+        _ => {}
+    }
+    out
 }
 
 /// One map row's payload: the glyph that rides its lane, and the one or two

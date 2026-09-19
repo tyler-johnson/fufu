@@ -197,6 +197,7 @@ $ ff log -n 1 --json | jq '.data | {commits, open: (.open | {id, change_id, pend
       "short_id": "afb81aa6",
       "change_id": "wzyzppxmrnmosplkvqqzmrxxwnsvwnlr",
       "subject": "parser: skeleton",
+      "body": "",
       "author_name": "Ada Lovelace",
       "author_email": "ada@example.com",
       "time": 1789342058,
@@ -213,7 +214,7 @@ $ ff log -n 1 --json | jq '.data | {commits, open: (.open | {id, change_id, pend
 ```
 <!-- /transcript -->
 
-A commit's `id` is its SHA; `change_id` is the identity it retains across surviving fufu rewrites. The open block's `id` is a capture operation, not a commit SHA. Its `pending` object has not yet entered branch history. A commit's `session` identifies the tag under which it was recorded. [`ff show`](../reference/cli/show.md) also reports change identity.
+A commit's `id` is its SHA; `change_id` is the identity it retains across surviving fufu rewrites. `body` is the message after its subject, empty for a one-line message. The open block's `id` is a capture operation, not a commit SHA. Its `pending` object has not yet entered branch history. A commit's `session` identifies the tag under which it was recorded. [`ff show`](../reference/cli/show.md) also reports change identity.
 
 ## `ff evolog --json`
 

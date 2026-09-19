@@ -327,6 +327,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
     // Open change row
     let change_row_display = ChangeRowDisplay {
         subject: model.open.subject.as_deref(),
+        body: None,
         born: model.open.base.is_some(),
         clean: model.open.clean,
         change_id: model.open.change_id.as_deref(),
@@ -348,6 +349,7 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             id: &parent.id,
             change_id: &parent.change_id,
             subject: &parent.subject,
+            body: None,
             time: parent.time,
             // The same free mark `ff log` shows. Verifying it would be a
             // spawn nobody asked for, but saying it is signed costs nothing

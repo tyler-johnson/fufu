@@ -1,5 +1,8 @@
 //! `ff show` — one commit, header and patch.
 //!
+//! The message prints whole: the subject, then the body under a blank line
+//! when there is one, each line indented like the subject.
+//!
 //! The revision half of the patch layer. `ff diff` is the open change;
 //! this is anything the revset grammar names, including `@`, which is the
 //! open change again — so the two verbs share one renderer rather than
@@ -59,6 +62,7 @@ fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Resul
             "kind": "open",
             "branch": change.branch,
             "subject": change.subject,
+            "body": change.body,
             "pending": change.pending,
             "base": change.base,
             "time": change.time,
@@ -98,7 +102,13 @@ fn open(ctx: &Ctx, repo: &ff_core::gix::Repository, opts: &DiffOptions) -> Resul
                 .as_deref()
                 .unwrap_or("(no description yet — ff describe -m)")
         )?;
+        write_body(&mut out, &change.body)?;
         if stat.files.is_empty() {
+            // Directly under a one-line message; a body already ended on a
+            // blank line, and the note stands apart from it.
+            if !change.body.is_empty() {
+                writeln!(out)?;
+            }
             writeln!(out, "  (nothing is open)")?;
             return Ok(());
         }
@@ -121,7 +131,7 @@ fn commit(
     let parents: Vec<ff_core::gix::ObjectId> = commit.parent_ids().map(|p| p.detach()).collect();
     let merge = parents.len() > 1;
     let author = commit.author().map_err(Error::repo)?;
-    let subject = commit.message().map_err(Error::repo)?.summary().to_string();
+    let (subject, body) = ff_core::message::split(commit.message_raw_sloppy());
     let time = author.time().map_err(Error::repo)?.seconds;
     let change_id = ff_core::changeid::of_commit(&commit.data, &id).letters();
 
@@ -160,6 +170,7 @@ fn commit(
             "short_id": ff_core::sha::short(&id.to_string()),
             "change_id": change_id,
             "subject": subject,
+            "body": body,
             "author_name": author.name.to_string(),
             "author_email": author.email.to_string(),
             "time": time,
@@ -187,7 +198,8 @@ fn commit(
             author.name,
             crate::render::relative_age(now_secs(), time)
         )?;
-        writeln!(out, "  {subject}")?;
+        // The signature is furniture, so it sits with the header; the
+        // subject and body stay contiguous under it, git's layout.
         if signature.present {
             // One line: the verdict, who, and the least that names the key.
             // Enough to know what happened, which is all a header owes.
@@ -205,8 +217,17 @@ fn commit(
                 }
             )?;
         }
+        writeln!(out, "  {subject}")?;
+        write_body(&mut out, &body)?;
+        // A note follows a one-line message directly. After a body, which
+        // ended on a blank line, it stands apart. The patch keeps its one
+        // blank line either way.
+        let note_gap = !body.is_empty();
         match &stat {
             None => {
+                if note_gap {
+                    writeln!(out)?;
+                }
                 writeln!(
                     out,
                     "  (a merge — which parent to diff against is a choice)"
@@ -217,7 +238,12 @@ fn commit(
                     ff_core::sha::short(&id.to_string())
                 )
             }
-            Some(stat) if stat.files.is_empty() => writeln!(out, "  (it changed no files)"),
+            Some(stat) if stat.files.is_empty() => {
+                if note_gap {
+                    writeln!(out)?;
+                }
+                writeln!(out, "  (it changed no files)")
+            }
             Some(stat) => {
                 writeln!(out)?;
                 write!(out, "{}", crate::render::patch_block(&stat.files, colored))
@@ -226,6 +252,23 @@ fn commit(
     })();
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// The body under its subject: a blank line, then each line indented the
+/// two spaces the subject has. Nothing for a one-line message.
+fn write_body(out: &mut impl std::io::Write, body: &str) -> std::io::Result<()> {
+    if body.is_empty() {
+        return Ok(());
+    }
+    writeln!(out)?;
+    for line in body.lines() {
+        if line.is_empty() {
+            writeln!(out)?;
+        } else {
+            writeln!(out, "  {line}")?;
+        }
+    }
+    Ok(())
 }
 
 fn now_secs() -> i64 {

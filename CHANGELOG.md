@@ -5,10 +5,12 @@
 ### Added
 
 - [`ff diff`](docs/reference/cli/diff.md) takes revisions: `-r <revset>` shows a connected set's total patch from the root's first parent to the head, and `--from <rev>`/`--to <rev>` two points, with `--to` defaulting to `@` and `--from` to `@^`. A gapped, forked, two-headed, or merge-rooted set is refused with `usage/revset-not-a-range`. JSON gains `from` and `to`.
+- [`ff log --body`](docs/reference/cli/log.md) prints each row's message body under its subject, the open change's pending description included. `ff log --json` rows and the open block carry `body`, empty for a one-line message.
 
 ### Fixed
 
 - `ff diff` and `ff show` answered a positional that names no path, such as a revision like `main..HEAD` or a second sha, with an empty patch and exit 0; both now refuse it with `usage/no-such-path`, the way `ff log` does. A path that exists but has no changes still prints an empty patch.
+- [`ff show`](docs/reference/cli/show.md) printed the subject only; the message now prints whole, subject, blank line, body, and JSON gains `body`. A multi-line pending description showed whole on the `@` row of `ff status`, `ff log`, and `ff map`; the row shows its subject.
 
 ## v0.17.0 — 2026-09-18
 

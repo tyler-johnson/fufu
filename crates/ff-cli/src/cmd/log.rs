@@ -8,24 +8,43 @@ use crate::ctx::Ctx;
 /// `paths` is the positional: the files or directories the rows must touch,
 /// and the open change's row must touch them too.
 ///
-/// `ops` is the retired `--ops`, kept as a hidden flag only so typing it is
-/// answered rather than met with a bare "unexpected argument".
+/// `view` is the flags that pick what the rows say.
 pub fn run(
     ctx: &Ctx,
     count: usize,
     revisions: Option<String>,
-    commits: bool,
-    ops: bool,
-    signatures: bool,
+    view: View,
     paths: Vec<String>,
 ) -> Result<()> {
-    if ops {
+    if view.ops {
         return Err(ops_retired());
     }
     // The past-state view is what `--at-op` would need here, and it does not
     // exist yet.
     ctx.refuse_past("ff log")?;
-    run_inner(ctx, count, revisions, commits, signatures, paths)
+    run_inner(
+        ctx,
+        count,
+        revisions,
+        view.commits,
+        view.signatures,
+        view.body,
+        paths,
+    )
+}
+
+/// The view flags, gathered so the entry point stays under clippy's argument
+/// count as they accumulate.
+pub struct View {
+    /// `--commits`: the plain commits view.
+    pub commits: bool,
+    /// The retired `--ops`, kept as a hidden flag only so typing it is
+    /// answered rather than met with a bare "unexpected argument".
+    pub ops: bool,
+    /// `--signatures`: verify each signed row.
+    pub signatures: bool,
+    /// `--body`: each row's message body under its subject.
+    pub body: bool,
 }
 
 /// A removal, not a rename: `ff op log` is a different command with a
@@ -50,6 +69,7 @@ pub fn run_inner(
     revisions: Option<String>,
     commits_only: bool,
     signatures: bool,
+    body: bool,
     paths: Vec<String>,
 ) -> Result<()> {
     // Parsed before the repository is even opened: the grammar is pure, so a
@@ -195,6 +215,7 @@ pub fn run_inner(
                 "change_id": open.change_id,
                 "base": open.base,
                 "subject": open.subject,
+                "body": open.body,
                 "time": open.time,
                 "clean": open.clean,
                 "pending": open.pending,
@@ -233,6 +254,7 @@ pub fn run_inner(
         if open_in_set {
             let change_display = crate::render::ChangeRowDisplay {
                 subject: open.subject.as_deref(),
+                body: body.then_some(open.body.as_str()),
                 born: open.base.is_some(),
                 clean: open.clean,
                 change_id: open.change_id.as_deref(),
@@ -251,6 +273,7 @@ pub fn run_inner(
                 id: &entry.id,
                 change_id: &entry.change_id,
                 subject: &entry.subject,
+                body: body.then_some(entry.body.as_str()),
                 time: entry.time,
                 // Verified, so say the verdict; otherwise the free fact.
                 signature: match sig {

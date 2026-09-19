@@ -24,6 +24,7 @@ pub mod letters;
 pub mod linked;
 mod log;
 pub mod map;
+pub mod message;
 pub mod model;
 pub mod open;
 pub mod ops;

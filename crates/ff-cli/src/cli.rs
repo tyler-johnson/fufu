@@ -159,6 +159,9 @@ pub enum Command {
         /// Verify signatures and show verdicts; invokes external verifiers
         #[arg(long, conflicts_with = "commits")]
         signatures: bool,
+        /// Print each row's message body under its subject
+        #[arg(long, conflicts_with = "commits")]
+        body: bool,
         /// Files or directories to limit the log to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,

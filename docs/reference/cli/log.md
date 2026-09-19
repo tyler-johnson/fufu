@@ -15,6 +15,7 @@ ff log                          # Last 25 rows, including open work
 ff log -n 0                     # Unlimited rows
 ff log --commits                # Commit history without change IDs
 ff log --signatures             # Verify signatures and show verdicts
+ff log --body                   # Messages whole, bodies under subjects
 ff log -r main                  # Only main's tip
 ff log -r 'trunk..@'            # Work beyond trunk, including @
 ff log -r '@~3..@'              # Two commits and the open change
@@ -50,11 +51,14 @@ Options:
       --signatures
           Verify signatures and show verdicts; invokes external verifiers
 
-      --at-op <op>
-          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
+      --body
+          Print each row's message body under its subject
 
       --no-fetch
           Skip the fetch: read the tracking refs as they stand
+
+      --at-op <op>
+          Read as of this operation (a hex id or prefix, `@`, `@^`, `@~3`)
 
       --at <time>
           Read as of the operation current at this time (30m/2h/3d, or a date)
@@ -75,7 +79,7 @@ Options:
 
 Positional arguments are paths, never revisions: `ff log main` filters the path main. Paths select files or directory prefixes, without globs. The open row appears only when it touches a selected path. A file is followed through renames by default; a directory is not. With `-r`, paths filter the selected commits without rename following.
 
-`--commits` omits change IDs. `--at` and `--at-op` are declared but currently refused for log. [`ff op log`](op-log.md) lists recorded operations, and [`ff history`](history.md) lists undo steps.
+`--commits` omits change IDs. `--body` prints each row's body under its subject, the open row's pending description included, and does not combine with `--commits`. Rows stay compact without it; JSON rows carry `body` always. `--at` and `--at-op` are declared but currently refused for log. [`ff op log`](op-log.md) lists recorded operations, and [`ff history`](history.md) lists undo steps.
 
 ## Change IDs and commit objects
 

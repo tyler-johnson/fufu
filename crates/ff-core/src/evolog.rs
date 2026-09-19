@@ -110,9 +110,18 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
     // run is a missing line, never a failed one — the verbs that consume the
     // description read it strictly, themselves.
     let meta = crate::branchmeta::read(repo, &branch).ok();
-    let subject = meta
+    // Stored whole, split here: the row shows the subject and `ff show`
+    // prints the body under it, by the rule the commit it becomes will use.
+    let (subject, body) = match meta
         .as_ref()
-        .and_then(|meta| meta.pending_description.clone());
+        .and_then(|meta| meta.pending_description.as_deref())
+    {
+        Some(text) => {
+            let (subject, body) = crate::message::split(text.as_bytes());
+            (Some(subject), body)
+        }
+        None => (None, String::new()),
+    };
     // The identity: what was minted for the open change, or, inside an
     // editing session, the commit being amended, whose id the landing keeps.
     let change_id = match meta.as_ref().and_then(|meta| meta.session.as_ref()) {
@@ -173,6 +182,7 @@ pub fn open_change(repo: &gix::Repository) -> Result<OpenChange> {
         base,
         base_short,
         subject,
+        body,
         time,
         clean,
         pending,
