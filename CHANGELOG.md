@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- [`ff diff`](docs/reference/cli/diff.md) takes revisions: `-r <revset>` shows a connected set's total patch from the root's first parent to the head, and `--from <rev>`/`--to <rev>` two points, with `--to` defaulting to `@` and `--from` to `@^`. A gapped, forked, two-headed, or merge-rooted set is refused with `usage/revset-not-a-range`. JSON gains `from` and `to`.
+
 ### Fixed
 
 - `ff diff` and `ff show` answered a positional that names no path, such as a revision like `main..HEAD` or a second sha, with an empty patch and exit 0; both now refuse it with `usage/no-such-path`, the way `ff log` does. A path that exists but has no changes still prints an empty patch.

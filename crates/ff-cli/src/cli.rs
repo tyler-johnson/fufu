@@ -169,6 +169,15 @@ pub enum Command {
     /// Show uncommitted file changes as a patch
     #[command(long_about = help::term(help::DIFF), after_long_help = help::term_examples(help::DIFF_EXAMPLES))]
     Diff {
+        /// Revisions whose total patch to show, as a revset; the open change without it
+        #[arg(short = 'r', long = "revisions", value_name = "revset")]
+        revisions: Option<String>,
+        /// Older end of a two-point patch; `@^`, HEAD, when only --to is given
+        #[arg(long, value_name = "rev")]
+        from: Option<String>,
+        /// Newer end of a two-point patch; `@`, the open change, when omitted
+        #[arg(long, value_name = "rev")]
+        to: Option<String>,
         /// Files or directories to limit the patch to; all of them when omitted
         #[arg(value_name = "path")]
         paths: Vec<String>,
@@ -1227,6 +1236,9 @@ mod tests {
                 root.build();
                 assert!(root.find_subcommand("diff").is_some());
                 super::Cli::try_parse_from(["ff", "diff", "src/"]).expect("parses");
+                super::Cli::try_parse_from(["ff", "diff", "-r", "@"]).expect("parses");
+                super::Cli::try_parse_from(["ff", "diff", "--from", "main", "--to", "@"])
+                    .expect("parses");
             })
             .expect("spawn")
             .join()

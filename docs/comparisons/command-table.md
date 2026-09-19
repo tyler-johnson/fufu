@@ -11,7 +11,7 @@ Repository commands normally attempt a snapshot before acting, subject to their 
 | Create or adopt a repository | `git init` | [`ff init`](../reference/cli/init.md) | Also enables snapshots and creates the earliest recovery point; can adopt an existing checkout. |
 | Clone | `git clone <url>` | [`ff clone <url>`](../reference/cli/clone.md) | Enables snapshots on arrival. Native HTTP fetch does not honor `http.proxy`; see [network settings](../reference/config.md#what-fufu-reads-from-gits-config). |
 | Inspect current work | `git status` | [`ff status`](../reference/cli/status.md) | Shows the open change, held rewrites, and replay predictions against the base and remote copy. |
-| Read a patch | `git diff` | [`ff diff`](../reference/cli/diff.md) | Shows the open change, including eligible untracked content. Use `ff git diff <a> <b>` for two revisions. |
+| Read a patch | `git diff` | [`ff diff`](../reference/cli/diff.md) | Shows the open change, including eligible untracked content; `-r` a set's total patch, `--from`/`--to` two revisions. |
 | Read commit history | `git log` | [`ff log`](../reference/cli/log.md) | Includes an open-change row. The letters column is a **change ID**, not an operation ID; the hexadecimal column is a commit SHA. |
 | Follow a file | `git log --follow -- <file>` | `ff log <file>` | Follows renames by default; revisions go after `-r`, and narrowing with `-r` disables rename following. |
 | Inspect a commit | `git show <rev>` | [`ff show <rev>`](../reference/cli/show.md) | Bare shows the open change. Operations use [`ff op show`](../reference/cli/op-show.md); syntax belongs to [Revisions and IDs](../reference/revisions.md). |

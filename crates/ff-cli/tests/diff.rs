@@ -370,8 +370,8 @@ fn a_revision_in_the_path_slot_is_refused() {
         let err = stderr(&out);
         assert!(err.contains(args[1]), "the token is named: {err}");
         assert!(
-            err.contains("ff log -r"),
-            "the revision verb is named: {err}"
+            err.contains("ff diff -r"),
+            "the revision flag is named: {err}"
         );
         assert!(
             stdout(&out).is_empty(),
@@ -419,4 +419,247 @@ fn an_existing_path_with_no_changes_is_an_empty_patch() {
 
     let v = json(&ff(&fx, &["--json", "diff", "a.txt"]));
     assert_eq!(v["data"]["changes"], serde_json::json!([]), "{v}");
+}
+
+/// `-r HEAD` is what one commit did: its first parent's tree to its own.
+#[test]
+fn revisions_show_one_commits_patch() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("one");
+    fx.write("a.txt", "two\n");
+    let c2 = fx.commit("two");
+    fx.write("b.txt", "three\n");
+    let c3 = fx.commit("three");
+
+    let out = ff(&fx, &["diff", "-r", "HEAD"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let body = stdout(&out);
+    assert!(body.contains("+three"), "the last commit's hunk: {body}");
+    assert!(
+        !body.contains("+two") && !body.contains("-one"),
+        "and none of the earlier ones: {body}"
+    );
+
+    let v = json(&ff(&fx, &["diff", "-r", "HEAD", "--json"]));
+    assert_eq!(v["data"]["from"].as_str(), Some(c2.as_str()), "{v}");
+    assert_eq!(v["data"]["to"].as_str(), Some(c3.as_str()), "{v}");
+    assert_ne!(c1, c2);
+}
+
+/// A two-commit range sums its members: from the root's parent to the head.
+#[test]
+fn revisions_show_a_two_commit_range() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    let c1 = fx.commit("one");
+    fx.write("a.txt", "two\n");
+    fx.commit("two");
+    fx.write("b.txt", "three\n");
+    fx.commit("three");
+
+    let body = stdout(&ff(&fx, &["diff", "-r", "HEAD~2..HEAD"]));
+    assert!(body.contains("-one") && body.contains("+two"), "{body}");
+    assert!(body.contains("+three"), "{body}");
+
+    let v = json(&ff(&fx, &["diff", "-r", "HEAD~2..HEAD", "--json"]));
+    assert_eq!(v["data"]["from"].as_str(), Some(c1.as_str()), "{v}");
+
+    // The quoted spelling with a sha is the same set.
+    let spelled = format!("{c1}..HEAD");
+    let again = stdout(&ff(&fx, &["diff", "-r", &spelled]));
+    assert_eq!(again, body);
+}
+
+/// The open change is a member like any other, sitting on HEAD: a range
+/// that ends at `@` includes the open edit, and `-r @` is the default.
+#[test]
+fn revisions_include_the_open_change() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    fx.write("a.txt", "two\n");
+    fx.commit("two");
+    fx.write("b.txt", "open\n");
+
+    let body = stdout(&ff(&fx, &["diff", "-r", "HEAD~1..@"]));
+    assert!(body.contains("+two"), "the commit: {body}");
+    assert!(body.contains("+open"), "and the open edit: {body}");
+    let v = json(&ff(&fx, &["diff", "-r", "HEAD~1..@", "--json"]));
+    assert_eq!(v["data"]["to"].as_str(), Some("@"), "{v}");
+
+    let bare = ff(&fx, &["diff"]);
+    let at = ff(&fx, &["diff", "-r", "@"]);
+    assert_eq!(
+        at.stdout, bare.stdout,
+        "`-r @` is the default, byte for byte"
+    );
+    assert!(!bare.stdout.is_empty());
+}
+
+/// A set with a hole in it is two pieces, each with a head, and not one
+/// range.
+#[test]
+fn a_gapped_set_is_refused() {
+    let fx = repo();
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    fx.write("a.txt", "two\n");
+    fx.commit("two");
+    fx.write("a.txt", "three\n");
+    fx.commit("three");
+
+    let out = ff(&fx, &["diff", "-r", "HEAD | HEAD~2"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("2 heads"), "{err}");
+    assert!(err.contains("ff diff --from"), "the two-point exit: {err}");
+    assert!(stdout(&out).is_empty());
+
+    let v = json(&ff(&fx, &["--json", "diff", "-r", "HEAD | HEAD~2"]));
+    assert_eq!(
+        v["error"]["id"].as_str(),
+        Some("usage/revset-not-a-range"),
+        "{v}"
+    );
+}
+
+/// Two branches from one base are two heads, and no single head to end at.
+#[test]
+fn a_two_headed_set_is_refused() {
+    let fx = repo();
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-c", "side", "-q"]);
+    fx.write("side.txt", "side\n");
+    fx.commit("side work");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("main.txt", "main\n");
+    fx.commit("main work");
+
+    let out = ff(&fx, &["diff", "-r", "main | side"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("2 heads"), "{}", stderr(&out));
+
+    let v = json(&ff(&fx, &["--json", "diff", "-r", "main | side"]));
+    assert_eq!(
+        v["error"]["id"].as_str(),
+        Some("usage/revset-not-a-range"),
+        "{v}"
+    );
+}
+
+/// A merge at the root has two parents to measure from, and the exits
+/// spell both so the reader picks.
+#[test]
+fn a_merge_rooted_set_is_refused() {
+    let fx = repo();
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-c", "side", "-q"]);
+    fx.write("side.txt", "side\n");
+    fx.commit("side work");
+    fx.git(&["switch", "main", "-q"]);
+    fx.write("main.txt", "main\n");
+    fx.commit("main work");
+    fx.git(&["merge", "--no-ff", "-m", "merge side", "side"]);
+    let merge = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+
+    let out = ff(&fx, &["diff", "-r", &merge]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("a merge"), "{err}");
+    assert!(err.contains("^2"), "the second parent is offered: {err}");
+
+    let v = json(&ff(&fx, &["--json", "diff", "-r", &merge]));
+    assert_eq!(
+        v["error"]["id"].as_str(),
+        Some("usage/revset-not-a-range"),
+        "{v}"
+    );
+}
+
+/// Two points are `git diff a b`, and the differential oracle is git itself:
+/// the same two commits, the same patch, `index` lines aside.
+#[test]
+fn two_points_diff_like_git() {
+    let fx = repo();
+    fx.write("a.txt", "1\n2\n3\n");
+    fx.write("gone.txt", "bye\n");
+    let c1 = fx.commit("one");
+    fx.write("a.txt", "1\ntwo\n3\n");
+    fx.remove("gone.txt");
+    let c2 = fx.commit("two");
+    fx.write("b.txt", "new\n");
+    fx.write("a.txt", "1\ntwo\n3\n4\n");
+    let c3 = fx.commit("three");
+
+    let strip = |patch: &str| -> String {
+        patch
+            .lines()
+            .filter(|l| !l.starts_with("index "))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    let out = ff(&fx, &["diff", "--from", &c1, "--to", &c3]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let ours = strip(&stdout(&out));
+    let theirs = strip(&fx.git(&["diff", &c1, &c3]));
+    assert_eq!(ours, theirs, "fufu and git disagree on the same two trees");
+    assert!(ours.contains("+new"), "{ours}");
+
+    // `--from` alone runs to the open change, edit included.
+    fx.write("c.txt", "open\n");
+    let body = stdout(&ff(&fx, &["diff", "--from", &c1]));
+    assert!(body.contains("+open"), "the open edit: {body}");
+    assert!(body.contains("+new"), "and the commits between: {body}");
+    let v = json(&ff(&fx, &["diff", "--from", &c1, "--json"]));
+    assert_eq!(v["data"]["from"].as_str(), Some(c1.as_str()), "{v}");
+    assert_eq!(v["data"]["to"].as_str(), Some("@"), "{v}");
+
+    // `--to` alone measures from `@^`, which is HEAD.
+    let v = json(&ff(&fx, &["diff", "--to", &c2, "--json"]));
+    assert_eq!(v["data"]["from"].as_str(), Some(c3.as_str()), "{v}");
+    assert_eq!(v["data"]["to"].as_str(), Some(c2.as_str()), "{v}");
+    let body = stdout(&ff(&fx, &["diff", "--to", &c2]));
+    assert!(
+        body.contains("-new"),
+        "HEAD to c2 removes what three added: {body}"
+    );
+    assert!(
+        !body.contains("open"),
+        "and never sees the open edit: {body}"
+    );
+}
+
+/// `-r` names a set and the endpoint flags name two points; the verb does
+/// not rank one pair of ends over the other.
+#[test]
+fn endpoints_and_revisions_together_are_refused() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["diff", "-r", "HEAD", "--from", "main"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("--from/--to"), "{}", stderr(&out));
+
+    let v = json(&ff(&fx, &["--json", "diff", "-r", "HEAD", "--to", "main"]));
+    assert_eq!(v["error"]["id"].as_str(), Some("usage/bad-flags"), "{v}");
+}
+
+/// Paths narrow a revision's patch the way they narrow the open change's.
+#[test]
+fn paths_narrow_a_revision_patch() {
+    let fx = repo();
+    fx.write("root.txt", "a\n");
+    fx.write("src/one.txt", "a\n");
+    fx.commit("one");
+    fx.write("root.txt", "b\n");
+    fx.write("src/one.txt", "b\n");
+    fx.commit("two");
+
+    let dir = stdout(&ff(&fx, &["diff", "-r", "HEAD", "src/"]));
+    assert!(dir.contains("src/one.txt"), "{dir}");
+    assert!(!dir.contains("root.txt"), "only that directory: {dir}");
 }

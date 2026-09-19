@@ -38,6 +38,7 @@ mod eval;
 mod func;
 mod opspace;
 mod pattern;
+mod range;
 
 #[cfg(test)]
 mod prop;
@@ -45,6 +46,7 @@ mod prop;
 pub use lex::{Token, TokenKind, lex};
 pub use opspace::OpMember;
 pub use parse::{Arg, Expr, PatternKind, parse};
+pub use range::Range;
 
 use crate::error::{Error, Result};
 use crate::ops::CommitId;

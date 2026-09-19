@@ -266,7 +266,12 @@ fn main() {
             ..
         }) => cmd::log::run(&ctx, count, revisions, commits, ops, signatures, paths),
         Some(cli::Command::History { count }) => cmd::history::run(&ctx, count),
-        Some(cli::Command::Diff { paths }) => cmd::diff::run(&ctx, paths),
+        Some(cli::Command::Diff {
+            revisions,
+            from,
+            to,
+            paths,
+        }) => cmd::diff::run(&ctx, revisions, from, to, paths),
         Some(cli::Command::Show { rev, paths }) => cmd::show::run(&ctx, rev, paths),
         Some(cli::Command::Evolog {
             rev, count, patch, ..

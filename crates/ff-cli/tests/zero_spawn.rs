@@ -172,6 +172,8 @@ fn status_and_log_never_spawn() {
         // spelling that reaches it is trapped here.
         &["diff"][..],
         &["diff", "--json"][..],
+        &["diff", "-r", "HEAD"][..],
+        &["diff", "--from", "HEAD"][..],
         &["show"][..],
         &["show", "HEAD"][..],
         &["op", "show", "-p"][..],

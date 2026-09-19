@@ -2,7 +2,7 @@
 
 | Object being named | Where to get its ID | Commands that accept it |
 | --- | --- | --- |
-| One Git commit object: a hexadecimal commit SHA | [`ff log`](cli/log.md), [`ff show`](cli/show.md) | Revision arguments: `ff log -r`, `ff show`, [`ff describe`](cli/describe.md), [`ff restore --from`](cli/restore.md), [`ff absorb`](cli/absorb.md) / [`ff lift`](cli/lift.md) source and target flags. |
+| One Git commit object: a hexadecimal commit SHA | [`ff log`](cli/log.md), [`ff show`](cli/show.md) | Revision arguments: `ff log -r`, `ff show`, [`ff diff -r`](cli/diff.md) and its `--from`/`--to`, [`ff describe`](cli/describe.md), [`ff restore --from`](cli/restore.md), [`ff absorb`](cli/absorb.md) / [`ff lift`](cli/lift.md) source and target flags. |
 | A change across rewrites: a change ID using k–z | The letters column in `ff log`; `ff show --json` for a closed change's full ID | The same revision arguments; [`ff evolog`](cli/evolog.md) inspects the change's recorded evolution. |
 | One retained operation: a hexadecimal operation ID | [`ff op log`](cli/op-log.md), [`ff history`](cli/history.md), `ff evolog` | [`ff op show`](cli/op-show.md), [`ff op diff`](cli/op-diff.md), [`ff op restore`](cli/op-restore.md), [`ff op revert`](cli/op-revert.md), and supported `--at-op` flags. |
 

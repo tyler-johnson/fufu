@@ -1,10 +1,12 @@
-//! `ff diff` — the open change as a patch.
+//! `ff diff` — the patch layer's set half.
 //!
-//! The one question no other tool here answers: *what will `ff commit`
-//! actually land, and what does it say?* Every other fufu surface is
-//! stat-level, and `git diff` — the only patch tool a user had — is blind to
-//! the untracked sweep, which is exactly where a wrong commit comes from.
-//! This reads the same tree diff `ff status` counts, all the way down.
+//! One verb, three questions, one tree diff: bare, what the open change
+//! will land; `-r`, a connected set's total patch, from its root's first
+//! parent to its head; `--from`/`--to`, the difference between two points.
+//! `ff show` is the other half — one revision, with its identity and
+//! message as furniture above the patch. Every route here ends in
+//! `tree_diff` with the same `DiffOptions`, so paths filter and hunks keep
+//! their shape whichever two trees are in question.
 //!
 //! Output is the patch and nothing else. The diffstat already has a home in
 //! `ff status`, and two verbs printing the same block is a second dialect
@@ -12,11 +14,19 @@
 
 use std::io::Write as _;
 
+use ff_core::gix::ObjectId;
+use ff_core::revset::{Rev, Revset};
 use ff_core::{DiffOptions, Error, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
+pub fn run(
+    ctx: &Ctx,
+    revisions: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+    paths: Vec<String>,
+) -> Result<()> {
     // Load-bearing, not ceremonial: the open change is HEAD's tree against
     // the branch's *newest operation's* tree, so an edit made since the last
     // operation is invisible until something captures it. Without this line
@@ -24,19 +34,86 @@ pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
     // same bug `ff op diff` carried until 3b7a7fca.
     let repo = ff_core::discover(".")?;
     // The positional is paths only: `main..HEAD` here is a revision that
-    // wanted `ff log -r` or `ff show`, and answering it with an empty patch
-    // reads as "no changes". Refused before the tree walk.
+    // wanted `-r`, and answering it with an empty patch reads as "no
+    // changes". Refused before the tree walk.
     crate::cmd::paths::require(
         &repo,
         "diff",
-        "takes paths in its positional, and no revisions: ff show reads one, ff log -r a set",
+        "takes paths in its positional, and revisions behind -r, --from, and --to",
         &paths,
-        |_| vec!["ff log -r <revset>".into(), "ff status".into()],
+        |_| {
+            vec![
+                "ff diff -r <revset>".into(),
+                "ff diff --from <rev> --to <rev>".into(),
+                "ff status".into(),
+            ]
+        },
     )?;
-    let stat = ff_core::change_diff(&repo, &DiffOptions { hunks: true, paths })?;
+    // Coded rather than a clap conflict so the refusal carries its id and
+    // exits under `--json` like every other one.
+    if revisions.is_some() && (from.is_some() || to.is_some()) {
+        return Err(Error::coded(
+            "usage/bad-flags",
+            "-r names a set and --from/--to name two points: a patch has one pair of ends, and which pair is not something fufu will rank for you",
+            vec![
+                "ff diff -r <revset>".into(),
+                "ff diff --from <rev> --to <rev>".into(),
+            ],
+        ));
+    }
+
+    let opts = DiffOptions { hunks: true, paths };
+    let (stat, from_id, to_rev) = match (revisions, from, to) {
+        // The default is `change_diff` verbatim rather than the two-tree
+        // route with `@^` and `@` filled in: `ff show`'s bare patch is
+        // measured the same way, and its tests hold the two byte for byte.
+        (None, None, None) => (
+            ff_core::change_diff(&repo, &opts)?,
+            ff_core::revset::resolve::open_commit(&repo)?,
+            Rev::Open(None),
+        ),
+        (Some(src), _, _) => {
+            let range = Revset::parse(&src)?.range(&repo)?;
+            let (from_tree, from_id) = parent_of(&repo, range.root)?;
+            let to_tree = tree_of(&repo, range.head)?;
+            (
+                ff_core::tree_diff(&repo, from_tree, to_tree, &opts)?,
+                from_id,
+                range.head,
+            )
+        }
+        (None, from, to) => {
+            let point = |src: &str| -> Result<Rev> { Ok(Revset::parse(src)?.point(&repo)?.rev) };
+            let from_rev = match from {
+                Some(src) => point(&src)?,
+                None => point("@^")?,
+            };
+            let to_rev = match to {
+                Some(src) => point(&src)?,
+                None => point("@")?,
+            };
+            let from_id = match from_rev {
+                Rev::Open(_) => ff_core::revset::resolve::open_commit(&repo)?,
+                Rev::Commit(id) => Some(id.object_id()),
+            };
+            let from_tree = tree_of(&repo, from_rev)?;
+            let to_tree = tree_of(&repo, to_rev)?;
+            (
+                ff_core::tree_diff(&repo, from_tree, to_tree, &opts)?,
+                from_id,
+                to_rev,
+            )
+        }
+    };
 
     if ctx.json {
+        let end = |rev: Rev| match rev {
+            Rev::Open(_) => serde_json::Value::String("@".into()),
+            Rev::Commit(id) => serde_json::Value::String(id.object_id().to_string()),
+        };
         let payload = serde_json::json!({
+            "from": from_id.map(|id| id.to_string()),
+            "to": end(to_rev),
             "changes": stat.files,
             "insertions": stat.insertions,
             "deletions": stat.deletions,
@@ -47,11 +124,54 @@ pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
     crate::render::init_palette(&repo);
     let mut out = crate::pager::LogOut::new(&repo, ctx.json);
     let colored = out.colored();
-    // A clean tree prints nothing, git's convention: this verb's output is
-    // meant to be piped into `git apply`, and prose in that stream is a bug
-    // for whatever reads it. A path that exists but has no changes is the
-    // same empty patch, exit 0: only a path that names nothing is refused.
+    // A clean tree prints nothing, git's convention, and so does an
+    // identical pair of trees: this verb's output is meant to be piped into
+    // `git apply`, and prose in that stream is a bug for whatever reads it.
+    // A path that exists but has no changes is the same empty patch, exit 0:
+    // only a path that names nothing is refused.
     let result = write!(out, "{}", crate::render::patch_block(&stat.files, colored));
     out.finish();
     result.map_err(Error::repo)
+}
+
+/// The tree a revision names: the open change's for `@`, a commit's own
+/// otherwise.
+fn tree_of(repo: &ff_core::gix::Repository, rev: Rev) -> Result<ObjectId> {
+    match rev {
+        Rev::Open(_) => ff_core::open_tree_id(repo),
+        Rev::Commit(id) => Ok(repo
+            .find_commit(id.object_id())
+            .map_err(Error::repo)?
+            .tree_id()
+            .map_err(Error::repo)?
+            .detach()),
+    }
+}
+
+/// The tree below a range's root, and the commit that tree belongs to: HEAD
+/// under the open change, the first parent under a commit, the empty tree
+/// and no commit under a root commit.
+fn parent_of(repo: &ff_core::gix::Repository, root: Rev) -> Result<(ObjectId, Option<ObjectId>)> {
+    match root {
+        Rev::Open(_) => Ok((
+            repo.head_tree_id_or_empty().map_err(Error::repo)?.detach(),
+            ff_core::revset::resolve::open_commit(repo)?,
+        )),
+        Rev::Commit(id) => {
+            let commit = repo.find_commit(id.object_id()).map_err(Error::repo)?;
+            match commit.parent_ids().next() {
+                Some(parent) => {
+                    let parent = parent.detach();
+                    let tree = repo
+                        .find_commit(parent)
+                        .map_err(Error::repo)?
+                        .tree_id()
+                        .map_err(Error::repo)?
+                        .detach();
+                    Ok((tree, Some(parent)))
+                }
+                None => Ok((ObjectId::empty_tree(repo.object_hash()), None)),
+            }
+        }
+    }
 }

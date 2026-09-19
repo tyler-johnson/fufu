@@ -131,6 +131,24 @@ fn sides(change: &Change) -> Sides {
     }
 }
 
+/// The open change's tree: the branch's newest operation's tree, or HEAD's
+/// when nothing has been captured on this branch yet, or the repository is
+/// bare. The tree `ff diff` measures to, and the tree `@` stands for
+/// wherever a revision names one.
+pub fn open_tree_id(repo: &gix::Repository) -> Result<gix::ObjectId> {
+    let head_tree_id = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
+    if repo.workdir().is_none() {
+        return Ok(head_tree_id);
+    }
+    let head = crate::head::head_state(repo)?;
+    let branch = crate::snapshot::chain::chain_name(&head);
+    let log = crate::ops::OpLog::open(repo)?;
+    match log.branch_tip(&branch)? {
+        Some(tip_id) => Ok(log.get(tip_id)?.tree()),
+        None => Ok(head_tree_id),
+    }
+}
+
 /// Compute the open change: HEAD's tree against the branch's newest
 /// operation's tree. Returns an empty result when the branch has no
 /// operations, the trees are identical, or the repository is bare.
@@ -144,20 +162,8 @@ pub fn change_diff(repo: &gix::Repository, opts: &DiffOptions) -> Result<ChangeS
         });
     }
 
-    let head = crate::head::head_state(repo)?;
-    let branch = crate::snapshot::chain::chain_name(&head);
     let head_tree_id = repo.head_tree_id_or_empty().map_err(Error::repo)?.detach();
-
-    let log = crate::ops::OpLog::open(repo)?;
-    let Some(tip_id) = log.branch_tip(&branch)? else {
-        return Ok(ChangeStat {
-            files: Vec::new(),
-            insertions: 0,
-            deletions: 0,
-        });
-    };
-
-    tree_diff(repo, head_tree_id, log.get(tip_id)?.tree(), opts)
+    tree_diff(repo, head_tree_id, open_tree_id(repo)?, opts)
 }
 
 /// The diff between two arbitrary trees. `change_diff` drives this with

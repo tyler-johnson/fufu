@@ -368,6 +368,12 @@ detail = "Inspect the set, then name one commit SHA, change ID, or branch tip. l
 exits = ["ff log -r '<expr>'", "ff log -r 'latest(<expr>)'"]
 
 [[entry]]
+id = "usage/revset-not-a-range"
+summary = "the set is not one range with a single head and root"
+detail = "ff diff -r shows a set's total patch, from the root's first parent to the head, so the set must be connected with one head and one root. A gapped, forked, or two-headed set is refused, and a set containing the open change must contain HEAD. A set whose root is a merge is refused because which parent to measure from is a choice. Use ff log -r to see the members and --from/--to to name the two ends yourself."
+exits = ["ff log -r <revset>", "ff diff --from <rev> --to <rev>"]
+
+[[entry]]
 id = "revset/regex-unavailable"
 summary = "regex patterns are recognized but not implemented"
 detail = "Use glob: for * and ? wildcards, substring: for literal text anywhere in a field, or exact: for an exact match. regex: is recognized and refused rather than evaluated. These pattern forms are not interchangeable with a regular expression, so check the selected results before using them to rewrite history."
@@ -388,7 +394,7 @@ exits = ["ff config", "ff help watch"]
 [[entry]]
 id = "usage/bad-flags"
 summary = "an option is missing, retired, misplaced, or incompatible with another"
-detail = "Follow the specific message and inspect ff help <command> for the supported form. Some cases require choosing one of conflicting options; others replace an old spelling or supply a required argument. --at and --at-op are mutually exclusive, and accepting their syntax does not mean every command implements past-state reads. On restore, name paths or --all as well as the source."
+detail = "Follow the specific message and inspect ff help <command> for the supported form. Some cases require choosing one of conflicting options; others replace an old spelling or supply a required argument. --at and --at-op are mutually exclusive, and accepting their syntax does not mean every command implements past-state reads. On restore, name paths or --all as well as the source. On diff, -r and --from/--to are alternatives."
 exits = ["ff help"]
 
 [[entry]]
@@ -406,7 +412,7 @@ exits = ["ff -C <existing-checkout> worktree"]
 [[entry]]
 id = "usage/no-such-path"
 summary = "the path is absent from the working copy and HEAD"
-detail = "Correct the file or directory path and retry. Commit, log, diff, and show validate paths against disk and HEAD, so a path deleted from both may not be accepted even if it existed in older history. ff log's positional arguments are paths; select revisions with -r. ff diff's positional arguments are paths only: a revision such as main..HEAD belongs to ff show for one or ff log -r for a set. ff show's first argument is the revision and the rest are paths, so a second revision is refused rather than read as a filter. If a commit message was parsed as a path, pass it with -m. Inspect ff status for the paths in the open change."
+detail = "Correct the file or directory path and retry. Commit, log, diff, and show validate paths against disk and HEAD, so a path deleted from both may not be accepted even if it existed in older history. ff log's positional arguments are paths; select revisions with -r. ff diff's positional arguments are paths; revisions go behind -r, --from, and --to. ff show's first argument is the revision and the rest are paths, so a second revision is refused rather than read as a filter. If a commit message was parsed as a path, pass it with -m. Inspect ff status for the paths in the open change."
 exits = ["ff status", "ff log", "ff show <rev>"]
 
 [[entry]]

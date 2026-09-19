@@ -154,6 +154,7 @@ The table lists all 127 catalog entries with their structured-error exit codes. 
 | `usage/revset-no-symmetric-difference` | 2 | the a...b range syntax is not supported |
 | `usage/revset-not-a-commit` | 2 | the revision names a tree or blob rather than a commit |
 | `usage/revset-not-a-point` | 2 | the expression selects multiple revisions where one is required |
+| `usage/revset-not-a-range` | 2 | the set is not one range with a single head and root |
 | `usage/revset-open-suffix` | 2 | that suffix is not supported on the open change @ |
 | `usage/revset-parent-shorthand` | 2 | use ^ or ~n for parents, not the x- shorthand |
 | `usage/revset-range-suffix` | 2 | x^! and x^@ are not supported revision suffixes |
