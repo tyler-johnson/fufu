@@ -20,6 +20,7 @@ pub mod init;
 pub mod log;
 pub mod map;
 pub mod op;
+pub mod paths;
 pub mod pull;
 pub mod push;
 pub mod remote;

@@ -28,6 +28,17 @@ pub fn run(ctx: &Ctx, rev: Option<String>, paths: Vec<String>) -> Result<()> {
 
     let raw = rev.as_deref().unwrap_or("@");
     let point = Revset::parse(raw)?.point(&repo)?;
+    // The revision is first, so a bad revision has already won; what is
+    // left in the path slot must name a path. A second revision there, as
+    // in `ff show HEAD <sha>`, would otherwise read as a filter that
+    // matches nothing and answer "it changed no files".
+    crate::cmd::paths::require(
+        &repo,
+        "show",
+        "takes one revision first, then paths",
+        &paths,
+        |_| vec!["ff show <rev>".into(), "ff log -r <revset>".into()],
+    )?;
     let opts = DiffOptions { hunks: true, paths };
 
     match point.rev {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `ff diff` and `ff show` answered a positional that names no path, such as a revision like `main..HEAD` or a second sha, with an empty patch and exit 0; both now refuse it with `usage/no-such-path`, the way `ff log` does. A path that exists but has no changes still prints an empty patch.
+
 ## v0.17.0 — 2026-09-18
 
 ### Added

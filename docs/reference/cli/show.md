@@ -50,7 +50,7 @@ Options:
 
 ## Revisions and paths
 
-The first argument is a [revision expression](../revisions.md#revision-names-and-suffixes) selecting exactly one member. `@` means the open change; `@^` means HEAD. A change-ID prefix needs four or more characters and a unique match; the open change's ID selects `@`. Subsequent paths select files or directory prefixes, without globs.
+The first argument is a [revision expression](../revisions.md#revision-names-and-suffixes) selecting exactly one member. `@` means the open change; `@^` means HEAD. A change-ID prefix needs four or more characters and a unique match; the open change's ID selects `@`. Subsequent paths select files or directory prefixes, without globs. They are checked against disk and HEAD, so a second revision in the path slot, such as `ff show HEAD <sha>`, is refused with `usage/no-such-path` rather than read as a filter that matches nothing.
 
 Commit SHAs and operation IDs are both hexadecimal, but this position reads revisions. Use [`ff op show`](op-show.md) for operations. Blobs and trees use Git's syntax through [`ff git show`](git.md).
 

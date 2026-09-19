@@ -243,3 +243,81 @@ fn a_blob_or_tree_spelling_is_not_a_revision() {
         );
     }
 }
+
+/// One revision, then paths. A second sha in the path slot used to read as
+/// a filter that matched nothing and answer "it changed no files"; now it
+/// is refused, and the exit names the one-revision shape.
+#[test]
+fn a_second_revision_in_the_path_slot_is_refused() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "b\n");
+    fx.commit("two");
+    let older = fx
+        .git(&["rev-parse", "--short", "HEAD~1"])
+        .trim()
+        .to_string();
+
+    let out = ff(&fx, &["show", "HEAD", &older]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains(&older), "the token is named: {err}");
+    assert!(
+        err.contains("ff show <rev>"),
+        "the one-revision shape: {err}"
+    );
+    assert!(
+        !stdout(&out).contains("changed no files"),
+        "not answered as an empty commit: {}",
+        stdout(&out)
+    );
+
+    let out = ff(&fx, &["--json", "show", "HEAD", &older]);
+    assert_eq!(out.status.code(), Some(2));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"].as_str(), Some("usage/no-such-path"), "{v}");
+}
+
+/// A path on neither disk nor in HEAD is refused under both the commit
+/// branch and the open-change branch, since neither diffs before the check.
+#[test]
+fn a_path_that_names_nothing_is_refused() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    for args in [
+        &["show", "HEAD", "bogus.txt"][..],
+        &["show", "@", "bogus.txt"][..],
+    ] {
+        let out = ff(&fx, args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
+        assert!(stderr(&out).contains("bogus.txt"), "{}", stderr(&out));
+
+        let out = ff(&fx, &["--json", args[0], args[1], args[2]]);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let v = json(&out);
+        assert_eq!(v["error"]["id"].as_str(), Some("usage/no-such-path"), "{v}");
+    }
+}
+
+/// The revision resolves first, so a bad revision keeps its own refusal
+/// even when a bad path follows it.
+#[test]
+fn a_bad_revision_still_wins_over_a_bad_path() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["--json", "show", "nope", "bogus.txt"]);
+    assert_eq!(out.status.code(), Some(2));
+    let id = json(&out)["error"]["id"]
+        .as_str()
+        .expect("a coded refusal")
+        .to_string();
+    assert!(
+        id.starts_with("usage/revset-"),
+        "the revision's own error: {id}"
+    );
+}

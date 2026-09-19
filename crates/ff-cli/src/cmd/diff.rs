@@ -23,6 +23,16 @@ pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
     // `ff diff` would report a clean tree on a file you just wrote — the
     // same bug `ff op diff` carried until 3b7a7fca.
     let repo = ff_core::discover(".")?;
+    // The positional is paths only: `main..HEAD` here is a revision that
+    // wanted `ff log -r` or `ff show`, and answering it with an empty patch
+    // reads as "no changes". Refused before the tree walk.
+    crate::cmd::paths::require(
+        &repo,
+        "diff",
+        "takes paths in its positional, and no revisions: ff show reads one, ff log -r a set",
+        &paths,
+        |_| vec!["ff log -r <revset>".into(), "ff status".into()],
+    )?;
     let stat = ff_core::change_diff(&repo, &DiffOptions { hunks: true, paths })?;
 
     if ctx.json {
@@ -39,7 +49,8 @@ pub fn run(ctx: &Ctx, paths: Vec<String>) -> Result<()> {
     let colored = out.colored();
     // A clean tree prints nothing, git's convention: this verb's output is
     // meant to be piped into `git apply`, and prose in that stream is a bug
-    // for whatever reads it.
+    // for whatever reads it. A path that exists but has no changes is the
+    // same empty patch, exit 0: only a path that names nothing is refused.
     let result = write!(out, "{}", crate::render::patch_block(&stat.files, colored));
     out.finish();
     result.map_err(Error::repo)

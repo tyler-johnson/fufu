@@ -352,3 +352,71 @@ fn the_patch_flag_reaches_the_machine_surface() {
         "evolog invented a diffstat nobody asked for: {v}"
     );
 }
+
+/// The positional is paths only. A revision typed there used to select
+/// nothing and print an empty patch, which reads as "no changes"; now it is
+/// refused, and the exits name the verbs that read revisions.
+#[test]
+fn a_revision_in_the_path_slot_is_refused() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    fx.write("a.txt", "b\n");
+    fx.commit("two");
+
+    for args in [&["diff", "main..HEAD"][..], &["diff", "HEAD~2", "HEAD"][..]] {
+        let out = ff(&fx, args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
+        let err = stderr(&out);
+        assert!(err.contains(args[1]), "the token is named: {err}");
+        assert!(
+            err.contains("ff log -r"),
+            "the revision verb is named: {err}"
+        );
+        assert!(
+            stdout(&out).is_empty(),
+            "nothing on stdout that `git apply` could mistake for a patch"
+        );
+    }
+
+    let out = ff(&fx, &["--json", "diff", "main..HEAD"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"].as_str(), Some("usage/no-such-path"), "{v}");
+}
+
+/// A path that is on neither disk nor in HEAD is a typo, not a filter that
+/// happens to match nothing.
+#[test]
+fn a_path_that_names_nothing_is_refused() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["diff", "bogus.txt"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("bogus.txt"), "{}", stderr(&out));
+
+    let out = ff(&fx, &["--json", "diff", "bogus.txt"]);
+    assert_eq!(out.status.code(), Some(2));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"].as_str(), Some("usage/no-such-path"), "{v}");
+}
+
+/// The refusal is only for a path that names nothing. A path that exists
+/// and has no changes keeps git's convention: an empty patch, exit 0, so
+/// `ff diff a.txt | git apply` on a clean file is a no-op rather than an
+/// error.
+#[test]
+fn an_existing_path_with_no_changes_is_an_empty_patch() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+
+    let out = ff(&fx, &["diff", "a.txt"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).is_empty(), "{}", stdout(&out));
+
+    let v = json(&ff(&fx, &["--json", "diff", "a.txt"]));
+    assert_eq!(v["data"]["changes"], serde_json::json!([]), "{v}");
+}

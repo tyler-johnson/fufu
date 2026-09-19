@@ -406,8 +406,8 @@ exits = ["ff -C <existing-checkout> worktree"]
 [[entry]]
 id = "usage/no-such-path"
 summary = "the path is absent from the working copy and HEAD"
-detail = "Correct the file or directory path and retry. Commit and log validate paths against disk and HEAD, so a path deleted from both may not be accepted even if it existed in older history. ff log's positional arguments are paths; select revisions with -r. If a commit message was parsed as a path, pass it with -m. Inspect ff status for the paths in the open change."
-exits = ["ff status", "ff log"]
+detail = "Correct the file or directory path and retry. Commit, log, diff, and show validate paths against disk and HEAD, so a path deleted from both may not be accepted even if it existed in older history. ff log's positional arguments are paths; select revisions with -r. ff diff's positional arguments are paths only: a revision such as main..HEAD belongs to ff show for one or ff log -r for a set. ff show's first argument is the revision and the rest are paths, so a second revision is refused rather than read as a filter. If a commit message was parsed as a path, pass it with -m. Inspect ff status for the paths in the open change."
+exits = ["ff status", "ff log", "ff show <rev>"]
 
 [[entry]]
 id = "usage/git-policy"

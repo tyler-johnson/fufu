@@ -40,28 +40,6 @@ fn ops_retired() -> Error {
     )
 }
 
-/// A path that names nothing: refused, not answered with an empty log. A
-/// sentence in the path slot is almost always a missing flag, so the exits
-/// then lead with the two flag-shaped ones.
-fn no_such_path(token: &str) -> Error {
-    let exits = if token.chars().any(char::is_whitespace) {
-        vec![
-            "ff log -r <revset>".into(),
-            format!("ff commit -m {token:?}"),
-            "ff status".into(),
-        ]
-    } else {
-        vec!["ff status".into(), "ff log".into()]
-    };
-    Error::coded(
-        "usage/no-such-path",
-        format!(
-            "no path here matches {token:?}: `ff log` takes paths in its positional, and revisions behind -r"
-        ),
-        exits,
-    )
-}
-
 /// Default view, jj-style: the open change (`@`) as the spine's head, then
 /// the commit walk (`●` rows) with each commit's chain-segment tip beside
 /// it. `--commits` forces the plain commits view and keeps Phase 0's exact
@@ -84,12 +62,26 @@ pub fn run_inner(
     let limit = if count == 0 { None } else { Some(count) };
 
     // A selector that names nothing is refused, not answered with an empty
-    // log — before either view walks.
-    for path in &paths {
-        if !ff_core::path_exists(&repo, path)? {
-            return Err(no_such_path(path));
-        }
-    }
+    // log — before either view walks. A sentence in the path slot is almost
+    // always a missing flag, so the exits then lead with the two
+    // flag-shaped ones.
+    crate::cmd::paths::require(
+        &repo,
+        "log",
+        "takes paths in its positional, and revisions behind -r",
+        &paths,
+        |token| {
+            if token.chars().any(char::is_whitespace) {
+                vec![
+                    "ff log -r <revset>".into(),
+                    format!("ff commit -m {token:?}"),
+                    "ff status".into(),
+                ]
+            } else {
+                vec!["ff status".into(), "ff log".into()]
+            }
+        },
+    )?;
 
     if commits_only {
         return commits_view(&mut repo, ctx.json, limit, revs, paths);
