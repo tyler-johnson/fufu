@@ -500,8 +500,7 @@ fn unknown_line_says_it_cannot_simulate() {
     let text = stdout(&out);
     assert!(
         text.contains(
-            "base moved — can't simulate (merge commits in the range) · ff restack or ff git \
-             merge main"
+            "base moved — can't simulate (merge commits in the range) · ff restack or ff resolve"
         ),
         "got: {text}"
     );

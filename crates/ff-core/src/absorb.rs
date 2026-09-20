@@ -265,7 +265,12 @@ fn fold_labels(
         message: None,
     };
     let n = rewrite::stack_size(repo, bottom, tip, &change)?;
-    Ok(rewrite::chain_labels(&subject(repo, owner)?, k, n))
+    Ok(rewrite::chain_labels(
+        rewrite::REBASING,
+        &subject(repo, owner)?,
+        k,
+        n,
+    ))
 }
 
 /// A rewrite that conflicts is an outcome, not an error: record the hold the

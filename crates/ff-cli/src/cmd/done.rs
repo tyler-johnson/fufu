@@ -159,13 +159,16 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             }
             let colored = crate::pager::color_enabled();
             let fixed = report.fixed;
-            println!(
-                "resolved {} conflict{}; replayed {} commit{}",
-                fixed,
-                if fixed == 1 { "" } else { "s" },
-                report.replayed,
-                if report.replayed == 1 { "" } else { "s" }
-            );
+            let plural = if fixed == 1 { "" } else { "s" };
+            if report.verb == "merge" {
+                println!("resolved {fixed} conflict{plural}; landed the merge");
+            } else {
+                println!(
+                    "resolved {fixed} conflict{plural}; replayed {} commit{}",
+                    report.replayed,
+                    if report.replayed == 1 { "" } else { "s" }
+                );
+            }
             println!(
                 "{} is now at {}",
                 report.branch,

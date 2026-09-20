@@ -15,7 +15,9 @@ pub(super) const CHAIN_OURS: &str = "the rewrite so far";
 /// The stem every fufu opener starts with; each carries its own `(k/n)`
 /// after it, so the whole line is matched by prefix.
 pub(super) const OPENER: &str = "<<<<<<< the rewrite so far";
-const CLOSER_PREFIX: &str = ">>>>>>> rebasing \"";
+/// The stems a closer starts with: a replayed step's and a merge step's.
+/// The verb words are `chain::REBASING` and `chain::MERGING`.
+const CLOSER_PREFIXES: [&str; 2] = [">>>>>>> rebasing \"", ">>>>>>> merging \""];
 
 /// A line that opens a fufu conflict block.
 fn is_opener(line: &str) -> bool {
@@ -32,7 +34,7 @@ fn is_separator(line: &str) -> bool {
 /// ` (<k>/<n>)` with both decimal and `k` at least one.
 fn closer_step(line: &str) -> Option<usize> {
     let l = line.trim_end_matches('\n');
-    let after = l.strip_prefix(CLOSER_PREFIX)?;
+    let after = CLOSER_PREFIXES.iter().find_map(|p| l.strip_prefix(p))?;
     // The subject sits between the first and the last quote; the step tail
     // follows the last one. A subject containing a quote is therefore taken
     // by its outermost quotes, not by escaping.
@@ -110,4 +112,23 @@ pub(super) fn blocks(text: &str) -> (Vec<Block>, bool) {
     }
 
     (found, tangled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_closer_parses_under_either_verb() {
+        assert_eq!(closer_step(">>>>>>> rebasing \"f1\" (1/3)\n"), Some(0));
+        assert_eq!(closer_step(">>>>>>> rebasing \"f1\" (3/3)"), Some(2));
+        assert_eq!(closer_step(">>>>>>> merging \"main\" (1/1)\n"), Some(0));
+        assert_eq!(
+            closer_step(">>>>>>> merging \"a \"quoted\" base\" (1/1)"),
+            Some(0)
+        );
+        assert_eq!(closer_step(">>>>>>> merging \"main\""), None);
+        assert_eq!(closer_step(">>>>>>> squashing \"main\" (1/1)"), None);
+        assert_eq!(closer_step(">>>>>>> theirs"), None);
+    }
 }

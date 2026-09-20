@@ -490,14 +490,14 @@ exits = ["ff status", "ff resolve --abandon", "ff log"]
 [[entry]]
 id = "held/already-held"
 summary = "the named branch already has a held rewrite blocking this request"
-detail = "Switch to the branch named in the error, inspect its hold, and resolve or abandon it before retrying. Fufu stores one held request per branch. A held absorb, lift, done, or arrival refuses every rewrite of the branch; a held restack is dropped by a re-aim, cleared by a replay onto its base, and kept otherwise, and a second conflicting rewrite is refused. A multi-branch operation may already have updated other branches; inspect its per-branch report. Abandoning removes the request rather than leaving it queued."
+detail = "Switch to the branch named in the error, inspect its hold, and resolve or abandon it before retrying. Fufu stores one held request per branch. A held absorb, lift, done, or arrival refuses every rewrite of the branch; a held restack or merge is dropped by a re-aim, cleared by a replay onto its base, and kept otherwise, and a second conflicting rewrite is refused. A multi-branch operation may already have updated other branches; inspect its per-branch report. Abandoning removes the request rather than leaving it queued."
 exits = ["ff status", "ff switch <held-branch>", "ff help resolve"]
 
 [[entry]]
 id = "held/none"
-summary = "the current branch has no held request to resolve or abandon"
-detail = "Check ff status and switch to the branch whose hold you intended to resolve. Do not infer a hold from exit 3 alone: op-revert applicability refusals create none. A parked-change arrival resolved in place has also already cleared its hold; edit its remaining markers directly without ff done. If resolve previously released a now-clean rewrite, rerun the original rewrite command to apply it."
-exits = ["ff status", "ff log"]
+summary = "the current branch has no held request to resolve, and no merge of its base to continue"
+detail = "Check ff status and switch to the branch whose hold you intended to resolve. Do not infer a hold from exit 3 alone: op-revert applicability refusals create none. A parked-change arrival resolved in place has also already cleared its hold; edit its remaining markers directly without ff done. If resolve previously released a now-clean rewrite, rerun the original rewrite command to apply it. With no hold, ff resolve has one more job: on a branch whose commits hold a merge of its base and that is behind it, it merges the base in. A branch on a straight line behind its base is ff restack's, and one up to date with its base has nothing to take in; the message says which."
+exits = ["ff status", "ff log", "ff restack"]
 
 [[entry]]
 id = "held/resolving"
@@ -540,6 +540,12 @@ id = "restack/own-remote"
 summary = "restack cannot target the branch's own remote copy"
 detail = "Use ff pull <branch> to reconcile that branch with its remote copy. Pull fetches by default, reports incoming state, and replays local work when needed. Restack --onto selects a different base branch. If you meant another base, name it explicitly and inspect the resulting stack."
 exits = ["ff pull <branch>", "ff restack <branch> --onto <base>"]
+
+[[entry]]
+id = "merge/unrelated"
+summary = "the branch and the base to merge have no common ancestor"
+detail = "A merge needs a common ancestor to merge across. ff resolve's merge door checks this before it plans, so this is raised only by a held merge whose branch and base have since diverged completely, or in a shallow clone whose ancestry is missing. Deepen or unshallow the relevant remote history with Git if appropriate, then retry, or abandon the hold. Fufu does not merge unrelated histories."
+exits = ["ff log", "ff resolve --abandon", "ff status"]
 
 [[entry]]
 id = "restack/unrelated"

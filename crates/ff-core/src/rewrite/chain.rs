@@ -97,6 +97,11 @@ pub fn chain(
     change: &Change,
     resolutions: &[Resolution],
 ) -> Result<Chain> {
+    // A merge is one step and no range: the tip's tree and the other side's,
+    // merged over their common ancestor.
+    if let Change::Merge { other, subject } = change {
+        return merge_chain(repo, tip, *other, subject, resolutions);
+    }
     let Range {
         ordered,
         affected,
@@ -118,6 +123,7 @@ pub fn chain(
         // A reword moves no tree, so this never stands in for a tree; the
         // empty tree only matters if no step runs at all.
         Change::Message(_) => gix::ObjectId::empty_tree(repo.object_hash()),
+        Change::Merge { .. } => unreachable!("a merge chain took the early return above"),
     };
 
     // The simulated graph: every commit the chain has stood in for, keyed
@@ -192,7 +198,7 @@ pub fn chain(
             Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
                 let base = crate::measure(repo, id)?.tree;
                 let their = their_of(repo, change, id, base)?;
-                let (tree, own) = merged(repo, base, ours, their, k, n, &subject)?;
+                let (tree, own) = merged(repo, base, ours, their, REBASING, k, n, &subject)?;
                 paths.extend(own);
                 // A move's target above the bottom takes the moved paths
                 // from the fold, the way the replay does. The fold can
@@ -209,6 +215,7 @@ pub fn chain(
                     _ => tree,
                 }
             }
+            Change::Merge { .. } => unreachable!("a merge chain took the early return above"),
         };
         paths.sort();
         paths.dedup();
@@ -266,6 +273,62 @@ pub fn chain(
         steps,
         tree,
         tangled,
+    })
+}
+
+/// The merge chain: `other` taken into `tip` as one step. The step's tree
+/// is the three-way merge of the two trees over their merge base, with the
+/// merge's own labels on any region it leaves; `other` already beneath
+/// `tip` is the tip's tree and no region, which is what makes `ff done`'s
+/// second look come back clean once the merge has landed. The step's `old`
+/// is `other`, so `conflict` names the base's tip and a landing keys the
+/// decided tree by it.
+fn merge_chain(
+    repo: &gix::Repository,
+    tip: gix::ObjectId,
+    other: gix::ObjectId,
+    subject: &str,
+    resolutions: &[Resolution],
+) -> Result<Chain> {
+    let base = match repo.merge_base(tip, other) {
+        Ok(base) => base.detach(),
+        Err(gix::repository::merge_base::Error::NotFound { .. }) => {
+            return Err(Error::coded(
+                "merge/unrelated",
+                format!(
+                    "{} and {} have no common ancestor: there is nothing to merge",
+                    crate::sha::short_oid(tip),
+                    crate::sha::short_oid(other)
+                ),
+                vec!["ff log".into()],
+            ));
+        }
+        Err(e) => return Err(Error::repo(e)),
+    };
+    let (tree, paths) = if base == other {
+        (tree_of(repo, tip)?, Vec::new())
+    } else {
+        merged(
+            repo,
+            tree_of(repo, base)?,
+            tree_of(repo, tip)?,
+            tree_of(repo, other)?,
+            MERGING,
+            1,
+            1,
+            subject,
+        )?
+    };
+    let tree = apply_resolutions(repo, tree, 0, resolutions)?;
+    Ok(Chain {
+        steps: vec![Step {
+            old: other.to_string(),
+            subject: subject.to_string(),
+            tree,
+            paths,
+        }],
+        tree,
+        tangled: None,
     })
 }
 
@@ -340,6 +403,7 @@ fn remerged(
             tree_of(sim, base)?,
             ours,
             tree_of(sim, theirs)?,
+            REBASING,
             k,
             n,
             subject,
@@ -659,12 +723,15 @@ fn line_hunks(before: &str, after: &str) -> Vec<(std::ops::Range<usize>, std::op
 /// says to carry for it — replayed onto `ours`. When base and ours agree, no
 /// merge runs and `their` is carried — the same short-circuit `replayed_tree`
 /// takes. Otherwise the three-way merge runs with the chain's attribution
-/// labels, and the unresolved regions are the step's paths.
+/// labels, and the unresolved regions are the step's paths. `verb` is the
+/// closer's word: `rebasing` for a replayed step, `merging` for a merge.
+#[allow(clippy::too_many_arguments)]
 fn merged(
     repo: &gix::Repository,
     base: gix::ObjectId,
     ours: gix::ObjectId,
     their: gix::ObjectId,
+    verb: &str,
     k: usize,
     n: usize,
     subject: &str,
@@ -673,7 +740,7 @@ fn merged(
         return Ok((their, Vec::new()));
     }
     let options = repo.tree_merge_options().map_err(Error::repo)?;
-    let (ours_label, theirs) = chain_labels(subject, k, n);
+    let (ours_label, theirs) = chain_labels(verb, subject, k, n);
     let labels = gix::merge::blob::builtin_driver::text::Labels {
         ancestor: None,
         current: Some(ours_label.as_bytes().as_bstr()),
@@ -687,22 +754,28 @@ fn merged(
     Ok((tree, paths))
 }
 
+/// The closer's verb for a replayed step.
+pub(crate) const REBASING: &str = "rebasing";
+/// The closer's verb for a merge step.
+pub(crate) const MERGING: &str = "merging";
+
 /// The pair of labels one chain step's merge writes, `(ours, theirs)`.
 ///
 /// The theirs label is the whole of the attribution: it is the only thing that
 /// survives into the tree saying which commit a marker block belongs to. A
 /// subject containing a quote is written verbatim (not escaped) and is parsed
-/// back by its outermost quotes — the first and the last on the line.
+/// back by its outermost quotes — the first and the last on the line. `verb`
+/// is the word before the subject, one of the two `markers` recognizes.
 ///
 /// Shared, rather than private to `merged`, because a caller that folds a tree
 /// of its own and hands the result to `chain` — an absorb, whose fold IS step
 /// one — has to write the same labels: `blocks` only sees a block whose closer
 /// carries a step, and a block nobody can attribute is a block that lands in a
 /// commit.
-pub(crate) fn chain_labels(subject: &str, k: usize, n: usize) -> (String, String) {
+pub(crate) fn chain_labels(verb: &str, subject: &str, k: usize, n: usize) -> (String, String) {
     (
         format!("{CHAIN_OURS} ({k}/{n})"),
-        format!("rebasing \"{subject}\" ({k}/{n})"),
+        format!("{verb} \"{subject}\" ({k}/{n})"),
     )
 }
 

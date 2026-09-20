@@ -201,7 +201,7 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
         }
     }
 
-    for line in base_lines(&report.branch, &report.base, would, colored) {
+    for line in base_lines(&report.branch, &report.base, would, true, colored) {
         println!("{line}");
         said = true;
     }
@@ -419,7 +419,7 @@ impl Would {
                 &format!(
                     "{} would be skipped: {}{}",
                     s.branch,
-                    crate::render::skip_reason(&s.reason, &s.branch, &s.base),
+                    crate::render::skip_reason(&s.reason, &s.branch, &s.base, false),
                     left_alone(&s.left_alone)
                 ),
                 colored,
@@ -520,7 +520,13 @@ fn remote_lines(name: &str, outcome: &RestackOutcome, would: Would, colored: boo
 /// What the base axis says: the base that moved and the replay onto it, the
 /// hold, or why it was left alone. Nothing when the branch already sat on
 /// its base, or has none.
-fn base_lines(branch: &str, base: &BaseAxis, would: Would, colored: bool) -> Vec<String> {
+fn base_lines(
+    branch: &str,
+    base: &BaseAxis,
+    would: Would,
+    here: bool,
+    colored: bool,
+) -> Vec<String> {
     let mut out = Vec::new();
     match base {
         BaseAxis::NotNamed | BaseAxis::NoBase => {}
@@ -536,7 +542,7 @@ fn base_lines(branch: &str, base: &BaseAxis, would: Would, colored: bool) -> Vec
                 &format!(
                     "{} alone: {}",
                     would.verb("left", "be left"),
-                    crate::render::skip_reason(reason, branch, name)
+                    crate::render::skip_reason(reason, branch, name, here)
                 ),
                 colored,
             ));
@@ -640,7 +646,7 @@ fn branch_lines(b: &BranchPull, would: Would, colored: bool) -> (&str, Vec<Strin
                     }
                 }
             }
-            out.extend(base_lines(branch, base, would, colored));
+            out.extend(base_lines(branch, base, would, false, colored));
             if let BaseAxis::Ran {
                 outcome: RestackOutcome::Restacked(r),
                 ..

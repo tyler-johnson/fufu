@@ -69,7 +69,7 @@ The table lists all 128 catalog entries with their structured-error exit codes. 
 | `held/already-held` | 3 | the named branch already has a held rewrite blocking this request |
 | `held/expired` | 3 | the held request or its resolution state can no longer be used |
 | `held/moved` | 3 | the current rewrite no longer produces the conflicts this session was opened for |
-| `held/none` | 3 | the current branch has no held request to resolve or abandon |
+| `held/none` | 3 | the current branch has no held request to resolve, and no merge of its base to continue |
 | `held/op-revert` | 3 | refs no longer have the values required to invert this operation |
 | `held/resolving` | 3 | a resolution session for this hold is already open |
 | `held/rewrite-conflict` | 3 | a commit could not be replayed over the requested rewrite |
@@ -82,6 +82,7 @@ The table lists all 128 catalog entries with their structured-error exit codes. 
 | `init/bare` | 1 | ff init does not create bare repositories |
 | `init/failed` | 1 | the repository could not be created at that path |
 | `internal` | 1 | an unclassified failure |
+| `merge/unrelated` | 1 | the branch and the base to merge have no common ancestor |
 | `op/ambiguous` | 1 | that hexadecimal prefix matches more than one retained operation |
 | `op/floor` | 1 | the request steps before the earliest retained operation |
 | `op/not-found` | 1 | the requested operation or recovery source was not found |

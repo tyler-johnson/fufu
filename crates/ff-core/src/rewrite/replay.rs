@@ -101,6 +101,15 @@ pub enum Change {
         /// The move's target when it stands above the bottom.
         into: Option<MoveInto>,
     },
+    /// A merge of `other` into the target, which is the branch's tip: one
+    /// step whose tree is the three-way merge of the two, and whose commit
+    /// is written by `merge::commit`, never by the replay. `subject` is
+    /// what the merged-in side is called — the base's name — and labels the
+    /// step's markers. A shape for `chain` and `conflict` only.
+    Merge {
+        other: gix::ObjectId,
+        subject: String,
+    },
 }
 
 /// A move's target, standing above the bottom of the rewrite. It is replayed
@@ -209,6 +218,11 @@ pub fn plan_with(
             let memory = repo.clone().with_object_memory();
             replay(&memory, &range, target, change, now, trees)?;
             replay(repo, &range, target, change, now, trees)?
+        }
+        Change::Merge { .. } => {
+            return Err(Error::msg(
+                "internal: a merge is landed by merge::commit, never replayed",
+            ));
         }
     };
 
@@ -368,7 +382,7 @@ pub(super) fn range_of(
                 .into_iter()
                 .partition(|(id, _)| affected.contains(id))
         }
-        Change::Message(_) | Change::Tree { .. } | Change::Move { .. } => {
+        Change::Message(_) | Change::Tree { .. } | Change::Move { .. } | Change::Merge { .. } => {
             (HashMap::new(), HashMap::new())
         }
     };
@@ -631,6 +645,9 @@ fn replay(
                     _ => replayed,
                 }
             }
+            Change::Merge { .. } => {
+                unreachable!("plan_with refuses a merge before the replay runs")
+            }
         };
         let author = commit_ref
             .author()
@@ -654,6 +671,9 @@ fn replay(
                 Change::Tree { message: None, .. }
                 | Change::Move { message: None, .. }
                 | Change::Onto(_) => commit_ref.message.to_owned(),
+                Change::Merge { .. } => {
+                    unreachable!("plan_with refuses a merge before the replay runs")
+                }
             }
         } else {
             match change {

@@ -18,7 +18,7 @@ pub use chain::{
     Attribution, Chain, Conflict, Region, Resolution, Step, Tangle, attribute, chain, conflict,
     regions,
 };
-pub(crate) use chain::{carries_markers, chain_labels, stack_size};
+pub(crate) use chain::{REBASING, carries_markers, chain_labels, stack_size};
 pub use replay::{
     Change, Clearing, Decided, DropReason, Dropped, Flattened, MoveInto, Rewrite, RewritePlan,
     plan, plan_with, published_count, tracking_name,

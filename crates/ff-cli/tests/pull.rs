@@ -1685,7 +1685,8 @@ fn the_branch_underfoot_holding_a_merge_is_left_alone() {
         "got: {text}"
     );
     assert!(text.contains("ff restack side"), "got: {text}");
-    assert!(text.contains("ff git merge main"), "got: {text}");
+    assert!(text.contains("ff resolve takes main in"), "got: {text}");
+    assert!(!text.contains("ff switch side"), "underfoot: {text}");
     assert!(!text.contains("undo: ff undo"), "nothing moved: {text}");
     assert_eq!(tips(&fx, &["side", "main"]), before, "nothing moved");
 
@@ -1797,6 +1798,10 @@ fn several_names_with_one_holding_a_merge_move_the_rest() {
     assert!(
         side_block.contains("left alone: its commits hold a merge"),
         "got: {text}"
+    );
+    assert!(
+        text.contains("ff switch side and ff resolve take main in"),
+        "named from elsewhere, the door needs a switch first: {text}"
     );
 }
 

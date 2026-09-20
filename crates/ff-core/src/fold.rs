@@ -316,7 +316,7 @@ fn plan_fold(
     let target_ref = format!("refs/heads/{target}");
     for hold in &mut cascade_plan.holds {
         if let Some(held) = &mut hold.new
-            && let Intent::Restack { onto, .. } = &mut held.intent
+            && let Intent::Restack { onto, .. } | Intent::Merge { onto, .. } = &mut held.intent
             && *onto == source_ref
         {
             *onto = target_ref.clone();

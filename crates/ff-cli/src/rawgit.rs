@@ -99,7 +99,7 @@ pub const TABLE: &[Word] = &[
     Word {
         git: "merge",
         ff: "ff git merge",
-        why: "ff pull brings work in by replay, and a merge into a branch runs capture-first as ff git merge",
+        why: "ff pull brings work in by replay, ff resolve takes the base in by merge on a branch that already holds one, and a merge into a branch runs capture-first as ff git merge",
     },
     Word {
         git: "rebase",

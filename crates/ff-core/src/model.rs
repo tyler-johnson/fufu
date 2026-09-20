@@ -753,8 +753,8 @@ pub enum SkipReason {
     /// Its commits hold a merge of its base: the branch takes its base in
     /// by merging, and pull's base axis does not rewrite that choice. A
     /// merge of another tree is carried like any commit. `ff restack`
-    /// replays the branch straight; `ff git merge <base>` takes the base
-    /// in the way the branch already does.
+    /// replays the branch straight; `ff resolve` takes the base in the way
+    /// the branch already does.
     MergeInRange,
     /// It shares no history with its base.
     Unrelated,
@@ -794,6 +794,9 @@ pub struct EditReport {
 pub enum ResolveOutcome {
     /// The conflicts are in the working tree, waiting for you.
     Opened(ResolveReport),
+    /// No hold stood, and the branch's commits hold a merge of its base it
+    /// is behind: the base was taken in by one merge commit.
+    Merged(MergeReport),
     /// The rewrite no longer conflicts, so there was nothing to resolve: the
     /// hold is released and the verb that recorded it will land it.
     Released(ReleasedReport),
@@ -845,6 +848,13 @@ pub struct ResolveReport {
     pub tangled: Option<String>,
     /// The open commit the dirty tree left as its park, to make room.
     pub parked: Option<String>,
+    /// The hold this resolve recorded itself, when the branch had none and
+    /// the merge of its base conflicted: the hold and the session opened in
+    /// one operation, and the shell owes a 3. `None` when the hold stood
+    /// before.
+    pub held: Option<HeldReport>,
+    /// The base a held merge takes in, when `verb` is `merge`.
+    pub merging: Option<String>,
 }
 
 /// A hold released because the rewrite applies cleanly now.
@@ -987,7 +997,7 @@ pub struct AbandonReport {
 /// before anything moves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HeldReport {
-    /// The verb that held: `restack`, `done`, `absorb`, `lift`.
+    /// The verb that held: `restack`, `merge`, `done`, `absorb`, `lift`.
     pub verb: String,
     /// The branch the hold stands on.
     pub branch: String,
@@ -1007,10 +1017,30 @@ pub struct HeldReport {
 /// A hold a rewrite dropped because the rewrite settled what it was about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DroppedHold {
-    /// The verb that held: `restack`.
+    /// The verb that held: `restack` or `merge`.
     pub verb: String,
-    /// The base the held restack aimed at, as a person says it: `main`.
+    /// The base the held restack or merge aimed at, as a person says it:
+    /// `main`.
     pub onto: String,
+}
+
+/// A merge that landed: one commit with two parents, the branch's tip first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MergeReport {
+    /// The branch the merge landed on.
+    pub branch: String,
+    /// What was taken in, as a person says it: `main`.
+    pub target: String,
+    /// The merge commit, full sha.
+    pub commit: String,
+    /// Its parents, full shas: the branch's tip before the merge, then the
+    /// target's tip.
+    pub parents: [String; 2],
+    /// Worktree files written or deleted.
+    pub files: usize,
+    /// What became of the open change: back over the merge, or held when
+    /// it conflicts with the merged tree.
+    pub arrival: ArrivalReport,
 }
 
 /// One branch row for `ff branch`.

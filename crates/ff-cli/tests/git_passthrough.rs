@@ -241,8 +241,9 @@ fn strict_refuses_only_what_it_can_answer() {
 }
 
 /// `merge` is a passthrough word like `tag`: fufu has no verb of its own
-/// for it, and its answer is `ff git merge` itself, so strict runs it. Real
-/// git this time, since the point is that the fast-forward lands.
+/// for it (`ff resolve` merges a base in, and only on a branch that already
+/// holds one), and its answer is `ff git merge` itself, so strict runs it.
+/// Real git this time, since the point is that the fast-forward lands.
 #[test]
 fn merge_is_a_passthrough_word() {
     let path = std::env::var_os("PATH").expect("PATH");

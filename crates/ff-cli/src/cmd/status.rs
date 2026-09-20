@@ -77,7 +77,8 @@ pub struct BaseStatus {
 /// the hold recorded, so a status render never replays a chain.
 #[derive(serde::Serialize)]
 pub struct HeldStatus {
-    /// The verb that recorded the hold: restack, done, absorb or lift.
+    /// The verb that recorded the hold: restack, merge, done, absorb, lift,
+    /// or switch.
     pub verb: String,
     /// Where the replay stopped — the commit it could not reapply, or the
     /// open change — spelled the way a report spells it.
@@ -454,6 +455,7 @@ fn render_json(model: &StatusModel) -> Result<()> {
 fn verb_of(intent: &ff_core::held::Intent) -> &'static str {
     match intent {
         ff_core::held::Intent::Restack { .. } => "restack",
+        ff_core::held::Intent::Merge { .. } => "merge",
         ff_core::held::Intent::Done { .. } => "done",
         ff_core::held::Intent::Absorb { .. } => "absorb",
         ff_core::held::Intent::Lift { .. } => "lift",

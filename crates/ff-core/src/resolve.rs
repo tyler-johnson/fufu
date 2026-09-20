@@ -17,7 +17,7 @@
 use crate::error::{Error, Result};
 use crate::held::{self, verb_of};
 use crate::model::{
-    AbandonedHold, HeadState, LaidReport, ReleasedReport, ResolveOutcome, ResolveReport,
+    AbandonedHold, HeadState, HeldReport, LaidReport, ReleasedReport, ResolveOutcome, ResolveReport,
 };
 use crate::ops::record::{
     ChangeIdTransition, DescriptionTransition, HeldTransition, ResolveTransition,
@@ -199,13 +199,11 @@ pub fn resolve(
         );
     }
 
-    let held = held.ok_or_else(|| {
-        Error::coded(
-            "held/none",
-            format!("nothing is held on {branch}: there is no pending rewrite to resolve"),
-            vec!["ff status".into(), "ff log".into()],
-        )
-    })?;
+    // No hold: the merge door. A branch whose commits hold a merge of its
+    // base, standing behind it, takes the base in the way it already does.
+    let Some(held) = held else {
+        return merge_door(repo, ctx, (prov, argv, now), &head, branch, tip);
+    };
 
     // A held arrival is laid into the open change in place: the working copy
     // is where its conflicts belong, and there is no closed commit for a
@@ -221,6 +219,24 @@ pub fn resolve(
             tip,
             held.clone(),
             open,
+        );
+    }
+
+    // A held merge lands here when it is clean now, rather than being
+    // released for a verb that does not exist yet.
+    if let held::Intent::Merge { onto, message, .. } = &held.intent {
+        let onto = onto.clone();
+        let message = message.clone();
+        return resolve_merge_hold(
+            repo,
+            ctx,
+            (prov, argv, now),
+            &head,
+            branch,
+            tip,
+            held,
+            &onto,
+            message.as_deref(),
         );
     }
 
@@ -245,9 +261,6 @@ pub fn resolve(
             ctx,
         ));
     };
-    // The size of the whole rewrite, tangled commit included: the label
-    // names the stack, not this attempt.
-    let of = conflict.of;
 
     // A filtered absorb or lift rewrites only the paths it selected. Changes
     // standing OUTSIDE that filter are not in the chain, and the switch
@@ -296,6 +309,249 @@ pub fn resolve(
         }
     }
 
+    open_session(
+        repo,
+        ctx,
+        (prov, argv, now),
+        &head,
+        Session {
+            branch,
+            tip,
+            held: &held,
+            replan: &replan,
+            of: conflict.of,
+            recording: None,
+        },
+    )
+}
+
+/// The refusal with nothing held: `held/none`, with `why` completing
+/// "nothing is held on {branch}".
+fn nothing_held(branch: &str, why: &str, exits: Vec<String>) -> Error {
+    Error::coded(
+        "held/none",
+        format!("nothing is held on {branch}{why}"),
+        exits,
+    )
+}
+
+/// The merge door: with no hold on the branch, a branch whose commits hold
+/// a merge of its base and that is behind it takes the base in by one
+/// merge commit. A linear branch is `ff restack`'s and refuses; up to date
+/// says so. A conflicting auto-merge records the hold and opens the
+/// session in one operation, the hold riding the mint.
+fn merge_door(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    head: &HeadState,
+    branch: String,
+    tip: gix::ObjectId,
+) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    let (prov, argv, now) = invocation;
+    let plain = || {
+        nothing_held(
+            &branch,
+            ": there is no pending rewrite to resolve",
+            vec!["ff status".into(), "ff log".into()],
+        )
+    };
+    let Some(pull_ref) = crate::futures::base_for(repo, &branch)? else {
+        return Err(plain());
+    };
+    let onto = crate::restack::onto_from(repo, &pull_ref)?;
+    let range = match crate::restack::measure_range(repo, &branch, tip, &onto) {
+        Ok(range) => range,
+        Err(err) if err.id() == "restack/unrelated" => {
+            return Err(nothing_held(
+                &branch,
+                &format!(
+                    ", and it shares no history with {}: there is nothing to resolve",
+                    onto.name
+                ),
+                vec!["ff status".into(), "ff log".into()],
+            ));
+        }
+        Err(err) => return Err(err),
+    };
+    if range.up_to_date {
+        return Err(nothing_held(
+            &branch,
+            &format!(
+                ", and it is up to date with {}: there is nothing to resolve",
+                onto.name
+            ),
+            vec!["ff status".into(), "ff log".into()],
+        ));
+    }
+    if range.merges_of_base(repo)?.is_empty() {
+        return Err(nothing_held(
+            &branch,
+            &format!(
+                ": it sits behind {} on a straight line, and ff restack replays it",
+                onto.name
+            ),
+            vec!["ff restack".into(), "ff status".into()],
+        ));
+    }
+
+    let plan = crate::merge::plan(repo, &branch, &onto, None)?;
+    let Some(conflict) = &plan.conflict else {
+        let tree = plan
+            .tree
+            .ok_or_else(|| Error::msg("internal: a clean merge plan carries its tree"))?;
+        let report = crate::merge::commit(
+            repo,
+            &ctx,
+            prov,
+            argv,
+            &plan,
+            tree,
+            crate::merge::Bring::Open { head, held: None },
+        )?;
+        return Ok((ResolveOutcome::Merged(report), ctx));
+    };
+
+    // The hold, recorded by the mint below rather than as an operation of
+    // its own: the session opens on it in the same step.
+    let held = held::Held {
+        intent: held::Intent::Merge {
+            branch: branch.clone(),
+            onto: onto.full.clone(),
+            message: None,
+        },
+        at: conflict.at.clone(),
+        paths: conflict.paths.clone(),
+        time: now,
+    };
+    let recording = HeldTransition {
+        branch: branch.clone(),
+        old: None,
+        new: Some(held.clone()),
+    };
+    open_session(
+        repo,
+        ctx,
+        (prov, argv, now),
+        head,
+        Session {
+            branch,
+            tip,
+            held: &held,
+            replan: &plan.replan,
+            of: conflict.of,
+            recording: Some(recording),
+        },
+    )
+}
+
+/// A standing merge hold: replan it, and land it when it is clean now,
+/// release it when the base is already in, or open the session over its
+/// conflicts.
+#[allow(clippy::too_many_arguments)]
+fn resolve_merge_hold(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    head: &HeadState,
+    branch: String,
+    tip: gix::ObjectId,
+    held: held::Held,
+    onto: &str,
+    message: Option<&str>,
+) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    let (prov, argv, now) = invocation;
+    // `held/expired` when the base or the branch is gone, or the branch is
+    // beneath the base; the plan below repeats the same reads.
+    held::replan(repo, &held)?;
+    let onto = crate::restack::resolve_onto(repo, onto)?;
+    let plan = crate::merge::plan(repo, &branch, &onto, message)?;
+    if plan.already_in {
+        // The base is in already: the hold is moot, and the clear is a plain
+        // metadata write with no operation, as a released restack's is.
+        held::set(repo, &branch, None)?;
+        return Ok((
+            ResolveOutcome::Released(ReleasedReport {
+                branch,
+                verb: verb_of(&held),
+            }),
+            ctx,
+        ));
+    }
+    let Some(conflict) = &plan.conflict else {
+        let tree = plan
+            .tree
+            .ok_or_else(|| Error::msg("internal: a clean merge plan carries its tree"))?;
+        let report = crate::merge::commit(
+            repo,
+            &ctx,
+            prov,
+            argv,
+            &plan,
+            tree,
+            crate::merge::Bring::Open {
+                head,
+                held: Some(Box::new(HeldTransition {
+                    branch: branch.clone(),
+                    old: Some(held.clone()),
+                    new: None,
+                })),
+            },
+        )?;
+        return Ok((ResolveOutcome::Merged(report), ctx));
+    };
+    open_session(
+        repo,
+        ctx,
+        (prov, argv, now),
+        head,
+        Session {
+            branch,
+            tip,
+            held: &held,
+            replan: &plan.replan,
+            of: conflict.of,
+            recording: None,
+        },
+    )
+}
+
+/// What a resolution session opens over.
+struct Session<'a> {
+    branch: String,
+    tip: gix::ObjectId,
+    /// The hold being resolved: standing on the branch, or about to be
+    /// recorded by the mint when `recording` is set.
+    held: &'a held::Held,
+    replan: &'a held::Replan,
+    /// The size of the whole rewrite, for the report.
+    of: usize,
+    /// The hold transition the mint records, when this resolve derived the
+    /// rewrite itself and found it conflicting.
+    recording: Option<HeldTransition>,
+}
+
+/// Open the session: replay the chain with its conflicts as markers, mint
+/// the session branch at a commit carrying that tree, and switch there —
+/// `ff edit`'s own two operations.
+fn open_session(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    head: &HeadState,
+    session: Session<'_>,
+) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    let (prov, argv, now) = invocation;
+    let Session {
+        branch,
+        tip,
+        held,
+        replan,
+        of,
+        recording,
+    } = session;
+    let _ = ctx;
+
     // Replay it all the way through, carrying the conflicts as literal
     // marker content, and read back the regions standing in the result.
     let chain = crate::rewrite::chain(repo, replan.target, replan.tip, &replan.change, &[])?;
@@ -307,7 +563,7 @@ pub fn resolve(
     // `ff done` replan to the same plan and mean "the world moved" when it
     // does not. The park keeps the change too, and the landing spends that
     // park rather than bringing it back, since the chain already carries it.
-    let open = head_tree_of(repo, &head)
+    let open = head_tree_of(repo, head)
         .map(|tip_tree| open_tree(repo, tip_tree))
         .transpose()?
         .map(|tree| tree.to_string());
@@ -315,7 +571,7 @@ pub fn resolve(
     // The marker commit: the chain's tree over the branch's own tip, so the
     // session branch reads as one commit ahead of the branch it lands on,
     // the way an editing session's anchor reads as one of its commits.
-    let verb_name = verb_of(&held);
+    let verb_name = verb_of(held);
     let sig = crate::refs::user_signature(repo, now)?;
     let marker_commit = stash::write_commit(
         repo,
@@ -326,16 +582,28 @@ pub fn resolve(
     )?;
 
     let session_name = crate::petname::mint(repo)?;
-    let session = held::Resolve {
+    let record = held::Resolve {
         hold: held.clone(),
         from: chain.tree.to_string(),
         steps: chain.steps.iter().map(|s| s.subject.clone()).collect(),
         open,
         session: session_name.clone(),
     };
+    let merging = match &held.intent {
+        held::Intent::Merge { .. } => chain.steps.first().map(|s| s.subject.clone()),
+        _ => None,
+    };
+    let held_report = recording.as_ref().map(|_| HeldReport {
+        verb: verb_name.clone(),
+        branch: branch.clone(),
+        at: held.at.clone(),
+        paths: held.paths.clone(),
+        of,
+    });
 
     // Mint the session branch at the marker commit, recorded, with the
-    // session written on it and the resolution written here — then switch,
+    // session written on it and the resolution written here — and the hold
+    // itself, when this resolve is the one recording it — then switch,
     // which parks the open change and materializes the markers, `ff edit`'s
     // own two operations.
     crate::edit::mint_session(
@@ -352,8 +620,9 @@ pub fn resolve(
             resolving: Some(ResolveTransition {
                 branch: branch.clone(),
                 old: None,
-                new: Some(session),
+                new: Some(record),
             }),
+            held: recording,
         },
         now,
         &argv,
@@ -386,6 +655,8 @@ pub fn resolve(
             of,
             tangled: chain.tangled.map(|t| t.subject),
             parked: switch_report.parked,
+            held: held_report,
+            merging,
         }),
         ctx,
     ))

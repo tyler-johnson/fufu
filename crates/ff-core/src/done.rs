@@ -129,6 +129,7 @@ fn hold(
 fn verb_of(held: &Held) -> &'static str {
     match &held.intent {
         Intent::Restack { .. } => "restack",
+        Intent::Merge { .. } => "merge",
         Intent::Done { .. } => "done",
         Intent::Absorb { .. } => "absorb",
         Intent::Lift { .. } => "lift",
@@ -487,6 +488,19 @@ fn land_decided(
                         "internal: the decided restack did not land: {other:?}"
                     )));
                 }
+            }
+        }
+        // The merge commit, with the reader's fix as its tree: no replay,
+        // no cascade, since the children sit on commits the merge leaves in
+        // place.
+        Intent::Merge { branch, .. } => {
+            let (report, arrival) = crate::merge::land_resolution(repo, rec, hold, decided)?;
+            Landed {
+                replayed: 0,
+                landed_on: branch.clone(),
+                new_tip: report.commit,
+                cascade: Cascade::default(),
+                arrival,
             }
         }
         Intent::Done { .. } => {

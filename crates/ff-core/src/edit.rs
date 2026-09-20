@@ -15,7 +15,7 @@ use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::model::{EditOutcome, EditReport, HeadState};
-use crate::ops::record::{ResolveTransition, SessionTransition, observe_refs};
+use crate::ops::record::{HeldTransition, ResolveTransition, SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 use crate::revset::{Rev, Revset};
 use crate::snapshot::Provenance;
@@ -177,6 +177,7 @@ pub fn edit(
             verb: "edit",
             summary: format!("edit {at_short}: session {name} on {current}"),
             resolving: None,
+            held: None,
         },
         now,
         &argv,
@@ -212,7 +213,9 @@ pub fn edit(
 /// What a session mint needs from the verb minting it: the branch to
 /// create, where, which branch it lands on, and how the operation reads.
 /// `resolving` is the record `ff resolve` writes on the branch it leaves,
-/// naming the session; `ff edit` passes `None`.
+/// naming the session; `ff edit` passes `None`. `held` is the hold `ff
+/// resolve` records in the same operation when it derived the rewrite
+/// itself and found it conflicting; every other caller passes `None`.
 pub(crate) struct Mint<'a> {
     pub name: &'a str,
     pub at: gix::ObjectId,
@@ -220,6 +223,7 @@ pub(crate) struct Mint<'a> {
     pub verb: &'a str,
     pub summary: String,
     pub resolving: Option<ResolveTransition>,
+    pub held: Option<HeldTransition>,
 }
 
 /// Mint the session branch at the commit, recorded, with the session written
@@ -248,6 +252,7 @@ pub(crate) fn mint_session(
         verb,
         summary,
         resolving,
+        held,
     } = mint;
     let at_short = crate::sha::short_oid(at);
     let session = branchmeta::Session {
@@ -277,6 +282,7 @@ pub(crate) fn mint_session(
         record.edit_session = Some(transition);
     }
     record.resolving = resolving.clone();
+    record.held = held.clone();
     let tree = crate::ops::verb::worktree_or_head(repo)?;
     // The marker tree a resolution's commit carries is pinned beside the
     // commit: the chain's tree is what `ff done` checks its re-run against.
@@ -339,6 +345,9 @@ pub(crate) fn mint_session(
     )?;
     if let Some(transition) = resolving {
         crate::held::set_resolving(repo, &transition.branch, transition.new)?;
+    }
+    if let Some(transition) = held {
+        crate::held::set(repo, &transition.branch, transition.new)?;
     }
     Ok(())
 }

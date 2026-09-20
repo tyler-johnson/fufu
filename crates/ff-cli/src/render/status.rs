@@ -238,21 +238,34 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         } else {
             ("conflicts", "are")
         };
+        // The rewrite the session is resolving: a verb, or the merge of the
+        // base, which no verb of its own spells.
+        let from = match resolving.verb.as_str() {
+            "merge" => format!(
+                "the merge of {}",
+                resolving
+                    .steps
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("the base")
+            ),
+            verb => format!("ff {verb}"),
+        };
         // One painted line, no paint nested inside it — an inner reset would
         // end the warn colour for the rest of the line.
         let (line, hint) = if resolving.here {
             (
                 format!(
-                    "resolving: {} {} from ff {} {} in your working copy",
-                    resolving.conflicts, noun, resolving.verb, be,
+                    "resolving: {} {} from {} {} in your working copy",
+                    resolving.conflicts, noun, from, be,
                 ),
                 "fix the markers, then ff done · ff resolve --abandon to drop it".to_string(),
             )
         } else {
             (
                 format!(
-                    "resolving: {} {} from ff {} {} on {}",
-                    resolving.conflicts, noun, resolving.verb, be, resolving.session,
+                    "resolving: {} {} from {} {} on {}",
+                    resolving.conflicts, noun, from, be, resolving.session,
                 ),
                 format!(
                     "ff switch {} to fix them · ff resolve --abandon to drop it",
@@ -265,21 +278,31 @@ pub fn status_human(view: &StatusView<'_>) -> String {
         out.push_str(&format!("    {hint}\n", hint = paint_dim(&hint, colored)));
     }
     if let Some(held) = &model.held {
-        let where_it_stopped = match &held.at {
-            ff_core::futures::At::Commit { id, subject } => format!(
-                "{} \"{}\"",
-                ff_core::sha::short(id),
-                truncate_subject(subject)
+        // A held merge's `at` is the base's tip with the base's name as its
+        // subject: the line names the base once, as the merge's, and the
+        // commit by sha alone.
+        let (what, where_it_stopped) = match (&held.verb[..], &held.at) {
+            ("merge", ff_core::futures::At::Commit { id, subject }) => (
+                format!("the merge of {subject}"),
+                ff_core::sha::short(id).to_string(),
             ),
-            ff_core::futures::At::OpenChange => "your open change".to_string(),
+            (verb, ff_core::futures::At::Commit { id, subject }) => (
+                format!("ff {verb}"),
+                format!(
+                    "{} \"{}\"",
+                    ff_core::sha::short(id),
+                    truncate_subject(subject)
+                ),
+            ),
+            (verb, ff_core::futures::At::OpenChange) => {
+                (format!("ff {verb}"), "your open change".to_string())
+            }
         };
         // One painted line, no paint nested inside it — an inner reset would
         // end the warn colour for the rest of the line.
         out.push_str(&paint_warn(
             &format!(
-                "held: ff {} conflicts at {} in {} {}",
-                held.verb,
-                where_it_stopped,
+                "held: {what} conflicts at {where_it_stopped} in {} {}",
                 held.paths.len(),
                 noun(held.paths.len(), "file", "files"),
             ),
@@ -512,9 +535,8 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
             reason: reason @ UnknownReason::MergeCommits,
         } if role.is_base() => paint_dim(
             &format!(
-                "{which} moved — can't simulate ({}) · ff restack or ff git merge {}",
+                "{which} moved — can't simulate ({}) · ff restack or ff resolve",
                 reason.text(),
-                f.against.name
             ),
             colored,
         ),
@@ -556,39 +578,54 @@ pub(crate) fn truncate_subject(subject: &str) -> String {
     truncated
 }
 
+/// The first line of a hold's block: what conflicts, where, and in what. A
+/// held merge names the base once, as the merge's, and its tip by sha.
+pub(crate) fn held_line(report: &ff_core::HeldReport) -> String {
+    match (&report.verb[..], &report.at) {
+        ("merge", ff_core::futures::At::Commit { id, subject }) => format!(
+            "held: the merge of {subject} conflicts at {} in {} {}",
+            ff_core::sha::short(id),
+            report.paths.len(),
+            noun(report.paths.len(), "file", "files"),
+        ),
+        (_, ff_core::futures::At::Commit { id, subject }) => format!(
+            "held: replaying {} \"{}\" conflicts in {}",
+            ff_core::sha::short(id),
+            truncate_subject(subject),
+            join_paths(&report.paths)
+        ),
+        // No verb of its own: a restack replays the open change onto a new
+        // base and an absorb folds it into a commit, and the block would have
+        // to know which. What it conflicts with is the same news either way.
+        (_, ff_core::futures::At::OpenChange) => format!(
+            "held: your open change conflicts in {}",
+            join_paths(&report.paths)
+        ),
+    }
+}
+
 /// The block a rewrite verb prints when it holds. A hold reads like a report
 /// and not a refusal, because that is what it is: the intent is recorded, it
 /// survives until it lands or is dropped, and the two ways out are the last
 /// thing on screen.
 pub(crate) fn held_block(report: &ff_core::HeldReport, colored: bool) -> String {
-    let where_it_stopped = match &report.at {
-        ff_core::futures::At::Commit { id, subject } => format!(
-            "replaying {} \"{}\"",
-            ff_core::sha::short(id),
-            truncate_subject(subject)
-        ),
-        // No verb of its own: a restack replays the open change onto a new
-        // base and an absorb folds it into a commit, and the block would have
-        // to know which. What it conflicts with is the same news either way.
-        ff_core::futures::At::OpenChange => "your open change".to_string(),
-    };
-    let mut out = paint_warn(
-        &format!(
-            "held: {where_it_stopped} conflicts in {}",
-            join_paths(&report.paths)
-        ),
-        colored,
-    );
+    let mut out = paint_warn(&held_line(report), colored);
     // A fold never reaches a replay, so it has no commit count to give —
-    // saying "of 0 commits" would be answering a question nobody asked.
-    let scale = if report.of == 0 {
-        String::new()
-    } else {
-        format!(" of {} {}", report.of, noun(report.of, "commit", "commits"))
+    // saying "of 0 commits" would be answering a question nobody asked. A
+    // merge is one commit, and its verb reads as the merge of its base.
+    let (what, scale) = match (&report.verb[..], &report.at) {
+        ("merge", ff_core::futures::At::Commit { subject, .. }) => {
+            (format!("the merge of {subject}"), String::new())
+        }
+        _ if report.of == 0 => (format!("the {}", report.verb), String::new()),
+        _ => (
+            format!("the {}", report.verb),
+            format!(" of {} {}", report.of, noun(report.of, "commit", "commits")),
+        ),
     };
     out.push_str(&format!(
-        "\n    the {}{scale} on {} is waiting — nothing was written",
-        report.verb, report.branch,
+        "\n    {what}{scale} on {} is waiting — nothing was written",
+        report.branch,
     ));
     out.push_str(&format!(
         "\n    {}",
@@ -683,7 +720,7 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
             &format!(
                 "{} skipped: {}{}",
                 s.branch,
-                skip_reason(&s.reason, &s.branch, &s.base),
+                skip_reason(&s.reason, &s.branch, &s.base, false),
                 left_alone(&s.left_alone)
             ),
             colored,
@@ -694,14 +731,24 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
 
 /// Why a branch was left where it stands, in the words every verb uses;
 /// `branch` is the branch itself and `base` the one it sits on, named when
-/// the reason is about them.
-pub(crate) fn skip_reason(reason: &ff_core::SkipReason, branch: &str, base: &str) -> String {
+/// the reason is about them. `here` says the branch is the one underfoot,
+/// so the merge door needs no switch first.
+pub(crate) fn skip_reason(
+    reason: &ff_core::SkipReason,
+    branch: &str,
+    base: &str,
+    here: bool,
+) -> String {
     match reason {
         ff_core::SkipReason::Worktree { path } => format!("checked out in {path}"),
         ff_core::SkipReason::AlreadyHeld => "a rewrite is already held there".to_string(),
+        ff_core::SkipReason::MergeInRange if here => format!(
+            "its commits hold a merge of {base} — ff restack {branch} replays them straight, or \
+             ff resolve takes {base} in"
+        ),
         ff_core::SkipReason::MergeInRange => format!(
             "its commits hold a merge of {base} — ff restack {branch} replays them straight, or \
-             ff git merge {base} takes {base} in"
+             ff switch {branch} and ff resolve take {base} in"
         ),
         ff_core::SkipReason::Unrelated => format!("it shares no history with {base}"),
     }

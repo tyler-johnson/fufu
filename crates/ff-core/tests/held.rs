@@ -64,6 +64,16 @@ fn every_intent_round_trips() {
             branch: "feature".into(),
             onto: "main".into(),
         },
+        Intent::Merge {
+            branch: "feature".into(),
+            onto: "refs/heads/main".into(),
+            message: None,
+        },
+        Intent::Merge {
+            branch: "feature".into(),
+            onto: "refs/heads/main".into(),
+            message: Some("take main in".into()),
+        },
         Intent::Done {
             session: "main".into(),
         },

@@ -34,7 +34,7 @@ A deleted remote copy is reported while its local branch remains. With `fufu.pru
 
 A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run `ff resolve` to continue. The exit is 3 if any branch holds.
 
-Branches checked out in another worktree, already holding a rewrite, holding a merge of their base, or sharing no history with their base are skipped and named.
+Branches checked out in another worktree, already holding a rewrite, holding a merge of their base (switch to one and `ff resolve` takes the base in), or sharing no history with their base are skipped and named.
 
 Local branch and working-copy changes form one operation, including cascades and pruning. One `ff undo` reverses them. Only the current branch has files written in this worktree; other selected branches move as refs and objects. Fetched objects, tracking refs, and tags are separate from these undoable changes. No remote branch update is sent.
 

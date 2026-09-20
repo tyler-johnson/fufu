@@ -66,11 +66,13 @@ A hold does not itself prevent local commits or branch switches. You can keep bu
 
 A hold saves the requested rewrite's intent: its branch and target. Resolution recomputes the replay against current inputs instead of resuming an old partial plan. Work committed at the existing tip can therefore be included when you resolve later.
 
+A hold records one of two shapes of the base's arrival. A held restack is a replay onto the base. A held merge is the base taken in by one commit with two parents, recorded when [`ff resolve`](../reference/cli/resolve.md) on a branch with no hold finds its commits already hold a merge of the base and the auto-merge conflicts; the session opens in the same operation, and `ff done` lands the merge commit.
+
 If the rewrite now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. If its target disappeared or no longer belongs to the required history, it reports that the hold expired rather than using a stale plan.
 
 ## What a rewrite does to a standing hold
 
-A held restack carries no content of its own, so a rewrite of the branch settles it by what the rewrite does to the base. `ff restack --onto` another base drops the hold and names it in the report, and so does `ff fold`, since the source's commits go to the target. A replay onto the hold's own base, a bare `ff restack` once the base has moved on, lands what the hold recorded and clears it. Any other rewrite keeps the hold: `ff absorb`, `ff lift`, `ff describe`, and a `ff done` landing point it at the rewritten commit, and `ff status` names that commit.
+A held restack or merge carries no content of its own, so a rewrite of the branch settles it by what the rewrite does to the base. `ff restack --onto` another base drops the hold and names it in the report, and so does `ff fold`, since the source's commits go to the target. A replay onto the hold's own base, a bare `ff restack` once the base has moved on, lands what a held restack recorded and makes a held merge's question moot, and clears either. Any other rewrite keeps the hold: `ff absorb`, `ff lift`, `ff describe`, and a `ff done` landing point it at the rewritten commit, and `ff status` names that commit.
 
 A held absorb, lift, done, or parked-change arrival carries work that is not on the branch yet, so every rewrite of the branch refuses with `held/already-held`. Its exits are `ff resolve` and `ff resolve --abandon`. A hold whose resolution session is open, whether you are standing in it or have parked it, refuses with `held/resolving` and names the session.
 

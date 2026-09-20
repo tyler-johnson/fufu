@@ -72,6 +72,7 @@ For error envelopes, `usage/*` maps to 2, `held/*` to 3, `ref/contended` to 4, a
 | [`ff describe`](../reference/cli/describe.md) | Reword can exit 0 with nonempty `reword.cascade.held`. |
 | [`ff fold`](../reference/cli/fold.md) | A primary conflict refuses at 1 without a fold hold; downstream cascade holds exit 3 after the fold lands. |
 | [`ff switch`](../reference/cli/switch.md) | A parked-arrival hold exits 3 after completing the branch switch; resolve handles that arrival in place. |
+| [`ff resolve`](../reference/cli/resolve.md) | Opening a session over a standing hold exits 0. On a branch with no hold whose commits hold a merge of its base, a clean merge lands at 0 with `merged`; a conflicting one records the hold and opens the session in one step, exit 3, with the hold under `resolve.held`. |
 | [`ff push`](../reference/cli/push.md) | Existing holds block the affected branches. Holds alone exit 3; any refused send makes the run exit 1, even alongside successful sends or held branches. |
 
 A hold is a requested replay waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere or already held. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).

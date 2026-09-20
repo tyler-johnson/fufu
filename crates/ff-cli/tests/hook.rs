@@ -230,8 +230,10 @@ fn strict_denies_and_still_exits_zero() {
 
 /// `merge` is a passthrough word: fufu's answer is `ff git merge` itself,
 /// and the hook is the one place that spelling is heard. Coach names it
-/// beside `ff pull`; strict denies the raw call and names it. Neither says
-/// `restack`, which moves the branch being re-aimed and never the target.
+/// beside `ff pull` and `ff resolve`, the door that takes the base in by
+/// merge; strict denies the raw call and names the passthrough. Neither
+/// says `restack`, which moves the branch being re-aimed and never the
+/// target.
 #[test]
 fn merge_is_answered_with_the_passthrough() {
     let fx = repo();
@@ -243,8 +245,10 @@ fn merge_is_answered_with_the_passthrough() {
     let hook = &value["hookSpecificOutput"];
     let context = hook["additionalContext"].as_str().unwrap_or_default();
     assert!(
-        context.contains("ff pull") && context.contains("ff git merge"),
-        "coach names ff pull and the passthrough: {text}"
+        context.contains("ff pull")
+            && context.contains("ff resolve")
+            && context.contains("ff git merge"),
+        "coach names ff pull, ff resolve, and the passthrough: {text}"
     );
     assert!(
         !context.contains("restack"),

@@ -25,6 +25,7 @@ pub mod linked;
 mod log;
 pub mod map;
 pub mod measure;
+pub mod merge;
 pub mod message;
 pub mod model;
 pub mod open;

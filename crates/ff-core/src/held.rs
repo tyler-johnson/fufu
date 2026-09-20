@@ -37,6 +37,17 @@ pub enum Intent {
     /// case and re-reading it is the point. A bare short name recorded before
     /// full refs were written still resolves.
     Restack { branch: String, onto: String },
+    /// `ff resolve`'s merge door, and `ff merge` once it exists: take `onto`
+    /// into `branch` by one commit with two parents. `onto` is a full ref
+    /// resolved fresh at replan time, as a restack's is; the base moving is
+    /// the ordinary case. `message` is the commit's message when a person
+    /// gave one.
+    Merge {
+        branch: String,
+        onto: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
     /// `ff done`: land the editing session on `session`.
     Done { session: String },
     /// `ff absorb`: the move, in the spelling it was typed. The two move
@@ -226,6 +237,7 @@ pub fn of(repo: &gix::Repository, branch: &str) -> Result<Option<Held>> {
 pub fn verb_of(held: &Held) -> String {
     match &held.intent {
         Intent::Restack { .. } => "restack",
+        Intent::Merge { .. } => "merge",
         Intent::Done { .. } => "done",
         Intent::Absorb { .. } => "absorb",
         Intent::Lift { .. } => "lift",
@@ -305,11 +317,11 @@ pub(crate) enum Effect<'a> {
 }
 
 /// What a rewrite does with the hold standing on the branch it rewrites.
-/// What a hold carries decides it: a `Restack` carries no content — its
-/// `onto` is a ref resolved fresh, and `at` and `paths` are disclosure —
-/// so a rewrite can drop it, keep it, or land it; an `Absorb`, `Lift`,
-/// `Done`, or `Arrive` carries work that is not on the branch yet, and a
-/// rewrite under it would lose that work, so it refuses.
+/// What a hold carries decides it: a `Restack` or a `Merge` carries no
+/// content — its `onto` is a ref resolved fresh, and `at` and `paths` are
+/// disclosure — so a rewrite can drop it, keep it, or land it; an `Absorb`,
+/// `Lift`, `Done`, or `Arrive` carries work that is not on the branch yet,
+/// and a rewrite under it would lose that work, so it refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Disposition {
     /// No hold stands.
@@ -329,10 +341,11 @@ pub(crate) enum Disposition {
 /// Refuses any hold whose resolution session is open, HEAD in it or parked,
 /// with `held/resolving`, and a content-carrying hold — `Absorb`, `Lift`,
 /// `Done`, `Arrive` — with `held/already-held` in `refuse_if_held`'s words
-/// (`verb_past` completes "nothing was ___"). A `Restack { onto }` hold:
-/// `Reaim` at a different `onto` is `Drop`; `Reaim` at the hold's own
-/// `onto` is `Clear`; `Keep` is `Remap`. `onto` is compared by full ref:
-/// the hold's is `base.full` by construction, and callers pass `Onto.full`.
+/// (`verb_past` completes "nothing was ___"). A `Restack { onto }` or
+/// `Merge { onto }` hold: `Reaim` at a different `onto` is `Drop`; `Reaim`
+/// at the hold's own `onto` is `Clear`; `Keep` is `Remap`. `onto` is
+/// compared by full ref: the hold's is `base.full` by construction, and
+/// callers pass `Onto.full`.
 pub(crate) fn before_rewrite(
     repo: &gix::Repository,
     branch: &str,
@@ -344,7 +357,7 @@ pub(crate) fn before_rewrite(
         return Ok(Disposition::None);
     };
     match &held.intent {
-        Intent::Restack { onto, .. } => Ok(match effect {
+        Intent::Restack { onto, .. } | Intent::Merge { onto, .. } => Ok(match effect {
             Effect::Reaim { onto: new } if new == onto => Disposition::Clear(held),
             Effect::Reaim { .. } => Disposition::Drop(held),
             Effect::Keep => Disposition::Remap(held),
@@ -359,10 +372,17 @@ pub(crate) fn before_rewrite(
 impl Disposition {
     /// Restack alone: a bare `ff restack` whose base is the hold's own
     /// `onto` lands the hold, so a `Remap` whose hold names `base_full`
-    /// becomes `Clear`.
+    /// becomes `Clear`. A held merge of that base clears too: the replay
+    /// flattens the in-range merge and lands the branch on the base, so
+    /// the merge's question is moot.
     pub(crate) fn landing_on(self, base_full: &str) -> Self {
         match self {
-            Disposition::Remap(held) if matches!(&held.intent, Intent::Restack { onto, .. } if onto == base_full) => {
+            Disposition::Remap(held)
+                if matches!(
+                    &held.intent,
+                    Intent::Restack { onto, .. } | Intent::Merge { onto, .. } if onto == base_full
+                ) =>
+            {
                 Disposition::Clear(held)
             }
             other => other,
@@ -410,7 +430,7 @@ impl Disposition {
         let Disposition::Drop(held) = self else {
             return None;
         };
-        let Intent::Restack { onto, .. } = &held.intent else {
+        let (Intent::Restack { onto, .. } | Intent::Merge { onto, .. }) = &held.intent else {
             return None;
         };
         let onto = match crate::restack::resolve_onto(repo, onto) {
@@ -462,6 +482,9 @@ pub fn replan_at(
     match &held.intent {
         Intent::Restack { branch, onto } => {
             crate::restack::replan_restack(repo, branch, onto).map_err(|e| expired("restack", e))
+        }
+        Intent::Merge { branch, onto, .. } => {
+            crate::merge::replan(repo, branch, onto).map_err(|e| expired("merge", e))
         }
         Intent::Done { session } => {
             crate::done::replan_done(repo, session, open).map_err(|e| expired("done", e))
@@ -678,12 +701,12 @@ pub struct Return {
     /// The branch the hold stands on, whose `held` and `resolving` records
     /// the landing clears.
     pub hold_on: String,
-    /// The branch HEAD lands on: the held branch for a restack, absorb, or
-    /// lift; the branch an editing session lands on for a done.
+    /// The branch HEAD lands on: the held branch for a restack, merge,
+    /// absorb, or lift; the branch an editing session lands on for a done.
     pub to: String,
     /// The branch whose parked change comes back on arrival: the held branch
-    /// for a restack, the landing branch for a done, none for an absorb or
-    /// lift.
+    /// for a restack or merge, the landing branch for a done, none for an
+    /// absorb or lift.
     pub arrive_on: Option<String>,
     /// The parked change the landing spends: the held branch's for an absorb
     /// or lift, the editing session's for a done, none for a restack.
@@ -707,7 +730,11 @@ impl Return {
             .ok_or_else(|| Error::msg(format!("internal: {session} carries no session")))?;
         let session_open = refs::ref_target(repo, &crate::open::open_ref(session))?;
         let (to, arrive_on, drop) = match intent {
-            Intent::Restack { branch, .. } => (branch.clone(), Some(branch.clone()), None),
+            // A restack lands on the held branch, and so does a merge: its
+            // park comes home the same way.
+            Intent::Restack { branch, .. } | Intent::Merge { branch, .. } => {
+                (branch.clone(), Some(branch.clone()), None)
+            }
             Intent::Absorb { .. } | Intent::Lift { .. } => {
                 let onto = session_meta.onto.clone();
                 let drop = Spent::of(repo, &onto)?;
