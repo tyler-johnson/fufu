@@ -81,4 +81,4 @@ Local rewrite commands accept already-pushed commits and report them. Sending th
 
 fufu has no branch-ownership check and no special force-push protection for `main`. A lease checks a ref's position, not who owns the commits or whether a team permits replacing them. Use team policy and server-side branch protection to enforce append-only shared history.
 
-How reviewed work reaches the shared branch — a merge commit, squash, or rebase — remains the team's and forge's choice.
+How reviewed work reaches the shared branch — a merge commit, squash, or rebase — remains the team's and forge's choice. Locally, [`ff merge`](../reference/cli/merge.md) takes another branch in by a merge commit; the base still arrives by replay.

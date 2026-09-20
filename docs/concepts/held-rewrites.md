@@ -54,7 +54,7 @@ If the branch already has another open change, resolve refuses to overwrite it. 
 
 The command announces the hold when it is created. Status keeps showing it until it is resolved or abandoned, and [`ff branch`](../reference/cli/branch.md) marks held branches and unfinished sessions in its list.
 
-Exit 3 reports a held primary replay for [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), `ff done`, [`ff absorb`](../reference/cli/absorb.md), and [`ff lift`](../reference/cli/lift.md). Pull, restack, and [`ff fold`](../reference/cli/fold.md) also exit 3 for holds in their cascades. A successful absorb, lift, or session landing can return 0 with a downstream branch held, because its primary change landed. A reword through [`ff describe`](../reference/cli/describe.md) currently returns 0 even when its cascade holds; scripts must inspect `reword.cascade.held`. Read the branch reports as well as the exit code.
+Exit 3 reports a held primary replay for [`ff pull`](../reference/cli/pull.md), [`ff restack`](../reference/cli/restack.md), `ff done`, [`ff absorb`](../reference/cli/absorb.md), and [`ff lift`](../reference/cli/lift.md), and a held auto-merge for [`ff merge`](../reference/cli/merge.md). Pull, restack, and [`ff fold`](../reference/cli/fold.md) also exit 3 for holds in their cascades. A successful absorb, lift, or session landing can return 0 with a downstream branch held, because its primary change landed. A reword through [`ff describe`](../reference/cli/describe.md) currently returns 0 even when its cascade holds; scripts must inspect `reword.cascade.held`. Read the branch reports as well as the exit code.
 
 ## What a hold blocks, and what it does not
 

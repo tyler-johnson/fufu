@@ -245,10 +245,11 @@ fn merge_is_answered_with_the_passthrough() {
     let hook = &value["hookSpecificOutput"];
     let context = hook["additionalContext"].as_str().unwrap_or_default();
     assert!(
-        context.contains("ff pull")
+        context.contains("ff merge")
+            && context.contains("ff pull")
             && context.contains("ff resolve")
             && context.contains("ff git merge"),
-        "coach names ff pull, ff resolve, and the passthrough: {text}"
+        "coach names ff merge, ff pull, ff resolve, and the passthrough: {text}"
     );
     assert!(
         !context.contains("restack"),

@@ -48,7 +48,7 @@ Not with a native fufu command. Use `ff git commit -p` for Git's interactive pic
 
 ## What does strict mode refuse?
 
-Through ff git, `fufu.gitPolicy=strict` refuses recognized Git writes such as commit, reset, stash, rebase, and push, including tag pushes. It runs no replacement command. Reads and commands such as merge, bisect, and submodule pass through. [Git policy](reference/config.md#gitpolicy) owns the rules and exceptions.
+Through ff git, `fufu.gitPolicy=strict` refuses recognized Git writes such as commit, reset, stash, rebase, and push, including tag pushes. It runs no replacement command. Reads and commands such as bisect and submodule pass through, and so does `ff git merge`, for a fast-forward into a local branch; [`ff merge`](reference/cli/merge.md) is fufu's own merge. [Git policy](reference/config.md#gitpolicy) owns the rules and exceptions.
 
 The passthrough checks policy before capture, while agent hooks attempt capture first. Only Claude Code emits pre-tool denial replies; the other installed agent adapters capture and tally without denying tools. See [agent policy](agents/setup.md#pick-a-git-policy).
 

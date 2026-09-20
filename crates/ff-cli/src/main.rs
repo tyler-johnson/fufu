@@ -441,6 +441,7 @@ fn main() {
             no_verify,
         ),
         Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
+        Some(cli::Command::Merge { target, message }) => cmd::merge::run(&ctx, target, message),
         Some(cli::Command::Fold { target, stay }) => cmd::fold::run(&ctx, target, stay),
         Some(cli::Command::Pull {
             branches,
@@ -495,7 +496,6 @@ fn main() {
         // The foreign verbs answer and stop; none of them reaches a repository.
         Some(cli::Command::Checkout { args }) => cmd::foreign::checkout(&args),
         Some(cli::Command::Stash { args }) => cmd::foreign::stash(&args),
-        Some(cli::Command::Merge { args }) => cmd::foreign::merge(&args),
         Some(cli::Command::Blame { args }) => cmd::foreign::blame(&args),
         Some(cli::Command::Tag { args }) => cmd::foreign::tag(&args),
         Some(cli::Command::Abandon { args }) => cmd::foreign::abandon(&args),

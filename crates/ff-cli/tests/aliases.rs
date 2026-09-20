@@ -177,9 +177,7 @@ fn the_aliases_ride_their_rows() {
     }
     // The list is of what fufu does, so a git or jj word it merely answers
     // is not a row either.
-    for foreign in [
-        "checkout", "stash", "merge", "blame", "tag", "abandon", "split",
-    ] {
+    for foreign in ["checkout", "stash", "blame", "tag", "abandon", "split"] {
         assert!(
             !rows.contains(&foreign),
             "{foreign} is answered, not offered: {rows:?}"
@@ -237,9 +235,6 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
     for (verb, expected) in [
         ("checkout", "ff switch"),
         ("stash", "ff switch"),
-        // A position rather than a gap: principle 12 names rebase over
-        // merge, and the replay verbs are what fufu has instead.
-        ("merge", "ff restack"),
         // Reads stay git's; what earns the entry is the half blame cannot
         // see, which is the work that is not history yet.
         ("blame", "ff evolog"),
@@ -271,6 +266,21 @@ fn foreign_verbs_are_answered_with_the_verb_that_replaced_them() {
             "the envelope names the word that was typed"
         );
     }
+}
+
+/// `merge` left the answered words: `ff merge <branch>` is a verb, and its
+/// help page is the proof.
+#[test]
+fn merge_is_a_live_verb_not_an_answered_word() {
+    let fx = repo();
+    let out = ff(&fx, &["merge", "--help"]);
+    assert!(out.status.success(), "ff merge --help exits 0");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("two parents"), "the help page: {text}");
+    assert!(
+        !text.contains("there is no ff merge"),
+        "no refusal prose: {text}"
+    );
 }
 
 /// The house pattern from `ff branch <name>`: an exit that names what you

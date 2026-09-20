@@ -84,6 +84,7 @@ pub use linked::survey::survey;
 pub use log::{Log, LogOptions, log};
 pub use map::{Map, MapNode, MapOptions, MapRef, MapRow};
 pub use measure::{Against, Fallback, Measure, measure};
+pub use merge::merge;
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 pub use published::{ever_published, published_tip};

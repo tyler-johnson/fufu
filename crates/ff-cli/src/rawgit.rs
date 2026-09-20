@@ -29,12 +29,13 @@ pub struct Word {
 
 impl Word {
     /// Whether fufu's answer *is* the passthrough. `tag` and `merge` are
-    /// the two, for the same reason: fufu has no verb of its own for
-    /// either, and what it has to say is that `ff git tag` and `ff git
-    /// merge` run the real thing capture-first. Naming that at somebody who
-    /// already typed `ff git tag` would be answering them with their own
-    /// command line, so the alias path stays quiet on it under every tier
-    /// and only the raw-git path hears about it.
+    /// the two. fufu has no tag verb, and `ff merge` never merges a branch's
+    /// base — a fast-forward of a local base is still `ff git merge
+    /// --ff-only`, which the strict exemption keeps open until fold covers
+    /// it. Naming that at somebody who already typed `ff git tag` would be
+    /// answering them with their own command line, so the alias path stays
+    /// quiet on it under every tier and only the raw-git path hears about
+    /// it.
     pub fn is_passthrough(&self) -> bool {
         self.ff.starts_with("ff git ")
     }
@@ -99,7 +100,7 @@ pub const TABLE: &[Word] = &[
     Word {
         git: "merge",
         ff: "ff git merge",
-        why: "ff pull brings work in by replay, ff resolve takes the base in by merge on a branch that already holds one, and a merge into a branch runs capture-first as ff git merge",
+        why: "ff merge takes a branch in by one commit with two parents and holds a conflict for ff resolve, ff pull replays the base in, and a fast-forward into a local branch runs capture-first as ff git merge",
     },
     Word {
         git: "rebase",
@@ -341,9 +342,10 @@ mod tests {
 
     /// A passthrough word's `why` is the only line that ever names its
     /// spelling: the alias tip never prints a passthrough, so the hook's
-    /// line has to carry `ff git <word>` itself. And `merge` is one now —
-    /// `ff restack --onto` moves the branch being re-aimed, never the
-    /// target, so it was never the answer to a merge.
+    /// line has to carry `ff git <word>` itself. `merge` stays one for the
+    /// fast-forward of a local base, and `ff restack --onto` moves the
+    /// branch being re-aimed, never the target, so it is never the answer
+    /// to a merge.
     #[test]
     fn a_passthrough_word_names_its_own_spelling() {
         let passthroughs: Vec<&Word> = TABLE.iter().filter(|w| w.is_passthrough()).collect();
@@ -383,7 +385,6 @@ mod tests {
         let handled: &[(&str, Foreign)] = &[
             ("checkout", crate::cmd::foreign::checkout),
             ("stash", crate::cmd::foreign::stash),
-            ("merge", crate::cmd::foreign::merge),
             ("tag", crate::cmd::foreign::tag),
             ("blame", crate::cmd::foreign::blame),
         ];

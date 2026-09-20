@@ -20,6 +20,7 @@ pub mod history;
 pub mod init;
 pub mod log;
 pub mod map;
+pub mod merge;
 pub mod op;
 pub mod paths;
 pub mod pull;

@@ -84,25 +84,6 @@ pub fn stash(args: &[OsString]) -> Result<()> {
     )
 }
 
-/// The one on this list that is a *position* rather than a gap: principle 12
-/// names rebase over merge outright, and the replay verbs are what fufu has
-/// instead. So the answer is where the act went, not an apology for a verb
-/// that has not been written.
-pub fn merge(args: &[OsString]) -> Result<()> {
-    refuse(
-        "there is no ff merge: fufu replays rather than merges, so ff restack --onto puts a \
-         branch on top of the work you wanted in and ff pull does that same replay on the way \
-         in. A merge commit is what a forge makes when work lands, not something a branch \
-         collects locally. ff git merge still runs the real thing capture-first"
-            .into(),
-        vec![
-            "ff pull".into(),
-            "ff restack --onto <branch>".into(),
-            passthrough("merge", args),
-        ],
-    )
-}
-
 /// Reads stay git's, and saying so is the answer. What earns the entry is the
 /// second half: blame reads *history*, and the work fufu is holding for you is
 /// the part that is not history yet — so the honest pointer is both.

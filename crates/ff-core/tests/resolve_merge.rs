@@ -220,7 +220,7 @@ fn the_door_lands_a_clean_merge() {
     let report = merged(&fx, NOW);
     assert_eq!(report.branch, "side");
     assert_eq!(report.target, "main");
-    assert_eq!(report.parents, [side_before.clone(), main_tip.clone()]);
+    assert_eq!(report.parents, vec![side_before.clone(), main_tip.clone()]);
     assert_eq!(report.arrival, ff_core::ArrivalReport::None);
 
     let repo = fx.repo();
@@ -523,7 +523,7 @@ fn a_standing_merge_hold_that_is_clean_lands() {
     let hold = held::of(&repo, "side").unwrap().expect("the hold stands");
 
     let landed = merged(&fx, NOW + 2);
-    assert_eq!(landed.parents, [s2.clone(), m3.clone()]);
+    assert_eq!(landed.parents, vec![s2.clone(), m3.clone()]);
     assert_eq!(tip(&fx, "side"), landed.commit);
     assert!(held::of(&repo, "side").unwrap().is_none(), "hold cleared");
     let record = tip_record(&repo);
@@ -589,7 +589,7 @@ fn an_open_change_rides_the_merge() {
     fx.write("x.txt", "edited\n");
 
     let report = merged(&fx, NOW);
-    assert_eq!(report.parents, [side_before, main_tip]);
+    assert_eq!(report.parents, vec![side_before, main_tip]);
     assert!(
         matches!(report.arrival, ff_core::ArrivalReport::Restored { .. }),
         "the open change comes back over the merge: {:?}",

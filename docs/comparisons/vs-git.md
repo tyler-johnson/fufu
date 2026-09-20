@@ -42,7 +42,7 @@ These checks do not establish who owns a branch or make published history append
 - **Remotes and forges.** Branch updates use Git's protocol and obey the server's rules. Native clone/fetch and Git-backed push have different [transport dependencies](../internals/substrate.md#the-execution-ladder-as-it-stands).
 - **Commit hooks.** fufu runs the supported commit hooks itself. Which hooks run depends on the operation and options; see the [hook table](../faq.md#does-fufu-run-my-git-hooks).
 - **Team landing workflow.** Merge queues, squash buttons, and review rules stay with the team and forge.
-- **Other commands.** [`ff git <args>`](../reference/cli/git.md) runs Git for merge, cherry-pick, bisect, and plumbing. LFS and submodules remain [unsupported or untested](../faq.md#does-fufu-work-with-git-lfs); passthrough availability is not a compatibility guarantee.
+- **Other commands.** [`ff git <args>`](../reference/cli/git.md) runs Git for cherry-pick, bisect, plumbing, and a fast-forward `merge` into a local branch; [`ff merge`](../reference/cli/merge.md) is fufu's merge. LFS and submodules remain [unsupported or untested](../faq.md#does-fufu-work-with-git-lfs); passthrough availability is not a compatibility guarantee.
 
 ## The honest costs
 

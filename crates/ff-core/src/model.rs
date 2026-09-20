@@ -1024,18 +1024,38 @@ pub struct DroppedHold {
     pub onto: String,
 }
 
-/// A merge that landed: one commit with two parents, the branch's tip first.
+/// The result of `ff merge`: the target taken in by one commit with two
+/// parents, or by a fast-forward when the branch had nothing of its own; or
+/// a conflicting auto-merge held for `ff resolve`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeOutcome {
+    /// The merge landed, or the branch fast-forwarded to the target.
+    Merged(MergeReport),
+    /// The auto-merge conflicts: nothing was written and the merge is
+    /// waiting. An outcome and not an error, as a held restack is, though
+    /// the caller still exits 3.
+    Held(HeldReport),
+}
+
+/// A merge that landed: one commit with two parents, the branch's tip first,
+/// or a fast-forward to the target when the branch had nothing of its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MergeReport {
     /// The branch the merge landed on.
     pub branch: String,
-    /// What was taken in, as a person says it: `main`.
+    /// What was taken in, as a person says it: `main`, `origin/feature-b`.
     pub target: String,
-    /// The merge commit, full sha.
+    /// The branch's tip before the merge, full sha.
+    pub from: String,
+    /// The branch's tip after: the merge commit, or the target's tip on a
+    /// fast-forward. Full sha.
     pub commit: String,
-    /// Its parents, full shas: the branch's tip before the merge, then the
-    /// target's tip.
-    pub parents: [String; 2],
+    /// The branch moved to the target's tip and no commit was written.
+    pub fast_forward: bool,
+    /// The merge commit's parents, full shas: the branch's tip before the
+    /// merge, then the target's tip. Empty on a fast-forward.
+    pub parents: Vec<String>,
     /// Worktree files written or deleted.
     pub files: usize,
     /// What became of the open change: back over the merge, or held when

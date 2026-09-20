@@ -82,7 +82,9 @@ The table lists all 128 catalog entries with their structured-error exit codes. 
 | `init/bare` | 1 | ff init does not create bare repositories |
 | `init/failed` | 1 | the repository could not be created at that path |
 | `internal` | 1 | an unclassified failure |
-| `merge/unrelated` | 1 | the branch and the base to merge have no common ancestor |
+| `merge/base` | 1 | the target is this branch's base, which fufu never merges in |
+| `merge/nothing` | 1 | the target is already in this branch, or is this branch |
+| `merge/unrelated` | 1 | the branch and the target to merge have no common ancestor |
 | `op/ambiguous` | 1 | that hexadecimal prefix matches more than one retained operation |
 | `op/floor` | 1 | the request steps before the earliest retained operation |
 | `op/not-found` | 1 | the requested operation or recovery source was not found |

@@ -426,6 +426,16 @@ pub enum Command {
         #[arg(long)]
         stay: bool,
     },
+    /// Merge a branch into this one by one commit with two parents; never your base
+    #[command(long_about = help::term(help::MERGE), after_long_help = help::term_examples(help::MERGE_EXAMPLES))]
+    Merge {
+        /// The branch to take in: a local branch or `origin/<branch>`
+        #[arg(value_name = "branch")]
+        target: String,
+        /// Message for the merge commit; defaults to `merge <branch> into <current>`
+        #[arg(short = 'm', value_name = "msg")]
+        message: Option<String>,
+    },
     // agent notice quotes this: `ff pull`
     /// Update this branch from its base and remote copy
     #[command(visible_alias = "sync", long_about = help::term(help::PULL), after_long_help = help::term_examples(help::PULL_EXAMPLES))]
@@ -677,12 +687,6 @@ pub enum Command {
     /// No `ff stash`: switching parks the open change and resumes what waits
     #[command(hide = true)]
     Stash {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
-    /// No `ff merge`: fufu replays — `ff restack --onto`, `ff pull` — rather than merging
-    #[command(hide = true)]
-    Merge {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
@@ -993,6 +997,7 @@ impl Command {
             Command::Lift { .. } => "lift",
             Command::Restack { .. } => "restack",
             Command::Fold { .. } => "fold",
+            Command::Merge { .. } => "merge",
             Command::Pull { .. } => "pull",
             Command::Push { .. } => "push",
             Command::Remote => "remote",
@@ -1016,7 +1021,6 @@ impl Command {
             // one, which a fufu verb name would have hidden.
             Command::Checkout { .. } => "checkout",
             Command::Stash { .. } => "stash",
-            Command::Merge { .. } => "merge",
             Command::Blame { .. } => "blame",
             Command::Tag { .. } => "tag",
             Command::Abandon { .. } => "abandon",
@@ -1067,6 +1071,7 @@ impl Command {
             | Command::Lift { .. }
             | Command::Restack { .. }
             | Command::Fold { .. }
+            | Command::Merge { .. }
             | Command::Pull { .. }
             | Command::Edit { .. }
             | Command::Done { .. }
@@ -1089,7 +1094,6 @@ impl Command {
             | Command::Checkout { .. }
             | Command::Stash { .. }
             | Command::Push { .. }
-            | Command::Merge { .. }
             | Command::Blame { .. }
             | Command::Tag { .. }
             | Command::Abandon { .. }
@@ -1143,7 +1147,6 @@ impl Command {
             | Command::Trigger { .. }
             | Command::Checkout { .. }
             | Command::Stash { .. }
-            | Command::Merge { .. }
             | Command::Blame { .. }
             | Command::Tag { .. }
             | Command::Abandon { .. }
@@ -1178,6 +1181,7 @@ impl Command {
             | Command::Lift { .. }
             | Command::Restack { .. }
             | Command::Fold { .. }
+            | Command::Merge { .. }
             | Command::Push { .. }
             | Command::Done { .. }
             | Command::Resolve { .. }

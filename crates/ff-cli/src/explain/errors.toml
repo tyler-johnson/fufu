@@ -542,9 +542,21 @@ detail = "Use ff pull <branch> to reconcile that branch with its remote copy. Pu
 exits = ["ff pull <branch>", "ff restack <branch> --onto <base>"]
 
 [[entry]]
+id = "merge/base"
+summary = "the target is this branch's base, which fufu never merges in"
+detail = "The base reaches a branch by replay only. ff pull brings the base in, and ff restack replays the branch onto it; ff merge takes any other branch in by one commit with two parents. A branch whose history already holds a merge of its base continues that shape through ff resolve, which takes the base in by another merge when the branch is behind. The base is the recorded parent, or trunk when none is recorded; ff status names it."
+exits = ["ff pull", "ff restack", "ff resolve"]
+
+[[entry]]
+id = "merge/nothing"
+summary = "the target is already in this branch, or is this branch"
+detail = "Nothing would change. The target's tip is already an ancestor of this branch's tip, or the target is the branch you are standing on. Check ff log for the target's commits in this branch's history and ff status for where the branch stands. To take a target that has moved since, run ff merge again after it moves."
+exits = ["ff log", "ff status"]
+
+[[entry]]
 id = "merge/unrelated"
-summary = "the branch and the base to merge have no common ancestor"
-detail = "A merge needs a common ancestor to merge across. ff resolve's merge door checks this before it plans, so this is raised only by a held merge whose branch and base have since diverged completely, or in a shallow clone whose ancestry is missing. Deepen or unshallow the relevant remote history with Git if appropriate, then retry, or abandon the hold. Fufu does not merge unrelated histories."
+summary = "the branch and the target to merge have no common ancestor"
+detail = "ff merge refuses two histories with no common ancestor, as a merge needs one to merge across. A held merge whose branch and base have since diverged completely raises it too, as does a shallow clone whose ancestry is missing. Deepen or unshallow the relevant remote history with Git if appropriate, then retry, or abandon the hold. Fufu does not merge unrelated histories."
 exits = ["ff log", "ff resolve --abandon", "ff status"]
 
 [[entry]]

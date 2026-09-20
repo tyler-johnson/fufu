@@ -38,6 +38,7 @@ Every command, grouped the way `ff --help` groups them. Each page is the same te
 - [`ff lift`](lift.md) — Reopen a commit's changes as uncommitted work; defaults to HEAD
 - [`ff restack`](restack.md) — Replay a branch's commits onto its base; defaults to this branch
 - [`ff fold`](fold.md) — Replay this branch into a target and delete it; defaults to trunk
+- [`ff merge`](merge.md) — Merge a branch into this one by one commit with two parents; never your base
 - [`ff edit`](edit.md) — Open a session to edit an existing commit's files
 - [`ff done`](done.md) — Apply an editing or resolution session and return to its branch
 - [`ff resolve`](resolve.md) — Put a held rewrite's conflicts into the working copy for repair
