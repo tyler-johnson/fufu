@@ -23,7 +23,7 @@ The [revision expression](../revisions.md#revision-sets-and-grammar) must select
 
 After a reword, dependent local branches replay parent before child in the same operation. One `ff undo` takes back the reword and cascade.
 
-A reword preserves its commit's tree, but an already stale dependent branch can conflict. That branch records a hold while the reword stands. This outcome currently exits 0; scripts must inspect `reword.cascade.held`. Branches checked out elsewhere, already held, or containing merges are skipped and named, along with the dependents left alone above them. Use `ff switch` and `ff resolve` on a held branch.
+A reword preserves its commit's tree, but an already stale dependent branch can conflict. That branch records a hold while the reword stands. This outcome currently exits 0; scripts must inspect `reword.cascade.held`. Branches checked out elsewhere or already held are skipped and named, along with the dependents left alone above them. Use `ff switch` and `ff resolve` on a held branch.
 
 ### Hooks
 

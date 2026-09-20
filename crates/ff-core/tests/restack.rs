@@ -4,6 +4,7 @@
 
 use ff_core::futures::At;
 use ff_core::gix;
+use ff_core::rewrite::DropReason;
 use ff_core::{Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
 
@@ -1630,4 +1631,233 @@ fn onto_a_target_that_never_held_the_branch_carries_everything() {
         "a transplant carries everything above the common ancestor"
     );
     assert_eq!(rev(&fx, "feature~3"), rev(&fx, "release"));
+}
+
+/// The parents of a commit, in order.
+fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
+    fx.git(&["rev-list", "--parents", "-n1", commit])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+/// The subjects of `rev`'s first-parent history, newest first.
+fn subjects(fx: &Fixture, rev: &str) -> Vec<String> {
+    fx.git(&["log", "--format=%s", "--first-parent", rev])
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+fn merges_of(fx: &Fixture, rev: &str) -> Vec<String> {
+    fx.git(&["rev-list", "--merges", rev])
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// A feature branch that merged trunk once, with trunk moved on since:
+///
+/// ```text
+/// T0 ─ T1 ──────── T2          (main)
+///  └─ f1 ─ f2 ─ M ─ f3         (feature; M merges T1)
+/// ```
+///
+/// `extra` gives M an edit of its own — `extra.txt` written before the
+/// merge commit — that T2 leaves alone. HEAD ends on `feature`. Returns
+/// `(m, t2)`.
+fn trunk_merge(fx: &Fixture, extra: bool) -> (String, String) {
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    let f2 = fx.commit("f2");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    let t1 = fx.commit("T1");
+
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    if extra {
+        fx.write("extra.txt", "ours\n");
+    }
+    let m = fx.commit("M: merge main");
+    assert_eq!(parents_of(fx, &m), vec![f2, t1]);
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t2.txt", "t2\n");
+    let t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+    (m, t2)
+}
+
+/// A merge of trunk says nothing once the branch stands on newer trunk:
+/// the range replays as a straight line, and the merge goes as empty.
+#[test]
+fn restack_flattens_a_trunk_merge_into_a_straight_line() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (m, t2) = trunk_merge(&fx, false);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert!(merges_of(&fx, "feature").is_empty(), "no merge left");
+    assert_eq!(
+        subjects(&fx, "feature"),
+        ["f3", "f2", "f1", "T2", "T1", "T0"]
+    );
+    assert_eq!(fx.git(&["rev-parse", "feature~3"]).trim(), t2);
+    assert_eq!(report.replayed, 3);
+    assert_eq!(report.dropped.len(), 1, "{:?}", report.dropped);
+    assert_eq!(report.dropped[0].old, m);
+    assert_eq!(report.dropped[0].reason, DropReason::Empty);
+    assert!(report.flattened.is_empty(), "{:?}", report.flattened);
+}
+
+/// Trunk edited a file again after the branch merged it. Against its first
+/// parent the merge adds the older content, which a straight-line probe
+/// would land on the newer as a conflict; the engine drops the merge, and
+/// the probe has to agree with the engine.
+#[test]
+fn a_merge_of_trunk_that_trunk_edited_again_restacks_clean() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("x.txt", "t1\n");
+    fx.commit("T1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    let m = fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("x.txt", "t2\n");
+    fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert_eq!(fx.git(&["show", "feature:x.txt"]), "t2\n");
+    assert!(merges_of(&fx, "feature").is_empty(), "no merge left");
+    assert_eq!(report.dropped.len(), 1, "{:?}", report.dropped);
+    assert_eq!(report.dropped[0].old, m);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("x.txt")).unwrap(),
+        "t2\n"
+    );
+}
+
+/// A merge that carried an edit of its own keeps it: the merge becomes an
+/// ordinary commit holding the edit, and the report names it.
+#[test]
+fn a_merge_that_carried_an_edit_flattens_to_a_commit() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (m, _t2) = trunk_merge(&fx, true);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert_eq!(report.flattened.len(), 1, "{:?}", report.flattened);
+    assert_eq!(report.flattened[0].old, m);
+    let flat = report.flattened[0].new.clone();
+    assert_eq!(fx.git(&["rev-parse", "feature~1"]).trim(), flat);
+    assert_eq!(parents_of(&fx, &flat).len(), 1, "an ordinary commit now");
+    assert_eq!(fx.git(&["show", &format!("{flat}:extra.txt")]), "ours\n");
+    assert!(merges_of(&fx, "feature").is_empty(), "no merge left");
+    assert!(report.dropped.is_empty(), "{:?}", report.dropped);
+    assert_eq!(
+        subjects(&fx, "feature"),
+        ["f3", "M: merge main", "f2", "f1", "T2", "T1", "T0"]
+    );
+}
+
+/// A child that merged its parent follows the parent's restack: its merge
+/// of the parent's old tip maps to the parent's rewritten self, ends up
+/// beneath the branch side, and goes as empty.
+#[test]
+fn a_cascade_child_that_merged_its_parent_follows_and_flattens() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+
+    fx.git(&["switch", "-q", "-c", "parent"]);
+    fx.write("p1.txt", "p1\n");
+    close(&fx, "p1");
+    stacked_on(&fx, "parent", "main");
+
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("c1.txt", "c1\n");
+    fx.commit("c1");
+    stacked_on(&fx, "child", "parent");
+
+    fx.git(&["switch", "-q", "parent"]);
+    fx.write("p2.txt", "p2\n");
+    let p2 = close(&fx, "p2");
+
+    fx.git(&["switch", "-q", "child"]);
+    fx.git(&["merge", "-q", "--no-commit", "parent"]);
+    let m = fx.commit("M: merge parent");
+    assert_eq!(parents_of(&fx, &m)[1], p2);
+    fx.write("c2.txt", "c2\n");
+    fx.commit("c2");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    let t1 = fx.commit("T1");
+    fx.git(&["switch", "-q", "parent"]);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("parent"), None, NOW);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the restack must land, got {other:?}"),
+    };
+
+    assert_eq!(fx.git(&["rev-parse", "parent~2"]).trim(), t1);
+    let parent_tip = fx.git(&["rev-parse", "parent"]).trim().to_string();
+    assert!(
+        report.cascade.skipped.is_empty(),
+        "{:?}",
+        report.cascade.skipped
+    );
+    assert!(report.cascade.held.is_empty(), "{:?}", report.cascade.held);
+    assert_eq!(report.cascade.moved.len(), 1, "{:?}", report.cascade.moved);
+    let moved = &report.cascade.moved[0];
+    assert_eq!(moved.branch, "child");
+    assert_eq!(moved.replayed, 2);
+    assert_eq!(moved.dropped.len(), 1, "{:?}", moved.dropped);
+    assert_eq!(moved.dropped[0].old, m);
+    assert_eq!(moved.dropped[0].reason, DropReason::Empty);
+    assert!(merges_of(&fx, "child").is_empty(), "no merge left on child");
+    assert_eq!(
+        subjects(&fx, "child"),
+        ["c2", "c1", "p2", "p1", "T1", "root"]
+    );
+    assert_eq!(fx.git(&["rev-parse", "child~2"]).trim(), parent_tip);
 }

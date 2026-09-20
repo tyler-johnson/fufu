@@ -1567,3 +1567,83 @@ fn prune_gone_keeps_an_ahead_branch_with_its_gone_line() {
     );
     assert_eq!(v["data"]["pull"]["kept"][0]["reason"]["count"], 1, "{v}");
 }
+
+/// A local merge of trunk on the branch underfoot, with the shared copy
+/// moved on: the remote axis replays the branch's own commits onto the
+/// shared tip and carries the merge, trunk still its second parent.
+#[test]
+fn pull_carries_a_local_merge_onto_the_moved_shared_copy() {
+    let fx = Fixture::new_cloned();
+    fx.set_config("user.name", "Pull Tester");
+    fx.set_config("user.email", "pull@test.test");
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    let f2 = fx.commit("f2");
+    fx.git(&["push", "-q", "-u", "origin", "feature"]);
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    let t1 = fx.commit("T1");
+    fx.git(&["push", "-q", "origin", "main"]);
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    let m = fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    let other = fx.root().join("other");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &other.to_string_lossy(),
+        ],
+    );
+    fx.git_in(&other, &["switch", "-q", "feature"]);
+    std::fs::write(other.join("r.txt"), "r\n").unwrap();
+    fx.git_in(&other, &["add", "-A"]);
+    fx.git_in(&other, &["commit", "-q", "-m", "r1"]);
+    fx.git_in(&other, &["push", "-q", "origin", "feature"]);
+    let r1 = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "feature"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "one merge on the branch: {merges:?}");
+    let mn = &merges[0];
+    assert_ne!(mn, &m, "the merge was rewritten");
+    let parents: Vec<String> = fx
+        .git(&["rev-list", "--parents", "-n1", mn])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(parents.len(), 2, "{parents:?}");
+    assert_eq!(
+        parents[0], r1,
+        "the branch side now stands on the shared tip"
+    );
+    assert_eq!(parents[1], t1, "trunk is still the second parent");
+    assert_eq!(fx.git(&["rev-parse", "feature~1"]).trim(), mn.as_str());
+    assert_eq!(fx.git(&["rev-parse", &format!("{r1}~1")]).trim(), f2);
+    assert!(
+        fx.path().join("r.txt").is_file(),
+        "the worktree is at the new tip"
+    );
+    assert!(
+        fx.path().join("c.txt").is_file(),
+        "the worktree is at the new tip"
+    );
+}

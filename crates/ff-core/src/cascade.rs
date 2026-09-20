@@ -16,14 +16,15 @@
 //! the ref transaction is the caller's, which is what makes a rewrite and
 //! its cascade one atomic move.
 //!
-//! Four things stop a branch, and each leaves its subtree alone, since a
+//! Three things stop a branch, and each leaves its subtree alone, since a
 //! subtree's base did not move. A replay that conflicts holds that branch,
 //! recorded on its metadata the way `ff restack` holds, so `ff resolve` on
 //! it picks the replay up. A branch checked out in another worktree is
 //! skipped and the worktree named: a rewrite must not move a tree out from
 //! under whoever is standing in it. A branch already holding a rewrite is
-//! skipped, because one hold per branch is the rule. A branch whose range
-//! holds a merge is skipped, because replaying a merge is ambiguous.
+//! skipped, because one hold per branch is the rule. A merge in a branch's
+//! range is carried the way the engine carries any merge: its merge of the
+//! old base maps to the base's rewritten self and simplifies away.
 //!
 //! A branch whose commits are all in its base has nothing of its own to
 //! replay, and is left where it stands. Replaying the base's own commits
@@ -329,30 +330,28 @@ pub(crate) fn plan_over(
         let mut boundary = bases;
         boundary.extend(old_bases);
         let walk = crate::upstream::range(repo, tip, boundary)?;
+        // A merge in the range is carried: the child's merge of the old
+        // parent tip is a parent below the range's floor, the plan maps it
+        // by change id to its rewritten self in the new base, and it
+        // simplifies away beneath the branch side. It is remembered only to
+        // pick the probe.
         let mut range: Vec<gix::ObjectId> = Vec::new();
         let mut merge = false;
         for info in walk {
             let info = info.map_err(Error::repo)?;
             if info.parent_ids.len() > 1 {
                 merge = true;
-                break;
             }
             range.push(info.id);
-        }
-        if merge {
-            out.report.skipped.push(CascadeSkip {
-                branch,
-                base,
-                reason: SkipReason::MergeInRange,
-                left_alone,
-            });
-            continue;
         }
         if range.is_empty() {
             out.report.unchanged.push(branch);
             continue;
         }
         range.reverse(); // oldest-first; the target is the first element
+        if merge {
+            crate::restack::floor_first(repo, tip, &mut range)?;
+        }
 
         // What the new base already holds by change id: the engine drops
         // it without a merge, so the probe is handed only what the plan
@@ -374,7 +373,16 @@ pub(crate) fn plan_over(
             (None, None)
         };
 
-        match futures::probe_range(repo, base_new, &replayed_range, tip, open)? {
+        // A range holding a merge is probed through the engine's chain: the
+        // straight-line probe measures a merge against its first parent,
+        // which is the whole side it took in, and would hold a restack the
+        // engine lands.
+        let verdict = if merge {
+            futures::probe_chain(repo, base_new, range[0], tip, open)?
+        } else {
+            futures::probe_range(repo, base_new, &replayed_range, tip, open)?
+        };
+        match verdict {
             Verdict::Clean { .. } => {}
             Verdict::Conflict { at, paths } => {
                 let held = Held {

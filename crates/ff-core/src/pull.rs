@@ -1148,10 +1148,6 @@ fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Resul
             name,
             reason: SkipReason::Unrelated,
         }),
-        Err(err) if err.id() == "rewrite/merge-in-range" => Ok(BaseAxis::Refused {
-            name,
-            reason: SkipReason::MergeInRange,
-        }),
         Err(err) => Err(err),
     }
 }

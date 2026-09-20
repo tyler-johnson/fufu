@@ -10,6 +10,8 @@
 //! branch you are on, never so for one you are not, and the difference
 //! between writing files and touching none at all.
 
+use std::collections::HashSet;
+
 use crate::branchmeta;
 use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
@@ -37,13 +39,6 @@ fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectI
         .tree_id()
         .map_err(Error::repo)?
         .detach())
-}
-
-/// The subject of a commit, through the object handle — the raw `CommitRef`
-/// message has no summary.
-fn subject(repo: &gix::Repository, commit: gix::ObjectId) -> Result<String> {
-    let commit = repo.find_object(commit).map_err(Error::repo)?.into_commit();
-    Ok(commit.message().map_err(Error::repo)?.summary().to_string())
 }
 
 /// A three-way tree merge, resolved but not yet written: the caller probes
@@ -248,8 +243,9 @@ fn range_boundary(
 }
 
 /// The commits above `boundary` from `branch_tip` down, oldest first. A
-/// merge in the range is refused by the verb and skipped by the cascade;
-/// here it is reported so the caller decides.
+/// merge in the range is reported so the caller picks its probe: a
+/// straight line is probed commit by commit, a range holding a merge
+/// through the engine's own chain. Pull reads it for its base-axis skip.
 fn walk_range(
     repo: &gix::Repository,
     branch_tip: gix::ObjectId,
@@ -266,7 +262,38 @@ fn walk_range(
         range.push(info.id);
     }
     range.reverse(); // oldest-first; the target is the first element
+    if merge.is_some() {
+        floor_first(repo, branch_tip, &mut range)?;
+    }
     Ok((range, merge))
+}
+
+/// Put the floor of `tip`'s first-parent line first in `range`: the commit
+/// whose first parent `Change::Onto` replaces. A straight line's floor is
+/// its oldest commit, which the time-ordered walk already put first. A
+/// range holding a merge can reach a side branch whose root is older than
+/// the floor, and handing the engine that root as the target would leave
+/// the first-parent line untouched and the branch where it stood.
+pub(crate) fn floor_first(
+    repo: &gix::Repository,
+    tip: gix::ObjectId,
+    range: &mut [gix::ObjectId],
+) -> Result<()> {
+    let in_range: HashSet<gix::ObjectId> = range.iter().copied().collect();
+    let mut floor = tip;
+    loop {
+        let commit = repo.find_object(floor).map_err(Error::repo)?.into_commit();
+        match commit.parent_ids().next().map(|p| p.detach()) {
+            Some(parent) if in_range.contains(&parent) => floor = parent,
+            _ => break,
+        }
+    }
+    if let Some(pos) = range.iter().position(|id| *id == floor)
+        && pos != 0
+    {
+        range[..=pos].rotate_right(1);
+    }
+    Ok(())
 }
 
 /// The triple a restack replays: the oldest commit of the branch that is not
@@ -777,26 +804,16 @@ pub(crate) fn plan_restack(
     }
 
     let mut range: Vec<gix::ObjectId> = Vec::new();
+    let mut merge: Option<gix::ObjectId> = None;
     if !up_to_date && !fast_forward {
         // The branch's own commits, down to where it forked from the base:
         // the range `replan_restack` measures, so the verb and the replan
         // cannot disagree. A restack is something a person asked for, so
-        // the range is walked in full — no depth cap.
+        // the range is walked in full — no depth cap. A merge in it is
+        // carried by the engine; §7 remembers it to probe through the same
+        // engine.
         let boundary = range_boundary(repo, branch_tip, &base, &bases)?;
-        let (walked, merge) = walk_range(repo, branch_tip, &boundary)?;
-        if let Some(merge) = merge {
-            return Err(Error::coded(
-                "rewrite/merge-in-range",
-                format!(
-                    "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
-                     rewritten",
-                    crate::sha::short_oid(merge),
-                    subject(repo, merge)?
-                ),
-                vec!["ff log".into()],
-            ));
-        }
-        range = walked;
+        (range, merge) = walk_range(repo, branch_tip, &boundary)?;
     }
 
     // The commits of the range the base already holds by change id. The
@@ -886,9 +903,16 @@ pub(crate) fn plan_restack(
         };
         // The probe replays the range §5 walked, less what the base already
         // holds, rather than walking its own, so it answers about the
-        // commits the plan will rewrite and none of the base's own; §5
-        // already refused a merge in it.
-        match futures::probe_range(repo, base_tip, &replayed_range, branch_tip, probe_open)? {
+        // commits the plan will rewrite and none of the base's own. A range
+        // holding a merge is probed through the engine's chain instead: the
+        // straight-line probe measures a merge against its first parent,
+        // which is the whole side it took in, and would hold a restack the
+        // engine lands.
+        let verdict = match merge {
+            Some(_) => futures::probe_chain(repo, base_tip, range[0], branch_tip, probe_open)?,
+            None => futures::probe_range(repo, base_tip, &replayed_range, branch_tip, probe_open)?,
+        };
+        match verdict {
             Verdict::Clean { .. } => {
                 // Standing mid-stack: the open change belongs to the head
                 // branch's tip, not the target's, so it needs its own probe.
@@ -897,18 +921,26 @@ pub(crate) fn plan_restack(
                 if let (Some(open_t), Some(hb), Some(ht)) = (open, head_branch.as_deref(), head_tip)
                     && hb != branch
                     && let Some(pos) = replayed_range.iter().position(|id| *id == ht)
-                    && let Verdict::Conflict {
+                {
+                    let verdict = match merge {
+                        Some(_) => {
+                            futures::probe_chain(repo, base_tip, range[0], ht, Some(open_t))?
+                        }
+                        None => futures::probe_range(
+                            repo,
+                            base_tip,
+                            &replayed_range[..=pos],
+                            ht,
+                            Some(open_t),
+                        )?,
+                    };
+                    if let Verdict::Conflict {
                         at: at @ At::OpenChange,
                         paths,
-                    } = futures::probe_range(
-                        repo,
-                        base_tip,
-                        &replayed_range[..=pos],
-                        ht,
-                        Some(open_t),
-                    )?
-                {
-                    return hold_plan(&at, &paths, replayed_range.len());
+                    } = verdict
+                    {
+                        return hold_plan(&at, &paths, replayed_range.len());
+                    }
                 }
             }
             Verdict::Conflict { at, paths } => {

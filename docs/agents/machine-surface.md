@@ -74,7 +74,7 @@ For error envelopes, `usage/*` maps to 2, `held/*` to 3, `ref/contended` to 4, a
 | [`ff switch`](../reference/cli/switch.md) | A parked-arrival hold exits 3 after completing the branch switch; resolve handles that arrival in place. |
 | [`ff push`](../reference/cli/push.md) | Existing holds block the affected branches. Holds alone exit 3; any refused send makes the run exit 1, even alongside successful sends or held branches. |
 
-A hold is a requested replay waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere, already held, or containing merges. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).
+A hold is a requested replay waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere or already held. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).
 
 Neither a refusal nor contention promises an untouched repository. Pre-capture, reconciliation, fetches, metadata, or earlier branch updates can already have happened. Inspect the result before a retry. A failed capture in a client hook can be skipped with exit 0; that is a different contract from a contended mutating command.
 

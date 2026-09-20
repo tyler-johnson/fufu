@@ -110,7 +110,6 @@ The table lists all 128 catalog entries with their structured-error exit codes. 
 | `restore/nothing-selected` | 1 | restore needs paths or --all |
 | `revset/deferred-descendants` | 1 | x+ and descendants() are not implemented |
 | `revset/regex-unavailable` | 1 | regex patterns are recognized but not implemented |
-| `rewrite/merge-in-range` | 1 | the requested content replay includes a merge commit |
 | `rewrite/not-in-history` | 1 | a selected commit is outside the history this rewrite can use |
 | `session/moved` | 1 | the editing session branch no longer has its expected commit structure |
 | `session/none` | 1 | the current branch is not an editing session to finish or abandon |

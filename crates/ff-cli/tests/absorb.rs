@@ -294,14 +294,6 @@ fn explain_knows_the_new_ids() {
         "{text}"
     );
 
-    let merge = ff(&fx, &["explain", "rewrite/merge-in-range"]);
-    assert!(merge.status.success(), "{}", out(&merge));
-    let text = stdout(&merge);
-    assert!(
-        text.contains("the requested content replay includes a merge commit"),
-        "{text}"
-    );
-
     for (id, summary) in [
         ("usage/move-gap", "not one contiguous run of commits"),
         ("usage/move-into-self", "only source is its target"),
@@ -651,4 +643,64 @@ fn lift_says_what_followed_and_the_json_carries_it() {
             .len(),
         0
     );
+}
+
+/// The parents of a commit, in order.
+fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
+    fx.git(&["rev-list", "--parents", "-n1", commit])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+/// An absorb into a commit beneath a merge carries the merge: the branch
+/// side is rewritten under it, trunk stays its second parent, and its tree
+/// is the auto-merge of the new parents.
+#[test]
+fn absorb_into_a_commit_beneath_a_merge_carries_it() {
+    let fx = repo();
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    let t1 = fx.commit("T1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    let m = fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    fx.write("a.txt", "a, edited\n");
+    let output = ff(&fx, &["absorb", "--into", &f1]);
+    assert!(output.status.success(), "{}", out(&output));
+
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "feature"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "one merge on the branch: {merges:?}");
+    let mn = &merges[0];
+    assert_ne!(mn, &m, "the merge was rewritten");
+    let parents = parents_of(&fx, mn);
+    assert_eq!(parents.len(), 2, "still a merge: {parents:?}");
+    assert_eq!(parents[1], t1, "the trunk side stays");
+    assert_eq!(
+        fx.git(&["show", &format!("{}:a.txt", parents[0])]),
+        "a, edited\n",
+        "the branch side beneath it carries the edit"
+    );
+    assert_eq!(
+        fx.git(&["show", &format!("{mn}:a.txt")]),
+        "a, edited\n",
+        "the merge's tree is the auto-merge of its new parents"
+    );
+    assert_eq!(parents_of(&fx, "feature"), vec![mn.clone()]);
+    assert_eq!(fx.git(&["show", "feature:a.txt"]), "a, edited\n");
 }

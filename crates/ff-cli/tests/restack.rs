@@ -649,3 +649,99 @@ fn restack_onto_drops_a_stale_copy_the_base_already_holds() {
         "{text}"
     );
 }
+
+/// A feature branch that merged trunk once, with trunk moved on since, HEAD
+/// on `feature`:
+///
+/// ```text
+/// T0 ─ T1 ──────── T2          (main)
+///  └─ f1 ─ f2 ─ M ─ f3         (feature; M merges T1)
+/// ```
+///
+/// `extra` gives M an edit of its own, `extra.txt`, that T2 leaves alone.
+/// Returns M's sha.
+fn trunk_merge(fx: &Fixture, extra: bool) -> String {
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    fx.commit("T1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    if extra {
+        fx.write("extra.txt", "ours\n");
+    }
+    let m = fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t2.txt", "t2\n");
+    fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+    m
+}
+
+/// A merge of trunk flattens away when the branch moves onto newer trunk:
+/// the restack lands, the merge is reported dropped, and the branch is a
+/// straight line.
+#[test]
+fn restack_flattens_a_trunk_merge_and_says_so() {
+    let fx = repo();
+    let m = trunk_merge(&fx, false);
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("replayed 3 commit(s) onto main"), "{text}");
+    assert!(
+        text.contains(&format!("dropped {} \"M: merge main\"", &m[..8])),
+        "{text}"
+    );
+    assert!(
+        fx.git(&["rev-list", "--merges", "feature"])
+            .trim()
+            .is_empty(),
+        "no merge left on the branch"
+    );
+    assert_eq!(
+        fx.git(&["log", "--format=%s", "feature"])
+            .lines()
+            .collect::<Vec<_>>(),
+        ["f3", "f2", "f1", "T2", "T1", "T0"]
+    );
+}
+
+/// A merge that carried an edit of its own becomes an ordinary commit that
+/// holds the edit, and the restack names it.
+#[test]
+fn restack_flattens_a_merge_that_carried_an_edit_and_names_it() {
+    let fx = repo();
+    let m = trunk_merge(&fx, true);
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains(&format!("flattened {} \"M: merge main\"", &m[..8])),
+        "{text}"
+    );
+    assert!(!text.contains("dropped"), "{text}");
+    assert!(
+        fx.git(&["rev-list", "--merges", "feature"])
+            .trim()
+            .is_empty(),
+        "no merge left on the branch"
+    );
+    assert_eq!(fx.git(&["show", "feature~1:extra.txt"]), "ours\n");
+    assert_eq!(
+        fx.git(&["log", "--format=%s", "feature"])
+            .lines()
+            .collect::<Vec<_>>(),
+        ["f3", "M: merge main", "f2", "f1", "T2", "T1", "T0"]
+    );
+}

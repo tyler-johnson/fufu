@@ -908,3 +908,44 @@ fn stay_with_no_holder_keeps_the_branch_here() {
     assert_eq!(subjects(&fx, "feature"), ["f3", "f2", "f1", "m2", "root"]);
     assert_eq!(meta(&fx, "feature")["parent"], serde_json::Value::Null);
 }
+
+/// A branch that merged trunk once folds into newer trunk as a straight
+/// line: the merge says nothing there and goes.
+#[test]
+fn fold_flattens_a_trunk_merge_into_a_straight_line() {
+    let fx = repo();
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    fx.commit("T1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t2.txt", "t2\n");
+    let t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let output = ff(&fx, &["fold"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("replayed 3 commit(s) onto main"), "{text}");
+    assert!(text.contains("dropped"), "{text}");
+
+    assert!(!branch_exists(&fx, "feature"), "the branch must be gone");
+    assert_eq!(head_branch(&fx), "main");
+    assert!(
+        fx.git(&["rev-list", "--merges", "main"]).trim().is_empty(),
+        "no merge on main"
+    );
+    assert_eq!(subjects(&fx, "main"), ["f3", "f2", "f1", "T2", "T1", "T0"]);
+    assert_eq!(tip(&fx, "main~3"), t2);
+}

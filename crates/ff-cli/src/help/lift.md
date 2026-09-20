@@ -26,7 +26,7 @@ Preview a range with `ff log -r 'HEAD~2..HEAD'`. An omitted right endpoint can i
 
 Commits between and above the endpoints replay in the same operation, including branches inside that range. Surviving changes keep their change IDs while commit hashes change. A conflicting primary replay records a held rewrite without landing it and exits 3; captures and metadata may still be written. `ff resolve` opens it.
 
-After a successful move, dependent branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the move still lands and currently exits 0. Inspect the cascade report or `ff status`. Branches checked out elsewhere, already held, or containing merges are skipped and named. One `ff undo` takes back the move and its cascade.
+After a successful move, dependent branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the move still lands and currently exits 0. Inspect the cascade report or `ff status`. Branches checked out elsewhere or already held are skipped and named. One `ff undo` takes back the move and its cascade.
 
 ### Hooks
 

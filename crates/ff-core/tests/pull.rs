@@ -1791,18 +1791,20 @@ fn a_branch_with_no_base_gets_no_base_axis() {
     assert_eq!(report.base, on_base("side", "main"));
 }
 
-/// A replay `restack` refuses before anything moves is named and left where
-/// it stands, and the run goes on: one branch's merge or orphan history is
-/// no reason to leave the rest stale.
+/// A merge of another tree says nothing about how the branch takes trunk,
+/// so it replays like any commit: the branch lands on the moved base with
+/// its merge carried, the side branch's commit still its second parent. A
+/// replay `restack` refuses before anything moves — an orphan's — is named
+/// and left where it stands, and the run goes on.
 #[test]
-fn a_merge_in_range_and_an_orphan_are_named_and_the_run_goes_on() {
+fn a_side_branch_merge_replays_and_an_orphan_is_named() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
     fx.commit("root");
     fx.git(&["switch", "-q", "-c", "x"]);
     fx.write("x.txt", "x\n");
-    fx.commit("x1");
+    let x1 = fx.commit("x1");
     fx.git(&["switch", "-q", "-c", "merged", "main"]);
     fx.write("m.txt", "m\n");
     fx.commit("m1");
@@ -1821,14 +1823,32 @@ fn a_merge_in_range_and_an_orphan_are_named_and_the_run_goes_on() {
 
     let report = pull_around(&fx, true, || {});
 
-    assert_eq!(
-        base_of(&report, "merged"),
-        BaseAxis::Refused {
-            name: "main".into(),
-            reason: SkipReason::MergeInRange,
-        }
+    assert!(
+        matches!(base_of(&report, "merged"), BaseAxis::Ran { .. }),
+        "{:?}",
+        base_of(&report, "merged")
     );
-    assert_eq!(tip_of(&fx, "refs/heads/merged"), merged);
+    let merged_after = tip_of(&fx, "refs/heads/merged");
+    assert_ne!(merged_after, merged, "merged moved");
+    assert!(is_ancestor(&fx, &m2, &merged_after));
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "merged"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "exactly one merge: {merges:?}");
+    let parents: Vec<String> = fx
+        .git(&["rev-list", "--parents", "-n1", &merges[0]])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(parents.len(), 2, "{parents:?}");
+    assert_eq!(
+        parents[1], x1,
+        "the side branch's commit is the second parent"
+    );
+    assert!(is_ancestor(&fx, &m2, &parents[0]));
     assert_eq!(
         base_of(&report, "orphan"),
         BaseAxis::Refused {

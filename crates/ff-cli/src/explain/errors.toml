@@ -524,12 +524,6 @@ detail = "Preserve or commit the blocking open work, then retry resolution. For 
 exits = ["ff status", "ff commit -m <msg>", "ff help resolve"]
 
 [[entry]]
-id = "rewrite/merge-in-range"
-summary = "the requested content replay includes a merge commit"
-detail = "Inspect the range and choose a supported linear range if that matches your task. Fufu refuses content replay through a merge instead of choosing one parent as its patch base. Message-only rewording can re-parent merges without replaying their content. If preserving or rewriting the merge itself is required, use an appropriate Git workflow after reviewing strict policy and saving the current work."
-exits = ["ff log", "ff config gitPolicy"]
-
-[[entry]]
 id = "rewrite/not-in-history"
 summary = "a selected commit is outside the history this rewrite can use"
 detail = "Inspect ff log and the selected revision, then switch to the branch containing the intended history or choose different sources and target. A replay target must be an ancestor of the branch tip. Absorb and lift additionally require their committed sources on that branch's first-parent line, so a commit reachable only through a merge's other parent may still be unsuitable."

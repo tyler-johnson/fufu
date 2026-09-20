@@ -315,26 +315,91 @@ pub(crate) fn probe_range(
         cursor = merged;
     }
 
-    // The open change: one more step, so the verdict covers reapplying work
-    // that was never committed.
-    if let Some(open) = open_tree {
-        let tip_tree = tree_of(repo, branch_tip)?;
-        if open != tip_tree {
-            let mut outcome = memory
-                .merge_trees(tip_tree, cursor, open, Default::default(), options.clone())
-                .map_err(Error::repo)?;
-            let paths = unresolved(&outcome);
-            if !paths.is_empty() {
-                return Ok(Verdict::Conflict {
-                    at: At::OpenChange,
-                    paths,
-                });
-            }
-            let _ = outcome.tree.write().map_err(Error::repo)?;
-        }
+    if let Some(paths) = probe_open(repo, &memory, cursor, branch_tip, open_tree)? {
+        return Ok(Verdict::Conflict {
+            at: At::OpenChange,
+            paths,
+        });
     }
 
     Ok(Verdict::Clean { replayed, dropped })
+}
+
+/// Simulate replaying `target..tip` onto `onto` through the rewrite engine's
+/// own chain, then the open change when one is given. The range holds a
+/// merge, which `probe_range` cannot replay: it merges each commit against
+/// its first parent, and a merge's difference from its first parent is the
+/// whole of the side it took in. The chain instead re-merges the merge's
+/// mapped parents and lays its own change over the result — exactly what the
+/// plan will write — so the verdict is the plan's, not a straight-line
+/// approximation of it. The verbs read the `Clean` variant and not its
+/// counts, which are the chain's step count and never a drop.
+pub(crate) fn probe_chain(
+    repo: &gix::Repository,
+    onto: gix::ObjectId,
+    target: gix::ObjectId,
+    tip: gix::ObjectId,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Verdict> {
+    let memory = repo.clone().with_object_memory();
+    let chain = crate::rewrite::chain(
+        &memory,
+        target,
+        tip,
+        &crate::rewrite::Change::Onto(onto),
+        &[],
+    )?;
+    if let Some(step) = chain.steps.iter().find(|step| !step.paths.is_empty()) {
+        return Ok(Verdict::Conflict {
+            at: At::Commit {
+                id: step.old.clone(),
+                subject: step.subject.clone(),
+            },
+            paths: step.paths.clone(),
+        });
+    }
+
+    if let Some(paths) = probe_open(repo, &memory, chain.tree, tip, open_tree)? {
+        return Ok(Verdict::Conflict {
+            at: At::OpenChange,
+            paths,
+        });
+    }
+
+    Ok(Verdict::Clean {
+        replayed: chain.steps.len(),
+        dropped: 0,
+    })
+}
+
+/// The open change: one more step over the replayed tree, so the verdict
+/// covers reapplying work that was never committed. `Some` names the paths
+/// it leaves unresolved; `None` is a clean step, or no step at all. Shared by
+/// both probes so the open change is measured one way.
+fn probe_open(
+    repo: &gix::Repository,
+    memory: &gix::Repository,
+    cursor: gix::ObjectId,
+    branch_tip: gix::ObjectId,
+    open_tree: Option<gix::ObjectId>,
+) -> Result<Option<Vec<String>>> {
+    let Some(open) = open_tree else {
+        return Ok(None);
+    };
+    let tip_tree = tree_of(repo, branch_tip)?;
+    if open == tip_tree {
+        return Ok(None);
+    }
+    let options = memory.tree_merge_options().map_err(Error::repo)?;
+    let mut outcome = memory
+        .merge_trees(tip_tree, cursor, open, Default::default(), options)
+        .map_err(Error::repo)?;
+    let paths = unresolved(&outcome);
+    if !paths.is_empty() {
+        return Ok(Some(paths));
+    }
+    let _ = outcome.tree.write().map_err(Error::repo)?;
+    Ok(None)
 }
 
 /// The tree the operation log last stated for `branch` — the open change as

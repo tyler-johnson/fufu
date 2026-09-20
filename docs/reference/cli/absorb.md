@@ -74,7 +74,7 @@ Preview a range with [`ff log -r 'HEAD~2..HEAD'`](log.md). An omitted right endp
 
 Commits between and above the endpoints replay in the same operation, including branches inside that range. A conflicting primary replay records a held rewrite without landing it and exits 3; captures and metadata may still be written. [`ff resolve`](resolve.md) opens the conflicts.
 
-After a successful move, dependent local branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the original move still lands and currently exits 0. Inspect the cascade report or [`ff status`](status.md). Branches checked out elsewhere, already held, or containing merges are skipped and named. One [`ff undo`](undo.md) takes back the move and its cascade.
+After a successful move, dependent local branches replay parent before child. A downstream conflict holds that branch and leaves its dependents alone; the original move still lands and currently exits 0. Inspect the cascade report or [`ff status`](status.md). Branches checked out elsewhere or already held are skipped and named. One [`ff undo`](undo.md) takes back the move and its cascade.
 
 ## Hooks
 

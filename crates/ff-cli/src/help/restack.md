@@ -21,7 +21,7 @@ Replay is local. The CLI can auto-fetch first and run maintenance afterward. `--
 
 A conflicting primary replay leaves that branch's tip and files at their pre-replay state and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. `ff resolve` opens a held rewrite.
 
-Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere, already held, or containing merges are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One `ff undo` takes back the restack and cascade.
+Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere or already held are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One `ff undo` takes back the restack and cascade.
 
 ### Replay selection and report
 

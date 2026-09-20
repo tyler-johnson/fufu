@@ -77,6 +77,8 @@ Trunk is the default base. fufu uses `fufu.trunk` when configured, otherwise rep
 
 [`ff restack`](../reference/cli/restack.md) replays a branch's commits onto its base's current tip. `ff restack --onto main` changes the base to `main` and replays the work there. [Stacked changes](../guides/stacked-changes.md) walks through a stack in review.
 
+A merge inside a replayed range is carried: its parents are mapped through the replay and re-merged, and its own change, what [`ff show`](../reference/cli/show.md) measures against the auto-merge of its parents, is laid over the result. A merge that only took an older base in ends up with that base beneath its other parent and flattens away; what it resolved or edited survives as an ordinary commit, and the report names it under `flattened`. A merge with nothing of its own is dropped as empty.
+
 ### Parent inference for branches made with Git
 
 For a branch created outside fufu, fufu can infer a base when its tip matches exactly one other non-trunk branch, or Git's reflog identifies the branch it was created from. Otherwise the base defaults to trunk; `ff restack --onto` supplies a correction.
@@ -91,7 +93,7 @@ The commands that run cascades are `ff restack`, [`ff fold`](../reference/cli/fo
 
 A conflicting replay leaves that branch [held](held-rewrites.md) at its existing tip. Branches above it stay put; successful updates elsewhere in the cascade can stand. Resolving that branch and finishing with `ff done` resumes the cascade from there.
 
-Branches checked out in another worktree, already holding a rewrite, or containing merge commits in their own work are skipped and named. A branch with no commits of its own stays put. Read the report for what updated, held, or was skipped; [conflict reporting](held-rewrites.md#deferred-requires-loud) explains the exit-code distinctions.
+Branches checked out in another worktree or already holding a rewrite are skipped and named. A branch with no commits of its own stays put. Read the report for what updated, held, or was skipped; [conflict reporting](held-rewrites.md#deferred-requires-loud) explains the exit-code distinctions.
 
 <a id="pull-reaches-a-branch-and-what-it-answers-to"></a>
 

@@ -56,7 +56,7 @@ A conflicting primary replay leaves the session open without landing it and exit
 
 ## Dependent branches and undo
 
-After a successful landing, dependent branches replay parent before child in the same operation. A downstream conflict holds that branch, leaving dependents above it alone; the session still lands and currently exits 0. Inspect the cascade report or [`ff status`](status.md). Branches checked out elsewhere, already held, or containing merges are skipped and named.
+After a successful landing, dependent branches replay parent before child in the same operation. A downstream conflict holds that branch, leaving dependents above it alone; the session still lands and currently exits 0. Inspect the cascade report or [`ff status`](status.md). Branches checked out elsewhere or already held are skipped and named.
 
 One undo restores the session before its landing or abandonment, including the cascade. Opening it is separate: a rewrite-resolution opening takes two operations, so undo once returns from the session and again removes it.
 

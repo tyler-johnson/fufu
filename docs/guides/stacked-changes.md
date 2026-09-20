@@ -96,7 +96,7 @@ Parser-core now contains the reviewed implementation. The `parser-cli followed p
 
 Restack, pull, absorb, [`ff lift`](../reference/cli/lift.md), [`ff describe <revision>`](../reference/cli/describe.md), and [`ff done`](../reference/cli/done.md) replay dependent branches parent before child when they move a base tip. This automatic replay is the cascade. Successful updates belong to the initiating operation, so one [`ff undo`](../reference/cli/undo.md) reverses that operation and its cascade.
 
-A downstream conflict leaves that branch's tip in place and records a held rewrite. Earlier successful updates remain; branches depending on the held branch stay put. Branches checked out in another worktree, already held, or containing merges are skipped and named. A branch inside the replay range with no commits of its own can also stay put and be reported. Resolve the reported condition, then restack the branch onto its recorded base.
+A downstream conflict leaves that branch's tip in place and records a held rewrite. Earlier successful updates remain; branches depending on the held branch stay put. Branches checked out in another worktree or already held are skipped and named. A branch inside the replay range with no commits of its own can also stay put and be reported. Resolve the reported condition, then restack the branch onto its recorded base.
 
 | Verb outcome | Exit behavior |
 | --- | --- |
