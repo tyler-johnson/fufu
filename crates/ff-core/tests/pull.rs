@@ -1791,18 +1791,20 @@ fn a_branch_with_no_base_gets_no_base_axis() {
     assert_eq!(report.base, on_base("side", "main"));
 }
 
-/// A merge in a branch's commits is pull's skip on the base axis, whichever
-/// tree it merged: the branch is named and left where it stands, an orphan
-/// is named the same way, and the run goes on to the branches after them.
+/// A merge of another tree says nothing about how the branch takes trunk,
+/// so it replays like any commit: the branch lands on the moved base with
+/// its merge carried, the side branch's commit still its second parent. A
+/// replay `restack` refuses before anything moves — an orphan's — is named
+/// and left where it stands, and the run goes on.
 #[test]
-fn a_merge_holding_branch_and_an_orphan_are_named() {
+fn a_side_branch_merge_replays_and_an_orphan_is_named() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
     fx.commit("root");
     fx.git(&["switch", "-q", "-c", "x"]);
     fx.write("x.txt", "x\n");
-    fx.commit("x1");
+    let x1 = fx.commit("x1");
     fx.git(&["switch", "-q", "-c", "merged", "main"]);
     fx.write("m.txt", "m\n");
     fx.commit("m1");
@@ -1821,14 +1823,32 @@ fn a_merge_holding_branch_and_an_orphan_are_named() {
 
     let report = pull_around(&fx, true, || {});
 
-    assert_eq!(
-        base_of(&report, "merged"),
-        BaseAxis::Refused {
-            name: "main".into(),
-            reason: SkipReason::MergeInRange,
-        }
+    assert!(
+        matches!(base_of(&report, "merged"), BaseAxis::Ran { .. }),
+        "{:?}",
+        base_of(&report, "merged")
     );
-    assert_eq!(tip_of(&fx, "refs/heads/merged"), merged, "merged stands");
+    let merged_after = tip_of(&fx, "refs/heads/merged");
+    assert_ne!(merged_after, merged, "merged moved");
+    assert!(is_ancestor(&fx, &m2, &merged_after));
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "merged"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "exactly one merge: {merges:?}");
+    let parents: Vec<String> = fx
+        .git(&["rev-list", "--parents", "-n1", &merges[0]])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(parents.len(), 2, "{parents:?}");
+    assert_eq!(
+        parents[1], x1,
+        "the side branch's commit is the second parent"
+    );
+    assert!(is_ancestor(&fx, &m2, &parents[0]));
     assert_eq!(
         base_of(&report, "orphan"),
         BaseAxis::Refused {
@@ -1840,5 +1860,82 @@ fn a_merge_holding_branch_and_an_orphan_are_named() {
     let a = tip_of(&fx, "refs/heads/a");
     assert_ne!(a, a1, "the run went on to a");
     assert!(is_ancestor(&fx, &m2, &a));
+    assert!(!report.blocked());
+}
+
+/// A merge of the base is the skip even when a merge of another tree sits
+/// beside it: the branch took `main` in by merging, and pull's base axis
+/// does not rewrite that choice.
+#[test]
+fn a_merge_of_the_base_beside_a_side_merge_is_the_skip() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "x"]);
+    fx.write("x.txt", "x\n");
+    fx.commit("x1");
+    fx.git(&["switch", "-q", "-c", "merged", "main"]);
+    fx.write("m.txt", "m\n");
+    fx.commit("m1");
+    fx.git(&["merge", "-q", "--no-ff", "-m", "merge x", "x"]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "merged"]);
+    fx.git(&["merge", "-q", "--no-ff", "-m", "merge main", "main"]);
+    let merged = tip_of(&fx, "refs/heads/merged");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m3.txt", "m3\n");
+    fx.commit("m3");
+
+    let report = pull_around(&fx, true, || {});
+
+    assert_eq!(
+        base_of(&report, "merged"),
+        BaseAxis::Refused {
+            name: "main".into(),
+            reason: SkipReason::MergeInRange,
+        }
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/merged"), merged, "merged stands");
+    assert!(!report.blocked());
+}
+
+/// A merge of a tip the base once held is still a merge of the base: the
+/// range walk stops at the fork from every position in the base's reflog,
+/// so the old tip sits beneath the boundary and the merge's second parent
+/// lies outside the range, even though trunk was reset away from it since.
+#[test]
+fn a_merge_of_a_since_rebased_base_is_still_the_skip() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("root.txt", "root\n");
+    let root = fx.commit("root");
+    fx.git(&["branch", "side"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "side"]);
+    fx.write("s1.txt", "s1\n");
+    fx.commit("s1");
+    fx.git(&["merge", "-q", "--no-edit", "main"]);
+    let side = tip_of(&fx, "refs/heads/side");
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["reset", "-q", "--hard", &root]);
+    fx.write("m1b.txt", "m1b\n");
+    fx.commit("m1b");
+    fx.write("m2.txt", "m2\n");
+    fx.commit("m2");
+
+    let report = pull_around(&fx, true, || {});
+
+    assert_eq!(
+        base_of(&report, "side"),
+        BaseAxis::Refused {
+            name: "main".into(),
+            reason: SkipReason::MergeInRange,
+        }
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/side"), side, "side stands");
     assert!(!report.blocked());
 }

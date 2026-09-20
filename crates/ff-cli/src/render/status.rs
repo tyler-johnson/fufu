@@ -700,8 +700,8 @@ pub(crate) fn skip_reason(reason: &ff_core::SkipReason, branch: &str, base: &str
         ff_core::SkipReason::Worktree { path } => format!("checked out in {path}"),
         ff_core::SkipReason::AlreadyHeld => "a rewrite is already held there".to_string(),
         ff_core::SkipReason::MergeInRange => format!(
-            "its commits hold a merge — ff restack {branch} replays them straight, or ff git \
-             merge {base} takes {base} in"
+            "its commits hold a merge of {base} — ff restack {branch} replays them straight, or \
+             ff git merge {base} takes {base} in"
         ),
         ff_core::SkipReason::Unrelated => format!("it shares no history with {base}"),
     }

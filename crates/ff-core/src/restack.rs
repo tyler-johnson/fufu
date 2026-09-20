@@ -286,6 +286,37 @@ pub(crate) struct Range {
     pub merge: Option<gix::ObjectId>,
 }
 
+impl Range {
+    /// The merges in the range that took the base's history in: a parent
+    /// beyond the first that lies outside the walked range, beneath the
+    /// boundary — the base as it stands, or a position it once held. Empty
+    /// when the range holds no merge, or only merges of trees the range
+    /// itself carries, which say nothing about how the branch takes its
+    /// base.
+    ///
+    /// "Outside the walked range" rather than an ancestry test against the
+    /// base's tip: [`range_boundary`] bounds the walk at the fork from
+    /// every position in the base's reflog, so a merge of an old base tip
+    /// since rebased away still counts as a merge of the base, while a side
+    /// branch reachable only through its merge is in the range and its
+    /// merge is carried.
+    pub(crate) fn merges_of_base(&self, repo: &gix::Repository) -> Result<Vec<gix::ObjectId>> {
+        if self.merge.is_none() {
+            return Ok(Vec::new());
+        }
+        let inside: HashSet<gix::ObjectId> = self.commits.iter().copied().collect();
+        let mut out = Vec::new();
+        for id in &self.commits {
+            let commit = repo.find_object(*id).map_err(Error::repo)?.into_commit();
+            let parents: Vec<gix::ObjectId> = commit.parent_ids().map(|p| p.detach()).collect();
+            if parents.len() > 1 && parents[1..].iter().any(|p| !inside.contains(p)) {
+                out.push(*id);
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Measure `branch`'s range against `base`. `restack/unrelated` when the
 /// two share no history. The range is walked only when the branch is
 /// neither up to date nor a fast-forward: the other two states have no

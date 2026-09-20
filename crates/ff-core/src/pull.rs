@@ -1086,12 +1086,13 @@ pub fn base_order(repo: &gix::Repository) -> Result<Vec<String>> {
 }
 
 /// Pull's own look at a branch's range before a replay is planned. A merge
-/// in it is a skip, not a rewrite: the merge is evidence the person chose to
-/// take the base in that way, usually because the branch is pushed and under
-/// review, and pull leaves the branch where it stands and names it. An
-/// orphan history is the same skip for the same reason `plan_restack`
-/// refuses it. `None` means plan the replay; a branch with no tip is left
-/// for `plan_restack` to refuse in its own words.
+/// of the base in it is a skip, not a rewrite: the merge is evidence the
+/// person chose to take the base in that way, usually because the branch is
+/// pushed and under review, and pull leaves the branch where it stands and
+/// names it. A merge of another tree is carried like any commit. An orphan
+/// history is the same skip for the same reason `plan_restack` refuses it.
+/// `None` means plan the replay; a branch with no tip is left for
+/// `plan_restack` to refuse in its own words.
 fn refused_before_planning(
     repo: &gix::Repository,
     branch: &str,
@@ -1107,7 +1108,9 @@ fn refused_before_planning(
         base.tip = tip;
     }
     match restack::measure_range(repo, branch, branch_tip, &base) {
-        Ok(range) => Ok(range.merge.map(|_| SkipReason::MergeInRange)),
+        Ok(range) => {
+            Ok((!range.merges_of_base(repo)?.is_empty()).then_some(SkipReason::MergeInRange))
+        }
         Err(err) if err.id() == "restack/unrelated" => Ok(Some(SkipReason::Unrelated)),
         Err(err) => Err(err),
     }
@@ -1117,9 +1120,9 @@ fn refused_before_planning(
 /// None`, planned against the run. A hold the run planned on it stops it,
 /// whether its own remote axis held or a cascade from another branch's
 /// replay reached it; a hold that stood before the run is the preflight's
-/// to refuse and is not second-guessed here. A merge in its commits or an
-/// orphan history is named and left standing, the same as for a branch not
-/// underfoot: the rest of the run goes on, trunk included.
+/// to refuse and is not second-guessed here. A merge of its base in its
+/// commits or an orphan history is named and left standing, the same as for
+/// a branch not underfoot: the rest of the run goes on, trunk included.
 fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> Result<BaseAxis> {
     if run.overlay.has_hold(&pre.branch) {
         return Ok(BaseAxis::Skipped);
@@ -1154,9 +1157,9 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
 /// None`, planned against the run, which moves refs and objects and no file
 /// and cascades into the branches stacked above it. A hold standing on the
 /// branch stops it: its own remote axis held this run, or a cascade reached
-/// it. A merge in its commits or an orphan history is named and left
-/// standing rather than stopping the run: pull visits every branch, and one
-/// branch's merge or orphan history is no reason to leave the rest stale.
+/// it. A merge of its base in its commits or an orphan history is named and
+/// left standing rather than stopping the run: pull visits every branch, and
+/// one branch's merge or orphan history is no reason to leave the rest stale.
 fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Result<BaseAxis> {
     if run.overlay.held(repo, branch)?.is_some() {
         return Ok(BaseAxis::Skipped);

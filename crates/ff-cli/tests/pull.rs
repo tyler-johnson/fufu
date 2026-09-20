@@ -1800,6 +1800,57 @@ fn several_names_with_one_holding_a_merge_move_the_rest() {
     );
 }
 
+/// A merge of another tree on the branch underfoot says nothing about how
+/// it takes trunk, so the base axis carries it like any commit: the branch
+/// lands on the moved base with its merge intact, the side branch's commit
+/// still its second parent.
+#[test]
+fn a_side_branch_merge_is_carried_on_the_base_axis() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "x"]);
+    fx.write("x.txt", "x\n");
+    let x1 = fx.commit("x1");
+    fx.git(&["switch", "-q", "-c", "feature", "main"]);
+    fx.write("f1.txt", "f1\n");
+    fx.commit("f1");
+    fx.git(&["merge", "-q", "--no-ff", "-m", "merge x", "x"]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("undo: ff undo"), "got: {text}");
+    assert!(!text.contains("left alone"), "got: {text}");
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "feature"])
+            .status
+            .success(),
+        "feature moved onto main: {text}"
+    );
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "feature"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "one merge on the branch: {merges:?}");
+    let parents: Vec<String> = fx
+        .git(&["rev-list", "--parents", "-n1", &merges[0]])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(parents.len(), 2, "{parents:?}");
+    assert_eq!(
+        parents[1], x1,
+        "the side branch's commit is the second parent"
+    );
+}
+
 /// A dry run reports the skip in the conditional and writes nothing.
 #[test]
 fn a_dry_run_reports_the_merge_skip_and_writes_nothing() {
