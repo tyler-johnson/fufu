@@ -435,16 +435,20 @@ fn the_config_registry_is_generated() {
 }
 
 /// The error index region of `docs/reference/errors.md`, markers included:
-/// one table row per [`crate::explain::ENTRIES`] entry, sorted by id so the
-/// namespaces group without headings and the region does not move when the
-/// registry is reordered. The row is id, exit code, summary; the detail
-/// stays with `ff explain <id>`.
+/// the entry count, then one table row per [`crate::explain::ENTRIES`]
+/// entry, sorted by id so the namespaces group without headings and the
+/// region does not move when the registry is reordered. The row is id, exit
+/// code, summary; the detail stays with `ff explain <id>`. The count lives
+/// in the region because a hand-written one sat at 128 while the registry
+/// grew to 133, and nothing read the two together.
 fn errors_region() -> String {
-    let mut out = String::from(
-        "<!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a \
-         test; edit there, then make docs-gen -->\n\n| id | exit | meaning |\n| --- | --- | --- |\n",
-    );
     let mut entries: Vec<&crate::explain::Entry> = crate::explain::ENTRIES.iter().collect();
+    let mut out = format!(
+        "<!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a \
+         test; edit there, then make docs-gen -->\n\nThe table lists all {} catalog entries \
+         with their structured-error exit codes.\n\n| id | exit | meaning |\n| --- | --- | --- |\n",
+        entries.len()
+    );
     entries.sort_by_key(|e| e.id.as_str());
     for entry in entries {
         let _ = writeln!(

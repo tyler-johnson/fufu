@@ -37,9 +37,11 @@ For a structured error, the code follows its ID: `usage/*` exits 2, `held/*` exi
 
 ## The index
 
-The table lists all 128 catalog entries with their structured-error exit codes. `internal` is the fallback for unclassified failures. `repo/not-found` covers repository-discovery failures. The installed binary's `ff explain --list` is the catalog to use when it differs from this page.
+`internal` is the fallback for unclassified failures. `repo/not-found` covers repository-discovery failures. The installed binary's `ff explain --list` is the catalog to use when it differs from this page.
 
 <!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a test; edit there, then make docs-gen -->
+
+The table lists all 133 catalog entries with their structured-error exit codes.
 
 | id | exit | meaning |
 | --- | --- | --- |
