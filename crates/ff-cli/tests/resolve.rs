@@ -205,7 +205,7 @@ fn done_with_the_markers_still_standing_is_exit_3() {
 }
 
 #[test]
-fn done_abandon_over_a_resolution_names_the_resolution() {
+fn done_abandon_over_a_resolution_closes_it_and_keeps_the_hold() {
     let fx = repo();
     held_stack(&fx);
     assert!(ff(&fx, &["resolve"]).status.success());
@@ -214,14 +214,29 @@ fn done_abandon_over_a_resolution_names_the_resolution() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("abandoned the resolution on feature"),
+        text.contains("closed the resolution of feature: the restack onto main is still held"),
         "a resolution is not an editing session, and the report says so: {text}"
     );
     assert!(text.contains("back on feature"), "{text}");
+    assert!(
+        text.contains("ff resolve to open it again · ff resolve --abandon to drop it"),
+        "{text}"
+    );
     assert_eq!(
         fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
         "feature"
     );
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(status.contains("held"), "the hold stands: {status}");
+
+    // Again, through the machine surface, after reopening.
+    assert!(ff(&fx, &["resolve"]).status.success());
+    let output = ff(&fx, &["--json", "done", "--abandon"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["data"]["done"]["held"]["verb"], "restack");
+    assert_eq!(v["data"]["done"]["held"]["onto"], "main");
+    assert_eq!(v["data"]["done"]["onto"], "feature");
 }
 
 #[test]

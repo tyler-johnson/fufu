@@ -462,6 +462,7 @@ fn abandon_leaves_the_edits_as_the_open_commit() {
     );
     assert_eq!(fx.git(&["rev-parse", "main"]).trim(), c3);
     assert_eq!(anon_count(&fx), 0, "the session branch must be gone");
+    assert!(report.held.is_none(), "an editing session holds nothing");
     let left = report
         .left
         .expect("the dirty edit is left as the open commit");

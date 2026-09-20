@@ -433,14 +433,19 @@ impl Disposition {
         let (Intent::Restack { onto, .. } | Intent::Merge { onto, .. }) = &held.intent else {
             return None;
         };
-        let onto = match crate::restack::resolve_onto(repo, onto) {
-            Ok(base) => base.name,
-            Err(_) => onto.strip_prefix("refs/heads/").unwrap_or(onto).to_string(),
-        };
         Some(DroppedHold {
             verb: verb_of(held),
-            onto,
+            onto: onto_short(repo, onto),
         })
+    }
+}
+
+/// A hold's `onto` as a person says it: `restack::resolve_onto(repo, onto)?
+/// .name`, or `onto` with `refs/heads/` stripped when the ref is gone.
+pub(crate) fn onto_short(repo: &gix::Repository, onto: &str) -> String {
+    match crate::restack::resolve_onto(repo, onto) {
+        Ok(base) => base.name,
+        Err(_) => onto.strip_prefix("refs/heads/").unwrap_or(onto).to_string(),
     }
 }
 

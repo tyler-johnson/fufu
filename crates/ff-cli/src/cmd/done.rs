@@ -120,10 +120,37 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             if report.editing.is_empty() {
                 // A resolution, not an editing session: there is no commit
                 // being edited to name, and saying so with an empty sha and
-                // an empty subject is worse than saying what happened.
-                println!("abandoned the resolution on {}", report.onto);
+                // an empty subject is worse than saying what happened. The
+                // session closed; the hold it was resolving stands, unless
+                // something cleared it underneath.
+                match &report.held {
+                    Some(held) => {
+                        let what = match (held.verb.as_str(), &held.onto) {
+                            ("restack", Some(onto)) => format!("the restack onto {onto}"),
+                            ("merge", Some(onto)) => format!("the merge of {onto}"),
+                            (verb, _) => format!("the {verb}"),
+                        };
+                        println!(
+                            "closed the resolution of {}: {what} is still held",
+                            report.onto
+                        );
+                    }
+                    None => println!(
+                        "closed the resolution of {}: nothing is held there now",
+                        report.onto
+                    ),
+                }
                 println!("back on {}", report.onto);
                 crate::cmd::switch::render_arrival(&report.arrival, &report.onto, colored);
+                if report.held.is_some() {
+                    println!(
+                        "{}",
+                        crate::render::paint_dim(
+                            "ff resolve to open it again · ff resolve --abandon to drop it",
+                            colored
+                        )
+                    );
+                }
             } else {
                 println!(
                     "abandoned the session on {} \"{}\"",

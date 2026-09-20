@@ -224,7 +224,7 @@ fn done_lands_the_merge() {
 }
 
 #[test]
-fn done_abandon_drops_the_merge_session() {
+fn done_abandon_closes_the_merge_session_and_keeps_the_hold() {
     let fx = repo();
     conflicting_side(&fx);
     let side_before = tip(&fx, "side");
@@ -234,11 +234,16 @@ fn done_abandon_drops_the_merge_session() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("abandoned the resolution on side"),
+        text.contains("closed the resolution of side: the merge of main is still held"),
         "got: {text}"
     );
     assert_eq!(tip(&fx, "side"), side_before, "the tip stands");
     assert_eq!(head_branch(&fx), "side");
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(status.contains("held"), "the hold stands: {status}");
+
+    let output = ff(&fx, &["resolve", "--abandon"]);
+    assert!(output.status.success(), "{}", out(&output));
     let status = stdout(&ff(&fx, &["status"]));
     assert!(!status.contains("held:"), "the hold went with it: {status}");
 }

@@ -403,6 +403,55 @@ fn abandoning_an_open_resolution_puts_the_tree_back() {
 }
 
 #[test]
+fn abandoning_from_the_held_branch_deletes_the_session_elsewhere() {
+    let fx = Fixture::new();
+    ident(&fx);
+    conflict_stack(&fx);
+    hold_a_restack(&fx);
+
+    let session = match resolve_call(&fx, false, NOW + 100).0 {
+        ResolveOutcome::Opened(r) => r.session,
+        other => panic!("a held restack opens, got {other:?}"),
+    };
+    let repo = fx.repo();
+    ff_core::switch(
+        &repo,
+        &ff_core::SwitchOptions {
+            target: Some("feature".into()),
+            now: Some(NOW + 150),
+            argv: vec!["ff".into(), "switch".into(), "feature".into()],
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+    drop(repo);
+
+    let (outcome, _ctx) = resolve_call(&fx, true, NOW + 200);
+    let report = match outcome {
+        ResolveOutcome::Abandoned(r) => r,
+        other => panic!("an abandon must drop the session, got {other:?}"),
+    };
+
+    assert!(report.was_resolving);
+    assert!(!report.returned, "HEAD was already on feature");
+    assert_eq!(report.session.as_deref(), Some(session.as_str()));
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&session)),
+        "the session branch is gone"
+    );
+    let repo = fx.repo();
+    assert_eq!(ff_core::held::of(&repo, "feature").unwrap(), None);
+    assert_eq!(ff_core::held::resolving(&repo, "feature").unwrap(), None);
+}
+
+#[test]
 fn undoing_a_resolution_closes_it() {
     let fx = Fixture::new();
     ident(&fx);

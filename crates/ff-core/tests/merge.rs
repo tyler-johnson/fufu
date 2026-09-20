@@ -439,7 +439,7 @@ fn resolve_opens_and_done_lands_the_held_merge() {
 }
 
 #[test]
-fn done_abandon_leaves_the_branch_untouched() {
+fn done_abandon_leaves_the_branch_untouched_and_the_hold_standing() {
     let fx = Fixture::new();
     ident(&fx);
     let (a1, _b1) = conflicting_features(&fx);
@@ -449,14 +449,24 @@ fn done_abandon_leaves_the_branch_untouched() {
         other => panic!("resolve must open the held merge, got {other:?}"),
     }
 
-    let abandoned = match done_call(&fx, true, NOW + 2).unwrap() {
+    let closed = match done_call(&fx, true, NOW + 2).unwrap() {
         DoneOutcome::Abandoned(r) => r,
-        other => panic!("abandon must drop the session, got {other:?}"),
+        other => panic!("abandon must close the session, got {other:?}"),
     };
-    assert_eq!(abandoned.onto, "feature-a");
+    assert_eq!(closed.onto, "feature-a");
+    assert_eq!(
+        closed.held,
+        Some(ff_core::KeptHold {
+            verb: "merge".into(),
+            onto: Some("feature-b".into()),
+        })
+    );
     assert_eq!(tip(&fx, "feature-a"), a1);
     let repo = fx.repo();
-    assert!(held::of(&repo, "feature-a").unwrap().is_none());
+    assert!(
+        held::of(&repo, "feature-a").unwrap().is_some(),
+        "the merge hold stands"
+    );
     assert!(held::resolving(&repo, "feature-a").unwrap().is_none());
     assert_eq!(head_branch(&fx), "feature-a");
 }

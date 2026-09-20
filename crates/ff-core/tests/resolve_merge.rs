@@ -415,20 +415,30 @@ fn done_lands_the_merge_with_the_fix() {
 }
 
 #[test]
-fn done_abandon_leaves_the_branch_untouched() {
+fn done_abandon_leaves_the_branch_untouched_and_the_hold_standing() {
     let fx = Fixture::new();
     ident(&fx);
     let (s2, _m2) = conflicting_side(&fx);
     let _report = opened(&fx, NOW);
 
-    let abandoned = match done_call(&fx, true, NOW + 1).unwrap() {
+    let closed = match done_call(&fx, true, NOW + 1).unwrap() {
         DoneOutcome::Abandoned(r) => r,
-        other => panic!("abandon must drop the session, got {other:?}"),
+        other => panic!("abandon must close the session, got {other:?}"),
     };
-    assert_eq!(abandoned.onto, "side");
+    assert_eq!(closed.onto, "side");
+    assert_eq!(
+        closed.held,
+        Some(ff_core::KeptHold {
+            verb: "merge".into(),
+            onto: Some("main".into()),
+        })
+    );
     assert_eq!(tip(&fx, "side"), s2);
     let repo = fx.repo();
-    assert!(held::of(&repo, "side").unwrap().is_none());
+    assert!(
+        held::of(&repo, "side").unwrap().is_some(),
+        "the merge hold stands"
+    );
     assert!(held::resolving(&repo, "side").unwrap().is_none());
     assert_eq!(head_branch(&fx), "side");
 }

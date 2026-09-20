@@ -60,6 +60,28 @@ fn done_call(fx: &Fixture, now: i64) -> ff_core::Result<DoneOutcome> {
     .map(|(outcome, _ctx)| outcome)
 }
 
+/// `ff done --abandon`: close the session underfoot.
+fn done_abandon_call(fx: &Fixture, now: i64) -> ff_core::Result<DoneOutcome> {
+    let repo = fx.repo();
+    ff_core::done::done(
+        &repo,
+        true,
+        ff_core::Verify::Run,
+        &prov(),
+        Some(now),
+        vec!["ff".into(), "done".into(), "--abandon".into()],
+    )
+    .map(|(outcome, _ctx)| outcome)
+}
+
+/// `ff done --abandon` over a resolution, asserting it closed the session.
+fn closed(fx: &Fixture, now: i64) -> ff_core::AbandonReport {
+    match done_abandon_call(fx, now).unwrap() {
+        DoneOutcome::Abandoned(r) => r,
+        other => panic!("`ff done --abandon` over a resolution closes it, got {other:?}"),
+    }
+}
+
 fn resolved(fx: &Fixture, now: i64) -> ff_core::ResolvedReport {
     match done_call(fx, now).unwrap() {
         DoneOutcome::Resolved(r) => r,
@@ -947,46 +969,182 @@ fn a_resolved_lift_lands_the_open_change_back() {
 }
 
 #[test]
-fn abandoning_a_resolution_through_done_is_the_same_act() {
+fn done_abandon_closes_the_session_and_keeps_the_hold() {
     let fx = Fixture::new();
     ident(&fx);
     restack_stack(&fx);
     hold_a_restack(&fx);
-    open_resolution(&fx, NOW + 100);
+    let first = open_resolution(&fx, NOW + 100).session;
     fix(&fx, "f.txt", "RESOLVED\n");
+    let before_ops = verb_ops(&fx);
 
-    let repo = fx.repo();
-    let (outcome, _ctx) = ff_core::done::done(
-        &repo,
-        true,
-        ff_core::Verify::Run,
-        &prov(),
-        Some(NOW + 200),
-        vec!["ff".into(), "done".into(), "--abandon".into()],
-    )
-    .unwrap();
-    drop(repo);
-    assert!(
-        matches!(outcome, DoneOutcome::Abandoned(_)),
-        "`ff done --abandon` over a resolution abandons it, got {outcome:?}"
+    let report = closed(&fx, NOW + 200);
+
+    assert_eq!(
+        report.held,
+        Some(ff_core::KeptHold {
+            verb: "restack".into(),
+            onto: Some("main".into()),
+        }),
+        "the report says the hold stands"
     );
-
+    assert_eq!(report.onto, "feature");
+    assert_eq!(report.session, first);
+    assert!(
+        report.editing.is_empty() && report.subject.is_empty(),
+        "a resolution names no edited commit"
+    );
+    assert_eq!(head_branch(&fx), "feature", "HEAD came home");
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&first)),
+        "the session branch is gone"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "two\n",
+        "the working tree is back to the branch's own content"
+    );
     let repo = fx.repo();
     assert!(
-        ff_core::held::of(&repo, "feature").unwrap().is_none(),
-        "the hold is dropped"
+        ff_core::held::of(&repo, "feature").unwrap().is_some(),
+        "the hold is left standing"
     );
     assert!(
         ff_core::held::resolving(&repo, "feature")
             .unwrap()
             .is_none(),
-        "and the session with it"
+        "and the session is closed"
     );
+    assert_eq!(verb_ops(&fx), before_ops + 1, "one operation");
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "done");
+    assert_eq!(record.held, None, "no hold transition: nothing moved it");
+    let resolving = record
+        .resolving
+        .expect("the record carries the session's clearing");
+    assert!(resolving.old.is_some());
+    assert_eq!(resolving.new, None);
     drop(repo);
+
+    // The standing hold opens again, as a fresh session.
+    match resolve_call(&fx, false, NOW + 300).unwrap() {
+        ResolveOutcome::Opened(r) => {
+            assert_ne!(r.session, first, "a fresh session, not the closed one");
+        }
+        other => panic!("the kept hold opens again, got {other:?}"),
+    }
+    assert!(
+        std::fs::read_to_string(fx.path().join("f.txt"))
+            .unwrap()
+            .contains(OPENER),
+        "the markers are back in the working copy"
+    );
+}
+
+#[test]
+fn undo_after_done_abandon_restores_the_session_and_its_fixes() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+    let session = open_resolution(&fx, NOW + 100).session;
+    fix(&fx, "f.txt", "RESOLVED\n");
+
+    closed(&fx, NOW + 200);
+    undo(&fx, NOW + 300);
+
+    assert_eq!(head_branch(&fx), session, "HEAD is back on the session");
     assert_eq!(
         std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
-        "two\n",
-        "the working tree is back to the branch's own content"
+        "RESOLVED\n",
+        "the fixes are back"
+    );
+    let repo = fx.repo();
+    assert!(
+        ff_core::held::resolving(&repo, "feature")
+            .unwrap()
+            .is_some(),
+        "the session is recorded again"
+    );
+    assert!(
+        ff_core::held::of(&repo, "feature").unwrap().is_some(),
+        "and the hold never left"
+    );
+}
+
+#[test]
+fn done_abandon_brings_the_parked_change_home() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    // An open change in a file the rewrite does not touch.
+    fx.write("open.txt", "dirty\n");
+    hold_a_restack(&fx);
+    let opened = open_resolution(&fx, NOW + 100);
+    assert!(opened.parked.is_some(), "resolving parks the open change");
+    assert!(!fx.path().join("open.txt").exists());
+
+    let report = closed(&fx, NOW + 200);
+
+    assert!(
+        matches!(report.arrival, ff_core::ArrivalReport::Restored { .. }),
+        "the parked change came home, got {:?}",
+        report.arrival
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("open.txt")).unwrap(),
+        "dirty\n",
+        "the change is open again on feature"
+    );
+    assert!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap().is_some(),
+        "the hold is left standing"
+    );
+}
+
+#[test]
+fn held_moved_offers_done_abandon_and_the_hold_reopens() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+    let session = open_resolution(&fx, NOW + 100).session;
+    fix(&fx, "f.txt", "RESOLVED\n");
+
+    // The base moves under the session.
+    switch_to(&fx, "main", NOW + 110);
+    fx.write("later.txt", "later\n");
+    let later = fx.commit("later");
+    switch_to(&fx, &session, NOW + 120);
+
+    let err = done_call(&fx, NOW + 200).expect_err("a moved repository refuses");
+    assert_eq!(err.id(), "held/moved");
+    assert!(
+        err.exits().iter().any(|e| e == "ff done --abandon"),
+        "the refusal offers the close: {:?}",
+        err.exits()
+    );
+    assert!(
+        err.exits().iter().any(|e| e == "ff resolve --abandon"),
+        "and the drop: {:?}",
+        err.exits()
+    );
+
+    let report = closed(&fx, NOW + 300);
+    assert!(report.held.is_some(), "the hold stands");
+    assert_eq!(head_branch(&fx), "feature");
+
+    // The hold opens again, against the base as it is now.
+    let reopened = open_resolution(&fx, NOW + 400);
+    assert_ne!(reopened.session, session);
+    fix(&fx, "f.txt", "RESOLVED\n");
+    let landed = resolved(&fx, NOW + 500);
+    let repo = fx.repo();
+    assert!(
+        commits_between(&repo, oid(&landed.new_tip), oid(&later)).len() == 3,
+        "feature stands on the moved base"
     );
 }
 

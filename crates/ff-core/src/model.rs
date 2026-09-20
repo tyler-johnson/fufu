@@ -988,6 +988,21 @@ pub struct AbandonReport {
     pub left: Option<String>,
     pub arrival: ArrivalReport,
     pub files: usize,
+    /// The hold left standing when a resolution session was closed: `ff done
+    /// --abandon` drops the session and not the request. `None` on an edit
+    /// session, and on a resolution whose hold was cleared underneath it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<KeptHold>,
+}
+
+/// A hold that outlived the session closed over it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KeptHold {
+    /// The verb that held, as `HeldReport.verb` spells it.
+    pub verb: String,
+    /// The base a held restack replays onto or a held merge takes in, short
+    /// name. `None` for done, absorb, lift, and switch.
+    pub onto: Option<String>,
 }
 
 /// The result of a rewrite that conflicted: nothing was written, the intent

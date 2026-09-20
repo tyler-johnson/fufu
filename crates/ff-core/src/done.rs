@@ -32,7 +32,7 @@ use crate::futures;
 use crate::held::{self, Disposition, Effect, Held, Intent};
 use crate::hooks;
 use crate::model::{
-    AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport,
+    AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport, KeptHold,
 };
 use crate::ops::record::{SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, verb};
@@ -142,21 +142,33 @@ fn verb_of(held: &Held) -> &'static str {
 /// the branch the hold stood on. There is no commit being edited to name,
 /// and the honest absence is the empty string — which is what the renderer
 /// reads to tell the two apart.
-fn abandoned_as_done(outcome: crate::model::ResolveOutcome) -> Result<DoneOutcome> {
-    match outcome {
-        crate::model::ResolveOutcome::Abandoned(r) => Ok(DoneOutcome::Abandoned(AbandonReport {
-            session: r.session.unwrap_or_default(),
-            editing: String::new(),
-            subject: String::new(),
-            onto: r.branch,
-            left: None,
-            arrival: r.arrival,
-            files: 0,
-        })),
-        other => Err(Error::msg(format!(
-            "internal: an abandon of a resolution must abandon, got {other:?}"
-        ))),
-    }
+/// The closed resolution as `ff done` reports it. `editing` and `subject`
+/// stay empty: that is how the renderer tells a resolution from an editing
+/// session. `held` is the hold left standing on the branch, read after the
+/// close, so a hold cleared underneath the session reads as `None`.
+fn abandoned_as_done(
+    repo: &gix::Repository,
+    r: crate::model::AbandonedHold,
+) -> Result<DoneOutcome> {
+    let held = held::of(repo, &r.branch)?.map(|h| KeptHold {
+        verb: held::verb_of(&h),
+        onto: match &h.intent {
+            held::Intent::Restack { onto, .. } | held::Intent::Merge { onto, .. } => {
+                Some(held::onto_short(repo, onto))
+            }
+            _ => None,
+        },
+    });
+    Ok(DoneOutcome::Abandoned(AbandonReport {
+        session: r.session.unwrap_or_default(),
+        editing: String::new(),
+        subject: String::new(),
+        onto: r.branch,
+        left: None,
+        arrival: r.arrival,
+        files: 0,
+        held,
+    }))
 }
 
 /// What a landing verb tells the resolution arm about what it did. The four
@@ -220,6 +232,7 @@ fn finish_resolution(
             vec![
                 "ff status".into(),
                 "ff explain held/moved".into(),
+                "ff done --abandon".into(),
                 "ff resolve --abandon".into(),
             ],
         ));
@@ -733,8 +746,16 @@ pub fn done_with(
     // trip rides its own operation and the ordinary path runs.
     let clearing = decided.clearing.as_ref();
     if clearing.is_none()
-        && let Some(outcome) =
-            resolution_underfoot(repo, &ctx, prov, &argv, &session_branch, abandon, verify)?
+        && let Some(outcome) = resolution_underfoot(
+            repo,
+            &ctx,
+            prov,
+            &argv,
+            &head,
+            (&session_branch, session_tip),
+            abandon,
+            verify,
+        )?
     {
         return Ok((outcome, ctx));
     }
@@ -1124,6 +1145,7 @@ pub fn done_with(
             left: left.map(|id| id.to_string()),
             arrival: arrival_report,
             files,
+            held: None,
         })
     } else {
         DoneOutcome::Done(done_report(
@@ -1158,23 +1180,33 @@ pub fn done_with(
 /// resolution session; the branch a hold stands on, whose session is open
 /// elsewhere, is refused here too, since the way to its markers is a
 /// switch.
+#[allow(clippy::too_many_arguments)]
 fn resolution_underfoot(
     repo: &gix::Repository,
     ctx: &verb::VerbContext,
     prov: &Provenance,
     argv: &[String],
-    session_branch: &str,
+    head: &HeadState,
+    session: (&str, gix::ObjectId),
     abandon: bool,
     verify: hooks::Verify,
 ) -> Result<Option<DoneOutcome>> {
     let now = ctx.now;
+    let (session_branch, session_tip) = session;
     if let Some((onto, resolve)) = held::session_of(repo, session_branch)? {
         if abandon {
-            // Abandoning a resolution is the same act whichever verb spells
-            // it: one implementation, called from both doors.
-            let (outcome, _ctx) =
-                crate::resolve::resolve(repo, true, prov, Some(now), argv.to_vec())?;
-            return Ok(Some(abandoned_as_done(outcome)?));
+            // `--abandon` here closes the session and leaves the hold
+            // standing, the way it leaves an edited commit alone: the
+            // request is `ff resolve --abandon`'s to drop.
+            let closed = crate::resolve::close_session(
+                repo,
+                ctx,
+                (prov, argv.to_vec(), now),
+                head,
+                (session_branch.to_string(), session_tip),
+                (onto, resolve),
+            )?;
+            return Ok(Some(abandoned_as_done(repo, closed)?));
         }
         let rec = held::Recording {
             ctx,

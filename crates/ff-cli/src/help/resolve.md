@@ -23,7 +23,7 @@ A standing hold is opened first. With no hold, resolve reads the branch against 
 
 The merge is one commit with two parents, the branch's tip first and the base's tip second, authored by you with a change ID, signed per `commit.gpgsign`, subject `merge <base> into <branch>`. The branch moves onto it and its open change comes back over it; nothing is rewritten, so `ff push` afterwards is an ordinary push. One `ff undo` removes it. No hook runs for the merge commit. Only the current branch is merged: from elsewhere, switch to it first.
 
-A conflicting auto-merge records a `merge` hold and opens the resolution session in the same step, exit 3. Edit the markers, then `ff done` lands the merge commit with the fixes as its tree; `ff done --abandon` drops the session and the hold. A held merge follows a later rewrite of the branch the way a held restack does: dropped by a re-aim, cleared by a replay onto its base, and kept otherwise. Running resolve on a held merge that is clean now lands it; on one whose base is already in, it releases the hold.
+A conflicting auto-merge records a `merge` hold and opens the resolution session in the same step, exit 3. Edit the markers, then `ff done` lands the merge commit with the fixes as its tree; `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. A held merge follows a later rewrite of the branch the way a held restack does: dropped by a re-aim, cleared by a replay onto its base, and kept otherwise. Running resolve on a held merge that is clean now lands it; on one whose base is already in, it releases the hold.
 
 ### Parked-change arrivals
 
@@ -31,6 +31,6 @@ A held arrival occurs when `ff switch` cannot replay parked work onto a moved br
 
 ### Abandoning and undo
 
-`--abandon` drops the hold and any open resolution session, returning to the original branch. Opening a rewrite-resolution session is two operations, creation and switching; two `ff undo` calls take it back. Landing or abandoning is one operation. `ff history` shows the available steps.
+`--abandon` drops the hold and any open resolution session, returning to the original branch. `ff done --abandon` from the session is the way to close it without dropping the hold. Opening a rewrite-resolution session is two operations, creation and switching; two `ff undo` calls take it back. Landing or abandoning is one operation. `ff history` shows the available steps.
 
 Opening a session over a standing hold exits 0. Exit 3 is owed when this resolve recorded the hold itself: a merge of the base that conflicts. `held/none` exits 3 as every `held/` refusal does.

@@ -130,18 +130,20 @@ pub fn abandon(args: &[OsString]) -> Result<()> {
             format!("ff lift --from {rev}"),
             "ff restore --all".into(),
             "ff done --abandon".into(),
+            "ff resolve --abandon".into(),
         ],
         None => vec![
             "ff restore --all".into(),
             "ff done --abandon".into(),
+            "ff resolve --abandon".into(),
             "ff lift --from <rev>".into(),
         ],
     };
     refuse(
         "there is no ff abandon: the open change is dropped with ff restore --all, an editing \
-         session or a held rewrite with ff done --abandon, and a commit that has closed comes \
-         apart with ff lift --from <rev>, which drops it once nothing is left. A branch goes \
-         with ff branch -d"
+         session with ff done --abandon, a held rewrite with ff resolve --abandon, and a commit \
+         that has closed comes apart with ff lift --from <rev>, which drops it once nothing is \
+         left. A branch goes with ff branch -d"
             .into(),
         exits,
     )

@@ -12,7 +12,9 @@
 //! the hold STAYS on that branch: it is what the session is resolving, and
 //! `ff done` needs it. Two operations open a session, the mint and the
 //! switch, exactly as `ff edit` spends two; `ff done` lands the fixes and
-//! returns in one. The way out is `--abandon`, from either branch.
+//! returns in one. Two ways out: `ff done --abandon` closes the session and
+//! leaves the hold standing, so `ff resolve` can open it again; `ff resolve
+//! --abandon`, from either branch, drops the hold and the session with it.
 
 use crate::error::{Error, Result};
 use crate::held::{self, verb_of};
@@ -153,7 +155,7 @@ pub fn resolve(
             let held = held::of(repo, &onto)?;
             return abandon_hold(
                 repo,
-                ctx,
+                ctx.pre_tree,
                 (prov, argv, now),
                 &head,
                 Standing::Session {
@@ -163,7 +165,9 @@ pub fn resolve(
                     open,
                     held,
                 },
-            );
+                KeepHold::No,
+            )
+            .map(|dropped| (ResolveOutcome::Abandoned(dropped), ctx));
         }
         return Err(Error::coded(
             "held/resolving",
@@ -192,11 +196,13 @@ pub fn resolve(
     if abandon {
         return abandon_hold(
             repo,
-            ctx,
+            ctx.pre_tree,
             (prov, argv, now),
             &head,
             Standing::Branch { branch, open, held },
-        );
+            KeepHold::No,
+        )
+        .map(|dropped| (ResolveOutcome::Abandoned(dropped), ctx));
     }
 
     // No hold: the merge door. A branch whose commits hold a merge of its
@@ -850,18 +856,60 @@ enum Standing {
     },
 }
 
+/// Whether the hold outlives the abandon. `ff resolve --abandon` drops it;
+/// `ff done --abandon` keeps it, closing only the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeepHold {
+    Yes,
+    No,
+}
+
+/// `ff done --abandon` from the session branch: close the session and keep
+/// the hold. The session branch goes, `resolving` is cleared, HEAD returns to
+/// the branch the hold stands on with its parked change brought home, and
+/// the hold is left standing for `ff resolve` to open again. One operation,
+/// so one `ff undo` puts the session and its fixes back.
+pub(crate) fn close_session(
+    repo: &gix::Repository,
+    ctx: &verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    head: &HeadState,
+    session: (String, gix::ObjectId),
+    resolving: (String, held::Resolve),
+) -> Result<AbandonedHold> {
+    let (session, session_tip) = session;
+    let (onto, open) = resolving;
+    let held = held::of(repo, &onto)?;
+    abandon_hold(
+        repo,
+        ctx.pre_tree,
+        invocation,
+        head,
+        Standing::Session {
+            session,
+            session_tip,
+            onto,
+            open,
+            held,
+        },
+        KeepHold::Yes,
+    )
+}
+
 /// `--abandon`: drop the hold, and the session with it if one is open — one
 /// operation, so one `ff undo` puts both back. From the session branch it
 /// also returns you to the branch the hold stands on; from that branch it
-/// deletes the session wherever it is. (Named for what it does, since the
-/// flag it serves shadows it.)
+/// deletes the session wherever it is. Under `KeepHold::Yes` the hold is
+/// left standing and only the session goes: `ff done --abandon`'s reading.
+/// (Named for what it does, since the flag it serves shadows it.)
 fn abandon_hold(
     repo: &gix::Repository,
-    ctx: verb::VerbContext,
+    pre_tree: gix::ObjectId,
     invocation: (&Provenance, Vec<String>, i64),
     head: &HeadState,
     standing: Standing,
-) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    keep: KeepHold,
+) -> Result<AbandonedHold> {
     let (prov, argv, now) = invocation;
 
     // What is on the branch the hold stands on, and which session branch
@@ -969,15 +1017,23 @@ fn abandon_hold(
     // dirty tree is not.
     let (end_tree, end_index) = match &landing {
         Some((_, tree, arrive)) => arrive.end_trees(*tree),
-        None => (ctx.pre_tree, crate::index::tree_from_index(repo)?),
+        None => (pre_tree, crate::index::tree_from_index(repo)?),
     };
 
+    // The record names the door: `done` closes, `resolve` drops.
     let mut record = OpRecord::new(
-        "resolve",
-        if open.is_some() {
-            format!("abandon the resolution of the held {verb} on {branch}")
-        } else {
-            format!("drop the held {verb} on {branch}")
+        match keep {
+            KeepHold::Yes => "done",
+            KeepHold::No => "resolve",
+        },
+        match (keep, open.is_some()) {
+            (KeepHold::Yes, _) => {
+                format!("close the resolution of the held {verb} on {branch}")
+            }
+            (KeepHold::No, true) => {
+                format!("abandon the resolution of the held {verb} on {branch}")
+            }
+            (KeepHold::No, false) => format!("drop the held {verb} on {branch}"),
         },
         now,
     );
@@ -993,11 +1049,13 @@ fn abandon_hold(
             new: None,
         });
     }
-    record.held = Some(HeldTransition {
-        branch: branch.clone(),
-        old: held,
-        new: None,
-    });
+    if keep == KeepHold::No {
+        record.held = Some(HeldTransition {
+            branch: branch.clone(),
+            old: held,
+            new: None,
+        });
+    }
     record.resolving = Some(ResolveTransition {
         branch: branch.clone(),
         old: open,
@@ -1068,10 +1126,15 @@ fn abandon_hold(
         match crate::refs::commit_edits(repo, edits, now)? {
             crate::refs::EditOutcome::Applied => {}
             crate::refs::EditOutcome::Contended => {
+                let rerun = match keep {
+                    KeepHold::Yes => "ff done --abandon",
+                    KeepHold::No => "ff resolve --abandon",
+                };
                 return Err(Error::coded(
                     "ref/contended",
-                    "refs moved while abandoning; nothing further was changed (re-run ff \
-                     resolve --abandon)",
+                    format!(
+                        "refs moved while abandoning; nothing further was changed (re-run {rerun})"
+                    ),
                     vec![],
                 ));
             }
@@ -1093,31 +1156,30 @@ fn abandon_hold(
         let _ = crate::futures::cache::remove(repo, name);
     }
     // The clears before the arrival, which may record a hold of its own.
-    held::set(repo, &branch, None)?;
+    if keep == KeepHold::No {
+        held::set(repo, &branch, None)?;
+    }
     held::set_resolving(repo, &branch, None)?;
     let arrival = match &landing {
         Some((_, tree, arrive)) => {
             crate::index::write_index_for_tree(repo, *tree)?;
             let everything = |_: &str| true;
-            worktree::apply_tree_transition(repo, ctx.pre_tree, *tree, &everything)?;
+            worktree::apply_tree_transition(repo, pre_tree, *tree, &everything)?;
             park::execute_arrival(repo, &branch, arrive, *tree, now)?
         }
         None => crate::model::ArrivalReport::None,
     };
 
-    Ok((
-        ResolveOutcome::Abandoned(AbandonedHold {
-            branch,
-            verb,
-            was_resolving,
-            session: session.map(|(name, _)| name),
-            returned: landing.is_some(),
-            arrival,
-            left: match &held_intent {
-                Some(held::Intent::Arrive { open, .. }) => Some(open.clone()),
-                _ => None,
-            },
-        }),
-        ctx,
-    ))
+    Ok(AbandonedHold {
+        branch,
+        verb,
+        was_resolving,
+        session: session.map(|(name, _)| name),
+        returned: landing.is_some(),
+        arrival,
+        left: match &held_intent {
+            Some(held::Intent::Arrive { open, .. }) => Some(open.clone()),
+            _ => None,
+        },
+    })
 }

@@ -36,9 +36,9 @@ Some conflicts require more than one round. When two replay steps conflict over 
 
 ## Abandoning or undoing a resolution
 
-`ff resolve --abandon` drops the held rewrite and an open resolution session, returning from the session if needed. It works from the session or the held branch.
+`ff resolve --abandon` drops the held rewrite and an open resolution session, returning from the session if needed. It works from the session or the held branch. [`ff done --abandon`](../reference/cli/done.md) from the session closes only the session: the hold stays, and `ff resolve` opens a fresh session over it.
 
-Opening a rewrite session takes two operations: creating the session branch and switching to it. One [`ff undo`](../reference/cli/undo.md) returns to the original branch; another removes the newly created session. Landing or abandoning is one operation, so one undo restores the session, hold, and recorded fixes. [Snapshot coverage and retention](snapshots-and-undo.md#coverage-and-limits) apply.
+Opening a rewrite session takes two operations: creating the session branch and switching to it. One [`ff undo`](../reference/cli/undo.md) returns to the original branch; another removes the newly created session. Landing, closing, or abandoning is one operation, so one undo restores the session and its recorded fixes either way, and the hold with them when it was dropped. [Snapshot coverage and retention](snapshots-and-undo.md#coverage-and-limits) apply.
 
 ## Parked-change arrival
 

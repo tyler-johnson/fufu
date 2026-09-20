@@ -508,8 +508,8 @@ exits = ["ff status", "ff switch <session>", "ff help done"]
 [[entry]]
 id = "held/moved"
 summary = "the current rewrite no longer produces the conflicts this session was opened for"
-detail = "Preserve any fixes you want to reuse, then abandon the stale resolution with ff resolve --abandon. That removes both session and hold and returns from the session to its destination branch. Reissue the original rewrite against the current state, then use ff resolve if it records a new hold. Running ff resolve before abandoning only returns held/resolving. This failed done has not landed the resolution; pre-command capture or reconciliation may already have recorded your edits."
-exits = ["ff status", "ff diff", "ff resolve --abandon"]
+detail = "Preserve any fixes you want to reuse, then close the stale session with ff done --abandon. That deletes the session, keeps the hold, and returns to the held branch; ff resolve afterward opens a fresh session against the moved world, or releases the hold when the rewrite is clean now. ff resolve --abandon drops the session and the hold both. Running ff resolve before closing only returns held/resolving. This failed done has not landed the resolution; pre-command capture or reconciliation may already have recorded your edits."
+exits = ["ff status", "ff diff", "ff done --abandon", "ff resolve --abandon"]
 
 [[entry]]
 id = "held/unresolved"

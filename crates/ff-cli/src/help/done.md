@@ -12,7 +12,7 @@ ff done --no-verify             # Skip pre-commit and commit-msg
 
 ### Abandoning and conflicts
 
-`--abandon` drops the session without applying it or running commit hooks. Uncommitted session work remains as an internal open commit pinned by the operation, named in the report and recoverable with `ff undo`.
+`--abandon` drops the session without applying it or running commit hooks. Uncommitted session work remains as an internal open commit pinned by the operation, named in the report and recoverable with `ff undo`. On a resolution session `--abandon` closes the session and keeps the hold: the branch stays held, `ff resolve` opens a fresh session over it, and `ff resolve --abandon` drops both.
 
 A conflicting primary replay leaves the session open without landing it and exits 3. Captures and metadata may still be written. A held restack on the landing branch stays and follows the rewrite; a held absorb, lift, or done there refuses the landing. A held parked-change arrival resolves in place and has no session to finish with done.
 
