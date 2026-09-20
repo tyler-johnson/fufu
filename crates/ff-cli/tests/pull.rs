@@ -1647,3 +1647,174 @@ fn pull_carries_a_local_merge_onto_the_moved_shared_copy() {
         "the worktree is at the new tip"
     );
 }
+
+/// The issue's repro (GitHub #12): standing on `side`, whose commits hold a
+/// merge of `main`, with `main` moved again since. Trunk must move after
+/// the merge, or `side` reads up to date and the walk never crosses it.
+fn merge_holding_side(fx: &Fixture) {
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "side"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "side"]);
+    fx.write("s1.txt", "s1\n");
+    fx.commit("s1");
+    fx.git(&["merge", "-q", "--no-edit", "main"]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "side"]);
+}
+
+/// A merge on the branch underfoot is pull's skip, not its error: the run
+/// exits 0, names the branch as left alone with both doors, moves nothing
+/// on it, and the JSON `base` reads `Refused` with the reason, the shape
+/// every other row carries.
+#[test]
+fn the_branch_underfoot_holding_a_merge_is_left_alone() {
+    let fx = repo();
+    merge_holding_side(&fx);
+    let before = tips(&fx, &["side", "main"]);
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("left alone: its commits hold a merge"),
+        "got: {text}"
+    );
+    assert!(text.contains("ff restack side"), "got: {text}");
+    assert!(text.contains("ff git merge main"), "got: {text}");
+    assert!(!text.contains("undo: ff undo"), "nothing moved: {text}");
+    assert_eq!(tips(&fx, &["side", "main"]), before, "nothing moved");
+
+    let output = ff(&fx, &["--json", "pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let refused = &json(&output)["data"]["pull"]["base"]["Refused"];
+    assert_eq!(refused["name"], "main", "{refused}");
+    assert_eq!(refused["reason"]["kind"], "merge-in-range", "{refused}");
+}
+
+/// With a remote, the skip stops only the base axis: local trunk still
+/// follows its remote, the remote axis still replays the branch's own
+/// commits above the teammate's, and the merge stands untouched.
+#[test]
+fn the_run_goes_on_around_the_merge_holding_branch_underfoot() {
+    let fx = Fixture::new_cloned();
+    fx.set_config("user.name", "Pull Tester");
+    fx.set_config("user.email", "pull@test.test");
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    fx.commit("T1");
+    fx.git(&["push", "-q", "origin", "main"]);
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    let m = fx.commit("M: merge main");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["push", "-q", "-u", "origin", "feature"]);
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    let other = fx.root().join("other");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &other.to_string_lossy(),
+        ],
+    );
+    std::fs::write(other.join("t2.txt"), "t2\n").unwrap();
+    fx.git_in(&other, &["add", "-A"]);
+    fx.git_in(&other, &["commit", "-q", "-m", "T2"]);
+    fx.git_in(&other, &["push", "-q", "origin", "main"]);
+    let t2 = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
+    fx.git_in(&other, &["switch", "-q", "feature"]);
+    std::fs::write(other.join("r.txt"), "r\n").unwrap();
+    fx.git_in(&other, &["add", "-A"]);
+    fx.git_in(&other, &["commit", "-q", "-m", "r1"]);
+    fx.git_in(&other, &["push", "-q", "origin", "feature"]);
+    let r1 = fx.git_in(&other, &["rev-parse", "HEAD"]).trim().to_string();
+
+    let output = ff(&fx, &["pull"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("left alone: its commits hold a merge"),
+        "got: {text}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "main"]).trim(),
+        t2,
+        "local trunk followed its remote"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "feature~1"]).trim(),
+        r1,
+        "f3 replayed above the remote copy"
+    );
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "feature"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges, vec![m], "the merge stands untouched");
+}
+
+/// One name holding a merge among several: the others move and the run
+/// exits 0, with the merge-holding branch's block naming the skip.
+#[test]
+fn several_names_with_one_holding_a_merge_move_the_rest() {
+    let fx = repo();
+    merge_holding_side(&fx);
+    fx.git(&["switch", "-q", "-c", "a", "main~2"]);
+    fx.write("a1.txt", "a1\n");
+    fx.commit("a1");
+    fx.git(&["switch", "-q", "main"]);
+    let side_before = tips(&fx, &["side"]);
+
+    let output = ff(&fx, &["pull", "--no-fetch", "a", "side"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "a"])
+            .status
+            .success(),
+        "a moved onto main: {text}"
+    );
+    assert_eq!(tips(&fx, &["side"]), side_before, "side stands: {text}");
+    let side_block = text.split("side").nth(1).expect("a block for side");
+    assert!(
+        side_block.contains("left alone: its commits hold a merge"),
+        "got: {text}"
+    );
+}
+
+/// A dry run reports the skip in the conditional and writes nothing.
+#[test]
+fn a_dry_run_reports_the_merge_skip_and_writes_nothing() {
+    let fx = repo();
+    merge_holding_side(&fx);
+    let ops = op_count(&fx);
+    let before = tips(&fx, &["side", "main"]);
+
+    let output = ff(&fx, &["pull", "-n", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("be left alone: its commits hold a merge"),
+        "got: {text}"
+    );
+    assert_eq!(op_count(&fx), ops, "nothing recorded");
+    assert_eq!(tips(&fx, &["side", "main"]), before, "nothing moved");
+}

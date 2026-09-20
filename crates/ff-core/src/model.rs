@@ -744,7 +744,10 @@ pub enum SkipReason {
     Worktree { path: String },
     /// A rewrite is already held on it: one hold per branch.
     AlreadyHeld,
-    /// Its commits hold a merge, and replaying a merge is ambiguous.
+    /// Its commits hold a merge: the branch takes its base in by merging,
+    /// and pull's base axis does not rewrite that choice. `ff restack`
+    /// replays the branch straight; `ff git merge <base>` takes the base
+    /// in the way the branch already does.
     MergeInRange,
     /// It shares no history with its base.
     Unrelated,
@@ -1564,8 +1567,7 @@ pub enum BaseAxis {
     Skipped,
     /// The replay was refused before anything moved: the branch shares no
     /// history with its base, or its commits hold a merge. Named and left
-    /// where it stands. Only a branch not underfoot reads this; the branch
-    /// underfoot's refusal is the verb's own error.
+    /// where it stands, the branch underfoot included.
     Refused { name: String, reason: SkipReason },
     Ran {
         name: String,

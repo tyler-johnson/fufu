@@ -86,7 +86,7 @@ use crate::ops::{OpKind, OpRecord, verb};
 use crate::overlay::Overlay;
 use crate::preflight::Preflight;
 use crate::refs;
-use crate::restack::{Aim, RestackPlan, plan_restack};
+use crate::restack::{self, Aim, RestackPlan, plan_restack};
 use crate::{Error, Provenance, Result};
 
 /// The facts pull cannot learn for itself, handed in by whoever ran the
@@ -1085,11 +1085,41 @@ pub fn base_order(repo: &gix::Repository) -> Result<Vec<String>> {
     Ok(out)
 }
 
+/// Pull's own look at a branch's range before a replay is planned. A merge
+/// in it is a skip, not a rewrite: the merge is evidence the person chose to
+/// take the base in that way, usually because the branch is pushed and under
+/// review, and pull leaves the branch where it stands and names it. An
+/// orphan history is the same skip for the same reason `plan_restack`
+/// refuses it. `None` means plan the replay; a branch with no tip is left
+/// for `plan_restack` to refuse in its own words.
+fn refused_before_planning(
+    repo: &gix::Repository,
+    branch: &str,
+    pull_ref: &crate::futures::PullRef,
+    overlay: &Overlay,
+) -> Result<Option<SkipReason>> {
+    let Some(branch_tip) = overlay.branch_tip(repo, branch)? else {
+        return Ok(None);
+    };
+    let mut base = restack::onto_from(repo, pull_ref)?;
+    // The base as the run has planned it, when it moved the base already.
+    if let Some(tip) = overlay.tip(&base.full) {
+        base.tip = tip;
+    }
+    match restack::measure_range(repo, branch, branch_tip, &base) {
+        Ok(range) => Ok(range.merge.map(|_| SkipReason::MergeInRange)),
+        Err(err) if err.id() == "restack/unrelated" => Ok(Some(SkipReason::Unrelated)),
+        Err(err) => Err(err),
+    }
+}
+
 /// The base axis of the branch underfoot: a plain `restack` with `onto:
 /// None`, planned against the run. A hold the run planned on it stops it,
 /// whether its own remote axis held or a cascade from another branch's
 /// replay reached it; a hold that stood before the run is the preflight's
-/// to refuse and is not second-guessed here.
+/// to refuse and is not second-guessed here. A merge in its commits or an
+/// orphan history is named and left standing, the same as for a branch not
+/// underfoot: the rest of the run goes on, trunk included.
 fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> Result<BaseAxis> {
     if run.overlay.has_hold(&pre.branch) {
         return Ok(BaseAxis::Skipped);
@@ -1099,6 +1129,12 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
     else {
         return Ok(BaseAxis::NoBase);
     };
+    if let Some(reason) = refused_before_planning(repo, &pre.branch, &pull_ref, &run.overlay)? {
+        return Ok(BaseAxis::Refused {
+            name: pull_ref.name,
+            reason,
+        });
+    }
     let plan = plan_restack(
         repo,
         None,
@@ -1118,7 +1154,7 @@ fn current_base_axis(repo: &gix::Repository, pre: &Preflight, run: &mut Run) -> 
 /// None`, planned against the run, which moves refs and objects and no file
 /// and cascades into the branches stacked above it. A hold standing on the
 /// branch stops it: its own remote axis held this run, or a cascade reached
-/// it. A replay `restack` refuses before anything moves is named and left
+/// it. A merge in its commits or an orphan history is named and left
 /// standing rather than stopping the run: pull visits every branch, and one
 /// branch's merge or orphan history is no reason to leave the rest stale.
 fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Result<BaseAxis> {
@@ -1129,7 +1165,12 @@ fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Resul
     let Some(pull_ref) = crate::futures::base_for_planned(repo, branch, planned_parent)? else {
         return Ok(BaseAxis::NoBase);
     };
-    let name = pull_ref.name;
+    if let Some(reason) = refused_before_planning(repo, branch, &pull_ref, &run.overlay)? {
+        return Ok(BaseAxis::Refused {
+            name: pull_ref.name,
+            reason,
+        });
+    }
     let plan = plan_restack(
         repo,
         Some(branch.to_string()),
@@ -1138,16 +1179,9 @@ fn other_base_axis(repo: &gix::Repository, branch: &str, run: &mut Run) -> Resul
         &crate::rewrite::Decided::none(),
         Aim::Asked,
         &run.overlay,
-    );
-    match plan {
-        Ok(plan) => Ok(BaseAxis::Ran {
-            name,
-            outcome: run.fold(repo, plan)?,
-        }),
-        Err(err) if err.id() == "restack/unrelated" => Ok(BaseAxis::Refused {
-            name,
-            reason: SkipReason::Unrelated,
-        }),
-        Err(err) => Err(err),
-    }
+    )?;
+    Ok(BaseAxis::Ran {
+        name: pull_ref.name,
+        outcome: run.fold(repo, plan)?,
+    })
 }

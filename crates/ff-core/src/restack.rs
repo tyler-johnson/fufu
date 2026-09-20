@@ -167,7 +167,7 @@ pub(crate) fn resolve_onto(repo: &gix::Repository, raw: &str) -> Result<Onto> {
 /// status` asked. The *name* comes from the `PullRef` too, so a
 /// remote-qualified trunk still displays as `main`: ref syntax on the screen
 /// is exactly what fufu exists to delete.
-fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto> {
+pub(crate) fn onto_from(repo: &gix::Repository, pull_ref: &futures::PullRef) -> Result<Onto> {
     let tip = refs::ref_target(repo, &pull_ref.r#ref)?.ok_or_else(|| {
         Error::coded(
             "branch/not-found",
@@ -245,7 +245,8 @@ fn range_boundary(
 /// The commits above `boundary` from `branch_tip` down, oldest first. A
 /// merge in the range is reported so the caller picks its probe: a
 /// straight line is probed commit by commit, a range holding a merge
-/// through the engine's own chain. Pull reads it for its base-axis skip.
+/// through the engine's own chain. Pull reads it through [`measure_range`]
+/// for its base-axis skip.
 fn walk_range(
     repo: &gix::Repository,
     branch_tip: gix::ObjectId,
@@ -266,6 +267,74 @@ fn walk_range(
         floor_first(repo, branch_tip, &mut range)?;
     }
     Ok((range, merge))
+}
+
+/// A branch's range against its base: what `plan_restack` §5 measures and
+/// what pull reads before it plans, so the verb and pull's pre-check cannot
+/// disagree about where a merge stands.
+pub(crate) struct Range {
+    /// The merge bases of the branch's tip with the base's, never empty.
+    pub bases: Vec<gix::ObjectId>,
+    /// The base is already beneath the branch: nothing to replay.
+    pub up_to_date: bool,
+    /// The branch is beneath the base: it moves without a replay.
+    pub fast_forward: bool,
+    /// The branch's own commits, oldest first, down to where it forked from
+    /// the base. Empty when up to date or a fast-forward.
+    pub commits: Vec<gix::ObjectId>,
+    /// The first merge the walk crossed, when the range holds one.
+    pub merge: Option<gix::ObjectId>,
+}
+
+/// Measure `branch`'s range against `base`. `restack/unrelated` when the
+/// two share no history. The range is walked only when the branch is
+/// neither up to date nor a fast-forward: the other two states have no
+/// commits to replay, so there is nothing to walk.
+pub(crate) fn measure_range(
+    repo: &gix::Repository,
+    branch: &str,
+    branch_tip: gix::ObjectId,
+    base: &Onto,
+) -> Result<Range> {
+    let bases: Vec<gix::ObjectId> = repo
+        .merge_bases_many(branch_tip, &[base.tip])
+        .map_err(Error::repo)?
+        .into_iter()
+        .map(|id| id.detach())
+        .collect();
+    if bases.is_empty() {
+        return Err(Error::coded(
+            "restack/unrelated",
+            format!(
+                "{branch} and {} have no common ancestor: there is nothing to replay onto",
+                base.name
+            ),
+            vec!["ff log".into()],
+        ));
+    }
+
+    // Up-to-date before fast-forward: when the tips are equal both are true,
+    // and the honest answer is "already there", not "fast-forwarded by
+    // nothing". futures.rs makes the same choice for the same reason.
+    let up_to_date = bases.contains(&base.tip);
+    let fast_forward = !up_to_date && bases.contains(&branch_tip);
+
+    let (mut commits, mut merge) = (Vec::new(), None);
+    if !up_to_date && !fast_forward {
+        // The branch's own commits, down to where it forked from the base:
+        // the range `replan_restack` measures, so the verb and the replan
+        // cannot disagree. A restack is something a person asked for, so
+        // the range is walked in full — no depth cap.
+        let boundary = range_boundary(repo, branch_tip, base, &bases)?;
+        (commits, merge) = walk_range(repo, branch_tip, &boundary)?;
+    }
+    Ok(Range {
+        bases,
+        up_to_date,
+        fast_forward,
+        commits,
+        merge,
+    })
 }
 
 /// Put the floor of `tip`'s first-parent line first in `range`: the commit
@@ -772,48 +841,21 @@ pub(crate) fn plan_restack(
     // `--onto` naming the parent that is already recorded changes nothing.
     let parent_changes = reaimed && recorded_parent.as_deref() != Some(base_name.as_str());
 
-    // 5. The range, and whether the worktree moves.
-    let bases: Vec<gix::ObjectId> = repo
-        .merge_bases_many(branch_tip, &[base_tip])
-        .map_err(Error::repo)?
-        .into_iter()
-        .map(|id| id.detach())
-        .collect();
-    if bases.is_empty() {
-        return Err(Error::coded(
-            "restack/unrelated",
-            format!(
-                "{branch} and {base_name} have no common ancestor: there is nothing to \
-                     replay onto"
-            ),
-            vec!["ff log".into()],
-        ));
-    }
-
-    // Up-to-date before fast-forward: when the tips are equal both are true,
-    // and the honest answer is "already there", not "fast-forwarded by
-    // nothing". futures.rs makes the same choice for the same reason.
-    let up_to_date = bases.contains(&base_tip);
-    let fast_forward = !up_to_date && bases.contains(&branch_tip);
+    // 5. The range, and whether the worktree moves. A merge in it is carried
+    // by the engine; §7 remembers it to probe through the same engine.
+    let Range {
+        bases,
+        up_to_date,
+        fast_forward,
+        commits: range,
+        merge,
+    } = measure_range(repo, &branch, branch_tip, &base)?;
 
     if up_to_date && !parent_changes {
         return Ok(RestackPlan::Unchanged {
             branch,
             base: base_name,
         });
-    }
-
-    let mut range: Vec<gix::ObjectId> = Vec::new();
-    let mut merge: Option<gix::ObjectId> = None;
-    if !up_to_date && !fast_forward {
-        // The branch's own commits, down to where it forked from the base:
-        // the range `replan_restack` measures, so the verb and the replan
-        // cannot disagree. A restack is something a person asked for, so
-        // the range is walked in full — no depth cap. A merge in it is
-        // carried by the engine; §7 remembers it to probe through the same
-        // engine.
-        let boundary = range_boundary(repo, branch_tip, &base, &bases)?;
-        (range, merge) = walk_range(repo, branch_tip, &boundary)?;
     }
 
     // The commits of the range the base already holds by change id. The

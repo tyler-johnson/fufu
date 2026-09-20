@@ -436,7 +436,7 @@ pub(super) fn to_pull(n: usize, colored: bool) -> String {
 
 /// One axis's phrase, or `None` when `ff pull` would not act on it.
 fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
-    use ff_core::futures::{At, Role, Verdict};
+    use ff_core::futures::{At, Role, UnknownReason, Verdict};
 
     let role = f.against.role;
     // The role word, carrying a name only when the name is news — a base that
@@ -502,6 +502,19 @@ fn axis_phrase(f: &ff_core::futures::Future, colored: bool) -> Option<String> {
                 "{which} moved — conflicts with your open change in {} {}",
                 paths.len(),
                 noun(paths.len(), "file", "files")
+            ),
+            colored,
+        ),
+        // A merge on the branch is how it takes its base in, and pull's
+        // base axis leaves that standing, so the line names the two doors:
+        // a replay to a straight line, or the base taken in by merge again.
+        Verdict::Unknown {
+            reason: reason @ UnknownReason::MergeCommits,
+        } if role.is_base() => paint_dim(
+            &format!(
+                "{which} moved — can't simulate ({}) · ff restack or ff git merge {}",
+                reason.text(),
+                f.against.name
             ),
             colored,
         ),
@@ -670,7 +683,7 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
             &format!(
                 "{} skipped: {}{}",
                 s.branch,
-                skip_reason(&s.reason, &s.base),
+                skip_reason(&s.reason, &s.branch, &s.base),
                 left_alone(&s.left_alone)
             ),
             colored,
@@ -680,14 +693,16 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
 }
 
 /// Why a branch was left where it stands, in the words every verb uses;
-/// `base` is the branch it sits on, named when the reason is about it.
-pub(crate) fn skip_reason(reason: &ff_core::SkipReason, base: &str) -> String {
+/// `branch` is the branch itself and `base` the one it sits on, named when
+/// the reason is about them.
+pub(crate) fn skip_reason(reason: &ff_core::SkipReason, branch: &str, base: &str) -> String {
     match reason {
         ff_core::SkipReason::Worktree { path } => format!("checked out in {path}"),
         ff_core::SkipReason::AlreadyHeld => "a rewrite is already held there".to_string(),
-        ff_core::SkipReason::MergeInRange => {
-            "its commits hold a merge, and replaying a merge is ambiguous".to_string()
-        }
+        ff_core::SkipReason::MergeInRange => format!(
+            "its commits hold a merge — ff restack {branch} replays them straight, or ff git \
+             merge {base} takes {base} in"
+        ),
         ff_core::SkipReason::Unrelated => format!("it shares no history with {base}"),
     }
 }
