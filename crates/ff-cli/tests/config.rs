@@ -46,6 +46,7 @@ fn list_shows_defaults() {
     assert!(text.contains("updateCheck"), "missing updateCheck");
     assert!(text.contains("gitPolicy"), "missing gitPolicy");
     assert!(text.contains("coach"), "missing coach");
+    assert!(text.contains("onConflict"), "missing onConflict");
     assert!(text.contains("(default)"), "missing (default) tag");
     assert!(
         text.contains("Stored as plain git config under fufu."),
@@ -292,8 +293,9 @@ fn json_shapes() {
     // translate in place), and watchInterval with ff watch; ambient left
     // with the shell channel, and autoUpdate with silent self-installs;
     // toolPolicy came and went with the args-array tool; autoFetch joined
-    // with the fetch lane, and pruneGone with `ff branch --prune`, so 13.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 13);
+    // with the fetch lane, pruneGone with `ff branch --prune`, and
+    // onConflict with `--resolve` on restack, pull, and merge, so 14.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 14);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -499,6 +501,64 @@ fn git_policy_rejects_an_unknown_tier() {
     assert!(
         err.contains("observe") && err.contains("coach") && err.contains("strict"),
         "the failure names the tiers: {err}"
+    );
+}
+
+#[test]
+fn on_conflict_round_trips() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "onConflict"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "hold\n");
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    let text = stdout(&out);
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("onConflict  "))
+        .expect("onConflict line in list output");
+    assert!(line.contains("(default)"), "{line}");
+
+    for value in ["hold", "resolve"] {
+        let out = ff_cfg(&fx.path(), &["config", "onConflict", value], &global);
+        assert!(
+            out.status.success(),
+            "setting onConflict to {value} failed: {}",
+            stderr(&out)
+        );
+        let out = ff_cfg(&fx.path(), &["config", "onConflict"], &global);
+        assert_eq!(stdout(&out).trim(), value);
+    }
+
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "onConflict"], &global);
+    assert!(out.status.success());
+    let out = ff_cfg(&fx.path(), &["config", "onConflict"], &global);
+    assert_eq!(stdout(&out), "hold\n");
+}
+
+#[test]
+fn on_conflict_normalizes_case() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config", "onConflict", "RESOLVE"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg(&fx.path(), &["config", "onConflict"], &global);
+    assert_eq!(stdout(&out).trim(), "resolve");
+}
+
+#[test]
+fn on_conflict_rejects_an_unknown_value() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config", "onConflict", "sometimes"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    let err = stderr(&out);
+    assert!(err.contains("onConflict"), "{err}");
+    assert!(
+        err.contains("hold") && err.contains("resolve"),
+        "the failure names the choices: {err}"
     );
 }
 

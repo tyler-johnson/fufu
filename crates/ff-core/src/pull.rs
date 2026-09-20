@@ -77,9 +77,10 @@
 
 use std::collections::HashSet;
 
+use crate::held::OnConflict;
 use crate::model::{
-    BaseAxis, BranchPull, BranchRemote, KeptBranch, Pending, PrunedBranch, PullReport, RemoteAxis,
-    RestackOutcome, SkipReason,
+    BaseAxis, BranchPull, BranchRemote, HeadState, HeldReport, KeptBranch, Pending, PrunedBranch,
+    PullReport, RemoteAxis, ResolveReport, RestackOutcome, SkipReason,
 };
 use crate::ops::record::{HeldTransition, ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
@@ -115,6 +116,11 @@ pub struct PullOptions {
     /// would — the same classification, guard, and re-aims, riding this
     /// one operation.
     pub prune: bool,
+    /// What a conflict on the branch underfoot does: hold and stop, or
+    /// hold and open the resolution session after the run's one operation.
+    /// Every other branch's hold is recorded and named either way, and a
+    /// dry run records no hold to open.
+    pub on_conflict: OnConflict,
     pub now: Option<i64>,
     pub argv: Vec<String>,
 }
@@ -524,10 +530,28 @@ pub fn pull(
     // dry run records nothing either: it measures the worktree write it
     // would have made and leaves the plan where it stands.
     let seen = std::mem::take(&mut run.seen);
+    // The hold the run planned on the branch underfoot, kept past the
+    // commit: `--resolve` opens the session over it once the operation is
+    // on the log.
+    let underfoot_held = run.held.as_ref().and_then(|t| t.new.clone());
     let (files, still_open) = match ctx.as_ref() {
         _ if run.is_empty() => (0, false),
         None => run.planned_worktree(repo)?,
         Some(ctx) => run.commit(repo, ctx, pre, prov, opts.argv.clone(), &mut pruned)?,
+    };
+    // `--resolve`, on the branch underfoot: the hold stays in the pull's
+    // own operation, since that operation also moved other refs, and the
+    // session opens over it afterwards — the mint and the switch, so three
+    // undos take it all back. Every other branch's hold has no worktree to
+    // open in and is named as before. A dry run recorded nothing.
+    let opened = match (opts.on_conflict, ctx.as_ref(), underfoot_held) {
+        (OnConflict::Resolve, Some(_), Some(held)) => {
+            let reported = [&remote_held(&remote), &base_held(&base)]
+                .into_iter()
+                .find_map(|r| r.clone());
+            open_underfoot(repo, pre, prov, opts.argv.clone(), now, held, reported)?
+        }
+        _ => None,
     };
     // The seen record, last and outside the operation: every branch whose
     // remote axis was read is marked at the tip it was read at, whether
@@ -609,9 +633,71 @@ pub fn pull(
             pruned,
             kept,
             dry_run: opts.dry_run,
+            opened,
         },
         ctx,
     ))
+}
+
+/// The hold the branch underfoot's remote axis recorded this run.
+fn remote_held(axis: &RemoteAxis) -> Option<HeldReport> {
+    match axis {
+        RemoteAxis::Ran {
+            outcome: RestackOutcome::Held(r),
+            ..
+        } => Some(r.clone()),
+        _ => None,
+    }
+}
+
+/// The hold the branch underfoot's base axis recorded this run.
+fn base_held(axis: &BaseAxis) -> Option<HeldReport> {
+    match axis {
+        BaseAxis::Ran {
+            outcome: RestackOutcome::Held(r),
+            ..
+        } => Some(r.clone()),
+        _ => None,
+    }
+}
+
+/// Open the resolution session over the hold the run just recorded on the
+/// branch underfoot: `ff resolve`'s own mint and switch, with the hold
+/// already on the log. Nothing opens when HEAD is not on that branch, which
+/// a run that reached it through another worktree's branch cannot be.
+fn open_underfoot(
+    repo: &gix::Repository,
+    pre: &Preflight,
+    prov: &Provenance,
+    argv: Vec<String>,
+    now: i64,
+    held: crate::held::Held,
+    reported: Option<HeldReport>,
+) -> Result<Option<ResolveReport>> {
+    let head = crate::head::head_state(repo)?;
+    let tip = match &head {
+        HeadState::Branch { name, commit, .. } if *name == pre.branch => {
+            gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?
+        }
+        _ => return Ok(None),
+    };
+    let replan = crate::held::replan(repo, &held)?;
+    let of = reported.as_ref().map_or(0, |r| r.of);
+    let (opened, _switch_ctx) = crate::resolve::open_session(
+        repo,
+        (prov, argv, now),
+        &head,
+        crate::resolve::Session {
+            branch: pre.branch.clone(),
+            tip,
+            held: &held,
+            replan: &replan,
+            of,
+            recording: None,
+            reported,
+        },
+    )?;
+    Ok(Some(opened))
 }
 
 /// Everything one run has planned and not written: the overlay the planners

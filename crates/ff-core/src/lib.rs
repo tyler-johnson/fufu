@@ -76,6 +76,7 @@ pub use collide::{Collision, Pairing, Side, collide};
 pub use error::{Error, Result, exit_code_for};
 pub use evolog::{EvologOptions, evolog, evolog_of, open_change, ref_ids, segment_anchors};
 pub use head::{head_state, operation};
+pub use held::OnConflict;
 pub use history::{Step, history};
 pub use hooks::Verify;
 pub use linked::add::add_worktree;

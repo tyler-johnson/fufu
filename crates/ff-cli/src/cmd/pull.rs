@@ -28,6 +28,10 @@
 //! Under `fufu.pruneGone` the run prunes first: the branches whose shared
 //! copy is gone go the way `ff branch --prune` takes them, inside the one
 //! operation, and the report says so ahead of the axes.
+//!
+//! `--resolve`, and `fufu.onConflict resolve`, opens the resolution session
+//! over a hold on the branch underfoot after the run's operation; every
+//! other branch's hold is named as before, and a dry run opens nothing.
 
 use ff_core::{
     BaseAxis, BranchPull, BranchRemote, PullReport, RemoteAxis, RestackOutcome, RestackReport,
@@ -36,7 +40,13 @@ use ff_core::{
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result<()> {
+pub fn run(
+    ctx: &Ctx,
+    branches: Vec<String>,
+    all: bool,
+    dry_run: bool,
+    (resolve, no_resolve): (bool, bool),
+) -> Result<()> {
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
     let colored = crate::pager::color_enabled();
@@ -112,6 +122,7 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
             others,
             dry_run,
             prune,
+            on_conflict: crate::onconflict::settle(&repo, resolve, no_resolve),
             now: None,
             argv: std::env::args().collect(),
         },
@@ -156,6 +167,7 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
         };
         let payload = serde_json::json!({
             "pull": report,
+            "resolve": report.opened,
             "undo": undo,
         });
         crate::machine::emit("pull", &payload)?;
@@ -172,6 +184,10 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
     // out elsewhere — read the same either way, since they are as true.
     let mut said = false;
     let would = Would(dry_run);
+    // The session `--resolve` opened over the branch underfoot's hold: its
+    // held axis reads as one line, and the session's block follows the
+    // branch's own lines, `ff resolve`'s shape under the merge door.
+    let opening = report.opened.is_some();
 
     // The prune, first, in the verb's own words: it ran ahead of the axes.
     for line in super::branch::prune_lines(&report.pruned, &report.kept, dry_run, colored) {
@@ -194,14 +210,20 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
             said = true;
         }
         RemoteAxis::Ran { name, outcome } => {
-            for line in remote_lines(name, outcome, would, colored) {
+            for line in remote_lines(name, outcome, would, opening, colored) {
                 println!("{line}");
                 said = true;
             }
         }
     }
 
-    for line in base_lines(&report.branch, &report.base, would, true, colored) {
+    for line in base_lines(
+        &report.branch,
+        &report.base,
+        would,
+        (true, opening),
+        colored,
+    ) {
         println!("{line}");
         said = true;
     }
@@ -221,6 +243,10 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
     // axis of its own to read the count from.
     if report.files > 0 {
         println!("{}", would.working_copy(report.files, report.still_open));
+        said = true;
+    }
+    if let Some(session) = &report.opened {
+        super::resolve::render_opened(session, colored);
         said = true;
     }
 
@@ -367,7 +393,12 @@ impl Would {
     /// The block for a hold: the render helper's after a real run, with
     /// its two ways out, and under a dry run the one line saying where the
     /// replay would stop, since no hold was recorded to resolve or drop.
-    fn held(self, h: &ff_core::HeldReport, colored: bool) -> String {
+    /// With the session opening over it, the hold's one line: the ways out
+    /// are the session's, printed under the branch's lines.
+    fn held(self, h: &ff_core::HeldReport, opening: bool, colored: bool) -> String {
+        if opening {
+            return crate::render::paint_warn(&crate::render::held_line(h), colored);
+        }
         if !self.0 {
             return crate::render::held_block(h, colored);
         }
@@ -483,8 +514,15 @@ fn yours_line(name: &str, behind: usize) -> String {
 
 /// What the remote axis says once it ran: the shared copy taken in, or the
 /// hold, then what the branches stacked above did when the replay moved
-/// the branch. Nothing when there was nothing to take in.
-fn remote_lines(name: &str, outcome: &RestackOutcome, would: Would, colored: bool) -> Vec<String> {
+/// the branch. Nothing when there was nothing to take in. `opening` says a
+/// resolution session is opening over the hold, so it reads as one line.
+fn remote_lines(
+    name: &str,
+    outcome: &RestackOutcome,
+    would: Would,
+    opening: bool,
+    colored: bool,
+) -> Vec<String> {
     let mut out = Vec::new();
     match outcome {
         RestackOutcome::NothingToRestack { .. } => {}
@@ -512,19 +550,20 @@ fn remote_lines(name: &str, outcome: &RestackOutcome, would: Would, colored: boo
             ));
             out.extend(would.cascade(&r.cascade, colored));
         }
-        RestackOutcome::Held(h) => out.push(would.held(h, colored)),
+        RestackOutcome::Held(h) => out.push(would.held(h, opening, colored)),
     }
     out
 }
 
 /// What the base axis says: the base that moved and the replay onto it, the
 /// hold, or why it was left alone. Nothing when the branch already sat on
-/// its base, or has none.
+/// its base, or has none. `here` is whether this is the branch underfoot,
+/// and `opening` whether a resolution session is opening over its hold.
 fn base_lines(
     branch: &str,
     base: &BaseAxis,
     would: Would,
-    here: bool,
+    (here, opening): (bool, bool),
     colored: bool,
 ) -> Vec<String> {
     let mut out = Vec::new();
@@ -568,7 +607,7 @@ fn base_lines(
                 ));
                 out.extend(would.cascade(&r.cascade, colored));
             }
-            RestackOutcome::Held(h) => out.push(would.held(h, colored)),
+            RestackOutcome::Held(h) => out.push(would.held(h, opening, colored)),
         },
     }
     out
@@ -638,7 +677,7 @@ fn branch_lines(b: &BranchPull, would: Would, colored: bool) -> (&str, Vec<Strin
                 }
                 BranchRemote::Yours { name, behind, .. } => out.push(yours_line(name, *behind)),
                 BranchRemote::Ran { name, outcome } => {
-                    out.extend(remote_lines(name, outcome, would, colored));
+                    out.extend(remote_lines(name, outcome, would, false, colored));
                     if let RestackOutcome::Restacked(r) = outcome {
                         out.extend(would.dropped(&r.dropped, colored));
                         out.extend(would.flattened(&r.flattened, colored));
@@ -646,7 +685,7 @@ fn branch_lines(b: &BranchPull, would: Would, colored: bool) -> (&str, Vec<Strin
                     }
                 }
             }
-            out.extend(base_lines(branch, base, would, false, colored));
+            out.extend(base_lines(branch, base, would, (false, false), colored));
             if let BaseAxis::Ran {
                 outcome: RestackOutcome::Restacked(r),
                 ..

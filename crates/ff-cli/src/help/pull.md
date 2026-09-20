@@ -9,6 +9,7 @@ ff pull a b                     # Select two branches, with one fetch
 ff pull --all                   # Select every local branch
 ff pull -n                      # Preview local updates; still fetches
 ff pull -n --no-fetch           # Preview using existing tracking refs
+ff pull --resolve               # Open the session if this branch conflicts
 ff push                         # Send this branch after reviewing it
 ```
 
@@ -33,6 +34,8 @@ A deleted remote copy is reported while its local branch remains. With `fufu.pru
 ### Conflicts and recovery
 
 A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run `ff resolve` to continue. The exit is 3 if any branch holds.
+
+`--resolve` opens the current branch's hold in the same run: the hold is recorded in the pull's operation, HEAD moves onto the resolution session, and the exit is still 3; `ff done` lands the replay and `ff done --abandon` closes the session and keeps the hold. Other branches hold and are named as before, and a dry run opens nothing. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. Three `ff undo` calls take it all back: the switch, the session, then the pull.
 
 Branches checked out in another worktree, already holding a rewrite, holding a merge of their base (switch to one and `ff resolve` takes the base in), or sharing no history with their base are skipped and named.
 

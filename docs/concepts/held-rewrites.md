@@ -20,6 +20,8 @@ ff done
 
 You do not need to stage the fixes. If another branch is held, first use [`ff switch`](../reference/cli/switch.md) to select it. A parked change that conflicts when you switch back is a [distinct case](#parked-change-arrival), resolved in place.
 
+The two-step is the default. `--resolve` on [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), and [`ff merge`](../reference/cli/merge.md) is the shortcut: the verb records the hold and opens the session in one run, and `fufu.onConflict` makes that standing.
+
 ### The session
 
 A rewrite resolution session uses an automatically named branch whose starting commit contains the marker tree. Your original branch keeps its tip and hold; its open change parks there. Status shows `resolving:` while the session is open.

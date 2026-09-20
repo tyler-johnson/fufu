@@ -284,6 +284,184 @@ fn restack_conflict_holds_at_exit_3() {
     assert_eq!(json(&again)["error"]["id"], "held/already-held");
 }
 
+/// `main` and `feature` editing the same line of `f.txt`, standing on
+/// `feature`: the replay conflicts at `f1`.
+fn conflict_stack(fx: &Fixture) {
+    fx.write("f.txt", "x\nrest\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "A\nrest\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "B\nrest\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+fn head_branch(fx: &Fixture) -> String {
+    fx.git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+/// `--resolve` on a conflicting replay: the hold is recorded and named, the
+/// session opens with the markers in the working copy, the exit is still 3,
+/// and `ff done` lands the restack from the session.
+#[test]
+fn restack_resolve_opens_the_session_and_done_lands_it() {
+    let fx = repo();
+    conflict_stack(&fx);
+    let feature_before = fx.git(&["rev-parse", "feature"]).trim().to_string();
+
+    let output = ff(&fx, &["restack", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(so.contains("held: replaying "), "the hold's line: {so}");
+    assert!(
+        so.contains("resolving 1 conflict in f.txt on ff/"),
+        "the session's line: {so}"
+    );
+    assert!(
+        so.contains("fix the markers, then ff done"),
+        "the ways out are the session's: {so}"
+    );
+    assert!(
+        !so.contains("ff resolve to fix them"),
+        "no held block under an open session: {so}"
+    );
+    let session = head_branch(&fx);
+    assert!(
+        session.starts_with("ff/"),
+        "HEAD is on the session: {session}"
+    );
+    let f = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(
+        f.contains("<<<<<<<") && f.contains(">>>>>>>"),
+        "markers: {f}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "feature"]).trim(),
+        feature_before,
+        "the tip must not move"
+    );
+
+    fx.write("f.txt", "AB\nrest\n");
+    let done = ff(&fx, &["done"]);
+    assert!(done.status.success(), "{}", out(&done));
+    assert_eq!(head_branch(&fx), "feature");
+    assert_ne!(fx.git(&["rev-parse", "feature"]).trim(), feature_before);
+    assert_eq!(fx.git(&["show", "feature:f.txt"]), "AB\nrest\n");
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(!status.contains("held:"), "the hold landed: {status}");
+}
+
+/// `ff done --abandon` from the session `--resolve` opened closes it and
+/// keeps the hold, so status reads held on the branch again.
+#[test]
+fn restack_resolve_then_done_abandon_returns_to_the_held_branch() {
+    let fx = repo();
+    conflict_stack(&fx);
+    let output = ff(&fx, &["restack", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+
+    let abandon = ff(&fx, &["done", "--abandon"]);
+    assert!(abandon.status.success(), "{}", out(&abandon));
+    assert_eq!(head_branch(&fx), "feature");
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(status.contains("held:"), "the hold stands: {status}");
+    assert!(
+        !status.contains("resolving:"),
+        "the session is closed: {status}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "A\nrest\n"
+    );
+}
+
+#[test]
+fn restack_resolve_json_carries_the_hold_and_the_session() {
+    let fx = repo();
+    conflict_stack(&fx);
+    let output = ff(&fx, &["--json", "restack", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["cmd"], "restack", "{v}");
+    assert!(v["data"]["restack"].is_null(), "{v}");
+    assert_eq!(v["data"]["held"]["verb"], "restack", "{v}");
+    assert_eq!(v["data"]["held"]["branch"], "feature", "{v}");
+    let session = v["data"]["resolve"]["session"]
+        .as_str()
+        .expect("the session name");
+    assert!(session.starts_with("ff/"), "{v}");
+    assert_eq!(v["data"]["resolve"]["held"]["verb"], "restack", "{v}");
+    assert_eq!(v["data"]["resolve"]["branch"], "feature", "{v}");
+    assert_eq!(v["data"]["resolve"]["files"][0], "f.txt", "{v}");
+    assert_eq!(v["data"]["undo"], "ff undo", "{v}");
+    assert_eq!(head_branch(&fx), session);
+}
+
+/// `fufu.onConflict resolve` opens without the flag; `--no-resolve` holds
+/// for one run under it.
+#[test]
+fn on_conflict_resolve_is_the_standing_choice_and_no_resolve_overrides_it() {
+    let fx = repo();
+    conflict_stack(&fx);
+    fx.set_config("fufu.onConflict", "resolve");
+    let output = ff(&fx, &["restack"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(so.contains("resolving 1 conflict in f.txt on ff/"), "{so}");
+    assert!(head_branch(&fx).starts_with("ff/"));
+
+    let fx = repo();
+    conflict_stack(&fx);
+    fx.set_config("fufu.onConflict", "resolve");
+    let output = ff(&fx, &["restack", "--no-resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(so.contains("held: replaying "), "{so}");
+    assert!(
+        so.contains("ff resolve to fix them, all at once"),
+        "the plain held block: {so}"
+    );
+    assert!(!so.contains("resolving "), "no session: {so}");
+    assert_eq!(head_branch(&fx), "feature");
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(status.contains("held:"), "{status}");
+    assert!(!status.contains("resolving:"), "{status}");
+}
+
+#[test]
+fn resolve_and_no_resolve_together_are_a_usage_error() {
+    let fx = repo();
+    conflict_stack(&fx);
+    let output = ff(&fx, &["restack", "--resolve", "--no-resolve"]);
+    assert_eq!(output.status.code(), Some(2), "{}", out(&output));
+    assert_eq!(head_branch(&fx), "feature");
+}
+
+/// A replay that lands reads the same with and without the flag: the flag
+/// only decides what a conflict does.
+#[test]
+fn a_clean_restack_with_resolve_reads_like_one_without() {
+    let fx = repo();
+    stack(&fx);
+    let with = ff(&fx, &["restack", "--resolve"]);
+    assert!(with.status.success(), "{}", out(&with));
+
+    let fx = repo();
+    stack(&fx);
+    let without = ff(&fx, &["restack"]);
+    assert!(without.status.success(), "{}", out(&without));
+    assert_eq!(stdout(&with), stdout(&without));
+    assert!(
+        stdout(&with).contains("replayed 3 commit(s) onto main"),
+        "{}",
+        stdout(&with)
+    );
+}
+
 #[test]
 fn a_restack_hold_is_an_outcome_in_json() {
     let fx = repo();

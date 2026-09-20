@@ -6,6 +6,7 @@ Merge a branch into the current one by one commit with two parents, the current 
 ff merge feature-b              # Take feature-b in by one merge commit
 ff merge origin/feature-b       # Take a remote-tracking branch in
 ff merge feature-b -m "take b"  # Set the merge's message
+ff merge feature-b --resolve    # Open the session if the merge conflicts
 ff undo                         # Remove the merge
 ```
 
@@ -19,7 +20,9 @@ When this branch has no commits of its own above the fork with the target, the b
 
 ### Conflicts
 
-A conflicting auto-merge writes nothing. The merge is recorded as a held rewrite, the output names the commit and the files, and the exit is 3. `ff resolve` opens a session with the conflicts as markers, `ff done` lands the merge with the fixes, and `ff done --abandon` drops the hold. The target is resolved fresh when the hold lands, so a target that moved is what lands.
+A conflicting auto-merge writes nothing. The merge is recorded as a held rewrite, the output names the commit and the files, and the exit is 3. `ff resolve` opens a session with the conflicts as markers, `ff done` lands the merge with the fixes, and `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. The target is resolved fresh when the hold lands, so a target that moved is what lands.
+
+`--resolve` opens the session in the same run: the hold is recorded, HEAD moves onto the session, and the exit is still 3. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. One `ff undo` returns to the branch with the session open; a second removes the session and the hold together.
 
 ### Refusals
 

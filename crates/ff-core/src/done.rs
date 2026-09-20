@@ -479,7 +479,7 @@ fn land_decided(
 ) -> Result<Landed> {
     Ok(match &hold.intent {
         Intent::Restack { branch, onto } => {
-            let (outcome, _ctx, arrival) = crate::restack::restack_landing(
+            let (outcome, _opened, _ctx, arrival) = crate::restack::restack_landing(
                 repo,
                 Some(branch.clone()),
                 Some(onto.clone()),
@@ -487,6 +487,7 @@ fn land_decided(
                 (Some(rec.now), rec.argv.clone()),
                 decided,
                 crate::restack::Aim::Settled,
+                crate::held::OnConflict::Hold,
             )?;
             match outcome {
                 crate::RestackOutcome::Restacked(report) => Landed {

@@ -16,9 +16,11 @@ use crate::branchmeta;
 use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::{self, At, Verdict};
-use crate::held::{self, Disposition, Effect, Held, Intent};
-use crate::model::{ArrivalReport, HeadState, HeldReport, RestackOutcome, RestackReport};
-use crate::ops::record::{ParentTransition, RefTransition, observe_refs};
+use crate::held::{self, Disposition, Effect, Held, Intent, OnConflict};
+use crate::model::{
+    ArrivalReport, HeadState, HeldReport, ResolveReport, RestackOutcome, RestackReport,
+};
+use crate::ops::record::{HeldTransition, ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::overlay::Overlay;
 use crate::park::ArrivePlan;
@@ -465,7 +467,29 @@ pub fn restack(
     now: Option<i64>,
     argv: Vec<String>,
 ) -> Result<(RestackOutcome, verb::VerbContext)> {
-    restack_with(
+    let (outcome, _opened, ctx) =
+        restack_on(repo, branch, onto, OnConflict::Hold, prov, now, argv)?;
+    Ok((outcome, ctx))
+}
+
+/// `restack`, with what a conflict on the branch underfoot does settled by
+/// the caller. Under [`OnConflict::Resolve`] a conflicting replay on the
+/// branch HEAD stands on records the hold and opens the resolution session
+/// in the same run, and the middle of the triple is that session's report;
+/// the outcome is still `Held`, and the shell still owes a 3. A hold on a
+/// named other branch, or under [`OnConflict::Hold`], records the hold and
+/// opens nothing.
+#[allow(clippy::too_many_arguments)]
+pub fn restack_on(
+    repo: &gix::Repository,
+    branch: Option<String>,
+    onto: Option<String>,
+    on_conflict: OnConflict,
+    prov: &Provenance,
+    now: Option<i64>,
+    argv: Vec<String>,
+) -> Result<(RestackOutcome, Option<ResolveReport>, verb::VerbContext)> {
+    let (outcome, opened, ctx, _arrival) = restack_landing(
         repo,
         branch,
         onto,
@@ -473,7 +497,9 @@ pub fn restack(
         (now, argv),
         &rewrite::Decided::none(),
         Aim::Asked,
-    )
+        on_conflict,
+    )?;
+    Ok((outcome, opened, ctx))
 }
 
 /// `restack`, with the things the plain verb decides for you settled by the
@@ -497,14 +523,25 @@ pub fn restack_with(
     decided: &rewrite::Decided,
     aim: Aim,
 ) -> Result<(RestackOutcome, verb::VerbContext)> {
-    let (outcome, ctx, _arrival) =
-        restack_landing(repo, branch, onto, prov, invocation, decided, aim)?;
+    let (outcome, _opened, ctx, _arrival) = restack_landing(
+        repo,
+        branch,
+        onto,
+        prov,
+        invocation,
+        decided,
+        aim,
+        OnConflict::Hold,
+    )?;
     Ok((outcome, ctx))
 }
 
 /// `restack_with`, also answering what became of the parked change a
 /// resolution's return trip brought home — the one thing the report does
-/// not carry, since an ordinary restack moves no park.
+/// not carry, since an ordinary restack moves no park — and, under
+/// [`OnConflict::Resolve`], carrying the resolution session a conflict on
+/// the branch underfoot opened.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn restack_landing(
     repo: &gix::Repository,
     branch: Option<String>,
@@ -513,7 +550,13 @@ pub(crate) fn restack_landing(
     invocation: (Option<i64>, Vec<String>),
     decided: &rewrite::Decided,
     aim: Aim,
-) -> Result<(RestackOutcome, verb::VerbContext, ArrivalReport)> {
+    on_conflict: OnConflict,
+) -> Result<(
+    RestackOutcome,
+    Option<ResolveReport>,
+    verb::VerbContext,
+    ArrivalReport,
+)> {
     let (now, argv) = invocation;
     // 1. Guards.
     if repo.workdir().is_none() {
@@ -543,26 +586,78 @@ pub(crate) fn restack_landing(
     match plan {
         RestackPlan::Unchanged { branch, base } => Ok((
             RestackOutcome::NothingToRestack { branch, base },
+            None,
             ctx,
             ArrivalReport::None,
         )),
-        RestackPlan::Held(plan) => Ok((
-            hold(
-                repo,
-                held::Recording {
-                    ctx: &ctx,
-                    prov,
-                    argv,
-                    now,
-                },
-                &plan,
-            )?,
-            ctx,
-            ArrivalReport::None,
-        )),
+        RestackPlan::Held(plan) => {
+            // `--resolve`, on the branch underfoot: the hold rides the mint
+            // of the session branch instead of an operation of its own, and
+            // HEAD moves onto the session — the merge door's two operations.
+            // A hold on a named other branch has no worktree to open in, so
+            // it holds as it would without the flag.
+            let head = crate::head::head_state(repo)?;
+            let underfoot = match &head {
+                HeadState::Branch { name, commit, .. } if *name == plan.branch => {
+                    Some(gix::ObjectId::from_hex(commit.as_bytes()).map_err(Error::repo)?)
+                }
+                _ => None,
+            };
+            if let (OnConflict::Resolve, Some(tip)) = (on_conflict, underfoot) {
+                let replan = held::replan(repo, &plan.held)?;
+                // A re-aim that conflicts records its hold in the dropped
+                // one's place, `held::record`'s `old`, so one undo puts the
+                // standing hold back.
+                let recording = HeldTransition {
+                    branch: plan.branch.clone(),
+                    old: held::of(repo, &plan.branch)?,
+                    new: Some(plan.held.clone()),
+                };
+                let (opened, _switch_ctx) = crate::resolve::open_session(
+                    repo,
+                    (prov, argv, now),
+                    &head,
+                    crate::resolve::Session {
+                        branch: plan.branch.clone(),
+                        tip,
+                        held: &plan.held,
+                        replan: &replan,
+                        of: plan.report.of,
+                        recording: Some(recording),
+                        reported: Some(plan.report.clone()),
+                    },
+                )?;
+                return Ok((
+                    RestackOutcome::Held(plan.report.clone()),
+                    Some(opened),
+                    ctx,
+                    ArrivalReport::None,
+                ));
+            }
+            Ok((
+                hold(
+                    repo,
+                    held::Recording {
+                        ctx: &ctx,
+                        prov,
+                        argv,
+                        now,
+                    },
+                    &plan,
+                )?,
+                None,
+                ctx,
+                ArrivalReport::None,
+            ))
+        }
         RestackPlan::Replay(plan) => {
             let (report, arrival) = commit_restack(repo, &ctx, prov, argv, decided, *plan)?;
-            Ok((RestackOutcome::Restacked(Box::new(report)), ctx, arrival))
+            Ok((
+                RestackOutcome::Restacked(Box::new(report)),
+                None,
+                ctx,
+                arrival,
+            ))
         }
     }
 }

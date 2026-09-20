@@ -18,6 +18,7 @@ mod integ;
 mod lanes;
 mod machine;
 mod net;
+mod onconflict;
 mod pager;
 mod progress;
 mod provenance;
@@ -440,14 +441,26 @@ fn main() {
             paths,
             no_verify,
         ),
-        Some(cli::Command::Restack { branch, onto }) => cmd::restack::run(&ctx, branch, onto),
-        Some(cli::Command::Merge { target, message }) => cmd::merge::run(&ctx, target, message),
+        Some(cli::Command::Restack {
+            branch,
+            onto,
+            resolve,
+            no_resolve,
+        }) => cmd::restack::run(&ctx, branch, onto, (resolve, no_resolve)),
+        Some(cli::Command::Merge {
+            target,
+            message,
+            resolve,
+            no_resolve,
+        }) => cmd::merge::run(&ctx, target, message, (resolve, no_resolve)),
         Some(cli::Command::Fold { target, stay }) => cmd::fold::run(&ctx, target, stay),
         Some(cli::Command::Pull {
             branches,
             all,
             dry_run,
-        }) => cmd::pull::run(&ctx, branches, all, dry_run),
+            resolve,
+            no_resolve,
+        }) => cmd::pull::run(&ctx, branches, all, dry_run, (resolve, no_resolve)),
         Some(cli::Command::Push {
             branches,
             dry_run,

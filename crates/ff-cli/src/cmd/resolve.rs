@@ -7,9 +7,46 @@
 //! recorded the hold itself: the merge door's conflict is a hold like any
 //! verb's, and the shell owes a 3 for it.
 
-use ff_core::{ResolveOutcome, Result};
+use ff_core::{ResolveOutcome, ResolveReport, Result};
 
 use crate::ctx::Ctx;
+
+/// The session that opened, in the verb's words: the park, what is being
+/// resolved and where, how far the chain got, and the two ways out. The
+/// hold's own line, when this run recorded it, and the exit are the
+/// caller's, since `ff restack --resolve`, `ff pull --resolve`, and `ff
+/// merge --resolve` print the same block under their own.
+pub(crate) fn render_opened(report: &ResolveReport, colored: bool) {
+    if let Some(stash) = &report.parked {
+        println!(
+            "parked the open change on {} ({})",
+            report.branch,
+            crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
+        );
+    }
+    println!(
+        "resolving {} conflict{} in {} on {}",
+        report.regions,
+        if report.regions == 1 { "" } else { "s" },
+        report.files.join(", "),
+        report.session
+    );
+    match (&report.tangled, &report.merging) {
+        (Some(subject), _) => println!(
+            "    {} of {} commits replayed; the rest waits on \"{}\"",
+            report.steps, report.of, subject
+        ),
+        (None, Some(base)) => println!("    the merge of {base}"),
+        (None, None) => println!("    {} commits replayed", report.of),
+    }
+    println!(
+        "    {}",
+        crate::render::paint_dim(
+            "fix the markers, then ff done · ff resolve --abandon to drop it",
+            colored
+        )
+    );
+}
 
 pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
     let repo = ff_core::discover(".")?;
@@ -46,35 +83,7 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                     crate::render::paint_warn(&crate::render::held_line(held), colored)
                 );
             }
-            if let Some(stash) = &report.parked {
-                println!(
-                    "parked the open change on {} ({})",
-                    report.branch,
-                    crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
-                );
-            }
-            println!(
-                "resolving {} conflict{} in {} on {}",
-                report.regions,
-                if report.regions == 1 { "" } else { "s" },
-                report.files.join(", "),
-                report.session
-            );
-            match (&report.tangled, &report.merging) {
-                (Some(subject), _) => println!(
-                    "    {} of {} commits replayed; the rest waits on \"{}\"",
-                    report.steps, report.of, subject
-                ),
-                (None, Some(base)) => println!("    the merge of {base}"),
-                (None, None) => println!("    {} commits replayed", report.of),
-            }
-            println!(
-                "    {}",
-                crate::render::paint_dim(
-                    "fix the markers, then ff done · ff resolve --abandon to drop it",
-                    colored
-                )
-            );
+            render_opened(&report, colored);
             if report.held.is_some() {
                 crate::exit::held();
             }

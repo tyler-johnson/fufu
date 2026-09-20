@@ -13,7 +13,7 @@
 
 use ff_core::gix;
 use ff_core::pull::PullOptions;
-use ff_core::{BaseAxis, Provenance, PullReport, RemoteAxis, RestackOutcome};
+use ff_core::{BaseAxis, OnConflict, Provenance, PullReport, RemoteAxis, RestackOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -48,6 +48,7 @@ fn pull_run(
             others: Vec::new(),
             dry_run: false,
             prune: false,
+            on_conflict: OnConflict::Hold,
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],
         },

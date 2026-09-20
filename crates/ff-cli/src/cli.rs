@@ -415,6 +415,12 @@ pub enum Command {
         /// Base to replay onto; recorded as this branch's new parent
         #[arg(long, value_name = "branch")]
         onto: Option<String>,
+        /// Open the resolution session when the replay on this branch conflicts
+        #[arg(long, conflicts_with = "no_resolve")]
+        resolve: bool,
+        /// Hold on a conflict; overrides fufu.onConflict for this run
+        #[arg(long)]
+        no_resolve: bool,
     },
     /// Replay this branch into a target and delete it; defaults to trunk
     #[command(long_about = help::term(help::FOLD), after_long_help = help::term_examples(help::FOLD_EXAMPLES))]
@@ -435,6 +441,12 @@ pub enum Command {
         /// Message for the merge commit; defaults to `merge <branch> into <current>`
         #[arg(short = 'm', value_name = "msg")]
         message: Option<String>,
+        /// Open the resolution session when the replay on this branch conflicts
+        #[arg(long, conflicts_with = "no_resolve")]
+        resolve: bool,
+        /// Hold on a conflict; overrides fufu.onConflict for this run
+        #[arg(long)]
+        no_resolve: bool,
     },
     // agent notice quotes this: `ff pull`
     /// Update this branch from its base and remote copy
@@ -449,6 +461,12 @@ pub enum Command {
         /// Preview local updates without applying them; still fetches
         #[arg(short = 'n', long)]
         dry_run: bool,
+        /// Open the resolution session when the replay on this branch conflicts
+        #[arg(long, conflicts_with = "no_resolve")]
+        resolve: bool,
+        /// Hold on a conflict; overrides fufu.onConflict for this run
+        #[arg(long)]
+        no_resolve: bool,
     },
     // agent notice quotes this: `ff push`
     /// Send this branch to its remote copy with a lease

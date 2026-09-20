@@ -4,6 +4,7 @@
 
 use ff_core::futures::At;
 use ff_core::gix;
+use ff_core::held::{self, OnConflict};
 use ff_core::rewrite::DropReason;
 use ff_core::{Provenance, RestackOutcome};
 use ff_testsupport::Fixture;
@@ -38,6 +39,28 @@ fn restack_call(
         vec!["ff".into(), "restack".into()],
     )
     .unwrap()
+}
+
+/// `restack_call` with the conflict answer settled, and the resolution
+/// session it opened.
+fn restack_on(
+    fx: &Fixture,
+    branch: Option<&str>,
+    on_conflict: OnConflict,
+    now: i64,
+) -> (RestackOutcome, Option<ff_core::ResolveReport>) {
+    let repo = fx.repo();
+    let (outcome, opened, _ctx) = ff_core::restack::restack_on(
+        &repo,
+        branch.map(String::from),
+        None,
+        on_conflict,
+        &prov(),
+        Some(now),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    (outcome, opened)
 }
 
 /// `restack_call` for the refusal path: the error, panicking with the
@@ -376,6 +399,174 @@ fn restack_conflict_holds_and_touches_nothing() {
     let record = tip_record(&fx.repo());
     assert_eq!(record.verb, "hold");
     assert!(record.held.is_some_and(|t| t.new.is_some()));
+}
+
+/// `main` and `feature` editing the same line of `f.txt`, standing on
+/// `feature`: the replay conflicts at `f1`. Returns (f1, feature's tip).
+fn conflict_stack(fx: &Fixture) -> (String, String) {
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "two\n");
+    let f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+    let tip = fx.git(&["rev-parse", "feature"]).trim().to_string();
+    (f1, tip)
+}
+
+/// The verb operations in the log, captures and notes excluded.
+fn verb_ops(fx: &Fixture) -> usize {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    log.iter()
+        .flatten()
+        .filter(|op| op.kind() == ff_core::ops::OpKind::Op)
+        .count()
+}
+
+/// The records of every verb operation on the log, oldest first.
+fn verb_records(fx: &Fixture) -> Vec<ff_core::ops::OpRecord> {
+    let repo = fx.repo();
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    log.iter()
+        .flatten()
+        .filter(|op| op.kind() == ff_core::ops::OpKind::Op)
+        .filter_map(|op| op.record().ok().flatten().cloned())
+        .collect()
+}
+
+fn head_branch(fx: &Fixture) -> String {
+    fx.git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+/// `--resolve` on the branch underfoot: the hold rides the mint of the
+/// session branch, HEAD moves onto the session with the markers in the
+/// working copy, and the outcome still reads `Held`. Two operations, the
+/// merge door's: one undo is back on the branch with the session open, a
+/// second removes the session and the hold together.
+#[test]
+fn restack_resolve_opens_the_session_over_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, feature_tip) = conflict_stack(&fx);
+    let ops_before = verb_ops(&fx);
+
+    let (outcome, opened) = restack_on(&fx, None, OnConflict::Resolve, NOW);
+    let report = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("the replay conflicts and holds, got {other:?}"),
+    };
+    assert_eq!(report.branch, "feature");
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    let opened = opened.expect("--resolve opens the session");
+    assert_eq!(opened.verb, "restack");
+    assert_eq!(opened.branch, "feature");
+    assert_eq!(opened.files, vec!["f.txt".to_string()]);
+    assert_eq!(opened.regions, 1);
+    assert_eq!(opened.merging, None);
+    let held_report = opened.held.as_ref().expect("the verb recorded the hold");
+    assert_eq!(held_report.verb, "restack");
+    assert_eq!(
+        held_report.at,
+        At::Commit {
+            id: f1.clone(),
+            subject: "f1".into()
+        }
+    );
+    assert_eq!(held_report, &report);
+
+    let repo = fx.repo();
+    let hold = held::of(&repo, "feature")
+        .unwrap()
+        .expect("the hold stands");
+    assert_eq!(hold.paths, vec!["f.txt".to_string()]);
+    let resolving = held::resolving(&repo, "feature")
+        .unwrap()
+        .expect("the session is recorded on the branch");
+    assert_eq!(resolving.session, opened.session);
+    assert_eq!(head_branch(&fx), opened.session);
+    assert_eq!(fx.git(&["rev-parse", "feature"]).trim(), feature_tip);
+    let text = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(
+        text.contains("<<<<<<<") && text.contains(">>>>>>>"),
+        "got: {text}"
+    );
+
+    // The mint carries the hold and the session; the switch follows; no
+    // `hold` operation of its own.
+    assert_eq!(verb_ops(&fx), ops_before + 2, "mint and switch");
+    let records = verb_records(&fx);
+    assert!(
+        !records.iter().any(|r| r.verb == "hold"),
+        "the hold rides the mint: {:?}",
+        records.iter().map(|r| r.verb.clone()).collect::<Vec<_>>()
+    );
+    let mint = records
+        .iter()
+        .find(|r| r.verb == "resolve")
+        .expect("the mint op");
+    let t = mint.held.as_ref().expect("the mint records the hold");
+    assert_eq!(t.branch, "feature");
+    assert_eq!(t.old, None);
+    assert_eq!(t.new.as_ref(), Some(&hold));
+    assert!(mint.resolving.is_some());
+
+    undo(&fx);
+    assert_eq!(head_branch(&fx), "feature", "one undo is the switch");
+    assert!(held::of(&repo, "feature").unwrap().is_some());
+    assert_eq!(
+        held::resolving(&repo, "feature")
+            .unwrap()
+            .map(|r| r.session),
+        Some(opened.session.clone()),
+        "the session is still open, elsewhere"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "two\n"
+    );
+
+    undo(&fx);
+    assert_eq!(head_branch(&fx), "feature");
+    assert!(
+        held::of(&repo, "feature").unwrap().is_none(),
+        "the second undo removes the hold with the session"
+    );
+    assert!(held::resolving(&repo, "feature").unwrap().is_none());
+    assert!(
+        !fx.try_git(&["rev-parse", "--verify", "-q", &opened.session])
+            .status
+            .success(),
+        "the session branch is gone"
+    );
+}
+
+/// A hold on a branch HEAD does not stand on has no worktree to open in:
+/// `--resolve` holds it exactly as the plain verb would.
+#[test]
+fn restack_resolve_on_another_branch_holds_and_opens_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_f1, tip) = conflict_stack(&fx);
+    fx.git(&["branch", "-q", "-m", "feature", "other"]);
+    fx.git(&["switch", "-q", "main"]);
+    let ops_before = verb_ops(&fx);
+
+    let (outcome, opened) = restack_on(&fx, Some("other"), OnConflict::Resolve, NOW);
+    assert!(matches!(outcome, RestackOutcome::Held(_)), "{outcome:?}");
+    assert!(opened.is_none(), "nothing opens off the branch underfoot");
+    assert_eq!(head_branch(&fx), "main");
+    assert_eq!(fx.git(&["rev-parse", "other"]).trim(), tip);
+    let repo = fx.repo();
+    assert!(held::of(&repo, "other").unwrap().is_some());
+    assert!(held::resolving(&repo, "other").unwrap().is_none());
+    assert_eq!(verb_ops(&fx), ops_before + 1);
+    assert_eq!(tip_record(&repo).verb, "hold");
 }
 
 #[test]

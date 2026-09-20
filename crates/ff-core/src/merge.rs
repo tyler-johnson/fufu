@@ -16,8 +16,10 @@
 use crate::changeid;
 use crate::error::{Error, Result};
 use crate::futures;
-use crate::held::{self, Held};
-use crate::model::{ArrivalReport, HeadState, HeldReport, MergeOutcome, MergeReport};
+use crate::held::{self, Held, OnConflict};
+use crate::model::{
+    ArrivalReport, HeadState, HeldReport, MergeOutcome, MergeReport, ResolveReport,
+};
 use crate::ops::record::{HeldTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::park::{self, ArrivePlan};
@@ -464,19 +466,25 @@ pub(crate) fn land_resolution(
 /// fufu never merges a branch's base in, `ff pull` and `ff restack` replay
 /// onto it, and a branch whose history already holds such a merge continues
 /// the shape through `ff resolve`. A conflicting auto-merge records the
-/// hold and stops, exit 3, for `ff resolve`.
+/// hold and stops, exit 3, for `ff resolve` — or, under
+/// [`OnConflict::Resolve`], records it and opens the resolution session in
+/// the same run, the hold riding the mint the way the merge door's does;
+/// the middle of the triple is that session's report, and the outcome is
+/// still `Held`.
 ///
 /// The order is `restack_with`'s: the guards, the verb's capture, the
 /// branch underfoot, the standing hold, the target, the base refusal, the
 /// plan, and the hold or the commit.
+#[allow(clippy::too_many_arguments)]
 pub fn merge(
     repo: &gix::Repository,
     target: &str,
     message: Option<&str>,
+    on_conflict: OnConflict,
     prov: &Provenance,
     now: Option<i64>,
     argv: Vec<String>,
-) -> Result<(MergeOutcome, verb::VerbContext)> {
+) -> Result<(MergeOutcome, Option<ResolveReport>, verb::VerbContext)> {
     if repo.workdir().is_none() {
         return Err(Error::coded(
             "repo/bare",
@@ -587,6 +595,40 @@ pub fn merge(
             paths: conflict.paths.clone(),
             time: now,
         };
+        let report = HeldReport {
+            verb: "merge".into(),
+            branch: branch.clone(),
+            at: conflict.at.clone(),
+            paths: conflict.paths.clone(),
+            of: conflict.of,
+        };
+        // `--resolve`: the hold rides the mint of the session branch rather
+        // than an operation of its own, and HEAD moves onto the session —
+        // the merge door's two operations. A merge always stands on the
+        // branch it holds, so there is always a worktree to open in.
+        if on_conflict == OnConflict::Resolve {
+            let tip = plan.tip;
+            let recording = HeldTransition {
+                branch: branch.clone(),
+                old: None,
+                new: Some(held.clone()),
+            };
+            let (opened, _switch_ctx) = crate::resolve::open_session(
+                repo,
+                (prov, argv, now),
+                &head,
+                crate::resolve::Session {
+                    branch,
+                    tip,
+                    held: &held,
+                    replan: &plan.replan,
+                    of: conflict.of,
+                    recording: Some(recording),
+                    reported: Some(report.clone()),
+                },
+            )?;
+            return Ok((MergeOutcome::Held(report), Some(opened), ctx));
+        }
         held::record(
             repo,
             held::Recording {
@@ -599,16 +641,7 @@ pub fn merge(
             &held,
             format!("hold merge of {branch} with {}", onto.name),
         )?;
-        return Ok((
-            MergeOutcome::Held(HeldReport {
-                verb: "merge".into(),
-                branch,
-                at: conflict.at.clone(),
-                paths: conflict.paths.clone(),
-                of: conflict.of,
-            }),
-            ctx,
-        ));
+        return Ok((MergeOutcome::Held(report), None, ctx));
     }
 
     let tree = plan
@@ -626,5 +659,5 @@ pub fn merge(
             held: None,
         },
     )?;
-    Ok((MergeOutcome::Merged(report), ctx))
+    Ok((MergeOutcome::Merged(report), None, ctx))
 }

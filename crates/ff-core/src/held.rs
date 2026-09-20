@@ -155,6 +155,21 @@ where
     })
 }
 
+/// What a rewrite verb does when the replay on the branch underfoot
+/// conflicts: record the hold and stop, exit 3, or record it and open the
+/// resolution session in the same run, the way `ff resolve`'s merge door
+/// does. `fufu.onConflict` chooses the standing answer and `--resolve` or
+/// `--no-resolve` on the verb overrides it for one run. Only the branch
+/// HEAD stands on can open: a hold on a named other branch, a cascade
+/// child, or a non-current branch in a pull holds and is named either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnConflict {
+    /// Record the hold and stop.
+    Hold,
+    /// Record the hold and open the session over it.
+    Resolve,
+}
+
 /// A rewrite that conflicted and is waiting, recorded as one field of the
 /// branch's metadata exactly as an editing session is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

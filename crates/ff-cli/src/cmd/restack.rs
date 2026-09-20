@@ -2,19 +2,27 @@
 //! branch it was forked from when one was recorded, trunk otherwise. The
 //! positional names the branch being moved; `--onto` names where it lands,
 //! recorded as its new parent. A branch you are not standing on costs no
-//! file on disk.
+//! file on disk. A conflict on the branch underfoot holds, exit 3, or under
+//! `--resolve` and `fufu.onConflict resolve` holds and opens the resolution
+//! session in the same run.
 
 use ff_core::{RestackOutcome, Result};
 
 use crate::ctx::Ctx;
 
-pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()> {
+pub fn run(
+    ctx: &Ctx,
+    branch: Option<String>,
+    onto: Option<String>,
+    (resolve, no_resolve): (bool, bool),
+) -> Result<()> {
     let repo = ff_core::discover(".")?;
 
-    let (outcome, verb_ctx) = ff_core::restack::restack(
+    let (outcome, opened, verb_ctx) = ff_core::restack::restack_on(
         &repo,
         branch,
         onto,
+        crate::onconflict::settle(&repo, resolve, no_resolve),
         &crate::provenance::pre_ff(ctx),
         None,
         std::env::args().collect(),
@@ -148,17 +156,37 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
             }
         }
         RestackOutcome::Held(report) => {
+            // With the session open the hold reads as one line and the
+            // session's block follows, `ff resolve`'s own shape under the
+            // merge door; the ways out are the session's.
             if ctx.json {
-                let payload = serde_json::json!({
-                    "restack": serde_json::Value::Null,
-                    "held": report,
-                });
+                let payload = match &opened {
+                    Some(session) => serde_json::json!({
+                        "restack": serde_json::Value::Null,
+                        "held": report,
+                        "resolve": session,
+                        "undo": "ff undo",
+                    }),
+                    None => serde_json::json!({
+                        "restack": serde_json::Value::Null,
+                        "held": report,
+                    }),
+                };
                 crate::machine::emit("restack", &payload)?;
                 crate::exit::held();
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            println!("{}", crate::render::held_block(&report, colored));
+            match &opened {
+                Some(session) => {
+                    println!(
+                        "{}",
+                        crate::render::paint_warn(&crate::render::held_line(&report), colored)
+                    );
+                    super::resolve::render_opened(session, colored);
+                }
+                None => println!("{}", crate::render::held_block(&report, colored)),
+            }
             crate::exit::held();
         }
         RestackOutcome::NothingToRestack { branch, base } => {

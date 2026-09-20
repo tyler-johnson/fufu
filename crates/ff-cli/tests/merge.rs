@@ -202,6 +202,78 @@ fn a_conflict_holds_and_resolve_then_done_lands_it() {
     assert_eq!(fx.git(&["show", "feature-a:c.txt"]), "two and three\n");
 }
 
+/// `--resolve`: the hold is recorded and named, the session opens with the
+/// markers, the exit is still 3, and `ff done` lands the merge with two
+/// parents.
+#[test]
+fn merge_resolve_opens_the_session_and_done_lands_the_merge() {
+    let fx = repo();
+    let (a1, b1) = conflicting_features(&fx);
+
+    let output = ff(&fx, &["merge", "feature-b", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains(&format!(
+            "held: the merge of feature-b conflicts at {}",
+            &b1[..8]
+        )),
+        "got: {text}"
+    );
+    assert!(
+        text.contains("resolving 1 conflict in c.txt on ff/"),
+        "got: {text}"
+    );
+    assert!(text.contains("the merge of feature-b"), "got: {text}");
+    assert!(
+        !text.contains("ff resolve to fix them"),
+        "no held block under an open session: {text}"
+    );
+    let head = fx
+        .git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string();
+    assert!(head.starts_with("ff/"), "HEAD is on the session: {head}");
+    assert_eq!(tip(&fx, "feature-a"), a1, "nothing moved");
+    let c = std::fs::read_to_string(fx.path().join("c.txt")).unwrap();
+    assert!(
+        c.contains("<<<<<<<") && c.contains(">>>>>>>"),
+        "markers: {c}"
+    );
+
+    fx.write("c.txt", "two and three\n");
+    let done = ff(&fx, &["done"]);
+    assert!(done.status.success(), "{}", out(&done));
+    assert!(
+        stdout(&done).contains("resolved 1 conflict; landed the merge"),
+        "got: {}",
+        stdout(&done)
+    );
+    assert_eq!(parents(&fx, "feature-a"), vec![a1, b1]);
+    assert_eq!(fx.git(&["show", "feature-a:c.txt"]), "two and three\n");
+}
+
+#[test]
+fn merge_resolve_json_carries_the_hold_and_the_session() {
+    let fx = repo();
+    conflicting_features(&fx);
+    let output = ff(&fx, &["--json", "merge", "feature-b", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert!(v["data"]["merge"].is_null(), "{v}");
+    assert_eq!(v["data"]["held"]["verb"], "merge", "{v}");
+    assert_eq!(v["data"]["resolve"]["verb"], "merge", "{v}");
+    assert_eq!(v["data"]["resolve"]["merging"], "feature-b", "{v}");
+    assert_eq!(v["data"]["resolve"]["held"]["verb"], "merge", "{v}");
+    assert!(
+        v["data"]["resolve"]["session"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("ff/")),
+        "{v}"
+    );
+    assert_eq!(v["data"]["undo"], "ff undo", "{v}");
+}
+
 #[test]
 fn json_on_a_conflict_carries_the_hold() {
     let fx = repo();

@@ -15,6 +15,7 @@ ff restack                      # Update this branch from its base
 ff restack feature              # Restack another branch
 ff restack --onto release-1.2   # Choose a new base
 ff restack --onto origin/main   # Use a remote-tracking base
+ff restack --resolve            # Open the session if the replay conflicts
 ```
 
 ## Options
@@ -27,6 +28,12 @@ Arguments:
 Options:
       --onto <branch>
           Base to replay onto; recorded as this branch's new parent
+
+      --resolve
+          Open the resolution session when the replay on this branch conflicts
+
+      --no-resolve
+          Hold on a conflict; overrides fufu.onConflict for this run
 
       --json
           Emit machine-readable JSON
@@ -58,9 +65,9 @@ Replay is local. The CLI can auto-fetch first and run maintenance afterward. `--
 
 ## Conflicts and dependent branches
 
-A conflicting primary replay leaves that branch's tip and files at their pre-replay state and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. [`ff resolve`](resolve.md) opens a held rewrite. A held restack already on the branch is dropped by `--onto` another base and named, cleared by a replay onto its base, and kept otherwise; a held absorb, lift, or done refuses the restack.
+A conflicting primary replay leaves that branch's tip and files at their pre-replay state and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. [`ff resolve`](resolve.md) opens a held rewrite. `--resolve` opens it in the same run: the hold is recorded, HEAD moves onto the session, and the exit is still 3; [`ff done`](done.md) lands the restack and `ff done --abandon` closes the session and keeps the hold. Only the branch underfoot opens; a named other branch or a downstream branch holds as before. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. One [`ff undo`](undo.md) returns to the branch with the session open; a second removes the session and the hold together. A held restack already on the branch is dropped by `--onto` another base and named, cleared by a replay onto its base, and kept otherwise; a held absorb, lift, or done refuses the restack.
 
-Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere or already held are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One [`ff undo`](undo.md) takes back the restack and cascade.
+Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere or already held are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One `ff undo` takes back the restack and cascade.
 
 ## Replay selection and report
 

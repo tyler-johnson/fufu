@@ -315,9 +315,8 @@ pub fn resolve(
         }
     }
 
-    open_session(
+    let (report, ctx) = open_session(
         repo,
-        ctx,
         (prov, argv, now),
         &head,
         Session {
@@ -327,8 +326,10 @@ pub fn resolve(
             replan: &replan,
             of: conflict.of,
             recording: None,
+            reported: None,
         },
-    )
+    )?;
+    Ok((ResolveOutcome::Opened(report), ctx))
 }
 
 /// The refusal with nothing held: `held/none`, with `why` completing
@@ -435,9 +436,15 @@ fn merge_door(
         old: None,
         new: Some(held.clone()),
     };
-    open_session(
+    let reported = HeldReport {
+        verb: "merge".into(),
+        branch: branch.clone(),
+        at: conflict.at.clone(),
+        paths: conflict.paths.clone(),
+        of: conflict.of,
+    };
+    let (report, ctx) = open_session(
         repo,
-        ctx,
         (prov, argv, now),
         head,
         Session {
@@ -447,8 +454,10 @@ fn merge_door(
             replan: &plan.replan,
             of: conflict.of,
             recording: Some(recording),
+            reported: Some(reported),
         },
-    )
+    )?;
+    Ok((ResolveOutcome::Opened(report), ctx))
 }
 
 /// A standing merge hold: replan it, and land it when it is clean now,
@@ -506,9 +515,8 @@ fn resolve_merge_hold(
         )?;
         return Ok((ResolveOutcome::Merged(report), ctx));
     };
-    open_session(
+    let (report, ctx) = open_session(
         repo,
-        ctx,
         (prov, argv, now),
         head,
         Session {
@@ -518,35 +526,45 @@ fn resolve_merge_hold(
             replan: &plan.replan,
             of: conflict.of,
             recording: None,
+            reported: None,
         },
-    )
+    )?;
+    Ok((ResolveOutcome::Opened(report), ctx))
 }
 
-/// What a resolution session opens over.
-struct Session<'a> {
-    branch: String,
-    tip: gix::ObjectId,
+/// What a resolution session opens over. `ff restack --resolve`, `ff pull
+/// --resolve`, and `ff merge --resolve` build one too: the session is the
+/// same whichever verb opens it.
+pub(crate) struct Session<'a> {
+    pub(crate) branch: String,
+    pub(crate) tip: gix::ObjectId,
     /// The hold being resolved: standing on the branch, or about to be
     /// recorded by the mint when `recording` is set.
-    held: &'a held::Held,
-    replan: &'a held::Replan,
+    pub(crate) held: &'a held::Held,
+    pub(crate) replan: &'a held::Replan,
     /// The size of the whole rewrite, for the report.
-    of: usize,
-    /// The hold transition the mint records, when this resolve derived the
-    /// rewrite itself and found it conflicting.
-    recording: Option<HeldTransition>,
+    pub(crate) of: usize,
+    /// The hold transition the mint records, when the verb opening the
+    /// session derived the rewrite itself and found it conflicting and no
+    /// other operation records the hold.
+    pub(crate) recording: Option<HeldTransition>,
+    /// The hold as the report names it, when this run recorded the hold —
+    /// by the mint or, for a pull, by the verb's own operation — so the
+    /// report reads as a hold and the shell owes a 3. `None` when the hold
+    /// stood before.
+    pub(crate) reported: Option<HeldReport>,
 }
 
 /// Open the session: replay the chain with its conflicts as markers, mint
 /// the session branch at a commit carrying that tree, and switch there —
-/// `ff edit`'s own two operations.
-fn open_session(
+/// `ff edit`'s own two operations. Returns the report and the switch's
+/// context.
+pub(crate) fn open_session(
     repo: &gix::Repository,
-    ctx: verb::VerbContext,
     invocation: (&Provenance, Vec<String>, i64),
     head: &HeadState,
     session: Session<'_>,
-) -> Result<(ResolveOutcome, verb::VerbContext)> {
+) -> Result<(ResolveReport, verb::VerbContext)> {
     let (prov, argv, now) = invocation;
     let Session {
         branch,
@@ -555,8 +573,8 @@ fn open_session(
         replan,
         of,
         recording,
+        reported,
     } = session;
-    let _ = ctx;
 
     // Replay it all the way through, carrying the conflicts as literal
     // marker content, and read back the regions standing in the result.
@@ -599,14 +617,6 @@ fn open_session(
         held::Intent::Merge { .. } => chain.steps.first().map(|s| s.subject.clone()),
         _ => None,
     };
-    let held_report = recording.as_ref().map(|_| HeldReport {
-        verb: verb_name.clone(),
-        branch: branch.clone(),
-        at: held.at.clone(),
-        paths: held.paths.clone(),
-        of,
-    });
-
     // Mint the session branch at the marker commit, recorded, with the
     // session written on it and the resolution written here — and the hold
     // itself, when this resolve is the one recording it — then switch,
@@ -651,7 +661,7 @@ fn open_session(
     files.dedup();
 
     Ok((
-        ResolveOutcome::Opened(ResolveReport {
+        ResolveReport {
             branch,
             session: session_name,
             verb: verb_name,
@@ -661,9 +671,9 @@ fn open_session(
             of,
             tangled: chain.tangled.map(|t| t.subject),
             parked: switch_report.parked,
-            held: held_report,
+            held: reported,
             merging,
-        }),
+        },
         ctx,
     ))
 }

@@ -1527,6 +1527,12 @@ pub struct PullReport {
     /// or operation moved. `files` and `still_open` then describe the
     /// working-copy write the run would have made.
     pub dry_run: bool,
+    /// The resolution session `--resolve` opened over the branch
+    /// underfoot's hold, after the run's operation. Skipped here because
+    /// the CLI puts it at the envelope's top level, beside `pull`, the way
+    /// `ff restack` and `ff merge` carry theirs.
+    #[serde(skip)]
+    pub opened: Option<ResolveReport>,
 }
 
 impl PullReport {

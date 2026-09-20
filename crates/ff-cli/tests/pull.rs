@@ -1051,6 +1051,138 @@ fn a_named_branch_that_holds_exits_3_and_the_rest_still_move() {
     assert!(v["data"]["held"].is_null(), "the hold is on side: {v}");
 }
 
+/// `side` and `other` off the root, each rewriting a line `main` also
+/// rewrites, standing on `side`: both base-axis replays conflict.
+fn two_conflict_with_main(fx: &Fixture) {
+    fx.write("shared.txt", "base\n");
+    fx.write("other.txt", "base\n");
+    fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("shared.txt", "mine\n");
+    fx.commit("mine");
+    fx.git(&["switch", "-q", "-c", "other", "main"]);
+    fx.write("other.txt", "mine2\n");
+    fx.commit("mine2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("shared.txt", "theirs\n");
+    fx.write("other.txt", "theirs2\n");
+    fx.commit("theirs");
+    fx.git(&["switch", "-q", "side"]);
+}
+
+fn head_branch(fx: &Fixture) -> String {
+    fx.git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+/// `--resolve` on the branch underfoot: its held axis reads as one line,
+/// the session's block follows, HEAD is on the session, and the exit is
+/// still 3. Nothing else held, so no closing line names another branch.
+#[test]
+fn pull_resolve_opens_the_session_over_the_branch_underfoot() {
+    let fx = repo();
+    two_conflict_with_main(&fx);
+    let mine = fx.git(&["rev-parse", "side"]).trim().to_string();
+
+    let output = ff(&fx, &["pull", "--no-fetch", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("held: replaying "), "{text}");
+    assert!(
+        text.contains("resolving 1 conflict in shared.txt on ff/"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("ff resolve to fix them"),
+        "no held block under an open session: {text}"
+    );
+    assert!(
+        !text.contains("branch(es) held"),
+        "only the branch underfoot held: {text}"
+    );
+    assert!(head_branch(&fx).starts_with("ff/"), "{}", head_branch(&fx));
+    assert_eq!(
+        fx.git(&["rev-parse", "side"]).trim(),
+        mine,
+        "a hold touches nothing"
+    );
+    let shared = std::fs::read_to_string(fx.path().join("shared.txt")).unwrap();
+    assert!(shared.contains("<<<<<<<"), "markers: {shared}");
+
+    let v = json(&ff(&fx, &["--json", "status"]));
+    assert_eq!(v["data"]["resolving"]["session"], head_branch(&fx), "{v}");
+    assert_eq!(v["data"]["resolving"]["verb"], "restack", "{v}");
+}
+
+/// With another named branch conflicting too, the branch underfoot opens
+/// and the other holds and is named by the closing line as before.
+#[test]
+fn pull_resolve_opens_the_underfoot_hold_and_names_the_other() {
+    let fx = repo();
+    two_conflict_with_main(&fx);
+
+    let output = ff(&fx, &["pull", "--no-fetch", "--resolve", "side", "other"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("resolving 1 conflict in shared.txt on ff/"),
+        "{text}"
+    );
+    assert!(text.contains("other\n    held: replaying "), "{text}");
+    assert!(
+        text.contains("ff resolve to fix them, all at once"),
+        "the other branch's held block: {text}"
+    );
+    assert!(
+        text.trim_end()
+            .ends_with("2 branch(es) held — ff switch other, then ff resolve"),
+        "{text}"
+    );
+    assert!(head_branch(&fx).starts_with("ff/"));
+
+    let v = json(&ff(&fx, &["--json", "status"]));
+    assert!(v["data"]["held"].is_null(), "{v}");
+}
+
+#[test]
+fn the_pull_envelope_carries_the_session_under_resolve() {
+    let fx = repo();
+    two_conflict_with_main(&fx);
+    let output = ff(&fx, &["--json", "pull", "--no-fetch", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["data"]["pull"]["branch"], "side", "{v}");
+    assert_eq!(
+        v["data"]["pull"]["base"]["Ran"]["outcome"]["held"]["branch"], "side",
+        "{v}"
+    );
+    assert!(v["data"]["pull"].get("opened").is_none(), "{v}");
+    assert_eq!(v["data"]["resolve"]["verb"], "restack", "{v}");
+    assert_eq!(v["data"]["resolve"]["branch"], "side", "{v}");
+    assert_eq!(v["data"]["resolve"]["held"]["verb"], "restack", "{v}");
+    assert_eq!(v["data"]["undo"], "ff undo", "{v}");
+
+    let fx = repo();
+    two_conflict_with_main(&fx);
+    let v = json(&ff(&fx, &["--json", "pull", "--no-fetch"]));
+    assert!(v["data"]["resolve"].is_null(), "{v}");
+}
+
+/// A dry run records no hold, so there is nothing to open: `--resolve`
+/// changes nothing about it.
+#[test]
+fn a_dry_run_with_resolve_opens_nothing() {
+    let fx = repo();
+    two_conflict_with_main(&fx);
+    let output = ff(&fx, &["pull", "-n", "--no-fetch", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("would hold:"), "{text}");
+    assert!(!text.contains("resolving "), "{text}");
+    assert_eq!(head_branch(&fx), "side");
+}
+
 /// A name that resolves to nothing is refused before the fetch, with the
 /// error a misspelled branch gets everywhere else.
 #[test]

@@ -16,6 +16,7 @@ ff config keep                  # Read snapshot retention
 ff config keep 30d              # Set retention in this repository
 ff config --global pager bat    # Set the user-level pager
 ff config gitPolicy strict      # Refuse covered Git passthrough commands
+ff config onConflict resolve    # Open the session on a conflict
 ff config --unset autoTrim      # Remove the repository override
 ```
 

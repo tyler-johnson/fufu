@@ -7,7 +7,7 @@
 
 use ff_core::gix;
 use ff_core::held::{self, Intent};
-use ff_core::{DoneOutcome, MergeOutcome, Provenance, ResolveOutcome};
+use ff_core::{DoneOutcome, MergeOutcome, OnConflict, Provenance, ResolveOutcome};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -33,16 +33,28 @@ fn merge_call(
     message: Option<&str>,
     now: i64,
 ) -> ff_core::Result<MergeOutcome> {
+    merge_on(fx, target, message, OnConflict::Hold, now).map(|(outcome, _opened)| outcome)
+}
+
+/// `merge_call` with the conflict answer settled, and the session it opened.
+fn merge_on(
+    fx: &Fixture,
+    target: &str,
+    message: Option<&str>,
+    on_conflict: OnConflict,
+    now: i64,
+) -> ff_core::Result<(MergeOutcome, Option<ff_core::ResolveReport>)> {
     let repo = fx.repo();
     ff_core::merge::merge(
         &repo,
         target,
         message,
+        on_conflict,
         &prov(),
         Some(now),
         vec!["ff".into(), "merge".into(), target.into()],
     )
-    .map(|(outcome, _ctx)| outcome)
+    .map(|(outcome, opened, _ctx)| (outcome, opened))
 }
 
 fn merged(fx: &Fixture, target: &str, message: Option<&str>, now: i64) -> ff_core::MergeReport {
@@ -380,6 +392,97 @@ fn a_conflict_holds_and_names_the_merge() {
     let record = tip_record(&repo);
     assert_eq!(record.verb, "hold");
     assert_eq!(record.summary, "hold merge of feature-a with feature-b");
+}
+
+/// `--resolve`: the hold rides the mint of the session branch and HEAD
+/// moves onto the session, the merge door's two operations. One undo is
+/// back on the branch with the session open; a second removes the session
+/// and the hold together.
+#[test]
+fn merge_resolve_opens_the_session_over_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (a1, b1) = conflicting_features(&fx);
+    let ops_before = verb_ops(&fx);
+
+    let (outcome, opened) = merge_on(&fx, "feature-b", None, OnConflict::Resolve, NOW).unwrap();
+    let report = match outcome {
+        MergeOutcome::Held(r) => r,
+        other => panic!("the auto-merge conflicts and holds, got {other:?}"),
+    };
+    assert_eq!(report.verb, "merge");
+    assert_eq!(report.branch, "feature-a");
+    let opened = opened.expect("--resolve opens the session");
+    assert_eq!(opened.verb, "merge");
+    assert_eq!(opened.merging.as_deref(), Some("feature-b"));
+    assert_eq!(opened.files, vec!["c.txt".to_string()]);
+    assert_eq!(opened.regions, 1);
+    assert_eq!(opened.held.as_ref(), Some(&report));
+    assert_eq!(
+        report.at,
+        ff_core::futures::At::Commit {
+            id: b1.clone(),
+            subject: "feature-b".into()
+        }
+    );
+
+    let repo = fx.repo();
+    let hold = held::of(&repo, "feature-a")
+        .unwrap()
+        .expect("the hold stands");
+    assert_eq!(
+        hold.intent,
+        Intent::Merge {
+            branch: "feature-a".into(),
+            onto: "refs/heads/feature-b".into(),
+            message: None,
+        }
+    );
+    assert_eq!(
+        held::resolving(&repo, "feature-a")
+            .unwrap()
+            .map(|r| r.session),
+        Some(opened.session.clone())
+    );
+    assert_eq!(head_branch(&fx), opened.session);
+    assert_eq!(tip(&fx, "feature-a"), a1, "the tip is unmoved");
+    let text = std::fs::read_to_string(fx.path().join("c.txt")).unwrap();
+    assert!(
+        text.contains(">>>>>>> merging \"feature-b\" (1/1)"),
+        "got: {text}"
+    );
+
+    // The mint carries the hold; no `hold` operation of its own.
+    assert_eq!(verb_ops(&fx), ops_before + 2, "mint and switch");
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let records: Vec<ff_core::ops::OpRecord> = log
+        .iter()
+        .flatten()
+        .filter(|op| op.kind() == ff_core::ops::OpKind::Op)
+        .filter_map(|op| op.record().ok().flatten().cloned())
+        .collect();
+    assert!(!records.iter().any(|r| r.verb == "hold"));
+    let mint = records
+        .iter()
+        .find(|r| r.verb == "resolve")
+        .expect("the mint op");
+    let t = mint.held.as_ref().expect("the mint records the hold");
+    assert_eq!(t.old, None);
+    assert_eq!(t.new.as_ref(), Some(&hold));
+
+    undo(&fx, NOW + 1);
+    assert_eq!(head_branch(&fx), "feature-a");
+    assert!(held::of(&repo, "feature-a").unwrap().is_some());
+    assert!(held::resolving(&repo, "feature-a").unwrap().is_some());
+
+    undo(&fx, NOW + 2);
+    assert_eq!(head_branch(&fx), "feature-a");
+    assert!(held::of(&repo, "feature-a").unwrap().is_none());
+    assert!(held::resolving(&repo, "feature-a").unwrap().is_none());
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("c.txt")).unwrap(),
+        "two\n"
+    );
 }
 
 #[test]

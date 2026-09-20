@@ -153,6 +153,18 @@ pub(crate) fn registry() -> &'static [Setting] {
             ],
         },
         Setting {
+            name: "onConflict",
+            key: "fufu.onConflict",
+            def: "hold",
+            kind: SettingKind::Choice(&["hold", "resolve"]),
+            desc: &[
+                "What ff restack, ff pull, and ff merge do when the replay on the",
+                "current branch conflicts: hold records the hold and stops, exit 3;",
+                "resolve records it and opens the resolution session in the same run.",
+                "--resolve and --no-resolve override it for one run.",
+            ],
+        },
+        Setting {
             name: "futuresDepth",
             key: "fufu.futuresDepth",
             def: "200",

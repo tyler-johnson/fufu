@@ -5,8 +5,8 @@
 use ff_core::gix;
 use ff_core::pull::{OtherBranch, PullOptions, Scope};
 use ff_core::{
-    BaseAxis, BranchPull, BranchRemote, Provenance, PullReport, RemoteAxis, RestackOutcome,
-    SkipReason,
+    BaseAxis, BranchPull, BranchRemote, OnConflict, Provenance, PullReport, RemoteAxis,
+    RestackOutcome, SkipReason,
 };
 use ff_testsupport::Fixture;
 
@@ -41,6 +41,7 @@ fn pull_run(
             others: Vec::new(),
             dry_run: false,
             prune: false,
+            on_conflict: OnConflict::Hold,
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],
         },
@@ -739,6 +740,16 @@ fn the_base_axis_cascades_onto_the_branches_above() {
 /// (moving tracking refs the way a real one would), both are read again, and
 /// the second reading's tips are carried into the first.
 fn pull_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> PullReport {
+    pull_around_on(fx, fetched, OnConflict::Hold, fetch)
+}
+
+/// [`pull_around`] with the conflict answer settled.
+fn pull_around_on(
+    fx: &Fixture,
+    fetched: bool,
+    on_conflict: OnConflict,
+    fetch: impl FnOnce(),
+) -> PullReport {
     let repo = fx.repo();
     let pre = ff_core::preflight::preflight(&repo, ff_core::preflight::Verb::Pull).unwrap();
     let chosen = ff_core::pull::choose(&repo, &pre.branch, &Scope::All).unwrap();
@@ -757,6 +768,7 @@ fn pull_around(fx: &Fixture, fetched: bool, fetch: impl FnOnce()) -> PullReport 
             others,
             dry_run: false,
             prune: false,
+            on_conflict,
             now: Some(NOW),
             argv: vec!["ff".into(), "pull".into()],
         },
@@ -1153,6 +1165,195 @@ fn an_other_branch_that_conflicts_holds_and_the_run_continues() {
 
 /// The branch underfoot's own report is untouched by a hold on a branch it
 /// is not: its axes answer for themselves, and only the exit changes.
+/// `first` and `second` off `main`'s one commit, each rewriting a line its
+/// shared copy also rewrites, standing on `first`. Both tracking refs stand
+/// at the root; the fetch closure moves them to `theirs` and `theirs2`.
+/// Returns `(mine, theirs, theirs2)`.
+fn both_conflict_underfoot_first(fx: &Fixture) -> (String, String, String) {
+    fx.write("shared.txt", "base\n");
+    fx.write("other.txt", "base\n");
+    let c0 = fx.commit("root");
+    fx.git(&["switch", "-q", "-c", "first"]);
+    fx.write("shared.txt", "mine\n");
+    let mine = fx.commit("mine");
+    fx.git(&["switch", "-q", "-c", "second", &c0]);
+    fx.write("other.txt", "mine2\n");
+    fx.commit("mine2");
+    fx.git(&["switch", "-q", "-c", "scratch", &c0]);
+    fx.write("shared.txt", "theirs\n");
+    let theirs = fx.commit("theirs");
+    fx.git(&["switch", "-q", "-c", "scratch2", &c0]);
+    fx.write("other.txt", "theirs2\n");
+    let theirs2 = fx.commit("theirs2");
+    fx.git(&["switch", "-q", "first"]);
+    fx.git(&["branch", "-q", "-D", "scratch", "scratch2"]);
+    track_branch(fx, "first", &c0);
+    track_branch(fx, "second", &c0);
+    (mine, theirs, theirs2)
+}
+
+fn head_branch(fx: &Fixture) -> String {
+    fx.git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+fn undo_at(fx: &Fixture, now: i64) {
+    let repo = fx.repo();
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(now),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&repo, &opts, &prov()).unwrap();
+}
+
+/// `--resolve` on a pull: the hold on the branch underfoot stays in the
+/// pull's one operation, since that operation also moved other refs, and
+/// the session opens over it afterwards — the mint and the switch, with no
+/// hold of their own. The other branch that conflicts holds and is named
+/// as before. Three undos take it all back.
+#[test]
+fn pull_resolve_opens_the_underfoot_hold_and_names_the_other() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (mine, theirs, theirs2) = both_conflict_underfoot_first(&fx);
+    let ops_before = verb_ops(&fx);
+
+    let report = pull_around_on(&fx, true, OnConflict::Resolve, || {
+        fx.git(&["update-ref", "refs/remotes/origin/first", &theirs]);
+        fx.git(&["update-ref", "refs/remotes/origin/second", &theirs2]);
+    });
+
+    let held = match &report.remote {
+        RemoteAxis::Ran {
+            outcome: RestackOutcome::Held(h),
+            ..
+        } => h.clone(),
+        other => panic!("the branch underfoot holds on its remote axis, got {other:?}"),
+    };
+    assert_eq!(held.branch, "first");
+    assert_eq!(report.base, BaseAxis::Skipped);
+    let opened = report.opened.as_ref().expect("--resolve opens the session");
+    assert_eq!(opened.verb, "restack");
+    assert_eq!(opened.branch, "first");
+    assert_eq!(opened.files, vec!["shared.txt".to_string()]);
+    assert_eq!(opened.held.as_ref(), Some(&held));
+    assert!(matches!(
+        row_for(&report, "second"),
+        BranchPull::Pulled {
+            remote: BranchRemote::Ran {
+                outcome: RestackOutcome::Held(_),
+                ..
+            },
+            ..
+        }
+    ));
+    assert!(report.blocked());
+
+    let repo = fx.repo();
+    assert_eq!(head_branch(&fx), opened.session);
+    assert_eq!(
+        tip_of(&fx, "refs/heads/first"),
+        mine,
+        "a hold touches nothing"
+    );
+    assert!(ff_core::held::of(&repo, "first").unwrap().is_some());
+    assert!(ff_core::held::of(&repo, "second").unwrap().is_some());
+    assert_eq!(
+        ff_core::held::resolving(&repo, "first")
+            .unwrap()
+            .map(|r| r.session),
+        Some(opened.session.clone())
+    );
+    let text = std::fs::read_to_string(fx.path().join("shared.txt")).unwrap();
+    assert!(
+        text.contains("<<<<<<<"),
+        "the markers are in the working copy: {text}"
+    );
+
+    // Pull, mint, switch: the hold is the pull's, and the mint records none.
+    assert_eq!(verb_ops(&fx), ops_before + 3);
+    let log = ff_core::ops::OpLog::open(&repo).unwrap();
+    let records: Vec<ff_core::ops::OpRecord> = log
+        .iter()
+        .flatten()
+        .filter(|op| op.kind() == ff_core::ops::OpKind::Op)
+        .filter_map(|op| op.record().ok().flatten().cloned())
+        .collect();
+    let pull = records
+        .iter()
+        .find(|r| r.verb == "pull")
+        .expect("the pull op");
+    let t = pull
+        .held
+        .as_ref()
+        .expect("the pull records the underfoot hold");
+    assert_eq!(t.branch, "first");
+    assert!(t.new.is_some());
+    assert_eq!(pull.cascade_held.len(), 1, "second's hold rides beside it");
+    assert_eq!(pull.cascade_held[0].branch, "second");
+    let mint = records
+        .iter()
+        .find(|r| r.verb == "resolve")
+        .expect("the mint op");
+    assert!(mint.held.is_none(), "the mint records no hold of its own");
+    assert!(mint.resolving.is_some());
+    assert!(!records.iter().any(|r| r.verb == "hold"));
+
+    undo_at(&fx, NOW + 1);
+    assert_eq!(head_branch(&fx), "first", "the switch");
+    assert!(ff_core::held::resolving(&repo, "first").unwrap().is_some());
+    undo_at(&fx, NOW + 2);
+    assert!(
+        ff_core::held::resolving(&repo, "first").unwrap().is_none(),
+        "the session"
+    );
+    assert!(
+        ff_core::held::of(&repo, "first").unwrap().is_some(),
+        "the hold is the pull's"
+    );
+    undo_at(&fx, NOW + 3);
+    assert!(
+        ff_core::held::of(&repo, "first").unwrap().is_none(),
+        "the pull"
+    );
+    assert!(ff_core::held::of(&repo, "second").unwrap().is_none());
+    assert_eq!(head_branch(&fx), "first");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("shared.txt")).unwrap(),
+        "mine\n"
+    );
+}
+
+/// Under `hold`, the same run records the hold and opens nothing.
+#[test]
+fn pull_hold_leaves_the_underfoot_hold_closed() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_mine, theirs, theirs2) = both_conflict_underfoot_first(&fx);
+    let ops_before = verb_ops(&fx);
+
+    let report = pull_around_on(&fx, true, OnConflict::Hold, || {
+        fx.git(&["update-ref", "refs/remotes/origin/first", &theirs]);
+        fx.git(&["update-ref", "refs/remotes/origin/second", &theirs2]);
+    });
+
+    assert!(report.opened.is_none());
+    assert!(matches!(
+        report.remote,
+        RemoteAxis::Ran {
+            outcome: RestackOutcome::Held(_),
+            ..
+        }
+    ));
+    assert_eq!(head_branch(&fx), "first");
+    let repo = fx.repo();
+    assert!(ff_core::held::of(&repo, "first").unwrap().is_some());
+    assert!(ff_core::held::resolving(&repo, "first").unwrap().is_none());
+    assert_eq!(verb_ops(&fx), ops_before + 1);
+}
+
 #[test]
 fn a_hold_elsewhere_leaves_the_current_branch_report_alone() {
     let fx = Fixture::new();
