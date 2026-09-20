@@ -93,6 +93,9 @@ pub fn run(
             {
                 println!("{line}");
             }
+            for line in crate::render::flattened_lines(&report.flattened, colored) {
+                println!("{line}");
+            }
             if report.published > 0 {
                 // Disclosure, not a warning, on the same rule as reword.
                 let upstream_name = ff_core::upstream(&repo)?

@@ -18,4 +18,6 @@ pub use rows::{
     remote_branch_row, remote_more_row, snap_row,
 };
 pub use status::{StatusView, reconcile_notice, status_human};
-pub(crate) use status::{cascade_lines, dropped_lines, held_block, skip_reason, truncate_subject};
+pub(crate) use status::{
+    cascade_lines, dropped_lines, flattened_lines, held_block, skip_reason, truncate_subject,
+};

@@ -385,4 +385,4 @@ $ ff op show cc3d5843216df4d6ee90f9fa617e9198b5ba56a6 --json | jq '.data | {id, 
 
 ### Replay reports
 
-Rewrite reports and cascade entries can carry `dropped`: commits removed by replay instead of rewritten. Each entry has the old SHA, subject, and reason. `empty` means the replayed tree matched its new parent's tree. `superseded` means the base already contained that change ID, with `by` naming the replacing base commit. Inspect these alongside moved, held, and skipped outcomes.
+Rewrite reports and cascade entries can carry `dropped`: commits removed by replay instead of rewritten. Each entry has the old SHA, subject, and reason. `empty` means the replayed tree matched its new parent's tree. `superseded` means the base already contained that change ID, with `by` naming the replacing base commit. Rewrite reports and cascade entries can also carry `flattened`: merges written as ordinary commits because their other parents ended up beneath them, each with the old SHA, the new, and the subject. Inspect these alongside moved, held, and skipped outcomes.

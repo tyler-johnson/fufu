@@ -613,6 +613,9 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
         for line in dropped_lines(&m.dropped, None, colored) {
             out.push(format!("    {line}"));
         }
+        for line in flattened_lines(&m.flattened, colored) {
+            out.push(format!("    {line}"));
+        }
         if !m.diverged.is_empty() {
             let sits = if m.diverged.len() == 1 { "sits" } else { "sit" };
             out.push(paint_warn(
@@ -774,6 +777,28 @@ fn dropped_line(
         group.len(),
         names.join(", ")
     ))
+}
+
+/// The lines the rewrite verbs print for merges a rewrite wrote as ordinary
+/// commits — empty when none was, so the caller prints nothing. One line
+/// per merge: the drop of its other parent is silent in the graph, and a
+/// commit that used to be a merge and now holds a resolution is worth a
+/// sentence.
+pub(crate) fn flattened_lines(
+    flattened: &[ff_core::rewrite::Flattened],
+    colored: bool,
+) -> Vec<String> {
+    flattened
+        .iter()
+        .map(|f| {
+            format!(
+                "flattened {} \"{}\" — a merge whose other parent is now beneath it; it holds \
+                 what the merge resolved",
+                paint_sha(ff_core::sha::short(&f.old), colored),
+                truncate_subject(&f.subject)
+            )
+        })
+        .collect()
 }
 
 /// Build the header line: branch + what pulling would cost + operation.

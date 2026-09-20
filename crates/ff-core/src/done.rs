@@ -834,7 +834,7 @@ pub fn done_with(
         None => Some(anchor.to_string()),
     };
 
-    let (new_onto_tip, replayed, published, dropped) = match &rewrite_plan {
+    let (new_onto_tip, replayed, published, dropped, flattened) = match &rewrite_plan {
         Some(plan) => {
             // The anchor is in `rewrites` exactly when `amended` is `Some`,
             // so the count subtracts it exactly when it is there.
@@ -843,9 +843,15 @@ pub fn done_with(
                 .len()
                 .saturating_sub(usize::from(amended.is_some()));
             let published = rewrite::published_count(repo, &onto, plan)?;
-            (plan.new_tip, replayed, published, plan.dropped.clone())
+            (
+                plan.new_tip,
+                replayed,
+                published,
+                plan.dropped.clone(),
+                plan.flattened.clone(),
+            )
         }
-        None => (onto_tip, 0, 0, Vec::new()),
+        None => (onto_tip, 0, 0, Vec::new(), Vec::new()),
     };
     let published_on = rewrite::tracking_name(repo, &onto)?;
     let new_onto_tree = tree_of(repo, new_onto_tip)?;
@@ -1100,6 +1106,7 @@ pub fn done_with(
                 arrival: arrival_report,
                 files,
                 dropped,
+                flattened,
                 cascade: cascade.report,
             },
         ))
@@ -1426,6 +1433,7 @@ struct Landing {
     arrival: ArrivalReport,
     files: usize,
     dropped: Vec<rewrite::Dropped>,
+    flattened: Vec<rewrite::Flattened>,
     cascade: Cascade,
 }
 
@@ -1464,6 +1472,7 @@ fn done_report(
         arrival: landing.arrival,
         files: landing.files,
         dropped: landing.dropped,
+        flattened: landing.flattened,
         cascade: landing.cascade,
     }
 }

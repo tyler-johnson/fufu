@@ -1462,6 +1462,7 @@ fn move_report(
         paths: landed.paths,
         still_open: landed.still_open,
         dropped: plan.dropped.clone(),
+        flattened: plan.flattened.clone(),
         cascade: landed.cascade,
     })
 }

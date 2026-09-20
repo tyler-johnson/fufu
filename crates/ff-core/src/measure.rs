@@ -98,12 +98,57 @@ pub fn measure(repo: &gix::Repository, commit: gix::ObjectId) -> Result<Measure>
         against: Against::FirstParent(why),
         commit: Some(first),
     };
-    let mut ours = first_tree;
+    match auto_merge(repo, &parents, Default::default())? {
+        AutoMerge::NoBase => Ok(fallback(Fallback::NoBase)),
+        AutoMerge::Merged { conflicts, .. } if !conflicts.is_empty() => {
+            Ok(fallback(Fallback::Conflicts(conflicts)))
+        }
+        AutoMerge::Merged { tree, .. } => Ok(Measure {
+            tree,
+            against: Against::AutoMerge,
+            commit: None,
+        }),
+    }
+}
+
+/// The auto-merge of a set of parents, or the reason there is none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AutoMerge {
+    /// Some pair of parents shares no ancestor.
+    NoBase,
+    /// The fold's tree. `conflicts` is empty when every pair merged clean;
+    /// otherwise the fold stopped at the first pair that did not, `tree` is
+    /// that pair's merge with its markers standing, and `conflicts` names
+    /// the paths, sorted.
+    Merged {
+        tree: gix::ObjectId,
+        conflicts: Vec<String>,
+    },
+}
+
+/// The auto-merge of `parents`, folded left to right: `base_i =
+/// merge_base(p_1, p_i)`, the accumulated tree as ours, `p_i`'s tree as
+/// theirs. `labels` mark any conflict region the fold writes, so a chain can
+/// attribute a leftover to the step that made it. Trees go through `repo`,
+/// the conflicting pair's included: [`measure`] discards that one, replay's
+/// chain carries it.
+pub(crate) fn auto_merge(
+    repo: &gix::Repository,
+    parents: &[gix::ObjectId],
+    labels: gix::merge::blob::builtin_driver::text::Labels<'_>,
+) -> Result<AutoMerge> {
+    let Some(&first) = parents.first() else {
+        return Ok(AutoMerge::Merged {
+            tree: gix::ObjectId::empty_tree(repo.object_hash()),
+            conflicts: Vec::new(),
+        });
+    };
+    let mut ours = futures::tree_of(repo, first)?;
     for &theirs in &parents[1..] {
         let base = match repo.merge_base(first, theirs) {
             Ok(base) => base.detach(),
             Err(gix::repository::merge_base::Error::NotFound { .. }) => {
-                return Ok(fallback(Fallback::NoBase));
+                return Ok(AutoMerge::NoBase);
             }
             Err(e) => return Err(Error::repo(e)),
         };
@@ -111,17 +156,19 @@ pub fn measure(repo: &gix::Repository, commit: gix::ObjectId) -> Result<Measure>
         let theirs_tree = futures::tree_of(repo, theirs)?;
         let options = repo.tree_merge_options().map_err(Error::repo)?;
         let mut outcome = repo
-            .merge_trees(base_tree, ours, theirs_tree, Default::default(), options)
+            .merge_trees(base_tree, ours, theirs_tree, labels, options)
             .map_err(Error::repo)?;
         let conflicts = futures::unresolved(&outcome);
-        if !conflicts.is_empty() {
-            return Ok(fallback(Fallback::Conflicts(conflicts)));
-        }
         ours = outcome.tree.write().map_err(Error::repo)?.detach();
+        if !conflicts.is_empty() {
+            return Ok(AutoMerge::Merged {
+                tree: ours,
+                conflicts,
+            });
+        }
     }
-    Ok(Measure {
+    Ok(AutoMerge::Merged {
         tree: ours,
-        against: Against::AutoMerge,
-        commit: None,
+        conflicts: Vec::new(),
     })
 }

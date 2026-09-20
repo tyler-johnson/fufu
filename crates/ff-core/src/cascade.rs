@@ -484,6 +484,7 @@ pub(crate) fn plan_over(
             new_tip: new_tip.to_string(),
             replayed: plan.rewrites.len(),
             dropped: plan.dropped,
+            flattened: plan.flattened,
             diverged,
             published,
             published_on,

@@ -211,6 +211,10 @@ pub fn run(ctx: &Ctx, branches: Vec<String>, all: bool, dry_run: bool) -> Result
             println!("{line}");
             said = true;
         }
+        for line in would.flattened(&r.flattened, colored) {
+            println!("{line}");
+            said = true;
+        }
     }
     // The one worktree write is the run's: the branch underfoot may have
     // been carried by another branch's cascade, and then it has no landed
@@ -346,6 +350,20 @@ impl Would {
             .collect()
     }
 
+    /// The flattened lines, under the same tense rule.
+    fn flattened(self, flattened: &[ff_core::rewrite::Flattened], colored: bool) -> Vec<String> {
+        crate::render::flattened_lines(flattened, colored)
+            .into_iter()
+            .map(|line| {
+                if self.0 {
+                    line.replacen("flattened ", "would flatten ", 1)
+                } else {
+                    line
+                }
+            })
+            .collect()
+    }
+
     /// The block for a hold: the render helper's after a real run, with
     /// its two ways out, and under a dry run the one line saying where the
     /// replay would stop, since no hold was recorded to resolve or drop.
@@ -378,6 +396,9 @@ impl Would {
                 m.branch, m.base, m.replayed
             ));
             for line in self.dropped(&m.dropped, colored) {
+                out.push(format!("    {line}"));
+            }
+            for line in self.flattened(&m.flattened, colored) {
                 out.push(format!("    {line}"));
             }
         }
@@ -617,6 +638,7 @@ fn branch_lines(b: &BranchPull, would: Would, colored: bool) -> (&str, Vec<Strin
                     out.extend(remote_lines(name, outcome, would, colored));
                     if let RestackOutcome::Restacked(r) = outcome {
                         out.extend(would.dropped(&r.dropped, colored));
+                        out.extend(would.flattened(&r.flattened, colored));
                         moved = true;
                     }
                 }
@@ -628,6 +650,7 @@ fn branch_lines(b: &BranchPull, would: Would, colored: bool) -> (&str, Vec<Strin
             } = base.as_ref()
             {
                 out.extend(would.dropped(&r.dropped, colored));
+                out.extend(would.flattened(&r.flattened, colored));
                 moved = true;
             }
             branch

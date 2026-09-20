@@ -50,6 +50,7 @@ struct FoldPlan {
     new_tip: gix::ObjectId,
     rewrites: Vec<rewrite::Rewrite>,
     dropped: Vec<rewrite::Dropped>,
+    flattened: Vec<rewrite::Flattened>,
     replayed: usize,
     published: usize,
     diverged: Vec<String>,
@@ -259,6 +260,7 @@ fn plan_fold(
     let mut new_tip = source_tip;
     let mut rewrites = Vec::new();
     let mut dropped = Vec::new();
+    let mut flattened = Vec::new();
     let mut replayed = 0usize;
     let mut published = 0usize;
     let mut diverged = Vec::new();
@@ -289,6 +291,7 @@ fn plan_fold(
             new_tip = replay.new_tip;
             rewrites = replay.rewrites;
             dropped = replay.dropped;
+            flattened = replay.flattened;
             replayed = replay.replayed;
             published = replay.published;
             diverged = replay.diverged;
@@ -343,6 +346,7 @@ fn plan_fold(
         new_tip,
         rewrites,
         dropped,
+        flattened,
         replayed,
         published,
         diverged,
@@ -500,6 +504,7 @@ impl FoldPlan {
             old_tip: self.source_tip.to_string(),
             new_tip: self.new_tip.to_string(),
             dropped: self.dropped.clone(),
+            flattened: self.flattened.clone(),
             diverged: self.diverged.clone(),
             published: self.published,
             published_on: rewrite::tracking_name(repo, &self.source)?,

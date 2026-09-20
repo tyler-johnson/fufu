@@ -2,13 +2,20 @@
 //! carried forward as literal marker content rather than refused. Nothing is
 //! committed — this walks trees only — but the trees and blobs it writes are
 //! real, so `ff resolve` can check the last one out.
+//!
+//! A merge in the range needs an ancestry question answered about commits
+//! the chain has not written: which of its mapped parents lie beneath
+//! another, and where their merge base is. So the chain keeps a simulated
+//! graph in a memory handle layered over the repository — one throwaway
+//! commit per step, carrying the step's tree and mapped parents — and asks
+//! it. Those commits never reach the store.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gix::bstr::ByteSlice;
 
 use super::markers::{Block, CHAIN_OURS, OPENER, blocks};
-use super::replay::{Change, Range, filtered, range_of, subject, their_of, tree_of};
+use super::replay::{Change, Range, filtered, range_of, simplified, subject, their_of, tree_of};
 use crate::error::{Error, Result};
 
 /// One unresolved region standing in a tree, and the step that wrote it.
@@ -75,12 +82,14 @@ pub struct Resolution {
 }
 
 /// Replay `target..tip` under `change` without stopping at a conflict: each
-/// step merges against the previous step's *result*, unresolved regions
-/// carried forward as literal marker content, and a conflict a later commit
-/// resolves anyway vanishes along the way. `resolutions` are applied to the
-/// step that owns them, after that step merges and before the next one
-/// replays over it, which is what makes the whole stack land clean from edits
-/// made once at the end.
+/// step merges against what its mapped parents give it — the previous
+/// step's *result*, for a straight line — unresolved regions carried forward
+/// as literal marker content, and a conflict a later commit resolves anyway
+/// vanishes along the way. A merge takes the same shape the replay gives it:
+/// parents mapped and simplified, re-merged, its own change laid over the
+/// result. `resolutions` are applied to the step that owns them, after that
+/// step merges and before the next one replays over it, which is what makes
+/// the whole stack land clean from edits made once at the end.
 pub fn chain(
     repo: &gix::Repository,
     target: gix::ObjectId,
@@ -92,83 +101,117 @@ pub fn chain(
         ordered,
         affected,
         superseded,
+        outside,
     } = range_of(repo, target, tip, change)?;
     // The full size of the stack, even when the chain stops early: the label
     // tells the reader the size of the stack, not the size of this attempt.
     // A commit the base already holds is no step of it: the replay drops it
     // without a merge, so the chain runs no merge for it either.
-    let replays = |id: &gix::ObjectId| affected.contains(id) && !superseded.contains_key(id);
-    let n = ordered.iter().filter(|id| replays(id)).count();
+    let n = ordered
+        .iter()
+        .filter(|&id| affected.contains(id) && !superseded.contains_key(id))
+        .count();
 
-    let start_cursor = match change {
+    let start_tree = match change {
         Change::Onto(onto) => tree_of(repo, *onto)?,
         Change::Tree { tree, .. } | Change::Move { tree, .. } => *tree,
-        // A reword moves no tree, so the cursor never stands in for a tree;
-        // the empty tree only matters if no step runs at all.
+        // A reword moves no tree, so this never stands in for a tree; the
+        // empty tree only matters if no step runs at all.
         Change::Message(_) => gix::ObjectId::empty_tree(repo.object_hash()),
     };
 
-    let mut cursor = start_cursor;
+    // The simulated graph: every commit the chain has stood in for, keyed
+    // by its old id. Real commits — the base, a parent below the range —
+    // read through it unchanged, so a merge base between a step and the
+    // trunk is one question.
+    let sim = repo.clone().with_object_memory();
+    let mut sim_ids: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
     let mut steps: Vec<Step> = Vec::new();
     let mut reported: HashSet<String> = HashSet::new();
     let mut tangled: Option<Tangle> = None;
 
     for &id in &ordered {
-        if !replays(&id) {
+        if !affected.contains(&id) {
+            continue;
+        }
+        let subject = subject(repo, id)?;
+
+        // The step's parents, by the replay's rule: through the chain when
+        // the chain has replayed them, through the base's identities when
+        // they stand below the range, as they are otherwise; the target's
+        // first parent is the new base under `Onto`. Then, for anything but
+        // a reword, without a parent that lies beneath another.
+        let old_parents = parents_of(repo, id)?;
+        let remap = |old: gix::ObjectId| {
+            sim_ids
+                .get(&old)
+                .or_else(|| outside.get(&old))
+                .copied()
+                .unwrap_or(old)
+        };
+        let mut parents: Vec<gix::ObjectId> = match change {
+            Change::Onto(onto) if id == target => std::iter::once(*onto)
+                .chain(old_parents.iter().skip(1).copied().map(remap))
+                .collect(),
+            _ => old_parents.iter().copied().map(remap).collect(),
+        };
+        if !matches!(change, Change::Message(_)) {
+            parents = simplified(&sim, parents)?;
+        }
+        // A superseded commit is dropped onto its parent, as the replay
+        // drops it: it stands in the graph as that parent.
+        if superseded.contains_key(&id) && parents.len() == 1 {
+            sim_ids.insert(id, parents[0]);
             continue;
         }
         let k = steps.len() + 1;
-        let subject = subject(repo, id)?;
+
+        // What the step's parents give it: one parent's tree, or the
+        // re-merge of several — the fold `measure` runs, with this step's
+        // labels, so a region the fold leaves is this step's to resolve.
+        let (ours, mut paths) = remerged(repo, &sim, &parents, k, n, &subject)?;
 
         // This step's tree and the regions it left unresolved. The target
-        // under a tree change takes its new tree directly (no merge); a reword
-        // carries every commit's own tree; everything else replays the commit
-        // onto the cursor — the previous step's result.
-        let (merged_tree, paths) = if id == target {
-            match change {
-                // The caller folded something into the target and handed
-                // the result over. It can already carry marks — an absorb
-                // whose fold conflicted hands over exactly that — so the
-                // paths it changed are scanned like any other step's, or the
-                // region would stand in every later tree with no step
-                // claiming it.
-                Change::Tree { tree, .. } | Change::Move { tree, .. } => {
-                    (*tree, marked_paths(repo, tree_of(repo, id)?, *tree)?)
-                }
-                Change::Message(_) => (tree_of(repo, id)?, Vec::new()),
-                Change::Onto(onto) => {
-                    let base = old_first_parent_tree(repo, id)?;
-                    let their = tree_of(repo, id)?;
-                    merged(repo, base, tree_of(repo, *onto)?, their, k, n, &subject)?
-                }
+        // under a tree change takes its new tree directly (no merge); a
+        // reword carries every commit's own tree; everything else lays the
+        // commit's own change over `ours`.
+        let merged_tree = match change {
+            // The caller folded something into the target and handed the
+            // result over. It can already carry marks — an absorb whose
+            // fold conflicted hands over exactly that — so the paths it
+            // changed are scanned like any other step's, or the region
+            // would stand in every later tree with no step claiming it.
+            Change::Tree { tree, .. } | Change::Move { tree, .. } if id == target => {
+                paths = marked_paths(repo, tree_of(repo, id)?, *tree)?;
+                *tree
             }
-        } else {
-            match change {
-                Change::Message(_) => (tree_of(repo, id)?, Vec::new()),
-                Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
-                    let base = old_first_parent_tree(repo, id)?;
-                    let their = their_of(repo, change, id, base)?;
-                    let (tree, mut paths) = merged(repo, base, cursor, their, k, n, &subject)?;
-                    // A move's target above the bottom takes the moved paths
-                    // from the fold, the way the replay does. The fold can
-                    // carry marks of its own — a conflicted fold is handed in
-                    // exactly as a conflicted bottom is — so its paths are
-                    // this step's too.
-                    match change {
-                        Change::Move {
-                            into: Some(into), ..
-                        } if into.id == id => {
-                            let tree = filtered(repo, tree, into.tree, &into.paths)?;
-                            paths.extend(marked_paths(repo, tree_of(repo, id)?, into.tree)?);
-                            paths.sort();
-                            paths.dedup();
-                            (tree, paths)
-                        }
-                        _ => (tree, paths),
+            Change::Message(_) => {
+                paths.clear();
+                tree_of(repo, id)?
+            }
+            Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
+                let base = crate::measure(repo, id)?.tree;
+                let their = their_of(repo, change, id, base)?;
+                let (tree, own) = merged(repo, base, ours, their, k, n, &subject)?;
+                paths.extend(own);
+                // A move's target above the bottom takes the moved paths
+                // from the fold, the way the replay does. The fold can
+                // carry marks of its own — a conflicted fold is handed in
+                // exactly as a conflicted bottom is — so its paths are
+                // this step's too.
+                match change {
+                    Change::Move {
+                        into: Some(into), ..
+                    } if into.id == id => {
+                        paths.extend(marked_paths(repo, tree_of(repo, id)?, into.tree)?);
+                        filtered(repo, tree, into.tree, &into.paths)?
                     }
+                    _ => tree,
                 }
             }
         };
+        paths.sort();
+        paths.dedup();
 
         // Tangle check: every path any step so far reported unresolved — this
         // step's, plus every earlier one's — that still stands in this step's
@@ -192,7 +235,7 @@ pub fn chain(
                 continue;
             };
             let (found, tangled) = blocks(&blob);
-            if tangled || drifted(repo, cursor, path, idx, &found)? {
+            if tangled || drifted(repo, ours, path, idx, &found)? {
                 first_tangled = Some(path);
             }
         }
@@ -215,15 +258,98 @@ pub fn chain(
             tree: final_tree,
             paths,
         });
-        cursor = final_tree;
+        sim_ids.insert(id, simulate(&sim, final_tree, parents)?);
     }
 
-    let tree = steps.last().map(|s| s.tree).unwrap_or(start_cursor);
+    let tree = steps.last().map(|s| s.tree).unwrap_or(start_tree);
     Ok(Chain {
         steps,
         tree,
         tangled,
     })
+}
+
+/// The parents of a commit, through whichever handle is given.
+fn parents_of(repo: &gix::Repository, id: gix::ObjectId) -> Result<Vec<gix::ObjectId>> {
+    Ok(repo
+        .find_object(id)
+        .map_err(Error::repo)?
+        .into_commit()
+        .parent_ids()
+        .map(|p| p.detach())
+        .collect())
+}
+
+/// A stand-in for a replayed commit, written into the simulated graph: the
+/// step's tree, its mapped parents, and nothing else worth reading. The
+/// author is fixed, and its time is set past any real commit's so a merge
+/// base walk pops the stand-in first and stops near the top of the graph
+/// rather than draining the trunk's history before it reaches the step.
+fn simulate(
+    sim: &gix::Repository,
+    tree: gix::ObjectId,
+    parents: Vec<gix::ObjectId>,
+) -> Result<gix::ObjectId> {
+    let sig = gix::actor::Signature {
+        name: "fufu".into(),
+        email: "".into(),
+        time: gix::date::Time::new(i64::from(i32::MAX), 0),
+    };
+    let commit = gix::objs::Commit {
+        tree,
+        parents: parents.into(),
+        author: sig.clone(),
+        committer: sig,
+        encoding: None,
+        message: "".into(),
+        extra_headers: Vec::new(),
+    };
+    Ok(sim.write_object(&commit).map_err(Error::repo)?.detach())
+}
+
+/// What a step's parents give it, and the paths the fold left marked. One
+/// parent: its tree, no merge. Several: the auto-merge of their trees, base
+/// by base against the first, with the step's own labels on any region it
+/// leaves — the same fold the replay refuses on and `measure` falls back
+/// on, carried here instead. No base for some pair: the first parent's tree
+/// stands in. A conflicting pair stops the fold, as the measure's does.
+/// Ancestry runs on `sim`; trees are read and written through `repo`.
+fn remerged(
+    repo: &gix::Repository,
+    sim: &gix::Repository,
+    parents: &[gix::ObjectId],
+    k: usize,
+    n: usize,
+    subject: &str,
+) -> Result<(gix::ObjectId, Vec<String>)> {
+    let Some(&first) = parents.first() else {
+        return Ok((gix::ObjectId::empty_tree(repo.object_hash()), Vec::new()));
+    };
+    let first_tree = tree_of(sim, first)?;
+    let mut ours = first_tree;
+    for &theirs in &parents[1..] {
+        let base = match sim.merge_base(first, theirs) {
+            Ok(base) => base.detach(),
+            Err(gix::repository::merge_base::Error::NotFound { .. }) => {
+                return Ok((first_tree, Vec::new()));
+            }
+            Err(e) => return Err(Error::repo(e)),
+        };
+        let (tree, paths) = merged(
+            repo,
+            tree_of(sim, base)?,
+            ours,
+            tree_of(sim, theirs)?,
+            k,
+            n,
+            subject,
+        )?;
+        ours = tree;
+        if !paths.is_empty() {
+            return Ok((ours, paths));
+        }
+    }
+    Ok((ours, Vec::new()))
 }
 
 /// Whether any block an earlier step wrote came through this step's merge
@@ -592,25 +718,12 @@ pub(crate) fn stack_size(
         ordered,
         affected,
         superseded,
+        ..
     } = range_of(repo, target, tip, change)?;
     Ok(ordered
         .iter()
         .filter(|&id| affected.contains(id) && !superseded.contains_key(id))
         .count())
-}
-
-/// The tree of a commit's old first parent, or the empty tree for a root.
-fn old_first_parent_tree(repo: &gix::Repository, id: gix::ObjectId) -> Result<gix::ObjectId> {
-    let obj = repo.find_object(id).map_err(Error::repo)?;
-    let commit_ref =
-        gix::objs::CommitRef::from_bytes(&obj.data, repo.object_hash()).map_err(Error::repo)?;
-    match commit_ref.parents.first() {
-        Some(hex) => {
-            let parent = gix::ObjectId::from_hex(hex).map_err(Error::repo)?;
-            tree_of(repo, parent)
-        }
-        None => Ok(gix::ObjectId::empty_tree(repo.object_hash())),
-    }
 }
 
 /// Fold every resolution that belongs to step `idx` into `tree`, one at a

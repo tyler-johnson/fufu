@@ -47,6 +47,20 @@ pub enum DropReason {
     Superseded,
 }
 
+/// A merge the rewrite wrote as an ordinary commit: its parents were mapped
+/// through the rewrite and every one but a single parent ended up an
+/// ancestor of it, so the edge to it said nothing. The commit still holds
+/// what the merge did of its own — a resolution, an edit — measured
+/// against the auto-merge of its old parents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Flattened {
+    /// The merge as it was, full sha.
+    pub old: String,
+    /// The ordinary commit it became, full sha.
+    pub new: String,
+    pub subject: String,
+}
+
 /// What changes about the named commit. A move — absorb and lift, which are
 /// one verb with two defaults — is a variant here rather than a fork of the
 /// engine.
@@ -112,6 +126,8 @@ pub struct RewritePlan {
     pub rewrites: Vec<Rewrite>,
     /// Commits the rewrite dropped rather than wrote, oldest-first.
     pub dropped: Vec<Dropped>,
+    /// Merges written with a single parent, oldest-first.
+    pub flattened: Vec<Flattened>,
     /// Local heads sitting inside the rewritten range, sorted by ref name.
     pub carried: Vec<RefTransition>,
     pub new_tip: gix::ObjectId,
@@ -175,54 +191,24 @@ pub fn plan_with(
     now: i64,
     trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<RewritePlan> {
-    let Range {
-        ordered,
-        affected,
-        superseded,
-    } = range_of(repo, target, tip, change)?;
+    let range = range_of(repo, target, tip, change)?;
 
     // 5. Rewrite the affected commits. A tree-moving change can conflict, so
     // a dry run against an in-memory object store must pass first: it raises
-    // the conflict or the merge-commit refusal, writes nothing, and only then
-    // does the real pass run. A message change moves no tree, so it skips
-    // the dry run and keeps today's single pass.
+    // the conflict, writes nothing, and only then does the real pass run. A
+    // message change moves no tree, so it skips the dry run and keeps
+    // today's single pass.
     let Replayed {
         rewrites,
         dropped,
+        flattened,
         map,
     } = match change {
-        Change::Message(_) => replay(
-            repo,
-            &ordered,
-            &affected,
-            &superseded,
-            target,
-            change,
-            now,
-            trees,
-        )?,
+        Change::Message(_) => replay(repo, &range, target, change, now, trees)?,
         Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
             let memory = repo.clone().with_object_memory();
-            replay(
-                &memory,
-                &ordered,
-                &affected,
-                &superseded,
-                target,
-                change,
-                now,
-                trees,
-            )?;
-            replay(
-                repo,
-                &ordered,
-                &affected,
-                &superseded,
-                target,
-                change,
-                now,
-                trees,
-            )?
+            replay(&memory, &range, target, change, now, trees)?;
+            replay(repo, &range, target, change, now, trees)?
         }
     };
 
@@ -261,6 +247,7 @@ pub fn plan_with(
     Ok(RewritePlan {
         rewrites,
         dropped,
+        flattened,
         carried,
         new_tip,
     })
@@ -281,6 +268,14 @@ pub(super) struct Range {
     /// [`Change::Onto`]: a reword or a tree change replays onto the same
     /// history the range already stands on.
     pub(super) superseded: HashMap<gix::ObjectId, gix::ObjectId>,
+    /// Parents of affected commits that the rewrite does not touch — a
+    /// merge's trunk side, below the range's floor — which the base holds
+    /// by identity, each with the base's commit that carries it. A merge of
+    /// a trunk that was itself rewritten remaps that edge to the trunk's
+    /// current spelling, so it lands beneath the mapped branch side and
+    /// simplifies away instead of keeping abandoned history reachable. Only
+    /// ever filled under [`Change::Onto`].
+    pub(super) outside: HashMap<gix::ObjectId, gix::ObjectId>,
 }
 
 pub(super) fn range_of(
@@ -342,25 +337,47 @@ pub(super) fn range_of(
         }
     }
 
-    // 5. Under `Onto`, the affected commits the base already holds by
-    // identity. Bounded by the same parents the range walk was, so the base
-    // is read down to where the range's floor stands and no further.
-    let superseded = match change {
+    // 5. Under `Onto`, what the base already holds by identity: the
+    // affected commits, and the untouched parents of affected commits — a
+    // merge's other side — except the target's first parent, which `onto`
+    // replaces outright. One walk answers for both, bounded by the same
+    // parents the range walk was, so the base is read down to where the
+    // range's floor stands and no further.
+    let (superseded, outside) = match change {
         Change::Onto(onto) => {
-            let candidates: Vec<gix::ObjectId> = ordered
+            let mut candidates: Vec<gix::ObjectId> = ordered
                 .iter()
                 .filter(|&id| affected.contains(id))
                 .copied()
                 .collect();
+            for &id in &ordered {
+                if !affected.contains(&id) {
+                    continue;
+                }
+                for (i, &parent) in parents_of.get(&id).into_iter().flatten().enumerate() {
+                    if (id == target && i == 0)
+                        || affected.contains(&parent)
+                        || candidates.contains(&parent)
+                    {
+                        continue;
+                    }
+                    candidates.push(parent);
+                }
+            }
             superseded_by(repo, *onto, &boundary, &candidates)?
+                .into_iter()
+                .partition(|(id, _)| affected.contains(id))
         }
-        Change::Message(_) | Change::Tree { .. } | Change::Move { .. } => HashMap::new(),
+        Change::Message(_) | Change::Tree { .. } | Change::Move { .. } => {
+            (HashMap::new(), HashMap::new())
+        }
     };
 
     Ok(Range {
         ordered,
         affected,
         superseded,
+        outside,
     })
 }
 
@@ -499,54 +516,32 @@ pub(crate) fn join_paths(paths: &[String]) -> String {
 struct Replayed {
     rewrites: Vec<Rewrite>,
     dropped: Vec<Dropped>,
+    flattened: Vec<Flattened>,
     map: HashMap<gix::ObjectId, gix::ObjectId>,
 }
 
 /// Rewrite each affected commit in order: the target takes its new tree or
 /// message, and every other affected commit is replayed onto its rewritten
-/// first parent. Under a tree change a merge commit in the range is refused
-/// before the first write.
-#[allow(clippy::too_many_arguments)]
+/// parents. A merge is an ordinary commit here: each parent is mapped
+/// through the rewrite, the mapped parents are re-merged, its own change —
+/// what [`crate::measure`] diffs it against — is replayed over that, and a
+/// parent left beneath another is dropped. A merge that keeps one parent
+/// stays a merge; one left with a single parent is written as an ordinary
+/// commit, or dropped like any other when it then changes nothing.
 fn replay(
     repo: &gix::Repository,
-    ordered: &[gix::ObjectId],
-    affected: &HashSet<gix::ObjectId>,
-    superseded: &HashMap<gix::ObjectId, gix::ObjectId>,
+    range: &Range,
     target: gix::ObjectId,
     change: &Change,
     now: i64,
     trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<Replayed> {
-    // Re-parenting a merge is unambiguous; replaying one is not — and a
-    // tree change never replays its target, so a merge target is exempt
-    // under Tree and Move, not under Onto.
-    if matches!(
-        change,
-        Change::Tree { .. } | Change::Onto(_) | Change::Move { .. }
-    ) {
-        for &id in ordered {
-            if (matches!(change, Change::Tree { .. } | Change::Move { .. }) && id == target)
-                || !affected.contains(&id)
-            {
-                continue;
-            }
-            let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
-            if commit.parent_ids().count() > 1 {
-                let subject = commit.message().map_err(Error::repo)?.summary().to_string();
-                return Err(Error::coded(
-                    "rewrite/merge-in-range",
-                    format!(
-                        "{} \"{}\" is a merge, and replaying a merge is ambiguous: nothing was \
-                         rewritten",
-                        crate::sha::short_oid(id),
-                        subject
-                    ),
-                    vec!["ff log".into()],
-                ));
-            }
-        }
-    }
-
+    let Range {
+        ordered,
+        affected,
+        superseded,
+        outside,
+    } = range;
     let committer = crate::refs::user_signature(repo, now)?;
     // `commit.gpgsign` governs every user commit fufu writes, replays
     // included — git needs `rebase.gpgSign` said separately, but in fufu
@@ -557,6 +552,7 @@ fn replay(
     let mut map: HashMap<gix::ObjectId, gix::ObjectId> = HashMap::new();
     let mut rewrites: Vec<Rewrite> = Vec::new();
     let mut dropped: Vec<Dropped> = Vec::new();
+    let mut flattened: Vec<Flattened> = Vec::new();
     for &id in ordered {
         if !affected.contains(&id) {
             continue;
@@ -570,16 +566,26 @@ fn replay(
             .iter()
             .map(|hex| gix::ObjectId::from_hex(hex).map_err(Error::repo))
             .collect::<Result<_>>()?;
-        let parents: Vec<gix::ObjectId> = if let Change::Onto(onto) = change
-            && id == target
-        {
-            vec![*onto]
-        } else {
-            old_parents
-                .iter()
-                .map(|&old| map.get(&old).copied().unwrap_or(old))
-                .collect()
+        // Each parent through the rewrite when it is in the range, through
+        // the base's identities when it stands below it, and as it is
+        // otherwise; under `Onto` the target's first parent is the new base.
+        let remap = |old: gix::ObjectId| {
+            map.get(&old)
+                .or_else(|| outside.get(&old))
+                .copied()
+                .unwrap_or(old)
         };
+        let mut parents: Vec<gix::ObjectId> = match change {
+            Change::Onto(onto) if id == target => std::iter::once(*onto)
+                .chain(old_parents.iter().skip(1).copied().map(remap))
+                .collect(),
+            _ => old_parents.iter().copied().map(remap).collect(),
+        };
+        // A reword re-parents and nothing more; every other change drops a
+        // parent that ended up beneath another.
+        if !matches!(change, Change::Message(_)) {
+            parents = simplified(repo, parents)?;
+        }
         // A commit the base already holds by identity is not replayed at all:
         // no merge, so a base rewrite that changed its content cannot
         // conflict on a file the branch never touched. `map` points it at
@@ -598,60 +604,32 @@ fn replay(
             });
             continue;
         }
-        let tree = if id == target {
-            match change {
-                Change::Message(_) => {
-                    gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?
-                }
-                // A decided landing has already worked out what the target
-                // carries: the change's own tree is the fold as it was
-                // computed, markers and all, and the decision is that fold
-                // with the reader's fix in it. The decision wins.
-                Change::Tree { tree, .. } | Change::Move { tree, .. } => {
-                    *trees.get(&id).unwrap_or(tree)
-                }
-                Change::Onto(onto) => {
-                    let base = match old_parents.first() {
-                        Some(parent) => tree_of(repo, *parent)?,
-                        None => gix::ObjectId::empty_tree(repo.object_hash()),
-                    };
-                    replayed_tree(
-                        repo,
-                        id,
-                        base,
-                        tree_of(repo, *onto)?,
-                        tree_of(repo, id)?,
-                        trees,
-                    )?
-                }
+        let tree = match change {
+            Change::Message(_) => gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?,
+            // A decided landing has already worked out what the target
+            // carries: the change's own tree is the fold as it was
+            // computed, markers and all, and the decision is that fold
+            // with the reader's fix in it. The decision wins.
+            Change::Tree { tree, .. } | Change::Move { tree, .. } if id == target => {
+                *trees.get(&id).unwrap_or(tree)
             }
-        } else {
-            let Some(old_parent0) = old_parents.first().copied() else {
-                return Err(Error::msg(
-                    "a non-target commit in the affected set has no first parent: internal \
-                     ordering error",
-                ));
-            };
-            let new_parent0 = *map.get(&old_parent0).unwrap_or(&old_parent0);
-            let old_parent_tree = tree_of(repo, old_parent0)?;
-            let replayed = replayed_tree(
-                repo,
-                id,
-                old_parent_tree,
-                tree_of(repo, new_parent0)?,
-                their_of(repo, change, id, old_parent_tree)?,
-                trees,
-            )?;
-            // The move's target, above the bottom, takes the moved paths
-            // from the fold rather than from the merge — unless a landing
-            // has already decided its tree, fold and fixes included.
-            match change {
-                Change::Move {
-                    into: Some(into), ..
-                } if into.id == id && !trees.contains_key(&id) => {
-                    filtered(repo, replayed, into.tree, &into.paths)?
+            // Likewise for any commit a landing decided: `chain` has
+            // already merged it, so no merge — the parents' or its own —
+            // runs again.
+            _ if trees.contains_key(&id) => trees[&id],
+            Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
+                let base = crate::measure(repo, id)?.tree;
+                let ours = remerge(repo, id, &parents)?;
+                let their = their_of(repo, change, id, base)?;
+                let replayed = replayed_tree(repo, id, base, ours, their)?;
+                // The move's target, above the bottom, takes the moved paths
+                // from the fold rather than from the merge.
+                match change {
+                    Change::Move {
+                        into: Some(into), ..
+                    } if into.id == id => filtered(repo, replayed, into.tree, &into.paths)?,
+                    _ => replayed,
                 }
-                _ => replayed,
             }
         };
         let author = commit_ref
@@ -703,12 +681,14 @@ fn replay(
         // head sitting on it and `new_tip` follow on their own, because they
         // all read `map` and nothing else.
         //
-        // Never a merge — collapsing one onto its first parent would erase
-        // the other side of the history, which is not what "empty" means —
-        // and never a root, which has no parent to collapse onto. Requiring
-        // exactly one parent covers both. Never under `Change::Message`
-        // either: a reword re-parents rather than replays, so every tree it
-        // passes over is one it did not touch.
+        // Never a commit still holding two parents — collapsing a merge
+        // onto one side would erase the other, which is not what "empty"
+        // means — and never a root, which has no parent to collapse onto.
+        // Requiring exactly one parent covers both; a merge simplified to a
+        // single parent is an ordinary commit by now and drops like any
+        // other. Never under `Change::Message` either: a reword re-parents
+        // rather than replays, so every tree it passes over is one it did
+        // not touch.
         if !matches!(change, Change::Message(_))
             && parents.len() == 1
             && tree == tree_of(repo, parents[0])?
@@ -722,6 +702,7 @@ fn replay(
             });
             continue;
         }
+        let parents_written = parents.len();
         let commit = gix::objs::Commit {
             tree,
             parents: parents.into(),
@@ -741,12 +722,96 @@ fn replay(
             old: id.to_string(),
             new: new_id.to_string(),
         });
+        if old_parents.len() > 1 && parents_written == 1 {
+            flattened.push(Flattened {
+                old: id.to_string(),
+                new: new_id.to_string(),
+                subject: subject(repo, id)?,
+            });
+        }
     }
     Ok(Replayed {
         rewrites,
         dropped,
+        flattened,
         map,
     })
+}
+
+/// `parents` deduplicated, then without any that is an ancestor of another:
+/// the edge to such a parent says nothing the other edge does not. A
+/// commit left with one parent is an ordinary commit from here. Order is
+/// kept, so a merge that stays a merge keeps its first parent first.
+pub(super) fn simplified(
+    repo: &gix::Repository,
+    parents: Vec<gix::ObjectId>,
+) -> Result<Vec<gix::ObjectId>> {
+    let mut distinct: Vec<gix::ObjectId> = Vec::with_capacity(parents.len());
+    for parent in parents {
+        if !distinct.contains(&parent) {
+            distinct.push(parent);
+        }
+    }
+    if distinct.len() < 2 {
+        return Ok(distinct);
+    }
+    let mut kept: Vec<gix::ObjectId> = Vec::with_capacity(distinct.len());
+    for &p in &distinct {
+        let mut beneath = false;
+        for &q in &distinct {
+            if p == q {
+                continue;
+            }
+            match repo.merge_base(p, q) {
+                Ok(base) if base.detach() == p => {
+                    beneath = true;
+                    break;
+                }
+                Ok(_) | Err(gix::repository::merge_base::Error::NotFound { .. }) => {}
+                Err(e) => return Err(Error::repo(e)),
+            }
+        }
+        if !beneath {
+            kept.push(p);
+        }
+    }
+    Ok(kept)
+}
+
+/// The tree a replayed commit's own change is laid over: its one parent's
+/// tree, or the auto-merge of its parents — the same fold `measure` runs on
+/// the old ones. No base for some pair: the first parent's tree stands in,
+/// as the measure's does. A conflicting pair refuses the rewrite the way a
+/// conflicting replay does; the chain is where that conflict is carried.
+fn remerge(
+    repo: &gix::Repository,
+    id: gix::ObjectId,
+    parents: &[gix::ObjectId],
+) -> Result<gix::ObjectId> {
+    use crate::measure::{AutoMerge, auto_merge};
+    match parents {
+        [] => Ok(gix::ObjectId::empty_tree(repo.object_hash())),
+        [one] => tree_of(repo, *one),
+        many => match auto_merge(repo, many, Default::default())? {
+            AutoMerge::NoBase => tree_of(repo, many[0]),
+            AutoMerge::Merged { tree, conflicts } if conflicts.is_empty() => Ok(tree),
+            AutoMerge::Merged { conflicts, .. } => Err(conflict_refusal(repo, id, &conflicts)?),
+        },
+    }
+}
+
+/// The refusal a replay that conflicts raises, before anything is written.
+fn conflict_refusal(repo: &gix::Repository, id: gix::ObjectId, paths: &[String]) -> Result<Error> {
+    Ok(Error::coded(
+        "held/rewrite-conflict",
+        format!(
+            "replaying {} \"{}\" over the rewrite conflicts in {}: nothing was rewritten",
+            crate::sha::short_oid(id),
+            subject(repo, id)?,
+            join_paths(paths),
+        ),
+        vec!["ff status".into(), "ff log -r <rev>".into()],
+    ))
 }
 
 /// The tree a replay carries for `id`: its own, unless the change says it
@@ -888,25 +953,20 @@ fn diff_entries(
     Ok(out)
 }
 
-/// The new tree of a replayed commit, target or descendant. When `trees`
-/// decides this commit's tree in advance, that tree is taken directly — this
-/// is how a resolved held rewrite lands, the merge having nothing left to
-/// decide. Otherwise: when its first parent's tree did not move, `their` —
-/// the commit's own tree, or the one the change says to carry for it — is
+/// The new tree of a replayed commit, target or descendant: `their` — the
+/// commit's own tree, or the one the change says to carry for it — laid
+/// over `ours_tree`, what its new parents give it, as a change against
+/// `base_tree`, what its old ones gave it. When the two agree, `their` is
 /// carried unchanged and no merge runs at all, which is what keeps a reword
-/// costing what it cost before; and otherwise `their` is replayed onto the
-/// rewritten parent, and an unresolved merge refuses the whole rewrite.
+/// costing what it cost before. An unresolved merge refuses the whole
+/// rewrite.
 fn replayed_tree(
     repo: &gix::Repository,
     id: gix::ObjectId,
     base_tree: gix::ObjectId,
     ours_tree: gix::ObjectId,
     their: gix::ObjectId,
-    trees: &HashMap<gix::ObjectId, gix::ObjectId>,
 ) -> Result<gix::ObjectId> {
-    if let Some(&given) = trees.get(&id) {
-        return Ok(given);
-    }
     if base_tree == ours_tree {
         return Ok(their);
     }
@@ -916,18 +976,7 @@ fn replayed_tree(
         .map_err(Error::repo)?;
     let paths = crate::futures::unresolved(&outcome);
     if !paths.is_empty() {
-        let commit = repo.find_object(id).map_err(Error::repo)?.into_commit();
-        let subject = commit.message().map_err(Error::repo)?.summary().to_string();
-        return Err(Error::coded(
-            "held/rewrite-conflict",
-            format!(
-                "replaying {} \"{}\" over the rewrite conflicts in {}: nothing was rewritten",
-                crate::sha::short_oid(id),
-                subject,
-                join_paths(&paths),
-            ),
-            vec!["ff status".into(), "ff log -r <rev>".into()],
-        ));
+        return Err(conflict_refusal(repo, id, &paths)?);
     }
     Ok(outcome.tree.write().map_err(Error::repo)?.detach())
 }

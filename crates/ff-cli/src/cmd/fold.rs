@@ -52,6 +52,9 @@ pub fn run(ctx: &Ctx, target: Option<String>, stay: bool) -> Result<()> {
     for line in crate::render::dropped_lines(&report.dropped, None, colored) {
         println!("{line}");
     }
+    for line in crate::render::flattened_lines(&report.flattened, colored) {
+        println!("{line}");
+    }
     if !report.diverged.is_empty() {
         let sits = if report.diverged.len() == 1 {
             "sits"

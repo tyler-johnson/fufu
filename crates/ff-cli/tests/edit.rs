@@ -605,3 +605,126 @@ fn done_says_what_followed_and_the_json_carries_it() {
         0
     );
 }
+
+/// The parents of a commit, in order.
+fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
+    fx.git(&["rev-list", "--parents", "-n1", commit])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+/// A feature branch that merged trunk once, HEAD on `feature`:
+///
+/// ```text
+/// T0 ─ T1                      (main)
+///  └─ f1 ─ f2 ─ M ─ f3         (feature; M merges T1)
+/// ```
+///
+/// Returns `(f1, t1, m)`.
+fn trunk_merge(fx: &Fixture) -> (String, String, String) {
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t1.txt", "t1\n");
+    let t1 = fx.commit("T1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    let m = fx.commit("M: merge main");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+    (f1, t1, m)
+}
+
+/// A merge above the edited commit is carried: the branch side is rewritten
+/// beneath it, the trunk side stays, and it is still a merge. Restack-driven
+/// shapes — a merge flattening at the CLI, the `flattened` line, the cascade
+/// — wait on restack's own refusal coming out.
+#[test]
+fn done_carries_a_merge_above_the_edit() {
+    let fx = repo();
+    let (f1, t1, m) = trunk_merge(&fx);
+
+    let opened = ff(&fx, &["edit", &f1]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    fx.write("a.txt", "a, edited\n");
+    let output = ff(&fx, &["done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("amended"), "{text}");
+    assert!(!text.contains("flattened"), "nothing flattened: {text}");
+    assert!(!text.contains("dropped"), "nothing dropped: {text}");
+
+    let merges: Vec<String> = fx
+        .git(&["rev-list", "--merges", "feature"])
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(merges.len(), 1, "one merge on the branch");
+    let mn = &merges[0];
+    assert_ne!(mn, &m, "the merge was rewritten");
+    let parents = parents_of(&fx, mn);
+    assert_eq!(parents.len(), 2, "still a merge: {parents:?}");
+    assert_eq!(parents[1], t1, "the trunk side stays");
+    assert_eq!(
+        fx.git(&["show", &format!("{}:a.txt", parents[0])]),
+        "a, edited\n",
+        "the branch side beneath it carries the edit"
+    );
+    assert_eq!(
+        fx.git(&["show", &format!("{mn}:a.txt")]),
+        "a, edited\n",
+        "the merge's tree is the auto-merge of its new parents"
+    );
+    assert_eq!(parents_of(&fx, "feature"), vec![mn.clone()]);
+}
+
+#[test]
+fn done_carries_a_side_branch_merge_with_both_parents_rewritten() {
+    let fx = repo();
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("s.txt", "s\n");
+    let s1 = fx.commit("s1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    fx.git(&["merge", "-q", "--no-commit", "side"]);
+    let m = fx.commit("M: merge side");
+    fx.write("c.txt", "c\n");
+    fx.commit("f3");
+
+    let opened = ff(&fx, &["edit", &f1]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    fx.write("a.txt", "a, edited\n");
+    let output = ff(&fx, &["done"]);
+    assert!(output.status.success(), "{}", out(&output));
+
+    let mn = fx.git(&["rev-parse", "feature~1"]).trim().to_string();
+    assert_ne!(mn, m);
+    let parents = parents_of(&fx, &mn);
+    assert_eq!(parents.len(), 2, "{parents:?}");
+    assert_ne!(parents[1], s1, "the side branch's commit is rewritten too");
+    assert_eq!(
+        tip(&fx, "side"),
+        parents[1],
+        "the side branch follows its rewritten commit"
+    );
+    for parent in &parents {
+        assert_eq!(
+            fx.git(&["show", &format!("{parent}:a.txt")]),
+            "a, edited\n",
+            "{parent} sits on the edit"
+        );
+    }
+}

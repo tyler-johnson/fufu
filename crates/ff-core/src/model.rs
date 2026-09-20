@@ -503,6 +503,9 @@ pub struct MoveReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Merges the rewrite wrote as ordinary commits because their other
+    /// parents ended up beneath them. Oldest-first.
+    pub flattened: Vec<crate::rewrite::Flattened>,
     /// What happened to the branches stacked above this one. Empty when
     /// nothing sits on it.
     pub cascade: Cascade,
@@ -571,6 +574,9 @@ pub struct RestackReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Merges the rewrite wrote as ordinary commits because their other
+    /// parents ended up beneath them. Oldest-first.
+    pub flattened: Vec<crate::rewrite::Flattened>,
     /// What happened to the branches stacked above this one. Empty when
     /// nothing sits on it.
     pub cascade: Cascade,
@@ -602,6 +608,9 @@ pub struct FoldReport {
     /// Commits the replay dropped because they introduce nothing, or the
     /// target already held them by change id. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Merges the rewrite wrote as ordinary commits because their other
+    /// parents ended up beneath them. Oldest-first.
+    pub flattened: Vec<crate::rewrite::Flattened>,
     /// Branches inside the replayed range left where they stood.
     pub diverged: Vec<String>,
     /// How many of the rewritten commits the source's remote already has.
@@ -693,6 +702,9 @@ pub struct CascadeMove {
     pub replayed: usize,
     /// Commits the replay dropped because they introduce nothing.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Merges the rewrite wrote as ordinary commits because their other
+    /// parents ended up beneath them. Oldest-first.
+    pub flattened: Vec<crate::rewrite::Flattened>,
     /// Other branches inside its replayed range, left where they stood.
     pub diverged: Vec<String>,
     /// How many of its rewritten commits its remote already has.
@@ -936,6 +948,9 @@ pub struct DoneReport {
     /// Commits the rewrite dropped because they introduce nothing — fufu
     /// writes no empty commit. Oldest-first.
     pub dropped: Vec<crate::rewrite::Dropped>,
+    /// Merges the rewrite wrote as ordinary commits because their other
+    /// parents ended up beneath them. Oldest-first.
+    pub flattened: Vec<crate::rewrite::Flattened>,
     /// The branches stacked on `onto`, replayed onto its new tip inside this
     /// operation. Empty when the tip did not move.
     pub cascade: Cascade,

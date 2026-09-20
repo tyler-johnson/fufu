@@ -636,3 +636,49 @@ fn a_tree_handed_in_already_marked_is_still_attributed() {
     assert_eq!(found[0].step, 0, "it belongs to the target");
     assert_eq!(found[0].path, "f.txt");
 }
+
+/// Every object in the store with its type, one `sha type` per line.
+fn all_objects(fx: &Fixture) -> Vec<(String, String)> {
+    fx.git(&["cat-file", "--batch-check", "--batch-all-objects"])
+        .lines()
+        .map(|line| {
+            let mut words = line.split_whitespace();
+            (
+                words.next().expect("sha").to_string(),
+                words.next().expect("type").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The chain's ancestry questions run against a simulated graph in memory:
+/// the trees and blobs it writes are real, the commits standing in for its
+/// steps never reach the store.
+#[test]
+fn a_chain_writes_no_commit() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, main, f1, f2) = onto_stack(&fx, "FEAT", Some("one\ntwo\nFEAT\nfour\nFEAT5\n"));
+    let f2 = f2.expect("the two-deep stack has a second commit");
+    let before = all_objects(&fx);
+    let repo = fx.repo();
+
+    let chain =
+        chain(&repo, oid(&f1), oid(&f2), &Change::Onto(oid(&main)), &[]).expect("the chain runs");
+    assert_eq!(chain.steps.len(), 2);
+
+    let after = all_objects(&fx);
+    let written: Vec<&(String, String)> = after.iter().filter(|o| !before.contains(o)).collect();
+    assert!(!written.is_empty(), "the marked trees and blobs are real");
+    assert!(
+        written
+            .iter()
+            .all(|(_, kind)| kind == "tree" || kind == "blob"),
+        "only trees and blobs were written: {written:?}"
+    );
+    assert_eq!(
+        after.iter().filter(|(_, kind)| kind == "commit").count(),
+        before.iter().filter(|(_, kind)| kind == "commit").count(),
+        "no commit reached the store"
+    );
+}

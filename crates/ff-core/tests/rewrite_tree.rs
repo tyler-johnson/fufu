@@ -3,7 +3,7 @@
 //! three-way merge; a conflict refuses the rewrite and writes nothing.
 
 use ff_core::gix;
-use ff_core::rewrite::{Change, RewritePlan, plan};
+use ff_core::rewrite::{Change, DropReason, RewritePlan, plan};
 use ff_testsupport::Fixture;
 
 const NOW: i64 = 1_799_999_999;
@@ -183,8 +183,21 @@ fn merge_commit(fx: &Fixture, c2: &str, c3: &str) -> String {
         .to_string()
 }
 
+/// The parents of a commit, oldest-first as git lists them.
+fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
+    fx.git(&["rev-list", "--parents", "-n1", commit])
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+/// A merge over c2 and c3 where c2 is c3's parent says nothing its first
+/// parent does not: once c2 and c3 are rewritten, the edge to c2' lies
+/// beneath c3' and goes, the merge is left with one parent and no change of
+/// its own, and it drops as empty like any other commit would.
 #[test]
-fn merge_commit_refuses_under_tree_change() {
+fn a_redundant_merge_flattens_under_a_tree_change() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("a.txt", "one\n");
@@ -194,22 +207,55 @@ fn merge_commit_refuses_under_tree_change() {
     fx.write("c.txt", "c\n");
     let c3 = fx.commit("three");
     let merge = merge_commit(&fx, &c2, &c3);
+    // c1's tree with a.txt edited, built on a detached side commit so the
+    // range itself is untouched.
+    fx.git(&["switch", "-q", "--detach", &c1]);
+    fx.write("a.txt", "one, edited\n");
+    let edited = fx.commit("one, edited");
+    fx.git(&["switch", "-q", "main"]);
 
     let repo = fx.repo();
-    let err = plan(
+    let rewritten = plan(
         &repo,
         oid(&c1),
         oid(&merge),
         &Change::Tree {
-            tree: oid(&tree_of(&fx, &c3)),
+            tree: oid(&tree_of(&fx, &edited)),
             message: None,
         },
         NOW,
     )
-    .expect_err("a merge in the range must refuse under a tree change");
+    .expect("a merge in the range is carried under a tree change");
 
-    assert_eq!(err.id(), "rewrite/merge-in-range", "{err}");
-    assert!(err.to_string().contains("is a merge"), "{err}");
+    assert_eq!(
+        rewritten
+            .dropped
+            .iter()
+            .map(|d| (d.old.as_str(), d.reason))
+            .collect::<Vec<_>>(),
+        vec![(merge.as_str(), DropReason::Empty)],
+        "the merge drops as empty once its other parent lies beneath the first"
+    );
+    assert!(rewritten.flattened.is_empty(), "nothing was written flat");
+    let c3_new = &rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == c3)
+        .expect("c3 is rewritten")
+        .new;
+    let new_tip = rewritten.new_tip.to_string();
+    assert_eq!(&new_tip, c3_new, "the tip is c3's rewrite");
+    let c2_new = &rewritten
+        .rewrites
+        .iter()
+        .find(|r| r.old == c2)
+        .expect("c2 is rewritten")
+        .new;
+    assert_eq!(parents_of(&fx, &new_tip), vec![c2_new.clone()]);
+    assert_eq!(
+        fx.git(&["show", &format!("{new_tip}:a.txt")]),
+        "one, edited\n"
+    );
 }
 
 #[test]
@@ -468,8 +514,11 @@ fn onto_conflict_refuses_and_writes_nothing() {
     );
 }
 
+/// A merge target moved onto c1 keeps its other parent c3; c1 is c3's
+/// ancestor, so it goes, and the merge — whose tree is c3's — is left with
+/// one parent and nothing of its own: dropped, and the tip is c3 itself.
 #[test]
-fn onto_refuses_a_merge_target() {
+fn onto_keeps_a_merge_targets_other_parent() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("a.txt", "one\n");
@@ -481,17 +530,25 @@ fn onto_refuses_a_merge_target() {
     let merge = merge_commit(&fx, &c2, &c3);
 
     let repo = fx.repo();
-    let err = plan(
+    let rewritten = plan(
         &repo,
         oid(&merge),
         oid(&merge),
         &Change::Onto(oid(&c1)),
         NOW,
     )
-    .expect_err("a merge target must refuse under Onto");
+    .expect("a merge target is carried under Onto");
 
-    assert_eq!(err.id(), "rewrite/merge-in-range", "{err}");
-    assert!(err.to_string().contains("is a merge"), "{err}");
+    assert!(rewritten.rewrites.is_empty(), "{:?}", rewritten.rewrites);
+    assert_eq!(
+        rewritten
+            .dropped
+            .iter()
+            .map(|d| (d.old.as_str(), d.reason))
+            .collect::<Vec<_>>(),
+        vec![(merge.as_str(), DropReason::Empty)]
+    );
+    assert_eq!(rewritten.new_tip.to_string(), c3);
 }
 
 #[test]
@@ -634,15 +691,19 @@ fn a_merge_target_is_never_dropped() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("a.txt", "one\n");
-    fx.commit("one");
+    let c1 = fx.commit("one");
     fx.write("b.txt", "b\n");
     let c2 = fx.commit("two");
+    // c3 forks from c1, so neither parent lies beneath the other and the
+    // merge is a merge for real.
+    fx.git(&["switch", "-q", "--detach", &c1]);
     fx.write("c.txt", "c\n");
     let c3 = fx.commit("three");
+    fx.git(&["switch", "-q", "main"]);
     let merge = merge_commit(&fx, &c2, &c3);
 
     // The first parent's tree is precisely the drop condition: without the
-    // merge guard, the target would collapse onto c2.
+    // two-parent guard, the target would collapse onto c2.
     let repo = fx.repo();
     let rewritten = plan(
         &repo,
@@ -673,6 +734,48 @@ fn a_merge_target_is_never_dropped() {
         fx.git(&["rev-parse", &format!("{new}^2")]).trim(),
         c3,
         "the second parent is intact"
+    );
+}
+
+/// A merge target whose second parent is a child of its first is written
+/// with the child alone: the edge to the first said nothing. Its tree is
+/// not the child's, so it is a commit, an ordinary one now, and the plan
+/// says so.
+#[test]
+fn a_merge_target_with_a_redundant_parent_flattens() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("a.txt", "one\n");
+    fx.commit("one");
+    fx.write("b.txt", "b\n");
+    let c2 = fx.commit("two");
+    fx.write("c.txt", "c\n");
+    let c3 = fx.commit("three");
+    let merge = merge_commit(&fx, &c2, &c3);
+
+    let repo = fx.repo();
+    let rewritten = plan(
+        &repo,
+        oid(&merge),
+        oid(&merge),
+        &Change::Tree {
+            tree: oid(&tree_of(&fx, &c2)),
+            message: None,
+        },
+        NOW,
+    )
+    .unwrap();
+
+    assert!(rewritten.dropped.is_empty(), "{:?}", rewritten.dropped);
+    let new = rewritten.new_tip.to_string();
+    assert_eq!(parents_of(&fx, &new), vec![c3.clone()]);
+    assert_eq!(
+        rewritten
+            .flattened
+            .iter()
+            .map(|f| (f.old.as_str(), f.new.as_str(), f.subject.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(merge.as_str(), new.as_str(), "merge")]
     );
 }
 

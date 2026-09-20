@@ -95,6 +95,9 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
             for line in crate::render::dropped_lines(&report.dropped, None, colored) {
                 println!("{line}");
             }
+            for line in crate::render::flattened_lines(&report.flattened, colored) {
+                println!("{line}");
+            }
             if report.files > 0 {
                 if report.still_open {
                     println!(

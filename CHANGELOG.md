@@ -12,11 +12,16 @@
 ### Changed
 
 - [`ff show`](docs/reference/cli/show.md), [`ff log -p`](docs/reference/cli/log.md), and [`ff diff -r`](docs/reference/cli/diff.md) measure a merge against the auto-merge of its parents, so a clean merge is empty and a merge that resolved a conflict or carried an edit shows that. Parents with no merge base, or an auto-merge that conflicts, fall back to the first parent and say so: `ff show` in its header, `ff diff -r` with one `ff:` line on stderr. `ff show` no longer points at `ff git show -m`. JSON gains `against` (`parent`, `auto-merge`, `first-parent`) on `ff show`, on `ff log` rows under a view, and on `ff diff -r`.
+- A merge inside a rewritten range is carried instead of refused by [`ff done`](docs/reference/cli/done.md), [`ff absorb`](docs/reference/cli/absorb.md), and [`ff lift`](docs/reference/cli/lift.md): its parents are mapped through the rewrite, re-merged, its own change (what [`ff show`](docs/reference/cli/show.md) measures) applied on top, and a parent that ends up beneath another dropped. A merge left with one parent and no change is dropped as empty; one left with a change becomes an ordinary commit and the report says so under `flattened`. Under `--onto`, a parent below the range that the new base holds by change id maps to its rewritten self. `ff restack`, `ff fold`, `ff pull`, and the cascade still refuse or skip a merge-holding range.
 
 ### Fixed
 
 - `ff diff` and `ff show` answered a positional that names no path, such as a revision like `main..HEAD` or a second sha, with an empty patch and exit 0; both now refuse it with `usage/no-such-path`, the way `ff log` does. A path that exists but has no changes still prints an empty patch.
 - [`ff show`](docs/reference/cli/show.md) printed the subject only; the message now prints whole, subject, blank line, body, and JSON gains `body`. A multi-line pending description showed whole on the `@` row of `ff status`, `ff log`, and `ff map`; the row shows its subject.
+
+### Known issues
+
+- A merge whose auto-merge conflicts is carried against its first parent, so when the re-merge of its new parents conflicts in the same region the rewrite refuses at the merge with `held/rewrite-conflict` rather than holding.
 
 ## v0.17.0 — 2026-09-18
 

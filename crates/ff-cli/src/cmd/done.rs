@@ -76,6 +76,9 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             {
                 println!("{line}");
             }
+            for line in crate::render::flattened_lines(&report.flattened, colored) {
+                println!("{line}");
+            }
             println!("back on {}", report.onto);
             crate::cmd::switch::render_arrival(&report.arrival, &report.onto, colored);
             if report.published > 0 {

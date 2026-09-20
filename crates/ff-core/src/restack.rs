@@ -480,6 +480,7 @@ pub(crate) struct ReplayPlan {
     pub carried: Vec<RefTransition>,
     pub rewrites: Vec<rewrite::Rewrite>,
     pub dropped: Vec<rewrite::Dropped>,
+    pub flattened: Vec<rewrite::Flattened>,
     pub(crate) diverged: Vec<String>,
     pub(crate) replayed: usize,
     pub(crate) published: usize,
@@ -587,6 +588,7 @@ impl ReplayPlan {
             files,
             still_open,
             dropped: self.dropped.clone(),
+            flattened: self.flattened.clone(),
             cascade: self.cascade.report.clone(),
         })
     }
@@ -926,6 +928,7 @@ pub(crate) fn plan_restack(
     let mut diverged: Vec<String> = Vec::new();
     let mut rewrites: Vec<rewrite::Rewrite> = Vec::new();
     let mut dropped: Vec<rewrite::Dropped> = Vec::new();
+    let mut flattened: Vec<rewrite::Flattened> = Vec::new();
     let mut new_tip = branch_tip;
     let mut published = 0usize;
     let mut new_head_tip: Option<gix::ObjectId> = None;
@@ -973,6 +976,7 @@ pub(crate) fn plan_restack(
         rewrites = plan.rewrites;
         replayed = rewrites.len();
         dropped = plan.dropped;
+        flattened = plan.flattened;
         new_tip = plan.new_tip;
         carried = vec![RefTransition {
             name: branch_ref.clone(),
@@ -1075,6 +1079,7 @@ pub(crate) fn plan_restack(
         carried,
         rewrites,
         dropped,
+        flattened,
         diverged,
         replayed,
         published,
