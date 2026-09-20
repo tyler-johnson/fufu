@@ -16,7 +16,7 @@ use crate::branchmeta;
 use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::{self, At, Verdict};
-use crate::held::{self, Held, Intent};
+use crate::held::{self, Disposition, Effect, Held, Intent};
 use crate::model::{ArrivalReport, HeadState, HeldReport, RestackOutcome, RestackReport};
 use crate::ops::record::{ParentTransition, RefTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, verb};
@@ -627,6 +627,8 @@ pub(crate) struct ReplayPlan {
     pub new_worktree: Option<gix::ObjectId>,
     pub cascade: CascadePlan,
     arrive_plan: ArrivePlan,
+    /// The hold standing on the branch and what this replay does to it.
+    hold: Disposition,
 }
 
 impl ReplayPlan {
@@ -717,6 +719,7 @@ impl ReplayPlan {
             dropped: self.dropped.clone(),
             flattened: self.flattened.clone(),
             cascade: self.cascade.report.clone(),
+            dropped_hold: self.hold.dropped(repo),
         })
     }
 }
@@ -889,6 +892,23 @@ pub(crate) fn plan_restack(
         });
     }
 
+    // The hold standing on the branch, and what this rewrite does to it: a
+    // re-aim drops a held restack, a replay onto its own base lands it, and
+    // any other replay keeps it and points it at the rewritten commit; a
+    // hold carrying content refuses here. A person's restack only: pull's
+    // remote axis, fold, and a resolution landing (`decided.clearing`) aim
+    // with `Aim::Settled` and settle the hold themselves.
+    let hold = if aim == Aim::Asked {
+        let effect = if reaimed {
+            Effect::Reaim { onto: &base.full }
+        } else {
+            Effect::Keep
+        };
+        held::before_rewrite(repo, &branch, effect, "restacked")?.landing_on(&base.full)
+    } else {
+        Disposition::None
+    };
+
     // The commits of the range the base already holds by change id. The
     // engine drops them without a merge, so the probe must not merge them
     // either: it is handed the commits the plan will replay. The walked
@@ -930,7 +950,9 @@ pub(crate) fn plan_restack(
     // is the rule, so the check sits here rather than at the top of the
     // verb, on purpose: a rewrite that would *succeed* while a hold stands is
     // allowed through, because it is not competing for anything and the hold
-    // re-derives itself the next time somebody asks.
+    // re-derives itself the next time somebody asks. A re-aim that conflicts
+    // records its own hold in the dropped one's place: `held::record` writes
+    // the standing hold as the op's `old`, so one undo puts it back.
     let hold_plan = |at: &At, paths: &[String], of: usize| -> Result<RestackPlan> {
         if overlay.has_hold(&branch) {
             return Err(Error::coded(
@@ -939,7 +961,9 @@ pub(crate) fn plan_restack(
                 vec!["ff resolve".into(), "ff status".into()],
             ));
         }
-        held::refuse_if_held(repo, &branch, "restacked")?;
+        if !matches!(hold, Disposition::Drop(_)) {
+            held::refuse_if_held(repo, &branch, "restacked")?;
+        }
         Ok(RestackPlan::Held(Box::new(HoldPlan {
             branch: branch.clone(),
             base_name: base.name.clone(),
@@ -1200,6 +1224,7 @@ pub(crate) fn plan_restack(
         new_worktree,
         cascade,
         arrive_plan,
+        hold,
     })))
 }
 
@@ -1248,10 +1273,16 @@ fn commit_restack(
             new: Some(base_name.clone()),
         });
     }
+    // The hold on the branch: cleared by a resolution landing, or dropped,
+    // remapped, or cleared by this replay on its own.
+    let mut hold_transition = None;
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = held::clearing_transitions(clearing);
         record.held = held;
         record.resolving = resolving;
+    } else {
+        hold_transition = plan.hold.transition(&branch, &plan.rewrites);
+        record.held = hold_transition.clone();
     }
 
     let mut pins = plan.own_pins()?;
@@ -1356,11 +1387,14 @@ fn commit_restack(
         }
     }
 
-    // 12.2 The recorded parent.
+    // 12.2 The recorded parent, and the hold as this replay left it.
     if plan.parent_changes {
         let mut meta = branchmeta::read(repo, &branch)?;
         meta.parent = Some(base_name.clone());
         branchmeta::write(repo, &branch, &meta)?;
+    }
+    if let Some(t) = &hold_transition {
+        held::set(repo, &branch, t.new.clone())?;
     }
 
     // 12.2b The cascade's holds onto their branches, now that the refs have

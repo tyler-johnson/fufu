@@ -628,3 +628,452 @@ fn undoing_an_absorb_hold_removes_it() {
         "undoing the hold's operation restores its absence"
     );
 }
+
+// What a rewrite does to the hold standing on the branch it rewrites, by
+// the hold's kind: a held restack is dropped by a re-aim, cleared by a
+// replay onto its own base, and kept and remapped otherwise; a hold
+// carrying content refuses every rewrite; an open resolution refuses too.
+
+/// `other`, forked from the base commit `feature` and `main` share, with a
+/// file of its own — a base a re-aim of `feature` lands on cleanly. Leaves
+/// the fixture standing on `feature`.
+fn other_off_base(fx: &Fixture) {
+    fx.git(&["branch", "other", "main~1"]);
+    fx.git(&["switch", "-q", "other"]);
+    fx.write("o.txt", "o\n");
+    fx.commit("o1");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// The hold a conflicting restack of `feature` onto `main` records.
+fn hold_feature(fx: &Fixture) -> ff_core::held::Held {
+    let (outcome, _ctx) = restack_call(fx, None, None, NOW);
+    assert!(matches!(outcome, RestackOutcome::Held(_)));
+    ff_core::held::of(&fx.repo(), "feature")
+        .unwrap()
+        .expect("the restack holds")
+}
+
+fn undo_call(fx: &Fixture, now: i64) {
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(now),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn at_id(held: &ff_core::held::Held) -> String {
+    match &held.at {
+        At::Commit { id, .. } => id.clone(),
+        At::OpenChange => panic!("the hold stopped at a commit"),
+    }
+}
+
+#[test]
+fn a_reaim_drops_a_base_following_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    other_off_base(&fx);
+    let first = hold_feature(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("other"), NOW + 100);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("a clean re-aim must land, got {other:?}"),
+    };
+    assert!(report.reaimed);
+    assert_eq!(
+        report.dropped_hold,
+        Some(ff_core::DroppedHold {
+            verb: "restack".into(),
+            onto: "main".into(),
+        }),
+        "the report names the hold the re-aim dropped"
+    );
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap(),
+        None,
+        "the hold's question is moot once the branch sits elsewhere"
+    );
+    assert_eq!(
+        tip_record(&fx.repo()).held,
+        Some(ff_core::ops::record::HeldTransition {
+            branch: "feature".into(),
+            old: Some(first.clone()),
+            new: None,
+        }),
+        "the drop rides the restack's own record"
+    );
+
+    undo_call(&fx, NOW + 200);
+    assert_eq!(rev(&fx, "feature"), f1, "undo puts the tip back");
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap(),
+        Some(first),
+        "and the hold with it, byte-identical"
+    );
+}
+
+#[test]
+fn an_absorb_under_a_base_following_hold_remaps_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    let first = hold_feature(&fx);
+    assert_eq!(at_id(&first), f1);
+
+    fx.write("g.txt", "g\n");
+    let (outcome, _ctx) = absorb_call(&fx, &f1, NOW + 100);
+    assert!(
+        matches!(outcome, MoveOutcome::Moved(_)),
+        "a clean absorb lands under a held restack, got {outcome:?}"
+    );
+    let new_f1 = rev(&fx, "feature");
+    assert_ne!(new_f1, f1);
+
+    let held = ff_core::held::of(&fx.repo(), "feature")
+        .unwrap()
+        .expect("the hold stays");
+    assert_eq!(
+        held.at,
+        At::Commit {
+            id: new_f1,
+            subject: "f1".into()
+        },
+        "the hold points at the rewritten commit"
+    );
+    assert_eq!(held.intent, first.intent, "the intent is untouched");
+    assert_eq!(held.paths, first.paths);
+    assert_eq!(held.time, first.time);
+
+    // Resolve replans against main from the rewritten tip.
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::resolve::resolve(
+        &repo,
+        false,
+        &prov(),
+        Some(NOW + 200),
+        vec!["ff".into(), "resolve".into()],
+    )
+    .unwrap();
+    match outcome {
+        ff_core::ResolveOutcome::Opened(r) => assert_eq!(r.branch, "feature"),
+        other => panic!("the held restack still conflicts, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_describe_under_a_base_following_hold_remaps_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    hold_feature(&fx);
+
+    let repo = fx.repo();
+    let (report, _ctx) = ff_core::describe::reword(
+        &repo,
+        oid(&f1),
+        "f1 reworded".into(),
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW + 100),
+        vec!["ff".into(), "describe".into()],
+    )
+    .unwrap();
+    assert_ne!(report.new, f1);
+
+    let held = ff_core::held::of(&repo, "feature")
+        .unwrap()
+        .expect("the hold stays");
+    assert_eq!(at_id(&held), report.new, "the hold follows the reword");
+}
+
+#[test]
+fn a_restack_onto_the_holds_own_base_lands_and_clears_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    let first = hold_feature(&fx);
+
+    // main moves off the commit that conflicted: back to the base, then a
+    // commit touching another file, so the replay is clean.
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["reset", "-q", "--hard", "main~1"]);
+    fx.write("n.txt", "n\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = restack_call(&fx, None, None, NOW + 100);
+    let report = match outcome {
+        RestackOutcome::Restacked(r) => r,
+        other => panic!("the replay is clean now, got {other:?}"),
+    };
+    assert_eq!(report.replayed, 1);
+    assert_eq!(report.dropped_hold, None, "a landing is not a drop");
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap(),
+        None,
+        "the replay the hold recorded has landed"
+    );
+    assert_eq!(
+        tip_record(&fx.repo()).held,
+        Some(ff_core::ops::record::HeldTransition {
+            branch: "feature".into(),
+            old: Some(first.clone()),
+            new: None,
+        })
+    );
+
+    undo_call(&fx, NOW + 200);
+    assert_eq!(rev(&fx, "feature"), f1);
+    assert_eq!(
+        ff_core::held::of(&fx.repo(), "feature").unwrap(),
+        Some(first),
+        "undo restores the hold"
+    );
+}
+
+#[test]
+fn a_content_hold_refuses_every_rewrite() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    let (c1, c2) = lift_conflict_stack(&fx);
+    fx.git(&["branch", "other", "feature~2"]);
+    fx.git(&["switch", "-q", "other"]);
+    fx.write("o.txt", "o\n");
+    fx.commit("o1");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let (outcome, _ctx) = lift_call(&fx, &c1, vec!["doc.txt".into()], NOW);
+    assert!(matches!(outcome, MoveOutcome::Held(_)));
+    let repo = fx.repo();
+    let first = ff_core::held::of(&repo, "feature")
+        .unwrap()
+        .expect("the lift holds");
+    let before = head_refs(&fx);
+
+    let err = ff_core::restack::restack(
+        &repo,
+        Some("feature".into()),
+        Some("other".into()),
+        &prov(),
+        Some(NOW + 100),
+        vec!["ff".into(), "restack".into()],
+    )
+    .expect_err("a re-aim under a held lift must refuse");
+    assert_eq!(err.id(), "held/already-held", "{err}");
+    assert!(err.to_string().contains("nothing was restacked"), "{err}");
+
+    let err = ff_core::describe::reword(
+        &repo,
+        oid(&c2),
+        "c2 reworded".into(),
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW + 200),
+        vec!["ff".into(), "describe".into()],
+    )
+    .expect_err("a reword under a held lift must refuse");
+    assert_eq!(err.id(), "held/already-held", "{err}");
+    assert!(err.to_string().contains("nothing was reworded"), "{err}");
+
+    fx.write("z.txt", "z\n");
+    let err = ff_core::absorb::move_change(
+        &repo,
+        &MoveOptions {
+            verb: MoveVerb::Absorb,
+            from: None,
+            into: Some(Endpoint::Commit(oid(&c2))),
+            paths: Vec::new(),
+            message: None,
+            verify: ff_core::Verify::Run,
+            now: Some(NOW + 300),
+            argv: vec!["ff".into(), "absorb".into()],
+        },
+        &prov(),
+    )
+    .expect_err("an absorb under a held lift must refuse");
+    assert_eq!(err.id(), "held/already-held", "{err}");
+    assert!(err.to_string().contains("nothing was absorbed"), "{err}");
+
+    assert_eq!(head_refs(&fx), before, "a refusal moves no ref");
+    assert_eq!(
+        ff_core::held::of(&repo, "feature").unwrap(),
+        Some(first),
+        "the hold stands byte-identical"
+    );
+}
+
+#[test]
+fn an_open_resolution_refuses_a_reaim() {
+    let fx = Fixture::new();
+    ident(&fx);
+    conflict_stack(&fx);
+    other_off_base(&fx);
+    hold_feature(&fx);
+
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::resolve::resolve(
+        &repo,
+        false,
+        &prov(),
+        Some(NOW + 100),
+        vec!["ff".into(), "resolve".into()],
+    )
+    .unwrap();
+    let session = match outcome {
+        ff_core::ResolveOutcome::Opened(r) => r.session,
+        other => panic!("the resolution must open, got {other:?}"),
+    };
+    // Parked: HEAD leaves the session for the held branch.
+    ff_core::switch(
+        &repo,
+        &ff_core::SwitchOptions {
+            target: Some("feature".into()),
+            now: Some(NOW + 200),
+            argv: vec!["ff".into(), "switch".into(), "feature".into()],
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+
+    let err = ff_core::restack::restack(
+        &repo,
+        Some("feature".into()),
+        Some("other".into()),
+        &prov(),
+        Some(NOW + 300),
+        vec!["ff".into(), "restack".into()],
+    )
+    .expect_err("a re-aim under an open resolution must refuse");
+    assert_eq!(err.id(), "held/resolving", "{err}");
+    assert!(
+        err.to_string().contains(&session),
+        "the refusal names the session: {err}"
+    );
+}
+
+#[test]
+fn a_reaim_that_conflicts_replaces_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    // other edits the same line too, so a re-aim onto it conflicts as well.
+    fx.git(&["branch", "other", "main~1"]);
+    fx.git(&["switch", "-q", "other"]);
+    fx.write("f.txt", "four\n");
+    fx.commit("o1");
+    fx.git(&["switch", "-q", "feature"]);
+    let first = hold_feature(&fx);
+
+    let (outcome, _ctx) = restack_call(&fx, Some("feature"), Some("other"), NOW + 100);
+    assert!(
+        matches!(outcome, RestackOutcome::Held(_)),
+        "the re-aim conflicts and holds, got {outcome:?}"
+    );
+    let repo = fx.repo();
+    let held = ff_core::held::of(&repo, "feature")
+        .unwrap()
+        .expect("the re-aim holds");
+    assert_eq!(
+        held.intent,
+        ff_core::held::Intent::Restack {
+            branch: "feature".into(),
+            onto: "refs/heads/other".into(),
+        },
+        "the new hold stands in the old one's place"
+    );
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "hold");
+    assert_eq!(
+        record.held.as_ref().and_then(|t| t.old.clone()),
+        Some(first.clone()),
+        "the hold op records the hold it replaced"
+    );
+
+    undo_call(&fx, NOW + 200);
+    assert_eq!(rev(&fx, "feature"), f1);
+    assert_eq!(
+        ff_core::held::of(&repo, "feature").unwrap(),
+        Some(first),
+        "undo restores the hold onto main"
+    );
+}
+
+#[test]
+fn a_fold_of_a_held_source_drops_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    other_off_base(&fx);
+    let first = hold_feature(&fx);
+    let other_tip = rev(&fx, "other");
+
+    let repo = fx.repo();
+    let (report, _ctx, _other) = ff_core::fold::fold(
+        &repo,
+        Some("other".into()),
+        false,
+        &prov(),
+        Some(NOW + 100),
+        vec!["ff".into(), "fold".into(), "other".into()],
+    )
+    .unwrap();
+    assert_eq!(
+        report.dropped_hold,
+        Some(ff_core::DroppedHold {
+            verb: "restack".into(),
+            onto: "main".into(),
+        })
+    );
+    assert_eq!(ff_core::held::of(&repo, "feature").unwrap(), None);
+    assert_eq!(
+        tip_record(&repo).held,
+        Some(ff_core::ops::record::HeldTransition {
+            branch: "feature".into(),
+            old: Some(first.clone()),
+            new: None,
+        })
+    );
+
+    undo_call(&fx, NOW + 200);
+    assert_eq!(rev(&fx, "feature"), f1, "the source is back at its tip");
+    assert_eq!(rev(&fx, "other"), other_tip);
+    assert_eq!(
+        ff_core::held::of(&repo, "feature").unwrap(),
+        Some(first),
+        "and its hold is back with it"
+    );
+}
+
+#[test]
+fn a_done_landing_under_a_base_following_hold_remaps_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (f1, _m1) = conflict_stack(&fx);
+    hold_feature(&fx);
+
+    let (outcome, _ctx) = edit_call(&fx, &f1, NOW + 100);
+    assert!(matches!(outcome, EditOutcome::Opened(_)));
+    fx.write("g.txt", "g\n");
+    let (outcome, _ctx) = done_call(&fx, NOW + 200);
+    assert!(
+        matches!(outcome, DoneOutcome::Done(_)),
+        "the landing is clean, got {outcome:?}"
+    );
+    let amended = rev(&fx, "feature");
+    assert_ne!(amended, f1);
+
+    let held = ff_core::held::of(&fx.repo(), "feature")
+        .unwrap()
+        .expect("the hold stays on the landing branch");
+    assert_eq!(at_id(&held), amended, "the hold follows the amend");
+}

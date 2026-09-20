@@ -35,7 +35,7 @@ use crate::branchmeta;
 use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::At;
-use crate::held::{self, Held, Intent};
+use crate::held::{self, Disposition, Effect, Held, Intent};
 use crate::hooks;
 use crate::model::{
     Cascade, HeadState, HeldReport, MoveOutcome, MoveReport, MoveSource, MoveTarget,
@@ -794,6 +794,14 @@ pub fn move_with(
         return Ok((nothing_to_move(verb, &branch), ctx));
     }
 
+    // The hold standing on the branch: a move keeps the base, so a held
+    // restack stays and follows the rewrite, and a hold carrying content
+    // refuses. A resolution landing is clearing the hold it stands under.
+    let hold = match clearing {
+        None => held::before_rewrite(repo, &branch, Effect::Keep, verb.past())?,
+        Some(_) => Disposition::None,
+    };
+
     // The pre-commit gate, run only when the open change is a source: that
     // is when worktree content becomes commit content. The staged index is
     // the tip's tree with the selected paths taken from the worktree —
@@ -904,10 +912,14 @@ pub fn move_with(
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
     record.dropped = plan.dropped.clone();
+    let mut hold_transition = None;
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = crate::held::clearing_transitions(clearing);
         record.held = held;
         record.resolving = resolving;
+    } else {
+        hold_transition = hold.transition(&branch, &plan.rewrites);
+        record.held = hold_transition.clone();
     }
     // A described open change has an identity from here on, so the `@` row
     // wears the letters its commit will carry. Journaled with the
@@ -1031,8 +1043,12 @@ pub fn move_with(
 
     // The cascade's holds onto their branches, now that the refs have moved,
     // and its futures caches. A hold above does not hold the move: the move
-    // landed, and the stacked branch waits on its own metadata.
+    // landed, and the stacked branch waits on its own metadata. The hold on
+    // this branch follows the rewrite.
     cascade.land(repo)?;
+    if let Some(t) = &hold_transition {
+        held::set(repo, &branch, t.new.clone())?;
+    }
 
     // The move has landed: the staged index is no longer provisional, and
     // putting the old one back would contradict the refs that just moved.

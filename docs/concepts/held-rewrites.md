@@ -68,6 +68,14 @@ A hold saves the requested rewrite's intent: its branch and target. Resolution r
 
 If the rewrite now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. If its target disappeared or no longer belongs to the required history, it reports that the hold expired rather than using a stale plan.
 
+## What a rewrite does to a standing hold
+
+A held restack carries no content of its own, so a rewrite of the branch settles it by what the rewrite does to the base. `ff restack --onto` another base drops the hold and names it in the report, and so does `ff fold`, since the source's commits go to the target. A replay onto the hold's own base, a bare `ff restack` once the base has moved on, lands what the hold recorded and clears it. Any other rewrite keeps the hold: `ff absorb`, `ff lift`, `ff describe`, and a `ff done` landing point it at the rewritten commit, and `ff status` names that commit.
+
+A held absorb, lift, done, or parked-change arrival carries work that is not on the branch yet, so every rewrite of the branch refuses with `held/already-held`. Its exits are `ff resolve` and `ff resolve --abandon`. A hold whose resolution session is open, whether you are standing in it or have parked it, refuses with `held/resolving` and names the session.
+
+The drop or the remap rides the rewrite's own operation, so one `ff undo` takes the rewrite and the hold's change back together.
+
 ## How conflicts reach the session
 
 fufu replays commits in memory before updating the branch. During resolution it carries unresolved regions forward as literal marker content, letting later commits apply around them. A conflict already fixed by a later commit can disappear before the session opens. The remaining regions are presented together, except where overlapping conflicts require another round.

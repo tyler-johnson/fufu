@@ -179,6 +179,11 @@ pub fn reword(
         }
     };
 
+    // The hold standing on the branch: a reword keeps the base, so a held
+    // restack stays and follows the rewrite, and a hold carrying content
+    // refuses.
+    let hold = crate::held::before_rewrite(repo, &branch, crate::held::Effect::Keep, "reworded")?;
+
     // A reword authors a message for a commit and moves no tree, so the two
     // message hooks run and the tree hook does not. The target names the
     // source, the shape git gives `prepare-commit-msg` for `commit --amend`,
@@ -258,6 +263,8 @@ pub fn reword(
     record.refs = plan.carried.clone();
     record.rewrites = plan.rewrites.clone();
     record.dropped = plan.dropped.clone();
+    let hold_transition = hold.transition(&branch, &plan.rewrites);
+    record.held = hold_transition.clone();
 
     let mut pins: Vec<gix::ObjectId> = plan
         .rewrites
@@ -322,8 +329,12 @@ pub fn reword(
     }
 
     // The cascade's holds onto their branches, now that the refs have moved,
-    // and the futures caches of every branch that followed.
+    // and the futures caches of every branch that followed. The hold on this
+    // branch follows the rewrite.
     cascade.land(repo)?;
+    if let Some(t) = &hold_transition {
+        crate::held::set(repo, &branch, t.new.clone())?;
+    }
 
     let branch_ref = format!("refs/heads/{branch}");
     let moved: Vec<String> = plan

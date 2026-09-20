@@ -24,7 +24,7 @@ use crate::branchmeta::{self, BranchMeta};
 use crate::cascade::{self, CascadePlan};
 use crate::error::{Error, Result};
 use crate::futures::{self, At};
-use crate::held::{self, Intent};
+use crate::held::{self, Disposition, Effect, Intent};
 use crate::linked::{self, Holder};
 use crate::model::{FoldReport, HeadState, MovedTree, ReconcileReport};
 use crate::ops::record::{
@@ -68,6 +68,8 @@ struct FoldPlan {
     advanced: usize,
     holder: Option<Holder>,
     stay: bool,
+    /// The hold standing on the source and what the fold does to it.
+    hold: Disposition,
 }
 
 /// The other worktree `--stay` advances the target in, prepared and checked
@@ -170,7 +172,8 @@ fn plan_fold(
         ));
     }
 
-    // 4. The source: not a session, not resolving, not held.
+    // 4. The source: not a session. Its hold is §5's, once the target is
+    // known.
     let source_meta = branchmeta::read(repo, &source)?;
     if source_meta.session.is_some() {
         return Err(Error::coded(
@@ -181,8 +184,6 @@ fn plan_fold(
             vec!["ff done".into(), "ff done --abandon".into()],
         ));
     }
-    refuse_if_resolving(repo, &source)?;
-    held::refuse_if_held(repo, &source, "folded")?;
 
     // 5. The target: a local branch that is not the source.
     let raw = match target {
@@ -213,6 +214,12 @@ fn plan_fold(
     }
     let target = onto.name.clone();
 
+    // 5b. The source's hold, now that the fold's aim is known: a fold
+    // re-aims the source at the target, so a held restack is dropped —
+    // cleared without a line when the target is the hold's own base — and
+    // a hold carrying content, or one whose resolution is open, refuses.
+    let hold = held::before_rewrite(repo, &source, Effect::Reaim { onto: &onto.full }, "folded")?;
+
     // 6. Who holds the target. Another worktree standing on it is refused
     // unless `--stay` says to advance it there.
     let holder = linked::holder_of(repo, &target)?;
@@ -240,7 +247,7 @@ fn plan_fold(
             vec!["ff done".into(), "ff done --abandon".into()],
         ));
     }
-    refuse_if_resolving(repo, &target)?;
+    held::refuse_if_resolving(repo, &target)?;
 
     // 8. The replay, as a restack of the source onto the target would plan
     // it. The aim is settled: the target is a branch a person named, and
@@ -360,27 +367,8 @@ fn plan_fold(
         advanced,
         holder,
         stay,
+        hold,
     })
-}
-
-/// A branch whose hold has a resolution session open is being worked on
-/// elsewhere: the way to it is a switch, not this verb.
-fn refuse_if_resolving(repo: &gix::Repository, branch: &str) -> Result<()> {
-    if let Some(open) = held::resolving(repo, branch)? {
-        if open.session.is_empty() {
-            return Err(held::predates_sessions(branch));
-        }
-        return Err(Error::coded(
-            "held/resolving",
-            format!("a resolution of {branch} is open on {}", open.session),
-            vec![
-                format!("ff switch {}", open.session),
-                "ff resolve --abandon".into(),
-                "ff status".into(),
-            ],
-        ));
-    }
-    Ok(())
 }
 
 impl FoldPlan {
@@ -520,6 +508,7 @@ impl FoldPlan {
             reaimed: self.reaims.iter().map(|r| r.branch.clone()).collect(),
             cascade: self.cascade.report.clone(),
             moved_tree,
+            dropped_hold: self.hold.dropped(repo),
         })
     }
 }
@@ -577,6 +566,9 @@ fn commit_fold(
     record.rewrites = plan.rewrites.clone();
     record.dropped = plan.dropped.clone();
     record.inferred_parents = plan.reaims.clone();
+    // The source's hold goes with its metadata too, and the record says so:
+    // an undo that brings the branch back brings its hold back with it.
+    record.held = plan.hold.transition(&source, &plan.rewrites);
     // The source's recorded base goes with its metadata; recorded so an undo
     // puts it back the way it stood.
     if plan.source_meta.parent.is_some() {
@@ -866,6 +858,8 @@ fn commit_fold_stay(
     }
     record.rewrites = plan.rewrites.clone();
     record.dropped = plan.dropped.clone();
+    let hold_transition = plan.hold.transition(&source, &plan.rewrites);
+    record.held = hold_transition.clone();
     record.parent = Some(ParentTransition {
         branch: source.clone(),
         old: plan.source_meta.parent.clone(),
@@ -976,10 +970,13 @@ fn commit_fold_stay(
         }
     }
 
-    // 12.2 Metadata: the source records the target, and so does every
-    // branch that sat on it.
+    // 12.2 Metadata: the source records the target and drops its hold, and
+    // every branch that sat on it records the target.
     let mut source_meta = plan.source_meta.clone();
     source_meta.parent = Some(target.clone());
+    if let Some(t) = &hold_transition {
+        source_meta.held = t.new.clone();
+    }
     branchmeta::write(repo, &source, &source_meta)?;
     for reaim in &plan.reaims {
         let mut meta = branchmeta::read(repo, &reaim.branch)?;

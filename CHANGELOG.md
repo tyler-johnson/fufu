@@ -19,6 +19,7 @@
 - `ff diff` and `ff show` answered a positional that names no path, such as a revision like `main..HEAD` or a second sha, with an empty patch and exit 0; both now refuse it with `usage/no-such-path`, the way `ff log` does. A path that exists but has no changes still prints an empty patch.
 - [`ff pull`](docs/reference/cli/pull.md) on a branch whose commits hold a merge of its base refused the run with `rewrite/merge-in-range` and discarded it, local trunk included. The branch is now left alone and named, and the rest of the run goes on: trunk follows its remote and the other branches move.
 - [`ff show`](docs/reference/cli/show.md) printed the subject only; the message now prints whole, subject, blank line, body, and JSON gains `body`. A multi-line pending description showed whole on the `@` row of `ff status`, `ff log`, and `ff map`; the row shows its subject.
+- A rewrite of a held branch left the hold standing: [`ff restack --onto`](docs/reference/cli/restack.md) re-aimed the branch and `ff resolve` later replayed it back onto the hold's base. A re-aim, and a fold of the source, now drop a held restack and say so; absorb, lift, describe, and done keep it and point it at the rewritten commit; a restack onto the hold's own base clears it; a held absorb, lift, done, or arrival refuses every rewrite with `held/already-held`, and an open resolution with `held/resolving`. One `ff undo` restores the hold with the rewrite. JSON gains `dropped_hold` on `restack` and `fold`.
 
 ### Known issues
 

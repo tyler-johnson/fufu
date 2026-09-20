@@ -17,6 +17,7 @@ use crate::branch;
 use crate::branchmeta;
 use crate::error::{Error, Result};
 use crate::futures::At;
+use crate::model::DroppedHold;
 use crate::ops::record::{
     HeldTransition, RefsTable, ResolveTransition, SessionTransition, observe_refs,
 };
@@ -244,27 +245,183 @@ pub fn verb_of(held: &Held) -> String {
 /// `lifted`, `landed`.
 pub(crate) fn refuse_if_held(repo: &gix::Repository, branch: &str, verb_past: &str) -> Result<()> {
     if let Some(existing) = of(repo, branch)? {
-        let where_held = match &existing.at {
-            At::Commit { id, subject } => format!(
-                "{} \"{}\"",
-                crate::sha::short_oid(
-                    gix::ObjectId::from_hex(id.as_bytes()).expect("the probe's ids are shas")
-                ),
-                subject
+        return Err(already_held(branch, &existing, verb_past));
+    }
+    Ok(())
+}
+
+/// The one-hold-per-branch refusal, for a hold read already.
+fn already_held(branch: &str, existing: &Held, verb_past: &str) -> Error {
+    let where_held = match &existing.at {
+        At::Commit { id, subject } => format!(
+            "{} \"{}\"",
+            crate::sha::short_oid(
+                gix::ObjectId::from_hex(id.as_bytes()).expect("the probe's ids are shas")
             ),
-            At::OpenChange => "your open change".to_string(),
-        };
+            subject
+        ),
+        At::OpenChange => "your open change".to_string(),
+    };
+    Error::coded(
+        "held/already-held",
+        format!("{branch} already has a rewrite held at {where_held}: nothing was {verb_past}"),
+        vec![
+            "ff resolve".into(),
+            "ff resolve --abandon".into(),
+            "ff status".into(),
+        ],
+    )
+}
+
+/// A branch whose hold has a resolution session open is being worked on
+/// elsewhere: the way to it is a switch, not this verb.
+pub(crate) fn refuse_if_resolving(repo: &gix::Repository, branch: &str) -> Result<()> {
+    if let Some(open) = resolving(repo, branch)? {
+        if open.session.is_empty() {
+            return Err(predates_sessions(branch));
+        }
         return Err(Error::coded(
-            "held/already-held",
-            format!("{branch} already has a rewrite held at {where_held}: nothing was {verb_past}"),
+            "held/resolving",
+            format!("a resolution of {branch} is open on {}", open.session),
             vec![
-                "ff resolve".into(),
+                format!("ff switch {}", open.session),
                 "ff resolve --abandon".into(),
                 "ff status".into(),
             ],
         ));
     }
     Ok(())
+}
+
+/// What a rewrite does to the branch's base.
+#[derive(Clone, Copy)]
+pub(crate) enum Effect<'a> {
+    /// `ff restack --onto` and `ff fold`: the branch's base becomes `onto`,
+    /// a full ref.
+    Reaim { onto: &'a str },
+    /// absorb, lift, describe, done's landing, a bare restack: the base
+    /// stays.
+    Keep,
+}
+
+/// What a rewrite does with the hold standing on the branch it rewrites.
+/// What a hold carries decides it: a `Restack` carries no content — its
+/// `onto` is a ref resolved fresh, and `at` and `paths` are disclosure —
+/// so a rewrite can drop it, keep it, or land it; an `Absorb`, `Lift`,
+/// `Done`, or `Arrive` carries work that is not on the branch yet, and a
+/// rewrite under it would lose that work, so it refuses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Disposition {
+    /// No hold stands.
+    None,
+    /// The hold's question is moot: recorded `old → None`, and the report
+    /// names it.
+    Drop(Held),
+    /// The hold stays: `at` follows the rewrite map; `paths` is resolve's
+    /// to recompute.
+    Remap(Held),
+    /// The rewrite is the held restack landing: recorded `old → None`, no
+    /// line.
+    Clear(Held),
+}
+
+/// The hold on `branch`, sorted by what a rewrite with `effect` does to it.
+/// Refuses any hold whose resolution session is open, HEAD in it or parked,
+/// with `held/resolving`, and a content-carrying hold — `Absorb`, `Lift`,
+/// `Done`, `Arrive` — with `held/already-held` in `refuse_if_held`'s words
+/// (`verb_past` completes "nothing was ___"). A `Restack { onto }` hold:
+/// `Reaim` at a different `onto` is `Drop`; `Reaim` at the hold's own
+/// `onto` is `Clear`; `Keep` is `Remap`. `onto` is compared by full ref:
+/// the hold's is `base.full` by construction, and callers pass `Onto.full`.
+pub(crate) fn before_rewrite(
+    repo: &gix::Repository,
+    branch: &str,
+    effect: Effect<'_>,
+    verb_past: &str,
+) -> Result<Disposition> {
+    refuse_if_resolving(repo, branch)?;
+    let Some(held) = of(repo, branch)? else {
+        return Ok(Disposition::None);
+    };
+    match &held.intent {
+        Intent::Restack { onto, .. } => Ok(match effect {
+            Effect::Reaim { onto: new } if new == onto => Disposition::Clear(held),
+            Effect::Reaim { .. } => Disposition::Drop(held),
+            Effect::Keep => Disposition::Remap(held),
+        }),
+        Intent::Absorb { .. }
+        | Intent::Lift { .. }
+        | Intent::Done { .. }
+        | Intent::Arrive { .. } => Err(already_held(branch, &held, verb_past)),
+    }
+}
+
+impl Disposition {
+    /// Restack alone: a bare `ff restack` whose base is the hold's own
+    /// `onto` lands the hold, so a `Remap` whose hold names `base_full`
+    /// becomes `Clear`.
+    pub(crate) fn landing_on(self, base_full: &str) -> Self {
+        match self {
+            Disposition::Remap(held) if matches!(&held.intent, Intent::Restack { onto, .. } if onto == base_full) => {
+                Disposition::Clear(held)
+            }
+            other => other,
+        }
+    }
+
+    /// The record's transition. `Drop`/`Clear`: `old: Some, new: None`.
+    /// `Remap`: `new` is the hold with `At::Commit { id, .. }` replaced by
+    /// the `Rewrite` whose `old == id`, if any; an id in no rewrite
+    /// (dropped, or below the range) and `At::OpenChange` stay as recorded,
+    /// since resolve recomputes `at` anyway. `paths` and `time` untouched.
+    /// `None` for `None`.
+    pub(crate) fn transition(
+        &self,
+        branch: &str,
+        rewrites: &[crate::rewrite::Rewrite],
+    ) -> Option<HeldTransition> {
+        match self {
+            Disposition::None => None,
+            Disposition::Drop(held) | Disposition::Clear(held) => Some(HeldTransition {
+                branch: branch.to_string(),
+                old: Some(held.clone()),
+                new: None,
+            }),
+            Disposition::Remap(held) => {
+                let mut new = held.clone();
+                if let At::Commit { id, .. } = &mut new.at
+                    && let Some(rewrite) = rewrites.iter().find(|r| r.old == *id)
+                {
+                    *id = rewrite.new.clone();
+                }
+                Some(HeldTransition {
+                    branch: branch.to_string(),
+                    old: Some(held.clone()),
+                    new: Some(new),
+                })
+            }
+        }
+    }
+
+    /// What the report says for a `Drop`: the verb (`verb_of`) and `onto`
+    /// as a person says it — `restack::resolve_onto(repo, onto)?.name`, or
+    /// `onto` with `refs/heads/` stripped when the ref is gone.
+    pub(crate) fn dropped(&self, repo: &gix::Repository) -> Option<DroppedHold> {
+        let Disposition::Drop(held) = self else {
+            return None;
+        };
+        let Intent::Restack { onto, .. } = &held.intent else {
+            return None;
+        };
+        let onto = match crate::restack::resolve_onto(repo, onto) {
+            Ok(base) => base.name,
+            Err(_) => onto.strip_prefix("refs/heads/").unwrap_or(onto).to_string(),
+        };
+        Some(DroppedHold {
+            verb: verb_of(held),
+            onto,
+        })
+    }
 }
 
 /// Record a hold on `branch`, or clear it with `None`.
@@ -724,4 +881,86 @@ pub(crate) fn clearing_transitions(
         new: None,
     });
     (held, resolving)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rewrite::Rewrite;
+
+    fn hold(at: At) -> Held {
+        Held {
+            intent: Intent::Restack {
+                branch: "feature".into(),
+                onto: "refs/heads/main".into(),
+            },
+            at,
+            paths: vec!["f.txt".into()],
+            time: 7,
+        }
+    }
+
+    const OLD: &str = "1111111111111111111111111111111111111111";
+    const NEW: &str = "2222222222222222222222222222222222222222";
+    const ELSEWHERE: &str = "3333333333333333333333333333333333333333";
+
+    #[test]
+    fn a_remap_follows_the_rewrite_map_and_leaves_the_rest() {
+        let rewrites = vec![Rewrite {
+            old: OLD.into(),
+            new: NEW.into(),
+        }];
+        let at = |id: &str| At::Commit {
+            id: id.into(),
+            subject: "f1".into(),
+        };
+
+        let t = Disposition::Remap(hold(at(OLD)))
+            .transition("feature", &rewrites)
+            .expect("a remap is recorded");
+        assert_eq!(t.branch, "feature");
+        assert_eq!(t.old, Some(hold(at(OLD))));
+        assert_eq!(t.new, Some(hold(at(NEW))), "at follows the rewrite");
+
+        let t = Disposition::Remap(hold(at(ELSEWHERE)))
+            .transition("feature", &rewrites)
+            .unwrap();
+        assert_eq!(
+            t.new,
+            Some(hold(at(ELSEWHERE))),
+            "an id in no rewrite stays"
+        );
+
+        let t = Disposition::Remap(hold(At::OpenChange))
+            .transition("feature", &rewrites)
+            .unwrap();
+        assert_eq!(t.new, Some(hold(At::OpenChange)), "the open change stays");
+
+        let t = Disposition::Drop(hold(at(OLD)))
+            .transition("feature", &rewrites)
+            .unwrap();
+        assert_eq!(t.new, None, "a drop clears");
+        let t = Disposition::Clear(hold(at(OLD)))
+            .transition("feature", &rewrites)
+            .unwrap();
+        assert_eq!(t.new, None, "a clear clears");
+        assert!(Disposition::None.transition("feature", &rewrites).is_none());
+    }
+
+    #[test]
+    fn a_remap_onto_the_holds_own_base_is_a_landing() {
+        let held = hold(At::OpenChange);
+        assert_eq!(
+            Disposition::Remap(held.clone()).landing_on("refs/heads/main"),
+            Disposition::Clear(held.clone())
+        );
+        assert_eq!(
+            Disposition::Remap(held.clone()).landing_on("refs/heads/other"),
+            Disposition::Remap(held.clone())
+        );
+        assert_eq!(
+            Disposition::Drop(held.clone()).landing_on("refs/heads/main"),
+            Disposition::Drop(held)
+        );
+    }
 }

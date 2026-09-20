@@ -84,6 +84,19 @@ pub fn run(ctx: &Ctx, target: Option<String>, stay: bool) -> Result<()> {
         );
     }
 
+    // A dropped hold is a disclosure, not a warning: the fold settled the
+    // question the hold was asking.
+    if let Some(dropped) = &report.dropped_hold {
+        let became = if report.stay {
+            format!("now sits on {}", report.target)
+        } else {
+            format!("was folded into {}", report.target)
+        };
+        println!(
+            "dropped the held {} onto {}: {} {became}",
+            dropped.verb, dropped.onto, report.source
+        );
+    }
     if report.stay {
         if let Some(tree) = &report.moved_tree {
             let open = if tree.still_open {

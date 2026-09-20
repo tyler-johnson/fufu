@@ -29,7 +29,7 @@ use crate::branchmeta;
 use crate::cascade::CascadePlan;
 use crate::error::{Error, Result};
 use crate::futures;
-use crate::held::{self, Held, Intent};
+use crate::held::{self, Disposition, Effect, Held, Intent};
 use crate::hooks;
 use crate::model::{
     AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport,
@@ -758,6 +758,17 @@ pub fn done_with(
     let session_tip_tree = tree_of(repo, session_tip)?;
     let return_trip = clearing.and_then(|c| c.return_trip.as_ref());
 
+    // The hold standing on the branch the landing rewrites: a landing keeps
+    // the base, so a held restack there stays and follows the rewrite, and
+    // a hold carrying content refuses. An abandon rewrites nothing, and a
+    // resolution landing is clearing the hold it stands under. The session
+    // branch's own hold is `hold`'s, above.
+    let onto_hold = if clearing.is_none() && !abandon {
+        held::before_rewrite(repo, &onto, Effect::Keep, "landed")?
+    } else {
+        Disposition::None
+    };
+
     // 5. The landing path: the rewrite. Planning only — no ref moves yet.
     let mut landing = LandingPlan::default();
     if !abandon {
@@ -922,10 +933,18 @@ pub fn done_with(
         old: Some(sess.clone()),
         new: None,
     });
+    let mut hold_transition = None;
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = held::clearing_transitions(clearing);
         record.held = held;
         record.resolving = resolving;
+    } else {
+        let rewrites = rewrite_plan
+            .as_ref()
+            .map(|p| p.rewrites.as_slice())
+            .unwrap_or(&[]);
+        hold_transition = onto_hold.transition(&onto, rewrites);
+        record.held = hold_transition.clone();
     }
 
     let mut pins: Vec<gix::ObjectId> = Vec::new();
@@ -1014,8 +1033,12 @@ pub fn done_with(
     }
 
     // The cascade's holds onto their branches, now that the refs have
-    // moved, and the futures caches of every branch it carried.
+    // moved, and the futures caches of every branch it carried. The hold on
+    // the landing branch follows the rewrite.
     cascade.land(repo)?;
+    if let Some(t) = &hold_transition {
+        held::set(repo, &onto, t.new.clone())?;
+    }
 
     // The session branch is gone, and its open ref with it: the open commit
     // stays pinned — by this operation when it was left, by the session's

@@ -490,7 +490,7 @@ exits = ["ff status", "ff resolve --abandon", "ff log"]
 [[entry]]
 id = "held/already-held"
 summary = "the named branch already has a held rewrite blocking this request"
-detail = "Switch to the branch named in the error, inspect its hold, and resolve or abandon it before retrying. Fufu stores one held request per branch. Some clean rewrites can proceed while a hold exists, but a competing conflict and commands such as folding a held source are refused. A multi-branch operation may already have updated other branches; inspect its per-branch report. Abandoning removes the request rather than leaving it queued."
+detail = "Switch to the branch named in the error, inspect its hold, and resolve or abandon it before retrying. Fufu stores one held request per branch. A held absorb, lift, done, or arrival refuses every rewrite of the branch; a held restack is dropped by a re-aim, cleared by a replay onto its base, and kept otherwise, and a second conflicting rewrite is refused. A multi-branch operation may already have updated other branches; inspect its per-branch report. Abandoning removes the request rather than leaving it queued."
 exits = ["ff status", "ff switch <held-branch>", "ff help resolve"]
 
 [[entry]]

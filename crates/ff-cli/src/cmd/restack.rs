@@ -51,6 +51,14 @@ pub fn run(ctx: &Ctx, branch: Option<String>, onto: Option<String>) -> Result<()
             } else if report.behind > 0 {
                 println!("{} moved ahead by {} commit(s)", report.base, report.behind);
             }
+            // A dropped hold is a disclosure, not a warning: the re-aim
+            // settled the question the hold was asking.
+            if let Some(dropped) = &report.dropped_hold {
+                println!(
+                    "dropped the held {} onto {}: {} now sits on {}",
+                    dropped.verb, dropped.onto, report.branch, report.base
+                );
+            }
             if report.fast_forward {
                 println!(
                     "fast-forwarded {} to {} — nothing to replay",

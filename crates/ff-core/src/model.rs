@@ -580,6 +580,9 @@ pub struct RestackReport {
     /// What happened to the branches stacked above this one. Empty when
     /// nothing sits on it.
     pub cascade: Cascade,
+    /// A held restack the re-aim dropped: the branch now sits on another
+    /// base, so the hold's question is moot.
+    pub dropped_hold: Option<DroppedHold>,
 }
 
 /// A fold that landed: the branch's commits replayed onto the target's tip,
@@ -636,6 +639,9 @@ pub struct FoldReport {
     pub cascade: Cascade,
     /// The other worktree the target advanced in, under `--stay`.
     pub moved_tree: Option<MovedTree>,
+    /// A held restack on the source the fold dropped: the source's commits
+    /// went to the target, so the hold's question is moot.
+    pub dropped_hold: Option<DroppedHold>,
 }
 
 /// A worktree `ff fold --stay` advanced the target in.
@@ -996,6 +1002,15 @@ pub struct HeldReport {
     /// How many commits the rewrite would have replayed in all, so the report
     /// can say "1 of 5" rather than leaving the size of the stack unsaid.
     pub of: usize,
+}
+
+/// A hold a rewrite dropped because the rewrite settled what it was about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DroppedHold {
+    /// The verb that held: `restack`.
+    pub verb: String,
+    /// The base the held restack aimed at, as a person says it: `main`.
+    pub onto: String,
 }
 
 /// One branch row for `ff branch`.
