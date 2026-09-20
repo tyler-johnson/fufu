@@ -3,7 +3,7 @@
 //! auto-merge cannot be made.
 
 use ff_core::gix::ObjectId;
-use ff_core::{Against, DiffOptions, Fallback};
+use ff_core::{Against, ChangeKind, DiffOptions, Fallback};
 use ff_testsupport::Fixture;
 
 fn oid(sha: &str) -> ObjectId {
@@ -43,6 +43,26 @@ fn clean_merge() -> Fixture {
     let fx = Fixture::new();
     fork(&fx);
     fx.git(&["merge", "--no-ff", "-q", "-m", "merge side", "side"]);
+    fx
+}
+
+/// A merge whose tree git never merged: `main`'s own tree, put over both
+/// parents with plumbing, so the auto-merge of its parents is a tree no
+/// command has written and its presence in the store is the measure's doing.
+fn plumbing_merge() -> Fixture {
+    let fx = Fixture::new();
+    fork(&fx);
+    let merge = fx.git(&[
+        "commit-tree",
+        "main^{tree}",
+        "-p",
+        "main",
+        "-p",
+        "side",
+        "-m",
+        "merge side, keeping main's tree",
+    ]);
+    fx.git(&["update-ref", "refs/heads/main", merge.trim()]);
     fx
 }
 
@@ -115,8 +135,10 @@ fn a_plain_commit_is_measured_against_its_parent() {
 }
 
 /// The auto-merge of a clean merge's parents is the merge's own tree, so
-/// nothing lies between them, and through a memory handle the auto-merge
-/// tree reaches no store.
+/// nothing lies between them. The count check only says the measure wrote
+/// no other object: the auto-merge tree is already in the store, so it
+/// could not move under either handle. Where the tree lands is
+/// `the_handle_decides_where_the_auto_merge_tree_lands`'s to prove.
 #[test]
 fn a_clean_merge_measures_nothing_beyond_the_auto_merge() {
     let fx = clean_merge();
@@ -135,6 +157,50 @@ fn a_clean_merge_measures_nothing_beyond_the_auto_merge() {
     .expect("tree_diff through the memory handle");
     assert!(stat.files.is_empty(), "{stat:?}");
     assert_eq!(object_count(&fx), before, "no auto-merge tree was written");
+}
+
+/// The memory handle keeps the auto-merge tree out of the store; the real
+/// handle writes it, which is what replay will want when the tree is a
+/// replayed merge's base.
+#[test]
+fn the_handle_decides_where_the_auto_merge_tree_lands() {
+    let fx = plumbing_merge();
+    let before = object_count(&fx);
+    let merge = head(&fx);
+
+    let memory = fx.repo().clone().with_object_memory();
+    let m = ff_core::measure(&memory, merge).expect("measure in memory");
+    assert_eq!(m.against, Against::AutoMerge);
+    assert_eq!(object_count(&fx), before, "the memory handle wrote nothing");
+    assert!(
+        fx.repo().find_tree(m.tree).is_err(),
+        "a fresh handle cannot see the auto-merge tree"
+    );
+
+    let repo = fx.repo();
+    let kept = ff_core::measure(&repo, merge).expect("measure for keeps");
+    assert_eq!(kept.tree, m.tree, "the same auto-merge tree either way");
+    let after = object_count(&fx);
+    let count = |line: &str| -> u32 { line["count:".len()..].trim().parse().expect("a count") };
+    assert_eq!(count(&after), count(&before) + 1, "one tree written");
+    assert_eq!(
+        fx.git(&["cat-file", "-t", &kept.tree.to_string()]).trim(),
+        "tree"
+    );
+
+    let stat = ff_core::tree_diff(
+        &repo,
+        kept.tree,
+        tree_of(&fx, "HEAD"),
+        &DiffOptions::default(),
+    )
+    .expect("tree_diff through the real handle");
+    let files: Vec<(&str, ChangeKind)> = stat
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.kind))
+        .collect();
+    assert_eq!(files, vec![("side.txt", ChangeKind::Deleted)]);
 }
 
 #[test]
