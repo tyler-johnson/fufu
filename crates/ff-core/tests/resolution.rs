@@ -2680,3 +2680,89 @@ fn done_abandon_after_a_roll_closes_the_session_and_keeps_the_hold() {
         "the session branch is gone"
     );
 }
+
+#[test]
+fn a_conflict_beneath_a_merge_is_shown_first_and_the_merge_is_the_next_round() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `feature` merged `side`, whose edit fights trunk's beneath the
+    // merge, and the merge then edited the same line itself. The side's
+    // region passes through the merge to the session; the merge's own
+    // change is the round after.
+    fx.write("f.txt", "one\ntwo\nthree\n");
+    let _t0 = fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let _f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("f.txt", "one\nside\nthree\n");
+    let _s1 = fx.commit("s1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("b.txt", "b\n");
+    let _f2 = fx.commit("f2");
+    fx.git(&["merge", "-q", "--no-commit", "side"]);
+    fx.write("f.txt", "one\nside, merged\nthree\n");
+    let _m = fx.commit("M: merge side");
+    fx.write("c.txt", "c\n");
+    let _f3 = fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "one\ntrunk\nthree\n");
+    let _t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.tangled, None, "the chain ran whole");
+    assert_eq!(opened.files, vec!["f.txt".to_string()]);
+    assert_eq!(opened.regions, 1);
+    let shown = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(shown.contains(OPENER), "s1's region is shown: {shown}");
+    assert!(shown.contains("\"s1\""), "and it is s1's: {shown}");
+    assert!(
+        !shown.contains("side, merged"),
+        "the merge's edit waits: {shown}"
+    );
+
+    // Fixing s1's region rolls to the merge's own conflict.
+    fix(&fx, "f.txt", "one\ntrunk and side\nthree\n");
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.fixed, vec!["s1".to_string()]);
+    assert_eq!(round.conflicts.len(), 1, "{round:?}");
+    assert_eq!(round.conflicts[0].subject, "M: merge side");
+    assert_eq!(round.conflicts[0].paths, vec!["f.txt".to_string()]);
+    assert_eq!(round.tangled, None);
+    let shown = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(
+        shown.contains("\"M: merge side\""),
+        "the merge's region: {shown}"
+    );
+    assert!(shown.contains("trunk and side\n"), "over the fix: {shown}");
+    assert!(shown.contains("side, merged\n"), "{shown}");
+
+    // Fixing that lands the whole stack, the merge kept as a merge.
+    fix(&fx, "f.txt", "one\ntrunk and side, merged\nthree\n");
+    let report = resolved(&fx, NOW + 300);
+    assert!(report.still_held.is_none(), "nothing is left waiting");
+    assert_eq!(report.fixed, 2, "both rounds' fixes are counted");
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    assert_eq!(landed.len(), 5, "f1, s1, f2, M, f3: {landed:?}");
+    for id in &landed {
+        for (path, contents) in tree_files(&repo, oid(id)) {
+            assert!(
+                !contents.contains(OPENER),
+                "{id} still carries markers in {path}"
+            );
+        }
+    }
+    assert_eq!(
+        file_in(&repo, oid(&report.new_tip), "f.txt").as_deref(),
+        Some("one\ntrunk and side, merged\nthree\n")
+    );
+    let merge = fx.git(&["rev-list", "--merges", &format!("main..{}", report.new_tip)]);
+    assert_eq!(
+        merge.lines().count(),
+        1,
+        "the merge landed as a merge: {merge}"
+    );
+}

@@ -742,3 +742,291 @@ fn a_merge_whose_conflict_changed_holds_at_the_merge_with_the_fresh_region() {
         "one\nfeat and side, again\nthree\n"
     );
 }
+
+/// A feature branch that merged a side branch, with trunk moved on since,
+/// where trunk's edit fights the side's beneath the merge:
+///
+/// ```text
+/// T0 ──────────────── T2         (main; T2 sets the line to `trunk`)
+///  └─ f1 ─ f2 ─ M ─ f3           (feature; M merges s1)
+///      └─ s1                     (side; s1 sets the line to `side`)
+/// ```
+///
+/// With `feat` false, f2 leaves `f.txt` alone and M sets the line to
+/// `side, merged` on top of the clean merge. With `feat` true, f2 sets the
+/// line to `feat` and M resolves the `feat`/`side` conflict to `resolved`.
+/// HEAD ends on `feature`.
+fn beneath_merge(fx: &Fixture, feat: bool) -> SideShape {
+    fx.write("f.txt", "one\ntwo\nthree\n");
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("f.txt", "one\nside\nthree\n");
+    let s1 = fx.commit("s1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("b.txt", "b\n");
+    if feat {
+        fx.write("f.txt", "one\nfeat\nthree\n");
+    }
+    let f2 = fx.commit("f2");
+    let merged = fx.try_git(&["merge", "-q", "--no-commit", "side"]);
+    assert_eq!(
+        merged.status.success(),
+        !feat,
+        "the merge conflicts iff f2 edited"
+    );
+    if feat {
+        fx.write("f.txt", "one\nresolved\nthree\n");
+    } else {
+        fx.write("f.txt", "one\nside, merged\nthree\n");
+    }
+    let m = fx.commit("M: merge side");
+    assert_eq!(parents_of(fx, &m), vec![f2.clone(), s1.clone()]);
+    fx.write("c.txt", "c\n");
+    let f3 = fx.commit("f3");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "one\ntrunk\nthree\n");
+    let t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    SideShape {
+        f1,
+        s1,
+        f2,
+        m,
+        f3,
+        t2,
+    }
+}
+
+/// The one region a chain's final tree carries, asserted to be one.
+fn only_region(
+    repo: &gix::Repository,
+    chain: &ff_core::rewrite::Chain,
+) -> ff_core::rewrite::Region {
+    let found = regions(repo, chain).expect("regions");
+    assert_eq!(found.len(), 1, "{found:?}");
+    found.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_conflict_beneath_a_merge_passes_through_it_and_the_merges_own_change_waits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let s = beneath_merge(&fx, false);
+    let repo = fx.repo();
+    let change = Change::Onto(oid(&s.t2));
+
+    // s1 fights trunk beneath the merge. The hold names s1, the chain runs
+    // whole, and the session's tree carries s1's region — not nested in
+    // the merge's, and without the merge's own edit.
+    let held = conflict(&repo, oid(&s.f1), oid(&s.f3), &change)
+        .expect("answered")
+        .expect("holds");
+    assert_eq!(
+        held.at,
+        At::Commit {
+            id: s.s1.clone(),
+            subject: "s1".into(),
+        }
+    );
+    assert_eq!(held.paths, vec!["f.txt"]);
+    assert_eq!(held.of, 5, "f1, s1, f2, M, f3");
+    let first = chain(&repo, oid(&s.f1), oid(&s.f3), &change, &[]).expect("the chain runs");
+    assert!(first.tangled.is_none(), "{:?}", first.tangled);
+    assert_eq!(first.steps.len(), 5);
+    let region = only_region(&repo, &first);
+    assert_eq!((region.step, region.path.as_str()), (1, "f.txt"));
+    assert!(region.block.contains("trunk\n"), "{}", region.block);
+    assert!(region.block.contains("side\n"), "{}", region.block);
+    assert!(!region.block.contains("side, merged"), "{}", region.block);
+    let m_step = first.steps.iter().find(|st| st.old == s.m).expect("M ran");
+    assert!(
+        m_step.paths.is_empty(),
+        "the region is s1's, not M's: {m_step:?}"
+    );
+
+    // Resolve it; the merge's own change now meets the resolution, as a
+    // fresh region of the merge's own, again with no tangle.
+    let fix_side = Resolution {
+        step: 1,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "trunk and side\n".into(),
+    };
+    let second = chain(
+        &repo,
+        oid(&s.f1),
+        oid(&s.f3),
+        &change,
+        std::slice::from_ref(&fix_side),
+    )
+    .expect("the chain runs");
+    assert!(second.tangled.is_none(), "{:?}", second.tangled);
+    assert_eq!(second.steps.len(), 5);
+    let region = only_region(&repo, &second);
+    assert_eq!((region.step, region.path.as_str()), (3, "f.txt"));
+    assert!(
+        region.block.contains("trunk and side\n"),
+        "{}",
+        region.block
+    );
+    assert!(region.block.contains("side, merged\n"), "{}", region.block);
+    assert_eq!(second.steps[3].old, s.m);
+    assert_eq!(second.steps[3].paths, vec!["f.txt".to_string()]);
+
+    // Resolve that too; the stack lands with the merge kept as a merge.
+    let fix_merge = Resolution {
+        step: 3,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "trunk and side, merged\n".into(),
+    };
+    let resolved = chain(
+        &repo,
+        oid(&s.f1),
+        oid(&s.f3),
+        &change,
+        &[fix_side, fix_merge],
+    )
+    .expect("the chain runs");
+    assert!(resolved.tangled.is_none(), "{:?}", resolved.tangled);
+    assert!(regions(&repo, &resolved).expect("regions").is_empty());
+    let trees: HashMap<gix::ObjectId, gix::ObjectId> = resolved
+        .steps
+        .iter()
+        .map(|step| (oid(&step.old), step.tree))
+        .collect();
+    let landed = plan_with(&repo, oid(&s.f1), oid(&s.f3), &change, NOW, &trees).expect("lands");
+    let mn = new_of(&landed.rewrites, &s.m);
+    assert_eq!(
+        parents_of(&fx, &mn),
+        vec![
+            new_of(&landed.rewrites, &s.f2),
+            new_of(&landed.rewrites, &s.s1)
+        ]
+    );
+    assert_eq!(
+        blob(&fx, &mn, "f.txt"),
+        "one\ntrunk and side, merged\nthree\n"
+    );
+    assert_eq!(
+        blob(&fx, &new_of(&landed.rewrites, &s.s1), "f.txt"),
+        "one\ntrunk and side\nthree\n"
+    );
+}
+
+#[test]
+fn conflicts_on_both_sides_beneath_a_merge_take_a_round_each_then_the_merges() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let s = beneath_merge(&fx, true);
+    let repo = fx.repo();
+    let change = Change::Onto(oid(&s.t2));
+    let run = |resolutions: &[Resolution]| {
+        chain(&repo, oid(&s.f1), oid(&s.f3), &change, resolutions).expect("the chain runs")
+    };
+
+    // Both s1 and f2 fight trunk. The hold names s1, the earlier step, and
+    // the first round shows its region only.
+    let held = conflict(&repo, oid(&s.f1), oid(&s.f3), &change)
+        .expect("answered")
+        .expect("holds");
+    assert_eq!(
+        held.at,
+        At::Commit {
+            id: s.s1.clone(),
+            subject: "s1".into(),
+        }
+    );
+    let first = run(&[]);
+    assert!(first.tangled.is_none(), "{:?}", first.tangled);
+    assert_eq!(first.steps.len(), 5);
+    assert_eq!(first.steps[1].old, s.s1);
+    assert_eq!(first.steps[2].old, s.f2);
+    let region = only_region(&repo, &first);
+    assert_eq!((region.step, region.path.as_str()), (1, "f.txt"));
+    assert!(region.block.contains("side\n"), "{}", region.block);
+    assert!(!region.block.contains("feat"), "{}", region.block);
+    assert!(first.steps[3].paths.is_empty(), "{:?}", first.steps[3]);
+
+    // Resolving s1's shows f2's.
+    let fix_side = Resolution {
+        step: 1,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "trunk and side\n".into(),
+    };
+    let second = run(std::slice::from_ref(&fix_side));
+    assert!(second.tangled.is_none(), "{:?}", second.tangled);
+    let region = only_region(&repo, &second);
+    assert_eq!((region.step, region.path.as_str()), (2, "f.txt"));
+    assert!(region.block.contains("feat\n"), "{}", region.block);
+    assert!(region.block.contains("trunk\n"), "{}", region.block);
+    assert!(!region.block.contains("side"), "{}", region.block);
+    assert!(second.steps[3].paths.is_empty(), "{:?}", second.steps[3]);
+
+    // Resolving f2's shows the merge's own fresh conflict: the two
+    // resolutions against each other, the old resolution left behind.
+    let fix_feat = Resolution {
+        step: 2,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "trunk and feat\n".into(),
+    };
+    let third = run(&[fix_side.clone(), fix_feat.clone()]);
+    assert!(third.tangled.is_none(), "{:?}", third.tangled);
+    let region = only_region(&repo, &third);
+    assert_eq!((region.step, region.path.as_str()), (3, "f.txt"));
+    assert!(
+        region.block.contains("trunk and feat\n"),
+        "{}",
+        region.block
+    );
+    assert!(
+        region.block.contains("trunk and side\n"),
+        "{}",
+        region.block
+    );
+    assert!(!region.block.contains("resolved"), "{}", region.block);
+    assert_eq!(third.steps[3].old, s.m);
+    assert_eq!(third.steps[3].paths, vec!["f.txt".to_string()]);
+
+    // Resolving that lands the merge with both mapped parents.
+    let fix_merge = Resolution {
+        step: 3,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "trunk, feat and side\n".into(),
+    };
+    let resolved = run(&[fix_side, fix_feat, fix_merge]);
+    assert!(resolved.tangled.is_none(), "{:?}", resolved.tangled);
+    assert!(regions(&repo, &resolved).expect("regions").is_empty());
+    let trees: HashMap<gix::ObjectId, gix::ObjectId> = resolved
+        .steps
+        .iter()
+        .map(|step| (oid(&step.old), step.tree))
+        .collect();
+    let landed = plan_with(&repo, oid(&s.f1), oid(&s.f3), &change, NOW, &trees).expect("lands");
+    let mn = new_of(&landed.rewrites, &s.m);
+    assert_eq!(
+        parents_of(&fx, &mn),
+        vec![
+            new_of(&landed.rewrites, &s.f2),
+            new_of(&landed.rewrites, &s.s1)
+        ]
+    );
+    assert_eq!(
+        blob(&fx, &mn, "f.txt"),
+        "one\ntrunk, feat and side\nthree\n"
+    );
+    assert_eq!(
+        blob(&fx, &new_of(&landed.rewrites, &s.f2), "f.txt"),
+        "one\ntrunk and feat\nthree\n"
+    );
+}

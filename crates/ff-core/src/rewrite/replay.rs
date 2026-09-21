@@ -647,8 +647,19 @@ fn replay(
                 // The chain's own step, with the chain's labels, refused
                 // where the chain would hold: a region left standing is a
                 // conflict, and nothing is written.
-                let step =
-                    super::chain::step_tree(repo, repo, id, &parents, change, k, n, &step_subject)?;
+                // A replayed step never carries a block: the replay refuses
+                // at the first step that leaves one, so nothing passes through.
+                let step = super::chain::step_tree(
+                    repo,
+                    repo,
+                    id,
+                    &parents,
+                    change,
+                    k,
+                    n,
+                    &step_subject,
+                    &HashSet::new(),
+                )?;
                 if !step.paths.is_empty() {
                     return Err(conflict_refusal(repo, id, &step.paths)?);
                 }

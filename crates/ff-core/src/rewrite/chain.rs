@@ -8,7 +8,10 @@
 //! another, and where their merge base is. So the chain keeps a simulated
 //! graph in a memory handle layered over the repository — one throwaway
 //! commit per step, carrying the step's tree and mapped parents — and asks
-//! it. Those commits never reach the store.
+//! it. Those commits never reach the store. A region standing in one of a
+//! merge's parents passes through the merge unchanged, still the earlier
+//! step's, and the merge's own say on that file waits for the round after
+//! the region is resolved.
 
 use std::collections::{HashMap, HashSet};
 
@@ -195,7 +198,7 @@ pub fn chain(
             }
             Change::Message(_) => tree_of(repo, id)?,
             Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
-                let step = step_tree(repo, &sim, id, &parents, change, k, n, &subject)?;
+                let step = step_tree(repo, &sim, id, &parents, change, k, n, &subject, &reported)?;
                 paths.extend(step.paths);
                 fold = Some(step.fold);
                 let tree = step.tree;
@@ -403,6 +406,17 @@ pub(super) struct StepTree {
 /// sides as they are now, this step's to resolve again, the old resolution
 /// left in the merge's own commit to read.
 ///
+/// A merge step never nests a region standing in one of its parents. The
+/// region passes through the merge unchanged, attributed to the step that
+/// wrote it, and the merge's own say on that file — the fold of the other
+/// parent's change and its own — waits for the round after the region is
+/// resolved. `carried` names the paths earlier steps reported unresolved,
+/// the only ones a parent can carry a region in; a parent whose blocks at
+/// such a path are the earliest step's is the one the merge passes
+/// through, so the region shown first is the one the hold names. A block of
+/// this step is exempt from the pass-through, which is what lets an
+/// identical conflict's resolution land over its own block.
+///
 /// Ancestry runs on `ancestry`, which is the chain's simulated graph or the
 /// repository itself; trees are read and written through `repo`.
 #[allow(clippy::too_many_arguments)]
@@ -415,20 +429,80 @@ pub(super) fn step_tree(
     k: usize,
     n: usize,
     subject: &str,
+    carried: &HashSet<String>,
 ) -> Result<StepTree> {
-    let (fold, left) = remerged(repo, ancestry, parents, k, n, subject)?;
+    let (mut fold, mut left) = remerged(repo, ancestry, parents, k, n, subject)?;
+
+    // The paths a merge defers, each with the tree of the parent whose
+    // region passes through: the parent carrying the earliest step's block.
+    let mut deferred: Vec<(String, gix::ObjectId)> = Vec::new();
+    if parents.len() >= 2 {
+        let mut candidates: Vec<&String> = carried.iter().collect();
+        candidates.sort();
+        for path in candidates {
+            let mut winner: Option<(usize, gix::ObjectId)> = None;
+            for &parent in parents {
+                let tree = tree_of(ancestry, parent)?;
+                let Some(blob) = blob_of(repo, tree, path)? else {
+                    continue;
+                };
+                let Some(earliest) = blocks(&blob).0.iter().map(|b| b.step).min() else {
+                    continue;
+                };
+                if winner.is_none_or(|(step, _)| earliest < step) {
+                    winner = Some((earliest, tree));
+                }
+            }
+            if let Some((_, tree)) = winner {
+                deferred.push((path.clone(), tree));
+            }
+        }
+    }
+    // The fold nests the region, or edits it, when the other parent changed
+    // the same file: then it takes the winner's version of the path whole.
+    for (path, winner) in &deferred {
+        let standing = blocks_of(repo, *winner, path)?;
+        if !intact(repo, fold, path, &standing)? {
+            fold = filtered(repo, fold, *winner, std::slice::from_ref(path))?;
+            left.retain(|p| p != path);
+        }
+    }
+
     let (base, _) = remerged(repo, repo, &parents_of(repo, id)?, k, n, subject)?;
     let their = their_of(repo, change, id, base)?;
     let (mut tree, own) = merged(repo, base, fold, their, REBASING, k, n, subject)?;
-    let again: Vec<String> = own
+    let mut again: Vec<String> = own
         .iter()
         .filter(|path| left.contains(path))
         .cloned()
         .collect();
+    // The step's own change on a deferred path waits too, when it nests or
+    // edits a block another step wrote; its own block it may resolve.
+    for (path, _) in &deferred {
+        if again.contains(path) {
+            continue;
+        }
+        let others: Vec<Block> = blocks_of(repo, fold, path)?
+            .into_iter()
+            .filter(|b| b.step != k - 1)
+            .collect();
+        if !intact(repo, tree, path, &others)? {
+            again.push(path.clone());
+        }
+    }
     if !again.is_empty() {
         tree = filtered(repo, tree, fold, &again)?;
     }
-    let mut paths = own;
+
+    // A deferred path carrying another step's block and none of this step's
+    // is that step's, not this one's.
+    let mut paths: Vec<String> = Vec::new();
+    for path in own {
+        let passed = deferred.iter().any(|(p, _)| *p == path);
+        if !passed || owns_block(repo, tree, &path, k - 1)? {
+            paths.push(path);
+        }
+    }
     for path in left {
         if !paths.contains(&path) && carries_markers(repo, tree, &path)? {
             paths.push(path);
@@ -439,12 +513,44 @@ pub(super) fn step_tree(
     Ok(StepTree { tree, paths, fold })
 }
 
+/// The fufu blocks standing in the blob at `path` in `tree`; none when the
+/// path is not a plain file there.
+fn blocks_of(repo: &gix::Repository, tree: gix::ObjectId, path: &str) -> Result<Vec<Block>> {
+    Ok(match blob_of(repo, tree, path)? {
+        Some(text) => blocks(&text).0,
+        None => Vec::new(),
+    })
+}
+
+/// Whether the blob at `path` in `tree` is untangled and every block in
+/// `carried` stands in it verbatim. A path the tree does not hold is intact
+/// only when nothing was carried.
+fn intact(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+    path: &str,
+    carried: &[Block],
+) -> Result<bool> {
+    let Some(text) = blob_of(repo, tree, path)? else {
+        return Ok(carried.is_empty());
+    };
+    let (found, tangled) = blocks(&text);
+    if tangled {
+        return Ok(false);
+    }
+    Ok(carried
+        .iter()
+        .all(|b| found.iter().any(|f| f.text == b.text)))
+}
+
 /// What a step's parents give it, and the paths the fold left marked. One
 /// parent: its tree, no merge. Several: the auto-merge of their trees, base
 /// by base against the first, with the step's own labels on any region it
 /// leaves — the same fold `measure` runs and falls back on, carried here
 /// with its markers instead. No base for some pair: the first parent's tree
 /// stands in. A conflicting pair stops the fold, as the measure's does.
+/// A region a parent carries up from an earlier step is `step_tree`'s to
+/// pass through; the fold merges the parents as they stand.
 /// Ancestry runs on `sim`; trees are read and written through `repo`.
 fn remerged(
     repo: &gix::Repository,
@@ -962,4 +1068,15 @@ pub(crate) fn carries_markers(
         blob_of(repo, tree, path)?,
         Some(text) if text.contains(OPENER)
     ))
+}
+
+/// Whether the blob at `path` in `tree` holds a block `step` wrote: the
+/// check that tells a step's own region from one it passed through.
+fn owns_block(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+    path: &str,
+    step: usize,
+) -> Result<bool> {
+    Ok(blocks_of(repo, tree, path)?.iter().any(|b| b.step == step))
 }

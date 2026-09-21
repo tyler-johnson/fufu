@@ -13,7 +13,7 @@
 
 ### Changed
 
-- A merge inside a rewritten range is carried instead of refused by every rewrite: restack, fold, done, absorb, lift, the cascade, and the remote axis of pull. Its parents are mapped through the rewrite and re-merged, with its own change applied on top; a merge left with one parent becomes an ordinary commit and the report says so under `flattened`. A merge that resolved a conflict carries the resolution when the re-merge conflicts the same way, and holds at the merge with the fresh conflict when it conflicts differently. The `rewrite/merge-in-range` refusal is gone. Pull's base axis leaves a branch that holds a merge of its base where it stands and names `ff restack` and `ff resolve` as the two doors.
+- A merge inside a rewritten range is carried instead of refused by every rewrite: restack, fold, done, absorb, lift, the cascade, and the remote axis of pull. Its parents are mapped through the rewrite and re-merged, with its own change applied on top; a merge left with one parent becomes an ordinary commit and the report says so under `flattened`. A merge that resolved a conflict carries the resolution when the re-merge conflicts the same way, and holds at the merge with the fresh conflict when it conflicts differently. A conflict beneath a merge on either parent passes through the merge to the session, and the merge's own change on that file waits for the round after it is resolved. The `rewrite/merge-in-range` refusal is gone. Pull's base axis leaves a branch that holds a merge of its base where it stands and names `ff restack` and `ff resolve` as the two doors.
 - `ff show`, `ff log -p`, and `ff diff -r` measure a merge against the auto-merge of its parents, so a clean merge is empty and a merge that resolved a conflict shows that. When the auto-merge itself conflicts they fall back to the first parent and say so. JSON gains `against`.
 - [`ff done --abandon`](docs/reference/cli/done.md) on a resolution session closes the session and keeps the hold, so `ff resolve` opens a fresh session over it. Dropping the hold too is `ff resolve --abandon`'s meaning.
 - `ff show` prints the message whole, subject and body, and JSON gains `body`. The `@` row of `ff status`, `ff log`, and `ff map` shows a multi-line pending description's subject only.
@@ -24,10 +24,6 @@
 - A rewrite of a held branch left the hold standing, so `ff resolve` later replayed it onto a base it no longer had. A re-aim with `ff restack --onto`, or a fold of the source, now drops a held restack and says so; absorb, lift, describe, and done point the hold at the rewritten commit; a held absorb, lift, done, or arrival refuses every rewrite with `held/already-held`.
 - `ff diff` and `ff show` answered a positional that names no path, such as `main..HEAD`, with an empty patch and exit 0. Both now refuse it with `usage/no-such-path`.
 - `ff pull` on a branch holding a merge of its base discarded the whole run, local trunk included. The branch is now left alone and named while the rest of the run goes on.
-
-### Known issues
-
-- A conflict on a merge's second parent, beneath the merge, has no place in a resolution session: the session's tree follows the first-parent line, so the re-merge nests that side's markers, the chain stops at the merge, and the round shows the first-parent side's regions only.
 
 ## v0.17.0 — 2026-09-18
 
