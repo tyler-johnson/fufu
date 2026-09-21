@@ -11,7 +11,7 @@ ff hook copilot
 
 ## Activate
 
-Copilot loads a plugin from a local marketplace live, so the next session picks it up; there is no trust step. `copilot plugin list` shows it as `fufu@fufu-ff` (enabled).
+Start a new Copilot session after installation; no separate hook trust step is required. Check `copilot plugin list` for the enabled selector printed by the installer. It is `fufu@fufu-ff` for a new marketplace, or `fufu@<existing-name>` when the marketplace already has a name.
 
 ## Verify
 
@@ -25,7 +25,13 @@ These inspect installed files only. Confirm real capture with the [capture-and-r
 <a id="what-it-writes"></a>
 ## Files changed
 
-The installer writes an Agent Plugins 1.0 plugin at `~/.agents/plugins/copilot/fufu/` — a root `plugin.json` under the `agent-plugins.org` schema, `com.github.copilot/hooks/hooks.json` in Copilot's flat shape, and the skill under `skills/fufu/` — merges one entry into `~/.agents/plugins/copilot/marketplace.json`, and registers both in `~/.copilot/settings.json` under `enabledPlugins` and `extraKnownMarketplaces`. The `copilot/` namespace keeps these apart from Codex's incompatible manifest and marketplace one directory up. Other settings keys and other marketplace entries survive under the [shared ownership rules](index.md#files-changed); a settings file whose `enabledPlugins` or `extraKnownMarketplaces` is not an object is refused untouched.
+The installer writes these managed files:
+
+- The plugin under `~/.agents/plugins/copilot/fufu/`, including its manifest, `com.github.copilot/hooks/hooks.json`, and `skills/fufu/`.
+- One entry in `~/.agents/plugins/copilot/marketplace.json`.
+- Registration entries under `enabledPlugins` and `extraKnownMarketplaces` in `~/.copilot/settings.json`.
+
+The Copilot directory is separate from Codex's plugin and marketplace. Other entries follow the [shared ownership rules](index.md#files-changed). A malformed settings file is left untouched, though other installation files may already have been written.
 
 ```console
 $ ff hook copilot
@@ -124,7 +130,11 @@ $ cat ~/.copilot/settings.json
 }
 ```
 
-Each hook entry runs the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, double-quoted, and sets `FF_HOOK_EVENT` in its environment, because Copilot's payload names no event. `preToolUse` attempts capture before every tool call; `userPromptSubmitted` captures and delivers the briefing; `sessionStart` rebriefs; `agentStop` captures the final edit of a turn; `sessionEnd` captures once more at the end. The briefing arrives as `additionalContext` JSON. Copilot captures and tallies recognized Git writes only where the pre-tool payload carries a recognizable tool and command; it returns no pre-tool coaching or denial reply, including under strict policy. The manifest's version is the fufu version plus `+ff.` and eight hex digits of the hooks file's SHA-256.
+Each hook runs the installing binary's absolute path, double-quoted, and supplies the event name through `FF_HOOK_EVENT`. Copilot's payload does not identify the event.
+
+`preToolUse` attempts capture before every tool call. `userPromptSubmitted` captures and sends the briefing as `additionalContext` JSON; `sessionStart` rebriefs. `agentStop` and `sessionEnd` attempt capture at the end of a turn or session. Recognizable Git commands are tallied, but the adapter sends no pre-tool coaching or denial reply, including under strict policy.
+
+The plugin version includes a hash of its hooks file so changed hook definitions produce a new version.
 
 The marketplace root is shared with tower. When tower created the file, fufu keeps its name and owner, appends its own entry, and registers as `fufu@<that name>`; the installer's last line says which selector to expect. With only tower's plugin under the root, `ff hook -l` reports `not wired`.
 

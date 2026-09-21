@@ -178,13 +178,13 @@ exits = []
 [[entry]]
 id = "hook/failed"
 summary = "a client's hook file or plugin directory could not be written, or did not read back"
-detail = "Read the named path and the operating-system diagnostic. ff hook writes a plugin directory or settings entries and then reads them back the way the client does; a write that fails or a plugin that does not verify leaves any older wiring in place, so capture through that client is whatever it was before. Fix permissions or the path, then rerun ff hook <slug>. ff hook -l shows the current wiring."
+detail = "Read the named path and diagnostic. A write or verification failed during installation or removal. Earlier file writes may have completed, so the integration can be partially updated; this error does not guarantee that previous wiring still works. Inspect ff hook -l and the named files, fix the reported permissions or configuration problem, and rerun the command. If ff hook opencode reports hook/failed for a plugins/fufu.js without fufu's ownership header, inspect and move that file aside before retrying. After installation, follow the activation steps and verify capture in the client."
 exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]
 id = "hook/malformed"
 summary = "a client's config file is not the JSON object its client reads"
-detail = "The named file is not valid JSON, or its top level or one of the keys ff hook merges into is not the shape the client documents (for Copilot CLI, enabledPlugins and extraKnownMarketplaces must be objects). The file is untouched: fufu never rewrites a file it cannot read into something the client cannot read either. Repair the file by hand or restore it from the client, then rerun ff hook <slug>. For Codex the file may be the personal marketplace at ~/.agents/plugins/marketplace.json, which the plugin install merges an entry into. hook/failed is also what ff hook opencode raises for a plugins/fufu.js fufu did not write: move it aside."
+detail = "The named file is not valid JSON, or its top level or one of the keys ff hook merges into is not the shape the client documents (for Copilot CLI, enabledPlugins and extraKnownMarketplaces must be objects). The malformed file is left untouched, but other installation files may already have been written. Repair the file by hand or restore it from the client, then rerun ff hook <slug>. For Codex the file may be the personal marketplace at ~/.agents/plugins/marketplace.json, which the plugin install merges an entry into."
 exits = ["ff hook -l", "ff help hook"]
 
 [[entry]]
@@ -370,7 +370,7 @@ exits = ["ff log -r '<expr>'", "ff log -r 'latest(<expr>)'"]
 [[entry]]
 id = "usage/revset-not-a-range"
 summary = "the set is not one range with a single head and root"
-detail = "ff diff -r shows a set's total patch, from the root's first parent to the head, so the set must be connected with one head and one root. A gapped, forked, or two-headed set is refused, and a set containing the open change must contain HEAD. A set whose root is a merge is refused because which parent to measure from is a choice. Use ff log -r to see the members and --from/--to to name the two ends yourself."
+detail = "ff diff -r needs a connected set with one head and one root. The open change alone is accepted; a set combining it with recorded commits must include HEAD. A merge root is accepted and measured against its parents' auto-merge, falling back to the first parent if that auto-merge conflicts or has no common ancestor. Use ff log -r to inspect the members, or ff diff --from <rev> --to <rev> to compare two revisions directly."
 exits = ["ff log -r <revset>", "ff diff --from <rev> --to <rev>"]
 
 [[entry]]
@@ -508,13 +508,13 @@ exits = ["ff status", "ff switch <session>", "ff help done"]
 [[entry]]
 id = "held/moved"
 summary = "the current rewrite no longer produces the conflicts this session was opened for"
-detail = "Preserve any fixes you want to reuse, then close the stale session with ff done --abandon. That deletes the session, keeps the hold, and returns to the held branch; ff resolve afterward opens a fresh session against the moved world, or releases the hold when the rewrite is clean now. ff resolve --abandon drops the session and the hold both. Running ff resolve before closing only returns held/resolving. This failed done has not landed the resolution; pre-command capture or reconciliation may already have recorded your edits."
+detail = "Preserve any fixes you want to reuse, then close the stale session with ff done --abandon. That deletes the session, keeps the hold, and returns to the held branch; ff resolve afterward recomputes the conflicts against current state. It opens a fresh session, releases a now-clean replay hold, or lands a now-clean held merge. ff resolve --abandon drops the session and the hold both. Running ff resolve before closing only returns held/resolving. This failed done has not landed the resolution; pre-command capture or reconciliation may already have recorded your edits."
 exits = ["ff status", "ff diff", "ff done --abandon", "ff resolve --abandon"]
 
 [[entry]]
 id = "held/unresolved"
 summary = "the resolution still has conflict markers standing"
-detail = "Edit the named files on the resolution session branch and run ff done again. The original branch has not received this resolution, and the hold and session remain open. This error names markers left standing only; a fix that uncovers the next conflict is not this error, since ff done then rolls the session to another round showing it. To discard the entire request, preserve wanted fixes and use ff resolve --abandon; that drops the hold too, so starting again requires reissuing the original rewrite."
+detail = "Edit the named files on the resolution session branch and run ff done again. The original branch has not received this resolution, and the hold and session remain open. Remove the remaining markers before retrying. If a completed fix uncovers another conflict, ff done keeps the session open and displays the next round instead. To discard the entire request, preserve wanted fixes and use ff resolve --abandon; that drops the hold too, so starting again requires reissuing the original rewrite."
 exits = ["ff status", "ff done", "ff resolve --abandon"]
 
 [[entry]]
@@ -543,8 +543,8 @@ exits = ["ff pull <branch>", "ff restack <branch> --onto <base>"]
 
 [[entry]]
 id = "merge/base"
-summary = "the target is this branch's base, which fufu never merges in"
-detail = "The base reaches a branch by replay only. ff pull brings the base in, and ff restack replays the branch onto it; ff merge takes any other branch in by one commit with two parents. A branch whose history already holds a merge of its base continues that shape through ff resolve, which takes the base in by another merge when the branch is behind. The base is the recorded parent, or trunk when none is recorded; ff status names it."
+summary = "ff merge refuses the recorded base of this branch"
+detail = "Use ff pull or ff restack to replay the branch onto its base. ff merge accepts other branches and creates a merge commit, or fast-forwards when the current tip is an ancestor of the target. A branch whose history already holds a merge of its base continues that shape through ff resolve, which takes the base in by another merge when the branch is behind. The base is the recorded parent, or trunk when none is recorded; ff status names it."
 exits = ["ff pull", "ff restack", "ff resolve"]
 
 [[entry]]

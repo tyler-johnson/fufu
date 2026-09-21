@@ -37,7 +37,7 @@ In a repository this prints the changed paths. Outside one, it reports `repo/not
 
 ## Projecting with `--fields`
 
-`--fields <list>` keeps only the named parts of `data`: comma-separated dotted paths, applied inside the envelope. A path walks objects by key and maps over arrays, so `commits.subject` keeps `subject` on every row of `commits` and drops the rest. Kept keys keep their nesting, a key named whole keeps everything under it, and the envelope's `ff`, `cmd`, and `error` are never touched. There is no template language, renaming, or computed value; the envelope is the shape, and this trims it.
+`--fields <list>` selects parts of `data` using comma-separated dotted paths. Object keys keep their nesting; selecting a whole key keeps its contents. A path through an array applies to each element, so `commits.subject` keeps each commit's subject. The envelope's `ff`, `cmd`, and `error` fields are unaffected.
 
 ```console
 $ ff log -n 1 --json --fields commits.subject,commits.body
@@ -72,11 +72,19 @@ For error envelopes, `usage/*` maps to 2, `held/*` to 3, `ref/contended` to 4, a
 | [`ff describe`](../reference/cli/describe.md) | Reword can exit 0 with nonempty `reword.cascade.held`. |
 | [`ff fold`](../reference/cli/fold.md) | A primary conflict refuses at 1 without a fold hold; downstream cascade holds exit 3 after the fold lands. |
 | [`ff switch`](../reference/cli/switch.md) | A parked-arrival hold exits 3 after completing the branch switch; resolve handles that arrival in place. |
-| [`ff merge`](../reference/cli/merge.md) | A conflicting auto-merge records the hold and exits 3 with `held` in the envelope and `merge` null. A clean merge or a fast-forward lands at 0. |
-| [`ff resolve`](../reference/cli/resolve.md) | Opening a session over a standing hold exits 0. On a branch with no hold whose commits hold a merge of its base, a clean merge lands at 0 with `merged`; a conflicting one records the hold and opens the session in one step, exit 3, with the hold under `resolve.held`. |
+| [`ff merge`](../reference/cli/merge.md) | A conflicting auto-merge records the hold and exits 3 with `held` in the envelope and `merge` null. A clean merge or fast-forward normally exits 0; if reapplying open work conflicts, it lands but exits 3 with an arrival hold in `merge.arrival`. |
+| [`ff resolve`](../reference/cli/resolve.md) | Opening a session over a standing hold exits 0. On a branch with no hold whose commits hold a merge of its base, a clean merge reports `merged` and exits 0 unless reapplying open work creates an arrival hold; a conflicting one records the hold and opens the session in one step, exit 3, with the hold under `resolve.held`. |
 | [`ff push`](../reference/cli/push.md) | Existing holds block the affected branches. Holds alone exit 3; any refused send makes the run exit 1, even alongside successful sends or held branches. |
 
-A hold is a requested replay waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere or already held. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).
+When `ff restack --resolve`, `ff pull --resolve`, or `ff merge --resolve` opens a session, `data.resolve` describes it alongside the command's existing hold report. The exit remains 3. Use `ff config onConflict resolve` to select the same behavior by default.
+
+When `ff done` advances a resolution to another round, it exits 3 with `data.done` null, `data.rolled` describing the round, and `data.undo` set to `ff undo`. The original branch has not received the rewrite; edit the displayed conflicts and run done again on the same session.
+
+`rolled.fixed` names fixes carried forward, `rolled.conflicts` names the newly conflicting steps and paths, and `rolled.dropped` names fixes that must be revisited. This differs from an error envelope with `held/unresolved`, which means displayed markers remain.
+
+Closing the session with `ff done --abandon` reports the preserved hold in `data.done.held`.
+
+A hold is a requested replay or merge waiting on conflicting changes. Stop and surface it rather than retrying blindly. Cascades also name skipped branches: checked out elsewhere or already held. Their descendants are left alone. See [cascade recovery](../guides/rewriting-history.md#conflicts-and-dependent-branches).
 
 Neither a refusal nor contention promises an untouched repository. Pre-capture, reconciliation, fetches, metadata, or earlier branch updates can already have happened. Inspect the result before a retry. A failed capture in a client hook can be skipped with exit 0; that is a different contract from a contended mutating command.
 
@@ -106,7 +114,9 @@ The log family pages human output only on a terminal. Piped output and JSON neve
 
 ## Sessions: tagging work, and asking about it
 
-A session is a label attached to recorded operations, not an editing-session branch or a separate undo chain. There is no session-open or session-close command. For ordinary commands, tag precedence is `--session <name>`, then `FF_SESSION`, then `CLAUDE_CODE_SESSION_ID`. A valid session ID in a client hook payload takes precedence for that capture, falling back to the invocation's tag when absent or invalid.
+A session is a label attached to recorded operations, not an editing-session branch or a separate undo chain. There is no session-open or session-close command. For ordinary commands, tag precedence is `--session <name>`, then `FF_SESSION`, then a client session variable.
+
+Client variables are checked in this order: `CLAUDE_CODE_SESSION_ID`, `CODEX_SESSION_ID`, `QWEN_CODE_SESSION_ID`, `OPENCODE_SESSION_ID`, `COPILOT_AGENT_SESSION_ID`, and `CURSOR_CONVERSATION_ID`; the first nonempty value is used. Invalid session names are ignored when supplied through the environment. A valid session ID in a client hook payload takes precedence for that capture, falling back to the invocation's tag when absent or invalid.
 
 For example, after editing a file, label a manual capture and query its records:
 
@@ -149,7 +159,7 @@ Inside a directory, `ff status --json` reports `repo/not-found` at exit 1 if no 
 
 ## Report fields and examples
 
-The examples below are **valid JSON projections**: by `--fields`, which shows the whole envelope, indented by `jq .`, or by the displayed `jq` filter, which shows `data` alone. `scripts/docs/machine-surface-transcript.sh` creates their scratch repository, commits a parser skeleton, edits it, and takes two captures tagged `flight-3`. IDs, times, and paths vary. Remove the filter to inspect the complete report; no omitted fields are represented by an invalid `[...]` placeholder.
+The examples below are **valid JSON projections**. `--fields` selects fields within the envelope; `jq .` only formats the result. Examples using a `jq` filter on `.data` show the selected payload without its envelope. To inspect a complete report, omit `--fields` and any selecting filter. `scripts/docs/machine-surface-transcript.sh` creates the example repository; IDs, times, and paths vary.
 
 Commit SHAs and operation IDs are hexadecimal; `change_id` uses k–z for identity across surviving rewrites. The argument position determines which address space an ID belongs to. `time` fields in these history reports are Unix seconds; other reports can use other timestamp names. [Revisions and IDs](../reference/revisions.md) owns prefix rules, expressions, and past-state reads.
 
@@ -233,7 +243,9 @@ $ ff log -n 1 --json --fields commits,open.id,open.change_id,open.pending | jq .
 
 A commit's `id` is its SHA; `change_id` is the identity it retains across surviving fufu rewrites. `body` is the message after its subject, empty for a one-line message. The open block's `id` is a capture operation, not a commit SHA. Its `pending` object has not yet entered branch history. A commit's `session` identifies the tag under which it was recorded. [`ff show`](../reference/cli/show.md) also reports change identity.
 
-Under `-p`, `--stat`, or `--name-only`, each `ff log --json` row and the open block gain `changes`, `insertions`, and `deletions`, the shape `ff diff --json` and `ff show --json` carry. `--stat` drops each file's `hunks`; `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and drops the counts; `ff show --no-patch` drops the three keys. Keys are dropped, never renamed or set to null. Rows under a view carry `against`, the word `ff show --json` carries for what the row was measured against: `parent`, `auto-merge`, or `first-parent`.
+With `-p`, `--stat`, or `--name-only`, log rows and the open block include patch data, using the same shape as diff and show. `--stat` omits each file's `hunks`; `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and omits change counts. Show's `--no-patch` omits `changes`, `insertions`, and `deletions`.
+
+Log rows with patch data include `against`: `parent`, `auto-merge`, or `first-parent`. Show includes the same field, as does diff with `-r`. These values describe the comparison base, including a merge's fallback to its first parent.
 
 ## `ff evolog --json`
 

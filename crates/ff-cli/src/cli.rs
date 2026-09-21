@@ -174,7 +174,7 @@ pub enum Command {
         /// Print the diffstat under each row instead of the patch
         #[arg(long, conflicts_with = "commits")]
         stat: bool,
-        /// Print one path per line with its kind letter under each row instead of the patch
+        /// Print one path per line with its change type under each row instead of the patch
         #[arg(long, conflicts_with = "commits")]
         name_only: bool,
         /// Context lines around each change; 3 when omitted
@@ -202,7 +202,7 @@ pub enum Command {
         /// Print the diffstat instead of the patch
         #[arg(long)]
         stat: bool,
-        /// Print one path per line with its kind letter instead of the patch
+        /// Print one path per line with its change type instead of the patch
         #[arg(long)]
         name_only: bool,
         /// Context lines around each change; 3 when omitted
@@ -221,7 +221,7 @@ pub enum Command {
         /// Print the diffstat instead of the patch
         #[arg(long)]
         stat: bool,
-        /// Print one path per line with its kind letter instead of the patch
+        /// Print one path per line with its change type instead of the patch
         #[arg(long)]
         name_only: bool,
         /// Print the header and message only

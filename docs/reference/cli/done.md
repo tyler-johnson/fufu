@@ -50,9 +50,15 @@ Options:
 
 ## Abandoning and conflicts
 
-`--abandon` drops the session without applying it or running commit hooks. Uncommitted session work remains as an internal open commit pinned by the operation, named in the report and recoverable with [`ff undo`](undo.md). On a resolution session `--abandon` closes the session and keeps the hold: the branch stays held, `ff resolve` opens a fresh session over it, and `ff resolve --abandon` drops both.
+`--abandon` drops the session without applying it or running commit hooks. Uncommitted session work remains as an internal open commit pinned by the operation, named in the report and recoverable with [`ff undo`](undo.md).
 
-A fix that uncovers the next conflict, a step you were not shown or a replay that tangles again, lands nothing and rolls the session to another round: the fixes so far are kept as the steps' resolutions, the session's tip moves to a commit carrying the next conflict's markers, and the working copy shows them, exit 3. The roll is one operation, and one `ff undo` steps back a round. Markers left standing in the step you were shown still refuse with `held/unresolved`. Captures and metadata may still be written. A held restack on the landing branch stays and follows the rewrite; a held absorb, lift, or done there refuses the landing. A held parked-change arrival resolves in place and has no session to finish with done.
+On a resolution session, `ff done --abandon` keeps the hold on the original branch. Run `ff resolve` to open a fresh session, or `ff resolve --abandon` to discard the hold as well.
+
+Fix the displayed conflicts and run `ff done`. If more conflicts appear, repeat on the same session. Each new round keeps applicable fixes, names any that need revisiting, updates the working copy with the next conflicts, and exits 3. The original branch updates when all conflicts are resolved. One `ff undo` reverses a round's advance and restores the fixes you had made before it.
+
+Markers left in the displayed conflicts are refused with `held/unresolved`; finish editing them and retry. A conflicting replay when finishing an editing session leaves that session open, records a hold, and exits 3. Captures and metadata may still be written.
+
+A held restack or merge on the landing branch follows the rewrite. A held absorb, lift, done, or parked-change arrival blocks the landing. An arrival resolves in place and has no session to finish with done.
 
 ## Dependent branches and undo
 

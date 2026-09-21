@@ -9,11 +9,11 @@ Run the matching [`ff hook`](../reference/cli/hook.md) command in your terminal:
 | Client | Install | Required next step |
 | --- | --- | --- |
 | [Claude Code](../reference/hooks/claude.md) | `ff hook claude` | **Restart Claude Code** to load the plugin. `claude plugin list` should show `fufu@skills-dir`. |
-| [Codex](../reference/hooks/codex.md) | `ff hook codex` | **Run `/hooks` inside Codex and review and accept the hook.** New or changed hooks are skipped until approved by hash. The installer runs `codex plugin add fufu@fufu` when `codex` is on `PATH`; otherwise run it yourself. |
+| [Codex](../reference/hooks/codex.md) | `ff hook codex` | **Run `/hooks` inside Codex and review and accept the hook.** New or changed hooks are skipped until approved by hash. Follow the installer's registration command if automatic registration is unavailable or fails; the selector depends on the marketplace name. |
 | [Cursor agent](../reference/hooks/cursor.md) | `ff hook cursor` | Start a new agent session in a trusted workspace; Cursor discovers the user-local plugin on session start. Cloud agents get no user-local hooks; use project instructions below. |
 | [Qwen Code](../reference/hooks/qwen.md) | `ff hook qwen` | Start a new session to check the loaded configuration. |
 | [OpenCode](../reference/hooks/opencode.md) | `ff hook opencode` | **Restart OpenCode** to load the plugin. |
-| [Copilot CLI](../reference/hooks/copilot.md) | `ff hook copilot` | Start a new session; `copilot plugin list` should show `fufu@fufu-ff (enabled)`. |
+| [Copilot CLI](../reference/hooks/copilot.md) | `ff hook copilot` | Start a new session; `copilot plugin list` should show the selector printed by the installer as enabled. |
 
 Every installation but Qwen Code's includes the shipped skill. The linked client references describe managed files, removal, and migration. Integrations are installed per machine; repeat setup on each machine where the agent runs.
 
@@ -62,7 +62,7 @@ Snapshots and briefings serve different purposes. Tool events attempt a snapshot
 | Claude Code | `Bash`, `Edit`, `Write`, `NotebookEdit` | `UserPromptSubmit` briefs once; `SessionStart` rebriefs on startup, resume, clear, compact, or fork. `Stop`, `SubagentStop`, `SubagentStart`, and `CwdChanged` widen capture. Pre-tool replies can brief subagents and newly entered repositories. |
 | Codex | `Bash`, `apply_patch` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs on startup, resume, clear, or compact. `Stop` and `SessionEnd` widen capture. No subagent events; pre-tool replies are silent. |
 | Cursor agent | `Shell`, `Write`, `Delete` | `sessionStart` captures and briefs; `sessionEnd` widens capture. No prompt or stop events: Cursor CLI gates them on user settings. Cloud agents get no user-local hooks. |
-| OpenCode | every tool | The system-prompt transform sends `SessionStart` on every model call, so the briefing is standing. Pre-tool output is discarded by OpenCode; no reply reaches the model. |
+| OpenCode | every tool | The system-prompt transform sends `SessionStart` on every model call, including the briefing each time. Pre-tool output is discarded by OpenCode; no reply reaches the model. |
 | Copilot CLI | every tool | `userPromptSubmitted` captures and briefs; `sessionStart` rebriefs. `agentStop` and `sessionEnd` widen capture. Pre-tool replies are silent. |
 | Qwen Code | `run_shell_command`, `write_file`, `replace`, `edit` | `UserPromptSubmit` captures and briefs; `SessionStart` rebriefs. `Stop` and `SessionEnd` widen capture. Pre-tool replies are silent. |
 

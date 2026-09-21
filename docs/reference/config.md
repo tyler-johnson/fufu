@@ -42,7 +42,7 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.keep GIT_CONFIG_VALUE_0=7d ff config ke
 - **Snapshot size:** `maxFileSize` defaults to 50 MiB, in bytes. Oversized untracked files and oversized modified tracked content are skipped; index or base content may remain. Ignored untracked files and unsaved editor buffers are also outside [snapshot coverage](../concepts/snapshots-and-undo.md#coverage-and-limits), regardless of this limit.
 - **Network:** `autoFetch false` disables automatic fetches; explicit `--fetch` and [`ff pull`](cli/pull.md) still fetch. `--no-fetch` skips fetching for one supported invocation. Native HTTP proxy limits are [below](#what-fufu-reads-from-gits-config).
 - **Git commands:** `gitPolicy` defaults to `coach`. Read [policy behavior and client limits](../agents/setup.md#pick-a-git-policy) before choosing `strict`.
-- **Conflicts:** `onConflict` defaults to `hold`: a conflicting [`ff restack`](cli/restack.md), [`ff pull`](cli/pull.md), or [`ff merge`](cli/merge.md) records the hold and stops. `resolve` opens the session in the same run, as `--resolve` does for one.
+- **Conflicts:** `onConflict` defaults to `hold`: a conflicting [`ff restack`](cli/restack.md), [`ff pull`](cli/pull.md), or [`ff merge`](cli/merge.md) records a hold and stops. `ff config onConflict resolve` also opens the current branch's resolution session. Use `--resolve` or `--no-resolve` to override the setting for one run.
 - **Display:** `pager cat` disables paging; `theme terminal` uses your terminal's base colors.
 
 Duration values use `s`, `m`, `h`, `d`, or `w`; bare numbers mean days. Cadences (`autoTrim`, `autoFetch`, `updateCheck`) also accept `true` for that setting's default and `false` to disable it, and clamp explicit durations to at least one minute. `0` disables a cadence; `0d` is a duration and becomes one minute. Git size suffixes use powers of 1024: `1k` is 1024, `1M` is 1048576.
@@ -117,7 +117,7 @@ Policy for covered Git writes through ff git and Claude Code hooks: observe stay
 
 `fufu.onConflict` — choice of `hold`, `resolve`; default `hold`
 
-What ff restack, ff pull, and ff merge do when the replay on the current branch conflicts: hold records the hold and stops, exit 3; resolve records it and opens the resolution session in the same run. --resolve and --no-resolve override it for one run.
+When ff restack, ff pull, or ff merge conflicts on the current branch, hold records the hold and stops; resolve also opens the resolution session. Both outcomes exit 3. --resolve and --no-resolve override it for one run.
 
 ### futuresDepth
 

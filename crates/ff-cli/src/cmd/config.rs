@@ -158,9 +158,9 @@ pub(crate) fn registry() -> &'static [Setting] {
             def: "hold",
             kind: SettingKind::Choice(&["hold", "resolve"]),
             desc: &[
-                "What ff restack, ff pull, and ff merge do when the replay on the",
-                "current branch conflicts: hold records the hold and stops, exit 3;",
-                "resolve records it and opens the resolution session in the same run.",
+                "When ff restack, ff pull, or ff merge conflicts on the current branch,",
+                "hold records the hold and stops; resolve also opens the resolution",
+                "session. Both outcomes exit 3.",
                 "--resolve and --no-resolve override it for one run.",
             ],
         },

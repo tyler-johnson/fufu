@@ -558,7 +558,7 @@ pub fn merge(
         return Err(Error::coded(
             "merge/base",
             format!(
-                "{} is {branch}'s base: fufu never merges a branch's base in; ff pull and ff \
+                "{} is {branch}'s base: ff merge refuses the recorded base; ff pull and ff \
                  restack replay onto it",
                 onto.name
             ),

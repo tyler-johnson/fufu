@@ -77,7 +77,11 @@ Trunk is the default base. fufu uses `fufu.trunk` when configured, otherwise rep
 
 [`ff restack`](../reference/cli/restack.md) replays a branch's commits onto its base's current tip. `ff restack --onto main` changes the base to `main` and replays the work there. [Stacked changes](../guides/stacked-changes.md) walks through a stack in review.
 
-A merge inside a replayed range is carried: its parents are mapped through the replay and re-merged, and its own change, what [`ff show`](../reference/cli/show.md) measures against the auto-merge of its parents, is laid over the result. A merge that resolved a conflict carries the resolution when its mapped parents conflict the same way; when they conflict differently, the replay holds at the merge with the fresh conflict, and the old resolution stays in the merge's own commit to read. A merge that only took an older base in ends up with that base beneath its other parent and flattens away; what it resolved or edited survives as an ordinary commit, and the report names it under `flattened`. A merge with nothing of its own is dropped as empty. [`ff merge`](../reference/cli/merge.md) makes such a merge on purpose, for a branch you don't own, and never for the base.
+Replaying a range can preserve its merges. Fufu replays the parents, recomputes their merge, and reapplies the merge commit's own edits or conflict resolution. If the new parents conflict in the same way, the existing resolution can still apply. If they conflict differently, the rewrite holds with the new conflicts; the old merge commit remains available to inspect.
+
+This differs from the patch displayed by [`ff show`](../reference/cli/show.md): when the parents conflict, show compares with the first parent. Replay instead retains the parents' conflict markers while computing the resolution to carry forward.
+
+When a merge's other parents are already included beneath its first parent, it becomes an ordinary commit, reported under `flattened`. Its edits or resolution survive if they still add content; an empty result is dropped. [`ff merge`](../reference/cli/merge.md) merges another branch into yours without changing your recorded base. It refuses that base; [`ff resolve`](../reference/cli/resolve.md#taking-the-base-in) can merge base updates when your branch already contains such a merge.
 
 ### Parent inference for branches made with Git
 

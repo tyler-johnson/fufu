@@ -1,4 +1,4 @@
-Merge a branch into the current one by one commit with two parents, the current tip first, and take its tree in without rewriting either side. Use it for a branch you do not own whose work you need: a replay onto it would put your commits on its older trunk. The base is never merged. `ff pull` brings the base in and `ff restack` replays onto it; a branch whose history already holds a merge of its base continues that shape through `ff resolve`.
+Merge another branch into the current one without rewriting either branch's commits. This usually creates a commit with two parents; if the current tip is an ancestor of the target, it fast-forwards instead. `ff merge` refuses the recorded base: use `ff pull` or `ff restack` to replay onto it. A branch that already contains a merge of its base can continue that history through `ff resolve`.
 
 ## Examples
 
@@ -14,24 +14,36 @@ ff undo                         # Remove the merge
 
 ### What lands
 
-One commit with two parents, this branch's tip first and the target's second, whose tree is the auto-merge of the two. It is fufu's commit: a change id, your signature, and `commit.gpgsign` honored. The default subject is `merge <branch> into <current>`; `-m` replaces it. The open change rides the merge the way it rides a restack and stays open. The recorded base does not change, so a branch on `main` still sits on `main`. Branches stacked on this one are unaffected: the merge lands above their fork. No hook runs.
+The merge commit has this branch's tip as its first parent and the target's tip as its second. Its tree combines the two parents' changes. The commit has a change ID, your author identity, and a signature when `commit.gpgsign` is enabled. The default subject is `merge <branch> into <current>`; `-m` replaces it. No commit hook runs.
 
-When this branch has no commits of its own above the fork with the target, the branch fast-forwards to the target's tip and the output says so. No merge commit is written.
+Uncommitted work is reapplied over the result and stays open. If that reapplication conflicts, the merge still lands, but the open work is held as an arrival and the command exits 3. Use `ff resolve` to put that work into the working copy with markers, then edit the files; an arrival has no session to finish with `ff done`.
+
+The recorded base stays the same. Dependent branches keep their existing tips; the merge does not replay them.
+
+When this branch's tip is an ancestor of the target, it fast-forwards to the target's tip. No merge commit is written.
 
 ### Conflicts
 
-A conflicting auto-merge writes nothing. The merge is recorded as a held rewrite, the output names the commit and the files, and the exit is 3. `ff resolve` opens a session with the conflicts as markers, `ff done` lands the merge with the fixes, and `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. The target is resolved fresh when the hold lands, so a target that moved is what lands.
+If the merge conflicts, the branch tip stays unchanged and fufu records a held merge. The output names the conflicting commit and files; the exit is 3. Captures and hold metadata may still be written.
 
-`--resolve` opens the session in the same run: the hold is recorded, HEAD moves onto the session, and the exit is still 3. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. One `ff undo` returns to the branch with the session open; a second removes the session and the hold together.
+Run `ff resolve`, edit the marked files, then run `ff done` to land the merge. `ff done --abandon` closes the session and keeps the hold. `ff resolve --abandon` drops both. Resolution checks the target's current tip, so a moved target can change the conflicts to resolve.
+
+`--resolve` opens the resolution session immediately when the merge conflicts, still with exit 3. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
+
+Opening with `--resolve` takes two operations: one `ff undo` returns to the branch while leaving the session available; a second removes the session and its newly recorded hold.
 
 ### Refusals
 
-The base, the recorded parent or trunk, refuses with `merge/base`. A target already in this branch, or this branch itself, refuses with `merge/nothing`. Two histories with no common ancestor refuse with `merge/unrelated`. An editing session refuses; a held absorb, lift, or done refuses; a held restack or merge stands, and a second conflicting merge under it refuses with `held/already-held`. A refusal writes nothing.
+The recorded parent, or trunk when no parent is recorded, is refused with `merge/base`. A target already in this branch, including the branch itself, is refused with `merge/nothing`. Histories with no common ancestor are refused with `merge/unrelated`.
+
+An editing session or open resolution session blocks the merge. So does a held absorb, lift, done, or parked-change arrival. A held restack or merge can remain while a clean merge lands, but a second conflicting merge is refused with `held/already-held`. These refusals do not land the requested merge; capture or reconciliation may already have recorded local state.
 
 ### After the merge
 
-`ff push` sends the branch as usual. A later `ff restack` or `ff pull` carries the merge: both parents are mapped through the replay and the merge is re-merged, and once the target lands in the base its parent falls beneath the range and the merge collapses into a straight line. Pull's base axis skips a branch that holds a merge of its base, not one that holds a merge of another tree.
+`ff push` sends the branch as usual. A later restack replays both sides and recomputes the merge, preserving its own edits or conflict resolution where they still apply. Once the merged target is included in the base, the merge can become an ordinary commit or disappear if it adds nothing. See [branches and merges](../../concepts/branches.md).
+
+Pull can replay merges too, but skips its base update for a branch that already contains a merge of that base. Use `ff resolve` on that branch to merge further base updates.
 
 ### Undo
 
-One `ff undo` removes the merge, or the fast-forward, and puts the working copy back.
+One `ff undo` removes a landed merge or fast-forward and restores the working copy.

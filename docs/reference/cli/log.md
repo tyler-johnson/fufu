@@ -15,7 +15,7 @@ ff log                          # Last 25 rows, including open work
 ff log -n 0                     # Unlimited rows
 ff log --commits                # Commit history without change IDs
 ff log --signatures             # Verify signatures and show verdicts
-ff log --body                   # Messages whole, bodies under subjects
+ff log --body                   # Show full commit messages
 ff log -p                       # Each row's patch under it
 ff log --stat -n 5              # File counts under the last five rows
 ff log -r main                  # Only main's tip
@@ -66,7 +66,7 @@ Options:
           Print the diffstat under each row instead of the patch
 
       --name-only
-          Print one path per line with its kind letter under each row instead of the patch
+          Print one path per line with its change type under each row instead of the patch
 
       --session <name>
           Session name for this invocation
@@ -96,11 +96,23 @@ Options:
 
 Positional arguments are paths, never revisions: `ff log main` filters the path main. Paths select files or directory prefixes, without globs. The open row appears only when it touches a selected path. A file is followed through renames by default; a directory is not. With `-r`, paths filter the selected commits without rename following.
 
-`--commits` omits change IDs. `--body` prints each row's body under its subject, the open row's pending description included, and does not combine with `--commits`. Rows stay compact without it; JSON rows carry `body` always. `--at` and `--at-op` are declared but currently refused for log. [`ff op log`](op-log.md) lists recorded operations, and [`ff history`](history.md) lists undo steps.
+`--commits` omits change IDs. `--body` shows full commit messages, including the open change's pending description. These two options cannot be combined. Without `--body`, rows show only the subject.
+
+`--at` and `--at-op` are declared but currently refused for log. Use [`ff op log`](op-log.md) for recorded operations or [`ff history`](history.md) for undo steps.
 
 ## Patches under rows
 
-`-p` (`--patch`) prints each row's patch under it, measured against the commit's parent as [`ff show`](show.md) measures it, and the open row's against HEAD. A merge row carries what it did beyond its parents' auto-merge, `ff show`'s rule. `--stat` and `--name-only` are the shorter forms, the diffstat block and one path per line with its kind letter, and `--stat` outranks `-p`. None of the three combine with `--commits`. `-U <n>` sets the context lines around each change, 3 by default, and changes nothing without a patch. In JSON, rows and the open block gain `changes`, `insertions`, and `deletions` under any of the three, with the same drops as [`ff diff`](diff.md): `hunks` under `--stat`, the counts under `--name-only`. Rows carry `against`, `ff show`'s word for what the row was measured against.
+Use `-p` (`--patch`) to print a patch below each row, `--stat` for per-file change counts, or `--name-only` for paths and change types. `--stat` and `--name-only` are mutually exclusive; either replaces the patch when combined with `-p`. None of these options combines with `--commits`.
+
+`-U <n>` sets the number of context lines in patches, 3 by default. It has no effect without a patch.
+
+Each commit is compared with its parent, and the open change with HEAD. Merges use the parents' auto-merge, falling back to the first parent if that auto-merge conflicts or has no common ancestor. This is the same comparison as [`ff show`](show.md).
+
+## JSON output
+
+Commit rows always include `body`. With `-p`, `--stat`, or `--name-only`, rows and the open block also include patch data. `--stat` omits each file's `hunks`; `--name-only` keeps `path`, `from`, `kind`, and `binary` per file and omits change counts.
+
+Rows with patch data include `against`: `parent`, `auto-merge`, or `first-parent`. See [JSON output and scripting](../../agents/machine-surface.md) for the complete report shape.
 
 ## Change IDs and commit objects
 

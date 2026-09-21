@@ -5,13 +5,7 @@ description: Advanced fufu (ff) for recovering files or whole state, undoing or 
 
 # fufu
 
-Use `ff` for version-control writes; reading with Git is fine. Start with your task:
-
-- Lost edits or a bad operation: **Recovery** below.
-- Split uncommitted work: **Committing**. Move content between recorded commits: **Rewriting**.
-- A command reports a hold: **Held rewrites and conflicts**.
-- Switch branches or use another checkout: **Branches and worktrees**.
-- Automate commands: **JSON output and scripting**. Read each verb's `--help` before choosing flags.
+Use `ff` for version-control writes; reading with Git is fine. Read each verb's `--help` before choosing flags. For lost work, start with **Recovery**; for conflicts, **Held rewrites and conflicts**; for automation, **JSON output and scripting**.
 
 ## Working copy and IDs
 
@@ -83,21 +77,23 @@ Follow the project's commit-message convention.
 - `ff restack` replays the current branch onto its recorded base. `ff restack <branch>` targets another branch; local files change only if the replay or cascade reaches this worktree.
 - `ff restack --onto <branch>` records a new base and replays onto it; origin/main is accepted. `--no-fetch` skips auto-fetch.
 
-Dependent local branches replay parent before child after a successful rewrite. The primary rewrite and its cascade form one undoable operation. A conflicting primary replay records a hold without landing that rewrite; captures and metadata can still be written. Earlier successful cascade updates stand.
+Dependent branches replay parent before child in the same undoable operation. A primary conflict holds without landing; captures, metadata, and earlier cascade updates can stand.
 
-**Inspect cascade reports even on exit 0.** Pull and restack exit 3 for holds; pull also predicts holds in dry runs. Done and absorb/lift exit 3 for a primary hold, but exit 0 after landing with downstream holds. Describe exits 0 with a held cascade. Fold's primary conflict exits 1 without a hold; downstream holds exit 3. Skips name branches checked out elsewhere, already held, or containing merges. Descendants of held or skipped branches stay put.
+**Inspect cascades even on exit 0.** Pull/restack exit 3 for holds; pull also predicts holds in dry runs. Done and absorb/lift exit 3 for primary holds, 0 for downstream holds after landing. Describe exits 0 with a held cascade. Fold exits 1 for a primary conflict without a hold, 3 for downstream holds. Branches checked out elsewhere or held are skipped; their descendants stay put. Replays can preserve merges.
 
 ## Held rewrites and conflicts
 
-A **held rewrite** is a replay waiting on conflicting changes. Status reports it; push blocks that branch. Switch to reach a hold elsewhere.
+A **held rewrite** is a replay or merge waiting on conflicting changes. Status reports it; push blocks that branch. Switch to reach a hold elsewhere.
 
-- `ff resolve` opens labeled markers on a session branch. The hold and prior open work remain on the original branch. Fix markers, then `ff done` lands and returns. Switching away parks fixes; switching back resumes them.
-- If the rewrite now applies cleanly, resolve releases the hold instead. Re-run the command that requested the replay to apply it.
+- `ff resolve` opens a session with markers; the hold and prior work stay on the original branch. Fix markers and run `ff done`. Repeat on the same session if another round appears: earlier fixes are kept, exit 3. The final round lands and returns. Switching parks/resumes fixes.
+- A now-clean held replay is released; rerun the original command. A now-clean held merge lands directly.
+- `--resolve` on restack, pull, and merge opens the current branch's session immediately on conflict. `ff config onConflict resolve` makes this the default; `--no-resolve` overrides it.
+- `ff done --abandon` closes the session and keeps the hold; resolve can reopen it.
 - `ff resolve --abandon` removes the hold and any open resolution session, returning from that session if needed.
-- Opening a rewrite-resolution session is two operations: one undo returns from it, another removes it. Landing or abandoning is one undoable operation. Use history to account for any intervening work.
+- Opening takes two undos: return, then remove the session. Landing, abandoning, or advancing a round takes one. Pull with --resolve takes three: switch, session, pull.
 - A held **parked-change arrival** means switch could not replay parked work onto a moved tip. Resolve puts markers into the open change in place and removes the hold, in one operation. It refuses existing open work. Fix files and continue; there is no session or done step.
 
-A hold leaves that branch's replay unapplied; earlier writes in the same command can stand. There is no Git rebase to continue. Restack skipped branches once their blocking condition clears.
+Held restacks/merges follow clean rewrites, are dropped by re-aiming or folding the source, and cleared by replay onto their target. Other holds and open sessions block rewrites. There is no Git rebase to continue.
 
 ## Branches and worktrees
 
@@ -112,7 +108,8 @@ A hold leaves that branch's replay unapplied; earlier writes in the same command
 - `ff pull` updates the current branch and its bases, parent before child. `ff pull <branch>...` selects branches; `ff pull --all` selects all local branches. Local changes are one undoable operation; fetched objects, tracking refs, and tags are separate.
 - `ff pull -n` previews without moving local branches/files or recording holds. Fetch still writes objects, tracking refs, and tags; `--no-fetch` uses existing refs. Dry runs can still trim and run update maintenance.
 - `ff push` sends the current branch; `ff push <branch>...` sends named branches. Each lease checks the expected remote ref value. Replacing commits also requires tracking-tip agreement with fufu's seen record; fast-forwards can proceed without it. Auto-fetch does not refresh that record. There is no push --all, branch-ownership check, or special main protection.
-- Current off-branch push notes can replace a named target's open state with the current worktree's tree. Prefer switching to each branch and pushing it while current. If already affected, inspect retained pre-push captures before recovering parked edits.
+- Named pushes preserve parked work. Recover edits affected by v0.16.0 from retained pre-push captures.
+- `ff merge <branch>` merges or fast-forwards without changing the base. It refuses the base; pull/restack replay onto it. Resolve can merge base updates if the branch already contains a base merge.
 - A multi-branch push refusal exits 1 even if other branches succeeded or were blocked by holds; holds alone exit 3. `ff push -n` previews without sending, but auto-fetch and maintenance can still run. `ff push --to <remote>` records the branch's remote selection.
 - Pushed commits can be rewritten; team policy and server protections govern sending them. Remote rollback requires another permitted push with a valid lease.
 
@@ -126,7 +123,7 @@ Active agent hooks attempt capture before policy evaluation. Only the current Cl
 
 ## JSON output and scripting
 
-Reporting commands use a one-line envelope shaped `{"ff":1,"cmd":"status","data":{}}`. Failures replace data with error (id, message, exits). `--fields <list>` keeps named dotted paths of data; a path that matches nothing is refused. Read the exit code too: data can accompany nonzero exits and partial success. Contract 1 is current, not a cross-release payload/error-ID guarantee. Pin/test binary versions, assert the envelope version, and tolerate unknown fields.
+Reporting commands use a one-line envelope shaped `{"ff":1,"cmd":"status","data":{}}`. Failures replace data with error (id, message, exits). `--fields <list>` selects dotted paths of data. An unknown path fails after the command's work, which may already have landed. Read the exit code too: data can accompany nonzero exits and partial success. Contract 1 is current, not a cross-release payload/error-ID guarantee. Pin/test binary versions, assert the envelope version, and tolerate unknown fields.
 
 Git passthrough uses Git's streams/status; update prints instructions or installer output; client triggers use client protocols and quietly exit 0 on runtime failure; extensions own their output. `ff watch` always emits newline-delimited event envelopes rather than one command report.
 

@@ -65,9 +65,17 @@ Replay is local. The CLI can auto-fetch first and run maintenance afterward. `--
 
 ## Conflicts and dependent branches
 
-A conflicting primary replay leaves that branch's tip and files at their pre-replay state and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. [`ff resolve`](resolve.md) opens a held rewrite. `--resolve` opens it in the same run: the hold is recorded, HEAD moves onto the session, and the exit is still 3; [`ff done`](done.md) lands the restack and `ff done --abandon` closes the session and keeps the hold. Only the branch underfoot opens; a named other branch or a downstream branch holds as before. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. One [`ff undo`](undo.md) returns to the branch with the session open; a second removes the session and the hold together. A held restack already on the branch is dropped by `--onto` another base and named, cleared by a replay onto its base, and kept otherwise; a held absorb, lift, or done refuses the restack.
+A conflicting replay leaves that branch's tip and files unchanged and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. Run [`ff resolve`](resolve.md), fix the marked files, then run [`ff done`](done.md). Repeat done if it shows another round of conflicts.
+
+`--resolve` opens the current branch's resolution session in the same run, still with exit 3. A named other branch or a downstream branch stays held without opening a session. Use [`ff config onConflict resolve`](config.md) to make this the default, or `--no-resolve` to stop at the hold for one run.
+
+`ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. To undo the opening, one [`ff undo`](undo.md) returns to the original branch; another removes the session and restores the hold's previous state.
 
 Dependent branches replay parent before child in the same operation. A downstream conflict holds that branch and leaves its dependents alone. Branches checked out elsewhere or already held are skipped and named. Switch to a held branch to resolve it. The exit is 3 when a primary or downstream replay holds. One `ff undo` takes back the restack and cascade.
+
+## Existing holds
+
+A held restack or merge is dropped when `--onto` chooses another base, cleared by a replay onto its target, and kept otherwise. A held absorb, lift, done, or parked-change arrival blocks the restack, as does an open resolution session. See [standing holds](../../concepts/held-rewrites.md#what-a-rewrite-does-to-a-standing-hold).
 
 ## Replay selection and report
 

@@ -52,7 +52,7 @@ const HEADER: &str = "// Written by `ff hook opencode`.";
 
 const FILE: &str = "fufu.js";
 
-const STANDING: &str = "the briefing is standing: in the system prompt on every model call";
+const STANDING: &str = "the briefing is included in the system prompt on every model call";
 
 // ---- paths -----------------------------------------------------------------
 

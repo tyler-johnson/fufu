@@ -1,4 +1,4 @@
-Open the current branch's held rewrite for conflict resolution. A held rewrite is a requested replay waiting on conflicting file changes. Resolve puts the conflicts into the working copy as labeled markers; edit them, then use `ff done` to apply the rewrite and return. On a branch with no hold whose commits hold a merge of its base and that is behind it, resolve takes the base in by a merge.
+Open the current branch's held rewrite for conflict resolution. Resolve puts the conflicts into the working copy as labeled markers. Edit them, then run `ff done`; repeat if it shows another round of conflicts. With no hold, resolve can also merge base updates into a branch that already contains a merge of that base.
 
 ## Examples
 
@@ -13,17 +13,19 @@ ff resolve --abandon            # Alternatively, drop the pending rewrite
 
 ### Rewrite sessions
 
-A resolution session is an automatically named branch containing the conflict markers. The hold remains on the original branch, where your previous open work is parked. Switching away parks fixes in progress; switching back resumes them. Done applies the fixes and returns in one operation.
+A resolution session is an automatically named branch containing the conflict markers. The hold remains on the original branch, where your previous open work is parked. Switching away parks fixes in progress; switching back resumes them. Done applies the fixes and returns in one operation when all conflicts are resolved. If the fixes uncover more conflicts, it keeps the session open for another round, with exit 3.
 
-If changed circumstances make the rewrite apply cleanly, resolve releases the hold instead. Re-run the original command to apply that rewrite.
+If a held replay now applies cleanly, resolve releases the hold instead. Re-run the original command to apply that replay. A held merge is different: resolve lands it directly when it is clean, or releases the hold if the target is already included.
 
 ### Taking the base in
 
-A standing hold is opened first. With no hold, resolve reads the branch against its base: when the branch is behind and the commits between its fork and its tip hold a merge of the base, it merges the base in, continuing the shape the branch already chose. A branch on a straight line behind its base is `ff restack`'s and resolve refuses, naming it; a branch up to date with its base says so; a branch with no base, an editing session, or one sharing no history with its base has nothing to take in.
+An existing hold takes priority. Without a hold, resolve merges base updates only when this branch is behind its base and the commits since their fork include a merge of that base. Switch to the branch first; only the current branch is updated. A linear branch behind its base needs `ff restack` instead. An up-to-date branch, one with no base or shared history, or an editing session is refused with an explanation.
 
-The merge is one commit with two parents, the branch's tip first and the base's tip second, authored by you with a change ID, signed per `commit.gpgsign`, subject `merge <base> into <branch>`. The branch moves onto it and its open change comes back over it; nothing is rewritten, so `ff push` afterwards is an ordinary push. One `ff undo` removes it. No hook runs for the merge commit. Only the current branch is merged: from elsewhere, switch to it first.
+The new commit has the branch's tip first and the base's tip second, your author identity, a change ID, and a signature when `commit.gpgsign` is enabled. Its subject is `merge <base> into <branch>`. Existing commits are preserved and open work is reapplied over the merge. One `ff undo` removes it. No commit hook runs for this direct merge.
 
-A conflicting auto-merge records a `merge` hold and opens the resolution session in the same step, exit 3. Edit the markers, then `ff done` lands the merge commit with the fixes as its tree; `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. A held merge follows a later rewrite of the branch the way a held restack does: dropped by a re-aim, cleared by a replay onto its base, and kept otherwise. Running resolve on a held merge that is clean now lands it; on one whose base is already in, it releases the hold. `ff restack --resolve`, `ff pull --resolve`, and `ff merge --resolve` open the session from the verb the same way.
+If the merge conflicts, resolve records a hold and opens the resolution session in the same run, with exit 3. Edit the markers and run `ff done`. You can also open sessions immediately with `ff restack --resolve`, `ff pull --resolve`, or `ff merge --resolve`.
+
+A later rewrite can drop, clear, or update a held merge, as it can a held restack. See [standing holds](../../concepts/held-rewrites.md#what-a-rewrite-does-to-a-standing-hold).
 
 ### Parked-change arrivals
 
@@ -33,4 +35,4 @@ A held arrival occurs when `ff switch` cannot replay parked work onto a moved br
 
 `--abandon` drops the hold and any open resolution session, returning to the original branch. `ff done --abandon` from the session is the way to close it without dropping the hold. Opening a rewrite-resolution session is two operations, creation and switching; two `ff undo` calls take it back. Landing or abandoning is one operation. `ff history` shows the available steps.
 
-Opening a session over a standing hold exits 0. Exit 3 is owed when this resolve recorded the hold itself: a merge of the base that conflicts. A `ff done` whose fix uncovers the next conflict rolls the session to another round over the same session and owes a 3 the same way, one operation and one undo back. `held/none` exits 3 as every `held/` refusal does.
+Opening a session over an existing hold exits 0. Recording a new conflicting base merge and opening its session exits 3. Advancing a session to another conflict round with `ff done` also exits 3 and takes one undoable operation. `held/none` exits 3, like other `held/` refusals.

@@ -11,7 +11,9 @@ ff hook codex
 
 ## Activate
 
-When `codex` is on `PATH`, the installer runs `codex plugin add fufu@fufu` itself and says so; otherwise it prints the command to run by hand. Then start or restart Codex, run `/hooks`, and review and approve fufu's hook. The skill requires no command approval.
+When `codex` is on `PATH`, the installer attempts plugin registration automatically. If registration fails or Codex is unavailable, run the command it prints. The selector is `fufu@<marketplace-name>`: usually `fufu@fufu`, but an existing marketplace keeps its own name.
+
+Start or restart Codex, run `/hooks`, and review and approve fufu's hook. The skill requires no command approval.
 
 ## Verify
 
@@ -118,14 +120,16 @@ $ cat ~/.agents/plugins/marketplace.json
 }
 ```
 
-The command is the absolute path of the binary that ran `ff hook`, shown here as `/usr/local/bin/ff`, plus `trigger codex`; the path is always double-quoted. The manifest's version is the fufu version plus `+ff.` and eight hex digits of the hooks file's SHA-256, so a rewritten table or a moved binary is a new plugin version to Codex's cache and `codex plugin add` runs again. The manifest is the legacy one on purpose: Codex 0.153 and 0.154 load a plugin's hooks from `.codex-plugin/plugin.json` alone, and a root Agent Plugins 1.0 `plugin.json` beside it would win and drop them.
+Hook commands use the absolute path of the installing binary, double-quoted; the example uses `/usr/local/bin/ff`. When the binary path or hook definitions change, the installer changes the plugin version and registers it again so Codex refreshes its cache.
+
+The manifest uses `.codex-plugin/plugin.json` for compatibility with Codex 0.153 and 0.154. Those versions do not load this plugin's hooks from the newer root `plugin.json` format.
 
 `PreToolUse` attempts capture before Bash or apply_patch calls. `UserPromptSubmit` captures and can deliver the briefing. `SessionStart` rebriefs after a startup, resume, clear, or compaction; `Stop` captures the final edit of a turn; `SessionEnd` captures once more at the end. Codex captures and tallies recognized Git writes but returns no pre-tool coaching or denial reply, including under strict policy.
 
 <a id="what-ff-unhook-codex-removes"></a>
 ## Remove
 
-[`ff unhook codex`](../cli/unhook.md) removes the plugin directory and fufu's marketplace entry. Codex forgets the plugin on its next start; `codex plugin remove fufu@fufu` clears its cache.
+[`ff unhook codex`](../cli/unhook.md) removes the plugin directory and fufu's marketplace entry. Codex forgets the plugin on its next start; the printed `codex plugin remove fufu@<marketplace-name>` command clears its cache.
 
 ```console
 $ ff unhook codex
@@ -148,7 +152,7 @@ An entry beside fufu's in the marketplace keeps its place, and the file keeps it
 <a id="notes"></a>
 ## Troubleshooting and migration
 
-If configuration is installed but no capture appears, check that `codex plugin list` shows `fufu@fufu` installed and that `/hooks` has approved it. `ff hook -u` repairs a plugin missing an event fufu has since added; `ff doctor --fix` repairs partial or stale managed configuration and skills; neither can approve a hook.
+If configuration is installed but no capture appears, check that `codex plugin list` shows the installer's selector as installed and that `/hooks` has approved it. `ff hook -u` repairs a plugin missing an event fufu has since added; `ff doctor --fix` repairs partial or stale managed configuration and skills; neither can approve a hook.
 
 Before this plugin, fufu merged hook entries into `~/.codex/hooks.json` and wrote the skill to `~/.codex/skills/fufu/`. `ff hook codex` writes the plugin, verifies it reads back, and then strips those: its own entries from `~/.codex/hooks.json` (foreign entries stay), the old skill directory (other skills under `~/.codex/skills/` stay), and the marked `[mcp_servers.fufu]` block a fufu before v0.15 wrote into `~/.codex/config.toml` (an unmarked table is left alone). Each strip is best-effort and reported; a file that will not parse is named and left. The old entries no longer read as wired in `ff hook -l`, since the plugin is the mechanism now.
 

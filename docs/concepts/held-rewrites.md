@@ -2,9 +2,9 @@
 
 <a id="held-rewrites"></a>
 
-When a replay conflicts, fufu reports a **held rewrite**: the requested rewrite is waiting for you to resolve it. [`ff status`](../reference/cli/status.md) shows `held:`, the command that caused it, the conflicting commit and files, and what to do next.
+When a replay or merge conflicts, fufu reports a **held rewrite**: the requested rewrite is waiting for you to resolve it. [`ff status`](../reference/cli/status.md) shows `held:`, the command that caused it, the conflicting commit and files, and what to do next.
 
-That branch's conflicting replay has not advanced its tip or put markers in your working copy. Earlier successful branch updates in the same command can stand. You can keep working at the existing tip, or resolve the conflict now.
+By default, the conflicting operation has not advanced that branch's tip or put markers in your working copy. Earlier successful branch updates in the same command can stand. You can keep working at the existing tip, or resolve the conflict now.
 
 <a id="ff-resolve-all-of-it-at-once"></a>
 
@@ -20,7 +20,7 @@ ff done
 
 You do not need to stage the fixes. If another branch is held, first use [`ff switch`](../reference/cli/switch.md) to select it. A parked change that conflicts when you switch back is a [distinct case](#parked-change-arrival), resolved in place.
 
-The two-step is the default. `--resolve` on [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), and [`ff merge`](../reference/cli/merge.md) is the shortcut: the verb records the hold and opens the session in one run, and `fufu.onConflict` makes that standing.
+To open the session immediately, add `--resolve` to [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), or [`ff merge`](../reference/cli/merge.md). The command records the hold and opens the current branch's session in one run. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
 ### The session
 
@@ -34,7 +34,9 @@ You can switch away from the session and return later. Its unfinished edits park
 
 `ff done` applies each fix to its corresponding replay step and reruns the rewrite. When it succeeds, the rewritten branch receives the clean commits, the session branch is deleted, and you return to the original branch with its parked work restored or reported as a held arrival. Branches based on the rewritten branch can then follow through a [cascade](branches.md#the-cascade).
 
-Some conflicts take more than one round. Every conflict the replay can show at once is in one session. A step whose conflict only appears once an earlier one is fixed, because two steps conflict over the same region, is a further round: fufu stops before writing overlapping marker blocks and shows the steps before it. A conflict beneath a merge, on either of its parents, passes through the merge to the session, and the merge's own change on that file is the round after it is fixed. Each `ff done` advances one round: it keeps the fixes made so far as the steps' resolutions and shows the next conflict on the same session, exit 3, with nothing landed. One [`ff undo`](../reference/cli/undo.md) steps back a round, with that round's markers and your fix of them. The round that leaves no conflict lands.
+Some conflicts take more than one round. Fix the displayed conflicts and run `ff done`. If more conflicts appear, repeat on the same session. Each new round keeps applicable fixes, names any that need revisiting, and exits 3; the original branch updates when all conflicts are resolved. One [`ff undo`](../reference/cli/undo.md) reverses the advance to the next round and restores the fixes you had made before it.
+
+Another round is needed when fixing one conflict exposes another in a later replayed commit. Fufu stops before writing overlapping marker blocks. A conflict on either parent of a merge is shown first; after it is fixed, fufu applies the merge's own changes to that file, which can produce a further conflict.
 
 ## Abandoning or undoing a resolution
 
@@ -68,17 +70,23 @@ A hold does not itself prevent local commits or branch switches. You can keep bu
 
 A hold saves the requested rewrite's intent: its branch and target. Resolution recomputes the replay against current inputs instead of resuming an old partial plan. Work committed at the existing tip can therefore be included when you resolve later.
 
-A hold records one of two shapes of the base's arrival. A held restack is a replay onto the base. A held merge is the base taken in by one commit with two parents, recorded when [`ff resolve`](../reference/cli/resolve.md) on a branch with no hold finds its commits already hold a merge of the base and the auto-merge conflicts; the session opens in the same operation, and `ff done` lands the merge commit.
+A held restack requests a replay onto a target branch. A held merge requests a merge commit: it can come from `ff merge <branch>`, or from `ff resolve` taking in updates to a previously merged base. Absorb, lift, done, and parked-change arrivals can also record holds, carrying work still waiting to be applied.
 
-If the rewrite now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. If its target disappeared or no longer belongs to the required history, it reports that the hold expired rather than using a stale plan.
+If a held replay now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. A held merge that is now clean lands directly; if its target is already included, resolve releases the hold. A target that disappeared or no longer belongs to the required history can make the hold expire instead.
 
 ## What a rewrite does to a standing hold
 
-A held restack or merge carries no content of its own, so a rewrite of the branch settles it by what the rewrite does to the base. `ff restack --onto` another base drops the hold and names it in the report, and so does `ff fold`, since the source's commits go to the target. A replay onto the hold's own base, a bare `ff restack` once the base has moved on, lands what a held restack recorded and makes a held merge's question moot, and clears either. Any other rewrite keeps the hold: `ff absorb`, `ff lift`, `ff describe`, and a `ff done` landing point it at the rewritten commit, and `ff status` names that commit.
+A held restack or merge records a target rather than extra file content. A later rewrite can therefore update that request:
+
+- `ff restack --onto` another base drops the hold and reports it. Folding the held source branch also drops its hold.
+- A replay onto the hold's target clears it: the requested restack has landed, or replay has replaced the need for that merge.
+- Other rewrites keep the hold and update its recorded commit. This includes absorb, lift, describe, and an editing-session landing with done.
+
+Use `ff status` to inspect the remaining hold.
 
 A held absorb, lift, done, or parked-change arrival carries work that is not on the branch yet, so every rewrite of the branch refuses with `held/already-held`. Its exits are `ff resolve` and `ff resolve --abandon`. A hold whose resolution session is open, whether you are standing in it or have parked it, refuses with `held/resolving` and names the session.
 
-The drop or the remap rides the rewrite's own operation, so one `ff undo` takes the rewrite and the hold's change back together.
+The rewrite and its change to the hold form one operation. One `ff undo` reverses both.
 
 ## How conflicts reach the session
 

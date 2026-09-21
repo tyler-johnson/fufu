@@ -25,13 +25,13 @@ These inspect installed files only. Confirm real capture with the [capture-and-r
 <a id="what-it-writes"></a>
 ## Files changed
 
-OpenCode extends through JavaScript plugin modules under its config directory rather than a hooks file. The installer writes one file fufu owns whole, `plugins/fufu.js`, and the skill under `skills/fufu/`, both under `$XDG_CONFIG_HOME/opencode` when that variable is set and `~/.config/opencode` otherwise. `opencode.json` is not touched. Other files in either directory are left alone.
+The installer writes `plugins/fufu.js` and `skills/fufu/` under `$XDG_CONFIG_HOME/opencode`, or `~/.config/opencode` when that variable is unset. The plugin file and skill directory are managed by fufu. `opencode.json` and unrelated files are left alone.
 
 ```console
 $ ff hook opencode
 opencode plugin written to ~/.config/opencode/plugins/fufu.js
   skill written to ~/.config/opencode/skills/fufu
-  the briefing is standing: in the system prompt on every model call
+  the briefing is included in the system prompt on every model call
   restart OpenCode to load it
 
 $ find ~/.config/opencode -type f | sort
@@ -67,9 +67,13 @@ export const FufuPlugin = async ({ $, directory }) => ({
 });
 ```
 
-The plugin registers three hooks. `tool.execute.before` attempts capture before every tool call with the tool's name and arguments; OpenCode's `bash` tool carries `command`, which is what the snapshot's label and the Git-policy tally read. OpenCode discards that hook's output, so no pre-tool coaching or denial reaches the model, including under strict policy. `experimental.chat.system.transform` runs on every model call and pushes the trigger's stdout onto the system prompt: the payload spells `SessionStart`, so the briefing is standing — present on every call and surviving compaction — and the capture it attempts adds nothing on an unchanged tree. `shell.env` sets `OPENCODE_SESSION_ID` on every shell command, so an `ff` run from the agent's shell carries the same session its hook captures do.
+The plugin registers three hooks:
 
-Wiring is a byte comparison: the file equal to what this `ff` writes is wired; fufu's header with other bytes — a moved binary, an older fufu — is wired and stale, which `ff hook -u` rewrites; a `fufu.js` without fufu's header is someone else's, reported as hand-written and never rewritten or removed.
+- `tool.execute.before` attempts capture before every tool call. The tool's name and arguments supply snapshot labels and the Git-policy tally. OpenCode discards the hook's output, so no coaching or denial reaches the model, including under strict policy.
+- `experimental.chat.system.transform` includes the briefing in the system prompt on every model call, including after compaction. It also attempts capture; an unchanged tree adds no snapshot.
+- `shell.env` supplies `OPENCODE_SESSION_ID` to shell commands so their fufu operations use the same session tag as hook captures.
+
+`ff hook -l` compares the plugin with the version this binary would write. A file with fufu's ownership header but different content is reported as stale; `ff hook -u` replaces it. A file without that header is reported as hand-written and is never rewritten or removed.
 
 <a id="what-ff-unhook-opencode-removes"></a>
 ## Remove

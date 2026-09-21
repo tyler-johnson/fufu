@@ -35,9 +35,11 @@ A deleted remote copy is reported while its local branch remains. With `fufu.pru
 
 A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run `ff resolve` to continue. The exit is 3 if any branch holds.
 
-`--resolve` opens the current branch's hold in the same run: the hold is recorded in the pull's operation, HEAD moves onto the resolution session, and the exit is still 3; `ff done` lands the replay and `ff done --abandon` closes the session and keeps the hold. Other branches hold and are named as before, and a dry run opens nothing. `fufu.onConflict resolve` makes `--resolve` the standing choice and `--no-resolve` holds for one run. Three `ff undo` calls take it all back: the switch, the session, then the pull.
+`--resolve` opens the current branch's resolution session in the same run, still with exit 3. Fix the marked files and run `ff done`; repeat if another round appears. Other branches stay held without opening a session, and a dry run opens none. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
-Branches checked out in another worktree, already holding a rewrite, holding a merge of their base (switch to one and `ff resolve` takes the base in), or sharing no history with their base are skipped and named.
+`ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. Opening during pull adds two operations after the pull's own operation. Three `ff undo` calls reverse the switch, the session creation, then the pull.
+
+Branches checked out in another worktree, already holding a rewrite, or sharing no history with their base are skipped and named. The base update also skips a branch whose history includes a merge of its base; switch to that branch and use `ff resolve` to merge further base updates.
 
 Local branch and working-copy changes form one operation, including cascades and pruning. One `ff undo` reverses them. Only the current branch has files written in this worktree; other selected branches move as refs and objects. Fetched objects, tracking refs, and tags are separate from these undoable changes. No remote branch update is sent.
 
