@@ -750,12 +750,16 @@ pub enum SkipReason {
     Worktree { path: String },
     /// A rewrite is already held on it: one hold per branch.
     AlreadyHeld,
-    /// Its commits hold a merge of its base: the branch takes its base in
-    /// by merging, and pull's base axis does not rewrite that choice. A
-    /// merge of another tree is carried like any commit. `ff restack`
-    /// replays the branch straight; `ff resolve` takes the base in the way
-    /// the branch already does.
-    MergeInRange,
+    /// It is behind its base and its pull policy leaves it standing:
+    /// `merge` always, `auto` once its commits hold a merge. `policy` is
+    /// the configured value, so a reader can tell an `auto` decision from
+    /// an explicit `merge`; `replay` never produces this. `ff restack`
+    /// replays the branch straight regardless; `ff resolve` takes the base
+    /// in the way the branch already does.
+    Behind {
+        policy: crate::pullpolicy::PullPolicy,
+        source: crate::pullpolicy::PolicySource,
+    },
     /// It shares no history with its base.
     Unrelated,
 }
@@ -1700,8 +1704,9 @@ pub enum BaseAxis {
     /// conflicts stops the run.
     Skipped,
     /// The replay was refused before anything moved: the branch shares no
-    /// history with its base, or its commits hold a merge of its base.
-    /// Named and left where it stands, the branch underfoot included.
+    /// history with its base, or it is behind its base and its pull policy
+    /// leaves it standing. Named and left where it stands, the branch
+    /// underfoot included.
     Refused { name: String, reason: SkipReason },
     Ran {
         name: String,

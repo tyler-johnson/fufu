@@ -3,9 +3,11 @@
 
 use ff_core::gix::config::Source;
 use ff_core::gix::config::source::Kind;
+use ff_core::pullpolicy::PatternRow;
 use ff_core::{Error, Result};
 
 use crate::ctx::Ctx;
+use crate::render::scope_human_label;
 
 pub(crate) enum SettingKind {
     Size,
@@ -162,6 +164,20 @@ pub(crate) fn registry() -> &'static [Setting] {
                 "hold records the hold and stops; resolve also opens the resolution",
                 "session. Both outcomes exit 3.",
                 "--resolve and --no-resolve override it for one run.",
+            ],
+        },
+        Setting {
+            name: "pull",
+            key: "fufu.pull",
+            def: "auto",
+            kind: SettingKind::Choice(&["auto", "replay", "merge"]),
+            desc: &[
+                "How ff pull's base step takes a moved base in: replay replays the",
+                "branch's commits onto it; merge leaves the branch standing and reports",
+                "it behind; auto replays a straight line and leaves a branch standing",
+                "once its commits hold any merge. fufu.<pattern>.pull overrides it for",
+                "matching branches (refspec globs, * crosses /; the last match in git's",
+                "read order wins, so a repository value beats a global one).",
             ],
         },
         Setting {
@@ -339,13 +355,37 @@ fn validate_value(setting: &Setting, value: &str) -> Result<()> {
     Ok(())
 }
 
-fn scope_human_label(source: &str) -> &str {
-    match source {
-        "local" => "this repo",
-        "global" => "global config",
-        "system" => "system config",
-        "env" => "the environment",
-        _ => source,
+/// The `fufu.<pattern>.pull` rows `ff config pull` lists under the value,
+/// one per row in git's read order; empty for every other setting.
+fn pattern_rows(file: &ff_core::gix::config::File, setting: &Setting) -> Vec<PatternRow> {
+    if setting.name != "pull" {
+        return Vec::new();
+    }
+    ff_core::pullpolicy::pattern_rows(file)
+}
+
+fn pattern_rows_json(rows: &[PatternRow]) -> serde_json::Value {
+    serde_json::Value::Array(
+        rows.iter()
+            .map(|row| {
+                serde_json::json!({
+                    "pattern": row.pattern,
+                    "value": row.value,
+                    "source": row.scope,
+                })
+            })
+            .collect(),
+    )
+}
+
+fn print_pattern_rows(rows: &[PatternRow]) {
+    for row in rows {
+        println!(
+            "  {}  {}  ({})",
+            row.pattern,
+            row.value,
+            scope_human_label(&row.scope)
+        );
     }
 }
 
@@ -375,6 +415,7 @@ pub fn run(
             };
             let is_default = val.is_none();
             let display = val.as_deref().unwrap_or(setting.def);
+            let rows = pattern_rows(file, setting);
 
             if ctx.json {
                 let kind_str = setting.kind.label();
@@ -383,7 +424,7 @@ pub fn run(
                 } else {
                     serde_json::json!(source)
                 };
-                let entry = serde_json::json!({
+                let mut entry = serde_json::json!({
                     "key": setting.name,
                     "git_key": setting.key,
                     "kind": kind_str,
@@ -392,6 +433,9 @@ pub fn run(
                     "default": is_default,
                     "description": setting.desc.join("\n"),
                 });
+                if setting.name == "pull" {
+                    entry["patterns"] = pattern_rows_json(&rows);
+                }
                 entries.push(entry);
             } else {
                 let default_tag = if is_default {
@@ -400,6 +444,7 @@ pub fn run(
                     String::new()
                 };
                 println!("{}  {}{}", setting.name, display, default_tag);
+                print_pattern_rows(&rows);
                 for line in setting.desc {
                     println!("  {}", line);
                 }
@@ -464,10 +509,14 @@ pub fn run(
 
         let mut file = ff_core::snapshot::config::load_config_file(&path, source)?;
 
+        // Only the bare `[fufu]` sections: a `[fufu "<pattern>"]` row
+        // carries the same value name, and `--unset pull` is not the way to
+        // remove one.
         let ids: Vec<_> = file
             .sections_and_ids_by_name("fufu")
             .into_iter()
             .flatten()
+            .filter(|(section, _)| section.header().subsection_name().is_none())
             .map(|(_, id)| id)
             .collect();
         let mut removed = false;
@@ -589,6 +638,7 @@ pub fn run(
         };
         let is_default = val.is_none();
         let display = val.as_deref().unwrap_or(setting.def);
+        let rows = pattern_rows(file, setting);
 
         if ctx.json {
             let source_json = if source.is_empty() {
@@ -596,16 +646,20 @@ pub fn run(
             } else {
                 serde_json::json!(source)
             };
-            let payload = serde_json::json!({
+            let mut payload = serde_json::json!({
                 "key": setting.name,
                 "git_key": setting.key,
                 "value": display,
                 "source": source_json,
                 "default": is_default,
             });
+            if setting.name == "pull" {
+                payload["patterns"] = pattern_rows_json(&rows);
+            }
             crate::machine::emit("config", &payload)?;
         } else {
             println!("{display}");
+            print_pattern_rows(&rows);
         }
         return Ok(());
     }

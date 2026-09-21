@@ -38,6 +38,7 @@ pub mod preflight;
 pub mod prune;
 mod published;
 pub mod pull;
+pub mod pullpolicy;
 pub mod push;
 mod refs;
 pub mod remote;
@@ -89,6 +90,7 @@ pub use merge::merge;
 pub use model::*;
 pub use ops::{CaptureOutcome, OpId, capture, capture_with};
 pub use published::{ever_published, published_tip};
+pub use pullpolicy::{PolicySource, PullPolicy};
 pub use restack::Aim;
 /// The `--at` grammar, exported because `ff op log --at` asks the same
 /// question of the same clock and must not grow a second parser for it.

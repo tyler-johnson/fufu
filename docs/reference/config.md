@@ -43,6 +43,14 @@ GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=fufu.keep GIT_CONFIG_VALUE_0=7d ff config ke
 - **Network:** `autoFetch false` disables automatic fetches; explicit `--fetch` and [`ff pull`](cli/pull.md) still fetch. `--no-fetch` skips fetching for one supported invocation. Native HTTP proxy limits are [below](#what-fufu-reads-from-gits-config).
 - **Git commands:** `gitPolicy` defaults to `coach`. Read [policy behavior and client limits](../agents/setup.md#pick-a-git-policy) before choosing `strict`.
 - **Conflicts:** `onConflict` defaults to `hold`: a conflicting [`ff restack`](cli/restack.md), [`ff pull`](cli/pull.md), or [`ff merge`](cli/merge.md) records a hold and stops. `ff config onConflict resolve` also opens the current branch's resolution session. Use `--resolve` or `--no-resolve` to override the setting for one run.
+- **Pulling:** `pull` defaults to `auto`: `ff pull`'s base step replays a straight line onto a moved base and leaves a branch standing once its commits hold any merge, reporting it behind. `replay` replays every branch, flattening a merge of the base; `merge` leaves every branch behind its base standing. `fufu.<pattern>.pull` chooses per branch by refspec glob, `*` crossing `/`, and the last matching row in git's read order wins, so a repository row beats a global one. Written as a git config subsection, since `ff config` reads these rows and does not write them:
+
+  ```ini
+  [fufu "tyler/*"]
+      pull = replay
+  ```
+
+  `ff config pull` lists the setting and every pattern row with its scope.
 - **Display:** `pager cat` disables paging; `theme terminal` uses your terminal's base colors.
 
 Duration values use `s`, `m`, `h`, `d`, or `w`; bare numbers mean days. Cadences (`autoTrim`, `autoFetch`, `updateCheck`) also accept `true` for that setting's default and `false` to disable it, and clamp explicit durations to at least one minute. `0` disables a cadence; `0d` is a duration and becomes one minute. Git size suffixes use powers of 1024: `1k` is 1024, `1M` is 1048576.
@@ -118,6 +126,12 @@ Policy for covered Git writes through ff git and Claude Code hooks: observe stay
 `fufu.onConflict` — choice of `hold`, `resolve`; default `hold`
 
 When ff restack, ff pull, or ff merge conflicts on the current branch, hold records the hold and stops; resolve also opens the resolution session. Both outcomes exit 3. --resolve and --no-resolve override it for one run.
+
+### pull
+
+`fufu.pull` — choice of `auto`, `replay`, `merge`; default `auto`
+
+How ff pull's base step takes a moved base in: replay replays the branch's commits onto it; merge leaves the branch standing and reports it behind; auto replays a straight line and leaves a branch standing once its commits hold any merge. fufu.<pattern>.pull overrides it for matching branches (refspec globs, * crosses /; the last match in git's read order wins, so a repository value beats a global one).
 
 ### futuresDepth
 

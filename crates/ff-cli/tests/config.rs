@@ -47,6 +47,7 @@ fn list_shows_defaults() {
     assert!(text.contains("gitPolicy"), "missing gitPolicy");
     assert!(text.contains("coach"), "missing coach");
     assert!(text.contains("onConflict"), "missing onConflict");
+    assert!(text.contains("pull  auto"), "missing pull");
     assert!(text.contains("(default)"), "missing (default) tag");
     assert!(
         text.contains("Stored as plain git config under fufu."),
@@ -294,8 +295,9 @@ fn json_shapes() {
     // with the shell channel, and autoUpdate with silent self-installs;
     // toolPolicy came and went with the args-array tool; autoFetch joined
     // with the fetch lane, pruneGone with `ff branch --prune`, and
-    // onConflict with `--resolve` on restack, pull, and merge, so 14.
-    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 14);
+    // onConflict with `--resolve` on restack, pull, and merge, and pull
+    // with the base step's policy, so 15.
+    assert_eq!(v["data"]["settings"].as_array().unwrap().len(), 15);
     assert_eq!(v["data"]["settings"][0]["key"], "maxFileSize");
 
     // Set as JSON
@@ -560,6 +562,124 @@ fn on_conflict_rejects_an_unknown_value() {
         err.contains("hold") && err.contains("resolve"),
         "the failure names the choices: {err}"
     );
+}
+
+#[test]
+fn pull_round_trips() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+
+    let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "auto\n");
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    let text = stdout(&out);
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("pull  "))
+        .expect("pull line in list output");
+    assert!(line.contains("(default)"), "{line}");
+
+    for value in ["auto", "replay", "merge"] {
+        let out = ff_cfg(&fx.path(), &["config", "pull", value], &global);
+        assert!(
+            out.status.success(),
+            "setting pull to {value} failed: {}",
+            stderr(&out)
+        );
+        let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+        assert_eq!(stdout(&out).trim(), value);
+    }
+
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "pull"], &global);
+    assert!(out.status.success());
+    let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+    assert_eq!(stdout(&out), "auto\n");
+}
+
+#[test]
+fn pull_normalizes_case() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config", "pull", "REPLAY"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+    assert_eq!(stdout(&out).trim(), "replay");
+}
+
+#[test]
+fn pull_rejects_an_unknown_value() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    let out = ff_cfg(&fx.path(), &["config", "pull", "sometimes"], &global);
+    assert_eq!(out.status.code(), Some(2));
+    let err = stderr(&out);
+    assert!(err.contains("pull"), "{err}");
+    assert!(
+        err.contains("auto") && err.contains("replay") && err.contains("merge"),
+        "the failure names the values: {err}"
+    );
+}
+
+/// `ff config pull` reads the setting's value and lists every
+/// `fufu.<pattern>.pull` row under it with the scope it came from; the
+/// rows are read, never written, and `--unset pull` leaves them standing.
+#[test]
+fn pull_lists_the_pattern_rows_and_unset_leaves_them() {
+    let fx = Fixture::new();
+    let global = fx.root().join("gitconfig");
+    std::fs::write(&global, "[fufu]\n\tpull = merge\n").unwrap();
+    fx.git(&["config", "fufu.tyler/*.pull", "replay"]);
+
+    let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "merge\n  tyler/*  replay  (this repo)\n");
+
+    let out = ff_cfg(&fx.path(), &["config", "--json", "pull"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    assert_eq!(v["data"]["value"], "merge");
+    assert_eq!(v["data"]["source"], "global");
+    assert_eq!(
+        v["data"]["patterns"],
+        serde_json::json!([{"pattern": "tyler/*", "value": "replay", "source": "local"}])
+    );
+
+    let out = ff_cfg(&fx.path(), &["config"], &global);
+    let text = stdout(&out);
+    assert!(
+        text.contains("pull  merge\n  tyler/*  replay  (this repo)\n"),
+        "{text}"
+    );
+    let out = ff_cfg(&fx.path(), &["config", "--json"], &global);
+    let v: serde_json::Value = serde_json::from_str(&stdout(&out)).expect("valid json");
+    let pull = v["data"]["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["key"] == "pull")
+        .expect("a pull entry");
+    assert_eq!(pull["patterns"][0]["pattern"], "tyler/*");
+    let on_conflict = v["data"]["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["key"] == "onConflict")
+        .expect("an onConflict entry");
+    assert!(on_conflict.get("patterns").is_none(), "{on_conflict}");
+
+    let out = ff_cfg(&fx.path(), &["config", "pull", "auto"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = ff_cfg(&fx.path(), &["config", "--unset", "pull"], &global);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        fx.git(&["config", "fufu.tyler/*.pull"]).trim(),
+        "replay",
+        "the pattern row stands"
+    );
+    let out = ff_cfg(&fx.path(), &["config", "pull"], &global);
+    assert_eq!(stdout(&out), "merge\n  tyler/*  replay  (this repo)\n");
 }
 
 #[test]

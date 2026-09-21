@@ -10,7 +10,7 @@ Suppose local `parser-fix` is based on `main` and has a remote copy at `origin/p
 
 ## Pulling local updates
 
-On `parser-fix`, bare `ff pull` fetches, updates local bases such as `main` from their remote copies, and brings `parser-fix` up to date with both its base and its own remote copy. Your commits replay on the updated history. Branches stacked above a moved branch can follow in the same run.
+On `parser-fix`, bare `ff pull` fetches, updates local bases such as `main` from their remote copies, and brings `parser-fix` up to date with both its base and its own remote copy. Your commits replay on the updated history. How a moved base is taken in follows [`fufu.pull`](../reference/config.md#common-settings): by default a straight line replays and a branch whose commits hold a merge is left standing and reported behind. Branches stacked above a moved branch can follow in the same run.
 
 ```sh
 ff pull                     # Update the current branch and its bases.

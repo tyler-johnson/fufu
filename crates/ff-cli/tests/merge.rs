@@ -345,8 +345,11 @@ fn a_branch_with_nothing_of_its_own_fast_forwards() {
     assert_eq!(tip(&fx, "feature-a"), base);
 }
 
+/// A merge `ff merge` wrote is a merge in the branch's range, so under the
+/// default pull policy the base step leaves the branch standing; under
+/// `replay` it is carried onto the moved base like any commit.
 #[test]
-fn pull_carries_a_merge_of_another_tree() {
+fn pull_carries_a_merge_of_another_tree_under_replay() {
     let fx = repo();
     let (_a1, b1) = two_features(&fx);
     assert!(ff(&fx, &["merge", "feature-b"]).status.success());
@@ -354,7 +357,18 @@ fn pull_carries_a_merge_of_another_tree() {
     fx.write("m2.txt", "m2\n");
     fx.commit("m2");
     fx.git(&["switch", "-q", "feature-a"]);
+    let before = tip(&fx, "feature-a");
 
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert!(
+        stdout(&output).contains("left alone: behind main (auto: its commits hold a merge)"),
+        "got: {}",
+        stdout(&output)
+    );
+    assert_eq!(tip(&fx, "feature-a"), before, "standing under auto");
+
+    assert!(ff(&fx, &["config", "pull", "replay"]).status.success());
     let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
     assert!(

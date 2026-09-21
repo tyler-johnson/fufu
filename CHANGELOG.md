@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `fufu.pull` (`auto`, the default, `replay`, or `merge`) chooses how [`ff pull`](docs/reference/cli/pull.md)'s base step takes a moved base in, and `fufu.<pattern>.pull` chooses per branch by refspec glob, the last matching row in git's read order winning. [`ff config pull`](docs/reference/cli/config.md) lists the setting and every pattern row with its scope; the rows are written with `git config`. See [configuration](docs/reference/config.md#common-settings).
+
+### Changed
+
+- `ff pull`'s base step leaves a branch standing under `auto`'s rule, widened from a merge of the base to any merge in the branch's range, and reports it behind its base with the policy that decided it and where it was set. `replay` replays such a branch and flattens a merge of the base. The JSON skip reason `merge-in-range` is now `behind`, carrying `policy` and `source`.
+
 ## v0.18.0 — 2026-09-21
 
 ### Added

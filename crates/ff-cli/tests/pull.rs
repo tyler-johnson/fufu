@@ -1813,7 +1813,7 @@ fn the_branch_underfoot_holding_a_merge_is_left_alone() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("left alone: its commits hold a merge"),
+        text.contains("left alone: behind main (auto: its commits hold a merge)"),
         "got: {text}"
     );
     assert!(text.contains("ff restack side"), "got: {text}");
@@ -1826,7 +1826,9 @@ fn the_branch_underfoot_holding_a_merge_is_left_alone() {
     assert!(output.status.success(), "{}", out(&output));
     let refused = &json(&output)["data"]["pull"]["base"]["Refused"];
     assert_eq!(refused["name"], "main", "{refused}");
-    assert_eq!(refused["reason"]["kind"], "merge-in-range", "{refused}");
+    assert_eq!(refused["reason"]["kind"], "behind", "{refused}");
+    assert_eq!(refused["reason"]["policy"], "auto", "{refused}");
+    assert_eq!(refused["reason"]["source"]["kind"], "default", "{refused}");
 }
 
 /// With a remote, the skip stops only the base axis: local trunk still
@@ -1883,7 +1885,7 @@ fn the_run_goes_on_around_the_merge_holding_branch_underfoot() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("left alone: its commits hold a merge"),
+        text.contains("left alone: behind main (auto: its commits hold a merge)"),
         "got: {text}"
     );
     assert_eq!(
@@ -1928,7 +1930,7 @@ fn several_names_with_one_holding_a_merge_move_the_rest() {
     assert_eq!(tips(&fx, &["side"]), side_before, "side stands: {text}");
     let side_block = text.split("side").nth(1).expect("a block for side");
     assert!(
-        side_block.contains("left alone: its commits hold a merge"),
+        side_block.contains("left alone: behind main (auto: its commits hold a merge)"),
         "got: {text}"
     );
     assert!(
@@ -1937,13 +1939,10 @@ fn several_names_with_one_holding_a_merge_move_the_rest() {
     );
 }
 
-/// A merge of another tree on the branch underfoot says nothing about how
-/// it takes trunk, so the base axis carries it like any commit: the branch
-/// lands on the moved base with its merge intact, the side branch's commit
-/// still its second parent.
-#[test]
-fn a_side_branch_merge_is_carried_on_the_base_axis() {
-    let fx = repo();
+/// The fixture standing on `feature`, whose commits hold a merge of a
+/// side branch `x` and nothing of `main`, with `main` moved on. Returns
+/// `x1`, the side branch's commit.
+fn side_merge_underfoot(fx: &Fixture) -> String {
     fx.write("root.txt", "root\n");
     fx.commit("root");
     fx.git(&["switch", "-q", "-c", "x"]);
@@ -1957,6 +1956,40 @@ fn a_side_branch_merge_is_carried_on_the_base_axis() {
     fx.write("m1.txt", "m1\n");
     fx.commit("m1");
     fx.git(&["switch", "-q", "feature"]);
+    x1
+}
+
+/// Under the default, `auto`, a merge of another tree on the branch
+/// underfoot is enough to leave it standing: the range holds a merge, and
+/// the report says so without naming a config row, since none was set.
+#[test]
+fn a_side_branch_merge_leaves_the_branch_standing_under_auto() {
+    let fx = repo();
+    side_merge_underfoot(&fx);
+    let before = tips(&fx, &["feature", "main"]);
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("left alone: behind main (auto: its commits hold a merge) — "),
+        "got: {text}"
+    );
+    assert!(!text.contains("fufu.pull"), "no row was set: {text}");
+    assert!(!text.contains("undo: ff undo"), "nothing moved: {text}");
+    assert_eq!(tips(&fx, &["feature", "main"]), before, "nothing moved");
+}
+
+/// Under `replay`, a merge of another tree says nothing about how the
+/// branch takes trunk, so the base axis carries it like any commit: the
+/// branch lands on the moved base with its merge intact, the side branch's
+/// commit still its second parent.
+#[test]
+fn a_side_branch_merge_is_carried_under_replay() {
+    let fx = repo();
+    let x1 = side_merge_underfoot(&fx);
+    let output = ff(&fx, &["config", "pull", "replay"]);
+    assert!(output.status.success(), "{}", out(&output));
 
     let output = ff(&fx, &["pull", "--no-fetch"]);
     assert!(output.status.success(), "{}", out(&output));
@@ -1988,6 +2021,76 @@ fn a_side_branch_merge_is_carried_on_the_base_axis() {
     );
 }
 
+/// Under `replay`, a merge of the base on the branch underfoot replays and
+/// flattens, and the run names the merge under `flattened`.
+#[test]
+fn a_merge_of_the_base_replays_and_is_named_flattened_under_replay() {
+    let fx = repo();
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "side"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "side"]);
+    fx.write("s1.txt", "s1\n");
+    fx.commit("s1");
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    fx.write("merge.txt", "merge\n");
+    fx.commit("merge main");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "side"]);
+    let output = ff(&fx, &["config", "pull", "replay"]);
+    assert!(output.status.success(), "{}", out(&output));
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(!text.contains("left alone"), "got: {text}");
+    assert!(text.contains("flattened"), "got: {text}");
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "side"])
+            .status
+            .success(),
+        "side moved onto main: {text}"
+    );
+    assert_eq!(
+        fx.git(&["rev-list", "--merges", "side"]).trim(),
+        "",
+        "side is a straight line: {text}"
+    );
+}
+
+/// Under `merge`, a straight-line branch behind its base stands, reported
+/// behind with the setting and where it was set, and nothing moves.
+#[test]
+fn a_straight_line_stands_under_merge_and_names_the_setting() {
+    let fx = repo();
+    moved_base(&fx);
+    let before = tips(&fx, &["feature", "main"]);
+    let output = ff(&fx, &["config", "pull", "merge"]);
+    assert!(output.status.success(), "{}", out(&output));
+
+    let output = ff(&fx, &["pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("left alone: behind main (merge, fufu.pull in this repo) — "),
+        "got: {text}"
+    );
+    assert!(!text.contains("undo: ff undo"), "nothing moved: {text}");
+    assert_eq!(tips(&fx, &["feature", "main"]), before, "nothing moved");
+
+    let output = ff(&fx, &["--json", "pull", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let refused = &json(&output)["data"]["pull"]["base"]["Refused"];
+    assert_eq!(refused["reason"]["kind"], "behind", "{refused}");
+    assert_eq!(refused["reason"]["policy"], "merge", "{refused}");
+    assert_eq!(refused["reason"]["source"]["kind"], "setting", "{refused}");
+    assert_eq!(refused["reason"]["source"]["scope"], "local", "{refused}");
+}
+
 /// A dry run reports the skip in the conditional and writes nothing.
 #[test]
 fn a_dry_run_reports_the_merge_skip_and_writes_nothing() {
@@ -2000,7 +2103,7 @@ fn a_dry_run_reports_the_merge_skip_and_writes_nothing() {
     assert!(output.status.success(), "{}", out(&output));
     let text = stdout(&output);
     assert!(
-        text.contains("be left alone: its commits hold a merge"),
+        text.contains("be left alone: behind main (auto: its commits hold a merge)"),
         "got: {text}"
     );
     assert_eq!(op_count(&fx), ops, "nothing recorded");

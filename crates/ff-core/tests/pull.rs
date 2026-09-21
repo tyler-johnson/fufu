@@ -5,8 +5,8 @@
 use ff_core::gix;
 use ff_core::pull::{OtherBranch, PullOptions, Scope};
 use ff_core::{
-    BaseAxis, BranchPull, BranchRemote, OnConflict, Provenance, PullReport, RemoteAxis,
-    RestackOutcome, SkipReason,
+    BaseAxis, BranchPull, BranchRemote, OnConflict, PolicySource, Provenance, PullPolicy,
+    PullReport, RemoteAxis, RestackOutcome, SkipReason,
 };
 use ff_testsupport::Fixture;
 
@@ -1992,15 +1992,11 @@ fn a_branch_with_no_base_gets_no_base_axis() {
     assert_eq!(report.base, on_base("side", "main"));
 }
 
-/// A merge of another tree says nothing about how the branch takes trunk,
-/// so it replays like any commit: the branch lands on the moved base with
-/// its merge carried, the side branch's commit still its second parent. A
-/// replay `restack` refuses before anything moves — an orphan's — is named
-/// and left where it stands, and the run goes on.
-#[test]
-fn a_side_branch_merge_replays_and_an_orphan_is_named() {
-    let fx = Fixture::new();
-    ident(&fx);
+/// The tree behind every policy test: `merged` forks from `main` and
+/// merges a side branch `x` (a merge of another tree, not of the base), an
+/// orphan history stands on its own, `a` is a straight line off `main`,
+/// and `main` moves on. Returns `(x1, merged tip, orphan tip, a1, m2)`.
+fn side_merge_orphan_and_a(fx: &Fixture) -> (String, String, String, String, String) {
     fx.write("root.txt", "root\n");
     fx.commit("root");
     fx.git(&["switch", "-q", "-c", "x"]);
@@ -2010,7 +2006,7 @@ fn a_side_branch_merge_replays_and_an_orphan_is_named() {
     fx.write("m.txt", "m\n");
     fx.commit("m1");
     fx.git(&["merge", "-q", "--no-ff", "-m", "merge x", "x"]);
-    let merged = tip_of(&fx, "refs/heads/merged");
+    let merged = tip_of(fx, "refs/heads/merged");
     fx.git(&["branch", "-q", "-D", "x"]);
     fx.git(&["switch", "-q", "--orphan", "orphan"]);
     fx.write("o.txt", "o\n");
@@ -2021,6 +2017,61 @@ fn a_side_branch_merge_replays_and_an_orphan_is_named() {
     fx.git(&["switch", "-q", "main"]);
     fx.write("m2.txt", "m2\n");
     let m2 = fx.commit("m2");
+    (x1, merged, orphan, a1, m2)
+}
+
+/// The skip a branch its policy leaves standing carries.
+fn behind(policy: PullPolicy, source: PolicySource) -> BaseAxis {
+    BaseAxis::Refused {
+        name: "main".into(),
+        reason: SkipReason::Behind { policy, source },
+    }
+}
+
+/// Under the default, `auto`, a merge of another tree is enough to leave
+/// the branch standing: the range holds a merge, and the merge says the
+/// person is taking history in rather than replaying over it. It is
+/// reported behind under `auto` from the default, so a reader can tell the
+/// decision from an explicit `merge`. A replay `restack` refuses before
+/// anything moves — an orphan's — is its own skip, and the run goes on to
+/// the straight-line branch.
+#[test]
+fn a_side_branch_merge_stands_under_auto_and_an_orphan_is_named() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_x1, merged, orphan, a1, m2) = side_merge_orphan_and_a(&fx);
+
+    let report = pull_around(&fx, true, || {});
+
+    assert_eq!(
+        base_of(&report, "merged"),
+        behind(PullPolicy::Auto, PolicySource::Default)
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/merged"), merged, "merged stands");
+    assert_eq!(
+        base_of(&report, "orphan"),
+        BaseAxis::Refused {
+            name: "main".into(),
+            reason: SkipReason::Unrelated,
+        }
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/orphan"), orphan);
+    let a = tip_of(&fx, "refs/heads/a");
+    assert_ne!(a, a1, "the run went on to a");
+    assert!(is_ancestor(&fx, &m2, &a));
+    assert!(!report.blocked());
+}
+
+/// Under `replay`, a merge of another tree says nothing about how the
+/// branch takes trunk, so it replays like any commit: the branch lands on
+/// the moved base with its merge carried, the side branch's commit still
+/// its second parent.
+#[test]
+fn a_side_branch_merge_is_carried_under_replay() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("fufu.pull", "replay");
+    let (x1, merged, _orphan, _a1, m2) = side_merge_orphan_and_a(&fx);
 
     let report = pull_around(&fx, true, || {});
 
@@ -2050,25 +2101,172 @@ fn a_side_branch_merge_replays_and_an_orphan_is_named() {
         "the side branch's commit is the second parent"
     );
     assert!(is_ancestor(&fx, &m2, &parents[0]));
-    assert_eq!(
-        base_of(&report, "orphan"),
-        BaseAxis::Refused {
-            name: "main".into(),
-            reason: SkipReason::Unrelated,
-        }
-    );
-    assert_eq!(tip_of(&fx, "refs/heads/orphan"), orphan);
-    let a = tip_of(&fx, "refs/heads/a");
-    assert_ne!(a, a1, "the run went on to a");
-    assert!(is_ancestor(&fx, &m2, &a));
     assert!(!report.blocked());
 }
 
-/// A merge of the base is the skip even when a merge of another tree sits
-/// beside it: the branch took `main` in by merging, and pull's base axis
-/// does not rewrite that choice.
+/// `side` standing on `main`, its commits holding a merge of `main` that
+/// carries an edit of its own, with `main` moved on since. Returns the
+/// merge's sha and `main`'s new tip.
+fn base_merge_in_range(fx: &Fixture) -> (String, String) {
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["branch", "side"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "side"]);
+    fx.write("s1.txt", "s1\n");
+    fx.commit("s1");
+    fx.git(&["merge", "-q", "--no-commit", "main"]);
+    fx.write("merge.txt", "merge\n");
+    let merge = fx.commit("merge main");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m2.txt", "m2\n");
+    let m2 = fx.commit("m2");
+    (merge, m2)
+}
+
+/// Under `replay`, a merge of the base in the range is no skip: the branch
+/// replays onto the moved base, and the merge — whose other parent now
+/// sits beneath it — is written as an ordinary commit carrying its own
+/// edit and named under `flattened`, leaving the branch a straight line.
 #[test]
-fn a_merge_of_the_base_beside_a_side_merge_is_the_skip() {
+fn a_merge_of_the_base_replays_and_flattens_under_replay() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("fufu.pull", "replay");
+    let (merge, m2) = base_merge_in_range(&fx);
+
+    let report = pull_around(&fx, true, || {});
+
+    let landed = match base_of(&report, "side") {
+        BaseAxis::Ran {
+            outcome: RestackOutcome::Restacked(landed),
+            ..
+        } => landed,
+        other => panic!("side did not replay: {other:?}"),
+    };
+    assert_eq!(landed.flattened.len(), 1, "{:?}", landed.flattened);
+    assert_eq!(landed.flattened[0].old, merge);
+    let side = tip_of(&fx, "refs/heads/side");
+    assert!(is_ancestor(&fx, &m2, &side));
+    assert_eq!(
+        fx.git(&["rev-list", "--merges", "side"]).trim(),
+        "",
+        "side is a straight line"
+    );
+    assert!(!report.blocked());
+}
+
+/// Under `merge`, a straight-line branch behind its base is left standing
+/// and reported behind with the setting that said so — files and refs
+/// both, since the branch is underfoot.
+#[test]
+fn a_straight_line_behind_its_base_stands_under_merge() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("fufu.pull", "merge");
+    let (_c0, s1) = main_and_side(&fx);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "side"]);
+
+    let report = pull_around(&fx, true, || {});
+
+    assert_eq!(report.branch, "side");
+    assert_eq!(
+        report.base,
+        behind(
+            PullPolicy::Merge,
+            PolicySource::Setting {
+                scope: "local".into()
+            }
+        )
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/side"), s1, "side stands");
+    assert!(
+        !fx.path().join("m1.txt").exists(),
+        "the worktree was not touched"
+    );
+    assert!(!report.blocked());
+}
+
+/// A fast-forward rewrites nothing, so it moves under `merge` too; a branch
+/// already on its base has nothing to do under any policy.
+#[test]
+fn a_fast_forward_and_an_up_to_date_branch_are_not_behind_under_merge() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("fufu.pull", "merge");
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    fx.git(&["branch", "ff"]);
+    fx.write("m1.txt", "m1\n");
+    let m1 = fx.commit("m1");
+    fx.git(&["branch", "same"]);
+
+    let report = pull_around(&fx, true, || {});
+
+    assert!(
+        matches!(
+            base_of(&report, "ff"),
+            BaseAxis::Ran {
+                outcome: RestackOutcome::Restacked(_),
+                ..
+            }
+        ),
+        "{:?}",
+        base_of(&report, "ff")
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/ff"), m1, "ff moved up to main");
+    assert_eq!(base_of(&report, "same"), on_base("same", "main"));
+    assert!(!report.blocked());
+}
+
+/// `fufu.<pattern>.pull` overrides the setting for the branches it matches:
+/// with `merge` for `tyler/*` and the default elsewhere, `tyler/x` stands
+/// with the pattern named as its source and `alice/x` replays.
+#[test]
+fn a_pattern_row_chooses_the_policy_for_the_branches_it_matches() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.git(&["config", "fufu.tyler/*.pull", "merge"]);
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    for name in ["tyler/x", "alice/x"] {
+        fx.git(&["switch", "-q", "-c", name, "main"]);
+        fx.write(&format!("{}.txt", name.replace('/', "-")), "1\n");
+        fx.commit(name);
+    }
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m1.txt", "m1\n");
+    let m1 = fx.commit("m1");
+    let tyler = tip_of(&fx, "refs/heads/tyler/x");
+    let alice = tip_of(&fx, "refs/heads/alice/x");
+
+    let report = pull_around(&fx, true, || {});
+
+    assert_eq!(
+        base_of(&report, "tyler/x"),
+        behind(
+            PullPolicy::Merge,
+            PolicySource::Pattern {
+                pattern: "tyler/*".into(),
+                scope: "local".into(),
+            }
+        )
+    );
+    assert_eq!(tip_of(&fx, "refs/heads/tyler/x"), tyler, "tyler/x stands");
+    let alice_after = tip_of(&fx, "refs/heads/alice/x");
+    assert_ne!(alice_after, alice, "alice/x replayed");
+    assert!(is_ancestor(&fx, &m1, &alice_after));
+    assert!(!report.blocked());
+}
+
+/// A merge of the base beside a merge of another tree: two merges in the
+/// range, and under `auto` the branch stands, reported behind from the
+/// default.
+#[test]
+fn a_merge_of_the_base_beside_a_side_merge_stands_under_auto() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
@@ -2094,21 +2292,19 @@ fn a_merge_of_the_base_beside_a_side_merge_is_the_skip() {
 
     assert_eq!(
         base_of(&report, "merged"),
-        BaseAxis::Refused {
-            name: "main".into(),
-            reason: SkipReason::MergeInRange,
-        }
+        behind(PullPolicy::Auto, PolicySource::Default)
     );
     assert_eq!(tip_of(&fx, "refs/heads/merged"), merged, "merged stands");
     assert!(!report.blocked());
 }
 
-/// A merge of a tip the base once held is still a merge of the base: the
+/// A merge of a tip the base once held is still a merge in the range: the
 /// range walk stops at the fork from every position in the base's reflog,
-/// so the old tip sits beneath the boundary and the merge's second parent
-/// lies outside the range, even though trunk was reset away from it since.
+/// so the old tip sits beneath the boundary and the walk crosses the merge,
+/// even though trunk was reset away from it since. Under `auto` the branch
+/// stands.
 #[test]
-fn a_merge_of_a_since_rebased_base_is_still_the_skip() {
+fn a_merge_of_a_since_rebased_base_still_stands_under_auto() {
     let fx = Fixture::new();
     ident(&fx);
     fx.write("root.txt", "root\n");
@@ -2132,10 +2328,7 @@ fn a_merge_of_a_since_rebased_base_is_still_the_skip() {
 
     assert_eq!(
         base_of(&report, "side"),
-        BaseAxis::Refused {
-            name: "main".into(),
-            reason: SkipReason::MergeInRange,
-        }
+        behind(PullPolicy::Auto, PolicySource::Default)
     );
     assert_eq!(tip_of(&fx, "refs/heads/side"), side, "side stands");
     assert!(!report.blocked());

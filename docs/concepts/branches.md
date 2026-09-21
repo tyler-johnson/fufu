@@ -81,7 +81,7 @@ Replaying a range can preserve its merges. Fufu replays the parents, recomputes 
 
 This differs from the patch displayed by [`ff show`](../reference/cli/show.md): when the parents conflict, show compares with the first parent. Replay instead retains the parents' conflict markers while computing the resolution to carry forward.
 
-When a merge's other parents are already included beneath its first parent, it becomes an ordinary commit, reported under `flattened`. Its edits or resolution survive if they still add content; an empty result is dropped. [`ff merge`](../reference/cli/merge.md) merges another branch into yours without changing your recorded base. It refuses that base; [`ff resolve`](../reference/cli/resolve.md#taking-the-base-in) can merge base updates when your branch already contains such a merge.
+When a merge's other parents are already included beneath its first parent, it becomes an ordinary commit, reported under `flattened`. Its edits or resolution survive if they still add content; an empty result is dropped. Whether [`ff pull`](../reference/cli/pull.md)'s base step replays a branch at all follows [`fufu.pull`](../reference/config.md#common-settings): `auto`, the default, leaves a branch standing once its commits hold a merge, and `replay` replays it, flattening a merge of the base. [`ff merge`](../reference/cli/merge.md) merges another branch into yours without changing your recorded base. It refuses that base; [`ff resolve`](../reference/cli/resolve.md#taking-the-base-in) can merge base updates when your branch already contains such a merge.
 
 ### Parent inference for branches made with Git
 
@@ -93,7 +93,7 @@ An upstream with a different branch name, such as `origin/main` for local `parse
 
 Rewriting a branch can also replay the local branches based on it. This is a **cascade**: parents update before children, inside the original command's operation, so one undo takes back the rewrite and its cascade together.
 
-The commands that run cascades are `ff restack`, [`ff fold`](../reference/cli/fold.md), [`ff pull`](../reference/cli/pull.md), [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), `ff describe <rev>`, and [`ff done`](../reference/cli/done.md).
+The commands that run cascades are `ff restack`, [`ff fold`](../reference/cli/fold.md), `ff pull`, [`ff absorb`](../reference/cli/absorb.md), [`ff lift`](../reference/cli/lift.md), `ff describe <rev>`, and [`ff done`](../reference/cli/done.md).
 
 A conflicting replay leaves that branch [held](held-rewrites.md) at its existing tip. Branches above it stay put; successful updates elsewhere in the cascade can stand. Resolving that branch and finishing with `ff done` resumes the cascade from there.
 

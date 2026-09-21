@@ -77,17 +77,19 @@ If a local branch has not changed since fufu last recorded seeing its remote cop
 
 Only branches tracking the fetched remote receive this remote update. With `--no-fetch`, or for a branch tracking another remote, only the current branch's remote copy is considered. The base update still runs without a remote: if the base moved, local commits replay onto it and dependent branches follow parent before child.
 
+How the base update takes a moved base in follows `fufu.pull`. `auto`, the default, replays a straight line and leaves a branch standing once its commits hold any merge. `replay` replays the branch's commits onto the base, flattening a merge of the base the way any replay does. `merge` leaves a branch behind its base standing. `fufu.<pattern>.pull` chooses per branch: [`ff config pull`](config.md) lists the rows. A branch beneath its base with nothing of its own fast-forwards under every value.
+
 A deleted remote copy is reported while its local branch remains. With `fufu.pruneGone` enabled, eligible branches are pruned first using [`ff branch --prune`](branch.md)'s rules, including protection for unpublished commits and reassignment of dependents. Pruning is part of the same undoable operation. The setting defaults to false.
 
 ## Conflicts and recovery
 
 A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run [`ff resolve`](resolve.md) to continue. The exit is 3 if any branch holds.
 
-`--resolve` opens the current branch's resolution session in the same run, still with exit 3. Fix the marked files and run [`ff done`](done.md); repeat if another round appears. Other branches stay held without opening a session, and a dry run opens none. Use [`ff config onConflict resolve`](config.md) to make this the default, or `--no-resolve` to stop at the hold for one run.
+`--resolve` opens the current branch's resolution session in the same run, still with exit 3. Fix the marked files and run [`ff done`](done.md); repeat if another round appears. Other branches stay held without opening a session, and a dry run opens none. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
 `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. Opening during pull adds two operations after the pull's own operation. Three [`ff undo`](undo.md) calls reverse the switch, the session creation, then the pull.
 
-Branches checked out in another worktree, already holding a rewrite, or sharing no history with their base are skipped and named. The base update also skips a branch whose history includes a merge of its base; switch to that branch and use `ff resolve` to merge further base updates.
+Branches checked out in another worktree, already holding a rewrite, or sharing no history with their base are skipped and named. A branch its pull policy leaves standing is reported behind its base with the policy that decided it and where it was set; [`ff restack`](restack.md) replays it regardless, and `ff resolve` on it takes the base in the way the branch already does.
 
 Local branch and working-copy changes form one operation, including cascades and pruning. One `ff undo` reverses them. Only the current branch has files written in this worktree; other selected branches move as refs and objects. Fetched objects, tracking refs, and tags are separate from these undoable changes. No remote branch update is sent.
 

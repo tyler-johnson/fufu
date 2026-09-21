@@ -19,6 +19,6 @@ pub use rows::{
 };
 pub use status::{StatusView, reconcile_notice, status_human};
 pub(crate) use status::{
-    cascade_lines, dropped_lines, flattened_lines, held_block, held_line, skip_reason,
-    truncate_subject,
+    cascade_lines, dropped_lines, flattened_lines, held_block, held_line, scope_human_label,
+    skip_reason, truncate_subject,
 };
