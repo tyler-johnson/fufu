@@ -51,6 +51,18 @@ impl PullPolicy {
             PullPolicy::Merge => "merge",
         }
     }
+
+    /// Whether a branch behind its base is left standing: `merge` always,
+    /// `replay` never, `auto` once its range holds a merge. Pull's base
+    /// step and the cascade ask this one question, so they agree on which
+    /// branches move.
+    pub fn leaves_standing(self, holds_merge: bool) -> bool {
+        match self {
+            PullPolicy::Replay => false,
+            PullPolicy::Merge => true,
+            PullPolicy::Auto => holds_merge,
+        }
+    }
 }
 
 /// Where the effective value came from.
@@ -295,6 +307,15 @@ mod tests {
             }
         );
         assert_eq!(pattern_rows(&file)[0].value, "never");
+    }
+
+    #[test]
+    fn leaves_standing_follows_the_policy_and_the_merge() {
+        for holds_merge in [false, true] {
+            assert!(!PullPolicy::Replay.leaves_standing(holds_merge));
+            assert!(PullPolicy::Merge.leaves_standing(holds_merge));
+            assert_eq!(PullPolicy::Auto.leaves_standing(holds_merge), holds_merge);
+        }
     }
 
     #[test]

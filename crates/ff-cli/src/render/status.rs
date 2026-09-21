@@ -716,9 +716,15 @@ pub(crate) fn cascade_lines(cascade: &ff_core::Cascade, colored: bool) -> Vec<St
         ));
     }
     for s in &cascade.skipped {
+        // A branch its policy left standing is behind, not skipped: its
+        // line reads as pull's refused row does.
+        let verb = match s.reason {
+            ff_core::SkipReason::Behind { .. } => "stands",
+            _ => "skipped:",
+        };
         out.push(paint_warn(
             &format!(
-                "{} skipped: {}{}",
+                "{} {verb} {}{}",
                 s.branch,
                 skip_reason(&s.reason, &s.branch, &s.base, false),
                 left_alone(&s.left_alone)

@@ -446,9 +446,13 @@ impl Would {
             ));
         }
         for s in &cascade.skipped {
+            let verb = match s.reason {
+                ff_core::SkipReason::Behind { .. } => "would stand",
+                _ => "would be skipped:",
+            };
             out.push(crate::render::paint_warn(
                 &format!(
-                    "{} would be skipped: {}{}",
+                    "{} {verb} {}{}",
                     s.branch,
                     crate::render::skip_reason(&s.reason, &s.branch, &s.base, false),
                     left_alone(&s.left_alone)

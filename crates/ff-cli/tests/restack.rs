@@ -642,6 +642,29 @@ fn stack_above(fx: &Fixture) {
     assert!(back.status.success(), "{}", out(&back));
 }
 
+/// Like [`stack_above`], with `child` holding a merge of its sibling `side`:
+/// `child` and `side` both sit on `feature`, `child` merged `side`, and
+/// `grandchild` sits on `child`. Leaves the fixture standing on `feature`.
+fn merged_child_above(fx: &Fixture) {
+    let started = ff(fx, &["start", "feature", "-b", "child"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    fx.commit("x1");
+    let started = ff(fx, &["start", "feature", "-b", "side"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("s.txt", "s\n");
+    fx.commit("s1");
+    let switched = ff(fx, &["switch", "child"]);
+    assert!(switched.status.success(), "{}", out(&switched));
+    fx.git(&["merge", "-q", "--no-edit", "side"]);
+    let started = ff(fx, &["start", "child", "-b", "grandchild"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("y.txt", "y\n");
+    fx.commit("y1");
+    let back = ff(fx, &["switch", "feature"]);
+    assert!(back.status.success(), "{}", out(&back));
+}
+
 fn rev(fx: &Fixture, name: &str) -> String {
     fx.git(&["rev-parse", name]).trim().to_string()
 }
@@ -713,6 +736,103 @@ fn the_cascade_is_in_the_json_and_one_undo_takes_it_back() {
     assert_eq!(feature_before, rev(&fx, "feature"));
     assert_eq!(child_before, rev(&fx, "child"), "one undo puts child back");
     assert_eq!(grandchild_before, rev(&fx, "grandchild"), "and grandchild");
+}
+
+/// A dependent follows its own `fufu.pull` policy: under the default
+/// `auto`, a child whose commits hold a merge is left standing and named
+/// behind its moved base, its own dependent untouched, while a sibling on a
+/// straight line follows. The JSON row is the cascade's `skipped` row with
+/// reason `behind`, the shape pull's refused row carries.
+#[test]
+fn a_child_that_merged_a_sibling_stands_behind_under_auto() {
+    let fx = repo();
+    stack(&fx);
+    merged_child_above(&fx);
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+    let side_before = rev(&fx, "side");
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("child stands behind feature (auto: its commits hold a merge)"),
+        "{text}"
+    );
+    assert!(text.contains("grandchild left alone"), "{text}");
+    assert!(text.contains("side followed feature"), "{text}");
+    assert_eq!(child_before, rev(&fx, "child"), "child stood");
+    assert_eq!(
+        grandchild_before,
+        rev(&fx, "grandchild"),
+        "grandchild stood"
+    );
+    assert_ne!(side_before, rev(&fx, "side"), "side moved");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+
+    let output = ff(&fx, &["--json", "restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let cascade = &v["data"]["restack"]["cascade"];
+    let skipped = &cascade["skipped"];
+    assert_eq!(skipped.as_array().unwrap().len(), 1, "{cascade}");
+    assert_eq!(skipped[0]["branch"], "child", "{cascade}");
+    assert_eq!(skipped[0]["base"], "feature", "{cascade}");
+    assert_eq!(skipped[0]["reason"]["kind"], "behind", "{cascade}");
+    assert_eq!(skipped[0]["reason"]["policy"], "auto", "{cascade}");
+    assert_eq!(
+        skipped[0]["reason"]["source"]["kind"], "default",
+        "{cascade}"
+    );
+    assert_eq!(skipped[0]["left_alone"], serde_json::json!(["grandchild"]));
+    let moved = cascade["moved"].as_array().unwrap();
+    assert_eq!(moved.len(), 1, "{cascade}");
+    assert_eq!(moved[0]["branch"], "side", "{cascade}");
+}
+
+/// An explicit `replay` on the child replays it as before, the merge
+/// carried through the engine and its dependent following.
+#[test]
+fn an_explicit_replay_child_with_a_merge_is_replayed_and_the_merge_carried() {
+    let fx = repo();
+    stack(&fx);
+    merged_child_above(&fx);
+    fx.set_config("fufu.child.pull", "replay");
+    let child_before = rev(&fx, "child");
+    let grandchild_before = rev(&fx, "grandchild");
+
+    let output = ff(&fx, &["--json", "restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let cascade = &v["data"]["restack"]["cascade"];
+    let moved: Vec<&str> = cascade["moved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["branch"].as_str().unwrap())
+        .collect();
+    assert!(
+        moved.iter().position(|&m| m == "child") < moved.iter().position(|&m| m == "grandchild"),
+        "child before grandchild: {cascade}"
+    );
+    assert!(moved.contains(&"side"), "{cascade}");
+    assert_eq!(cascade["skipped"].as_array().unwrap().len(), 0, "{cascade}");
+    assert_ne!(child_before, rev(&fx, "child"), "child moved");
+    assert_ne!(
+        grandchild_before,
+        rev(&fx, "grandchild"),
+        "grandchild moved"
+    );
+    assert!(is_ancestor(&fx, "feature", "child"));
+    assert!(is_ancestor(&fx, "child", "grandchild"));
+    assert_eq!(
+        fx.git(&["rev-list", "--count", "--merges", "feature..child"])
+            .trim(),
+        "1",
+        "the merge was carried"
+    );
 }
 
 #[test]

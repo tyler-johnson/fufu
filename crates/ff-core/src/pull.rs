@@ -88,7 +88,6 @@ use crate::ops::record::{HeldTransition, ParentTransition, RefTransition, observ
 use crate::ops::{OpKind, OpRecord, verb};
 use crate::overlay::Overlay;
 use crate::preflight::Preflight;
-use crate::pullpolicy::PullPolicy;
 use crate::refs;
 use crate::restack::{self, Aim, RestackPlan, plan_restack};
 use crate::{Error, Provenance, Result};
@@ -1210,11 +1209,7 @@ fn refused_before_planning(
         return Ok(None);
     }
     let resolved = crate::pullpolicy::pull_policy(repo, branch);
-    let standing = match resolved.policy {
-        PullPolicy::Replay => false,
-        PullPolicy::Merge => true,
-        PullPolicy::Auto => range.merge.is_some(),
-    };
+    let standing = resolved.policy.leaves_standing(range.merge.is_some());
     Ok(standing.then_some(SkipReason::Behind {
         policy: resolved.policy,
         source: resolved.source,

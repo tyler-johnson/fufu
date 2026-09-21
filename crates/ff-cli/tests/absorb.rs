@@ -595,6 +595,62 @@ fn absorb_cascades_onto_the_branch_stacked_above() {
     );
 }
 
+/// The dependent follows its own `fufu.pull` policy: under `merge` the
+/// absorb lands, `top` is left standing and reported behind `feat` with the
+/// setting and its scope, and the JSON row is the cascade's `skipped` row
+/// with reason `behind`.
+#[test]
+fn absorb_leaves_a_merge_policy_child_standing_and_lands() {
+    let fx = repo();
+    fx.write("root.txt", "root\n");
+    fx.commit("root");
+    let started = ff(&fx, &["start", "main", "-b", "feat"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.write("b.txt", "b\n");
+    fx.commit("f2");
+    let started = ff(&fx, &["start", "feat", "-b", "top"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("t.txt", "t\n");
+    let t1 = fx.commit("t1");
+    let back = ff(&fx, &["switch", "feat"]);
+    assert!(back.status.success(), "{}", out(&back));
+    fx.set_config("fufu.pull", "merge");
+    fx.write("a.txt", "a\nmore\n");
+
+    let output = ff(&fx, &["absorb", "--into", f1.as_str()]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("restacked 1 commit(s) above it"), "{text}");
+    assert!(
+        text.contains("top stands behind feat (merge, fufu.pull in this repo)"),
+        "{text}"
+    );
+    assert_eq!(fx.git(&["rev-parse", "top"]).trim(), t1, "top stood");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+
+    let output = ff(&fx, &["--json", "absorb", "--into", f1.as_str()]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let skipped = &v["data"]["move"]["cascade"]["skipped"];
+    assert_eq!(skipped[0]["branch"], "top", "{v}");
+    assert_eq!(skipped[0]["reason"]["kind"], "behind", "{v}");
+    assert_eq!(skipped[0]["reason"]["policy"], "merge", "{v}");
+    assert_eq!(skipped[0]["reason"]["source"]["kind"], "setting", "{v}");
+    assert_eq!(skipped[0]["reason"]["source"]["scope"], "local", "{v}");
+    assert_eq!(
+        v["data"]["move"]["cascade"]["moved"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "{v}"
+    );
+}
+
 /// A branch stacked above the lifted one follows it: the human render says
 /// so, and `--json` carries the cascade on the lift report.
 #[test]

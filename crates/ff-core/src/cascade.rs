@@ -16,15 +16,20 @@
 //! the ref transaction is the caller's, which is what makes a rewrite and
 //! its cascade one atomic move.
 //!
-//! Three things stop a branch, and each leaves its subtree alone, since a
+//! Four things stop a branch, and each leaves its subtree alone, since a
 //! subtree's base did not move. A replay that conflicts holds that branch,
 //! recorded on its metadata the way `ff restack` holds, so `ff resolve` on
 //! it picks the replay up. A branch checked out in another worktree is
 //! skipped and the worktree named: a rewrite must not move a tree out from
 //! under whoever is standing in it. A branch already holding a rewrite is
-//! skipped, because one hold per branch is the rule. A merge in a branch's
-//! range is carried the way the engine carries any merge: its merge of the
-//! old base maps to the base's rewritten self and simplifies away.
+//! skipped, because one hold per branch is the rule. A branch whose own
+//! `fufu.pull` policy leaves it standing is skipped and reported behind its
+//! moved base with the policy and its source: a dependent's move is
+//! automatic, so it follows its own policy, while the branch a verb was
+//! given is replayed regardless. A merge in a branch's range is carried
+//! when the child's policy replays it, the way the engine carries any
+//! merge: its merge of the old base maps to the base's rewritten self and
+//! simplifies away.
 //!
 //! A branch whose commits are all in its base has nothing of its own to
 //! replay, and is left where it stands. Replaying the base's own commits
@@ -330,11 +335,11 @@ pub(crate) fn plan_over(
         let mut boundary = bases;
         boundary.extend(old_bases);
         let walk = crate::upstream::range(repo, tip, boundary)?;
-        // A merge in the range is carried: the child's merge of the old
-        // parent tip is a parent below the range's floor, the plan maps it
-        // by change id to its rewritten self in the new base, and it
-        // simplifies away beneath the branch side. It is remembered only to
-        // pick the probe.
+        // A merge in the range is carried when the child's policy replays
+        // it: the child's merge of the old parent tip is a parent below the
+        // range's floor, the plan maps it by change id to its rewritten
+        // self in the new base, and it simplifies away beneath the branch
+        // side. It is remembered to ask the policy and to pick the probe.
         let mut range: Vec<gix::ObjectId> = Vec::new();
         let mut merge = false;
         for info in walk {
@@ -346,6 +351,23 @@ pub(crate) fn plan_over(
         }
         if range.is_empty() {
             out.report.unchanged.push(branch);
+            continue;
+        }
+        // The child's own policy, asked after the holds so a held child is
+        // named held, and after the empty-range check so a child with
+        // nothing of its own is unchanged under every policy, the way
+        // pull's base step passes an up-to-date branch.
+        let resolved = crate::pullpolicy::pull_policy(repo, &branch);
+        if resolved.policy.leaves_standing(merge) {
+            out.report.skipped.push(CascadeSkip {
+                branch,
+                base,
+                reason: SkipReason::Behind {
+                    policy: resolved.policy,
+                    source: resolved.source,
+                },
+                left_alone,
+            });
             continue;
         }
         range.reverse(); // oldest-first; the target is the first element

@@ -97,7 +97,7 @@ The commands that run cascades are `ff restack`, [`ff fold`](../reference/cli/fo
 
 A conflicting replay leaves that branch [held](held-rewrites.md) at its existing tip. Branches above it stay put; successful updates elsewhere in the cascade can stand. Resolving that branch and finishing with `ff done` resumes the cascade from there.
 
-Branches checked out in another worktree or already holding a rewrite are skipped and named. A branch with no commits of its own stays put. Read the report for what updated, held, or was skipped; [conflict reporting](held-rewrites.md#deferred-requires-loud) explains the exit-code distinctions.
+Branches checked out in another worktree or already holding a rewrite are skipped and named. A branch with no commits of its own stays put. A dependent also follows its own [`fufu.pull`](../reference/config.md#common-settings) policy: one resolving to `merge`, or to `auto` with a merge among its commits, is left standing and reported behind its moved base with the policy and where it was set, and the branches above it stay put. The branch the command was given is replayed regardless. Read the report for what updated, held, was skipped, or stands behind; [conflict reporting](held-rewrites.md#deferred-requires-loud) explains the exit-code distinctions.
 
 <a id="pull-reaches-a-branch-and-what-it-answers-to"></a>
 

@@ -442,6 +442,66 @@ fn stacked_child(fx: &Fixture) {
     assert!(back.status.success(), "{}", out(&back));
 }
 
+/// Above `feature`: `child` and `side` both started from it, `child` merged
+/// `side`, and `grandchild` sits on `child`. Leaves the fixture standing on
+/// `feature`.
+fn merged_child_above(fx: &Fixture) {
+    let started = ff(fx, &["start", "feature", "-b", "child"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("x.txt", "x\n");
+    fx.commit("x1");
+    let started = ff(fx, &["start", "feature", "-b", "side"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("s.txt", "s\n");
+    fx.commit("s1");
+    let switched = ff(fx, &["switch", "child"]);
+    assert!(switched.status.success(), "{}", out(&switched));
+    fx.git(&["merge", "-q", "--no-edit", "side"]);
+    let started = ff(fx, &["start", "child", "-b", "grandchild"]);
+    assert!(started.status.success(), "{}", out(&started));
+    fx.write("y.txt", "y\n");
+    fx.commit("y1");
+    let back = ff(fx, &["switch", "feature"]);
+    assert!(back.status.success(), "{}", out(&back));
+}
+
+/// `ff pull --all` and `ff restack` ask the same policy of each dependent,
+/// so on one stack they move the same branches: `feature` and `side`, with
+/// `child` standing on its merge under `auto` and `grandchild` untouched.
+#[test]
+fn pull_all_and_restack_agree_on_which_children_moved() {
+    let fx = repo();
+    moved_base(&fx);
+    merged_child_above(&fx);
+    let names = ["feature", "side", "child", "grandchild"];
+    let before = tips(&fx, &names);
+    let changed = |fx: &Fixture| -> Vec<&str> {
+        let after = tips(fx, &names);
+        names
+            .iter()
+            .zip(before.iter().zip(after.iter()))
+            .filter(|(_, (b, a))| b != a)
+            .map(|(name, _)| *name)
+            .collect()
+    };
+
+    let output = ff(&fx, &["pull", "--all", "--no-fetch"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("child stands behind feature"), "{text}");
+    let pulled = changed(&fx);
+    assert_eq!(pulled, vec!["feature", "side"], "{text}");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(tips(&fx, &names), before, "undo put every tip back");
+
+    let output = ff(&fx, &["restack"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let restacked = changed(&fx);
+    assert_eq!(restacked, pulled, "{}", stdout(&output));
+}
+
 #[test]
 fn pull_says_what_followed_above() {
     let fx = repo();
