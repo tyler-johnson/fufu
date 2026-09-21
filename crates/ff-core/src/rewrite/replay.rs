@@ -538,8 +538,9 @@ struct Replayed {
 /// message, and every other affected commit is replayed onto its rewritten
 /// parents. A merge is an ordinary commit here: each parent is mapped
 /// through the rewrite, the mapped parents are re-merged, its own change —
-/// what [`crate::measure`] diffs it against — is replayed over that, and a
-/// parent left beneath another is dropped. A merge that keeps one parent
+/// [`crate::measure`]'s rule, with the fold's markers kept, as
+/// `chain::step_tree` says — is replayed over that, and a parent left
+/// beneath another is dropped. A merge that keeps one parent
 /// stays a merge; one left with a single parent is written as an ordinary
 /// commit, or dropped like any other when it then changes nothing.
 fn replay(
@@ -567,6 +568,11 @@ fn replay(
     let mut rewrites: Vec<Rewrite> = Vec::new();
     let mut dropped: Vec<Dropped> = Vec::new();
     let mut flattened: Vec<Flattened> = Vec::new();
+    let n = ordered
+        .iter()
+        .filter(|&id| affected.contains(id) && !superseded.contains_key(id))
+        .count();
+    let mut replayed = 0usize;
     for &id in ordered {
         if !affected.contains(&id) {
             continue;
@@ -618,6 +624,12 @@ fn replay(
             });
             continue;
         }
+        // This step's place in the stack, the chain's numbering, so a
+        // marker the replay writes on the way to a refusal wears the label
+        // the chain would give it.
+        replayed += 1;
+        let k = replayed;
+        let step_subject = subject(repo, id)?;
         let tree = match change {
             Change::Message(_) => gix::ObjectId::from_hex(commit_ref.tree).map_err(Error::repo)?,
             // A decided landing has already worked out what the target
@@ -632,17 +644,21 @@ fn replay(
             // runs again.
             _ if trees.contains_key(&id) => trees[&id],
             Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
-                let base = crate::measure(repo, id)?.tree;
-                let ours = remerge(repo, id, &parents)?;
-                let their = their_of(repo, change, id, base)?;
-                let replayed = replayed_tree(repo, id, base, ours, their)?;
+                // The chain's own step, with the chain's labels, refused
+                // where the chain would hold: a region left standing is a
+                // conflict, and nothing is written.
+                let step =
+                    super::chain::step_tree(repo, repo, id, &parents, change, k, n, &step_subject)?;
+                if !step.paths.is_empty() {
+                    return Err(conflict_refusal(repo, id, &step.paths)?);
+                }
                 // The move's target, above the bottom, takes the moved paths
                 // from the fold rather than from the merge.
                 match change {
                     Change::Move {
                         into: Some(into), ..
-                    } if into.id == id => filtered(repo, replayed, into.tree, &into.paths)?,
-                    _ => replayed,
+                    } if into.id == id => filtered(repo, step.tree, into.tree, &into.paths)?,
+                    _ => step.tree,
                 }
             }
             Change::Merge { .. } => {
@@ -798,28 +814,6 @@ pub(super) fn simplified(
     Ok(kept)
 }
 
-/// The tree a replayed commit's own change is laid over: its one parent's
-/// tree, or the auto-merge of its parents — the same fold `measure` runs on
-/// the old ones. No base for some pair: the first parent's tree stands in,
-/// as the measure's does. A conflicting pair refuses the rewrite the way a
-/// conflicting replay does; the chain is where that conflict is carried.
-fn remerge(
-    repo: &gix::Repository,
-    id: gix::ObjectId,
-    parents: &[gix::ObjectId],
-) -> Result<gix::ObjectId> {
-    use crate::measure::{AutoMerge, auto_merge};
-    match parents {
-        [] => Ok(gix::ObjectId::empty_tree(repo.object_hash())),
-        [one] => tree_of(repo, *one),
-        many => match auto_merge(repo, many, Default::default())? {
-            AutoMerge::NoBase => tree_of(repo, many[0]),
-            AutoMerge::Merged { tree, conflicts } if conflicts.is_empty() => Ok(tree),
-            AutoMerge::Merged { conflicts, .. } => Err(conflict_refusal(repo, id, &conflicts)?),
-        },
-    }
-}
-
 /// The refusal a replay that conflicts raises, before anything is written.
 fn conflict_refusal(repo: &gix::Repository, id: gix::ObjectId, paths: &[String]) -> Result<Error> {
     Ok(Error::coded(
@@ -971,34 +965,6 @@ fn diff_entries(
         }
     }
     Ok(out)
-}
-
-/// The new tree of a replayed commit, target or descendant: `their` — the
-/// commit's own tree, or the one the change says to carry for it — laid
-/// over `ours_tree`, what its new parents give it, as a change against
-/// `base_tree`, what its old ones gave it. When the two agree, `their` is
-/// carried unchanged and no merge runs at all, which is what keeps a reword
-/// costing what it cost before. An unresolved merge refuses the whole
-/// rewrite.
-fn replayed_tree(
-    repo: &gix::Repository,
-    id: gix::ObjectId,
-    base_tree: gix::ObjectId,
-    ours_tree: gix::ObjectId,
-    their: gix::ObjectId,
-) -> Result<gix::ObjectId> {
-    if base_tree == ours_tree {
-        return Ok(their);
-    }
-    let options = repo.tree_merge_options().map_err(Error::repo)?;
-    let mut outcome = repo
-        .merge_trees(base_tree, ours_tree, their, Default::default(), options)
-        .map_err(Error::repo)?;
-    let paths = crate::futures::unresolved(&outcome);
-    if !paths.is_empty() {
-        return Err(conflict_refusal(repo, id, &paths)?);
-    }
-    Ok(outcome.tree.write().map_err(Error::repo)?.detach())
 }
 
 /// The tree of a commit, resolved through whichever repository handle is

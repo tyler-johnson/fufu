@@ -585,3 +585,160 @@ fn a_trunk_commit_without_an_identity_keeps_the_merge_real() {
     assert_eq!(parents[1], t1);
     assert!(ancestry(&fx, &rewritten.new_tip.to_string()).contains(&t1));
 }
+
+/// The shas of the side-merge shape.
+struct SideShape {
+    f1: String,
+    s1: String,
+    f2: String,
+    m: String,
+    f3: String,
+    t2: String,
+}
+
+/// A feature branch that merged a side branch whose edit fought its own,
+/// with trunk moved on since:
+///
+/// ```text
+/// T0 ──────────────── T2         (main)
+///  └─ f1 ─ f2 ─ M ─ f3           (feature; M merges s1)
+///      └─ s1                     (side)
+/// ```
+///
+/// f2 and s1 edit the same line of `f.txt`, which M resolves to `resolved`.
+/// HEAD ends on `feature`.
+fn side_merge(fx: &Fixture) -> SideShape {
+    fx.write("f.txt", "one\ntwo\nthree\n");
+    fx.write("main.txt", "main\n");
+    fx.commit("T0");
+
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("f.txt", "one\nside\nthree\n");
+    let s1 = fx.commit("s1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("f.txt", "one\nfeat\nthree\n");
+    let f2 = fx.commit("f2");
+    let merged = fx.try_git(&["merge", "-q", "--no-commit", "side"]);
+    assert!(!merged.status.success(), "the merge conflicts");
+    fx.write("f.txt", "one\nresolved\nthree\n");
+    let m = fx.commit("M: merge side");
+    assert_eq!(parents_of(fx, &m), vec![f2.clone(), s1.clone()]);
+    fx.write("c.txt", "c\n");
+    let f3 = fx.commit("f3");
+
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("t2.txt", "t2\n");
+    let t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+
+    SideShape {
+        f1,
+        s1,
+        f2,
+        m,
+        f3,
+        t2,
+    }
+}
+
+#[test]
+fn a_merge_whose_conflict_comes_back_the_same_carries_its_resolution() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let s = side_merge(&fx);
+    let repo = fx.repo();
+    let change = Change::Onto(oid(&s.t2));
+
+    // f2' and s1' fight over the same line the same way: the merge's
+    // resolution answers it, so nothing holds.
+    let held = conflict(&repo, oid(&s.f1), oid(&s.f3), &change).expect("answered");
+    assert_eq!(held, None, "the resolution carries");
+
+    let rewritten =
+        plan(&repo, oid(&s.f1), oid(&s.f3), &change, NOW).expect("the merge is carried");
+    assert!(rewritten.dropped.is_empty(), "{:?}", rewritten.dropped);
+    assert!(rewritten.flattened.is_empty(), "{:?}", rewritten.flattened);
+    let mn = new_of(&rewritten.rewrites, &s.m);
+    assert_eq!(
+        parents_of(&fx, &mn),
+        vec![
+            new_of(&rewritten.rewrites, &s.f2),
+            new_of(&rewritten.rewrites, &s.s1)
+        ]
+    );
+    assert_eq!(blob(&fx, &mn, "f.txt"), "one\nresolved\nthree\n");
+    assert_eq!(files_of(&fx, &mn), ["a.txt", "f.txt", "main.txt", "t2.txt"]);
+    assert_eq!(parents_of(&fx, &rewritten.new_tip.to_string()), vec![mn]);
+}
+
+#[test]
+fn a_merge_whose_conflict_changed_holds_at_the_merge_with_the_fresh_region() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let s = side_merge(&fx);
+    // f2's tree with its side of the line changed, built on a detached
+    // commit so the range itself is untouched: what an absorb into f2 does.
+    fx.git(&["switch", "-q", "--detach", &s.f2]);
+    fx.write("f.txt", "one\nfeat, again\nthree\n");
+    let fixed = fx.commit("f2, again");
+    fx.git(&["switch", "-q", "feature"]);
+    let repo = fx.repo();
+    let change = Change::Tree {
+        tree: oid(&tree_of(&fx, &fixed)),
+        message: None,
+    };
+
+    // The merge's sides fight over the line as before, but f2's side is no
+    // longer what the merge resolved: it holds at the merge with the fresh
+    // region, the two sides as they stand now, and no tangle.
+    let held = conflict(&repo, oid(&s.f2), oid(&s.f3), &change)
+        .expect("answered")
+        .expect("holds");
+    assert_eq!(
+        held.at,
+        At::Commit {
+            id: s.m.clone(),
+            subject: "M: merge side".into(),
+        }
+    );
+    assert_eq!(held.paths, vec!["f.txt"]);
+    assert_eq!(held.of, 3, "f2, M, f3");
+    let first = chain(&repo, oid(&s.f2), oid(&s.f3), &change, &[]).expect("the chain runs");
+    assert!(first.tangled.is_none(), "{:?}", first.tangled);
+    let regions_now = regions(&repo, &first).expect("regions");
+    assert_eq!(regions_now.len(), 1, "{regions_now:?}");
+    let region = &regions_now[0];
+    assert_eq!((region.step, region.path.as_str()), (1, "f.txt"));
+    assert!(region.block.contains("feat, again\n"), "{}", region.block);
+    assert!(region.block.contains("side\n"), "{}", region.block);
+    assert!(!region.block.contains("resolved"), "{}", region.block);
+
+    // Resolve it; the stack lands with the merge kept as a merge.
+    let fix = Resolution {
+        step: 1,
+        path: "f.txt".into(),
+        block: region.block.clone(),
+        with: "feat and side, again\n".into(),
+    };
+    let resolved = chain(&repo, oid(&s.f2), oid(&s.f3), &change, &[fix]).expect("the chain runs");
+    assert!(resolved.tangled.is_none(), "{:?}", resolved.tangled);
+    assert!(regions(&repo, &resolved).expect("regions").is_empty());
+    let trees: HashMap<gix::ObjectId, gix::ObjectId> = resolved
+        .steps
+        .iter()
+        .map(|step| (oid(&step.old), step.tree))
+        .collect();
+    let landed = plan_with(&repo, oid(&s.f2), oid(&s.f3), &change, NOW, &trees).expect("lands");
+    let mn = new_of(&landed.rewrites, &s.m);
+    assert_eq!(
+        parents_of(&fx, &mn),
+        vec![new_of(&landed.rewrites, &s.f2), s.s1.clone()]
+    );
+    assert_eq!(
+        blob(&fx, &mn, "f.txt"),
+        "one\nfeat and side, again\nthree\n"
+    );
+}

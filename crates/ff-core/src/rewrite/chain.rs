@@ -175,15 +175,14 @@ pub fn chain(
         }
         let k = steps.len() + 1;
 
-        // What the step's parents give it: one parent's tree, or the
-        // re-merge of several — the fold `measure` runs, with this step's
-        // labels, so a region the fold leaves is this step's to resolve.
-        let (ours, mut paths) = remerged(repo, &sim, &parents, k, n, &subject)?;
-
         // This step's tree and the regions it left unresolved. The target
         // under a tree change takes its new tree directly (no merge); a
         // reword carries every commit's own tree; everything else lays the
-        // commit's own change over `ours`.
+        // commit's own change over what its mapped parents give it.
+        let mut paths: Vec<String> = Vec::new();
+        // What the step's mapped parents gave it, when a merge ran: the
+        // tree a block carried up from an earlier step is checked against.
+        let mut fold: Option<gix::ObjectId> = None;
         let merged_tree = match change {
             // The caller folded something into the target and handed the
             // result over. It can already carry marks — an absorb whose
@@ -194,15 +193,12 @@ pub fn chain(
                 paths = marked_paths(repo, tree_of(repo, id)?, *tree)?;
                 *tree
             }
-            Change::Message(_) => {
-                paths.clear();
-                tree_of(repo, id)?
-            }
+            Change::Message(_) => tree_of(repo, id)?,
             Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
-                let base = crate::measure(repo, id)?.tree;
-                let their = their_of(repo, change, id, base)?;
-                let (tree, own) = merged(repo, base, ours, their, REBASING, k, n, &subject)?;
-                paths.extend(own);
+                let step = step_tree(repo, &sim, id, &parents, change, k, n, &subject)?;
+                paths.extend(step.paths);
+                fold = Some(step.fold);
+                let tree = step.tree;
                 // A move's target above the bottom takes the moved paths
                 // from the fold, the way the replay does. The fold can
                 // carry marks of its own — a conflicted fold is handed in
@@ -245,7 +241,7 @@ pub fn chain(
                 continue;
             };
             let (found, tangled) = blocks(&blob);
-            if tangled || drifted(repo, ours, path, idx, &found)? {
+            if tangled || drifted(repo, fold.unwrap_or(merged_tree), path, idx, &found)? {
                 first_tangled = Some(path);
             }
         }
@@ -373,11 +369,81 @@ fn simulate(
     Ok(sim.write_object(&commit).map_err(Error::repo)?.detach())
 }
 
+/// One replayed step's tree, for anything but a reword or a decided target.
+pub(super) struct StepTree {
+    /// The step's tree: its own change laid over what its mapped parents
+    /// give it, regions it left carrying this step's labels.
+    pub(super) tree: gix::ObjectId,
+    /// Paths the step left unresolved regions in, sorted and deduped.
+    pub(super) paths: Vec<String>,
+    /// What the mapped parents gave it, before its own change: the fold of
+    /// their trees, markers and all.
+    pub(super) fold: gix::ObjectId,
+}
+
+/// A commit replayed onto its mapped parents: the tree its own change makes
+/// over what they give it, and the regions left unresolved. This is the one
+/// computation the replay and the chain share, so what the replay refuses
+/// on is exactly what the chain holds on.
+///
+/// The commit's own change is what it did beyond its parents: its tree
+/// against the fold of their trees, `measure`'s rule. Here the fold keeps
+/// its markers, made with this step's labels, and the mapped parents are
+/// folded the same way. A merge that resolved a conflict therefore carries
+/// the resolution as a change from the marked block to the fix, and when
+/// the mapped parents conflict in the same region the same way, the block
+/// is the same text and the fix lands over it clean. A region the old fold
+/// left and the new one did not — one side of the merge changed beneath it
+/// — meets the resolution as a conflict, since what it resolved is gone.
+///
+/// A region both folds left that the resolution does not land over is a
+/// conflict that changed since the merge resolved it. The three-way merge
+/// would nest the fresh block inside a second one, a tangle no resolution
+/// can be aimed at, so the path stands as the new fold wrote it: the two
+/// sides as they are now, this step's to resolve again, the old resolution
+/// left in the merge's own commit to read.
+///
+/// Ancestry runs on `ancestry`, which is the chain's simulated graph or the
+/// repository itself; trees are read and written through `repo`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn step_tree(
+    repo: &gix::Repository,
+    ancestry: &gix::Repository,
+    id: gix::ObjectId,
+    parents: &[gix::ObjectId],
+    change: &Change,
+    k: usize,
+    n: usize,
+    subject: &str,
+) -> Result<StepTree> {
+    let (fold, left) = remerged(repo, ancestry, parents, k, n, subject)?;
+    let (base, _) = remerged(repo, repo, &parents_of(repo, id)?, k, n, subject)?;
+    let their = their_of(repo, change, id, base)?;
+    let (mut tree, own) = merged(repo, base, fold, their, REBASING, k, n, subject)?;
+    let again: Vec<String> = own
+        .iter()
+        .filter(|path| left.contains(path))
+        .cloned()
+        .collect();
+    if !again.is_empty() {
+        tree = filtered(repo, tree, fold, &again)?;
+    }
+    let mut paths = own;
+    for path in left {
+        if !paths.contains(&path) && carries_markers(repo, tree, &path)? {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(StepTree { tree, paths, fold })
+}
+
 /// What a step's parents give it, and the paths the fold left marked. One
 /// parent: its tree, no merge. Several: the auto-merge of their trees, base
 /// by base against the first, with the step's own labels on any region it
-/// leaves — the same fold the replay refuses on and `measure` falls back
-/// on, carried here instead. No base for some pair: the first parent's tree
+/// leaves — the same fold `measure` runs and falls back on, carried here
+/// with its markers instead. No base for some pair: the first parent's tree
 /// stands in. A conflicting pair stops the fold, as the measure's does.
 /// Ancestry runs on `sim`; trees are read and written through `repo`.
 fn remerged(
